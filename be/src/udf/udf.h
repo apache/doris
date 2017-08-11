@@ -1,0 +1,738 @@
+// Modifications copyright (C) 2017, Baidu.com, Inc.
+// Copyright 2017 The Apache Software Foundation
+
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#ifndef BDG_PALO_BE_UDF_UDF_H
+#define BDG_PALO_BE_UDF_UDF_H
+
+#include <boost/cstdint.hpp>
+#include <string.h>
+
+// This is the only Palo header required to develop UDFs and UDAs. This header
+// contains the types that need to be used and the FunctionContext object. The context
+// object serves as the interface object between the UDF/UDA and the palo process.
+namespace palo {
+class FunctionContextImpl;
+}
+
+namespace palo_udf {
+
+// All input and output values will be one of the structs below. The struct is a simple
+// object containing a boolean to store if the value is NULL and the value itself. The
+// value is unspecified if the NULL boolean is set.
+struct AnyVal;
+struct BooleanVal;
+struct TinyIntVal;
+struct SmallIntVal;
+struct IntVal;
+struct BigIntVal;
+struct StringVal;
+struct DateTimeVal;
+struct DecimalVal;
+
+// The FunctionContext is passed to every UDF/UDA and is the interface for the UDF to the
+// rest of the system. It contains APIs to examine the system state, report errors
+// and manage memory.
+class FunctionContext {
+public:
+    enum PaloVersion {
+        V2_0,
+    };
+
+    enum Type {
+        INVALID_TYPE = 0,
+        TYPE_NULL,
+        TYPE_BOOLEAN,
+        TYPE_TINYINT,
+        TYPE_SMALLINT,
+        TYPE_INT,
+        TYPE_BIGINT,
+        TYPE_LARGEINT,
+        TYPE_FLOAT,
+        TYPE_DOUBLE,
+        TYPE_DECIMAL,
+        TYPE_DATE,
+        TYPE_DATETIME,
+        TYPE_CHAR,
+        TYPE_VARCHAR,
+        TYPE_HLL,
+        TYPE_STRING,
+        TYPE_FIXED_BUFFER,
+    };
+
+    struct TypeDesc {
+        Type type;
+
+        /// Only valid if type == TYPE_DECIMAL
+        int precision;
+        int scale;
+
+        /// Only valid if type == TYPE_FIXED_BUFFER || type == TYPE_VARCHAR
+        int len;
+    };
+
+    struct UniqueId {
+        int64_t hi;
+        int64_t lo;
+    };
+
+    enum FunctionStateScope {
+        /// Indicates that the function state for this FunctionContext's UDF is shared across
+        /// the plan fragment (a query is divided into multiple plan fragments, each of which
+        /// is responsible for a part of the query execution). Within the plan fragment, there
+        /// may be multiple instances of the UDF executing concurrently with multiple
+        /// FunctionContexts sharing this state, meaning that the state must be
+        /// thread-safe. The Prepare() function for the UDF may be called with this scope
+        /// concurrently on a single host if the UDF will be evaluated in multiple plan
+        /// fragments on that host. In general, read-only state that doesn't need to be
+        /// recomputed for every UDF call should be fragment-local.
+        /// TODO: not yet implemented
+        FRAGMENT_LOCAL,
+
+        /// Indicates that the function state is local to the execution thread. This state
+        /// does not need to be thread-safe. However, this state will be initialized (via the
+        /// Prepare() function) once for every execution thread, so fragment-local state
+        /// should be used when possible for better performance. In general, inexpensive
+        /// shared state that is written to by the UDF (e.g. scratch space) should be
+        /// thread-local.
+        THREAD_LOCAL,
+    };
+
+    // Returns the version of Palo that's currently running.
+    PaloVersion version() const;
+
+    // Returns the user that is running the query. Returns NULL if it is not
+    // available.
+    const char* user() const;
+
+    // Returns the query_id for the current query.
+    UniqueId query_id() const;
+
+    // Sets an error for this UDF. If this is called, this will trigger the
+    // query to fail.
+    void set_error(const char* error_msg);
+
+    // Adds a warning that is returned to the user. This can include things like
+    // overflow or other recoverable error conditions.
+    // Warnings are capped at a maximum number. Returns true if the warning was
+    // added and false if it was ignored due to the cap.
+    bool add_warning(const char* warning_msg);
+
+    // Returns true if there's been an error set.
+    bool has_error() const;
+
+    // Returns the current error message. Returns NULL if there is no error.
+    const char* error_msg() const;
+
+    // Allocates memory for UDAs. All UDA allocations should use this if possible instead of
+    // malloc/new. The UDA is responsible for calling Free() on all buffers returned
+    // by Allocate().
+    // If this Allocate causes the memory limit to be exceeded, the error will be set
+    // in this object causing the query to fail.
+    uint8_t* allocate(int byte_size);
+
+    // Reallocates 'ptr' to the new byte_size. If the currently underlying allocation
+    // is big enough, the original ptr will be returned. If the allocation needs to
+    // grow, a new allocation is made that is at least 'byte_size' and the contents
+    // of 'ptr' will be copied into it.
+    // This should be used for buffers that constantly get appended to.
+    uint8_t* reallocate(uint8_t* ptr, int byte_size);
+
+    // Frees a buffer returned from Allocate() or Reallocate()
+    void free(uint8_t* buffer);
+
+    // For allocations that cannot use the Allocate() API provided by this
+    // object, TrackAllocation()/Free() can be used to just keep count of the
+    // byte sizes. For each call to TrackAllocation(), the UDF/UDA must call
+    // the corresponding Free().
+    void track_allocation(int64_t byte_size);
+    void free(int64_t byte_size);
+
+    // TODO: Do we need to add arbitrary key/value metadata. This would be plumbed
+    // through the query. E.g. "select UDA(col, 'sample=true') from tbl".
+    // const char* GetMetadata(const char*) const;
+
+    // TODO: Add mechanism for UDAs to update stats similar to runtime profile counters
+
+    // TODO: Add mechanism to query for table/column stats
+
+    // Returns the underlying opaque implementation object. The UDF/UDA should not
+    // use this. This is used internally.
+    palo::FunctionContextImpl* impl() {
+        return _impl;
+    }
+
+    /// Methods for maintaining state across UDF/UDA function calls. SetFunctionState() can
+    /// be used to store a pointer that can then be retreived via GetFunctionState(). If
+    /// GetFunctionState() is called when no pointer is set, it will return
+    /// NULL. SetFunctionState() does not take ownership of 'ptr'; it is up to the UDF/UDA
+    /// to clean up any function state if necessary.
+    void set_function_state(FunctionStateScope scope, void* ptr);
+    void* get_function_state(FunctionStateScope scope) const;
+
+    // Returns the return type information of this function. For UDAs, this is the final
+    // return type of the UDA (e.g., the type returned by the finalize function).
+    const TypeDesc& get_return_type() const;
+
+    // Returns the intermediate type for UDAs, i.e., the one returned by
+    // update and merge functions. Returns INVALID_TYPE for UDFs.
+    const TypeDesc& get_intermediate_type() const;
+
+    // Returns the number of arguments to this function (not including the FunctionContext*
+    // argument).
+    int get_num_args() const;
+
+    // Returns the type information for the arg_idx-th argument (0-indexed, not including
+    // the FunctionContext* argument). Returns NULL if arg_idx is invalid.
+    const TypeDesc* get_arg_type(int arg_idx) const;
+
+    // Returns true if the arg_idx-th input argument (0 indexed, not including the
+    // FunctionContext* argument) is a constant (e.g. 5, "string", 1 + 1).
+    bool is_arg_constant(int arg_idx) const;
+
+    // Returns a pointer to the value of the arg_idx-th input argument (0 indexed, not
+    // including the FunctionContext* argument). Returns NULL if the argument is not
+    // constant. This function can be used to obtain user-specified constants in a UDF's
+    // Init() or Close() functions.
+    AnyVal* get_constant_arg(int arg_idx) const;
+
+    // Create a test FunctionContext object. The caller is responsible for calling delete
+    // on it. This context has additional debugging validation enabled.
+    static FunctionContext* create_test_context();
+
+    ~FunctionContext();
+
+private:
+    friend class palo::FunctionContextImpl;
+    FunctionContext();
+
+    // Disable copy ctor and assignment operator
+    FunctionContext(const FunctionContext& other);
+    FunctionContext& operator=(const FunctionContext& other);
+
+    palo::FunctionContextImpl* _impl; // Owned by this object.
+};
+
+//----------------------------------------------------------------------------
+//------------------------------- UDFs ---------------------------------------
+//----------------------------------------------------------------------------
+// The UDF function must implement this function prototype. This is not
+// a typedef as the actual UDF's signature varies from UDF to UDF.
+//    typedef <*Val> Evaluate(FunctionContext* context, <const Val& arg>);
+//
+// The UDF must return one of the *Val structs. The UDF must accept a pointer
+// to a FunctionContext object and then a const reference for each of the input arguments.
+// NULL input arguments will have NULL passed in.
+// Examples of valid Udf signatures are:
+//  1) DoubleVal Example1(FunctionContext* context);
+//  2) IntVal Example2(FunctionContext* context, const IntVal& a1, const DoubleVal& a2);
+//
+// UDFs can be variadic. The variable arguments must all come at the end and must be
+// the same type. A example signature is:
+//  StringVal Concat(FunctionContext* context, const StringVal& separator,
+//    int num_var_args, const StringVal* args);
+// In this case args[0] is the first variable argument and args[num_var_args - 1] is
+// the last.
+//
+// The UDF should not maintain any state across calls since there is no guarantee
+// on how the execution is multithreaded or distributed. Conceptually, the UDF
+// should only read the input arguments and return the result, using only the
+// FunctionContext as an external object.
+//
+// Memory Managment: the UDF can assume that memory from input arguments will have
+// the same lifetime as results for the UDF. In other words, the UDF can return
+// memory from input arguments without making copies. For example, a function like
+// substring will not need to allocate and copy the smaller string. For cases where
+// the UDF needs a buffer, it should use the StringValue(FunctionContext, len) c'tor.
+//
+// The UDF can optionally specify a Prepare function. The prepare function is called
+// once before any calls to the Udf to evaluate values. This is the appropriate time for
+// the Udf to validate versions and things like that.
+// If there is an error, this function should call FunctionContext::set_error()/
+// FunctionContext::add_warning().
+typedef void (*UdfPrepareFn)(FunctionContext* context);
+
+/// --- Prepare / Close Functions ---
+/// ---------------------------------
+/// The UDF can optionally include a prepare function, specified in the "CREATE FUNCTION"
+/// statement using "prepare_fn=<prepare function symbol>". The prepare function is called
+/// before any calls to the UDF to evaluate values. This is the appropriate time for the
+/// UDF to initialize any shared data structures, validate versions, etc. If there is an
+/// error, this function should call FunctionContext::SetError()/
+/// FunctionContext::AddWarning().
+//
+/// The prepare function is called multiple times with different FunctionStateScopes. It
+/// will be called once per fragment with 'scope' set to FRAGMENT_LOCAL, and once per
+/// execution thread with 'scope' set to THREAD_LOCAL.
+typedef void (*UdfPrepare)(FunctionContext* context,
+                           FunctionContext::FunctionStateScope scope);
+
+/// The UDF can also optionally include a close function, specified in the "CREATE
+/// FUNCTION" statement using "close_fn=<close function symbol>". The close function is
+/// called after all calls to the UDF have completed. This is the appropriate time for the
+/// UDF to deallocate any shared data structures that are not needed to maintain the
+/// results. If there is an error, this function should call FunctionContext::SetError()/
+/// FunctionContext::AddWarning().
+//
+/// The close function is called multiple times with different FunctionStateScopes. It
+/// will be called once per fragment with 'scope' set to FRAGMENT_LOCAL, and once per
+/// execution thread with 'scope' set to THREAD_LOCAL.
+typedef void (*UdfClose)(FunctionContext* context,
+                         FunctionContext::FunctionStateScope scope);
+
+//----------------------------------------------------------------------------
+//------------------------------- UDAs ---------------------------------------
+//----------------------------------------------------------------------------
+// The UDA execution is broken up into a few steps. The general calling pattern
+// is one of these:
+//  1) Init(), Evaluate() (repeatedly), Serialize()
+//  2) Init(), Merge() (repeatedly), Serialize()
+//  3) Init(), Finalize()
+// The UDA is registered with three types: the result type, the input type and
+// the intermediate type.
+//
+// If the UDA needs a fixed byte width intermediate buffer, the type should be
+// TYPE_FIXED_BUFFER and Palo will allocate the buffer. If the UDA needs an unknown
+// sized buffer, it should use TYPE_STRING and allocate it from the FunctionContext
+// manually.
+// For UDAs that need a complex data structure as the intermediate state, the
+// intermediate type should be string and the UDA can cast the ptr to the structure
+// it is using.
+//
+// Memory Management: For allocations that are not returned to Palo, the UDA
+// should use the FunctionContext::Allocate()/Free() methods. For StringVal allocations
+// returned to Palo (e.g. UdaSerialize()), the UDA should allocate the result
+// via StringVal(FunctionContext*, int) ctor and Palo will automatically handle
+// freeing it.
+//
+// For clarity in documenting the UDA interface, the various types will be typedefed
+// here. The actual execution resolves all the types at runtime and none of these types
+// should actually be used.
+typedef AnyVal InputType;
+typedef AnyVal InputType2;
+typedef AnyVal ResultType;
+typedef AnyVal IntermediateType;
+
+// UdaInit is called once for each aggregate group before calls to any of the
+// other functions below.
+typedef void (*UdaInit)(FunctionContext* context, IntermediateType* result);
+
+// This is called for each input value. The UDA should update result based on the
+// input value. The update function can take any number of input arguments. Here
+// are some examples:
+typedef void (*UdaUpdate)(FunctionContext* context, const InputType& input,
+                          IntermediateType* result);
+typedef void (*UdaUpdate2)(FunctionContext* context, const InputType& input,
+                           const InputType2& input2, IntermediateType* result);
+
+// Merge an intermediate result 'src' into 'dst'.
+typedef void (*UdaMerge)(FunctionContext* context, const IntermediateType& src,
+                         IntermediateType* dst);
+
+// Serialize the intermediate type. The serialized data is then sent across the
+// wire. This is not called unless the intermediate type is String.
+// No additional functions will be called with this FunctionContext object and the
+// UDA should do final clean (e.g. Free()) here.
+typedef const IntermediateType(*UdaSerialize)(FunctionContext* context,
+        const IntermediateType& type);
+
+// Called once at the end to return the final value for this UDA.
+// No additional functions will be called with this FunctionContext object and the
+// UDA should do final clean (e.g. Free()) here.
+typedef ResultType(*UdaFinalize)(FunctionContext* context, const IntermediateType& v);
+
+//----------------------------------------------------------------------------
+//-------------Implementation of the *Val structs ----------------------------
+//----------------------------------------------------------------------------
+struct AnyVal {
+    bool is_null;
+    AnyVal() : is_null(false) {}
+    AnyVal(bool is_null) : is_null(is_null) {}
+};
+
+struct BooleanVal : public AnyVal {
+    bool val;
+
+    BooleanVal() : val(false) {}
+    BooleanVal(bool val) : val(val) {}
+
+    static BooleanVal null() {
+        BooleanVal result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const BooleanVal& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return val == other.val;
+    }
+    bool operator!=(const BooleanVal& other) const {
+        return !(*this == other);
+    }
+};
+
+struct TinyIntVal : public AnyVal {
+    int8_t val;
+
+    TinyIntVal() : val(0) {}
+    TinyIntVal(int8_t val) : val(val) { }
+
+    static TinyIntVal null() {
+        TinyIntVal result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const TinyIntVal& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return val == other.val;
+    }
+    bool operator!=(const TinyIntVal& other) const {
+        return !(*this == other);
+    }
+};
+
+struct SmallIntVal : public AnyVal {
+    int16_t val;
+
+    SmallIntVal() : val(0) { }
+    SmallIntVal(int16_t val) : val(val) { }
+
+    static SmallIntVal null() {
+        SmallIntVal result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const SmallIntVal& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return val == other.val;
+    }
+    bool operator!=(const SmallIntVal& other) const {
+        return !(*this == other);
+    }
+};
+
+struct IntVal : public AnyVal {
+    int32_t val;
+
+    IntVal() : val(0) { }
+    IntVal(int32_t val) : val(val) { }
+
+    static IntVal null() {
+        IntVal result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const IntVal& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return val == other.val;
+    }
+    bool operator!=(const IntVal& other) const {
+        return !(*this == other);
+    }
+};
+
+struct BigIntVal : public AnyVal {
+    int64_t val;
+
+    BigIntVal() : val(0) { }
+    BigIntVal(int64_t val) : val(val) { }
+
+    static BigIntVal null() {
+        BigIntVal result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const BigIntVal& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return val == other.val;
+    }
+    bool operator!=(const BigIntVal& other) const {
+        return !(*this == other);
+    }
+};
+
+struct FloatVal : public AnyVal {
+    float val;
+
+    FloatVal() : val(0.0) { }
+    FloatVal(float val) : val(val) { }
+
+    static FloatVal null() {
+        FloatVal result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const FloatVal& other) const {
+        return is_null == other.is_null && val == other.val;
+    }
+    bool operator!=(const FloatVal& other) const {
+        return !(*this == other);
+    }
+};
+
+struct DoubleVal : public AnyVal {
+    double val;
+
+    DoubleVal() : val(0.0) { }
+    DoubleVal(double val) : val(val) { }
+
+    static DoubleVal null() {
+        DoubleVal result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const DoubleVal& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return val == other.val;
+    }
+    bool operator!=(const DoubleVal& other) const {
+        return !(*this == other);
+    }
+};
+
+// This object has a compatible storage format with boost::ptime.
+struct DateTimeVal : public AnyVal {
+    // MySQL packet time
+    int64_t packed_time;
+    // Indicate which type of this value.
+    int type;
+
+    // NOTE: Type 3 is TIME_DATETIME in runtime/datetime_value.h
+    DateTimeVal() : packed_time(0), type(3) { }
+
+    static DateTimeVal null() {
+        DateTimeVal result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const DateTimeVal& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return packed_time == other.packed_time;
+    }
+    bool operator!=(const DateTimeVal& other) const {
+        return !(*this == other);
+    }
+};
+
+// Note: there is a difference between a NULL string (is_null == true) and an
+// empty string (len == 0).
+struct StringVal : public AnyVal {
+    static const int MAX_LENGTH = (1 << 30);
+
+    int len;
+    uint8_t* ptr;
+
+    // Construct a StringVal from ptr/len. Note: this does not make a copy of ptr
+    // so the buffer must exist as long as this StringVal does.
+    StringVal() : len(0), ptr(NULL) { }
+
+    // Construct a StringVal from ptr/len. Note: this does not make a copy of ptr
+    // so the buffer must exist as long as this StringVal does.
+    StringVal(uint8_t* ptr, int len) : len(len), ptr(ptr) {}
+
+    // Construct a StringVal from NULL-terminated c-string. Note: this does not make a
+    // copy of ptr so the underlying string must exist as long as this StringVal does.
+    StringVal(const char* ptr) : len(strlen(ptr)), ptr((uint8_t*)ptr) {}
+
+    static StringVal null() {
+        StringVal sv;
+        sv.is_null = true;
+        return sv;
+    }
+
+    // Creates a StringVal, allocating a new buffer with 'len'. This should
+    // be used to return StringVal objects in UDF/UDAs that need to allocate new
+    // string memory.
+    StringVal(FunctionContext* context, int len);
+
+    // Creates a StringVal, which memory is avaliable when this funciont context is used next time
+    static StringVal create_temp_string_val(FunctionContext* ctx, int len);
+
+    bool operator==(const StringVal& other) const {
+        if (is_null != other.is_null) {
+            return false;
+        }
+
+        if (is_null) {
+            return true;
+        }
+
+        if (len != other.len) {
+            return false;
+        }
+
+        return ptr == other.ptr || memcmp(ptr, other.ptr, len) == 0;
+    }
+
+    bool operator!=(const StringVal& other) const {
+        return !(*this == other);
+    }
+
+    /// Will create a new StringVal with the given dimension and copy the data from the
+    /// parameters. In case of an error will return a NULL string and set an error on the
+    /// function context.
+    static StringVal copy_from(FunctionContext* ctx, const uint8_t* buf, size_t len);
+
+    /// Append the passed buffer to this StringVal. Reallocate memory to fit the buffer. If
+    /// the memory allocation becomes too large, will set an error on FunctionContext and
+    /// return a NULL string.
+    void append(FunctionContext* ctx, const uint8_t* buf, size_t len);
+    void append(FunctionContext* ctx, const uint8_t* buf, size_t len,
+            const uint8_t* buf2,
+            size_t buf2_len);
+};
+
+struct DecimalVal : public AnyVal {
+    int8_t int_len;
+    int8_t frac_len;
+    bool sign;
+    int32_t buffer[9] = {0};
+
+    // Default value is zero
+    DecimalVal() : int_len(0), frac_len(0), sign(false) {
+        // Do nothing here
+    }
+
+    static DecimalVal null() {
+        DecimalVal result;
+        result.is_null = true;
+        return result;
+    }
+    
+    void set_to_zero() {
+        buffer[0] = 0;
+        int_len = 0;
+        frac_len = 0;
+        sign = 0;
+    }
+    
+    void set_to_abs_value() {
+        sign = false;
+    }
+
+    bool operator==(const DecimalVal& other) const; 
+
+    bool operator!=(const DecimalVal& other) const {
+        return !(*this == other);
+    }
+
+};
+
+struct LargeIntVal : public AnyVal {
+    __int128 val;
+
+    LargeIntVal() : val(0) { }
+
+    LargeIntVal(__int128 large_value) : val(large_value) { }
+
+    static LargeIntVal null() {
+        LargeIntVal result;
+        result.is_null = true;
+        return result;
+    }
+
+    bool operator==(const LargeIntVal& other) const {
+        if (is_null && other.is_null) {
+            return true;
+        }
+
+        if (is_null || other.is_null) {
+            return false;
+        }
+
+        return val == other.val;
+    }
+    bool operator!=(const LargeIntVal& other) const {
+        return !(*this == other);
+    }
+};
+
+typedef uint8_t* BufferVal;
+}
+
+using palo_udf::BooleanVal;
+using palo_udf::TinyIntVal;
+using palo_udf::SmallIntVal;
+using palo_udf::IntVal;
+using palo_udf::BigIntVal;
+using palo_udf::LargeIntVal;
+using palo_udf::FloatVal;
+using palo_udf::DoubleVal;
+using palo_udf::StringVal;
+using palo_udf::DecimalVal;
+using palo_udf::DateTimeVal;
+using palo_udf::FunctionContext;
+
+#endif

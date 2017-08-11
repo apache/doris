@@ -1,0 +1,48 @@
+// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
+
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// Define common messages shared by other proto files.
+
+package palo;
+
+message ColumnMessage {
+    required string name = 1;
+    required string type = 2;
+    required string aggregation = 3;
+    required uint32 length = 4;
+    required bool is_key = 5;
+    optional string default_value = 6;
+    optional string referenced_column = 7;
+    optional uint32 index_length = 8;
+    optional uint32 precision = 9 [default = 27];
+    optional uint32 frac = 10 [default = 9];
+    optional bool is_allow_null = 11 [default=false];
+    optional uint32 unique_id = 12;
+    repeated uint32 sub_column = 13;
+    optional bool is_root_column = 14 [default=false];
+    // is bloom filter column
+    optional bool is_bf_column = 15 [default=false];
+}
+
+enum CompressKind {
+    COMPRESS_NONE = 0;
+    COMPRESS_LZO = 1;
+    COMPRESS_LZ4 = 2;
+}
+

@@ -1,0 +1,76 @@
+// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
+
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#ifndef BDG_PALO_BE_SRC_AGENT_MOCK_MOCK_UTILS_H
+#define BDG_PALO_BE_SRC_AGENT_MOCK_MOCK_UTILS_H
+
+#include "gmock/gmock.h"
+#include "agent/utils.h"
+
+namespace palo {
+
+class MockAgentServerClient : public AgentServerClient {
+public:
+    MockAgentServerClient(const TBackend backend);
+    MOCK_METHOD2(
+            make_snapshot,
+            AgentStatus(
+                    const TSnapshotRequest& snapshot_request,
+                    TAgentResult* result));
+    MOCK_METHOD2(
+            release_snapshot,
+            AgentStatus(
+                    const std::string& snapshot_path,
+                    TAgentResult* result));
+};  // class AgentServerClient
+
+class MockMasterServerClient : public MasterServerClient {
+public:
+    MockMasterServerClient(
+            const TMasterInfo& master_info, FrontendServiceClientCache* client_cache);
+    MOCK_METHOD2(
+            finish_task,
+            AgentStatus(const TFinishTaskRequest request, TMasterResult* result));
+    MOCK_METHOD2(
+            report,
+            AgentStatus(const TReportRequest request, TMasterResult* result));
+};  // class AgentServerClient
+
+class MockAgentUtils : public AgentUtils {
+public:
+    MOCK_METHOD6(
+            rsync_from_remote, 
+            AgentStatus(
+                    const std::string& remote_host,
+                    const std::string& remote_file_path,
+                    const std::string& local_file_path,
+                    const std::vector<std::string>& exclude_file_patterns,
+                    const uint32_t transport_speed_limit_kbps,
+                    const uint32_t timeout_second));
+    MOCK_METHOD0(get_local_ip, char*());
+    MOCK_METHOD2(exec_cmd, bool(const std::string& command, std::string* errmsg));
+    MOCK_METHOD2(
+            write_json_to_file,
+            bool(
+                    const std::map<std::string, std::string>& info,
+                    const std::string& path));
+};
+
+}  // namespace palo
+#endif  // BDG_PALO_BE_SRC_AGENT_MOCK_MOCK_UTILS_H

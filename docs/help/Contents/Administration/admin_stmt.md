@@ -1,0 +1,212 @@
+# ALTER SYSTEM
+## description
+
+    该语句用于操作一个集群内的节点。（仅管理员使用！）
+    语法：
+        1) 增加节点
+            ALTER SYSTEM ADD BACKEND "host:heartbeat_port"[,"host:heartbeat_port"...];
+        2) 删除节点
+            ALTER SYSTEM DROP BACKEND "host:heartbeat_port"[,"host:heartbeat_port"...];
+        3) 节点下线
+            ALTER SYSTEM DECOMMISSION BACKEND "host:heartbeat_port"[,"host:heartbeat_port"...];
+        4) 增加Broker
+            ALTER SYSTEM ADD BROKER broker_name "host:port"[,"host:port"...];
+        5) 减少Broker
+            ALTER SYSTEM DROP BROKER broker_name "host:port"[,"host:port"...];
+        6) 删除所有Broker
+            ALTER SYSTEM DROP ALL BROKER broker_name
+        
+    说明：
+        1) host 可以使主机名或者ip地址
+        2) heartbeat_port 为该节点的心跳端口
+        3) 增加和删除节点为同步操作。这两种操作不考虑节点上已有的数据，节点直接从元数据中删除，请谨慎使用。
+        4) 节点下线操作用于安全下线节点。该操作为异步操作。如果成功，节点最终会从元数据中删除。如果失败，则不会完成下线。
+        5) 可以手动取消节点下线操作。详见 CANCEL ALTER SYSTEM
+        
+## example
+
+    1. 增加一个节点
+        ALTER SYSTEM ADD BACKEND "host:port";
+        
+    2. 删除两个节点
+        ALTER SYSTEM DROP BACKEND "host1:port", "host2:port";
+        
+    3. 下线两个节点
+        ALTER SYSTEM DECOMMISSION BACKEND "host1:port", "host2:port";
+
+    4. 增加两个Hdfs Broker
+        ALTER SYSTEM ADD BROKER hdfs "host1:port", "host2:port";
+        
+## keyword
+    ALTER,SYSTEM,BACKEND,BROKER
+
+# CANCEL ALTER SYSTEM
+## description
+
+    该语句用于撤销一个节点下线操作。（仅管理员使用！）
+    语法：
+        CANCEL ALTER SYSTEM DECOMMISSION BACKEND "host:heartbeat_port"[,"host:heartbeat_port"...];
+        
+## example
+
+    1. 取消两个节点的下线操作：
+        CANCEL ALTER SYSTEM DECOMMISSION BACKEND "host1:port", "host2:port";
+
+## keyword
+    CANCEL,ALTER,SYSTEM,BACKEND
+
+# CREATE CLUSTER
+## description
+
+    该语句用于新建逻辑集群 (cluster), 需要管理员权限。如果不使用多租户，直接创建一个名称为default_cluster的cluster。否则创建一个自定义名称的cluster。
+
+    语法
+
+        CREATE CLUSTER [IF NOT EXISTS] cluster_name
+
+        PROPERTIES ("key"="value", ...)
+        
+        IDENTIFIED BY 'password'
+        
+    1. PROPERTIES
+
+        指定逻辑集群的属性
+
+        PROPERTIES ("instance_num" = "3")
+
+        instance_num 逻辑集群节点树
+
+    2. identified by ‘password' 每个逻辑集群含有一个superuser，创建逻辑集群时必须指定其密码
+
+## example
+
+    1. 新建一个含有3个be节点逻辑集群 test_cluster, 并指定其superuser用户密码
+
+       CREATE CLUSTER test_cluster PROPERTIES("instance_num"="3") IDENTIFIED BY 'test';
+
+    2. 新建一个含有3个be节点逻辑集群 default_cluster(不使用多租户), 并指定其superuser用户密码
+
+       CREATE CLUSTER default_cluster PROPERTIES("instance_num"="3") IDENTIFIED BY 'test';
+  
+## keyword
+    CREATE,CLUSTER
+
+# ALTER CLUSTER
+## description
+
+    该语句用于更新逻辑集群。需要有管理员权限
+
+    语法
+
+        ALTER CLUSTER cluster_name PROPERTIES ("key"="value", ...);
+
+    1. 缩容，扩容 （根据集群现有的be数目，大则为扩容，小则为缩容), 扩容为同步操作，缩容为异步操作，通过backend的状态可以得知是否缩容完成
+
+        PROERTIES ("instance_num" = "3")
+
+        instance_num 逻辑集群节点树
+
+## example
+
+    1. 缩容，减少含有3个be的逻辑集群test_cluster的be数为2
+
+        ALTER CLUSTER test_cluster PROPERTIES ("instance_num"="2");
+
+    2. 扩容，增加含有3个be的逻辑集群test_cluster的be数为4
+
+        ALTER CLUSTER test_cluster PROPERTIES ("instance_num"="4");
+
+## keyword
+    ALTER,CLUSTER
+
+# DROP CLUSTER
+## description
+
+    该语句用于删除逻辑集群，成功删除逻辑集群需要首先删除集群内的db，需要管理员权限
+
+    语法
+
+    DROP CLUSTER [IF EXISTS] cluster_name 
+
+## example
+
+    删除逻辑集群 test_cluster
+
+    DROP CLUSTER test_cluster;
+
+## keyword
+    DROP,CLUSTER
+
+# LINK DATABASE
+## description
+
+    该语句用户链接一个逻辑集群的数据库到另外一个逻辑集群, 一个数据库只允许同时被链接一次，删除链接的数据库
+
+    并不会删除数据，并且被链接的数据库不能被删除, 需要管理员权限
+
+    语法
+
+    LINK DATABASE src_cluster_name.src_db_name des_cluster_name.des_db_name 
+
+## example
+
+    1. 链接test_clusterA中的test_db到test_clusterB,并命名为link_test_db
+    
+       LINK DATABASE test_clusterA.test_db test_clusterB.link_test_db;
+    
+    2. 删除链接的数据库link_test_db
+
+       DROP DATABASE link_test_db;
+
+## keyword
+    LINK,DATABASE
+
+# MIGRATE DATABASE
+## description
+
+    该语句用于迁移一个逻辑集群的数据库到另外一个逻辑集群，执行此操作前数据库必须已经处于链接状态, 需要管理
+
+    员权限
+
+    语法
+
+    MIGRATE DATABASE src_cluster_name.src_db_name des_cluster_name.des_db_name
+
+## example
+
+    1. 迁移test_clusterA中的test_db到test_clusterB
+    
+       MIGRATE DATABASE test_clusterA.test_db test_clusterB.link_test_db;
+
+## keyword
+    MIGRATE,DATABASE
+
+# SHOW MIGRATIONS
+## description
+
+    该语句用于查看数据库迁移的进度
+
+    语法
+
+    SHOW MIGRATIONS
+
+## keyword
+    SHOW,MIGRATIONS
+
+# ENTER 
+## description
+
+    该语句用于进入一个逻辑集群, 所有创建用户、创建数据库都需要在一个逻辑集群内执行，创建后并且隶属于这个逻
+
+    辑集群，需要管理员权限
+
+    ENTER cluster_name
+
+## example
+
+    1. 进入逻辑集群test_cluster
+
+       ENTER test_cluster;
+
+## keyword
+    ENTER

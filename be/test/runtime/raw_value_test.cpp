@@ -1,0 +1,60 @@
+// Modifications copyright (C) 2017, Baidu.com, Inc.
+// Copyright 2017 The Apache Software Foundation
+
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include <gtest/gtest.h>
+#include "runtime/raw_value.h"
+
+namespace palo {
+
+class RawValueTest : public testing::Test {
+};
+
+TEST_F(RawValueTest, Compare) {
+    int64_t v1;
+    int64_t v2;
+    v1 = -2128609280;
+    v2 = 9223372036854775807;
+    EXPECT_LT(RawValue::compare(&v1, &v2, TYPE_BIGINT), 0);
+    EXPECT_GT(RawValue::compare(&v2, &v1, TYPE_BIGINT), 0);
+
+    int32_t i1;
+    int32_t i2;
+    i1 = 2147483647;
+    i2 = -2147483640;
+    EXPECT_GT(RawValue::compare(&i1, &i2, TYPE_INT), 0);
+    EXPECT_LT(RawValue::compare(&i2, &i1, TYPE_INT), 0);
+
+    EXPECT_GT(RawValue::compare(&i1, &i2, TYPE_INT), 0);
+    EXPECT_LT(RawValue::compare(&i2, &i1, TYPE_INT), 0);
+}
+
+}
+
+int main(int argc, char** argv) {
+    std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
+    if (!palo::config::init(conffile.c_str(), false)) {
+        fprintf(stderr, "error read config file. \n");
+        return -1;
+    }
+    init_glog("be-test");
+    ::testing::InitGoogleTest(&argc, argv);
+
+    return RUN_ALL_TESTS();
+}

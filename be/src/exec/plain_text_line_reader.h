@@ -1,0 +1,101 @@
+// Modifications copyright (C) 2017, Baidu.com, Inc.
+// Copyright 2017 The Apache Software Foundation
+
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include "exec/line_reader.h"
+#include "util/runtime_profile.h"
+
+namespace palo {
+
+class FileReader;
+class Decompressor;
+class Status;
+
+class PlainTextLineReader : public LineReader {
+public:
+    PlainTextLineReader(RuntimeProfile* profile, FileReader* file_reader, 
+                        Decompressor* decompressor,
+                        size_t length, uint8_t line_delimiter);
+
+    virtual ~PlainTextLineReader();
+
+    virtual Status read_line(const uint8_t** ptr, size_t* size, bool* eof) override;
+
+    virtual void close() override;
+
+private:
+    bool update_eof();
+
+    inline size_t output_buf_read_remaining() {
+        return _output_buf_limit - _output_buf_pos;
+    }
+
+    inline size_t input_buf_read_remaining() {
+        return _input_buf_limit - _input_buf_pos;
+    }
+
+    inline bool done() {
+        return _file_eof && output_buf_read_remaining() == 0;
+    }
+
+    // find line delimiter from 'start' to 'start' + len,
+    // return line delimiter pos if found, otherwise return nullptr.
+    // TODO:
+    //  save to positions of field separator
+    uint8_t* update_field_pos_and_find_line_delimiter(const uint8_t* start, size_t len);
+
+    void extend_input_buf();
+    void extend_output_buf();
+
+private:
+    RuntimeProfile* _profile;
+    FileReader* _file_reader;
+    Decompressor* _decompressor;
+    size_t _min_length;
+    size_t _total_read_bytes;
+    uint8_t _line_delimiter;
+
+    // save the data read from file reader
+    uint8_t* _input_buf;
+    size_t _input_buf_size;
+    size_t _input_buf_pos;
+    size_t _input_buf_limit;
+
+    // save the data decompressed from decompressor.
+    uint8_t* _output_buf;
+    size_t _output_buf_size;
+    size_t _output_buf_pos;
+    size_t _output_buf_limit;
+
+    bool _file_eof;
+    bool _eof;
+    bool _stream_end;
+    size_t _more_input_bytes;
+    size_t _more_output_bytes;
+
+    // Profile counters
+    RuntimeProfile::Counter* _bytes_read_counter;
+    RuntimeProfile::Counter* _read_timer;
+    RuntimeProfile::Counter* _bytes_decompress_counter;
+    RuntimeProfile::Counter* _decompress_timer;
+};
+
+}

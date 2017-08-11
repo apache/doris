@@ -1,0 +1,65 @@
+// Modifications copyright (C) 2017, Baidu.com, Inc.
+// Copyright 2017 The Apache Software Foundation
+
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package com.baidu.palo.common;
+
+public final class FeMetaVersion {
+    // jira 1902
+    public static final int VERSION_8 = 8;
+    // jira 529
+    public static final int VERSION_9 = 9;
+    // jira 1772 1792 1834
+    public static final int VERSION_10 = 10;
+    // jira 1978
+    public static final int VERSION_11 = 11;
+    // jira 1981
+    public static final int VERSION_12 = 12;
+    // jira 2245 load priority
+    public static final int VERSION_15 = 15;
+    // jira 1635 dynamice fe
+    public static final int VERSION_16 = 16;
+    // jira 1988 backup and restore
+    public static final int VERSION_17 = 17;
+    // jira 2190 support null
+    public static final int VERSION_18 = 18;
+    // jira 2288 async delete
+    public static final int VERSION_19 = 19;
+    // jira 2399 global session variables persistence
+    public static final int VERSION_20 = 20;
+    // ca 2288
+    public static final int VERSION_21 = 21;
+    // for compatible
+    public static final int VERSION_22 = 22;
+
+    // LoadJob timestamp
+    public static final int VERSION_23 = 23;
+
+    // load job error hub
+    public static final int VERSION_24 = 24;
+
+    // Palo3.0 (general model/multi tenant)
+    public static final int VERSION_30 = 30;
+
+    // Palo3.1 image version
+    public static final int VERSION_31 = 31;
+
+    // Palo3.2
+    public static final int VERSION_32 = 32;
+}

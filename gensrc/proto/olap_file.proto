@@ -1,0 +1,113 @@
+// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
+
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// Define file format struct, like data header, index header.
+
+package palo;
+
+import "olap_common.proto";
+
+message ColumnPruning {
+    required bytes min = 1;
+    required bytes max = 2;
+    optional bool null_flag = 3;
+}
+
+message DeltaPruning {
+    repeated ColumnPruning column_pruning = 1;
+}
+
+// define OLAP FileVersion Message, Base, delta and cumulative delta 
+// are both instance of Version 
+// Base Version: (start_version == 0 && end_version > start_version) || [0, 0]
+// Cumulative Version: (start_version >= 1 && end_version > start_version)
+// Delta Version: start_version == end_version
+message FileVersionMessage {
+    required uint32 num_segments = 1 [default = 0];
+    required int32 start_version = 2;
+    required int32 end_version = 3;
+    required int64 version_hash = 4 [default = 0];
+    required int64 max_timestamp = 5 [default = 0];
+    required int64 index_size = 6 [default = 0];
+    required int64 data_size = 7 [default = 0];
+    optional int64 num_rows = 8 [default = 0];
+    required int64 creation_time = 9 [default = 0];
+    optional DeltaPruning delta_pruning = 10;
+}
+
+message SchemaChangeStatusMessage {
+    required int64 related_tablet_id = 1;
+    required int32 related_schema_hash = 2;
+    repeated FileVersionMessage versions_to_be_changed = 3;
+    required int32 schema_change_type = 4;
+}
+
+enum DataFileType {
+    OLAP_DATA_FILE = 0;
+    COLUMN_ORIENTED_FILE = 1;
+}
+
+enum KeysType {
+    DUP_KEYS = 0;
+    UNIQUE_KEYS = 1;
+    AGG_KEYS = 2;
+}
+
+message DeleteDataConditionMessage {
+    required int32 version = 1;
+    repeated string sub_conditions = 2;
+}
+
+message OLAPHeaderMessage {
+    required uint32 num_rows_per_data_block = 1;
+    repeated FileVersionMessage file_version = 2;
+    required int32 cumulative_layer_point = 3;
+    required uint32 num_short_key_fields = 4;
+    repeated ColumnMessage column = 5;
+    required int64 creation_time = 6;
+    repeated int32 selectivity = 7;
+    optional SchemaChangeStatusMessage schema_change_status = 8;
+    optional DataFileType data_file_type = 9 [default = OLAP_DATA_FILE];
+    optional uint32 next_column_unique_id = 10 [default = 0];
+    optional CompressKind compress_kind = 11 [default = COMPRESS_LZO];
+    optional uint32 segment_size = 12 [default = 4292870144];
+    repeated DeleteDataConditionMessage delete_data_conditions = 13;
+    // bloom filter false positive probability
+    optional double bf_fpp = 14;
+    optional KeysType keys_type = 15;
+}
+
+message OLAPIndexHeaderMessage {
+    required int32 start_version = 1;
+    required int32 end_version = 2;
+    required int64 cumulative_version_hash = 3;
+    required uint32 segment = 4;
+    required uint32 num_rows_per_block = 5;
+    optional bool null_supported = 6;
+    optional bool delete_flag = 7;
+}
+
+message OLAPDataHeaderMessage {
+    required uint32 segment = 2;
+}
+
+message OLAPRawDeltaHeaderMessage {
+    required int32 schema_hash = 2;
+}
+
