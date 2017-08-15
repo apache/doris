@@ -41,7 +41,7 @@ public class BaseTableRef extends TableRef {
         this.name = tableName;
         // Set implicit aliases if no explicit one was given.
         if (hasExplicitAlias()) return;
-        aliases_ = new String[] { name.toString(), table.getName() };
+        aliases_ = new String[] { name.toString(), tableName.getNoClusterString(), table.getName() };
     }
 
     protected BaseTableRef(BaseTableRef other) {

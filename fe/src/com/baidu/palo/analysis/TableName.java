@@ -88,6 +88,19 @@ public class TableName implements Writable {
         return db != null && !db.isEmpty() && !tbl.isEmpty();
     }
 
+    public String getNoClusterString() {
+        if (db == null) {
+            return tbl;
+        } else {
+            String dbName = ClusterNamespace.getDbNameFromFullName(db);
+            if (dbName == null) {
+                return db + "." + tbl;
+            } else {
+                return dbName + "." + tbl;
+            }
+        }
+    }
+
     @Override
     public String toString() {
         if (db == null) {

@@ -68,7 +68,7 @@ public class ShowDbStmt extends ShowStmt {
         }
         // Columns
         SelectList selectList = new SelectList();
-        ExprSubstitutionMap aliasMap = new ExprSubstitutionMap();
+        ExprSubstitutionMap aliasMap = new ExprSubstitutionMap(false);
         SelectListItem item = new SelectListItem(new SlotRef(TABLE_NAME, "SCHEMA_NAME"), DB_COL);
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, DB_COL), item.getExpr().clone(null));

@@ -40,7 +40,7 @@ private:
 
     int _db_index;
     int _table_index;
-    TGetDbsResult    _db_result;
+    TGetDbsResult _db_result;
     TListTableStatusResult _table_result;
     static SchemaScanner::ColumnDesc _s_tbls_columns[];
 };

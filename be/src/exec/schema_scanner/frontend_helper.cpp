@@ -215,6 +215,14 @@ Status FrontendHelper::show_varialbes(
     return Status::OK;
 }
 
+std::string FrontendHelper::extract_db_name(const std::string& full_name) {
+    auto found = full_name.find(':');
+    if (found == std::string::npos) {
+        return full_name;
+    }
+    found++;
+    return std::string(full_name.c_str() + found, full_name.size() - found);
 }
 
-/* vim: set ts=4 sw=4 sts=4 tw=100 */
+}
+

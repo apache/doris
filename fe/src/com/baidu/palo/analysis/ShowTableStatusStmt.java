@@ -109,7 +109,7 @@ public class ShowTableStatusStmt extends ShowStmt {
         analyze(analyzer);
         // Columns
         SelectList selectList = new SelectList();
-        ExprSubstitutionMap aliasMap = new ExprSubstitutionMap();
+        ExprSubstitutionMap aliasMap = new ExprSubstitutionMap(false);
         // Name
         SelectListItem item = new SelectListItem(new SlotRef(TABLE_NAME, "TABLE_NAME"), "Name");
         selectList.addItem(item);
