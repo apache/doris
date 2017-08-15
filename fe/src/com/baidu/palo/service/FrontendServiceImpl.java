@@ -117,12 +117,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 throw new TException("Pattern is in bad format " + params.getPattern());
             }
         }
-        for (String db : dbNames) {
+        for (String fullName : dbNames) {
+            final String db = ClusterNamespace.getDbNameFromFullName(fullName);
             if (matcher != null && !matcher.match(db)) {
                 continue;
             }
-            if (userPropertyMgr.checkAccess(params.user, db, AccessPrivilege.READ_ONLY)) {
-                dbs.add(db);
+            if (userPropertyMgr.checkAccess(params.user, fullName, AccessPrivilege.READ_ONLY)) {
+                dbs.add(fullName);
             }
         }
         result.setDbs(dbs);

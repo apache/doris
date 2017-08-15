@@ -40,11 +40,18 @@ import com.google.common.collect.Lists;
 public final class ExprSubstitutionMap {
     private final static Logger LOG = LoggerFactory.getLogger(ExprSubstitutionMap.class);
 
+    private boolean checkAnalyzed_ = true;
     private List<Expr> lhs_; // left-hand side
     private List<Expr> rhs_; // right-hand side
 
     public ExprSubstitutionMap() {
         this(Lists.<Expr>newArrayList(), Lists.<Expr>newArrayList());
+    }
+
+    // Only used to convert show statement to select statement
+    public ExprSubstitutionMap(boolean check_analyzed) {
+        this(Lists.<Expr>newArrayList(), Lists.<Expr>newArrayList());
+        this.checkAnalyzed_ = false;
     }
 
     public ExprSubstitutionMap(List<Expr> lhs, List<Expr> rhs) {
@@ -57,7 +64,8 @@ public final class ExprSubstitutionMap {
      * across query blocks. It is not required that the lhsExpr is analyzed.
      */
     public void put(Expr lhsExpr, Expr rhsExpr) {
-        Preconditions.checkState(rhsExpr.isAnalyzed(), "Rhs expr must be analyzed.");
+        Preconditions.checkState(!checkAnalyzed_ || rhsExpr.isAnalyzed(),
+                "Rhs expr must be analyzed.");
         lhs_.add(lhsExpr);
         rhs_.add(rhsExpr);
     }
@@ -166,7 +174,7 @@ public final class ExprSubstitutionMap {
                     // Preconditions.checkState(false);
                 }
             }
-            Preconditions.checkState(rhs_.get(i).isAnalyzed());
+            Preconditions.checkState(!checkAnalyzed_ || rhs_.get(i).isAnalyzed());
         }
     }
 

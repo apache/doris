@@ -56,6 +56,8 @@ public:
             const int32_t port,
             const TShowVariableRequest &var_params,
             TShowVariableResult *var_result);
+
+    static std::string extract_db_name(const std::string& full_name);
 private:
     static ExecEnv* _s_exec_env;
 };
@@ -64,4 +66,3 @@ private:
 
 #endif
 
-/* vim: set ts=4 sw=4 sts=4 tw=100 : */

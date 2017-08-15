@@ -211,6 +211,9 @@ void SchemaScanNode::copy_one_row() {
     memset(_dest_tuple, 0, _dest_tuple_desc->num_null_bytes());
 
     for (int i = 0; i < _slot_num; ++i) {
+        if (!_dest_tuple_desc->slots()[i]->is_materialized()) {
+            continue;
+        }
         int j = _index_map[i];
 
         if (_src_tuple->is_null(_src_tuple_desc->slots()[j]->null_indicator_offset())) {

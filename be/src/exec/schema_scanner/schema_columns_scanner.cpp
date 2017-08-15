@@ -146,9 +146,10 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     {
         void *slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        str_slot->ptr = (char *)pool->allocate(_db_result.dbs[_db_index - 1].length());
-        str_slot->len = _db_result.dbs[_db_index - 1].length();
-        memcpy(str_slot->ptr, _db_result.dbs[_db_index - 1].c_str(), str_slot->len);
+        std::string db_name = FrontendHelper::extract_db_name(_db_result.dbs[_db_index - 1]);
+        str_slot->ptr = (char *)pool->allocate(db_name.size());
+        str_slot->len = db_name.size();
+        memcpy(str_slot->ptr, db_name.c_str(), str_slot->len);
     }
     // table
     {

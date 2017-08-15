@@ -98,7 +98,7 @@ public class ShowTableStmt extends ShowStmt {
         analyze(analyzer);
         // Columns
         SelectList selectList = new SelectList();
-        ExprSubstitutionMap aliasMap = new ExprSubstitutionMap();
+        ExprSubstitutionMap aliasMap = new ExprSubstitutionMap(false);
         SelectListItem item = new SelectListItem(new SlotRef(TABLE_NAME, "TABLE_NAME"),
                 NAME_COL_PREFIX + ClusterNamespace.getDbNameFromFullName(db));
         selectList.addItem(item);

@@ -245,6 +245,7 @@ Status OlapRewriteNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK;
     }
+    _child_row_batch.reset();
     // RETURN_IF_ERROR(child(0)->close(state));
     Expr::close(_columns, state);
     return ExecNode::close(state);
