@@ -15,8 +15,8 @@ Palo 当前只能运行在 Linux 系统上，无论是编译还是部署，都�
 ## 2. 编译
 
 默认提供了 Ubuntu 16.04, Centos 7.1 环境的预编译版本，可以直接下载使用。
-下载链接：
-[palo-0.8.0_centos7.1](http://palo-opensource.gz.bcebos.com/palo-0.8.0_centos7.1_gcc485.tar.gz?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2017-08-11T11%3A51%3A19Z%2F-1%2Fhost%2Fefac3d8c53b4506e196121e4ed3f39edbd7e9bb452d39153da7e76316ad53b5b), [palo-0.8.0_ubuntu16.04](http://palo-opensource.gz.bcebos.com/palo-0.8.0_ubuntu16.04_gcc540.tar.gz?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2017-08-11T12%3A18%3A14Z%2F-1%2Fhost%2F2200814cc11ce5d2c2f93846a0ebb633352b79245f85e071b9b3cf12bfa40ebf)
+下载链接（20170816 update）：
+[palo-0.8.0_centos7.1](http://palo-opensource.gz.bcebos.com/palo-0.8.0_20170816_centos7.1_gcc485.tar.gz?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2017-08-16T01%3A27%3A35Z%2F-1%2Fhost%2Ff0ab7d119179f05f1c4c98a184430f4cb2e8b2d2d8e7ea681e815d6a0710781c), [palo-0.8.0_ubuntu16.04](http://palo-opensource.gz.bcebos.com/palo-0.8.0_20170816_ubuntu16.04_gcc540.tar.gz?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2017-08-16T01%3A27%3A47Z%2F-1%2Fhost%2F51bcab1d7a42cbdf3e4df502dada838919bdc7ef6afa7397928425ddc9a724d8)
 
 如果预编译版本有问题，或者是其它系统，建议按照下面步骤进行源码编译。
 
