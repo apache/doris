@@ -40,7 +40,7 @@ public class MysqlServer {
     private ConnectScheduler scheduler = null;
     // used to accept connect request from client
     private Thread listener;
-    private boolean running;
+    private volatile boolean running;
 
     public MysqlServer(int port, ConnectScheduler scheduler) {
         this.port = port;
