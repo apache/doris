@@ -288,8 +288,12 @@ Status DataSpliter::close(RuntimeState* state, Status close_status) {
                     is_ok = false;
                     err_status = status;
                 }
-                iter.second->reset();
+                iter.second->clear();
             }
+        }
+    } else {
+        for (const auto& iter : _batch_map) {
+            iter.second->clear();
         }
     }
     // finish sink
