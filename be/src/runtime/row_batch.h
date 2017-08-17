@@ -99,6 +99,9 @@ public:
     //  - buffer handles from the io mgr
     virtual ~RowBatch();
 
+    // used to c
+    void clear();
+
     static const int INVALID_ROW_INDEX = -1;
 
     // Add n rows of tuple pointers after the last committed row and return its index.
@@ -486,6 +489,7 @@ private:
     std::string _compression_scratch;
 
     int _scanner_id;
+    bool _cleared = false;
 };
 
 /// Macros for iterating through '_row_batch', starting at '_start_row_idx'.
