@@ -350,7 +350,7 @@ Status CsvScanNode::close(RuntimeState* state) {
 
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
-    if (memory_used_counter() != nullptr) {
+    if (memory_used_counter() != nullptr &&  _tuple_pool.get() != nullptr) {
         COUNTER_UPDATE(memory_used_counter(), _tuple_pool->peak_allocated_bytes());
     }
 
