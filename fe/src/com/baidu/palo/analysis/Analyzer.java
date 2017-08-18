@@ -24,7 +24,6 @@ import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.Database;
-import com.baidu.palo.catalog.InfoSchemaDb;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.catalog.Type;
@@ -526,10 +525,6 @@ public class Analyzer {
         if (tblName == null) {
             d = resolveColumnRef(colName);
         } else {
-            if (InfoSchemaDb.isInfoSchemaDb(tblName.getDb()) ||
-                    (tblName.getDb() == null && InfoSchemaDb.isInfoSchemaDb(getDefaultDb()))) {
-                tblName = new TableName(tblName.getDb(), tblName.getTbl().toLowerCase());
-            }
             d = resolveColumnRef(tblName, colName);
         }
         if (d == null && hasAncestors() && isSubquery) {
