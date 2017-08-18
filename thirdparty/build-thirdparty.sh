@@ -50,6 +50,7 @@ fi
 
 mkdir -p $TP_DIR/src
 mkdir -p $TP_DIR/installed
+export LD_LIBRARY_PATH=$TP_DIR/installed/lib:$LD_LIBRARY_PATH
 
 # Download thirdparties.
 # If you already run *download-thirdparty.sh*, this is a double check
