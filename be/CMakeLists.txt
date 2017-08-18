@@ -281,6 +281,10 @@ elseif(${LINUX_VERSION_LOWER} MATCHES "centos")
     set(CLANG_BASE_FLAGS
         "-I/usr/include/c++/4.8.5/"
         "-I/usr/include/c++/4.8.5/x86_64-redhat-linux/")
+elseif(${LINUX_VERSION_LOWER} MATCHES "fedora")
+    set(CLANG_BASE_FLAGS
+        "-I/usr/include/c++/7/"
+        "-I/usr/include/c++/7/x86_64-redhat-linux/")
 else()
     message(FATAL_ERROR "Currently not support system ${LINUX_VERSION}")
 endif()
@@ -391,7 +395,7 @@ if (${MAKE_TEST} STREQUAL "ON")
     SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage -lgcov")
     add_definitions(-DBE_TEST)
 endif ()
-    
+
 add_subdirectory(${SRC_DIR}/codegen)
 add_subdirectory(${SRC_DIR}/common)
 add_subdirectory(${SRC_DIR}/util)
