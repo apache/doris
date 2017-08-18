@@ -49,9 +49,9 @@ public final class ExprSubstitutionMap {
     }
 
     // Only used to convert show statement to select statement
-    public ExprSubstitutionMap(boolean check_analyzed) {
+    public ExprSubstitutionMap(boolean checkAnalyzed) {
         this(Lists.<Expr>newArrayList(), Lists.<Expr>newArrayList());
-        this.checkAnalyzed_ = false;
+        this.checkAnalyzed_ = checkAnalyzed;
     }
 
     public ExprSubstitutionMap(List<Expr> lhs, List<Expr> rhs) {
