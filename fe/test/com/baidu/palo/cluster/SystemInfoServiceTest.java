@@ -19,20 +19,13 @@
 
 package com.baidu.palo.cluster;
 
-import com.baidu.palo.analysis.AccessTestUtil;
-import com.baidu.palo.analysis.AddBackendClause;
-import com.baidu.palo.analysis.Analyzer;
-import com.baidu.palo.analysis.DropBackendClause;
-import com.baidu.palo.catalog.Catalog;
-import com.baidu.palo.catalog.Database;
-import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.DdlException;
-import com.baidu.palo.common.FeConstants;
-import com.baidu.palo.persist.EditLog;
-import com.baidu.palo.system.SystemInfoService;
-import com.baidu.palo.system.Backend;
-
-import com.google.common.collect.Lists;
+import java.io.BufferedInputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 
 import org.easymock.EasyMock;
 import org.junit.Assert;
@@ -44,13 +37,19 @@ import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
-import java.io.BufferedInputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
+import com.baidu.palo.analysis.AccessTestUtil;
+import com.baidu.palo.analysis.AddBackendClause;
+import com.baidu.palo.analysis.Analyzer;
+import com.baidu.palo.analysis.DropBackendClause;
+import com.baidu.palo.catalog.Catalog;
+import com.baidu.palo.catalog.Database;
+import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.DdlException;
+import com.baidu.palo.common.FeConstants;
+import com.baidu.palo.persist.EditLog;
+import com.baidu.palo.system.Backend;
+import com.baidu.palo.system.SystemInfoService;
+import com.google.common.collect.Lists;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("org.apache.log4j.*")
@@ -249,7 +248,7 @@ public class SystemInfoServiceTest {
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
         SystemInfoService systemInfoService = Catalog.getCurrentSystemInfo();
         Backend back1 = new Backend(1L, "localhost", 3);
-        back1.updateOnce(4, 6);
+        back1.updateOnce(4, 6, 8);
         systemInfoService.replayAddBackend(back1);
         long checksum1 = systemInfoService.saveBackends(dos, 0);
         catalog.clear();

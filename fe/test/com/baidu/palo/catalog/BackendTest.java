@@ -20,10 +20,15 @@
 
 package com.baidu.palo.catalog;
 
-import com.baidu.palo.analysis.AccessTestUtil;
-import com.baidu.palo.system.Backend;
-import com.baidu.palo.common.FeConstants;
-import com.baidu.palo.thrift.TDisk;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
 
 import org.easymock.EasyMock;
 import org.junit.Assert;
@@ -35,15 +40,10 @@ import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
+import com.baidu.palo.analysis.AccessTestUtil;
+import com.baidu.palo.common.FeConstants;
+import com.baidu.palo.system.Backend;
+import com.baidu.palo.thrift.TDisk;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("org.apache.log4j.*")
@@ -55,6 +55,7 @@ public class BackendTest {
     private int heartbeatPort = 21234;
     private int bePort = 21235;
     private int httpPort = 21237;
+    private int beRpcPort = 21238;
 
     private Catalog catalog;
 
@@ -67,7 +68,7 @@ public class BackendTest {
         PowerMock.replay(Catalog.class);
 
         backend = new Backend(backendId, host, heartbeatPort);
-        backend.updateOnce(bePort, httpPort);
+        backend.updateOnce(bePort, httpPort, beRpcPort);
     }
 
     @Test
@@ -80,7 +81,7 @@ public class BackendTest {
         // set new port
         int newBePort = 31235;
         int newHttpPort = 31237;
-        backend.updateOnce(newBePort, newHttpPort);
+        backend.updateOnce(newBePort, newHttpPort, beRpcPort);
         Assert.assertEquals(newBePort, backend.getBePort());
 
         // check alive
@@ -125,12 +126,12 @@ public class BackendTest {
         
         for (int count = 0; count < 100; ++count) {
             Backend backend = new Backend(count, "10.120.22.32" + count, 6000 + count);
-            backend.updateOnce(7000 + count, 9000 + count);
+            backend.updateOnce(7000 + count, 9000 + count, beRpcPort);
             list1.add(backend);
         }
         for (int count = 100; count < 200; count++) {
             Backend backend = new Backend(count, "10.120.22.32" + count, 6000 + count);
-            backend.updateOnce(7000 + count, 9000 + count);
+            backend.updateOnce(7000 + count, 9000 + count, beRpcPort);
             list1.add(backend);
         }
         for (Backend backend : list1) {
@@ -164,21 +165,21 @@ public class BackendTest {
         Assert.assertTrue(list1.get(1).equals(list1.get(1)));
         
         Backend back1 = new Backend(1, "a", 1);
-        back1.updateOnce(1, 1);
+        back1.updateOnce(1, 1, 1);
         Backend back2 = new Backend(2, "a", 1);
-        back2.updateOnce(1, 1);
+        back2.updateOnce(1, 1, 1);
         Assert.assertFalse(back1.equals(back2));
         
         back1 = new Backend(1, "a", 1);
-        back1.updateOnce(1, 1);
+        back1.updateOnce(1, 1, 1);
         back2 = new Backend(1, "b", 1);
-        back2.updateOnce(1, 1);
+        back2.updateOnce(1, 1, 1);
         Assert.assertFalse(back1.equals(back2));
         
         back1 = new Backend(1, "a", 1);
-        back1.updateOnce(1, 1);
+        back1.updateOnce(1, 1, 1);
         back2 = new Backend(1, "a", 2);
-        back2.updateOnce(1, 1);
+        back2.updateOnce(1, 1, 1);
         Assert.assertFalse(back1.equals(back2));
         
         Assert.assertEquals("Backend [id=1, host=a, heartbeatPort=1, alive=true]", back1.toString());

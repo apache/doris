@@ -19,6 +19,22 @@
 
 package com.baidu.palo.load;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.concurrent.TimeUnit;
+
+import org.easymock.EasyMock;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.powermock.api.easymock.PowerMock;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.modules.junit4.PowerMockRunner;
+
 import com.baidu.palo.analysis.CancelLoadStmt;
 import com.baidu.palo.analysis.ColumnSeparator;
 import com.baidu.palo.analysis.DataDescription;
@@ -34,8 +50,6 @@ import com.baidu.palo.catalog.Partition;
 import com.baidu.palo.catalog.Replica;
 import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.catalog.UserPropertyMgr;
-import com.baidu.palo.system.Backend;
-import com.baidu.palo.system.SystemInfoService;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.MarkedCountDownLatch;
@@ -46,25 +60,9 @@ import com.baidu.palo.load.LoadJob.EtlJobType;
 import com.baidu.palo.load.LoadJob.JobState;
 import com.baidu.palo.persist.EditLog;
 import com.baidu.palo.qe.ConnectContext;
-
+import com.baidu.palo.system.Backend;
+import com.baidu.palo.system.SystemInfoService;
 import com.google.common.collect.Lists;
-
-import org.easymock.EasyMock;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
-
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 @RunWith(PowerMockRunner.class)
 @PrepareForTest({ Load.class, Catalog.class, ConnectContext.class, SystemInfoService.class })
@@ -154,7 +152,7 @@ public class LoadTest {
                 Lists.newArrayList(UnitTestUtil.PARTITION_NAME), filePathes, null, new ColumnSeparator(columnSeparator),
                 false, null);
         dataDescriptions.add(dataDescription);
-        LoadStmt stmt = new LoadStmt(labelName, dataDescriptions, null, null);
+        LoadStmt stmt = new LoadStmt(labelName, dataDescriptions, null, null, null);
         load.addLoadJob(stmt, EtlJobType.HADOOP, 0);
     }
 

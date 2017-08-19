@@ -20,16 +20,16 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import java.util.List;
 
-import com.google.common.collect.Lists;
-import org.junit.Assert;
 import org.easymock.EasyMock;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.util.List;
+import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.InternalException;
+import com.google.common.collect.Lists;
 
 public class LoadStmtTest {
     private DataDescription desc;
@@ -51,7 +51,7 @@ public class LoadStmtTest {
         EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(desc);
 
-        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptions, null, null);
+        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptions, null, null, null);
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:testDb", stmt.getLabel().getDbName());
         Assert.assertEquals(dataDescriptions, stmt.getDataDescriptions());
@@ -67,7 +67,7 @@ public class LoadStmtTest {
         EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(desc);
 
-        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptions, null, null);
+        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptions, null, null, null);
         stmt.analyze(AccessTestUtil.fetchBlockAnalyzer());
 
         Assert.fail("No exception throws.");
@@ -79,7 +79,7 @@ public class LoadStmtTest {
         EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(desc);
 
-        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), null, null, null);
+        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), null, null, null, null);
         stmt.analyze(analyzer);
 
         Assert.fail("No exception throws.");

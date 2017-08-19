@@ -20,25 +20,24 @@
 
 package com.baidu.palo.common.proc;
 
-import com.baidu.palo.catalog.Catalog;
-import com.baidu.palo.system.Backend;
-import com.baidu.palo.system.SystemInfoService;
-import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.persist.EditLog;
-
-import com.google.common.collect.Lists;
-
 import org.easymock.EasyMock;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import org.junit.Assert;
 import org.junit.runner.RunWith;
 import org.powermock.api.easymock.PowerMock;
 import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
+
+import com.baidu.palo.catalog.Catalog;
+import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.persist.EditLog;
+import com.baidu.palo.system.Backend;
+import com.baidu.palo.system.SystemInfoService;
+import com.google.common.collect.Lists;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("org.apache.log4j.*")
@@ -75,9 +74,9 @@ public class BackendsProcDirTest {
         PowerMock.replay(Catalog.class);
 
         b1 = new Backend(1000, "host1", 10000);
-        b1.updateOnce(10001, 10003);
+        b1.updateOnce(10001, 10003, 10005);
         b2 = new Backend(1001, "host2", 20000);
-        b2.updateOnce(20001, 20003);
+        b2.updateOnce(20001, 20003, 20005);
     }
 
     @Before
