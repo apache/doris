@@ -15,19 +15,20 @@
 
 package com.baidu.palo.http.rest;
 
+import java.util.Map;
+
 import com.baidu.palo.analysis.LoadStmt;
+import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
 import com.baidu.palo.service.ExecuteEnv;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-import io.netty.handler.codec.http.HttpMethod;
 
-import java.util.Map;
+import io.netty.handler.codec.http.HttpMethod;
 
 // Start multi action
 public class MultiStart extends RestBaseAction {
@@ -57,7 +58,10 @@ public class MultiStart extends RestBaseAction {
         if (Strings.isNullOrEmpty(label)) {
             throw new DdlException("No label selected");
         }
-        checkWritePriv(request, db);
+        AuthorizationInfo authInfo = getAuthorizationInfo(request);
+        String fullDbName = ClusterNamespace.getDbFullName(authInfo.cluster, db);
+
+        checkWritePriv(authInfo.fullUserName, fullDbName);
 
         if (redirectToMaster(request, response)) {
             return;

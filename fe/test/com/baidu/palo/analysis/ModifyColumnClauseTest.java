@@ -20,13 +20,13 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.Column;
-import com.baidu.palo.common.AnalysisException;
-
+import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.BeforeClass;
-import org.easymock.EasyMock;
 import org.junit.Test;
+
+import com.baidu.palo.catalog.Column;
+import com.baidu.palo.common.AnalysisException;
 
 public class ModifyColumnClauseTest {
     private static Analyzer analyzer;
@@ -39,7 +39,7 @@ public class ModifyColumnClauseTest {
     @Test
     public void testNormal() throws AnalysisException {
         Column definition = EasyMock.createMock(Column.class);
-        definition.analyze();
+        definition.analyze(true);
         EasyMock.expectLastCall().anyTimes();
         EasyMock.expect(definition.toSql()).andReturn("`testCol` INT").anyTimes();
         EasyMock.replay(definition);

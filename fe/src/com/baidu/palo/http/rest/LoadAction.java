@@ -85,14 +85,14 @@ public class LoadAction extends RestBaseAction {
             throw new DdlException("No table selected.");
         }
         
-        dbName = ClusterNamespace.getDbFullName(authInfo.cluster, dbName);
+        String fullDbName = ClusterNamespace.getDbFullName(authInfo.cluster, dbName);
         String label = request.getSingleParameter(LABEL_NAME_PARAM);
         String subLabel = request.getSingleParameter(SUB_LABEL_NAME_PARAM);
         if (Strings.isNullOrEmpty(label)) {
             throw new DdlException("No label selected.");
         }
  
-        checkWritePriv(request, dbName);
+        checkWritePriv(authInfo.fullUserName, fullDbName);
         // Try to redirect to master
         if (redirectToMaster(request, response)) {
             return;

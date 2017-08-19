@@ -27,7 +27,6 @@ import java.util.Map;
 import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.powermock.api.easymock.PowerMock;
 import org.powermock.core.classloader.annotations.PowerMockIgnore;
@@ -35,14 +34,13 @@ import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
 import com.baidu.palo.catalog.Catalog;
-import com.baidu.palo.system.Backend;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.FeConstants;
 import com.baidu.palo.common.Reference;
 import com.baidu.palo.persist.EditLog;
+import com.baidu.palo.system.Backend;
 import com.baidu.palo.thrift.TNetworkAddress;
 import com.baidu.palo.thrift.TScanRangeLocation;
-
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
@@ -98,11 +96,11 @@ public class SimpleSchedulerTest {
         ImmutableMap<Long, Backend> emptyBackends = ImmutableMap.of();
 
         Backend backendA = new Backend(0, "addressA", 0);
-        backendA.updateOnce(0, 0);
+        backendA.updateOnce(0, 0, 0);
         Backend backendB = new Backend(1, "addressB", 0);
-        backendB.updateOnce(0, 0);
+        backendB.updateOnce(0, 0, 0);
         Backend backendC = new Backend(2, "addressC", 0);
-        backendC.updateOnce(0, 0);
+        backendC.updateOnce(0, 0, 0);
 
         Map<Long, Backend> threeBackends = Maps.newHashMap();
         threeBackends.put((long) 0, backendA);
@@ -148,11 +146,11 @@ public class SimpleSchedulerTest {
         ImmutableMap<Long, Backend> emptyBackends = ImmutableMap.of();
 
         Backend backendA = new Backend(0, "addressA", 0);
-        backendA.updateOnce(0, 0);
+        backendA.updateOnce(0, 0, 0);
         Backend backendB = new Backend(1, "addressB", 0);
-        backendB.updateOnce(0, 0);
+        backendB.updateOnce(0, 0, 0);
         Backend backendC = new Backend(2, "addressC", 0);
-        backendC.updateOnce(0, 0);
+        backendC.updateOnce(0, 0, 0);
         Map<Long, Backend> threeBackends = Maps.newHashMap();
         threeBackends.put((long) 0, backendA);
         threeBackends.put((long) 1, backendB);
@@ -184,11 +182,11 @@ public class SimpleSchedulerTest {
         TNetworkAddress address = null;
 
         Backend backendA = new Backend(0, "addressA", 0);
-        backendA.updateOnce(0, 0);
+        backendA.updateOnce(0, 0, 0);
         Backend backendB = new Backend(1, "addressB", 0);
-        backendB.updateOnce(0, 0);
+        backendB.updateOnce(0, 0, 0);
         Backend backendC = new Backend(2, "addressC", 0);
-        backendC.updateOnce(0, 0);
+        backendC.updateOnce(0, 0, 0);
         Map<Long, Backend> threeBackends = Maps.newHashMap();
         threeBackends.put((long) 100, backendA);
         threeBackends.put((long) 101, backendB);

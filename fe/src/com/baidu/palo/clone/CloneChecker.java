@@ -31,6 +31,7 @@ import org.apache.logging.log4j.Logger;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.DataProperty;
 import com.baidu.palo.catalog.Database;
+import com.baidu.palo.catalog.Database.DbState;
 import com.baidu.palo.catalog.MaterializedIndex;
 import com.baidu.palo.catalog.MaterializedIndex.IndexState;
 import com.baidu.palo.catalog.OlapTable;
@@ -42,7 +43,6 @@ import com.baidu.palo.catalog.Replica.ReplicaState;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.catalog.Table.TableType;
 import com.baidu.palo.catalog.Tablet;
-import com.baidu.palo.catalog.Database.DbState;
 import com.baidu.palo.clone.CloneJob.JobPriority;
 import com.baidu.palo.clone.CloneJob.JobState;
 import com.baidu.palo.clone.CloneJob.JobType;
@@ -238,6 +238,11 @@ public class CloneChecker extends Daemon {
         List<String> dbNames = catalog.getDbNames();
         for (String name : dbNames) {
             Database db = catalog.getDb(name);
+            if (db == null) {
+                LOG.warn("db does not exist. name: {}", name);
+                continue;
+            }
+
             final String clusterName = db.getClusterName();
 
             if (Strings.isNullOrEmpty(clusterName)) {
@@ -252,16 +257,13 @@ public class CloneChecker extends Daemon {
                 LOG.warn("init backend infos error");
                 continue;
             }
-            final Map<Level, Set<Long>> cluserCapacityLevelToBackendIds = initBackendCapacityInfos(clusterBackendInfos);
-            if (cluserCapacityLevelToBackendIds == null || cluserCapacityLevelToBackendIds.isEmpty()) {
+            final Map<Level, Set<Long>> clusterCapacityLevelToBackendIds = initBackendCapacityInfos(
+                    clusterBackendInfos);
+            if (clusterCapacityLevelToBackendIds == null || clusterCapacityLevelToBackendIds.isEmpty()) {
                 LOG.warn("init backend capacity infos error");
                 continue;
             }
 
-            if (db == null) {
-                LOG.warn("db does not exist. name: {}", db.getName());
-                continue;
-            }
             long dbId = db.getId();
 
             Set<String> tableNames = db.getTableNamesWithLock();
@@ -395,10 +397,10 @@ public class CloneChecker extends Daemon {
                             && !clusterDistributionLevelToBackendIds.isEmpty()) {
                         // supplement
                         checkSupplement(cloneTabletMap, clusterDistributionLevelToBackendIds,
-                                cluserCapacityLevelToBackendIds, clusterBackendInfos);
+                                clusterCapacityLevelToBackendIds, clusterBackendInfos);
                         // migration
                         checkMigration(backendToTablets, clusterDistributionLevelToBackendIds,
-                                cluserCapacityLevelToBackendIds, clusterBackendInfos);
+                                clusterCapacityLevelToBackendIds, clusterBackendInfos);
                     } else {
                         LOG.warn("init backend distribution infos error");
                     }

@@ -15,13 +15,13 @@
 
 package com.baidu.palo.http.rest;
 
+import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
 import com.baidu.palo.load.Load;
-
 import com.google.common.base.Strings;
 
 import io.netty.handler.codec.http.HttpMethod;
@@ -35,7 +35,7 @@ public class GetLoadInfoAction extends RestBaseAction {
         super(controller);
     }
 
-    public static void registerAction (ActionController controller)
+    public static void registerAction(ActionController controller)
             throws IllegalArgException {
         GetLoadInfoAction action = new GetLoadInfoAction(controller);
         controller.registerHandler(HttpMethod.GET, "/api/{db}/_load_info", action);
@@ -43,16 +43,22 @@ public class GetLoadInfoAction extends RestBaseAction {
 
     @Override
     public void execute(BaseRequest request, BaseResponse response) throws DdlException {
-        Load.JobInfo info = new Load.JobInfo(
-                request.getSingleParameter(DB_KEY),
-                request.getSingleParameter(LABEL_KEY));
+        AuthorizationInfo authInfo = getAuthorizationInfo(request);
+        Load.JobInfo info = new Load.JobInfo(request.getSingleParameter(DB_KEY), request.getSingleParameter(LABEL_KEY),
+                authInfo.cluster);
         if (Strings.isNullOrEmpty(info.dbName)) {
             throw new DdlException("No database selected");
         }
         if (Strings.isNullOrEmpty(info.label)) {
             throw new DdlException("No label selected");
         }
-        checkReadPriv(request, info.dbName);
+        if (Strings.isNullOrEmpty(info.clusterName)) {
+            throw new DdlException("No cluster name selected");
+        }
+
+        String fullDbName = ClusterNamespace.getDbFullName(info.clusterName, info.dbName);
+        checkReadPriv(authInfo.fullUserName, fullDbName);
+
         if (redirectToMaster(request, response)) {
             return;
         }

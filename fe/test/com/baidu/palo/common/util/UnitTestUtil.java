@@ -20,6 +20,14 @@
 
 package com.baidu.palo.common.util;
 
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.junit.Assert;
+
 import com.baidu.palo.catalog.AggregateType;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
@@ -28,32 +36,24 @@ import com.baidu.palo.catalog.DataProperty;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.KeysType;
 import com.baidu.palo.catalog.MaterializedIndex;
+import com.baidu.palo.catalog.MaterializedIndex.IndexState;
 import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.catalog.Partition;
 import com.baidu.palo.catalog.PartitionInfo;
 import com.baidu.palo.catalog.PrimitiveType;
 import com.baidu.palo.catalog.RandomDistributionInfo;
 import com.baidu.palo.catalog.Replica;
-import com.baidu.palo.catalog.SinglePartitionInfo;
-import com.baidu.palo.catalog.TabletMeta;
-import com.baidu.palo.catalog.MaterializedIndex.IndexState;
 import com.baidu.palo.catalog.Replica.ReplicaState;
+import com.baidu.palo.catalog.SinglePartitionInfo;
 import com.baidu.palo.catalog.Tablet;
-import com.baidu.palo.system.Backend;
+import com.baidu.palo.catalog.TabletMeta;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.LoadException;
 import com.baidu.palo.load.DppConfig;
 import com.baidu.palo.load.Load;
+import com.baidu.palo.system.Backend;
 import com.baidu.palo.thrift.TDisk;
 import com.google.common.collect.Maps;
-
-import org.junit.Assert;
-
-import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
 // for unit test
 public class UnitTestUtil {
@@ -123,7 +123,7 @@ public class UnitTestUtil {
     
     public static Backend createBackend(long id, String host, int heartPort, int bePort, int httpPort) {
         Backend backend = new Backend(id, host, heartPort);
-        backend.updateOnce(bePort, httpPort);
+        backend.updateOnce(bePort, httpPort, 10000);
         return backend;
     }
 

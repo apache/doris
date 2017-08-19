@@ -20,35 +20,34 @@
 
 package com.baidu.palo.analysis;
 
+import java.util.LinkedList;
+import java.util.List;
+
+import org.easymock.EasyMock;
+
 import com.baidu.palo.alter.RollupHandler;
 import com.baidu.palo.alter.SchemaChangeHandler;
 import com.baidu.palo.catalog.AccessPrivilege;
-import com.baidu.palo.catalog.KeysType;
-import com.baidu.palo.catalog.MaterializedIndex;
-import com.baidu.palo.catalog.Partition;
-import com.baidu.palo.catalog.RandomDistributionInfo;
-import com.baidu.palo.catalog.SinglePartitionInfo;
-import com.baidu.palo.catalog.UserPropertyMgr;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.Database;
-import com.baidu.palo.catalog.OlapTable;
-import com.baidu.palo.catalog.PrimitiveType;
+import com.baidu.palo.catalog.KeysType;
+import com.baidu.palo.catalog.MaterializedIndex;
 import com.baidu.palo.catalog.MaterializedIndex.IndexState;
-import com.baidu.palo.system.SystemInfoService;
+import com.baidu.palo.catalog.OlapTable;
+import com.baidu.palo.catalog.Partition;
+import com.baidu.palo.catalog.PrimitiveType;
+import com.baidu.palo.catalog.RandomDistributionInfo;
+import com.baidu.palo.catalog.SinglePartitionInfo;
+import com.baidu.palo.catalog.UserPropertyMgr;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.load.Load;
 import com.baidu.palo.persist.EditLog;
 import com.baidu.palo.qe.ConnectContext;
-
+import com.baidu.palo.system.SystemInfoService;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
-import org.easymock.EasyMock;
-
-import java.util.LinkedList;
-import java.util.List;
 
 public class AccessTestUtil {
     public static UserPropertyMgr fetchAdminAccess() {
@@ -115,6 +114,8 @@ public class AccessTestUtil {
             EasyMock.replay(catalog);
             return catalog;
         } catch (DdlException e) {
+            return null;
+        } catch (AnalysisException e) {
             return null;
         }
     }
@@ -183,6 +184,8 @@ public class AccessTestUtil {
             EasyMock.replay(catalog);
             return catalog;
         } catch (DdlException e) {
+            return null;
+        } catch (AnalysisException e) {
             return null;
         }
     }
