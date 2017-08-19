@@ -1,12 +1,8 @@
 // Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
 
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -350,7 +346,7 @@ Status CsvScanNode::close(RuntimeState* state) {
 
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
-    if (memory_used_counter() != nullptr) {
+    if (memory_used_counter() != nullptr &&  _tuple_pool.get() != nullptr) {
         COUNTER_UPDATE(memory_used_counter(), _tuple_pool->peak_allocated_bytes());
     }
 

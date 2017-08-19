@@ -166,7 +166,11 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, 
     }
 }
 
-RowBatch::~RowBatch() {
+void RowBatch::clear() {
+    if (_cleared) {
+        return;
+    }
+
     _tuple_data_pool->free_all();
     for (int i = 0; i < _io_buffers.size(); ++i) {
         _io_buffers[i]->return_buffer();
@@ -181,6 +185,11 @@ RowBatch::~RowBatch() {
         _mem_tracker->release(_tuple_ptrs_size);
         _tuple_ptrs = NULL;
     }
+    _cleared = true;
+}
+
+RowBatch::~RowBatch() {
+    clear();
 }
 
 int RowBatch::serialize(TRowBatch* output_batch) {

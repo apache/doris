@@ -35,7 +35,6 @@ add_library(Util STATIC
   disk_info.cpp
   hash_util.hpp
   palo_metrics.cpp
-  logging.cpp
   mem_info.cpp
   metrics.cpp
   murmur_hash3.cpp

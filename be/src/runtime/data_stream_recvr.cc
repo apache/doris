@@ -315,6 +315,13 @@ void DataStreamRecvr::SenderQueue::cancel() {
 }
 
 void DataStreamRecvr::SenderQueue::close() {
+    {
+        // If _is_cancelled is not set to true, there may be concurrent send
+        // which add batch to _batch_queue. The batch added after _batch_queue
+        // is clear will be memory leak
+        boost::lock_guard<boost::mutex> l(_lock);
+        _is_cancelled = true;
+    }
     // Delete any batches queued in _batch_queue
     for (RowBatchQueue::iterator it = _batch_queue.begin();
             it != _batch_queue.end(); ++it) {
