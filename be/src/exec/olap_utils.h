@@ -16,6 +16,8 @@
 #ifndef  BDG_PALO_BE_SRC_QUERY_EXEC_OLAP_UTILS_H
 #define  BDG_PALO_BE_SRC_QUERY_EXEC_OLAP_UTILS_H
 
+#include <math.h>
+
 #include "common/logging.h"
 #include "gen_cpp/Opcodes_types.h"
 #include "runtime/primitive_type.h"
