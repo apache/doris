@@ -20,6 +20,7 @@
 #include "common/config.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/TPaloBrokerService.h"
+#include "service/backend_options.h"
 #include "runtime/exec_env.h"
 #include "runtime/client_cache.h"
 #include "util/thrift_util.h"
@@ -37,7 +38,7 @@ BrokerMgr::~BrokerMgr() {
 
 void BrokerMgr::init() {
     std::stringstream ss;
-    ss << *_exec_env->local_ip() << ":" << config::be_port;
+    ss << BackendOptions::get_localhost() << ":" << config::be_port;
     _client_id = ss.str();
 }
 

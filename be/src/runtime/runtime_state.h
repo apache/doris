@@ -42,8 +42,6 @@
 #include "gen_cpp/Types_types.h"  // for TUniqueId
 #include "gen_cpp/PaloInternalService_types.h"  // for TQueryOptions
 #include "util/runtime_profile.h"
-#include "runtime/buffered_block_mgr.h"
-#include "runtime/buffered_block_mgr2.h"
 
 namespace palo {
 

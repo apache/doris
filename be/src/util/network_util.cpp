@@ -26,12 +26,32 @@
 #include <arpa/inet.h>
 #include <limits.h>
 #include <ifaddrs.h>
+#include <common/logging.h>
 
 #include <sstream>
 
 #include <boost/foreach.hpp>
 
 namespace palo {
+
+InetAddress::InetAddress(struct sockaddr* addr) {
+    this->addr = *(struct sockaddr_in*)addr;
+}
+
+bool InetAddress::is_address_v4 () const {
+    return addr.sin_family == AF_INET;
+}
+
+bool InetAddress::is_loopback_v4() {
+    in_addr_t s_addr = addr.sin_addr.s_addr;
+    return (ntohl(s_addr) & 0xFF000000) == 0x7F000000;
+}
+
+std::string InetAddress::get_host_address_v4() {
+    char addr_buf[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &(addr.sin_addr), addr_buf, INET_ADDRSTRLEN);
+    return std::string(addr_buf);
+}
 
 static const std::string LOCALHOST("127.0.0.1");
 
@@ -96,7 +116,7 @@ bool find_first_non_localhost(const std::vector<std::string>& addresses, std::st
     return false;
 }
 
-Status get_local_ip(std::string* local_ip) {
+Status get_hosts_v4(std::vector<InetAddress>* hosts) {
     ifaddrs* if_addrs = nullptr;
     if (getifaddrs(&if_addrs)) {
         std::stringstream ss;
@@ -111,15 +131,11 @@ Status get_local_ip(std::string* local_ip) {
         }
         if (if_addr->ifa_addr->sa_family == AF_INET) { // check it is IP4
             // is a valid IP4 Address
-            void* tmp_addr = &((struct sockaddr_in *)if_addr->ifa_addr)->sin_addr;
-            char addr_buf[INET_ADDRSTRLEN];
-            inet_ntop(AF_INET, tmp_addr, addr_buf, INET_ADDRSTRLEN);
-            if (LOCALHOST == addr_buf) {
-                continue;
-            }
-            local_ip->assign(addr_buf);
-            break;
-        } else if (if_addr->ifa_addr->sa_family == AF_INET6) { // check it is IP6
+            hosts->emplace_back(if_addr->ifa_addr);
+        }
+        //TODO: IPv6
+        /*
+        else if (if_addr->ifa_addr->sa_family == AF_INET6) { // check it is IP6
             // is a valid IP6 Address
             void* tmp_addr = &((struct sockaddr_in6 *)if_addr->ifa_addr)->sin6_addr;
             char addr_buf[INET6_ADDRSTRLEN];
@@ -127,6 +143,7 @@ Status get_local_ip(std::string* local_ip) {
             local_ip->assign(addr_buf);
             break;
         }
+        */
     }
 
     if (if_addrs != nullptr) {

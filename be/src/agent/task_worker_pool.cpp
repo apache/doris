@@ -38,6 +38,7 @@
 #include "olap/utils.h"
 #include "common/resource_tls.h"
 #include "agent/cgroups_mgr.h"
+#include "service/backend_options.h"
 
 using std::deque;
 using std::list;
@@ -69,7 +70,7 @@ TaskWorkerPool::TaskWorkerPool(
     _agent_utils = new AgentUtils();
     _master_client = new MasterServerClient(_master_info, &_master_service_client_cache);
     _command_executor = new CommandExecutor();
-    _backend.__set_host(_agent_utils->get_local_ip());
+    _backend.__set_host(BackendOptions::get_localhost());
     _backend.__set_be_port(config::be_port);
     _backend.__set_http_port(config::webserver_port);
 }

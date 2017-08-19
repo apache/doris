@@ -27,6 +27,17 @@
 
 namespace palo {
 
+//TODO: ipv6
+class InetAddress {
+public:
+    InetAddress(struct sockaddr* addr);
+    bool is_address_v4() const;
+    bool is_loopback_v4();
+    std::string get_host_address_v4();
+private:
+    struct sockaddr_in addr;
+};
+
 // Looks up all IP addresses associated with a given hostname. Returns
 // an error status if any system call failed, otherwise OK. Even if OK
 // is returned, addresses may still be of zero length.
@@ -40,7 +51,7 @@ bool find_first_non_localhost(const std::vector<std::string>& addresses, std::st
 // Returns OK if a hostname can be found, false otherwise.
 Status get_hostname(std::string* hostname);
 
-Status get_local_ip(std::string* local_ip);
+Status get_hosts_v4(std::vector<InetAddress>* hosts);
 
 // Utility method because Thrift does not supply useful constructors
 TNetworkAddress make_network_address(const std::string& hostname, int port);

@@ -852,11 +852,6 @@ public class SystemInfoService extends Daemon {
                 host = inetAddress.getHostAddress();
             }
 
-            if (host.equals("127.0.0.1")) {
-                InetAddress inetAddress = InetAddress.getLocalHost();
-                host = inetAddress.getHostAddress();
-            }
-
             // validate port
             heartbeatPort = Integer.valueOf(pair[1]);
 

@@ -24,6 +24,7 @@
 #include <gperftools/heap-profiler.h>
 #include <thrift/protocol/TDebugProtocol.h>
 #include <thrift/concurrency/PosixThreadFactory.h>
+#include "service/backend_options.h"
 #include "util/network_util.h"
 #include "util/thrift_util.h"
 #include "util/thrift_server.h"
@@ -83,11 +84,8 @@ Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer*
 Status BackendService::create_rpc_service(ExecEnv* exec_env) {
     ReactorFactory::initialize(config::rpc_reactor_threads);
 
-    std::string host;
-    get_hostname(&host);
-
     struct sockaddr_in addr;
-    InetAddr::initialize(&addr, host.c_str(), config::be_rpc_port);
+    InetAddr::initialize(&addr, BackendOptions::get_localhost().c_str(), config::be_rpc_port);
     Comm* comm = Comm::instance();
 
     DispatchHandlerPtr dhp = std::make_shared<Dispatcher>(exec_env, comm, nullptr);

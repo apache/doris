@@ -1,13 +1,8 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
+// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
 
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -43,6 +38,7 @@ import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.ConnectProcessor;
 import com.baidu.palo.qe.QeProcessor;
 import com.baidu.palo.qe.VariableMgr;
+import com.baidu.palo.service.FrontendOptions;
 import com.baidu.palo.system.SystemInfoService;
 import com.baidu.palo.thrift.FrontendService;
 import com.baidu.palo.thrift.FrontendServiceVersion;
@@ -323,7 +319,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             stringBuilder.append("\"{").append(Joiner.on(",").join(request.files)).append("}\"");
         }
 
-        InetAddress masterAddress = InetAddress.getLocalHost();
+        InetAddress masterAddress = FrontendOptions.getLocalHost();
         stringBuilder.append(" http://").append(masterAddress.getHostAddress()).append(":");
         stringBuilder.append(Config.http_port).append("/api/").append(request.db).append("/");
         stringBuilder.append(request.tbl).append("/_load?label=").append(request.label);

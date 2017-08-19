@@ -439,4 +439,56 @@ int BufferedTupleStream::compute_row_size(TupleRow* row) const {
 
     return size;
 }
+
+inline uint8_t* BufferedTupleStream::allocate_row(int size) {
+    DCHECK(!_closed);
+
+    if (UNLIKELY(_write_block == NULL || _write_block->bytes_remaining() < size)) {
+        bool got_block = false;
+        _status = new_block_for_write(size, &got_block);
+
+        if (!_status.ok() || !got_block) {
+            return NULL;
+        }
+    }
+
+    DCHECK(_write_block != NULL);
+    //  DCHECK(_write_block->is_pinned());
+    DCHECK_GE(_write_block->bytes_remaining(), size);
+    ++_num_rows;
+    _write_block->add_row();
+    return _write_block->allocate<uint8_t>(size);
+}
+
+inline void BufferedTupleStream::get_tuple_row(const RowIdx& idx, TupleRow* row) const {
+    DCHECK(!_closed);
+    //DCHECK(is_pinned());
+    DCHECK(!_delete_on_read);
+    DCHECK_EQ(_blocks.size(), _block_start_idx.size());
+    DCHECK_LT(idx.block(), _blocks.size());
+
+    uint8_t* data = _block_start_idx[idx.block()] + idx.offset();
+
+    if (_nullable_tuple) {
+        // Stitch together the tuples from the block and the NULL ones.
+        const int tuples_per_row = _desc.tuple_descriptors().size();
+        uint32_t tuple_idx = idx.idx() * tuples_per_row;
+
+        for (int i = 0; i < tuples_per_row; ++i) {
+            const uint8_t* null_word = _block_start_idx[idx.block()] + (tuple_idx >> 3);
+            const uint32_t null_pos = tuple_idx & 7;
+            const bool is_not_null = ((*null_word & (1 << (7 - null_pos))) == 0);
+            row->set_tuple(i, reinterpret_cast<Tuple*>(
+                              reinterpret_cast<uint64_t>(data) * is_not_null));
+            data += _desc.tuple_descriptors()[i]->byte_size() * is_not_null;
+            ++tuple_idx;
+        }
+    } else {
+        for (int i = 0; i < _desc.tuple_descriptors().size(); ++i) {
+            row->set_tuple(i, reinterpret_cast<Tuple*>(data));
+            data += _desc.tuple_descriptors()[i]->byte_size();
+        }
+    }
+}
+
 }

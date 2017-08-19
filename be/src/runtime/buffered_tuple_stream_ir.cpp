@@ -18,7 +18,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/buffered_tuple_stream.hpp"
+#include "runtime/buffered_tuple_stream.h"
 
 #include "runtime/descriptors.h"
 #include "runtime/tuple_row.h"
