@@ -1,13 +1,8 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
+// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
 
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -20,7 +15,12 @@
 
 package com.baidu.palo.common.util;
 
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
+import java.net.SocketException;
+import java.util.Enumeration;
+import java.util.List;
 
 public class NetUtils {
 
@@ -35,5 +35,24 @@ public class NetUtils {
         int port = Integer.parseInt(target.substring(colonIndex + 1));
 
         return new InetSocketAddress(hostname, port);
+    }
+
+    public static void getHosts(List<InetAddress> hosts) {
+        Enumeration<NetworkInterface> n = null;
+
+        try {
+            n = NetworkInterface.getNetworkInterfaces();
+        } catch (SocketException e1) {
+            throw new RuntimeException("failed to get network interfaces");
+        }
+
+        while (n.hasMoreElements()) {
+            NetworkInterface e = n.nextElement();
+            Enumeration<InetAddress> a = e.getInetAddresses();
+            while (a.hasMoreElements()) {
+                InetAddress addr = a.nextElement();
+                hosts.add(addr);
+            }
+        }
     }
 }

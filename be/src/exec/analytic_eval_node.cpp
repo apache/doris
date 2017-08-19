@@ -23,7 +23,7 @@
 #include "exprs/agg_fn_evaluator.h"
 #include "exprs/anyval_util.h"
 
-#include "runtime/buffered_tuple_stream.hpp"
+#include "runtime/buffered_tuple_stream.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"

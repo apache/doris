@@ -87,7 +87,6 @@ ExecEnv::ExecEnv() :
         _fragment_mgr(new FragmentMgr(this)),
         _master_info(new TMasterInfo()),
         _etl_job_mgr(new EtlJobMgr(this)),
-        _local_ip(new std::string()),
         _load_path_mgr(new LoadPathMgr()),
         _disk_io_mgr(new DiskIoMgr()),
         _tmp_file_mgr(new TmpFileMgr),
@@ -96,7 +95,6 @@ ExecEnv::ExecEnv() :
         _broker_mgr(new BrokerMgr(this)),
         _enable_webserver(true),
         _tz_database(TimezoneDatabase()) {
-    get_local_ip(_local_ip.get());
     _client_cache->init_metrics(_metrics.get(), "palo.backends");
     //_frontend_client_cache->init_metrics(_metrics.get(), "frontend-server.backends");
     _result_mgr->init();

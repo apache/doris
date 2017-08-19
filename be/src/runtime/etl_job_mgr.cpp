@@ -20,6 +20,7 @@
 
 #include "gen_cpp/Status_types.h"
 #include "gen_cpp/Types_types.h"
+#include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "runtime/exec_env.h"
 #include "runtime/plan_fragment_executor.h"
@@ -37,7 +38,7 @@ namespace palo {
 
 std::string EtlJobMgr::to_http_path(const std::string& file_name) {
     std::stringstream url;
-    url << "http://" << *_exec_env->local_ip() << ":" << config::webserver_port
+    url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
         << "/api/_download_load?file=" << file_name;
     return url.str();
 }

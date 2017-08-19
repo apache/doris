@@ -134,6 +134,7 @@ import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.JournalObservable;
 import com.baidu.palo.qe.SessionVariable;
 import com.baidu.palo.qe.VariableMgr;
+import com.baidu.palo.service.FrontendOptions;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.Frontend;
 import com.baidu.palo.system.SystemInfoService;
@@ -616,17 +617,7 @@ public class Catalog {
     }
 
     private void getSelfHostPort() {
-        InetAddress addr = null;
-        try {
-            addr = InetAddress.getLocalHost();
-        } catch (UnknownHostException e) {
-            LOG.error(e);
-            System.out.println("error to get local address. will exit");
-            System.exit(-1);
-        }
-
-        String myIP = addr.getHostAddress().toString();
-        selfNode = new Pair<String, Integer>(myIP, Config.edit_log_port);
+        selfNode = new Pair<String, Integer>(FrontendOptions.getLocalHostAddress(), Config.edit_log_port);
     }
 
     private void checkArgs(String[] args) throws AnalysisException {
@@ -702,8 +693,7 @@ public class Catalog {
         LOG.info("checkpointer thread started. thread id is {}", checkpointThreadId);
 
         // ClusterInfoService
-        InetAddress masterAddress = InetAddress.getLocalHost();
-        Catalog.getCurrentSystemInfo().setMaster(masterAddress.getHostAddress(), Config.rpc_port, clusterId, epoch);
+        Catalog.getCurrentSystemInfo().setMaster(FrontendOptions.getLocalHostAddress(), Config.rpc_port, clusterId, epoch);
         Catalog.getCurrentSystemInfo().start();
 
         pullLoadJobMgr.start();
@@ -732,12 +722,12 @@ public class Catalog {
         // catalog recycle bin
         getRecycleBin().start();
 
-        this.masterIp = masterAddress.getHostAddress();
+        this.masterIp = FrontendOptions.getLocalHostAddress();
         this.masterRpcPort = Config.rpc_port;
         this.masterHttpPort = Config.http_port;
 
         MasterInfo info = new MasterInfo();
-        info.setIp(masterAddress.getHostAddress());
+        info.setIp(FrontendOptions.getLocalHostAddress());
         info.setRpcPort(Config.rpc_port);
         info.setHttpPort(Config.http_port);
         editLog.logMasterInfo(info);

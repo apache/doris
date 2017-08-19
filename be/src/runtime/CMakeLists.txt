@@ -27,7 +27,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/runtime")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/runtime")
 
 add_library(Runtime STATIC
-    broker_mgr.cpp
+  broker_mgr.cpp
   buffered_block_mgr.cpp
   buffered_tuple_stream.cpp
   buffered_tuple_stream_ir.cpp
