@@ -32,9 +32,9 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import com.baidu.palo.thrift.TCounter;
-import com.baidu.palo.thrift.TCounterType;
 import com.baidu.palo.thrift.TRuntimeProfileNode;
 import com.baidu.palo.thrift.TRuntimeProfileTree;
+import com.baidu.palo.thrift.TUnit;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -106,7 +106,7 @@ public class RuntimeProfileTest {
     @Test
     public void testCounter() {
         RuntimeProfile profile = new RuntimeProfile();
-        profile.addCounter("key", TCounterType.UNIT, "");
+        profile.addCounter("key", TUnit.UNIT, "");
         Assert.assertNotNull(profile.getCounterMap().get("key"));
         Assert.assertNull(profile.getCounterMap().get("key2"));
         profile.getCounterMap().get("key").setValue(1);
@@ -143,13 +143,13 @@ public class RuntimeProfileTest {
         tnodeB.counters = Lists.newArrayList();
         tnodeASon.counters = Lists.newArrayList();
        
-        tnodeRoot.counters.add(new TCounter("TotalTime", TCounterType.TIME_NS, 3000000000L));
-        tnodeA.counters.add(new TCounter("TotalTime", TCounterType.TIME_NS, 1000000000L));
-        tnodeB.counters.add(new TCounter("TotalTime", TCounterType.TIME_NS, 1000000000L));
-        tnodeASon.counters.add(new TCounter("TotalTime", TCounterType.TIME_NS, 10000000));
-        tnodeASon.counters.add(new TCounter("counterA1", TCounterType.UNIT, 1));
-        tnodeASon.counters.add(new TCounter("counterA2", TCounterType.BYTES, 1234567L));
-        tnodeASon.counters.add(new TCounter("counterA1Son", TCounterType.UNIT, 3));
+        tnodeRoot.counters.add(new TCounter("TotalTime", TUnit.TIME_NS, 3000000000L));
+        tnodeA.counters.add(new TCounter("TotalTime", TUnit.TIME_NS, 1000000000L));
+        tnodeB.counters.add(new TCounter("TotalTime", TUnit.TIME_NS, 1000000000L));
+        tnodeASon.counters.add(new TCounter("TotalTime", TUnit.TIME_NS, 10000000));
+        tnodeASon.counters.add(new TCounter("counterA1", TUnit.UNIT, 1));
+        tnodeASon.counters.add(new TCounter("counterA2", TUnit.BYTES, 1234567L));
+        tnodeASon.counters.add(new TCounter("counterA1Son", TUnit.UNIT, 3));
         tnodeASon.child_counters_map = Maps.newHashMap();
         
         Set<String> set1 = Sets.newHashSet();

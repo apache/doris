@@ -20,14 +20,14 @@
 
 package com.baidu.palo.analysis;
 
+import org.easymock.EasyMock;
+import org.junit.Assert;
+import org.junit.BeforeClass;
+import org.junit.Test;
+
 import com.baidu.palo.catalog.AggregateType;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.common.AnalysisException;
-
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.easymock.EasyMock;
-import org.junit.Test;
 
 public class AddColumnClauseTest {
     private static Analyzer analyzer;
@@ -40,7 +40,7 @@ public class AddColumnClauseTest {
     @Test
     public void testNormal() throws AnalysisException {
         Column definition = EasyMock.createMock(Column.class);
-        definition.analyze();
+        definition.analyze(true);
         EasyMock.expectLastCall().anyTimes();
         EasyMock.expect(definition.toSql()).andReturn("`testCol` INT").anyTimes();
         EasyMock.expect(definition.getDefaultValue()).andReturn("").anyTimes();
@@ -79,7 +79,7 @@ public class AddColumnClauseTest {
     @Test(expected = AnalysisException.class)
     public void testNoDefault() throws AnalysisException {
         Column definition = EasyMock.createMock(Column.class);
-        definition.analyze();
+        definition.analyze(true);
         EasyMock.expectLastCall().anyTimes();
         EasyMock.expect(definition.toSql()).andReturn("`testCol` INT").anyTimes();
         EasyMock.expect(definition.getDefaultValue()).andReturn(null).anyTimes();
@@ -95,7 +95,7 @@ public class AddColumnClauseTest {
     @Test(expected = AnalysisException.class)
     public void testAggPos() throws AnalysisException {
         Column definition = EasyMock.createMock(Column.class);
-        definition.analyze();
+        definition.analyze(true);
         EasyMock.expectLastCall().anyTimes();
         EasyMock.expect(definition.toSql()).andReturn("`testCol` INT").anyTimes();
         EasyMock.expect(definition.getDefaultValue()).andReturn(null).anyTimes();
@@ -111,7 +111,7 @@ public class AddColumnClauseTest {
     @Test(expected = AnalysisException.class)
     public void testAddValueToFirst() throws AnalysisException {
         Column definition = EasyMock.createMock(Column.class);
-        definition.analyze();
+        definition.analyze(true);
         EasyMock.expectLastCall().anyTimes();
         EasyMock.expect(definition.toSql()).andReturn("`testCol` INT").anyTimes();
         EasyMock.expect(definition.getDefaultValue()).andReturn("2").anyTimes();

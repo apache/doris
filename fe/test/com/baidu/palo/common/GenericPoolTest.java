@@ -20,40 +20,46 @@
 
 package com.baidu.palo.common;
 
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
+import org.apache.thrift.TException;
+import org.apache.thrift.TProcessor;
+import org.junit.AfterClass;
+import org.junit.Assert;
+import org.junit.BeforeClass;
+import org.junit.Test;
+
 import com.baidu.palo.thrift.BackendService;
 import com.baidu.palo.thrift.PaloInternalServiceVersion;
 import com.baidu.palo.thrift.TAgentPublishRequest;
 import com.baidu.palo.thrift.TAgentResult;
 import com.baidu.palo.thrift.TAgentTaskRequest;
-import com.baidu.palo.thrift.TMiniLoadEtlStatusRequest;
-import com.baidu.palo.thrift.TMiniLoadEtlStatusResult;
-import com.baidu.palo.thrift.TMiniLoadEtlTaskRequest;
 import com.baidu.palo.thrift.TCancelPlanFragmentParams;
 import com.baidu.palo.thrift.TCancelPlanFragmentResult;
 import com.baidu.palo.thrift.TDeleteEtlFilesRequest;
 import com.baidu.palo.thrift.TExecPlanFragmentParams;
 import com.baidu.palo.thrift.TExecPlanFragmentResult;
+import com.baidu.palo.thrift.TExportStatusResult;
+import com.baidu.palo.thrift.TExportTaskRequest;
+import com.baidu.palo.thrift.TFetchAllPullLoadTaskInfosResult;
 import com.baidu.palo.thrift.TFetchDataParams;
 import com.baidu.palo.thrift.TFetchDataResult;
+import com.baidu.palo.thrift.TFetchPullLoadTaskInfoResult;
+import com.baidu.palo.thrift.TMiniLoadEtlStatusRequest;
+import com.baidu.palo.thrift.TMiniLoadEtlStatusResult;
+import com.baidu.palo.thrift.TMiniLoadEtlTaskRequest;
 import com.baidu.palo.thrift.TNetworkAddress;
+import com.baidu.palo.thrift.TPullLoadSubTaskInfo;
 import com.baidu.palo.thrift.TResultBatch;
 import com.baidu.palo.thrift.TSnapshotRequest;
+import com.baidu.palo.thrift.TStatus;
 import com.baidu.palo.thrift.TTransmitDataParams;
 import com.baidu.palo.thrift.TTransmitDataResult;
 import com.baidu.palo.thrift.TUniqueId;
-
-import org.apache.thrift.TException;
-import org.junit.Assert;
-import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
-import org.apache.thrift.TProcessor;
-import org.junit.Test;
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
-
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.List;
 
 public class GenericPoolTest {
     static GenericPool<BackendService.Client> backendService;
@@ -153,6 +159,54 @@ public class GenericPoolTest {
 
         @Override
         public TAgentResult make_snapshot(TSnapshotRequest snapshot_request) throws TException {
+            // TODO Auto-generated method stub
+            return null;
+        }
+
+        @Override
+        public TStatus register_pull_load_task(TUniqueId id, int num_senders) throws TException {
+            // TODO Auto-generated method stub
+            return null;
+        }
+
+        @Override
+        public TStatus deregister_pull_load_task(TUniqueId id) throws TException {
+            // TODO Auto-generated method stub
+            return null;
+        }
+
+        @Override
+        public TStatus report_pull_load_sub_task_info(TPullLoadSubTaskInfo task_info) throws TException {
+            // TODO Auto-generated method stub
+            return null;
+        }
+
+        @Override
+        public TFetchPullLoadTaskInfoResult fetch_pull_load_task_info(TUniqueId id) throws TException {
+            // TODO Auto-generated method stub
+            return null;
+        }
+
+        @Override
+        public TFetchAllPullLoadTaskInfosResult fetch_all_pull_load_task_infos() throws TException {
+            // TODO Auto-generated method stub
+            return null;
+        }
+
+        @Override
+        public TStatus submit_export_task(TExportTaskRequest request) throws TException {
+            // TODO Auto-generated method stub
+            return null;
+        }
+
+        @Override
+        public TExportStatusResult get_export_status(TUniqueId task_id) throws TException {
+            // TODO Auto-generated method stub
+            return null;
+        }
+
+        @Override
+        public TStatus erase_export_task(TUniqueId task_id) throws TException {
             // TODO Auto-generated method stub
             return null;
         }

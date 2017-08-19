@@ -20,9 +20,18 @@
 
 package com.baidu.palo.qe;
 
-import org.junit.Assert;
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentMap;
+
 import org.apache.thrift.TException;
 import org.easymock.EasyMock;
+import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -33,9 +42,8 @@ import org.powermock.modules.junit4.PowerMockRunner;
 
 import com.baidu.palo.analysis.Analyzer;
 import com.baidu.palo.analysis.TupleDescriptor;
+import com.baidu.palo.analysis.TupleId;
 import com.baidu.palo.catalog.Catalog;
-import com.baidu.palo.system.Backend;
-import com.baidu.palo.common.Config;
 import com.baidu.palo.common.FeConstants;
 import com.baidu.palo.persist.EditLog;
 import com.baidu.palo.planner.DataPartition;
@@ -46,6 +54,7 @@ import com.baidu.palo.planner.PlanFragmentId;
 import com.baidu.palo.planner.PlanNode;
 import com.baidu.palo.planner.PlanNodeId;
 import com.baidu.palo.planner.Planner;
+import com.baidu.palo.system.Backend;
 import com.baidu.palo.thrift.TExecPlanFragmentParams;
 import com.baidu.palo.thrift.TNetworkAddress;
 import com.baidu.palo.thrift.TQueryOptions;
@@ -53,17 +62,7 @@ import com.baidu.palo.thrift.TScanRange;
 import com.baidu.palo.thrift.TScanRangeLocation;
 import com.baidu.palo.thrift.TScanRangeLocations;
 import com.baidu.palo.thrift.TUniqueId;
-
 import com.google.common.collect.ImmutableMap;
-
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentMap;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore({"org.apache.log4j.*", "javax.management.*"})
@@ -110,13 +109,13 @@ public class CoordinatorTest extends Coordinator {
 
         FeConstants.heartbeat_interval_second = Integer.MAX_VALUE;
         backendA = new Backend(0, "machineA", 0);
-        backendA.updateOnce(10000, 0);
+        backendA.updateOnce(10000, 0, 0);
         backendB = new Backend(1, "machineB", 0);
-        backendB.updateOnce(10000, 0);
+        backendB.updateOnce(10000, 0, 0);
         backendC = new Backend(2, "machineC", 0);
-        backendC.updateOnce(10000, 0);
+        backendC.updateOnce(10000, 0, 0);
         backendD = new Backend(3, "machineD", 0);
-        backendD.updateOnce(10000, 0);
+        backendD.updateOnce(10000, 0, 0);
 
         // private 方法赋值
         Field field = coor.getClass().getDeclaredField("idToBackend");
@@ -288,7 +287,7 @@ public class CoordinatorTest extends Coordinator {
         // 场景1：UNPARTITIONED
         {
             PlanFragment fragment = new PlanFragment(new PlanFragmentId(1),
-                    new OlapScanNode(new PlanNodeId(1), new TupleDescriptor(10), "null scanNode"),
+                    new OlapScanNode(new PlanNodeId(1), new TupleDescriptor(new TupleId(10)), "null scanNode"),
                     DataPartition.UNPARTITIONED );
             List<PlanFragment> privateFragments =
                     (ArrayList<PlanFragment>) getField(coor, "fragments");
@@ -310,7 +309,7 @@ public class CoordinatorTest extends Coordinator {
         // 场景2： ScanNode
         {
             PlanFragment fragment = new PlanFragment(new PlanFragmentId(1),
-                    new OlapScanNode(new PlanNodeId(1), new TupleDescriptor(10), "null scanNode"),
+                    new OlapScanNode(new PlanNodeId(1), new TupleDescriptor(new TupleId(10)), "null scanNode"),
                     DataPartition.RANDOM );
             List<PlanFragment> privateFragments =
                     (ArrayList<PlanFragment>) getField(coor, "fragments");
@@ -362,7 +361,7 @@ public class CoordinatorTest extends Coordinator {
             ImmutableMap<Long, Backend> idToBackendAB = ImmutableMap.copyOf(backendMap);
             field.set(coor, idToBackendAB);
 
-            PlanNode olapNode = new OlapScanNode(new PlanNodeId(1), new TupleDescriptor(10),
+            PlanNode olapNode = new OlapScanNode(new PlanNodeId(1), new TupleDescriptor(new TupleId(10)),
                     "null scanNode");
             PlanFragment fragmentFather = new PlanFragment(new PlanFragmentId(0),
                     new ExchangeNode(new PlanNodeId(10), olapNode,  false),

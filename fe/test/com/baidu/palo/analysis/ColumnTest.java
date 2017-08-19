@@ -20,15 +20,15 @@
 
 package com.baidu.palo.analysis;
 
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+
 import com.baidu.palo.catalog.AggregateType;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.catalog.PrimitiveType;
 import com.baidu.palo.common.AnalysisException;
-
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
 
 public class ColumnTest {
     private ColumnType intCol;
@@ -45,7 +45,7 @@ public class ColumnTest {
     @Test
     public void testNormal() throws AnalysisException {
         Column column = new Column("col", intCol);
-        column.analyze();
+        column.analyze(true);
 
         Assert.assertEquals("`col` int(11) NOT NULL COMMENT \"\"", column.toString());
         Assert.assertEquals("col", column.getName());
@@ -55,14 +55,14 @@ public class ColumnTest {
 
         // default
         column = new Column("col", intCol, true, null, "10", "");
-        column.analyze();
+        column.analyze(true);
         Assert.assertNull(column.getAggregationType());
         Assert.assertEquals("10", column.getDefaultValue());
         Assert.assertEquals("`col` int(11) NOT NULL DEFAULT \"10\" COMMENT \"\"", column.toSql());
 
         // agg
         column = new Column("col", floatCol, false, AggregateType.SUM, "10", "");
-        column.analyze();
+        column.analyze(true);
         Assert.assertEquals("10", column.getDefaultValue());
         Assert.assertEquals(AggregateType.SUM, column.getAggregationType());
         Assert.assertEquals("`col` float SUM NOT NULL DEFAULT \"10\" COMMENT \"\"", column.toSql());
@@ -72,13 +72,13 @@ public class ColumnTest {
     public void testFloatKey() throws AnalysisException {
         Column column = new Column("col", floatCol);
         column.setIsKey(true);
-        column.analyze();
+        column.analyze(true);
     }
 
     @Test(expected = AnalysisException.class)
     public void testStrSum() throws AnalysisException {
         Column column = new Column("col", stringCol, false, AggregateType.SUM, null, "");
-        column.analyze();
+        column.analyze(true);
     }
 
 }

@@ -20,17 +20,11 @@
 
 package com.baidu.palo.catalog;
 
-import com.baidu.palo.analysis.KeysDesc;
-import com.baidu.palo.analysis.Analyzer;
-import com.baidu.palo.analysis.CreateTableStmt;
-import com.baidu.palo.analysis.RandomDistributionDesc;
-import com.baidu.palo.analysis.TableName;
-import com.baidu.palo.catalog.KeysType;
-import com.baidu.palo.system.Backend;
-import com.baidu.palo.system.SystemInfoService;
-import com.baidu.palo.common.DdlException;
-
-import com.google.common.collect.Lists;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.easymock.EasyMock;
 import org.easymock.IAnswer;
@@ -43,11 +37,15 @@ import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
+import com.baidu.palo.analysis.Analyzer;
+import com.baidu.palo.analysis.CreateTableStmt;
+import com.baidu.palo.analysis.KeysDesc;
+import com.baidu.palo.analysis.RandomDistributionDesc;
+import com.baidu.palo.analysis.TableName;
+import com.baidu.palo.common.DdlException;
+import com.baidu.palo.system.Backend;
+import com.baidu.palo.system.SystemInfoService;
+import com.google.common.collect.Lists;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("org.apache.log4j.*")
@@ -108,9 +106,9 @@ public class CreateTableTest {
                                     ""));
         invalidCols1.add(new Column("k1", ColumnType.createVarchar(10)));
         invalidCols1.get(1).setIsKey(true);
-        CreateTableStmt stmt1 = new CreateTableStmt(false, dbTableName, invalidCols1, "olap",
+        CreateTableStmt stmt1 = new CreateTableStmt(false, false, dbTableName, invalidCols1, "olap",
                                                     new KeysDesc(), null,
-                                                    new RandomDistributionDesc(10), null);
+                new RandomDistributionDesc(10), null, null);
         try {
             catalog.createTable(stmt1);
         } catch (DdlException e) {
@@ -122,9 +120,9 @@ public class CreateTableTest {
         invalidCols2.add(new Column("v1", ColumnType.createType(PrimitiveType.INT), false, AggregateType.SUM, "1",
                                     ""));
         invalidCols2.add(new Column("v2", ColumnType.createVarchar(10), false, AggregateType.REPLACE, "abc", ""));
-        CreateTableStmt stmt2 = new CreateTableStmt(false, dbTableName, invalidCols2, "olap",
+        CreateTableStmt stmt2 = new CreateTableStmt(false, false, dbTableName, invalidCols2, "olap",
                                                     new KeysDesc(), null,
-                                                    new RandomDistributionDesc(10), null);
+                new RandomDistributionDesc(10), null, null);
 
         try {
             catalog.createTable(stmt2);
@@ -141,9 +139,9 @@ public class CreateTableTest {
         EasyMock.expectLastCall().andReturn(null);
         EasyMock.replay(catalog);
 
-        CreateTableStmt stmt = new CreateTableStmt(false, dbTableName, cols, "olap",
+        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, cols, "olap",
                                                    new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                                                   new RandomDistributionDesc(10), null);
+                new RandomDistributionDesc(10), null, null);
         try {
             catalog.createTable(stmt);
         } catch (DdlException e) {
@@ -164,9 +162,9 @@ public class CreateTableTest {
         EasyMock.expectLastCall().andReturn(db);
         EasyMock.replay(catalog);
 
-        CreateTableStmt stmt = new CreateTableStmt(false, dbTableName, cols, "olap",
+        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, cols, "olap",
                                                    new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                                                   new RandomDistributionDesc(10), null);
+                new RandomDistributionDesc(10), null, null);
 
         try {
             catalog.createTable(stmt);
@@ -217,9 +215,9 @@ public class CreateTableTest {
                 .andReturn((short) 2).anyTimes();
         PowerMock.replay(Catalog.class);
 
-        CreateTableStmt stmt1 = new CreateTableStmt(false, dbTableName, cols, "olap",
+        CreateTableStmt stmt1 = new CreateTableStmt(false, false, dbTableName, cols, "olap",
                                                     new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                                                    new RandomDistributionDesc(1), null);
+                new RandomDistributionDesc(1), null, null);
         try {
             catalog.createTable(stmt1);
         } catch (DdlException e) {
@@ -286,9 +284,9 @@ public class CreateTableTest {
 
         // 1. larger then indexColumns size
         properties.put("short_key_num", "3");
-        CreateTableStmt stmt1 = new CreateTableStmt(false, dbTableName, cols2, "olap",
+        CreateTableStmt stmt1 = new CreateTableStmt(false, false, dbTableName, cols2, "olap",
                                                     new KeysDesc(KeysType.AGG_KEYS, cols2Name), null,
-                                                    new RandomDistributionDesc(1), null);
+                new RandomDistributionDesc(1), null, null);
         try {
             catalog.createTable(stmt1);
         } catch (DdlException e) {
@@ -302,9 +300,9 @@ public class CreateTableTest {
         cols2.add(new Column("k2_varchar", ColumnType.createType(PrimitiveType.VARCHAR)));
         cols2.add(new Column("v1", ColumnType.createType(PrimitiveType.INT),
                              true, AggregateType.MAX, "0", ""));
-        stmt1 = new CreateTableStmt(false, dbTableName, cols2, "olap",
+        stmt1 = new CreateTableStmt(false, false, dbTableName, cols2, "olap",
                                     new KeysDesc(KeysType.AGG_KEYS, cols2Name), null,
-                                    new RandomDistributionDesc(1), null);
+                new RandomDistributionDesc(1), null, null);
 
         try {
             catalog.createTable(stmt1);
@@ -354,9 +352,9 @@ public class CreateTableTest {
                 .andReturn((short) 2).anyTimes();
         PowerMock.replay(Catalog.class);
 
-        CreateTableStmt stmt1 = new CreateTableStmt(false, dbTableName, cols, "olap",
+        CreateTableStmt stmt1 = new CreateTableStmt(false, false, dbTableName, cols, "olap",
                                                     new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                                                    new RandomDistributionDesc(1), null);
+                new RandomDistributionDesc(1), null, null);
 
         try {
             catalog.createTable(stmt1);

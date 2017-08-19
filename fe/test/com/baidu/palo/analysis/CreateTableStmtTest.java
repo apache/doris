@@ -1,3 +1,4 @@
+
 // Modifications copyright (C) 2017, Baidu.com, Inc.
 // Copyright 2017 The Apache Software Foundation
 
@@ -20,27 +21,26 @@
 
 package com.baidu.palo.analysis;
 
+import java.util.List;
+
+import org.easymock.EasyMock;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.catalog.KeysType;
 import com.baidu.palo.catalog.PrimitiveType;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.InternalException;
-
 import com.google.common.collect.Lists;
-
-import org.junit.Assert;
-import org.easymock.EasyMock;
-import org.junit.Before;
-import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import java.util.List;
 
 public class CreateTableStmtTest {
     private static final Logger LOG = LoggerFactory.getLogger(CreateTableStmtTest.class);
-
+    
     // used to get default db
     private TableName tblName;
     private TableName tblNameNoDb;
@@ -49,7 +49,7 @@ public class CreateTableStmtTest {
     private List<String> colsName;
     private List<String> invalidColsName;
     private Analyzer analyzer;
-
+    
     // set default db is 'db1'
     // table name is table1
     // Column: [col1 int; col2 string]
@@ -77,12 +77,12 @@ public class CreateTableStmtTest {
         invalidColsName.add("col2");
         invalidColsName.add("col2");
     }
-
+    
     @Test
     public void testNormal() throws InternalException, AnalysisException {
-        CreateTableStmt stmt = new CreateTableStmt(false, tblName, cols, "olap", 
-                                                   new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                                                   new RandomDistributionDesc(10), null);
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
+                new RandomDistributionDesc(10), null, null);
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
@@ -93,12 +93,12 @@ public class CreateTableStmtTest {
                 + ") ENGINE = olap\nAGG_KEYS(`col1`, `col2`)\nDISTRIBUTED BY RANDOM\nBUCKETS 10",
                 stmt.toSql());
     }
-
+    
     @Test
     public void testDefaultDbNormal() throws InternalException, AnalysisException {
-        CreateTableStmt stmt = new CreateTableStmt(false, tblNameNoDb, cols, "olap", 
-                                                   new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                                                   new RandomDistributionDesc(10), null);
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
+                new RandomDistributionDesc(10), null, null);
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:testDb", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
@@ -109,46 +109,46 @@ public class CreateTableStmtTest {
                 + "`col1` int(11) NOT NULL COMMENT \"\",\n" + "`col2` char(10) NOT NULL COMMENT \"\"\n"
                 + ") ENGINE = olap\nAGG_KEYS(`col1`, `col2`)\nDISTRIBUTED BY RANDOM\nBUCKETS 10", stmt.toSql());
     }
-
+    
     @Test(expected = AnalysisException.class)
     public void testNoDb() throws InternalException, AnalysisException {
         // make defalut db return empty;
         analyzer = EasyMock.createMock(Analyzer.class);
         EasyMock.expect(analyzer.getDefaultDb()).andReturn("").anyTimes();
         EasyMock.replay(analyzer);
-        CreateTableStmt stmt = new CreateTableStmt(false, tblNameNoDb, cols, "olap",
-                                                   new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                                                   new RandomDistributionDesc(10), null);
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
+                new RandomDistributionDesc(10), null, null);
         stmt.analyze(analyzer);
     }
-
+    
     @Test(expected = AnalysisException.class)
     public void testEmptyCol() throws InternalException, AnalysisException {
         // make defalut db return empty;
         List<Column> emptyCols = Lists.newArrayList();
-        CreateTableStmt stmt = new CreateTableStmt(false, tblNameNoDb, emptyCols, "olap",
-                                                   new KeysDesc(), null,
-                                                   new RandomDistributionDesc(10), null);
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, emptyCols, "olap",
+                new KeysDesc(), null,
+                new RandomDistributionDesc(10), null, null);
         stmt.analyze(analyzer);
     }
-
+    
     @Test(expected = AnalysisException.class)
     public void testDupCol() throws InternalException, AnalysisException {
         // make defalut db return empty;
-        CreateTableStmt stmt = new CreateTableStmt(false, tblNameNoDb, invalidCols, "olap",
-                                                   new KeysDesc(KeysType.AGG_KEYS, invalidColsName), null,
-                                                   new RandomDistributionDesc(10), null);
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, invalidCols, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, invalidColsName), null,
+                new RandomDistributionDesc(10), null, null);
         stmt.analyze(analyzer);
     }
-
+    
     @Test(expected = AnalysisException.class)
     public void testNoPriv() throws InternalException, AnalysisException {
         // make default db return empty;
-        CreateTableStmt stmt = new CreateTableStmt(false, tblNameNoDb, cols, "olap",
-                                                   new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                                                   new RandomDistributionDesc(10), null);
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
+                new RandomDistributionDesc(10), null, null);
         stmt.analyze(AccessTestUtil.fetchBlockAnalyzer());
         Assert.fail("No exception throws.");
     }
-
+    
 }
