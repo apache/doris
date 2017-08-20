@@ -127,6 +127,7 @@ public class LoadStmt extends DdlStmt {
         propertySet.add(LoadStmt.TIMEOUT_PROPERTY);
         propertySet.add(LoadStmt.MAX_FILTER_RATIO_PROPERTY);
         propertySet.add(LoadStmt.LOAD_DELETE_FLAG_PROPERTY);
+        propertySet.add(LoadStmt.CLUSTER_PROPERTY);
 
         for (Entry<String, String> entry : properties.entrySet()) {
             if (!propertySet.contains(entry.getKey())) {
