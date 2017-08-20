@@ -36,6 +36,21 @@ public class PullLoadEtlTask extends LoadEtlTask {
     }
 
     @Override
+    protected String getErrorMsg() {
+        String errMsg = null;
+        PullLoadJob pullLoadJob = mgr.getJob(job.getId());
+        if (pullLoadJob != null) {
+            PullLoadTask failureTask = pullLoadJob.getFailureTask();
+            if (failureTask != null) {
+                if (failureTask.getExecuteStatus() != null) {
+                    errMsg = "Broker etl failed: " + failureTask.getExecuteStatus().getErrorMsg();
+                }
+            }
+        }
+        return errMsg != null ? errMsg : super.getErrorMsg();
+    }
+
+    @Override
     protected boolean updateJobEtlStatus() {
         PullLoadJob pullLoadJob = mgr.getJob(job.getId());
         EtlStatus etlStatus = job.getEtlJobStatus();

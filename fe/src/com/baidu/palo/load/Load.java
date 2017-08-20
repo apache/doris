@@ -428,9 +428,11 @@ public class Load {
         job.setDbId(db.getId());
         job.setTimestamp(timestamp);
         job.setBrokerDesc(stmt.getBrokerDesc());
+
         // resource info
         if (ConnectContext.get() != null) {
             job.setResourceInfo(ConnectContext.get().toResourceCtx());
+            job.setExecMemLimit(ConnectContext.get().getSessionVariable().getMaxExecMemByte());
         }
 
         // job properties
@@ -457,6 +459,14 @@ public class Load {
                     job.setDeleteFlag(Boolean.parseBoolean(flag));
                 } else {
                     throw new DdlException("Value of delete flag is invalid");
+                }
+            }
+
+            if (properties.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
+                try {
+                    job.setExecMemLimit(Long.parseLong(properties.get(LoadStmt.EXEC_MEM_LIMIT)));
+                } catch (NumberFormatException e) {
+                    throw new DdlException("Execute memory limit is not Long", e);
                 }
             }
         }

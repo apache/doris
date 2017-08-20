@@ -65,4 +65,7 @@ public final class FeMetaVersion {
 
     // persist decommission type
     public static final int VERSION_33 = 33;
+
+    // persist LoadJob's execMemLimit
+    public static final int VERSION_34 = 34;
 }
