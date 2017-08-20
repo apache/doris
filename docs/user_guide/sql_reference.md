@@ -1223,7 +1223,7 @@ load_label是当前导入批次的标签，由用户指定，需要保证在一�
 
 -	file_path，broker中的文件路径，可以指定到一个文件，也可以用/*通配符指定某个目录下的所有文件。
 
--	NEGATIVE：如果指定此参数，则相当于导入一批“负”数据。用于抵消之前导入的同一批数据。该参数仅适用于存在value列，并且value列的聚合类型为SUM的情况。
+-	NEGATIVE：如果指定此参数，则相当于导入一批“负”数据。用于抵消之前导入的同一批数据。该参数仅适用于存在value列，并且value列的聚合类型为SUM的情况。不支持Broker方式导入
 
 -	PARTITION：如果指定此参数，则只会导入指定的分区，导入分区以外的数据会被过滤掉。如果不指定，默认导入table的所有分区。
 
@@ -1291,9 +1291,9 @@ load_label是当前导入批次的标签，由用户指定，需要保证在一�
 
 -	max_filter_ratio：最大容忍可过滤（数据不规范等原因）的数据比例。默认零容忍。
 
--	load_delete_flag：指定该导入是否通过导入key列的方式删除数据，仅适用于UNIQUE KEY，导入时可不指定value列。默认为false 
+-	load_delete_flag：指定该导入是否通过导入key列的方式删除数据，仅适用于UNIQUE KEY，导入时可不指定value列。默认为false (不支持Broker方式导入)
 
-
+-	exe_mem_limit：在Broker Load方式时生效，指定导入执行时，后端可使用的最大内存。
 
 举例：
 

@@ -62,7 +62,7 @@ public class PullLoadPendingTask extends LoadPendingTask {
                 // Generate pull load task, one
                 PullLoadTask task = new PullLoadTask(
                         job.getId(), nextTaskId, db, table,
-                        job.getBrokerDesc(), entry.getValue(), jobDeadlineMs);
+                        job.getBrokerDesc(), entry.getValue(), jobDeadlineMs, job.getExecMemLimit());
                 task.init();
                 pullLoadTaskList.add(task);
                 nextTaskId++;

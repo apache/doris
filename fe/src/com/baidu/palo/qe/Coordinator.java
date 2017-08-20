@@ -224,6 +224,14 @@ public class Coordinator {
         return trackingUrl;
     }
 
+    public void setExecMemoryLimit(long execMemoryLimit) {
+        this.queryOptions.setMem_limit(execMemoryLimit);
+    }
+
+    public void setTimeout(int timeout) {
+        this.queryOptions.setQuery_timeout(timeout);
+    }
+
     // Initiate
     private void prepare() {
         for (PlanFragment fragment : fragments) {

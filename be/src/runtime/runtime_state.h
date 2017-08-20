@@ -584,7 +584,7 @@ private:
 
 #define RETURN_IF_CANCELLED(state) \
   do { \
-    if (UNLIKELY((state)->is_cancelled())) return Status(TStatusCode::CANCELLED); \
+    if (UNLIKELY((state)->is_cancelled())) return Status::CANCELLED; \
   } while (false)
 
 }
