@@ -108,55 +108,6 @@ public class Planner {
     }
 
     /**
-     * Mark slots that are being referenced by the plan tree itself or by the outputExprs exprs as materialized. If the
-     * latter is null, mark all slots in planRoot's tupleIds() as being referenced. All aggregate slots are
-     * materialized.
-     * <p/>
-     * TODO: instead of materializing everything produced by the plan root, derived referenced slots from destination
-     * fragment and add a materialization node if not all output is needed by destination fragment TODO 2: should the
-     * materialization decision be cost-based?
-     */
-    private void markRefdSlots(Analyzer analyzer, PlanNode planRoot,
-                               List<Expr> outputExprs, AnalyticInfo analyticInfo) {
-        if (planRoot == null) {
-            return;
-        }
-        List<SlotId> refdIdList = Lists.newArrayList();
-        planRoot.getMaterializedIds(analyzer, refdIdList);
-        if (outputExprs != null) {
-            Expr.getIds(outputExprs, null, refdIdList);
-        }
-
-        HashSet<SlotId> refdIds = Sets.newHashSet(refdIdList);
-        for (TupleDescriptor tupleDesc : analyzer.getDescTbl().getTupleDescs()) {
-            for (SlotDescriptor slotDesc : tupleDesc.getSlots()) {
-                if (refdIds.contains(slotDesc.getId())) {
-                    slotDesc.setIsMaterialized(true);
-                }
-            }
-        }
-        if (analyticInfo != null) {
-            ArrayList<SlotDescriptor> list = analyticInfo.getOutputTupleDesc().getSlots();
-
-            for (SlotDescriptor slotDesc : list) {
-                if (refdIds.contains(slotDesc.getId())) {
-                    slotDesc.setIsMaterialized(true);
-                }
-            }
-        }
-        if (outputExprs == null) {
-            // mark all slots in planRoot.getTupleIds() as materialized
-            ArrayList<TupleId> tids = planRoot.getTupleIds();
-            for (TupleId tid : tids) {
-                TupleDescriptor tupleDesc = analyzer.getDescTbl().getTupleDesc(tid);
-                for (SlotDescriptor slotDesc : tupleDesc.getSlots()) {
-                    slotDesc.setIsMaterialized(true);
-                }
-            }
-        }
-    }
-
-    /**
      * Return combined explain string for all plan fragments.
      */
     public String getExplainString(List<PlanFragment> fragments, TExplainLevel explainLevel) {
@@ -201,7 +152,7 @@ public class Planner {
         }
 
         // compute referenced slots before calling computeMemLayout()
-        markRefdSlots(analyzer, singleNodePlan, resultExprs, null);
+        analyzer.markRefdSlots(analyzer, singleNodePlan, resultExprs, null);
 
         setResultExprScale(analyzer, queryStmt.getResultExprs());
 
