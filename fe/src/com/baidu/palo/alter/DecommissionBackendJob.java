@@ -159,7 +159,12 @@ public class DecommissionBackendJob extends AlterJob {
         final Map<String, Integer> clusterAvailBeMap = Maps.newHashMap();
         for (String cluster : clusterBackendsMap.keySet()) {
             final Map<Long, Backend> backends = clusterBackendsMap.get(cluster);
-            int aliveBackendNum = clusterInfo.getClusterBackends(cluster, true).size();
+            final List<Backend> clusterAllLiveBackends = clusterInfo.getClusterBackends(cluster, true);
+            if (clusterAllLiveBackends == null) {
+                LOG.warn("does not belong to any cluster.");
+                return true;
+            }   
+            int aliveBackendNum = clusterAllLiveBackends.size();
             int availableBackendNum = aliveBackendNum - backends.keySet().size();
             if (availableBackendNum <= 0) {
                 // do nothing, just log
@@ -562,6 +567,10 @@ public class DecommissionBackendJob extends AlterJob {
             }
             clusterBackendsMap.put(SystemInfoService.DEFAULT_CLUSTER, backends);
         }
+        
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_33) {
+            decomissionType = DecomissionType.valueOf(Text.readString(in));
+        }
     }
 
     @Override
@@ -577,6 +586,7 @@ public class DecommissionBackendJob extends AlterJob {
                 out.writeLong(id);
             }
         }
+        Text.writeString(out, decomissionType.toString());
     }
 
     public static DecommissionBackendJob read(DataInput in) throws IOException {

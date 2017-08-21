@@ -26,6 +26,7 @@ import com.baidu.palo.catalog.SchemaTable;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.InternalException;
 import com.baidu.palo.qe.ConnectContext;
+import com.baidu.palo.service.FrontendOptions;
 import com.baidu.palo.thrift.TPlanNode;
 import com.baidu.palo.thrift.TPlanNodeType;
 import com.baidu.palo.thrift.TScanRangeLocations;
@@ -50,7 +51,7 @@ public class SchemaScanNode extends ScanNode {
     private       String schemaTable;
     private       String schemaWild;
     private       String user;
-    private       String frontendIp;
+    private       String frontendIP;
     private       int    frontendPort;
 
     /**
@@ -74,11 +75,7 @@ public class SchemaScanNode extends ScanNode {
         schemaTable = analyzer.getSchemaTable();
         schemaWild = analyzer.getSchemaWild();
         user = analyzer.getUser();
-        try {
-            frontendIp = InetAddress.getLocalHost().getHostAddress();
-        } catch (UnknownHostException e) {
-            throw new InternalException("get host failed.");
-        }
+        frontendIP = FrontendOptions.getLocalHostAddress();
         frontendPort = Config.rpc_port;
     }
 
@@ -109,7 +106,7 @@ public class SchemaScanNode extends ScanNode {
         if (ctx != null) {
             msg.schema_scan_node.setThread_id(ConnectContext.get().getConnectionId());
         }
-        msg.schema_scan_node.setIp(frontendIp);
+        msg.schema_scan_node.setIp(frontendIP);
         msg.schema_scan_node.setPort(frontendPort);
     }
 

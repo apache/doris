@@ -39,6 +39,7 @@
 #include "http/http_channel.h"
 #include "http/http_parser.h"
 #include "olap/file_helper.h"
+#include "service/backend_options.h"
 #include "util/url_coding.h"
 #include "util/file_utils.h"
 #include "runtime/exec_env.h"
@@ -328,7 +329,7 @@ Status MiniLoadAction::load(
         }
         req.__set_properties(params);
         req.files.push_back(file_path);
-        req.backend.__set_hostname(*_exec_env->local_ip());
+        req.backend.__set_hostname(BackendOptions::get_localhost());
         req.backend.__set_port(config::be_port);
 
         struct timeval tv;

@@ -42,8 +42,6 @@
 #include "gen_cpp/Types_types.h"  // for TUniqueId
 #include "gen_cpp/PaloInternalService_types.h"  // for TQueryOptions
 #include "util/runtime_profile.h"
-#include "runtime/buffered_block_mgr.h"
-#include "runtime/buffered_block_mgr2.h"
 
 namespace palo {
 
@@ -586,7 +584,7 @@ private:
 
 #define RETURN_IF_CANCELLED(state) \
   do { \
-    if (UNLIKELY((state)->is_cancelled())) return Status(TStatusCode::CANCELLED); \
+    if (UNLIKELY((state)->is_cancelled())) return Status::CANCELLED; \
   } while (false)
 
 }

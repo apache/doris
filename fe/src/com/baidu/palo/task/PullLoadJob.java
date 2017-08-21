@@ -77,6 +77,10 @@ public class PullLoadJob {
         }
     }
 
+    public PullLoadTask getFailureTask() {
+        return failureTask;
+    }
+
     public synchronized void onTaskFinished(PullLoadTask task) {
         int taskId = task.taskId;
         if (!state.isRunning()) {

@@ -126,9 +126,6 @@ public:
             const uint32_t transport_speed_limit_kbps,
             const uint32_t timeout_second);
 
-    // Get ip of local service
-    virtual char* get_local_ip();
-    
     // Print AgentStatus as string
     virtual std::string print_agent_status(AgentStatus status);
 

@@ -40,6 +40,7 @@
 #include "agent/topic_subscriber.h"
 #include "util/palo_metrics.h"
 #include "olap/olap_main.h"
+#include "service/backend_options.h"
 #include "service/backend_service.h"
 #include <gperftools/profiler.h>
 #include "common/resource_tls.h"
@@ -103,6 +104,7 @@ int main(int argc, char** argv) {
     palo::init_daemon(argc, argv);
 
     palo::ResourceTls::init();
+    palo::BackendOptions::init();
 
     // initialize storage
     if (0 != palo::olap_main(argc, argv)) {
@@ -115,6 +117,7 @@ int main(int argc, char** argv) {
     palo::ExecEnv exec_env;
     palo::FrontendHelper::setup(&exec_env);
     palo::ThriftServer* be_server = nullptr;
+
     EXIT_IF_ERROR(palo::BackendService::create_service(
             &exec_env, 
             palo::config::be_port, 

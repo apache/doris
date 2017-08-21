@@ -21,6 +21,7 @@
 #include "olap_scan_node.h"
 #include "olap_utils.h"
 #include "olap/olap_reader.h"
+#include "service/backend_options.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/mem_pool.h"
@@ -135,8 +136,7 @@ Status OlapScanner::open() {
     fetch_request.__set_aggregation(_aggregation);
 
     if (!_reader->init(fetch_request, &_vec_conjunct_ctxs, _profile).ok()) {
-        std::string local_ip;
-        get_local_ip(&local_ip);
+        std::string local_ip = BackendOptions::get_localhost();
         std::stringstream ss;
 		if (MemTracker::limit_exceeded(*_runtime_state->mem_trackers())) {
 			ss << "Memory limit exceeded. Tablet: " << fetch_request.tablet_id << ". host: " << local_ip;

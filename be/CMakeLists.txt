@@ -28,6 +28,10 @@ set(OUTPUT_DIR "${BASE_DIR}/output")
 
 option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 
+# Set compiler
+set(CMAKE_CXX_COMPILER $ENV{CXX})
+set(CMAKE_C_COMPILER $ENV{CC})
+
 # Check gcc
 if (CMAKE_COMPILER_IS_GNUCC)
     execute_process(COMMAND ${CMAKE_C_COMPILER} -dumpversion
@@ -46,10 +50,6 @@ if (CMAKE_COMPILER_IS_GNUCC)
 else()
     message(FATAL_ERROR "Compiler should be GNU")
 endif(CMAKE_COMPILER_IS_GNUCC)
-
-# Set compiler
-set(CMAKE_CXX_COMPILER $ENV{CXX})
-set(CMAKE_C_COMPILER $ENV{CC})
 
 set(PIC_LIB_PATH "${THIRDPARTY_DIR}")
 if(PIC_LIB_PATH)

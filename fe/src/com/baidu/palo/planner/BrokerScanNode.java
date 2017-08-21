@@ -43,6 +43,7 @@ import com.baidu.palo.common.ClientPool;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.InternalException;
 import com.baidu.palo.load.BrokerFileGroup;
+import com.baidu.palo.service.FrontendOptions;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.thrift.TBrokerFileStatus;
 import com.baidu.palo.thrift.TBrokerListPathRequest;
@@ -483,12 +484,8 @@ public class BrokerScanNode extends ScanNode {
     private void parseBrokerFile(String path, ArrayList<TBrokerFileStatus> fileStatuses) throws InternalException {
         BrokerMgr.BrokerAddress brokerAddress = null;
         try {
-            String localIp = "";
-            try {
-                localIp = InetAddress.getLocalHost().getHostAddress();
-            } catch (UnknownHostException e) {
-            }
-            brokerAddress = Catalog.getInstance().getBrokerMgr().getBroker(brokerDesc.getName(), localIp);
+            String localIP = FrontendOptions.getLocalHostAddress();
+            brokerAddress = Catalog.getInstance().getBrokerMgr().getBroker(brokerDesc.getName(), localIP);
         } catch (AnalysisException e) {
             throw new InternalException(e.getMessage());
         }

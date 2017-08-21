@@ -62,6 +62,7 @@ public class LoadStmt extends DdlStmt {
     public static final String TIMEOUT_PROPERTY = "timeout";
     public static final String MAX_FILTER_RATIO_PROPERTY = "max_filter_ratio";
     public static final String LOAD_DELETE_FLAG_PROPERTY = "load_delete_flag";
+    public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String CLUSTER_PROPERTY = "cluster";
 
     // for load data from Baidu Object Store(BOS)
@@ -127,6 +128,8 @@ public class LoadStmt extends DdlStmt {
         propertySet.add(LoadStmt.TIMEOUT_PROPERTY);
         propertySet.add(LoadStmt.MAX_FILTER_RATIO_PROPERTY);
         propertySet.add(LoadStmt.LOAD_DELETE_FLAG_PROPERTY);
+        propertySet.add(LoadStmt.EXEC_MEM_LIMIT);
+        propertySet.add(LoadStmt.CLUSTER_PROPERTY);
 
         for (Entry<String, String> entry : properties.entrySet()) {
             if (!propertySet.contains(entry.getKey())) {

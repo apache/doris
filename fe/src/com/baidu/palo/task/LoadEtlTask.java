@@ -64,6 +64,10 @@ public abstract class LoadEtlTask extends MasterTask {
         this.load = Catalog.getInstance().getLoadInstance();
     }
 
+    protected String getErrorMsg() {
+        return "etl job fail";
+    }
+
     @Override
     protected void exec() {
         // check job state
@@ -117,7 +121,7 @@ public abstract class LoadEtlTask extends MasterTask {
                 processEtlFinished();
                 break;
             case CANCELLED:
-                throw new LoadException("etl job fail");
+                throw new LoadException(getErrorMsg());
             case RUNNING:
                 processEtlRunning();
                 break;

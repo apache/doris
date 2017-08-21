@@ -34,6 +34,7 @@ import com.baidu.palo.planner.PlanNodeId;
 import com.baidu.palo.planner.Planner;
 import com.baidu.palo.planner.ResultSink;
 import com.baidu.palo.planner.ScanNode;
+import com.baidu.palo.service.FrontendOptions;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.task.LoadEtlTask;
 import com.baidu.palo.thrift.BackendService;
@@ -93,16 +94,7 @@ public class Coordinator {
     private static final Logger LOG = LogManager.getLogger(Coordinator.class);
     private static final DateFormat DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
-    private static String localIP;
-
-    static {
-        try {
-            localIP = InetAddress.getLocalHost().getHostAddress().toString();
-        } catch (UnknownHostException e) {
-            LOG.warn(DebugUtil.getStackTrace(e));
-            localIP = "127.0.0.1";
-        }
-    }
+    private static String localIP = FrontendOptions.getLocalHostAddress();
 
     // Overall status of the entire query; set to the first reported fragment error
     // status or to CANCELLED, if Cancel() is called.
@@ -230,6 +222,14 @@ public class Coordinator {
 
     public String getTrackingUrl() {
         return trackingUrl;
+    }
+
+    public void setExecMemoryLimit(long execMemoryLimit) {
+        this.queryOptions.setMem_limit(execMemoryLimit);
+    }
+
+    public void setTimeout(int timeout) {
+        this.queryOptions.setQuery_timeout(timeout);
     }
 
     // Initiate

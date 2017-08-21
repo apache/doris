@@ -412,6 +412,23 @@ private:
     int compute_num_null_indicator_bytes(int block_size) const;
 };
 
+inline bool BufferedTupleStream::add_row(TupleRow* row, uint8_t** dst) {
+    DCHECK(!_closed);
+
+    if (LIKELY(deep_copy(row, dst))) {
+        return true;
+    }
+
+    bool got_block = false;
+    _status = new_block_for_write(compute_row_size(row), &got_block);
+
+    if (!_status.ok() || !got_block) {
+        return false;
+    }
+
+    return deep_copy(row, dst);
+}
+
 }
 
 #endif

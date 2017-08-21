@@ -21,6 +21,7 @@ import com.baidu.palo.http.HttpServer;
 import com.baidu.palo.qe.QeService;
 import com.baidu.palo.service.ExecuteEnv;
 import com.baidu.palo.service.FeServer;
+import com.baidu.palo.service.FrontendOptions;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
@@ -64,6 +65,7 @@ public class PaloFe {
 
             LOG.info("Palo FE start");
 
+            FrontendOptions.init();
             ExecuteEnv.setup();
             ExecuteEnv env = ExecuteEnv.getInstance();
 

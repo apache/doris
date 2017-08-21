@@ -62,4 +62,10 @@ public final class FeMetaVersion {
 
     // Palo3.2
     public static final int VERSION_32 = 32;
+
+    // persist decommission type
+    public static final int VERSION_33 = 33;
+
+    // persist LoadJob's execMemLimit
+    public static final int VERSION_34 = 34;
 }

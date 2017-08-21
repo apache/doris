@@ -260,25 +260,6 @@ AgentStatus AgentUtils::rsync_from_remote(
     return PALO_SUCCESS;
 }
 
-char* AgentUtils::get_local_ip() {
-    char hname[128];
-    gethostname(hname, sizeof(hname));
-
-    // Let's hope this is not broken in the glibc we're using
-    struct hostent hent;
-    struct hostent *he = 0;
-    char hbuf[2048];
-    int err = 0;
-    if (gethostbyname_r(hname, &hent, hbuf, sizeof(hbuf), &he, &err) != 0
-            || he == 0) {
-        LOG(ERROR) << "gethostbyname : " << hname << ", "
-           << "error: " << err;
-        return NULL;
-    }
-
-    return inet_ntoa(*(struct in_addr*)(he->h_addr_list[0]));
-}
-
 std::string AgentUtils::print_agent_status(AgentStatus status) {
     switch (status) {
     case PALO_SUCCESS:
