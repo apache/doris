@@ -651,26 +651,23 @@ public class SingleNodePlanner {
         // add aggregate node here
         AggregateInfo aggInfo = selectStmt.getAggInfo();
 
-        /*
+
         // for case: select count(*) from (select col from table) t
         // for simple, we just materialize sub tree if has count star
         if (aggInfo != null) {
             for (FunctionCallExpr aggExpr : aggInfo.getAggregateExprs()) {
                 if (aggExpr.isCountStar()) {
-                    LOG.debug("count(*) to {}", root.debugString());
-                    markRefdSlots(analyzer, root, null, null);
+                    analyzer.markRefdSlots(analyzer, root, null, null);
                     break;
                 }
             }
             for (Expr groupExpr : aggInfo.getGroupingExprs()) {
                 if (groupExpr.isConstant()) {
-                    LOG.debug("count(distinct 1) to {}", root.debugString());
-                    markRefdSlots(analyzer, root, null, null);
+                    analyzer.markRefdSlots(analyzer, root, null, null);
                     break;
                 }
             }
         }
-        */
 
         turnOffPreAgg(aggInfo, selectStmt, analyzer, root);
 
