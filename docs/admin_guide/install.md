@@ -231,24 +231,25 @@ FE 分为 leader，follower 和 observer 三种角色。 默认一个集群，�
     
 * 创建工作目录
 
-    `cd /your/workspace/ && mkdir -p fe/palo-meta fe/log be/data/ be/log`
+    `cd /your/workspace/ && mkdir -p fe/palo-meta fe/log be/data/ be/log`
+        
+    以上目录分别用于存放 FE 元信息、FE 日志、BE 数据、BE 日志。
     
-    以上目录分别用于存放 FE 元信息、FE 日志、BE 数据、BE 日志。
-
 * 启动 container
 
-    `docker run --privileged -p 9030:9030 -p 8030:8030 -p 9010:9010 -p 9020:9020 -p 9060:9060 -p 9070:9070 -p 8040:8040 -p 9050:9050 -v $PWD/fe/log:/home/palo/run/fe/log -v $PWD/fe/palo-meta:/home/palo/run/fe/palo-meta -v $PWD/be/log:/home/palo/run/be/log -v $PWD/be/data:/home/palo/run/be/data -d -i -t palo:0.8.0 /bin/bash`
+    `docker run --privileged -p 9030:9030 -p 8030:8030 -p 9010:9010 -p 9020:9020 -p 9060:9060 -p 9070:9070 -p 8040:8040 -p 9050:9050 -v $PWD/fe/log:/home/palo/run/fe/log -v $PWD/fe/palo-meta:/home/palo/run/fe/palo-meta -v $PWD/be/log:/home/palo/run/be/log -v $PWD/be/data:/home/palo/run/be/data -d -i -t palo:0.8.0 /bin/bash`
+        
+    该命令将 FE 和 BE 所需的所有端口映射到宿主机对应端口，并将 FE 和 BE 所需的持久化目录（元信息、数据、日志）挂载到之前创建的工作目录下。
     
-    该命令将 FE 和 BE 所需的所有端口映射到宿主机对应端口，并将 FE 和 BE 所需的持久化目录（元信息、数据、日志）挂载到之前创建的工作目录下。
-    
 * Attach container
 
-    执行 `docker ps -l` 获取 `CONTAINER_ID`。
-    
-    执行 `docker attach CONTAINER_ID` 进入 container。之后按照前文所述，启动 FE 和 BE 即可。
-
+    执行 `docker ps -l` 获取 `CONTAINER_ID`。
+        
+    执行 `docker attach CONTAINER_ID` 进入 container。之后按照前文所述，启动 FE 和 BE 即可。
+    
 * 退出 container
 
-    若想保持 container 运行，执行 `ctrl + pq` 退出。
-    
-    若需退出并关闭 container，执行 `ctrl + d`。
+    若想保持 container 运行，执行 `ctrl + pq` 退出。
+        
+    若需退出并关闭 container，执行 `ctrl + d`。
+    
