@@ -112,6 +112,10 @@ broker 以插件的形式，独立于 Palo 部署。如果需要从第三方存�
 
     在相应 broker/conf/ 目录下对应的配置文件中，可以修改相应配置。
 
+ * 启动broker
+
+    sh bin/start_hdfs_broker.sh 启动hdfs的broker，其他类型的broker请进入相应的目录予以启动
+
 * 添加broker
 
     要让 palo 的 fe 和 be 知道 broker 在哪些节点上，通过 sql 命令添加 broker 节点列表。
