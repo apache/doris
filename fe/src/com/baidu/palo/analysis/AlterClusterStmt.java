@@ -56,7 +56,7 @@ public class AlterClusterStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_PARAMETER);
         }
 
-        if (instanceNum < 0) {
+        if (instanceNum <= 0) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_CREATE_ISTANCE_NUM_ERROR);
         }
     }

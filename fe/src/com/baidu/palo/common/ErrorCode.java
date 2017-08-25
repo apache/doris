@@ -155,7 +155,7 @@ public enum ErrorCode {
     ERR_CLUSTER_NAME_NULL(5041, new byte[] {'4', '2', '0', '0', '0'}, "No cluster name"),
     ERR_CLUSTER_NO_PERMISSIONS(5042, new byte[] {'4', '2', '0', '0', '0'}, "No permissions"),
     ERR_CLUSTER_CREATE_ISTANCE_NUM_ERROR(5043, new byte[] {'4', '2', '0', '0', '0'}, 
-            "Instance num can't be less than 0"),
+            "Instance num can't be less than or equal 0"),
     ERR_CLUSTER_LINK_NO_DES(5044, new byte[] {'4', '2', '0', '0', '0'}, "No dest"),
     ERR_CLUSTER_LINK_NO_SRC(5045, new byte[] {'4', '2', '0', '0', '0'}, "No src"),
     ERR_CLUSTER_SRC_CLUSTER_NO_EXIT(5046, new byte[] {'4', '2', '0', '0', '0'}, "Src cluster '%s' no exist"),
