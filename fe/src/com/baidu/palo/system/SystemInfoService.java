@@ -322,7 +322,7 @@ public class SystemInfoService extends Daemon {
         final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
         final Map<String, List<Backend>> classMap = getHostBackendsMap(true, true, false);
 
-        LOG.info("calculate create cluster backend. cluster:" + name + " num:" + num);  
+        LOG.info("calculate create cluster backend. cluster:" + clusterName + " num:" + num);  
         int allBackendCount = 0;
         List<List<Backend>> hostList = Lists.newArrayList();
         for (List<Backend> list : classMap.values()) {

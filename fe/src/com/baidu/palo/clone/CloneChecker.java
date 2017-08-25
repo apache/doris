@@ -677,7 +677,7 @@ public class CloneChecker extends Daemon {
             // candidateBackendIds
             List<Long> candidateBackendIds = Lists.newArrayList();
             for (List<Long> list : candidateBackendIdsByDistribution) {
-                / select one backend in same host
+                // select one backend in same host
                 Collections.shuffle(list);
                 candidateBackendIds.add(list.get(0));
             }
