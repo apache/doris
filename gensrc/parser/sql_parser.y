@@ -1,5 +1,5 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
 // Copyright 2017 The Apache Software Foundation
+// Modifications copyright (C) 2017, Baidu.com, Inc.
 
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
@@ -194,7 +194,7 @@ parser code {:
 
 // Total keywords of palo
 terminal String KW_ADD, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_AS, KW_ASC, KW_AUTHORS, 
-    KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BOOLEAN, KW_BOTH, KW_BROKER, KW_BY,
+    KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BOOLEAN, KW_BOTH, KW_BROKER, KW_BACKENDS, KW_BY,
     KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_SYSTEM, KW_CLUSTER, KW_CLUSTERS, KW_LINK, KW_MIGRATE, KW_MIGRATIONS, KW_ENTER,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED,
     KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_COUNT, KW_CREATE, KW_CROSS, KW_CURRENT, KW_CURRENT_USER,
@@ -1655,6 +1655,10 @@ show_param ::=
     {:
         RESULT = new ShowBrokerStmt();
     :}
+    | KW_BACKENDS
+    {:   
+        RESULT = new ShowBackendsStmt();
+    :} 
     ;
 
 keys_or_index ::=
@@ -1827,7 +1831,7 @@ cancel_param ::=
     {:
         RESULT = new CancelAlterTableStmt(type, table);
     :}
-    | KW_ALTER KW_SYSTEM KW_DECOMMISSION KW_BACKEND string_list:hostPorts
+    | KW_DECOMMISSION KW_BACKEND string_list:hostPorts
     {:
         RESULT = new CancelAlterSystemStmt(hostPorts);
     :}
@@ -3409,6 +3413,8 @@ keyword ::=
     | KW_BOOLEAN:id
     {: RESULT = id; :}
     | KW_BROKER:id
+    {: RESULT = id; :}
+    | KW_BACKENDS:id
     {: RESULT = id; :}
     | KW_CHAIN:id
     {: RESULT = id; :}

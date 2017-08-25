@@ -25,8 +25,8 @@ import java.util.List;
 
 public class CancelAlterSystemStmt extends CancelStmt {
 
-    private List<String> hostPorts;
-    protected List<Pair<String, Integer>> hostPortPairs;
+    protected List<String> hostPorts;
+    private List<Pair<String, Integer>> hostPortPairs;
 
     public CancelAlterSystemStmt(List<String> hostPorts) {
         this.hostPorts = hostPorts;

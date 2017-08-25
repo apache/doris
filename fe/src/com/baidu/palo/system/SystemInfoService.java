@@ -41,6 +41,7 @@ import org.mortbay.log.Log;
 
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
+import com.baidu.palo.cluster.Cluster;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ClientPool;
 import com.baidu.palo.common.DdlException;
@@ -240,6 +241,11 @@ public class SystemInfoService extends Daemon {
         ImmutableMap<Long, HeartbeatHandler> newIdToHeartbeatHandler = ImmutableMap.copyOf(copiedHeartbeatHandlersMap);
         idToHeartbeatHandlerRef.set(newIdToHeartbeatHandler);
 
+        // update cluster
+        final Cluster cluster = Catalog.getInstance().getCluster(droppedBackend.getOwnerClusterName());
+        if (null != cluster) {
+            cluster.removeBackend(droppedBackend.getId());
+        }
         // log
         Catalog.getInstance().getEditLog().logDropBackend(droppedBackend);
         LOG.info("drop {}", droppedBackend);
@@ -365,19 +371,6 @@ public class SystemInfoService extends Daemon {
             LOG.warn("an excessive number of backends, require :" + num + " get:" + ret.size());
             return null;
         }
-
-        // set be state and owner
-        final Iterator<Long> iterator = ret.iterator();
-        while (iterator.hasNext()) {
-            final Long id = iterator.next();
-            final Backend backend = copiedBackends.get(id);
-            backend.setOwnerClusterName(clusterName);
-            backend.setBackendState(BackendState.using);
-            copiedBackends.put(backend.getId(), backend);
-            Catalog.getInstance().getEditLog().logBackendStateChange(backend);
-        }
-        ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
-        idToBackendRef.set(newIdToBackend);
         
         lastBackendIdForCreationMap.put(clusterName, (long) -1);
         lastBackendIdForOtherMap.put(clusterName, (long) -1);
@@ -403,7 +396,7 @@ public class SystemInfoService extends Daemon {
             } else {
                 final Backend backend = copiedBackends.get(id);
                 backend.setBackendState(BackendState.free);
-                backend.setOwnerClusterName("");
+                backend.clearClusterName();
                 if (log) {
                     Catalog.getInstance().getEditLog().logBackendStateChange(backend);
                 }
@@ -1022,6 +1015,11 @@ public class SystemInfoService extends Daemon {
         copiedHeartbeatHandlersMap.remove(backend.getId());
         ImmutableMap<Long, HeartbeatHandler> newIdToHeartbeatHandler = ImmutableMap.copyOf(copiedHeartbeatHandlersMap);
         idToHeartbeatHandlerRef.set(newIdToHeartbeatHandler);
+        // update cluster
+        final Cluster cluster = Catalog.getInstance().getCluster(backend.getOwnerClusterName());
+        if (null != cluster) {
+            cluster.removeBackend(backend.getId());
+        }
     }
 
     public void updateBackendState(Backend be) {

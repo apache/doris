@@ -516,6 +516,11 @@ public class EditLog {
                     catalog.getLoadInstance().setLoadErrorHubInfo(param);
                     break;
                 }
+                case OperationType.OP_UPDATE_CLUSTER_AND_BACKENDS: {
+                    final UpdateClusterAndBackends info = (UpdateClusterAndBackends) journal.getData();
+                    catalog.replayUpdateClusterAndBackends(info);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -888,4 +893,9 @@ public class EditLog {
         ExportJob.StateTransfer transfer = new ExportJob.StateTransfer(jobId, newState);
         logEdit(OperationType.OP_EXPORT_UPDATE_STATE, transfer);
     }
+
+    public void logUpdateClusterAndBackendState(UpdateClusterAndBackends info) {
+        logEdit(OperationType.OP_UPDATE_CLUSTER_AND_BACKENDS, info);
+    }
+    
 }
