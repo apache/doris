@@ -63,7 +63,9 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
 
 /**
  * CloneChecker for replica supplement, migration and deletion
@@ -115,7 +117,7 @@ public class CloneChecker extends Daemon {
             LOG.warn("init backend infos error");
             return false;
         }
-        Map<Level, Set<Long>> capacityLevelToBackendIds = initBackendCapacityInfos(backendInfos);
+        Map<Level, Set<List<Long>>> capacityLevelToBackendIds = initBackendCapacityInfos(backendInfos);
         if (capacityLevelToBackendIds == null || capacityLevelToBackendIds.isEmpty()) {
             LOG.warn("init backend capacity infos error");
             return false;
@@ -188,7 +190,7 @@ public class CloneChecker extends Daemon {
         } finally {
             db.readUnlock();
         }
-        Map<Level, Set<Long>> distributionLevelToBackendIds = initBackendDistributionInfos(backendInfos);
+        Map<Level, Set<List<Long>>> distributionLevelToBackendIds = initBackendDistributionInfos(backendInfos);
         if (distributionLevelToBackendIds == null || distributionLevelToBackendIds.isEmpty()) {
             LOG.warn("init backend distribution infos error");
             return false;
@@ -257,9 +259,10 @@ public class CloneChecker extends Daemon {
                 LOG.warn("init backend infos error");
                 continue;
             }
-            final Map<Level, Set<Long>> clusterCapacityLevelToBackendIds = initBackendCapacityInfos(
-                    clusterBackendInfos);
-            if (clusterCapacityLevelToBackendIds == null || clusterCapacityLevelToBackendIds.isEmpty()) {
+ 
+            final Map<Level, Set<List<Long>>> cluserCapacityLevelToBackendIds 
+                  = initBackendCapacityInfos(clusterBackendInfos);
+            if (cluserCapacityLevelToBackendIds == null || cluserCapacityLevelToBackendIds.isEmpty()) {
                 LOG.warn("init backend capacity infos error");
                 continue;
             }
@@ -391,22 +394,22 @@ public class CloneChecker extends Daemon {
                     }
 
                     // tablet distribution level
-                    final Map<Level, Set<Long>> clusterDistributionLevelToBackendIds = initBackendDistributionInfos(
-                            clusterBackendInfos);
+                    final Map<Level, Set<List<Long>>> clusterDistributionLevelToBackendIds 
+                        = initBackendDistributionInfos(clusterBackendInfos);
                     if (clusterDistributionLevelToBackendIds != null
                             && !clusterDistributionLevelToBackendIds.isEmpty()) {
                         // supplement
                         checkSupplement(cloneTabletMap, clusterDistributionLevelToBackendIds,
-                                clusterCapacityLevelToBackendIds, clusterBackendInfos);
+                                cluserCapacityLevelToBackendIds, clusterBackendInfos);
                         // migration
                         checkMigration(backendToTablets, clusterDistributionLevelToBackendIds,
-                                clusterCapacityLevelToBackendIds, clusterBackendInfos);
+                                cluserCapacityLevelToBackendIds, clusterBackendInfos);
                     } else {
                         LOG.warn("init backend distribution infos error");
                     }
 
                     // tablet distribution level
-                    final Map<Level, Set<Long>> distributionLevelToBackendIds = initBackendDistributionInfos(
+                    final Map<Level, Set<List<Long>>> distributionLevelToBackendIds = initBackendDistributionInfos(
                             clusterBackendInfos);
                     if (distributionLevelToBackendIds != null && !distributionLevelToBackendIds.isEmpty()) {
                         // delete redundant replicas
@@ -447,14 +450,38 @@ public class CloneChecker extends Daemon {
                 continue;
             }
             backendInfos.put(backendId,
-                    new BackendInfo(backendId, backend.getTotalCapacityB(), backend.getAvailableCapacityB()));
+                    new BackendInfo(backend.getHost(), backendId, backend.getTotalCapacityB(), 
+                            backend.getAvailableCapacityB()));
         }
         return backendInfos;
     }
 
-    private Map<Level, Set<Long>> initBackendCapacityInfos(Map<Long, BackendInfo> backendInfos) {
+    /**
+     * maybe more than one backend in same host, so capacity of backend are saved into one 
+     * list with same host. it need to randomly select one backend in migration and supplement, 
+     * and select all in delete.
+     * 
+     * @param backendInfos
+     * @return
+     */
+    private Map<Level, Set<List<Long>>> initBackendCapacityInfos(Map<Long, BackendInfo> backendInfos) {
         Preconditions.checkNotNull(backendInfos);
         if (backendInfos.size() == 0) {
+            return null;
+        }
+        
+        Map<String, List<BackendInfo>> backendInfosMap = Maps.newHashMap();
+        for (BackendInfo info : backendInfos.values()) {
+            if (backendInfosMap.containsKey(info.getHost())) {
+                backendInfosMap.get(info.getHost()).add(info);
+            } else {
+                List<BackendInfo> list = Lists.newArrayList();
+                list.add(info);
+                backendInfosMap.put(info.getHost(), list);
+            }
+        }
+
+        if (backendInfosMap.size() <= 1) {
             return null;
         }
 
@@ -475,16 +502,21 @@ public class CloneChecker extends Daemon {
                 avgUsedRatio, lowRatioThreshold, highRatioThreshold);
 
         // init capacityLevelToBackendIds
-        Map<Level, Set<Long>> capacityLevelToBackendIds = new HashMap<Level, Set<Long>>();
+        Map<Level, Set<List<Long>>> capacityLevelToBackendIds = new HashMap<Level, Set<List<Long>>>();
         for (Level level : Level.values()) {
-            capacityLevelToBackendIds.put(level, new HashSet<Long>());
+            capacityLevelToBackendIds.put(level, new HashSet());
         }
-        for (BackendInfo backendInfo : backendInfos.values()) {
-            long backendId = backendInfo.getBackendId();
-            long backendTotalCapacityB = backendInfo.getTotalCapacityB();
-            long backendAvailableCapacityB = backendInfo.getAvailableCapacityB();
+        for (List<BackendInfo> list : backendInfosMap.values()) {
+            long backendTotalCapacityB = 0;
+            long backendAvailableCapacityB = 0;
+            List<Long> ids = Lists.newArrayList();
+            for (BackendInfo backendInfo: list) {
+                backendTotalCapacityB += backendInfo.getTotalCapacityB();
+                backendAvailableCapacityB += backendInfo.getAvailableCapacityB();
+                ids.add(backendInfo.getBackendId());
+            }
             double usedRatio = (double) (backendTotalCapacityB - backendAvailableCapacityB) / backendTotalCapacityB;
-            Set<Long> backendIds = null;
+            Set<List<Long>> backendIds = null;
             if (usedRatio < lowRatioThreshold) {
                 backendIds = capacityLevelToBackendIds.get(Level.LOW);
             } else if (usedRatio < highRatioThreshold) {
@@ -492,28 +524,54 @@ public class CloneChecker extends Daemon {
             } else {
                 backendIds = capacityLevelToBackendIds.get(Level.HIGH);
             }
-            backendIds.add(backendId);
+            
+            backendIds.add(ids);
 
-            // set clone capacity
-            // totalCapacity * avgUsedRatio * (1 + threshold) - usedCapacity
             double backendCloneCapacityB = backendTotalCapacityB * highRatioThreshold
                     - (backendTotalCapacityB - backendAvailableCapacityB);
-            backendInfo.setCloneCapacityB((long) backendCloneCapacityB);
+            // set clone capacity
+            // totalCapacity * avgUsedRatio * (1 + threshold) - usedCapacity
+            for (BackendInfo backendInfo: list) {
+                backendInfo.setCloneCapacityB((long) backendCloneCapacityB);
+            }
         }
         LOG.debug("backend capacity infos. level map: {}", capacityLevelToBackendIds);
         return capacityLevelToBackendIds;
     }
 
-    private Map<Level, Set<Long>> initBackendDistributionInfos(Map<Long, BackendInfo> backendInfos) {
+    /**
+     * maybe more than one backend in same host, so distribution of tablet are saved into one 
+     * list with same host. it need to randomly select one backend in migration and supplement, 
+     * and select all in delete.
+     * 
+     * @param backendInfos
+     * @return
+     */
+    private Map<Level, Set<List<Long>>> initBackendDistributionInfos(Map<Long, BackendInfo> backendInfos) {
         Preconditions.checkNotNull(backendInfos);
         if (backendInfos.size() == 0) {
             return null;
         }
 
+        Map<String, List<BackendInfo>> backendInfosMap = Maps.newHashMap();
+        for (BackendInfo info : backendInfos.values()) {
+            if (backendInfosMap.containsKey(info.getHost())) {
+                backendInfosMap.get(info.getHost()).add(info);
+            } else {
+                List<BackendInfo> list = Lists.newArrayList();
+                list.add(info);
+                backendInfosMap.put(info.getHost(), list);
+            }
+        }
+
+        if (backendInfosMap.size() <= 1) {
+            return null;
+        }
+
         // init distributionLevelToBackendIds
-        Map<Level, Set<Long>> distributionLevelToBackendIds = new HashMap<Level, Set<Long>>();
+        Map<Level, Set<List<Long>>> distributionLevelToBackendIds = new HashMap<Level, Set<List<Long>>>();
         for (Level level : Level.values()) {
-            distributionLevelToBackendIds.put(level, new HashSet<Long>());
+            distributionLevelToBackendIds.put(level, new HashSet());
         }
 
         int totalReplicaNum = 0;
@@ -524,10 +582,14 @@ public class CloneChecker extends Daemon {
         double lowReplicaNumThreshold = avgReplicaNum * (1 - Config.clone_distribution_balance_threshold);
         double highReplicaNumThreshold = avgReplicaNum * (1 + Config.clone_distribution_balance_threshold);
 
-        for (BackendInfo backendInfo : backendInfos.values()) {
-            long backendId = backendInfo.getBackendId();
-            int backendReplicaNum = backendInfo.getTableReplicaNum();
-            Set<Long> backendIds = null;
+        for (List<BackendInfo> list : backendInfosMap.values()) {
+            int backendReplicaNum = 0;
+            List<Long> ids = Lists.newArrayList();
+            for (BackendInfo backendInfo: list) {
+                backendReplicaNum += backendInfo.getTableReplicaNum();
+                ids.add(backendInfo.getBackendId());
+            }
+            Set<List<Long>> backendIds = null;
             if (backendReplicaNum < lowReplicaNumThreshold) {
                 backendIds = distributionLevelToBackendIds.get(Level.LOW);
             } else if (backendReplicaNum < highReplicaNumThreshold) {
@@ -535,11 +597,14 @@ public class CloneChecker extends Daemon {
             } else {
                 backendIds = distributionLevelToBackendIds.get(Level.HIGH);
             }
-            backendIds.add(backendId);
-
+            
+            backendIds.add(ids);
             // set clone replica num
             int cloneReplicaNum = (int) highReplicaNumThreshold - backendReplicaNum;
-            backendInfo.setCloneReplicaNum(cloneReplicaNum);
+            for (BackendInfo backendInfo: list) {
+                backendInfo.setCloneReplicaNum(cloneReplicaNum);
+            }
+
         }
         LOG.debug("backend distribution infos. level map: {}", distributionLevelToBackendIds);
         return distributionLevelToBackendIds;
@@ -551,10 +616,11 @@ public class CloneChecker extends Daemon {
         }
     }
 
-    private long selectRandomBackendId(List<Long> candidateBackendIds, Set<Long> excludeBackendIds) {
+    private long selectRandomBackendId(List<Long> candidateBackendIds, Set<String> excludeBackendHosts,
+            Map<Long, BackendInfo> backendInfos) {
         Collections.shuffle(candidateBackendIds);
         for (long backendId : candidateBackendIds) {
-            if (!excludeBackendIds.contains(backendId)) {
+            if (!excludeBackendHosts.contains(backendInfos.get(backendId).getHost())) {
                 return backendId;
             }
         }
@@ -567,8 +633,9 @@ public class CloneChecker extends Daemon {
      * 2. if supplement, select from 2.1 low distribution and capacity 2.2 low
      * distribution 2.3 all order by distribution
      */
-    private long selectCloneReplicaBackendId(Map<Level, Set<Long>> distributionLevelToBackendIds,
-            Map<Level, Set<Long>> capacityLevelToBackendIds, Map<Long, BackendInfo> backendInfos, TabletInfo tabletInfo,
+    private long selectCloneReplicaBackendId(Map<Level, Set<List<Long>>> distributionLevelToBackendIds,
+            Map<Level, Set<List<Long>>> capacityLevelToBackendIds, 
+            Map<Long, BackendInfo> backendInfos, TabletInfo tabletInfo,
             JobType jobType, JobPriority priority) {
         Set<Long> existBackendIds = tabletInfo.getBackendIds();
         long tabletSizeB = tabletInfo.getTabletSizeB();
@@ -577,32 +644,47 @@ public class CloneChecker extends Daemon {
         // candidate backend from which step for debug
         String step = "-1";
 
+        final SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        Set<String> existBackendHosts = Sets.newHashSet();
+        for (Long id : existBackendIds) {
+            existBackendHosts.add(infoService.getBackend(id).getHost());
+        }
+ 
         if (priority == JobPriority.HIGH || priority == JobPriority.NORMAL) {
             // 1. HIGH priority
             List<Long> allBackendIds = Lists.newArrayList();
-            for (Set<Long> backendIds : distributionLevelToBackendIds.values()) {
-                allBackendIds.addAll(backendIds);
+            for (Set<List<Long>> backendIds : distributionLevelToBackendIds.values()) {
+                for (List<Long> list : backendIds) {
+                    // select one backend in same host
+                    Collections.shuffle(list);
+                    allBackendIds.add(list.get(0));
+                }
             }
 
             Collections.shuffle(allBackendIds);
-            candidateBackendId = selectRandomBackendId(allBackendIds, existBackendIds);
+            candidateBackendId = selectRandomBackendId(allBackendIds, existBackendHosts, backendInfos);
             step = "0";
         } else {
             // candidate backendIds:
             // low distribution and low capacity backends
-            Set<Long> candidateBackendIdsByDistribution = distributionLevelToBackendIds.get(Level.LOW);
+            Set<List<Long>> candidateBackendIdsByDistribution = distributionLevelToBackendIds.get(Level.LOW);
             LOG.debug("candidate backends by distribution: {}", candidateBackendIdsByDistribution);
-            Set<Long> candidateBackendIdsByCapacity = capacityLevelToBackendIds.get(Level.LOW);
+            Set<List<Long>> candidateBackendIdsByCapacity = capacityLevelToBackendIds.get(Level.LOW);
             LOG.debug("candidate backends by capacity: {}", candidateBackendIdsByCapacity);
 
             // select dest backendId from candidates
             // 2. check canCloneByCapacity && canCloneByDistribution from
             // candidateBackendIds
-            List<Long> candidateBackendIds = Lists.newArrayList(candidateBackendIdsByDistribution);
+            List<Long> candidateBackendIds = Lists.newArrayList();
+            for (List<Long> list : candidateBackendIdsByDistribution) {
+                / select one backend in same host
+                Collections.shuffle(list);
+                candidateBackendIds.add(list.get(0));
+            }
             candidateBackendIds.retainAll(candidateBackendIdsByCapacity);
             Collections.shuffle(candidateBackendIds);
             for (long backendId : candidateBackendIds) {
-                if (existBackendIds.contains(backendId)) {
+                if (existBackendHosts.contains(backendInfos.get(backendId).getHost())) {
                     continue;
                 }
                 candidateBackendInfo = backendInfos.get(backendId);
@@ -618,14 +700,18 @@ public class CloneChecker extends Daemon {
             if (jobType == JobType.SUPPLEMENT) {
                 // 3.1 random from candidateBackendIds
                 if (candidateBackendId == -1 && !candidateBackendIds.isEmpty()) {
-                    candidateBackendId = selectRandomBackendId(candidateBackendIds, existBackendIds);
+                    candidateBackendId = selectRandomBackendId(candidateBackendIds, existBackendHosts, backendInfos);
                     step = "2.1";
                 }
 
                 // 3.2 random from candidateBackendIdsByDistribution
                 if (candidateBackendId == -1 && !candidateBackendIdsByDistribution.isEmpty()) {
-                    candidateBackendIds = Lists.newArrayList(candidateBackendIdsByDistribution);
-                    candidateBackendId = selectRandomBackendId(candidateBackendIds, existBackendIds);
+                    for (List<Long> list : candidateBackendIdsByDistribution) {
+                        // select one backend in same host
+                        Collections.shuffle(list);
+                        candidateBackendIds.add(list.get(0));
+                    }
+                    candidateBackendId = selectRandomBackendId(candidateBackendIds, existBackendHosts, backendInfos);
                     step = "2.2";
                 }
 
@@ -637,8 +723,13 @@ public class CloneChecker extends Daemon {
                             continue;
                         }
 
-                        candidateBackendIds = Lists.newArrayList(candidateBackendIdsByDistribution);
-                        candidateBackendId = selectRandomBackendId(candidateBackendIds, existBackendIds);
+                        for (List<Long> list : candidateBackendIdsByDistribution) {
+                            // select one backend in same host
+                            Collections.shuffle(list);
+                            candidateBackendIds.add(list.get(0));
+                        }
+                        candidateBackendId = selectRandomBackendId(candidateBackendIds, 
+                                         existBackendHosts, backendInfos);
                         if (candidateBackendId != -1) {
                             step = "2.3";
                             break;
@@ -665,7 +756,7 @@ public class CloneChecker extends Daemon {
      * offline > clone > low version > high distribution in cluster
      */
     private void deleteRedundantReplicas(Database db, TabletInfo tabletInfo,
-            Map<Level, Set<Long>> distributionLevelToBackendIds) {
+            Map<Level, Set<List<Long>>> distributionLevelToBackendIds) {
         long tableId = tabletInfo.getTableId();
         long partitionId = tabletInfo.getPartitionId();
         long indexId = tabletInfo.getIndexId();
@@ -813,11 +904,16 @@ public class CloneChecker extends Daemon {
                 // delete where 
                 
                 for (Level level : levels) {
-                    List<Long> levelBackendIds = Lists.newArrayList(distributionLevelToBackendIds.get(level));
+                    List<Long> levelBackendIds = Lists.newArrayList();
+                    for (Set<List<Long>> sets : distributionLevelToBackendIds.values()) {
+                        for (List<Long> list : sets) {
+                            Collections.shuffle(list);
+                            levelBackendIds.add(list.get(0));
+                        }
+                    }
                     Collections.shuffle(levelBackendIds);
                     backendIds.addAll(levelBackendIds);
                 }
-                
                 for (long backendId : backendIds) {
                     Replica replica = tablet.getReplicaByBackendId(backendId);
                     if (tablet.deleteReplica(replica)) {
@@ -843,7 +939,8 @@ public class CloneChecker extends Daemon {
     }
 
     private void checkSupplement(Map<Long, TabletInfo> cloneTabletMap,
-            Map<Level, Set<Long>> distributionLevelToBackendIds, Map<Level, Set<Long>> capacityLevelToBackendIds,
+            Map<Level, Set<List<Long>>> distributionLevelToBackendIds, 
+            Map<Level, Set<List<Long>>> capacityLevelToBackendIds,
             Map<Long, BackendInfo> backendInfos) {
         for (TabletInfo tabletInfo : cloneTabletMap.values()) {
             addCloneJob(tabletInfo, distributionLevelToBackendIds, capacityLevelToBackendIds, backendInfos,
@@ -852,10 +949,11 @@ public class CloneChecker extends Daemon {
     }
 
     private void checkMigration(Map<Long, Set<TabletInfo>> backendToTablets,
-            Map<Level, Set<Long>> distributionLevelToBackendIds, Map<Level, Set<Long>> capacityLevelToBackendIds,
+            Map<Level, Set<List<Long>>> distributionLevelToBackendIds, Map<Level, 
+            Set<List<Long>>> capacityLevelToBackendIds,
             Map<Long, BackendInfo> backendInfos) {
         // select src tablet from high distribution or high capacity backends
-        Set<Long> highBackendIds = new HashSet<Long>();
+        Set<List<Long>> highBackendIds = new HashSet();
         highBackendIds.addAll(distributionLevelToBackendIds.get(Level.HIGH));
         highBackendIds.addAll(capacityLevelToBackendIds.get(Level.HIGH));
         if (highBackendIds.isEmpty()) {
@@ -864,9 +962,11 @@ public class CloneChecker extends Daemon {
         }
 
         Set<TabletInfo> candidateMigrationTablets = new HashSet<TabletInfo>();
-        for (long backendId : highBackendIds) {
-            if (backendToTablets.containsKey(backendId)) {
-                candidateMigrationTablets.addAll(backendToTablets.get(backendId));
+        for (List<Long> backendIds : highBackendIds) {
+            // select one backend in same host
+            Collections.shuffle(backendIds);
+            if (backendToTablets.containsKey(backendIds.get(0))) {
+                candidateMigrationTablets.addAll(backendToTablets.get(backendIds.get(0)));
             }
         }
         if (candidateMigrationTablets.isEmpty()) {
@@ -892,8 +992,8 @@ public class CloneChecker extends Daemon {
         }
     }
 
-    private void addCloneJob(TabletInfo tabletInfo, Map<Level, Set<Long>> distributionLevelToBackendIds,
-            Map<Level, Set<Long>> capacityLevelToBackendIds, Map<Long, BackendInfo> backendInfos, JobType jobType) {
+    private void addCloneJob(TabletInfo tabletInfo, Map<Level, Set<List<Long>>> distributionLevelToBackendIds,
+            Map<Level, Set<List<Long>>> capacityLevelToBackendIds, Map<Long, BackendInfo> backendInfos, JobType jobType) {
         // priority
         short onlineReplicaNum = tabletInfo.getOnlineReplicaNum();
         short replicationNum = tabletInfo.getReplicationNum();
@@ -1181,7 +1281,8 @@ public class CloneChecker extends Daemon {
 
     private class BackendInfo {
         private long backendId;
-
+        private String host;
+        
         private long totalCapacityB;
         private long availableCapacityB;
         // capacity for clone
@@ -1191,15 +1292,24 @@ public class CloneChecker extends Daemon {
         // replica num for clone
         private int cloneReplicaNum;
 
-        public BackendInfo(long backendId, long totalCapacityB, long availableCapacityB) {
+        public BackendInfo(String host, long backendId, long totalCapacityB, long availableCapacityB) {
             this.backendId = backendId;
             this.totalCapacityB = totalCapacityB;
             this.availableCapacityB = availableCapacityB;
+            this.host = host;
             this.cloneCapacityB = 0L;
             this.tableReplicaNum = 0;
             this.cloneReplicaNum = 0;
         }
 
+        public String getHost() {
+            return host;
+        }
+
+        public void setHost(String host) {
+            this.host = host;
+        }
+        
         public long getBackendId() {
             return backendId;
         }

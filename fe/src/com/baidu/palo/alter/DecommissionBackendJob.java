@@ -263,6 +263,15 @@ public class DecommissionBackendJob extends AlterJob {
                             continue;
                         }
 
+  
+                        // exclude backend in same hosts with the other replica
+                        Set<String> hosts = Sets.newHashSet();
+                        for (Replica replica : tablet.getReplicas()) {
+                            if (replica.getBackendId() != backendId) {
+                                hosts.add(clusterInfo.getBackend(replica.getBackendId()).getHost());
+                            }   
+                        } 
+
                         // choose dest backend
                         long destBackendId = -1L;
                         int num = 0;
@@ -273,7 +282,7 @@ public class DecommissionBackendJob extends AlterJob {
                                 return true;
                             }
 
-                            if (tablet.getReplicaByBackendId(destBackendIds.get(0)) != null) {
+                            if (hosts.contains(clusterInfo.getBackend(destBackendIds.get(0)).getHost())) {
                                 // replica can not in same backend
                                 continue;
                             }

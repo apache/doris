@@ -3406,7 +3406,7 @@ public class Catalog {
                 List<Long> chosenBackendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(replicationNum, true,
                         true, clusterName);
                 if (chosenBackendIds == null) {
-                    throw new DdlException("Failed to find enough alive backends. need: " + replicationNum);
+                    throw new DdlException("Failed to find enough host in all backends. need: " + replicationNum);
                 }
                 Preconditions.checkState(chosenBackendIds.size() == replicationNum);
                 for (long backendId : chosenBackendIds) {
