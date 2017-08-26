@@ -43,7 +43,7 @@ import com.baidu.palo.catalog.TabletMeta;
 import com.baidu.palo.clone.Clone;
 import com.baidu.palo.clone.CloneJob.JobPriority;
 import com.baidu.palo.cluster.Cluster;
-import com.baidu.palo.persist.UpdateClusterAndBackends;
+import com.baidu.palo.persist.BackendIdsUpdateInfo;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.FeMetaVersion;
@@ -489,7 +489,7 @@ public class DecommissionBackendJob extends AlterJob {
                             backendList.add(id);
                             cluster.removeBackend(id);
                         }
-                        UpdateClusterAndBackends updateInfo = new UpdateClusterAndBackends(backendList);
+                        BackendIdsUpdateInfo updateInfo = new BackendIdsUpdateInfo(backendList);
                         Catalog.getInstance().getEditLog().logUpdateClusterAndBackendState(updateInfo);
                     }
                 }

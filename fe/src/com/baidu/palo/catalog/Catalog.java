@@ -130,7 +130,7 @@ import com.baidu.palo.persist.ReplicaPersistInfo;
 import com.baidu.palo.persist.Storage;
 import com.baidu.palo.persist.StorageInfo;
 import com.baidu.palo.persist.TableInfo;
-import com.baidu.palo.persist.UpdateClusterAndBackends;
+import com.baidu.palo.persist.BackendIdsUpdateInfo;
 import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.JournalObservable;
 import com.baidu.palo.qe.SessionVariable;
@@ -5080,7 +5080,7 @@ public class Catalog {
         return checksum;
     }
 
-    public void replayUpdateClusterAndBackends(UpdateClusterAndBackends info) {
+    public void replayUpdateClusterAndBackends(BackendIdsUpdateInfo info) {
         for (long id : info.getBackendList()) {
             final Backend backend = systemInfo.getBackend(id);
             writeLock();

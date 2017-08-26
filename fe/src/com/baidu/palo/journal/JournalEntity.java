@@ -48,7 +48,7 @@ import com.baidu.palo.persist.PartitionPersistInfo;
 import com.baidu.palo.persist.RecoverInfo;
 import com.baidu.palo.persist.ReplicaPersistInfo;
 import com.baidu.palo.persist.TableInfo;
-import com.baidu.palo.persist.UpdateClusterAndBackends;
+import com.baidu.palo.persist.BackendIdsUpdateInfo;
 import com.baidu.palo.qe.SessionVariable;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.Frontend;
@@ -304,7 +304,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_UPDATE_CLUSTER_AND_BACKENDS: {
-                data = new UpdateClusterAndBackends();
+                data = new BackendIdsUpdateInfo();
                 break;
             }
             default: {

@@ -23,14 +23,14 @@ import java.util.List;
 import com.baidu.palo.common.io.Writable;
 import com.google.common.collect.Lists;
 
-public class UpdateClusterAndBackends implements Writable {
+public class BackendIdsUpdateInfo implements Writable {
     private List<Long> backendIds;
     
-    public UpdateClusterAndBackends() {
+    public BackendIdsUpdateInfo() {
         this.backendIds = Lists.newArrayList();
     }
 
-    public UpdateClusterAndBackends(List<Long> backends) {
+    public BackendIdsUpdateInfo(List<Long> backends) {
         this.backendIds = backends;
     }
 
