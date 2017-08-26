@@ -43,12 +43,12 @@ import com.baidu.palo.catalog.TabletMeta;
 import com.baidu.palo.clone.Clone;
 import com.baidu.palo.clone.CloneJob.JobPriority;
 import com.baidu.palo.cluster.Cluster;
+import com.baidu.palo.persist.BackendIdsUpdateInfo;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.FeMetaVersion;
 import com.baidu.palo.common.MetaNotFoundException;
 import com.baidu.palo.common.io.Text;
-import com.baidu.palo.persist.ClusterInfo;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.Backend.BackendState;
 import com.baidu.palo.system.SystemInfoService;
@@ -263,6 +263,15 @@ public class DecommissionBackendJob extends AlterJob {
                             continue;
                         }
 
+  
+                        // exclude backend in same hosts with the other replica
+                        Set<String> hosts = Sets.newHashSet();
+                        for (Replica replica : tablet.getReplicas()) {
+                            if (replica.getBackendId() != backendId) {
+                                hosts.add(clusterInfo.getBackend(replica.getBackendId()).getHost());
+                            }   
+                        } 
+
                         // choose dest backend
                         long destBackendId = -1L;
                         int num = 0;
@@ -273,7 +282,7 @@ public class DecommissionBackendJob extends AlterJob {
                                 return true;
                             }
 
-                            if (tablet.getReplicaByBackendId(destBackendIds.get(0)) != null) {
+                            if (hosts.contains(clusterInfo.getBackend(destBackendIds.get(0)).getHost())) {
                                 // replica can not in same backend
                                 continue;
                             }
@@ -469,23 +478,19 @@ public class DecommissionBackendJob extends AlterJob {
                 // Shrinking capacity in cluser
                 if (decomissionType == DecomissionType.ClusterDecomission) {
                     for (String clusterName : clusterBackendsMap.keySet()) {
-                        final Map<Long, Backend> map = clusterBackendsMap.get(clusterName);
+                        final Map<Long, Backend> idToBackend = clusterBackendsMap.get(clusterName);
                         final Cluster cluster = Catalog.getInstance().getCluster(clusterName);
-                        final List<Long> removeIds = Lists.newArrayList();
-                        for (long id : map.keySet()) {
-                            final Backend backend = map.get(id);
-                            backend.setOwnerClusterName("");
+                        List<Long> backendList = Lists.newArrayList();
+                        for (long id : idToBackend.keySet()) {
+                            final Backend backend = idToBackend.get(id);
+                            backend.clearClusterName();
                             backend.setBackendState(BackendState.free);
                             backend.setDecommissioned(false);
+                            backendList.add(id);
                             cluster.removeBackend(id);
-                            Catalog.getInstance().getEditLog().logBackendStateChange(backend);
-                            removeIds.add(id);
                         }
-                        cluster.removeBackends(removeIds);
-                        ClusterInfo info = new ClusterInfo();
-                        info.setClusterName(cluster.getName());
-                        info.setBackendIdList(cluster.getBackendIdList());
-                        Catalog.getInstance().getEditLog().logUpdateCluster(info);
+                        BackendIdsUpdateInfo updateInfo = new BackendIdsUpdateInfo(backendList);
+                        Catalog.getInstance().getEditLog().logUpdateClusterAndBackendState(updateInfo);
                     }
                 }
             }

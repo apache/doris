@@ -130,6 +130,7 @@ import com.baidu.palo.persist.ReplicaPersistInfo;
 import com.baidu.palo.persist.Storage;
 import com.baidu.palo.persist.StorageInfo;
 import com.baidu.palo.persist.TableInfo;
+import com.baidu.palo.persist.BackendIdsUpdateInfo;
 import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.JournalObservable;
 import com.baidu.palo.qe.SessionVariable;
@@ -138,6 +139,7 @@ import com.baidu.palo.service.FrontendOptions;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.Frontend;
 import com.baidu.palo.system.SystemInfoService;
+import com.baidu.palo.system.Backend.BackendState;
 import com.baidu.palo.task.AgentBatchTask;
 import com.baidu.palo.task.AgentTask;
 import com.baidu.palo.task.AgentTaskExecutor;
@@ -180,6 +182,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
+import java.util.Iterator;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
@@ -3406,7 +3409,7 @@ public class Catalog {
                 List<Long> chosenBackendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(replicationNum, true,
                         true, clusterName);
                 if (chosenBackendIds == null) {
-                    throw new DdlException("Failed to find enough alive backends. need: " + replicationNum);
+                    throw new DdlException("Failed to find enough host in all backends. need: " + replicationNum);
                 }
                 Preconditions.checkState(chosenBackendIds.size() == replicationNum);
                 for (long backendId : chosenBackendIds) {
@@ -4389,8 +4392,8 @@ public class Catalog {
      */
     public void createCluster(CreateClusterStmt stmt) throws DdlException {
         final String clusterName = stmt.getClusterName();
+        writeLock();
         try {
-            writeLock();
             if (nameToCluster.containsKey(clusterName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_HAS_EXIST, clusterName);
             } else {
@@ -4428,7 +4431,13 @@ public class Catalog {
                 return;
             }
         }
-
+        final Iterator<Long> iterator = cluster.getBackendIdList().iterator();
+        while (iterator.hasNext()) {
+            final Long id = iterator.next();
+            final Backend backend = systemInfo.getBackend(id);
+            backend.setOwnerClusterName(cluster.getName());
+            backend.setBackendState(BackendState.using);
+        }
         idToCluster.put(cluster.getId(), cluster);
         nameToCluster.put(cluster.getName(), cluster);
         final InfoSchemaDb db = new InfoSchemaDb(cluster.getName());
@@ -4473,8 +4482,8 @@ public class Catalog {
      * @throws DdlException
      */
     public void dropCluster(DropClusterStmt stmt) throws DdlException {
+        writeLock();
         try {
-            writeLock();
             final Cluster cluster = nameToCluster.get(stmt.getClusterName());
             final String clusterName = stmt.getClusterName();
             if (cluster == null) {
@@ -4537,9 +4546,8 @@ public class Catalog {
     public void processModityCluster(AlterClusterStmt stmt) throws DdlException {
         final String clusterName = stmt.getAlterClusterName();
         final int newInstanceNum = stmt.getInstanceNum();
-
+        writeLock();
         try {
-            writeLock();
             if (!nameToCluster.containsKey(clusterName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_NO_EXISTS, clusterName);
             }
@@ -4682,8 +4690,8 @@ public class Catalog {
         final String srcDbName = stmt.getSrcDb();
         final String desDbName = stmt.getDesDb();
 
+        writeLock();
         try {
-            writeLock();
             if (!nameToCluster.containsKey(srcClusterName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_SRC_CLUSTER_NO_EXIT, srcClusterName);
             }
@@ -4826,9 +4834,8 @@ public class Catalog {
         final String desClusterName = stmt.getDesCluster();
         final String srcDbName = stmt.getSrcDb();
         final String desDbName = stmt.getDesDb();
-
+        writeLock();
         try {
-            writeLock();
             if (!nameToCluster.containsKey(srcClusterName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_SRC_CLUSTER_NO_EXIT, srcClusterName);
             }
@@ -5072,4 +5079,21 @@ public class Catalog {
         }
         return checksum;
     }
+
+    public void replayUpdateClusterAndBackends(BackendIdsUpdateInfo info) {
+        for (long id : info.getBackendList()) {
+            final Backend backend = systemInfo.getBackend(id);
+            writeLock();
+            try {
+                final Cluster cluster = nameToCluster.get(backend.getOwnerClusterName());
+                cluster.removeBackend(id);
+            } finally {
+                writeUnlock();  
+            }
+            backend.setDecommissioned(false);
+            backend.clearClusterName();
+            backend.setBackendState(BackendState.free);            
+        }
+    }
+
 }

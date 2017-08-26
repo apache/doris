@@ -22,6 +22,7 @@ package com.baidu.palo.common.proc;
 
 import com.baidu.palo.alter.DecommissionBackendJob.DecomissionType;
 import com.baidu.palo.catalog.Catalog;
+import com.baidu.palo.cluster.Cluster;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.util.ListComparator;
 import com.baidu.palo.common.util.TimeUtils;
@@ -44,7 +45,6 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("BackendId").add("IP").add("HostName").add("HeartbeatPort").add("BePort").add("HttpPort")
             .add("LastStartTime").add("LastHeartbeat").add("Alive").add("SystemDecommissioned")
             .add("ClusterDecommissioned").add("TabletNum").build();
-
     public static final int IP_INDEX = 1;
     public static final int HOSTNAME_INDEX = 2;
 
@@ -59,15 +59,50 @@ public class BackendsProcDir implements ProcDirInterface {
         Preconditions.checkNotNull(clusterInfoService);
 
         BaseProcResult result = new BaseProcResult();
-
         result.setNames(TITLE_NAMES);
-        List<Long> backendIds = clusterInfoService.getBackendIds(false);
-        if (backendIds == null) {
-            // empty
-            return result;
-        }
 
-        List<List<Comparable>> backendInfos = new LinkedList<List<Comparable>>();
+        final List<List<String>> backendInfos = getBackendInfos();
+        for (List<String> backendInfo : backendInfos) {
+            List<String> oneInfo = new ArrayList<String>(backendInfo.size());
+            for (String info : backendInfo) {
+                oneInfo.add(info);
+            }
+            result.addRow(oneInfo);
+        }
+        return result;
+    }
+
+    /**
+     * get all backends of system
+     * @return
+     */
+    public static List<List<String>> getBackendInfos() {
+        return getClusterBackendInfos(null);
+    }
+   
+    /**
+     * get backends of cluster
+     * @param clusterName
+     * @return
+     */ 
+    public static List<List<String>> getClusterBackendInfos(String clusterName) {
+        final SystemInfoService clusterInfoService = Catalog.getCurrentSystemInfo();
+        List<List<String>> backendInfos = new LinkedList<List<String>>();
+        List<Long> backendIds = null;
+        if (!Strings.isNullOrEmpty(clusterName)) {
+            final Cluster cluster = Catalog.getInstance().getCluster(clusterName);
+            // root not in any cluster
+            if (null == cluster) {
+                return backendInfos;
+            }
+            backendIds = cluster.getBackendIdList();
+        } else {
+            backendIds = clusterInfoService.getBackendIds(false);
+            if (backendIds == null) {
+                return backendInfos;
+            }
+        }
+        List<List<Comparable>> comparableBackendInfos = new LinkedList<List<Comparable>>();
         for (long backendId : backendIds) {
             Backend backend = clusterInfoService.getBackend(backendId);
             if (backend == null) {
@@ -78,7 +113,6 @@ public class BackendsProcDir implements ProcDirInterface {
             String hostName = "N/A";
             try {
                 InetAddress address = InetAddress.getByName(backend.getHost());
-                ip = address.getHostAddress();
                 hostName = address.getHostName();
             } catch (UnknownHostException e) {
                 continue;
@@ -88,11 +122,13 @@ public class BackendsProcDir implements ProcDirInterface {
             List<Comparable> backendInfo = Lists.newArrayList();
             backendInfo.add(backend.getOwnerClusterName());
             backendInfo.add(String.valueOf(backendId));
-            backendInfo.add(ip);
-            backendInfo.add(hostName);
-            backendInfo.add(String.valueOf(backend.getHeartbeatPort()));
-            backendInfo.add(String.valueOf(backend.getBePort()));
-            backendInfo.add(String.valueOf(backend.getHttpPort()));
+            backendInfo.add(backend.getHost());
+            if (Strings.isNullOrEmpty(clusterName)) {
+                backendInfo.add(hostName);
+                backendInfo.add(String.valueOf(backend.getHeartbeatPort()));
+                backendInfo.add(String.valueOf(backend.getBePort()));
+                backendInfo.add(String.valueOf(backend.getHttpPort()));
+            }
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastStartTime()));
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastUpdateMs()));
             backendInfo.add(String.valueOf(backend.isAlive()));
@@ -108,22 +144,22 @@ public class BackendsProcDir implements ProcDirInterface {
                 backendInfo.add(String.valueOf("false"));
             }
             backendInfo.add(tabletNum.toString());
-
-            backendInfos.add(backendInfo);
+            comparableBackendInfos.add(backendInfo);
         }
-
+         
         // sort by id, ip hostName
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2);
-        Collections.sort(backendInfos, comparator);
+        Collections.sort(comparableBackendInfos, comparator);
 
-        for (List<Comparable> backendInfo : backendInfos) {
+        for (List<Comparable> backendInfo : comparableBackendInfos) {
             List<String> oneInfo = new ArrayList<String>(backendInfo.size());
             for (Comparable element : backendInfo) {
                 oneInfo.add(element.toString());
             }
-            result.addRow(oneInfo);
+            backendInfos.add(oneInfo);
         }
-        return result;
+        
+        return backendInfos;
     }
 
     @Override

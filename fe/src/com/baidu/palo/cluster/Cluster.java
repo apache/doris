@@ -359,21 +359,22 @@ public class Cluster implements Writable {
         }
     }
     
-    public void removeBackend(long id) {
+    public void removeBackend(long removedBackendId) {
         writeLock();
         try {
-            backendIdList.remove(id);
+            backendIdList.remove((Long)removedBackendId);
         } finally {
             writeUnlock();
         }
     }
     
-    public void removeBackends(List<Long> list) {
+    public void removeBackends(List<Long> removedBackendIds) {
         writeLock();
         try {
-            backendIdList.remove(list);
+            backendIdList.remove(removedBackendIds);
         } finally {
             writeUnlock();
         }
     }
+
 }

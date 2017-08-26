@@ -109,4 +109,6 @@ public class OperationType {
     public static final short OP_ADD_BROKER = 85;
     public static final short OP_DROP_BROKER = 86;
     public static final short OP_DROP_ALL_BROKER = 87;
+
+    public static final short OP_UPDATE_CLUSTER_AND_BACKENDS = 88;
 }

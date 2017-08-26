@@ -56,7 +56,7 @@ public class AlterSystemStmt extends DdlStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ALTER CLUSTER ").append(alterClause.toSql());
+        sb.append("ALTER SYSTEM ").append(alterClause.toSql());
         return sb.toString();
     }
 

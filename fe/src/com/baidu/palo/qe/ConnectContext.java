@@ -19,6 +19,7 @@ import java.nio.channels.SocketChannel;
 import java.util.List;
 
 import com.baidu.palo.catalog.Catalog;
+import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.mysql.MysqlCapability;
 import com.baidu.palo.mysql.MysqlChannel;
 import com.baidu.palo.mysql.MysqlCommand;
@@ -313,10 +314,10 @@ public class ConnectContext {
         public List<String>  toRow(long nowMs) {
             List<String> row = Lists.newArrayList();
             row.add("" + connectionId);
-            row.add(user);
+            row.add(ClusterNamespace.getDbNameFromFullName(user));
             row.add(mysqlChannel.getRemote());
             row.add(clusterName);
-            row.add(currentDb);
+            row.add(ClusterNamespace.getDbNameFromFullName(currentDb));
             row.add(command.toString());
             row.add("" + (nowMs - startTime) / 1000);
             row.add("");

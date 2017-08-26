@@ -50,7 +50,7 @@ public class ClusterNamespace {
             return false;
         }
         final String[] ele = str.split(CLUSTER_DELIMITER);
-        return (ele.length > 1) ? false : true;
+        return (ele.length > 1) ? true : false;
     }
 
     private static String linkString(String str1, String str2) {
@@ -72,8 +72,8 @@ public class ClusterNamespace {
      * @return
      */
     public static String getDbNameFromFullName(String db) {
-        if (checkName(db)) {
-            return null;
+        if (!checkName(db)) {
+            return db;
         }
         return extract(db, 1);
     }
@@ -85,8 +85,8 @@ public class ClusterNamespace {
      * @return
      */
     public static String getUsrNameFromFullName(String usr) {
-        if (checkName(usr)) {
-            return null;
+        if (!checkName(usr)) {
+            return usr;
         }
         return extract(usr, 1);
     }
@@ -98,7 +98,7 @@ public class ClusterNamespace {
      * @return
      */
     public static String getClusterNameFromFullName(String str) {
-        if (checkName(str)) {
+        if (!checkName(str)) {
             return null;
         }
         return extract(str, 0);
