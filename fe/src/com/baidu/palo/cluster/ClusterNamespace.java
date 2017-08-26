@@ -73,7 +73,7 @@ public class ClusterNamespace {
      */
     public static String getDbNameFromFullName(String db) {
         if (!checkName(db)) {
-            return null;
+            return db;
         }
         return extract(db, 1);
     }
@@ -86,7 +86,7 @@ public class ClusterNamespace {
      */
     public static String getUsrNameFromFullName(String usr) {
         if (!checkName(usr)) {
-            return null;
+            return usr;
         }
         return extract(usr, 1);
     }
