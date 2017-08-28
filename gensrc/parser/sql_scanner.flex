@@ -73,6 +73,7 @@ import com.baidu.palo.common.util.SqlUtils;
         keywordMap.put("asc", new Integer(SqlParserSymbols.KW_ASC));
         keywordMap.put("authors", new Integer(SqlParserSymbols.KW_AUTHORS));
         keywordMap.put("backend", new Integer(SqlParserSymbols.KW_BACKEND));
+        keywordMap.put("backends", new Integer(SqlParserSymbols.KW_BACKENDS));
         keywordMap.put("backup", new Integer(SqlParserSymbols.KW_BACKUP));
         keywordMap.put("begin", new Integer(SqlParserSymbols.KW_BEGIN));
         keywordMap.put("between", new Integer(SqlParserSymbols.KW_BETWEEN));
