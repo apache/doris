@@ -160,7 +160,7 @@ broker 以插件的形式，独立于 Palo 部署。如果需要从第三方存�
 
     重新执行：`sh build-thirdparty.sh`
 
-* 编译 thrift：Boost.Context fails to build -> Call of overloaded 'callcc(...) is ambiguous' 
+* 编译 Boost：Boost.Context fails to build -> Call of overloaded 'callcc(...) is ambiguous' 
 
     如果你使用 gcc 4.8 或 4.9 版本，则可能出现这个问题。执行以下命令：
 
