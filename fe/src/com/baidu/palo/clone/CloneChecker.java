@@ -481,10 +481,7 @@ public class CloneChecker extends Daemon {
             }
         }
 
-        if (backendInfosMap.size() <= 1) {
-            return null;
-        }
-
+        // maybe backendInfosMap size == 1 when migrate db
         // calculate avg used ratio
         long totalCapacityB = 0;
         long availableCapacityB = 0;
@@ -564,10 +561,7 @@ public class CloneChecker extends Daemon {
             }
         }
 
-        if (backendInfosMap.size() <= 1) {
-            return null;
-        }
-
+        // maybe backendInfosMap size == 1 when migrate db
         // init distributionLevelToBackendIds
         Map<Level, Set<List<Long>>> distributionLevelToBackendIds = new HashMap<Level, Set<List<Long>>>();
         for (Level level : Level.values()) {
