@@ -241,7 +241,13 @@ endif()
 # Note that we don't enable any optimization. We want unoptimized IR since we will be
 # modifying it at runtime, then re-compiling (and optimizing) the modified code. The final
 # optimizations will be less effective if the initial code is also optimized.
-set(CLANG_IR_CXX_FLAGS "-std=gnu++11" "-c" "-emit-llvm" "-D__STDC_CONSTANT_MACROS" "-D__STDC_FORMAT_MACROS" "-D__STDC_LIMIT_MACROS" "-DIR_COMPILE" "-DNDEBUG" "-DHAVE_INTTYPES_H" "-DHAVE_NETINET_IN_H" "-DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG" "-D__GLIBCXX_BITSIZE_INT_N_0=128" "-D__GLIBCXX_TYPE_INT_N_0=__int128" "-U_GLIBCXX_USE_FLOAT128")
+
+if(DEFINED ENV{GCC_TOOLCHAIN})
+    set(CLANG_IR_CXX_FLAGS $ENV{GCC_TOOLCHAIN})
+endif()
+set(CLANG_IR_CXX_FLAGS ${CLANG_IR_CXX_FLAGS} "-std=gnu++11" "-c" "-emit-llvm" "-D__STDC_CONSTANT_MACROS" "-D__STDC_FORMAT_MACROS" "-D__STDC_LIMIT_MACROS" "-DIR_COMPILE" "-DNDEBUG" "-DHAVE_INTTYPES_H" "-DHAVE_NETINET_IN_H" "-DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG" "-D__GLIBCXX_BITSIZE_INT_N_0=128" "-D__GLIBCXX_TYPE_INT_N_0=__int128" "-U_GLIBCXX_USE_FLOAT128")
+
+message(STATUS "CLANG_IR_CXX_FLAGS: ${CLANG_IR_CXX_FLAGS}")
 
 # CMake really doesn't like adding link directories and wants absolute paths
 # Reconstruct it with LLVM_MODULE_LIBS and LLVM_LIBRARY_DIR
@@ -269,7 +275,10 @@ execute_process(COMMAND lsb_release -si OUTPUT_VARIABLE LINUX_VERSION)
 string(TOLOWER ${LINUX_VERSION} LINUX_VERSION_LOWER)
 message(STATUS "${LINUX_VERSION_LOWER}")
 
-if(${LINUX_VERSION_LOWER} MATCHES "ubuntu")
+if(DEFINED ENV{CLANG_BASE_FLAGS})
+    set(CLANG_BASE_FLAGS
+        $ENV{CLANG_BASE_FLAGS})
+elseif(${LINUX_VERSION_LOWER} MATCHES "ubuntu")
     set(CLANG_BASE_FLAGS
         "-I/usr/include/c++/5/"
         "-I/usr/include/x86_64-linux-gnu/c++/5/")
@@ -285,12 +294,15 @@ else()
     message(FATAL_ERROR "Currently not support system ${LINUX_VERSION}")
 endif()
 
+message(STATUS "CLANG_BASE_FLAGS: ${CLANG_BASE_FLAGS}")
+
 set(CLANG_INCLUDE_FLAGS
     "-I${BASE_DIR}/src"
     "-I${GENSRC_DIR}"
     "-I${THIRDPARTY_DIR}/include"
     "-I${THIRDPARTY_DIR}/include/thrift/"
     "-I${THIRDPARTY_DIR}/include/event/"
+    ${CLANG_BASE_FLAGS}
 )
 
 # Set include dirs
@@ -345,7 +357,6 @@ set (PALO_LINK_LIBS ${PALO_LINK_LIBS}
     gflags
     re2
     pprof
-    unwind
     tcmalloc
     unwind
     lz4

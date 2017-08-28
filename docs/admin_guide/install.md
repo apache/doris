@@ -6,7 +6,7 @@
 
 Palo 当前只能运行在 Linux 系统上，无论是编译还是部署，都建议确保系统安装了如下软件或者库：
 
-* GCC 4.8.2+，Oracle JDK 1.8+，Python 2.7+，确认 gcc, java, python 命令指向正确版本, 设置JAVA_HOME环境变量
+* GCC 4.8.2+，Oracle JDK 1.8+，Python 2.7+，确认 gcc, java, python 命令指向正确版本, 设置 JAVA_HOME 环境变量
 
 * Ubuntu需要安装：`sudo apt-get install g++ ant cmake zip byacc flex automake libtool binutils-dev libiberty-dev bison`；安转完成后，需要执行 `sudo updatedb`。
 
@@ -15,10 +15,14 @@ Palo 当前只能运行在 Linux 系统上，无论是编译还是部署，都�
 ## 2. 编译
 
 默认提供了 Ubuntu 16.04, Centos 7.1 环境的预编译版本，可以直接下载使用。
-下载链接（20170816 update）：
-[palo-0.8.0_centos7.1](http://palo-opensource.gz.bcebos.com/palo-0.8.0_20170816_centos7.1_gcc485.tar.gz?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2017-08-16T01%3A27%3A35Z%2F-1%2Fhost%2Ff0ab7d119179f05f1c4c98a184430f4cb2e8b2d2d8e7ea681e815d6a0710781c), [palo-0.8.0_ubuntu16.04](http://palo-opensource.gz.bcebos.com/palo-0.8.0_20170816_ubuntu16.04_gcc540.tar.gz?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2017-08-16T01%3A27%3A47Z%2F-1%2Fhost%2F51bcab1d7a42cbdf3e4df502dada838919bdc7ef6afa7397928425ddc9a724d8)
+下载链接（20170822 update）：
+[palo-0.8.0_centos7.1](http://palo-opensource.gz.bcebos.com/palo-0.8.0_20170822_centos7.1_gcc485.tar.gz?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2017-08-23T03%3A04%3A26Z%2F-1%2Fhost%2Fd3a8326a80c2c7b7be5b039f1e0b21a5b40cebe82ca55de6c332d55622c04428), [palo-0.8.0_ubuntu16.04](http://palo-opensource.gz.bcebos.com/palo-0.8.0_20170822_ubuntu16.04_gcc540.tar.gz?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2017-08-23T03%3A05%3A35Z%2F-1%2Fhost%2F68c7cc444ed80379ec014925e8ef85959603b9f63a80c7bdb3bac3e9b1ed8e0d)
 
-如果预编译版本有问题，或者是其它系统，建议按照下面步骤进行源码编译。
+同时我们提供了 docker 镜像下载（20170822 update）：[palo-0.8.0-centos-docker.tar](http://palo-opensource.gz.bcebos.com/palo-0.8.0-centos-docker-20170822.tar?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2017-08-22T11%3A38%3A15Z%2F-1%2Fhost%2F1e56d3d3dbc51f0d36af792197130b85743792aae282a93aaa43515e5eba5dc6)
+
+docker 镜像的使用方式参见本文最后一节。
+
+如需自行编译，请按照下面步骤进行源码编译。
 
 ### 2.1 编译第三方依赖库
 
@@ -108,6 +112,10 @@ broker 以插件的形式，独立于 Palo 部署。如果需要从第三方存�
 
     在相应 broker/conf/ 目录下对应的配置文件中，可以修改相应配置。
 
+ * 启动broker
+
+    sh bin/start_hdfs_broker.sh 启动hdfs的broker，其他类型的broker请进入相应的目录予以启动
+
 * 添加broker
 
     要让 palo 的 fe 和 be 知道 broker 在哪些节点上，通过 sql 命令添加 broker 节点列表。
@@ -152,7 +160,7 @@ broker 以插件的形式，独立于 Palo 部署。如果需要从第三方存�
 
     重新执行：`sh build-thirdparty.sh`
 
-* 编译 thrift：Boost.Context fails to build -> Call of overloaded 'callcc(...) is ambiguous' 
+* 编译 Boost：Boost.Context fails to build -> Call of overloaded 'callcc(...) is ambiguous' 
 
     如果你使用 gcc 4.8 或 4.9 版本，则可能出现这个问题。执行以下命令：
 
@@ -216,3 +224,36 @@ FE 分为 leader，follower 和 observer 三种角色。 默认一个集群，�
 其中host为 Leader 所在节点 ip；port 为 Leader 的配置文件 fe.conf 中的 edit_log_port。-helper 参数仅在 follower 和 observer 第一次启动时才需要。
     
 查看 Follower 或 Observer 运行状态。使用 mysql-client 连接到任一已启动的 FE，并执行：SHOW PROC '/frontend'; 可以查看当前已加入集群的 FE 及其对应角色。
+
+## 6. Docker 镜像
+
+请确保已安装 docker 并启动 docker 服务。
+
+* 加载 Docker 镜像
+
+    `docker load -i palo-0.8.0-centos-docker.tar`
+    
+* 创建工作目录
+
+    `cd /your/workspace/ && mkdir -p fe/palo-meta fe/log be/data/ be/log`
+        
+    以上目录分别用于存放 FE 元信息、FE 日志、BE 数据、BE 日志。
+    
+* 启动 container
+
+    `docker run --privileged -p 9030:9030 -p 8030:8030 -p 9010:9010 -p 9020:9020 -p 9060:9060 -p 9070:9070 -p 8040:8040 -p 9050:9050 -v $PWD/fe/log:/home/palo/run/fe/log -v $PWD/fe/palo-meta:/home/palo/run/fe/palo-meta -v $PWD/be/log:/home/palo/run/be/log -v $PWD/be/data:/home/palo/run/be/data -d -i -t palo:0.8.0 /bin/bash`
+        
+    该命令将 FE 和 BE 所需的所有端口映射到宿主机对应端口，并将 FE 和 BE 所需的持久化目录（元信息、数据、日志）挂载到之前创建的工作目录下。
+    
+* Attach container
+
+    执行 `docker ps -l` 获取 `CONTAINER_ID`。
+        
+    执行 `docker attach CONTAINER_ID` 进入 container。之后按照前文所述，启动 FE 和 BE 即可。
+    
+* 退出 container
+
+    若想保持 container 运行，执行 `ctrl + pq` 退出。
+        
+    若需退出并关闭 container，执行 `ctrl + d`。
+    
