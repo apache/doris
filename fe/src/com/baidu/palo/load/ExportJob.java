@@ -89,6 +89,7 @@ public class ExportJob implements Writable {
 
     private long id;
     private long dbId;
+    private String clusterName;
     private long tableId;
     private BrokerDesc brokerDesc;
     private String exportPath;
@@ -286,7 +287,7 @@ public class ExportJob implements Writable {
             TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits() + i, uuid.getLeastSignificantBits());
 
             Coordinator coord = new Coordinator(
-                    queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode));
+                    queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode), clusterName);
             coords.add(coord);
             this.coordList.add(coord);
         }
@@ -353,6 +354,10 @@ public class ExportJob implements Writable {
 
     public long getId() {
         return id;
+    }
+
+    public void setClusterName(String clusterName) {
+        this.clusterName = clusterName;
     }
 
     public long getDbId() {

@@ -862,6 +862,21 @@ public class SystemInfoService extends Daemon {
         return idToBackendRef.get();
     }
 
+
+    public ImmutableMap<Long, Backend> getClusterIdToBackend(String cluster) {
+        if (Strings.isNullOrEmpty(cluster)) {
+            return idToBackendRef.get();
+        }
+
+        Map<Long, Backend> retMaps = Maps.newHashMap();
+        for (Backend backend : idToBackendRef.get().values().asList()) {
+            if (cluster.equals(backend.getOwnerClusterName())) {
+                retMaps.put(backend.getId(), backend);
+            }    
+        }
+        return ImmutableMap.copyOf(retMaps);
+    } 
+    
     public long getBackendReportVersion(long backendId) {
         AtomicLong atomicLong = null;
         if ((atomicLong = idToReportVersionRef.get().get(backendId)) == null) {
