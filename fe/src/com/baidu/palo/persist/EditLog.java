@@ -517,7 +517,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_UPDATE_CLUSTER_AND_BACKENDS: {
-                    final BackendIdsUpdateInfo info = (UpdateIdsUpdateInfo) journal.getData();
+                    final BackendIdsUpdateInfo info = (BackendIdsUpdateInfo) journal.getData();
                     catalog.replayUpdateClusterAndBackends(info);
                     break;
                 }
