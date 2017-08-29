@@ -202,7 +202,7 @@ public class PullLoadTask {
             UUID uuid = UUID.randomUUID();
             executeId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
             curCoordinator = new Coordinator(executeId, planner.getDescTable(),
-                    planner.getFragments(), planner.getScanNodes());
+                    planner.getFragments(), planner.getScanNodes(), db.getClusterName());
             curCoordinator.setQueryType(TQueryType.LOAD);
             curCoordinator.setExecMemoryLimit(execMemLimit);
         }

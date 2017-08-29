@@ -166,6 +166,7 @@ public class Coordinator {
     private TResourceInfo tResourceInfo;
     private boolean needReport;
 
+    private String clusterName;
 
     // Used for query
     public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner) {
@@ -180,11 +181,12 @@ public class Coordinator {
         this.tResourceInfo = new TResourceInfo(context.getUser(),
                 context.getSessionVariable().getResourceGroup());
         this.needReport = context.getSessionVariable().isReportSucc();
+        this.clusterName = context.getClusterName();
     }
 
     // Used for pull load task coordinator
     public Coordinator(TUniqueId queryId, DescriptorTable descTable,
-                       List<PlanFragment> fragments, List<ScanNode> scanNodes) {
+                       List<PlanFragment> fragments, List<ScanNode> scanNodes, String cluster) {
         this.isBlockQuery = true;
         this.queryId = queryId;
         this.descTable = descTable.toThrift();
@@ -194,6 +196,7 @@ public class Coordinator {
         this.queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
         this.tResourceInfo = new TResourceInfo("", "");
         this.needReport = true;
+        this.clusterName = cluster;
     }
 
     public TUniqueId getQueryId() {
@@ -251,7 +254,7 @@ public class Coordinator {
             queryProfile.addChild(fragmentProfile.get(i));
         }
 
-        this.idToBackend = Catalog.getCurrentSystemInfo().getIdToBackend();
+        this.idToBackend = Catalog.getCurrentSystemInfo().getClusterIdToBackend(clusterName);
         if (LOG.isDebugEnabled()) {
             LOG.debug("idToBackend size={}", idToBackend.size());
             for (Map.Entry<Long, Backend> entry : idToBackend.entrySet()) {
