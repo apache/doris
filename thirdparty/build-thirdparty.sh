@@ -328,8 +328,7 @@ build_gperftools() {
     LDFLAGS="-L${TP_LIB_DIR}" \
     LD_LIBRARY_PATH="${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
-    LIBS="-lunwind" \
-    ./configure --prefix=$TP_INSTALL_DIR --enable-libunwind --with-pic
+    ./configure --prefix=$TP_INSTALL_DIR --disable-libunwind --with-pic
     make -j$PARALLEL && make install
 }
 
@@ -464,7 +463,7 @@ build_glog
 build_gtest
 build_rapidjson
 build_snappy
-build_libunwind
+# build_libunwind // deprecated
 build_gperftools
 build_curl
 build_re2
