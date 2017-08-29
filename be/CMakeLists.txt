@@ -101,9 +101,6 @@ set_target_properties(pprof PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/l
 add_library(tcmalloc STATIC IMPORTED)
 set_target_properties(tcmalloc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libtcmalloc.a)
 
-add_library(unwind STATIC IMPORTED)
-set_target_properties(unwind PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libunwind.a)
-
 add_library(protobuf STATIC IMPORTED)
 set_target_properties(protobuf PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libprotobuf.a)
 
@@ -358,7 +355,6 @@ set (PALO_LINK_LIBS ${PALO_LINK_LIBS}
     re2
     pprof
     tcmalloc
-    unwind
     lz4
     libevent
     ${LIBZ}
@@ -379,7 +375,7 @@ set (PALO_LINK_LIBS ${PALO_LINK_LIBS}
 set (TEST_LINK_LIBS ${PALO_LINK_LIBS} gmock LLVMSupport)
 
 # Set CXX flags
-SET(CXX_COMMON_FLAGS "-msse4.2 -Wall -Wno-sign-compare -Wno-deprecated -pthread")
+SET(CXX_COMMON_FLAGS "-msse4.2 -Wall -Wno-sign-compare -Wno-deprecated -pthread -fno-omit-frame-pointer")
 SET(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG -D__STDC_FORMAT_MACROS")
 
 # Add by zhaochun: use gnu++11 for make_unsigned<__int128>
