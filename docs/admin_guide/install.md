@@ -26,7 +26,7 @@ docker 镜像的使用方式参见本文最后一节。
 
 ### 2.1 编译第三方依赖库
 
-为防止从官网下载第三方库失败，我们提前打包了palo所需的第三方库，下载地址如下: [palo-thirdparty](http://palo-opensource.gz.bcebos.com/palo-thirdparty.tar.gz?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2017-08-11T13%3A18%3A14Z%2F-1%2Fhost%2Fec3d7693a3ab4fe76fb23f8e77dff40624bde867cab75d3842e719816cbd1d2b)。下载解压完成之后，需将palo-thirdparty目录下的全部文件拷贝到thirdparty/src目录下。
+为防止从官网下载第三方库失败，我们提前打包了palo所需的第三方库，下载地址如下: [palo-thirdparty.tar.gz](http://palo-opensource.gz.bcebos.com/palo-thirdparty.tar.gz?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2017-08-11T13%3A18%3A14Z%2F-1%2Fhost%2Fec3d7693a3ab4fe76fb23f8e77dff40624bde867cab75d3842e719816cbd1d2b)。下载解压完成之后，需将palo-thirdparty目录下的全部文件拷贝到thirdparty/src目录下。
 
 运行`sh thirdparty/build-thirdparty.sh`编译第三方库。
 
