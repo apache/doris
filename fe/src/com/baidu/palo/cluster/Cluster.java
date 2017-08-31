@@ -291,13 +291,13 @@ public class Cluster implements Writable {
         }
 
         int dbCount = dbIds.size();
-        if (dbNames.contains(ClusterNamespace.getDbFullName(this.name, InfoSchemaDb.getDatabaseName()))) {
+        if (dbNames.contains(ClusterNamespace.getFullName(this.name, InfoSchemaDb.DATABASE_NAME))) {
             dbCount--;
         }
 
         out.writeInt(dbCount);
         for (String name : dbNames) {
-            if (!name.equals(ClusterNamespace.getDbFullName(this.name, InfoSchemaDb.getDatabaseName()))) {
+            if (!name.equals(ClusterNamespace.getFullName(this.name, InfoSchemaDb.DATABASE_NAME))) {
                 Text.writeString(out, name);
             }
         }

@@ -314,10 +314,10 @@ public class ConnectContext {
         public List<String>  toRow(long nowMs) {
             List<String> row = Lists.newArrayList();
             row.add("" + connectionId);
-            row.add(ClusterNamespace.getDbNameFromFullName(user));
+            row.add(ClusterNamespace.getNameFromFullName(user));
             row.add(mysqlChannel.getRemote());
             row.add(clusterName);
-            row.add(ClusterNamespace.getDbNameFromFullName(currentDb));
+            row.add(ClusterNamespace.getNameFromFullName(currentDb));
             row.add(command.toString());
             row.add("" + (nowMs - startTime) / 1000);
             row.add("");

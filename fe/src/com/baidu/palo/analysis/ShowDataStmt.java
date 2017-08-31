@@ -83,7 +83,7 @@ public class ShowDataStmt extends ShowStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
         } else {
-            dbName = ClusterNamespace.getDbFullName(getClusterName(), dbName);
+            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
 
         // check access

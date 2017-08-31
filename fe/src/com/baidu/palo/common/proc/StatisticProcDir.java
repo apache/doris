@@ -153,7 +153,7 @@ public class StatisticProcDir implements ProcDirInterface {
 
                 List<Comparable> oneLine = new ArrayList<Comparable>(TITLE_NAMES.size());
                 oneLine.add(dbId);
-                oneLine.add(db.getName());
+                oneLine.add(db.getFullName());
                 oneLine.add(dbTableNum);
                 oneLine.add(dbPartitionNum);
                 oneLine.add(dbIndexNum);

@@ -83,7 +83,7 @@ public class AlterUserStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(userName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "empty user");
         }
-        userName = ClusterNamespace.getUserFullName(getClusterName(), userName);
+        userName = ClusterNamespace.getFullName(getClusterName(), userName);
         // check destination user if exists
         try {
             analyzer.getCatalog().getUserMgr().checkUserIfExist(userName);

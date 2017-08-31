@@ -171,7 +171,7 @@ public class EditLog {
                         break;
                     }
                     LOG.info("Begin to unprotect drop table. db = "
-                            + db.getName() + " table = " + info.getTableId());
+                            + db.getFullName() + " table = " + info.getTableId());
                     catalog.replayDropTable(db, info.getTableId());
                     break;
                 }
@@ -466,14 +466,9 @@ public class EditLog {
                     catalog.replayDropCluster(value);
                     break;
                 }
-                case OperationType.OP_UPDATE_CLUSTER: {
-                    final ClusterInfo value = (ClusterInfo) journal.getData();
-                    catalog.replayUpdateCluster(value);
-                    break;
-                }
-                case OperationType.OP_MODIFY_CLUSTER: {
-                    final ClusterInfo value = (ClusterInfo) journal.getData();
-                    catalog.replayUpdateCluster(value);
+                case OperationType.OP_EXPAND_CLUSTER: {
+                    final ClusterInfo info = (ClusterInfo) journal.getData();
+                    catalog.replayExpandCluster(info);
                     break;
                 }
                 case OperationType.OP_LINK_CLUSTER: {
@@ -849,8 +844,8 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_DB, new Text(info));
     }
 
-    public void logModifyCluster(ClusterInfo ci) {
-        logEdit(OperationType.OP_MODIFY_CLUSTER, ci);
+    public void logExpandCluster(ClusterInfo ci) {
+        logEdit(OperationType.OP_EXPAND_CLUSTER, ci);
     }
 
     public void logLinkCluster(BaseParam param) {
@@ -859,10 +854,6 @@ public class EditLog {
 
     public void logMigrateCluster(BaseParam param) {
         logEdit(OperationType.OP_MIGRATE_CLUSTER, param);
-    }
-
-    public void logUpdateCluster(ClusterInfo info) {
-        logEdit(OperationType.OP_UPDATE_CLUSTER, info);
     }
 
     public void logDropLinkDb(DropLinkDbAndUpdateDbInfo info) {

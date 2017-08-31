@@ -58,7 +58,7 @@ public class MultiDesc extends RestBaseAction {
             throw new DdlException("No label selected");
         }
         AuthorizationInfo authInfo = getAuthorizationInfo(request);
-        String fullDbName = ClusterNamespace.getDbFullName(authInfo.cluster, db);
+        String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, db);
 
         checkReadPriv(authInfo.fullUserName, fullDbName);
 

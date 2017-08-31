@@ -140,7 +140,6 @@ public class UserPropertyMgr {
     // dropUser
     // we provide two funciton to support search stmt: hasAccess(),
     // getIsAdmin(), getPassword()
-
     public void addUser(String cluster, String user, byte[] password, boolean isSuperuser) throws DdlException {
         writeLock();
         try {
@@ -148,8 +147,8 @@ public class UserPropertyMgr {
             UserProperty resource = unprotectAddUser(cluster, user, password);
             resource.setIsSuperuser(isSuperuser);
             // all user has READ_ONLY privilege to InfoSchemaDb
-            this.getAccessResource(user).setAccess(
-                    ClusterNamespace.getDbFullName(cluster, InfoSchemaDb.getDatabaseName()), AccessPrivilege.READ_ONLY);
+            this.getAccessResource(user).setAccess(ClusterNamespace.getFullName(cluster, InfoSchemaDb.DATABASE_NAME),
+                                                   AccessPrivilege.READ_ONLY);
             String msg = "addUser username=" + user + " password='" + password;
             writeEditsOfAlterAccess(resource, msg);
         } finally {

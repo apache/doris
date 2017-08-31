@@ -51,7 +51,7 @@ public class SetUserPropertyStmt extends DdlStmt {
             user = analyzer.getUser();
         } else {
             if (!analyzer.getCatalog().getUserMgr().isAdmin(analyzer.getUser())) {
-                user = ClusterNamespace.getUserFullName(getClusterName(), user);
+                user = ClusterNamespace.getFullName(getClusterName(), user);
             }
         }
 

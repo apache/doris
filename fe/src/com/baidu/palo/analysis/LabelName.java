@@ -65,7 +65,7 @@ public class LabelName implements Writable {
             }
             dbName = analyzer.getDefaultDb();
         }
-        dbName = ClusterNamespace.getDbFullName(analyzer.getClusterName(), dbName);
+        dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
         FeNameFormat.checkLabel(labelName);
     }
 
@@ -106,7 +106,7 @@ public class LabelName implements Writable {
     @Override
     public void readFields(DataInput in) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
-            dbName = ClusterNamespace.getDbFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));
+            dbName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));
         } else {
             dbName = Text.readString(in);
         }

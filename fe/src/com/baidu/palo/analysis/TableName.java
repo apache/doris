@@ -56,7 +56,7 @@ public class TableName implements Writable {
             if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NAME_NULL);
             }
-            db = ClusterNamespace.getDbFullName(analyzer.getClusterName(), db);
+            db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         }
 
         if (Strings.isNullOrEmpty(tbl)) {
@@ -92,7 +92,7 @@ public class TableName implements Writable {
         if (db == null) {
             return tbl;
         } else {
-            String dbName = ClusterNamespace.getDbNameFromFullName(db);
+            String dbName = ClusterNamespace.getNameFromFullName(db);
             if (dbName == null) {
                 return db + "." + tbl;
             } else {

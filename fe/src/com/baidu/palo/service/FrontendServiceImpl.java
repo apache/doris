@@ -114,7 +114,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
         for (String fullName : dbNames) {
-            final String db = ClusterNamespace.getDbNameFromFullName(fullName);
+            final String db = ClusterNamespace.getNameFromFullName(fullName);
             if (matcher != null && !matcher.match(db)) {
                 continue;
             }
@@ -271,13 +271,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         final String userFullName = Catalog.getInstance().getUserMgr().isAdmin(request.user) ? request.user :
-            ClusterNamespace.getUserFullName(cluster, request.user);
-        final String dbFullName = ClusterNamespace.getDbFullName(cluster, request.db);
+            ClusterNamespace.getFullName(cluster, request.user);
+        final String dbFullName = ClusterNamespace.getFullName(cluster, request.db);
         request.setUser(userFullName);
         request.setDb(dbFullName);
         context.setCluster(cluster);
-        context.setDatabase(ClusterNamespace.getDbFullName(cluster, request.db));
-        context.setUser(ClusterNamespace.getUserFullName(cluster, request.user));
+        context.setDatabase(ClusterNamespace.getFullName(cluster, request.db));
+        context.setUser(ClusterNamespace.getFullName(cluster, request.user));
         context.setCatalog(Catalog.getInstance());
         context.getState().reset();
         context.setThreadLocalInfo();
@@ -419,8 +419,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
         final String userFullName = Catalog.getInstance().getUserMgr().isAdmin(request.user) ? request.user :
-            ClusterNamespace.getUserFullName(cluster, request.user);
-        final String dbFullName = ClusterNamespace.getDbFullName(cluster, request.db);
+            ClusterNamespace.getFullName(cluster, request.user);
+        final String dbFullName = ClusterNamespace.getFullName(cluster, request.db);
         request.setUser(userFullName);
         request.setDb(dbFullName);
         // Check user and password

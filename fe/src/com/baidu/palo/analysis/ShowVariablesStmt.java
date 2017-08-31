@@ -81,9 +81,9 @@ public class ShowVariablesStmt extends ShowStmt {
         ExprSubstitutionMap aliasMap = new ExprSubstitutionMap();
         TableName tableName = null;
         if (type == SetType.GLOBAL) {
-            tableName = new TableName(InfoSchemaDb.getDatabaseName(), "GLOBAL_VARIABLES");
+            tableName = new TableName(InfoSchemaDb.DATABASE_NAME, "GLOBAL_VARIABLES");
         } else {
-            tableName = new TableName(InfoSchemaDb.getDatabaseName(), "SESSION_VARIABLES");
+            tableName = new TableName(InfoSchemaDb.DATABASE_NAME, "SESSION_VARIABLES");
         }
         // name
         SelectListItem item = new SelectListItem(new SlotRef(tableName, "VARIABLE_NAME"), NAME_COL);

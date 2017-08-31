@@ -96,8 +96,7 @@ public class CreateClusterStmt extends DdlStmt {
 
     @Override
     public String toString() {
-        // TODO Auto-generated method stub
-        return super.toString();
+        return toSql();
     }
 
     public int getInstanceNum() {

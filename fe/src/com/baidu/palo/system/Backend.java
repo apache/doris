@@ -49,7 +49,9 @@ import com.google.common.eventbus.EventBus;
 public class Backend implements Writable {
 
     public enum BackendState {
-        using, offline, free
+        using, /* backend is belong to a cluster*/
+        offline,
+        free /* backend is not belong to any clusters */
     }
 
     private static final Logger LOG = LogManager.getLogger(Backend.class);
@@ -91,7 +93,7 @@ public class Backend implements Writable {
         this.ownerClusterName = new AtomicReference<String>("");
         this.backendState = new AtomicInteger(BackendState.free.ordinal());
         
-        this.decommissionType = new AtomicInteger(DecomissionType.SystemDecomission.ordinal());
+        this.decommissionType = new AtomicInteger(DecomissionType.SystemDecommission.ordinal());
     }
 
     public Backend(long id, String host, int heartbeatPort) {
@@ -110,7 +112,7 @@ public class Backend implements Writable {
 
         this.ownerClusterName = new AtomicReference<String>(""); 
         this.backendState = new AtomicInteger(BackendState.free.ordinal());
-        this.decommissionType = new AtomicInteger(DecomissionType.SystemDecomission.ordinal());
+        this.decommissionType = new AtomicInteger(DecomissionType.SystemDecommission.ordinal());
     }
 
     public long getId() {
@@ -416,7 +418,7 @@ public class Backend implements Writable {
         } else {
             ownerClusterName.set(SystemInfoService.DEFAULT_CLUSTER);
             backendState.set(BackendState.using.ordinal());
-            decommissionType.set(DecomissionType.SystemDecomission.ordinal());
+            decommissionType.set(DecomissionType.SystemDecommission.ordinal());
         }
     }
 
@@ -471,10 +473,10 @@ public class Backend implements Writable {
     }
     
     public DecomissionType getDecommissionType() {
-        if (decommissionType.get() == DecomissionType.ClusterDecomission.ordinal()) {
-            return DecomissionType.ClusterDecomission;
+        if (decommissionType.get() == DecomissionType.ClusterDecommission.ordinal()) {
+            return DecomissionType.ClusterDecommission;
         }
-        return DecomissionType.SystemDecomission;
+        return DecomissionType.SystemDecommission;
     }
 
 }

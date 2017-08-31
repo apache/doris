@@ -132,11 +132,11 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastStartTime()));
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastUpdateMs()));
             backendInfo.add(String.valueOf(backend.isAlive()));
-            if (backend.isDecommissioned() && backend.getDecommissionType() == DecomissionType.ClusterDecomission) {
+            if (backend.isDecommissioned() && backend.getDecommissionType() == DecomissionType.ClusterDecommission) {
                 backendInfo.add(String.valueOf("false"));
                 backendInfo.add(String.valueOf("true"));
             } else if (backend.isDecommissioned()
-                    && backend.getDecommissionType() == DecomissionType.SystemDecomission) {
+                    && backend.getDecommissionType() == DecomissionType.SystemDecommission) {
                 backendInfo.add(String.valueOf("true"));
                 backendInfo.add(String.valueOf("false"));
             } else {

@@ -249,11 +249,11 @@ public abstract class BaseAction implements IAction {
             authInfo.fullUserName = authString.substring(0, index);
             final String[] elements = authInfo.fullUserName.split("@");
             if (elements != null && elements.length < 2) {
-                authInfo.fullUserName = ClusterNamespace.getUserFullName(SystemInfoService.DEFAULT_CLUSTER,
+                authInfo.fullUserName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER,
                         authInfo.fullUserName);
                 authInfo.cluster = SystemInfoService.DEFAULT_CLUSTER;
             } else if (elements != null && elements.length == 2) {
-                authInfo.fullUserName = ClusterNamespace.getUserFullName(elements[1], elements[0]);
+                authInfo.fullUserName = ClusterNamespace.getFullName(elements[1], elements[0]);
                 authInfo.cluster = elements[1];
             }
             authInfo.password = authString.substring(index + 1);

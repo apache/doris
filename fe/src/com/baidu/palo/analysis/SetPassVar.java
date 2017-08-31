@@ -55,7 +55,7 @@ public class SetPassVar extends SetVar {
         if (Strings.isNullOrEmpty(user)) {
             user = analyzer.getUser();
         } else {
-            user = ClusterNamespace.getUserFullName(analyzer.getClusterName(), user);
+            user = ClusterNamespace.getFullName(analyzer.getClusterName(), user);
         }
         // Check password
         passwdBytes = MysqlPassword.checkPassword(passwdParam);

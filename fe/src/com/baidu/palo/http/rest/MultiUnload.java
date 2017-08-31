@@ -60,7 +60,7 @@ public class MultiUnload extends RestBaseAction {
         }
 
         AuthorizationInfo authInfo = getAuthorizationInfo(request);
-        String fullDbName = ClusterNamespace.getDbFullName(authInfo.cluster, db);
+        String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, db);
         checkWritePriv(authInfo.fullUserName, fullDbName);
 
         if (redirectToMaster(request, response)) {

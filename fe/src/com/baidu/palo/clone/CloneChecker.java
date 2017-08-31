@@ -426,7 +426,7 @@ public class CloneChecker extends Daemon {
             // when migrate finish ,next circle reset dbstate 
             if (!hasMigrations && db.getDbState() == DbState.MOVE) {
                 db.setDbState(DbState.NORMAL);
-                final DatabaseInfo info = new DatabaseInfo(db.getName(), db.getName(), db.getDataQuota());
+                final DatabaseInfo info = new DatabaseInfo(db.getFullName(), db.getFullName(), db.getDataQuota());
                 info.setDbState(DbState.NORMAL);
                 info.setClusterName(db.getClusterName());
                 Catalog.getInstance().getEditLog().logUpdateDatabase(info);

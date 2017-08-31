@@ -26,7 +26,7 @@ import com.google.common.collect.Lists;
 
 // SHOW COLUMNS
 public class ShowColumnStmt extends ShowStmt {
-    private static final TableName TABLE_NAME = new TableName(InfoSchemaDb.getDatabaseName(), "COLUMNS");
+    private static final TableName TABLE_NAME = new TableName(InfoSchemaDb.DATABASE_NAME, "COLUMNS");
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Field", ColumnType.createVarchar(20)))

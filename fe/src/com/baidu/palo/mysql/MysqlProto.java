@@ -89,7 +89,7 @@ public class MysqlProto {
         context.setCluster(clusterName);
         
         if (Catalog.getInstance().getUserMgr().getPassword(user) == null) {
-            user = ClusterNamespace.getUserFullName(clusterName, user);
+            user = ClusterNamespace.getFullName(clusterName, user);
         }
         
         byte[] userPassword = Catalog.getInstance().getUserMgr().getPassword(user);
@@ -198,7 +198,7 @@ public class MysqlProto {
         String db = authPacket.getDb();
         if (!Strings.isNullOrEmpty(db)) {
             try {
-                String dbFullName = ClusterNamespace.getDbFullName(context.getClusterName(), db);
+                String dbFullName = ClusterNamespace.getFullName(context.getClusterName(), db);
                 Catalog.getInstance().changeDb(context, dbFullName);
             } catch (DdlException e) {
                 sendResponsePacket(context);

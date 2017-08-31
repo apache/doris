@@ -274,16 +274,16 @@ public class JournalEntity implements Writable {
                 data = new ClusterInfo();
                 break;
             }
+            case OperationType.OP_EXPAND_CLUSTER: {
+                data = new ClusterInfo();
+                break;
+            }
             case OperationType.OP_LINK_CLUSTER: {
                 data = new BaseParam();
                 break;
             }
             case OperationType.OP_MIGRATE_CLUSTER: {
                 data = new BaseParam();
-                break;
-            }
-            case OperationType.OP_MODIFY_CLUSTER: {
-                data = new ClusterInfo();
                 break;
             }
             case OperationType.OP_UPDATE_DB: {

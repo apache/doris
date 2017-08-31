@@ -56,7 +56,7 @@ public class PullLoadPendingTask extends LoadPendingTask {
                 long tableId = entry.getKey();
                 OlapTable table  = (OlapTable) db.getTable(tableId);
                 if (table == null) {
-                    throw new DdlException("Unknown table(" + tableId + ") in database(" + db.getName() + ")");
+                    throw new DdlException("Unknown table(" + tableId + ") in database(" + db.getFullName() + ")");
                 }
 
                 // Generate pull load task, one

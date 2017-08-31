@@ -58,7 +58,7 @@ public class ShowUserPropertyStmt extends ShowStmt {
         if (Strings.isNullOrEmpty(user)) {
             user = analyzer.getUser();
         } else {
-            user = ClusterNamespace.getUserFullName(getClusterName(), user);
+            user = ClusterNamespace.getFullName(getClusterName(), user);
             if (!analyzer.getCatalog().getUserMgr().checkUserAccess(analyzer.getUser(), user)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW PROPERTY");
             }

@@ -309,7 +309,7 @@ public class ShowExecutor {
         UserPropertyMgr userPropertyMgr = ctx.getCatalog().getUserMgr();
         Set<String> dbNameSet = Sets.newTreeSet();
         for (String fullName : dbNames) {
-            final String db = ClusterNamespace.getDbNameFromFullName(fullName);
+            final String db = ClusterNamespace.getNameFromFullName(fullName);
             // Filter dbname
             if (matcher != null && !matcher.match(db)) {
                 continue;
@@ -415,8 +415,8 @@ public class ShowExecutor {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDb());
         }
         StringBuilder sb = new StringBuilder();
-        sb.append("CREATE DATABASE `").append(ClusterNamespace.getDbNameFromFullName(showStmt.getDb())).append("`");
-        rows.add(Lists.newArrayList(ClusterNamespace.getDbNameFromFullName(showStmt.getDb()), sb.toString()));
+        sb.append("CREATE DATABASE `").append(ClusterNamespace.getNameFromFullName(showStmt.getDb())).append("`");
+        rows.add(Lists.newArrayList(ClusterNamespace.getNameFromFullName(showStmt.getDb()), sb.toString()));
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
@@ -764,7 +764,7 @@ public class ShowExecutor {
                     isSync = false;
                     break;
                 }
-                dbName = db.getName();
+                dbName = db.getFullName();
 
                 db.readLock();
                 try {

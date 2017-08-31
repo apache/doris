@@ -18,9 +18,15 @@ package com.baidu.palo.analysis;
 import java.util.List;
 
 public class DropBackendClause extends BackendClause {
+    private boolean force;
 
-    public DropBackendClause(List<String> hostPorts) {
+    public DropBackendClause(List<String> hostPorts, boolean force) {
         super(hostPorts);
+        this.force = force;
+    }
+
+    public boolean isForce() {
+        return force;
     }
 
     @Override

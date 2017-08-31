@@ -54,7 +54,7 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
-        dbName = ClusterNamespace.getDbFullName(getClusterName(), dbName);
+        dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         if (quota < 0L) {
             throw new AnalysisException("Quota must larger than 0");
         }

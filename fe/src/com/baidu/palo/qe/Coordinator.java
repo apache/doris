@@ -254,7 +254,7 @@ public class Coordinator {
             queryProfile.addChild(fragmentProfile.get(i));
         }
 
-        this.idToBackend = Catalog.getCurrentSystemInfo().getClusterIdToBackend(clusterName);
+        this.idToBackend = Catalog.getCurrentSystemInfo().getBackendsInCluster(clusterName);
         if (LOG.isDebugEnabled()) {
             LOG.debug("idToBackend size={}", idToBackend.size());
             for (Map.Entry<Long, Backend> entry : idToBackend.entrySet()) {

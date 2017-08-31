@@ -133,6 +133,7 @@ import com.baidu.palo.common.util.SqlUtils;
         keywordMap.put("div", new Integer(SqlParserSymbols.KW_DIV));
         keywordMap.put("double", new Integer(SqlParserSymbols.KW_DOUBLE));
         keywordMap.put("drop", new Integer(SqlParserSymbols.KW_DROP));
+        keywordMap.put("dropp", new Integer(SqlParserSymbols.KW_DROPP));
         keywordMap.put("duplicate", new Integer(SqlParserSymbols.KW_DUPLICATE));
         keywordMap.put("else", new Integer(SqlParserSymbols.KW_ELSE));
         keywordMap.put("end", new Integer(SqlParserSymbols.KW_END));

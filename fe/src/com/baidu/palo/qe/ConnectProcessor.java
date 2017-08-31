@@ -71,7 +71,7 @@ public class ConnectProcessor {
             ctx.getState().setError("Please enter cluster");
             return;
         }
-        dbName = ClusterNamespace.getDbFullName(ctx.getClusterName(), dbName);
+        dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
         try {
             ctx.getCatalog().changeDb(ctx, dbName);
         } catch (DdlException e) {
@@ -221,7 +221,7 @@ public class ConnectProcessor {
             List<Column> baseSchema = table.getBaseSchema();
             for (Column column : baseSchema) {
                 serializer.reset();
-                serializer.writeField(db.getName(), table.getName(), column, true);
+                serializer.writeField(db.getFullName(), table.getName(), column, true);
                 channel.sendOnePacket(serializer.toByteBuffer());
             }
 

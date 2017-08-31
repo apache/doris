@@ -74,7 +74,7 @@ public class Database extends MetaObject implements Writable {
     public static final long TRY_LOCK_TIMEOUT_MS = 100L;
 
     private long id;
-    private String name;
+    private String fullQualifiedName;
     private String clusterName;
     private ReentrantReadWriteLock rwLock;
 
@@ -83,7 +83,6 @@ public class Database extends MetaObject implements Writable {
     private Map<String, Table> nameToTable;
 
     private long dataQuotaBytes;
-    private long refCount;
 
     public enum DbState {
         NORMAL, LINK, MOVE
@@ -98,9 +97,9 @@ public class Database extends MetaObject implements Writable {
 
     public Database(long id, String name) {
         this.id = id;
-        this.name = name;
-        if (this.name == null) {
-            this.name = "";
+        this.fullQualifiedName = name;
+        if (this.fullQualifiedName == null) {
+            this.fullQualifiedName = "";
         }
         this.rwLock = new ReentrantReadWriteLock(true);
         this.idToTable = new HashMap<Long, Table>();
@@ -109,15 +108,6 @@ public class Database extends MetaObject implements Writable {
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
         this.clusterName = "";
-        refCount = 1;
-    }
-
-    public void increaseRef() {
-        refCount++;
-    }
-
-    public void decreaseRef() {
-        refCount--;
     }
 
     public void readLock() {
@@ -162,14 +152,14 @@ public class Database extends MetaObject implements Writable {
         return id;
     }
 
-    public String getName() {
-        return name;
+    public String getFullName() {
+        return fullQualifiedName;
     }
 
     public void setNameWithLock(String newName) {
         writeLock();
         try {
-            this.name = newName;
+            this.fullQualifiedName = newName;
         } finally {
             writeUnlock();
         }
@@ -177,7 +167,7 @@ public class Database extends MetaObject implements Writable {
 
     public void setDataQuotaWithLock(long newQuota) {
         Preconditions.checkArgument(newQuota >= 0L);
-        LOG.info("database[{}] set quota from {} to {}", name, dataQuotaBytes, newQuota);
+        LOG.info("database[{}] set quota from {} to {}", fullQualifiedName, dataQuotaBytes, newQuota);
         writeLock();
         try {
             this.dataQuotaBytes = newQuota;
@@ -236,10 +226,12 @@ public class Database extends MetaObject implements Writable {
         String readableLeftQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(leftQuotaUnitPair.first) + " "
                 + leftQuotaUnitPair.second;
 
-        LOG.info("database[{}] data quota: left bytes: {} / total: {}", name, readableLeftQuota, readableQuota);
+        LOG.info("database[{}] data quota: left bytes: {} / total: {}",
+                 fullQualifiedName, readableLeftQuota, readableQuota);
 
         if (leftQuota <= 0L) {
-            throw new DdlException("Database[" + name + "] data size exceeds quota[" + readableQuota + "]");
+            throw new DdlException("Database[" + fullQualifiedName
+                    + "] data size exceeds quota[" + readableQuota + "]");
         }
     }
 
@@ -256,7 +248,7 @@ public class Database extends MetaObject implements Writable {
 
                 if (!isReplay) {
                     // Write edit log
-                    CreateTableInfo info = new CreateTableInfo(name, table);
+                    CreateTableInfo info = new CreateTableInfo(fullQualifiedName, table);
                     Catalog.getInstance().getEditLog().logCreateTable(info);
                 }
             }
@@ -340,7 +332,7 @@ public class Database extends MetaObject implements Writable {
         adler32.update(signatureVersion);
         String charsetName = "UTF-8";
         try {
-            adler32.update(this.name.getBytes(charsetName));
+            adler32.update(this.fullQualifiedName.getBytes(charsetName));
         } catch (UnsupportedEncodingException e) {
             LOG.error("encoding error", e);
             return -1;
@@ -353,7 +345,7 @@ public class Database extends MetaObject implements Writable {
         super.write(out);
 
         out.writeLong(id);
-        Text.writeString(out, name);
+        Text.writeString(out, fullQualifiedName);
         // write tables
         int numTables = nameToTable.size();
         out.writeInt(numTables);
@@ -373,9 +365,9 @@ public class Database extends MetaObject implements Writable {
 
         id = in.readLong();
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
-            name = ClusterNamespace.getDbFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));
+            fullQualifiedName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));
         } else {
-            name = Text.readString(in);
+            fullQualifiedName = Text.readString(in);
         }
         // read groups
         int numTables = in.readInt();
@@ -421,7 +413,8 @@ public class Database extends MetaObject implements Writable {
             }
         }
 
-        return (id == database.id) && (name.equals(database.name) && dataQuotaBytes == database.dataQuotaBytes);
+        return (id == database.id) && (fullQualifiedName.equals(database.fullQualifiedName)
+                && dataQuotaBytes == database.dataQuotaBytes);
     }
 
     public String getClusterName() {
@@ -452,6 +445,6 @@ public class Database extends MetaObject implements Writable {
     }
 
     public void setName(String name) {
-        this.name = name;
+        this.fullQualifiedName = name;
     }
 }

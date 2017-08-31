@@ -81,7 +81,7 @@ public class ShowAlterStmt extends ShowStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
         } else {
-            dbName = ClusterNamespace.getDbFullName(getClusterName(), dbName);
+            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
 
         Preconditions.checkNotNull(type);
@@ -94,7 +94,7 @@ public class ShowAlterStmt extends ShowStmt {
     }
 
     private void handleShowAlterTable(Analyzer analyzer) throws AnalysisException, InternalException {
-        final String dbNameWithoutPrefix = ClusterNamespace.getDbNameFromFullName(dbName);
+        final String dbNameWithoutPrefix = ClusterNamespace.getNameFromFullName(dbName);
         Database db = analyzer.getCatalog().getDb(dbName);
         if (db == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbNameWithoutPrefix);

@@ -30,7 +30,7 @@ public class DecommissionBackendClause extends BackendClause {
 
     public DecommissionBackendClause(List<String> hostPorts) {
         super(hostPorts);
-        type = DecomissionType.SystemDecomission;
+        type = DecomissionType.SystemDecommission;
     }
 
     @Override

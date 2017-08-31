@@ -62,13 +62,13 @@ public class DdlExecutor {
             CreateClusterStmt stmt = (CreateClusterStmt) ddlStmt;
             catalog.createCluster(stmt);
             catalog.getUserMgr().addUser(stmt.getClusterName(),
-                    ClusterNamespace.getUserFullName(stmt.getClusterName(), CreateClusterStmt.CLUSTER_SUPERUSER_NAME),
+                    ClusterNamespace.getFullName(stmt.getClusterName(), CreateClusterStmt.CLUSTER_SUPERUSER_NAME),
                     stmt.getPassword(), true);
         } else if (ddlStmt instanceof AlterClusterStmt) {
-            catalog.processModityCluster((AlterClusterStmt) ddlStmt);
+            catalog.processModifyCluster((AlterClusterStmt) ddlStmt);
         } else if (ddlStmt instanceof DropClusterStmt) {
             catalog.dropCluster((DropClusterStmt) ddlStmt);
-            catalog.getUserMgr().dropUser(ClusterNamespace.getUserFullName(((DropClusterStmt) ddlStmt).getName(),
+            catalog.getUserMgr().dropUser(ClusterNamespace.getFullName(((DropClusterStmt) ddlStmt).getName(),
                     CreateClusterStmt.CLUSTER_SUPERUSER_NAME));
         } else if (ddlStmt instanceof MigrateDbStmt) {
             catalog.migrateDb((MigrateDbStmt) ddlStmt);

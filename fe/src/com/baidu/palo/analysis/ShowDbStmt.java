@@ -25,7 +25,7 @@ import com.google.common.collect.Lists;
 
 // Show database statement.
 public class ShowDbStmt extends ShowStmt {
-    private static final TableName TABLE_NAME = new TableName(InfoSchemaDb.getDatabaseName(), "schemata");
+    private static final TableName TABLE_NAME = new TableName(InfoSchemaDb.DATABASE_NAME, "schemata");
     private static final String DB_COL = "Database";
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()

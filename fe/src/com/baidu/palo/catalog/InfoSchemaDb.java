@@ -29,11 +29,7 @@ import java.io.IOException;
 
 // Information schema used for MySQL compatible.
 public class InfoSchemaDb extends Database {
-    private static final String DATABASE_NAME = "information_schema";
-    
-    public static String getDatabaseName() {
-        return DATABASE_NAME;
-    }
+    public static final String DATABASE_NAME = "information_schema";
     
     public InfoSchemaDb() {
         super(SystemIdGenerator.getNextId(), DATABASE_NAME);
@@ -41,7 +37,7 @@ public class InfoSchemaDb extends Database {
     }
     
     public InfoSchemaDb(String cluster) {
-        super(SystemIdGenerator.getNextId(), ClusterNamespace.getDbFullName(cluster, DATABASE_NAME));
+        super(SystemIdGenerator.getNextId(), ClusterNamespace.getFullName(cluster, DATABASE_NAME));
         initTables();
     }
 
@@ -88,6 +84,6 @@ public class InfoSchemaDb extends Database {
     }
 
     public static String getFullInfoSchemaDbName(String cluster) {
-        return ClusterNamespace.getDbFullName(cluster, DATABASE_NAME);
+        return ClusterNamespace.getFullName(cluster, DATABASE_NAME);
     }
 }
