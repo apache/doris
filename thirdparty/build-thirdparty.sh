@@ -266,7 +266,7 @@ build_glog() {
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
-    ./configure --prefix=$TP_INSTALL_DIR
+    ./configure --prefix=$TP_INSTALL_DIR --enable-frame-pointers
     make -j$PARALLEL && make install
 }
 
@@ -328,7 +328,7 @@ build_gperftools() {
     LDFLAGS="-L${TP_LIB_DIR}" \
     LD_LIBRARY_PATH="${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
-    ./configure --prefix=$TP_INSTALL_DIR --disable-libunwind --with-pic
+    ./configure --prefix=$TP_INSTALL_DIR --disable-libunwind --with-pic --enable-frame-pointers
     make -j$PARALLEL && make install
 }
 
