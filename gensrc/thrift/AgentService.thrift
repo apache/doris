@@ -86,6 +86,8 @@ struct TCloneReq {
     2: required Types.TSchemaHash schema_hash
     3: required list<Types.TBackend> src_backends
     4: optional Types.TStorageMedium storage_medium
+    5: optional Types.TVersion committed_version
+    6: optional Types.TVersionHash committed_version_hash
 }
 
 struct TStorageMediumMigrateReq {

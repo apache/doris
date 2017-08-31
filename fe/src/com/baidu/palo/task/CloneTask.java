@@ -28,18 +28,18 @@ public class CloneTask extends AgentTask {
     private List<TBackend> srcBackends;
     private TStorageMedium storageMedium;
 
+    long committedVersion;
+    long committedVersionHash;
+
     public CloneTask(long backendId, long dbId, long tableId, long partitionId, long indexId,
-                     long tabletId, int schemaHash, List<TBackend> srcBackends, TStorageMedium storageMedium) {
+                     long tabletId, int schemaHash, List<TBackend> srcBackends, TStorageMedium storageMedium,
+                     long committedVersion, long committedVersionHash) {
         super(null, backendId, TTaskType.CLONE, dbId, tableId, partitionId, indexId, tabletId);
         this.schemaHash = schemaHash;
         this.srcBackends = srcBackends;
         this.storageMedium = storageMedium;
-    }
-
-    public TCloneReq toThrift() {
-        TCloneReq request = new TCloneReq(tabletId, schemaHash, srcBackends);
-        request.setStorage_medium(storageMedium);
-        return request;
+        this.committedVersion = committedVersion;
+        this.committedVersionHash = committedVersionHash;
     }
 
     public int getSchemaHash() {
@@ -48,5 +48,21 @@ public class CloneTask extends AgentTask {
 
     public TStorageMedium getStorageMedium() {
         return storageMedium;
+    }
+
+    public long getCommittedVersion() {
+        return committedVersion;
+    }
+
+    public long getCommittedVersionHash() {
+        return committedVersionHash;
+    }
+
+    public TCloneReq toThrift() {
+        TCloneReq request = new TCloneReq(tabletId, schemaHash, srcBackends);
+        request.setStorage_medium(storageMedium);
+        request.setCommitted_version(committedVersion);
+        request.setCommitted_version_hash(committedVersionHash);
+        return request;
     }
 }

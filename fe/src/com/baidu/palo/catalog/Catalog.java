@@ -4685,6 +4685,8 @@ public class Catalog {
                 db.writeLock();
                 try {
                     db.setDbState(DbState.MOVE);
+                    // set cluster to the dest cluster.
+                    // and Clone process will do the migration things.
                     db.setClusterName(destClusterName);
                     db.setName(destDbName);
                     db.setAttachDb(srcDbName);

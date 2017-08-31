@@ -293,7 +293,7 @@ public class SystemInfoService extends Daemon {
 
     public List<Long> getBackendIds(boolean needAlive) {
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
-        List<Long> backendIds = new ArrayList<Long>(idToBackend.keySet());
+        List<Long> backendIds = Lists.newArrayList(idToBackend.keySet());
         if (!needAlive) {
             return backendIds;
         } else {
