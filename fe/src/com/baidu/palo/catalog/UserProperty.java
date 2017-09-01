@@ -57,19 +57,20 @@ public class UserProperty implements Writable {
     // for normal user
     public static final Set<Pattern> COMMON_PROPERTIES = Sets.newHashSet();
 
-     // 用户所属的cluster
+    // cluster which this user belongs to
     String clusterName;
-    // 此处保留UserName是为了便于序列化信息
+    // save redundantly to simplify serialization
     String userName;
-    // 用户的密码hash值，当前存储的是SHA1(SHA1('password'))
-    // 如果用户没有密码，这里存储的应该是byte[0]
+
+    // SHA1(SHA1('password')) of byte[0] is unset
     private byte[] password;
-    // 用户所拥有的数据库权限
+
+    // db- > priv
     private Map<String, AccessPrivilege> dbPrivMap;
-    // 用户是否是管理员
+
     private boolean isAdmin;
     private boolean isSuperuser = false;
-    // 用户最大连接数
+
     private long maxConn;
     // Resource belong to this user.
     private UserResource resource;
@@ -296,8 +297,8 @@ public class UserProperty implements Writable {
             return true;
         }
         // information_schema is case insensitive
-        if (db.equalsIgnoreCase(InfoSchemaDb.getDatabaseName())) {
-            db = InfoSchemaDb.getDatabaseName();
+        if (db.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
+            db = InfoSchemaDb.DATABASE_NAME;
         }
         AccessPrivilege dbPriv = dbPrivMap.get(db);
         if (dbPriv == null) {
@@ -474,7 +475,7 @@ public class UserProperty implements Writable {
     public void readFields(DataInput in) throws IOException {
         if (in.readBoolean()) {
             if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
-                userName = ClusterNamespace.getUserFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));
+                userName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));
             } else {
                 userName = Text.readString(in);
             }
@@ -494,7 +495,7 @@ public class UserProperty implements Writable {
         for (int i = 0; i < numPriv; ++i) {
             String dbName;
             if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
-                dbName = ClusterNamespace.getDbFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));
+                dbName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, Text.readString(in));
             } else {
                 dbName = Text.readString(in);
             }

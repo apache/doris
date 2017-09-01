@@ -61,7 +61,7 @@ public class UseStmt extends StatementBase {
         if (Strings.isNullOrEmpty(database)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
-        database = ClusterNamespace.getDbFullName(getClusterName(), database);
+        database = ClusterNamespace.getFullName(getClusterName(), database);
         
         if (!analyzer.getCatalog().getUserMgr().checkAccess(analyzer.getUser(), database, AccessPrivilege.READ_ONLY)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(), database);

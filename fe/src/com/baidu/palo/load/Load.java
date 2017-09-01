@@ -1519,7 +1519,7 @@ public class Load {
     // Get job state
     // result saved in info
     public void getJobInfo(JobInfo info) throws DdlException {
-        String fullDbName = ClusterNamespace.getDbFullName(info.clusterName, info.dbName);
+        String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
         Database db = Catalog.getInstance().getDb(fullDbName);
         if (db == null) {
             throw new DdlException("Unknown database(" + info.dbName + ")");
@@ -1894,7 +1894,7 @@ public class Load {
                     }
                     
                     AgentClient client = new AgentClient(backend.getHost(), backend.getBePort());
-                    client.deleteEtlFiles(dbId, job.getId(), db.getName(), job.getLabel());
+                    client.deleteEtlFiles(dbId, job.getId(), db.getFullName(), job.getLabel());
                 }
                 break;
             case INSERT:

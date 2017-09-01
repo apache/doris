@@ -78,9 +78,9 @@ if [ ${CLEAN_ALL} -eq 1 ]; then
 fi
 mkdir -p ${PALO_HOME}/be/build/
 cd ${PALO_HOME}/be/build/
-cmake ../
-make -j${PARALLEL}
-make install
+#cmake ../
+#make -j${PARALLEL}
+#make install
 cd ${PALO_HOME}
 
 # Build docs, should be built before Frontend

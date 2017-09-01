@@ -473,11 +473,11 @@ public class LoadChecker extends Daemon {
                                     }
                                 }
                             } // end for replicas
-                            
+
                             if (allReplicas.size() == 0) {
                                 LOG.error("invalid situation. tablet is empty. id: {}", tabletId);
                             }
-                            
+
                             // check tablet push statis
                             if (finishedReplicas.size() >= quorumNum) {
                                 job.addQuorumTablet(tabletId);

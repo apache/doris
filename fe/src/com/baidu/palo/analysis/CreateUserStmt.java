@@ -108,7 +108,7 @@ public class CreateUserStmt extends DdlStmt {
         } else {
             scramblePassword = new byte[0];
         }
-        user = ClusterNamespace.getUserFullName(getClusterName(), user);
+        user = ClusterNamespace.getFullName(getClusterName(), user);
         // check authenticate
         if (isSuperuser) {
             // Only root can create superuser

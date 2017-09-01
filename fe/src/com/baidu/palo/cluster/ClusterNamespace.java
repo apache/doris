@@ -19,30 +19,35 @@ import com.google.common.base.Strings;
 
 import com.baidu.palo.catalog.UserPropertyMgr;
 
+/**
+ * used to isolate the use for the database name and user name in the catalog, 
+ * all using the database name and user name place need to call the appropriate 
+ * method to makeup full name or get real name, full name is made up generally 
+ * in stmt's analyze.
+ * 
+ * @author chenhao
+ */
+
 public class ClusterNamespace {
 
     public static final String CLUSTER_DELIMITER = ":";
 
-    /**
-     * db full name : cluster-db
-     * 
-     * @param cluster
-     * @param db
-     * @return
-     */
-    public static String getDbFullName(String cluster, String db) {
-        return linkString(cluster, db);
+    public static String getFullName(String cluster, String name) {
+        return linkString(cluster, name);
     }
 
-    /**
-     * user full name : cluster-usr
-     * 
-     * @param cluster
-     * @param usr
-     * @return
-     */
-    public static String getUserFullName(String cluster, String usr) {
-        return linkString(cluster, usr);
+    public static String getClusterNameFromFullName(String fullName) {
+        if (!checkName(fullName)) {
+            return null;
+        }
+        return extract(fullName, 0);
+    }
+
+    public static String getNameFromFullName(String fullName) {
+        if (!checkName(fullName)) {
+            return fullName;
+        }
+        return extract(fullName, 1);
     }
 
     private static boolean checkName(String str) {
@@ -53,59 +58,20 @@ public class ClusterNamespace {
         return (ele.length > 1) ? true : false;
     }
 
-    private static String linkString(String str1, String str2) {
-        if (Strings.isNullOrEmpty(str1) || Strings.isNullOrEmpty(str2)) {
+    private static String linkString(String cluster, String name) {
+        if (Strings.isNullOrEmpty(cluster) || Strings.isNullOrEmpty(name)) {
             return null;
         }
-        if (str2.contains(CLUSTER_DELIMITER) || str2.equals(UserPropertyMgr.getRootName())) {
-            return str2;
+        if (name.contains(CLUSTER_DELIMITER) || name.equals(UserPropertyMgr.getRootName())) {
+            return name;
         }
-        final StringBuilder sb = new StringBuilder(str1);
-        sb.append(CLUSTER_DELIMITER).append(str2);
+        final StringBuilder sb = new StringBuilder(cluster);
+        sb.append(CLUSTER_DELIMITER).append(name);
         return sb.toString();
     }
 
-    /**
-     * get db name from cluster-db
-     * 
-     * @param db
-     * @return
-     */
-    public static String getDbNameFromFullName(String db) {
-        if (!checkName(db)) {
-            return db;
-        }
-        return extract(db, 1);
-    }
-
-    /**
-     * get user name from cluster-user
-     * 
-     * @param usr
-     * @return
-     */
-    public static String getUsrNameFromFullName(String usr) {
-        if (!checkName(usr)) {
-            return usr;
-        }
-        return extract(usr, 1);
-    }
-
-    /**
-     * get cluster name from cluster-user
-     * 
-     * @param str
-     * @return
-     */
-    public static String getClusterNameFromFullName(String str) {
-        if (!checkName(str)) {
-            return null;
-        }
-        return extract(str, 0);
-    }
-
-    private static String extract(String db, int index) {
-        final String[] ele = db.split(CLUSTER_DELIMITER);
+    private static String extract(String fullName, int index) {
+        final String[] ele = fullName.split(CLUSTER_DELIMITER);
         return ele[index];
     }
 }

@@ -93,7 +93,7 @@ public class BrokerFileGroup implements Writable {
         Table table = db.getTable(dataDescription.getTableName());
         if (table == null) {
             throw new DdlException("Unknown table(" + dataDescription.getTableName()
-                    + ") in database(" + db.getName() + ")");
+                    + ") in database(" + db.getFullName() + ")");
         }
         if (!(table instanceof OlapTable)) {
             throw new DdlException("Table(" + table.getName() + ") is not OlapTable");

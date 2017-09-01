@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import com.baidu.palo.alter.DecommissionBackendJob.DecomissionType;
+import com.baidu.palo.alter.DecommissionBackendJob.DecommissionType;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.DiskInfo;
 import com.baidu.palo.catalog.DiskInfo.DiskState;
@@ -49,7 +49,9 @@ import com.google.common.eventbus.EventBus;
 public class Backend implements Writable {
 
     public enum BackendState {
-        using, offline, free
+        using, /* backend is belong to a cluster*/
+        offline,
+        free /* backend is not belong to any clusters */
     }
 
     private static final Logger LOG = LogManager.getLogger(Backend.class);
@@ -91,7 +93,7 @@ public class Backend implements Writable {
         this.ownerClusterName = new AtomicReference<String>("");
         this.backendState = new AtomicInteger(BackendState.free.ordinal());
         
-        this.decommissionType = new AtomicInteger(DecomissionType.SystemDecomission.ordinal());
+        this.decommissionType = new AtomicInteger(DecommissionType.SystemDecommission.ordinal());
     }
 
     public Backend(long id, String host, int heartbeatPort) {
@@ -110,7 +112,7 @@ public class Backend implements Writable {
 
         this.ownerClusterName = new AtomicReference<String>(""); 
         this.backendState = new AtomicInteger(BackendState.free.ordinal());
-        this.decommissionType = new AtomicInteger(DecomissionType.SystemDecomission.ordinal());
+        this.decommissionType = new AtomicInteger(DecommissionType.SystemDecommission.ordinal());
     }
 
     public long getId() {
@@ -416,7 +418,7 @@ public class Backend implements Writable {
         } else {
             ownerClusterName.set(SystemInfoService.DEFAULT_CLUSTER);
             backendState.set(BackendState.using.ordinal());
-            decommissionType.set(DecomissionType.SystemDecomission.ordinal());
+            decommissionType.set(DecommissionType.SystemDecommission.ordinal());
         }
     }
 
@@ -466,15 +468,15 @@ public class Backend implements Writable {
         }
     }
 
-    public void setDecommissionType(DecomissionType type) {
+    public void setDecommissionType(DecommissionType type) {
         decommissionType.set(type.ordinal());
     }
     
-    public DecomissionType getDecommissionType() {
-        if (decommissionType.get() == DecomissionType.ClusterDecomission.ordinal()) {
-            return DecomissionType.ClusterDecomission;
+    public DecommissionType getDecommissionType() {
+        if (decommissionType.get() == DecommissionType.ClusterDecommission.ordinal()) {
+            return DecommissionType.ClusterDecommission;
         }
-        return DecomissionType.SystemDecomission;
+        return DecommissionType.SystemDecommission;
     }
 
 }

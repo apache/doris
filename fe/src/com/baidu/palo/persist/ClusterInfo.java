@@ -34,7 +34,7 @@ public class ClusterInfo implements Writable {
     private long newClusterId;
     private int newInstanceNum;
     
-    private List<Long> backendIdList = Lists.newArrayList();
+    private List<Long> expandBackendIds = Lists.newArrayList();
 
     public ClusterInfo() {
         this.clusterName = "";
@@ -45,9 +45,19 @@ public class ClusterInfo implements Writable {
         this.newInstanceNum = 0;
     }
     
-    public ClusterInfo(String cluster, long id) {
-        this.clusterName = cluster;
-        this.clusterId = id;
+    public ClusterInfo(String clusterName, long clusterId) {
+        this.clusterName = clusterName;
+        this.clusterId = clusterId;
+        this.instanceNum = 0;
+        this.newClusterName = "";
+        this.newClusterId = 0L;
+        this.newInstanceNum = 0;
+    }
+
+    public ClusterInfo(String clusterName, long clusterId, List<Long> expandBackendIds) {
+        this.clusterName = clusterName;
+        this.clusterId = clusterId;
+        this.expandBackendIds = expandBackendIds;
         this.instanceNum = 0;
         this.newClusterName = "";
         this.newClusterId = 0L;
@@ -59,8 +69,8 @@ public class ClusterInfo implements Writable {
         Text.writeString(out, clusterName);
         out.writeLong(clusterId);
         out.writeInt(instanceNum);
-        out.writeInt(backendIdList.size());
-        for (long id : backendIdList) {
+        out.writeInt(expandBackendIds.size());
+        for (long id : expandBackendIds) {
             out.writeLong(id);
         }
     }
@@ -72,7 +82,7 @@ public class ClusterInfo implements Writable {
         instanceNum = in.readInt();
         int count = in.readInt();
         while (count-- > 0) {
-            backendIdList.add(in.readLong());
+            expandBackendIds.add(in.readLong());
         }
     }
 
@@ -80,59 +90,23 @@ public class ClusterInfo implements Writable {
         return clusterName;
     }
 
-    public void setClusterName(String clusterName) {
-        this.clusterName = clusterName;
-    }
-
     public long getClusterId() {
         return clusterId;
-    }
-
-    public void setClusterId(long clusterId) {
-        this.clusterId = clusterId;
     }
 
     public int getInstanceNum() {
         return instanceNum;
     }
 
-    public void setInstanceNum(int instanceNum) {
-        this.instanceNum = instanceNum;
-    }
-
     public String getNewClusterName() {
         return newClusterName;
-    }
-
-    public void setNewClusterName(String newClusterName) {
-        this.newClusterName = newClusterName;
-    }
-
-    public long getNewClusterId() {
-        return newClusterId;
-    }
-
-    public void setNewClusterId(long newClusterId) {
-        this.newClusterId = newClusterId;
     }
 
     public int getNewInstanceNum() {
         return newInstanceNum;
     }
 
-    public void setNewInstanceNum(int newInstanceNum) {
-        this.newInstanceNum = newInstanceNum;
-    }
-
     public List<Long> getBackendIdList() {
-        return backendIdList;
+        return expandBackendIds;
     }
-
-    public void setBackendIdList(List<Long> backendIdList) {
-        if (backendIdList == null) {
-            return;
-        }
-        this.backendIdList = backendIdList;
-    }
-
 }

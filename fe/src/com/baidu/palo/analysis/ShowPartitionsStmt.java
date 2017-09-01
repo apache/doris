@@ -74,7 +74,7 @@ public class ShowPartitionsStmt extends ShowStmt {
                 throw new AnalysisException("No db name in show data statement.");
             }
         } else {
-            dbName = ClusterNamespace.getDbFullName(getClusterName(), dbName);
+            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
 
         // check access

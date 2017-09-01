@@ -196,7 +196,7 @@ public class BackupHandler extends Daemon {
             }
 
             if (backupObjNames.isEmpty()) {
-                throw new DdlException("Database[" + db.getName() + "] is empty. no need to backup");
+                throw new DdlException("Database[" + db.getFullName() + "] is empty. no need to backup");
             }
 
             List<OlapTable> backupTables = Lists.newArrayList();
@@ -426,7 +426,7 @@ public class BackupHandler extends Daemon {
             long dbId = db.getId();
             AbstractBackupJob job = dbIdToJob.get(dbId);
             if (job == null) {
-                throw new DdlException("There is no job in database[" + db.getName() + "]");
+                throw new DdlException("There is no job in database[" + db.getFullName() + "]");
             }
 
             job.setErrMsg("user cancelled");

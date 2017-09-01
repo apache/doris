@@ -90,7 +90,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
 
         DppScheduler dppScheduler = new DppScheduler(job.getHadoopDppConfig());
         EtlSubmitResult result = dppScheduler.submitEtlJob(job.getId(), job.getLabel(), job.getHadoopCluster(),
-                db.getName(), etlTaskConf, retry);
+                db.getFullName(), etlTaskConf, retry);
 
         if (result != null && result.getStatus().getStatus_code() == TStatusCode.OK) {
             job.setHadoopEtlJobId(result.getEtlJobId());

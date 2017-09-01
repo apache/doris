@@ -51,11 +51,11 @@ public class RevokeStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(user)) {
             throw new AnalysisException("No user in grant statement.");
         }
-        user = ClusterNamespace.getUserFullName(analyzer.getClusterName(), user);
+        user = ClusterNamespace.getFullName(analyzer.getClusterName(), user);
         if (Strings.isNullOrEmpty(db)) {
             throw new AnalysisException("No database in grant statement.");
         }
-        db = ClusterNamespace.getDbFullName(analyzer.getClusterName(), db);
+        db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         if (!analyzer.getCatalog().getUserMgr().checkUserAccess(analyzer.getUser(), user)) {
             throw new AnalysisException("No privilege to grant.");
         }

@@ -452,7 +452,7 @@ public class Analyzer {
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = getDefaultDb();
         } else {
-            dbName = ClusterNamespace.getDbFullName(getClusterName(), tableName.getDb());
+            dbName = ClusterNamespace.getFullName(getClusterName(), tableName.getDb());
         }
         if (Strings.isNullOrEmpty(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
@@ -468,7 +468,7 @@ public class Analyzer {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName.getTbl());
         }
 
-        TableName tblName = new TableName(database.getName(), table.getName());
+        TableName tblName = new TableName(database.getFullName(), table.getName());
         if (table instanceof View) {
             return new InlineViewRef((View) table, tableRef);
         } else {

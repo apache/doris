@@ -66,8 +66,8 @@ public class GrantStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(db)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
-        db = ClusterNamespace.getDbFullName(getClusterName(), db);
-        user = ClusterNamespace.getUserFullName(getClusterName(), user);
+        db = ClusterNamespace.getFullName(getClusterName(), db);
+        user = ClusterNamespace.getFullName(getClusterName(), user);
         
         if (privileges == null || privileges.isEmpty()) {
             throw new AnalysisException("No privileges in grant statement.");

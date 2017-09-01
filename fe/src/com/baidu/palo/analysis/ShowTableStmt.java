@@ -35,7 +35,7 @@ public class ShowTableStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowTableStmt.class);
     private static final String NAME_COL_PREFIX = "Tables_in_";
     private static final String TYPE_COL = "Table_type";
-    private static final TableName TABLE_NAME = new TableName(InfoSchemaDb.getDatabaseName(), "tables");
+    private static final TableName TABLE_NAME = new TableName(InfoSchemaDb.DATABASE_NAME, "tables");
     private String db;
     private boolean isVerbose;
     private String pattern;
@@ -76,7 +76,7 @@ public class ShowTableStmt extends ShowStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
         } else {
-            db = ClusterNamespace.getDbFullName(analyzer.getClusterName(), db);
+            db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         }
         if (!analyzer.getCatalog().getUserMgr().checkAccess(analyzer.getUser(), db, AccessPrivilege.READ_ONLY)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(), db);
@@ -96,9 +96,9 @@ public class ShowTableStmt extends ShowStmt {
         SelectList selectList = new SelectList();
         ExprSubstitutionMap aliasMap = new ExprSubstitutionMap(false);
         SelectListItem item = new SelectListItem(new SlotRef(TABLE_NAME, "TABLE_NAME"),
-                NAME_COL_PREFIX + ClusterNamespace.getDbNameFromFullName(db));
+                NAME_COL_PREFIX + ClusterNamespace.getNameFromFullName(db));
         selectList.addItem(item);
-        aliasMap.put(new SlotRef(null, NAME_COL_PREFIX + ClusterNamespace.getDbNameFromFullName(db)),
+        aliasMap.put(new SlotRef(null, NAME_COL_PREFIX + ClusterNamespace.getNameFromFullName(db)),
                 item.getExpr().clone(null));
         if (isVerbose) {
             item = new SelectListItem(new SlotRef(TABLE_NAME, "TABLE_TYPE"), TYPE_COL);
@@ -110,7 +110,7 @@ public class ShowTableStmt extends ShowStmt {
                 new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
                 where, null, null, null, LimitElement.NO_LIMIT);
 
-        analyzer.setSchemaInfo(ClusterNamespace.getDbNameFromFullName(db), null, null);
+        analyzer.setSchemaInfo(ClusterNamespace.getNameFromFullName(db), null, null);
 
         return selectStmt;
     }
@@ -141,7 +141,7 @@ public class ShowTableStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         builder.addColumn(
-                new Column(NAME_COL_PREFIX + ClusterNamespace.getDbNameFromFullName(db), ColumnType.createVarchar(20)));
+                new Column(NAME_COL_PREFIX + ClusterNamespace.getNameFromFullName(db), ColumnType.createVarchar(20)));
         if (isVerbose) {
             builder.addColumn(new Column(TYPE_COL, ColumnType.createVarchar(20)));
         }

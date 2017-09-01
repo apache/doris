@@ -904,11 +904,43 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                                  agent_task_req.signature);
                 error_msgs.push_back("clone success, but get tablet info failed.");
                 status = PALO_ERROR;
+            } else if (
+                (clone_req.__isset.committed_version
+                        && clone_req.__isset.committed_version_hash)
+                        && (tablet_info.version < clone_req.committed_version ||
+                            (tablet_info.version == clone_req.committed_version
+                            && tablet_info.version_hash != clone_req.committed_version_hash))) {
+                
+                // we need to check if this cloned table's version is what we expect.
+                // if not, maybe this is a stale remaining table which is waiting for drop.
+                // we drop it.
+                OLAP_LOG_INFO("begin to drop the stale table. "
+                        "tablet id: %ld, schema hash: %ld, signature: %ld "
+                        "version: %ld, version_hash %ld "
+                        "expected version: %ld, version_hash: %ld",
+                        clone_req.tablet_id, clone_req.schema_hash,
+                        agent_task_req.signature,
+                        tablet_info.version, tablet_info.version_hash,
+                        clone_req.committed_version, clone_req.committed_version_hash);
+    
+                TDropTabletReq drop_req;
+                drop_req.tablet_id = clone_req.tablet_id;
+                drop_req.schema_hash = clone_req.schema_hash;
+                AgentStatus drop_status = worker_pool_this->_drop_table(drop_req);
+                if (drop_status != PALO_SUCCESS) {
+                    // just log
+                    OLAP_LOG_WARNING(
+                        "drop stale cloned table failed! tabelt id: %ld", clone_req.tablet_id);
+                }
+    
+                status = PALO_ERROR;
             } else {
                 OLAP_LOG_INFO("clone get tablet info success. "
-                              "tablet id: %ld, schema hash: %ld, signature: %ld",
+                              "tablet id: %ld, schema hash: %ld, signature: %ld "
+                              "version: %ld, version_hash %ld",
                               clone_req.tablet_id, clone_req.schema_hash,
-                              agent_task_req.signature);
+                              agent_task_req.signature,
+                              tablet_info.version, tablet_info.version_hash);
                 tablet_infos.push_back(tablet_info);
             }
         }
@@ -990,7 +1022,7 @@ AgentStatus TaskWorkerPool::_clone_copy(
                               src_host->host.c_str(), src_file_path->c_str(),
                               signature);
             } else {
-                OLAP_LOG_WARNING("clone make snapshot suceess, "
+                OLAP_LOG_WARNING("clone make snapshot success, "
                                  "but get src file path failed. signature: %ld",
                                  signature);
                 status = PALO_ERROR;

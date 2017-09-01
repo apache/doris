@@ -45,16 +45,8 @@ public class ClusterName implements Writable {
         return cluster;
     }
 
-    public void setCluster(String cluster) {
-        this.cluster = cluster;
-    }
-
     public String getDb() {
         return db;
-    }
-
-    public void setDb(String db) {
-        this.db = db;
     }
 
     public void analyze(Analyzer analyzer) throws AnalysisException {
@@ -77,7 +69,5 @@ public class ClusterName implements Writable {
     public void readFields(DataInput in) throws IOException {
         cluster = Text.readString(in);
         db = Text.readString(in);
-
     }
-
 }

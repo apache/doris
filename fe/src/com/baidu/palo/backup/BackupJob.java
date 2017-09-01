@@ -323,7 +323,7 @@ public class BackupJob extends AbstractBackupJob {
                 }
 
                 // 1. get table meta
-                getTableMeta(db.getName(), table, pathToWritables);
+                getTableMeta(db.getFullName(), table, pathToWritables);
 
                 if (table.getType() != TableType.OLAP) {
                     // this is not a OLAP table. just save table meta
@@ -341,7 +341,7 @@ public class BackupJob extends AbstractBackupJob {
                         return;
                     }
                 }
-                getRollupMeta(db.getName(), olapTable, pathToWritables);
+                getRollupMeta(db.getFullName(), olapTable, pathToWritables);
 
                 // 3. save partition meta
                 Collection<Long> partitionIds = tableIdToPartitionIds.get(tableId);
@@ -359,7 +359,7 @@ public class BackupJob extends AbstractBackupJob {
                         if (partition == null) {
                             throw new DdlException("partition[" + partitionId + "] does not exist");
                         }
-                        getPartitionMeta(db.getName(), olapTable, partition.getName(), pathToWritables);
+                        getPartitionMeta(db.getFullName(), olapTable, partition.getName(), pathToWritables);
 
                         // save version info
                         partitionIdToVersionInfo.put(partitionId,
@@ -595,7 +595,7 @@ public class BackupJob extends AbstractBackupJob {
         }
         db.readLock();
         try {
-            String dbName = db.getName();
+            String dbName = db.getFullName();
             for (Map.Entry<Long, Set<Long>> entry : tableIdToPartitionIds.entrySet()) {
                 long tableId = entry.getKey();
                 Set<Long> partitionIds = entry.getValue();

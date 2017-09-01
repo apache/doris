@@ -40,7 +40,7 @@ public class DropUserStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(user)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CANNOT_USER, "DROP USER", user);
         }
-        user = ClusterNamespace.getUserFullName(getClusterName(), user);
+        user = ClusterNamespace.getFullName(getClusterName(), user);
         // check access
         if (analyzer.getCatalog().getUserMgr().isSuperuser(user)) {
             if (!analyzer.getCatalog().getUserMgr().isAdmin(analyzer.getUser())) {

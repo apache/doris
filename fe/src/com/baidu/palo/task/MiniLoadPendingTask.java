@@ -181,7 +181,7 @@ public class MiniLoadPendingTask extends LoadPendingTask {
         params.setFragment(fragment.toThrift());
         params.setDesc_tbl(desc.toThrift());
         params.setImport_label(job.getLabel());
-        params.setDb_name(db.getName());
+        params.setDb_name(db.getFullName());
         params.setLoad_job_id(job.getId());
 
         LoadErrorHub.Param param = load.getLoadErrorHubInfo();

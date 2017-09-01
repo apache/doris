@@ -30,77 +30,59 @@ import com.google.common.base.Strings;
 public class LinkDbStmt extends DdlStmt {
 
     private ClusterName src;
-    private ClusterName des;
+    private ClusterName dest;
     private String srcCluster;
-    private String desCluster;
+    private String destCluster;
     private String srcDb;
-    private String desDb;
+    private String destDb;
 
     LinkDbStmt(ClusterName src, ClusterName dest) {
         this.src = src;
-        this.des = dest;
-    }
-
-    @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
-        src.analyze(analyzer);
-        des.analyze(analyzer);
-
-        if (!analyzer.getCatalog().getUserMgr().isAdmin(analyzer.getUser())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_PERMISSIONS);
-        }
-
-        if (Strings.isNullOrEmpty(src.getCluster()) || Strings.isNullOrEmpty(des.getCluster())
-                || Strings.isNullOrEmpty(src.getDb()) || Strings.isNullOrEmpty(des.getDb())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_PARAMETER);
-        }
-        srcCluster = src.getCluster();
-        srcDb = ClusterNamespace.getDbFullName(srcCluster, src.getDb());
-        desCluster = des.getCluster();
-        desDb = ClusterNamespace.getDbFullName(desCluster, des.getDb());
-    }
-
-    @Override
-    public String toSql() {
-        // TODO Auto-generated method stub
-        return super.toSql();
-    }
-
-    @Override
-    public String toString() {
-        return "LINK DATABASE " + srcCluster + "." + srcDb + " " + desCluster + "." + desDb;
+        this.dest = dest;
     }
 
     public String getSrcCluster() {
         return srcCluster;
     }
 
-    public void setSrcCluster(String srcCluster) {
-        this.srcCluster = srcCluster;
-    }
-
-    public String getDesCluster() {
-        return desCluster;
-    }
-
-    public void setDesCluster(String desCluster) {
-        this.desCluster = desCluster;
+    public String getDestCluster() {
+        return destCluster;
     }
 
     public String getSrcDb() {
         return srcDb;
     }
 
-    public void setSrcDb(String srcDb) {
-        this.srcDb = srcDb;
+    public String getDestDb() {
+        return destDb;
     }
 
-    public String getDesDb() {
-        return desDb;
+    @Override
+    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+        src.analyze(analyzer);
+        dest.analyze(analyzer);
+
+        if (!analyzer.getCatalog().getUserMgr().isAdmin(analyzer.getUser())) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_PERMISSIONS);
+        }
+
+        if (Strings.isNullOrEmpty(src.getCluster()) || Strings.isNullOrEmpty(dest.getCluster())
+                || Strings.isNullOrEmpty(src.getDb()) || Strings.isNullOrEmpty(dest.getDb())) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_PARAMETER);
+        }
+        srcCluster = src.getCluster();
+        srcDb = ClusterNamespace.getFullName(srcCluster, src.getDb());
+        destCluster = dest.getCluster();
+        destDb = ClusterNamespace.getFullName(destCluster, dest.getDb());
     }
 
-    public void setDesDb(String desDb) {
-        this.desDb = desDb;
+    @Override
+    public String toSql() {
+        return "LINK DATABASE " + srcCluster + "." + srcDb + " " + destCluster + "." + destDb;
     }
 
+    @Override
+    public String toString() {
+        return toSql();
+    }
 }

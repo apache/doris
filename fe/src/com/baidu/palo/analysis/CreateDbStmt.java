@@ -38,7 +38,7 @@ public class CreateDbStmt extends DdlStmt {
         this.dbName = dbName;
     }
 
-    public String getDbName() {
+    public String getFullDbName() {
         return dbName;
     }
 
@@ -53,7 +53,7 @@ public class CreateDbStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER);
         }
         FeNameFormat.checkDbName(dbName);
-        dbName = ClusterNamespace.getDbFullName(getClusterName(), dbName);
+        dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         if (!analyzer.getCatalog().getUserMgr().isSuperuser(analyzer.getUser())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(), dbName);
         }

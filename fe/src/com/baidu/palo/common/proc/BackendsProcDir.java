@@ -20,7 +20,7 @@
 
 package com.baidu.palo.common.proc;
 
-import com.baidu.palo.alter.DecommissionBackendJob.DecomissionType;
+import com.baidu.palo.alter.DecommissionBackendJob.DecommissionType;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.cluster.Cluster;
 import com.baidu.palo.common.AnalysisException;
@@ -132,11 +132,11 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastStartTime()));
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastUpdateMs()));
             backendInfo.add(String.valueOf(backend.isAlive()));
-            if (backend.isDecommissioned() && backend.getDecommissionType() == DecomissionType.ClusterDecomission) {
+            if (backend.isDecommissioned() && backend.getDecommissionType() == DecommissionType.ClusterDecommission) {
                 backendInfo.add(String.valueOf("false"));
                 backendInfo.add(String.valueOf("true"));
             } else if (backend.isDecommissioned()
-                    && backend.getDecommissionType() == DecomissionType.SystemDecomission) {
+                    && backend.getDecommissionType() == DecommissionType.SystemDecommission) {
                 backendInfo.add(String.valueOf("true"));
                 backendInfo.add(String.valueOf("false"));
             } else {

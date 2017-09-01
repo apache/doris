@@ -56,7 +56,7 @@ public class CancelLoadStmt extends DdlStmt {
                 throw new AnalysisException("No database selected");
             }
         } else {
-            dbName = ClusterNamespace.getDbFullName(getClusterName(), dbName);
+            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
 
         // check access

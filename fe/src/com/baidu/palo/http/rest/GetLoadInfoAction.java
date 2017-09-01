@@ -56,7 +56,7 @@ public class GetLoadInfoAction extends RestBaseAction {
             throw new DdlException("No cluster name selected");
         }
 
-        String fullDbName = ClusterNamespace.getDbFullName(info.clusterName, info.dbName);
+        String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
         checkReadPriv(authInfo.fullUserName, fullDbName);
 
         if (redirectToMaster(request, response)) {

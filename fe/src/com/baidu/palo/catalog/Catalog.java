@@ -23,7 +23,7 @@ package com.baidu.palo.catalog;
 import com.baidu.palo.alter.Alter;
 import com.baidu.palo.alter.AlterJob;
 import com.baidu.palo.alter.AlterJob.JobType;
-import com.baidu.palo.alter.DecommissionBackendJob.DecomissionType;
+import com.baidu.palo.alter.DecommissionBackendJob.DecommissionType;
 import com.baidu.palo.alter.RollupHandler;
 import com.baidu.palo.alter.SchemaChangeHandler;
 import com.baidu.palo.alter.SystemHandler;
@@ -181,10 +181,8 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.HttpURLConnection;
-import java.net.InetAddress;
 import java.util.Iterator;
 import java.net.URL;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -214,7 +212,7 @@ public class Catalog {
     private long epoch = 0;
 
     private Map<Long, Database> idToDb;
-    private Map<String, Database> nameToDb;
+    private Map<String, Database> fullNameToDb;
 
     private Map<Long, Cluster> idToCluster;
     private Map<String, Cluster> nameToCluster;
@@ -318,7 +316,7 @@ public class Catalog {
 
     private Catalog() {
         this.idToDb = new HashMap<Long, Database>();
-        this.nameToDb = new HashMap<String, Database>();
+        this.fullNameToDb = new HashMap<String, Database>();
         this.load = new Load();
         this.exportMgr = new ExportMgr();
         this.clone = new Clone();
@@ -915,7 +913,7 @@ public class Catalog {
 
         // create inverted index
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        for (Database db : this.nameToDb.values()) {
+        for (Database db : this.fullNameToDb.values()) {
             long dbId = db.getId();
             for (Table table : db.getTables()) {
                 if (table.getType() != TableType.OLAP) {
@@ -995,9 +993,9 @@ public class Catalog {
             db.readFields(dis);
             checksum ^= db.getId();
             idToDb.put(db.getId(), db);
-            nameToDb.put(db.getName(), db);
+            fullNameToDb.put(db.getFullName(), db);
             if (db.getDbState() == DbState.LINK) {
-                nameToDb.put(db.getAttachDb(), db);
+                fullNameToDb.put(db.getAttachDb(), db);
             }
         }
 
@@ -1855,23 +1853,23 @@ public class Catalog {
     // The interface which DdlExecutor needs.
     public void createDb(CreateDbStmt stmt) throws DdlException {
         final String clusterName = stmt.getClusterName();
-        String dbName = stmt.getDbName();
+        String fullDbName = stmt.getFullDbName();
         long id = 0L;
         writeLock();
         try {
             if (!nameToCluster.containsKey(clusterName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER, clusterName);
             }
-            if (nameToDb.containsKey(dbName)) {
+            if (fullNameToDb.containsKey(fullDbName)) {
                 if (stmt.isSetIfNotExists()) {
-                    LOG.info("create database[{}] which already exists", dbName);
+                    LOG.info("create database[{}] which already exists", fullDbName);
                     return;
                 } else {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
+                    ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, fullDbName);
                 }
             } else {
                 id = getNextId();
-                Database db = new Database(id, dbName);
+                Database db = new Database(id, fullDbName);
                 db.setClusterName(clusterName);
                 unprotectCreateDb(db);
                 editLog.logCreateDb(db);
@@ -1879,15 +1877,15 @@ public class Catalog {
         } finally {
             writeUnlock();
         }
-        LOG.info("createDb dbName = " + dbName + ", id = " + id);
+        LOG.info("createDb dbName = " + fullDbName + ", id = " + id);
     }
 
     // For replay edit log, need't lock metadata
     public void unprotectCreateDb(Database db) {
         idToDb.put(db.getId(), db);
-        nameToDb.put(db.getName(), db);
+        fullNameToDb.put(db.getFullName(), db);
         final Cluster cluster = nameToCluster.get(db.getClusterName());
-        cluster.addDb(db.getName(), db.getId());
+        cluster.addDb(db.getFullName(), db.getId());
     }
 
     // for test
@@ -1912,7 +1910,7 @@ public class Catalog {
         // 1. check if database exists
         writeLock();
         try {
-            if (!nameToDb.containsKey(dbName)) {
+            if (!fullNameToDb.containsKey(dbName)) {
                 if (stmt.isSetIfExists()) {
                     LOG.info("drop database[{}] which does not exist", dbName);
                     return;
@@ -1922,13 +1920,13 @@ public class Catalog {
             }
 
             // 2. drop tables in db
-            Database db = this.nameToDb.get(dbName);
+            Database db = fullNameToDb.get(dbName);
             db.writeLock();
             try {
 
                 if (db.getDbState() == DbState.LINK && dbName.equals(db.getAttachDb())) {
                     final DropLinkDbAndUpdateDbInfo info = new DropLinkDbAndUpdateDbInfo();
-                    nameToDb.remove(db.getAttachDb());
+                    fullNameToDb.remove(db.getAttachDb());
                     db.setDbState(DbState.NORMAL);
                     info.setUpdateDbState(DbState.NORMAL);
                     final Cluster cluster = nameToCluster
@@ -1944,15 +1942,15 @@ public class Catalog {
                     return;
                 }
 
-                if (dbName.equals(db.getName()) && db.getDbState() == DbState.LINK) {
+                if (dbName.equals(db.getFullName()) && db.getDbState() == DbState.LINK) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_DB_STATE_LINK_OR_MIGRATE,
-                            ClusterNamespace.getDbNameFromFullName(dbName));
+                            ClusterNamespace.getNameFromFullName(dbName));
                     return;
                 }
 
                 if (dbName.equals(db.getAttachDb()) && db.getDbState() == DbState.MOVE) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_DB_STATE_LINK_OR_MIGRATE,
-                            ClusterNamespace.getDbNameFromFullName(dbName));
+                            ClusterNamespace.getNameFromFullName(dbName));
                     return;
                 }
 
@@ -1966,7 +1964,7 @@ public class Catalog {
 
             // 3. remove db from catalog
             idToDb.remove(db.getId());
-            nameToDb.remove(db.getName());
+            fullNameToDb.remove(db.getFullName());
             final Cluster cluster = nameToCluster.get(db.getClusterName());
             cluster.removeDb(dbName, db.getId());
             editLog.logDropDb(dbName);
@@ -1986,7 +1984,7 @@ public class Catalog {
     public void replayDropLinkDb(DropLinkDbAndUpdateDbInfo info) {
         writeLock();
         try {
-            final Database db = this.nameToDb.remove(info.getDropDbName());
+            final Database db = this.fullNameToDb.remove(info.getDropDbName());
             db.setDbState(info.getUpdateDbState());
             final Cluster cluster = nameToCluster
                     .get(info.getDropDbCluster());
@@ -2002,7 +2000,7 @@ public class Catalog {
     public void replayDropDb(String dbName) throws DdlException {
         writeLock();
         try {
-            Database db = nameToDb.get(dbName);
+            Database db = fullNameToDb.get(dbName);
             db.writeLock();
             try {
                 Set<String> tableNames = db.getTableNamesWithLock();
@@ -2012,7 +2010,7 @@ public class Catalog {
                 db.writeUnlock();
             }
 
-            nameToDb.remove(dbName);
+            fullNameToDb.remove(dbName);
             idToDb.remove(db.getId());
             final Cluster cluster = nameToCluster.get(db.getClusterName());
             cluster.removeDb(dbName, db.getId());
@@ -2032,13 +2030,13 @@ public class Catalog {
         // add db to catalog
         writeLock();
         try {
-            if (nameToDb.containsKey(db.getName())) {
-                throw new DdlException("Database[" + db.getName() + "] already exist.");
+            if (fullNameToDb.containsKey(db.getFullName())) {
+                throw new DdlException("Database[" + db.getFullName() + "] already exist.");
                 // it's ok that we do not put db back to CatalogRecycleBin
                 // cause this db cannot recover any more
             }
 
-            nameToDb.put(db.getName(), db);
+            fullNameToDb.put(db.getFullName(), db);
             idToDb.put(db.getId(), db);
         } finally {
             writeUnlock();
@@ -2156,9 +2154,9 @@ public class Catalog {
             if (cluster == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_NO_EXISTS, clusterName);
             }
-            final String dbNameWithoutPrefix = ClusterNamespace.getDbNameFromFullName(dbName);
+            final String dbNameWithoutPrefix = ClusterNamespace.getNameFromFullName(dbName);
             // check if db exists
-            db = nameToDb.get(dbName);
+            db = fullNameToDb.get(dbName);
             if (db == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbNameWithoutPrefix);
             }
@@ -2166,20 +2164,20 @@ public class Catalog {
             if (db.getDbState() == DbState.LINK || db.getDbState() == DbState.MOVE) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_RENAME_DB_ERR, dbNameWithoutPrefix);
             }
-            final String newDbNameWithoutPrefix = ClusterNamespace.getDbNameFromFullName(newDbName);
+            final String newDbNameWithoutPrefix = ClusterNamespace.getNameFromFullName(newDbName);
             // check if name is already used
-            if (nameToDb.get(newDbName) != null) {
+            if (fullNameToDb.get(newDbName) != null) {
                 throw new DdlException("Database name[" + newDbNameWithoutPrefix + "] is already used");
             }
 
-            cluster.removeDb(db.getName(), db.getId());
+            cluster.removeDb(db.getFullName(), db.getId());
             cluster.addDb(newDbName, db.getId());
             // 1. rename db
             db.setNameWithLock(newDbName);
 
             // 2. add to meta. check again
-            nameToDb.remove(dbName);
-            nameToDb.put(newDbName, db);
+            fullNameToDb.remove(dbName);
+            fullNameToDb.put(newDbName, db);
 
             DatabaseInfo dbInfo = new DatabaseInfo(dbName, newDbName, -1L);
             editLog.logDatabaseRename(dbInfo);
@@ -2195,12 +2193,12 @@ public class Catalog {
         try {
             Database db = getDb(dbName);
             db.setNameWithLock(newDbName);
-            db = nameToDb.get(dbName);
+            db = fullNameToDb.get(dbName);
             final Cluster cluster = nameToCluster.get(db.getClusterName());
-            cluster.removeDb(db.getName(), db.getId());
+            cluster.removeDb(db.getFullName(), db.getId());
             cluster.addDb(newDbName, db.getId());
-            nameToDb.remove(dbName);
-            nameToDb.put(newDbName, db);
+            fullNameToDb.remove(dbName);
+            fullNameToDb.put(newDbName, db);
         } finally {
             writeUnlock();
         }
@@ -3360,7 +3358,7 @@ public class Catalog {
     }
 
     public void replayCreateTable(String dbName, Table table) {
-        Database db = this.nameToDb.get(dbName);
+        Database db = this.fullNameToDb.get(dbName);
         db.createTableWithLock(table, true, false);
 
         if (!isCheckpointThread()) {
@@ -3433,7 +3431,7 @@ public class Catalog {
         readLock();
         try {
             // check database
-            db = this.nameToDb.get(dbName);
+            db = this.fullNameToDb.get(dbName);
             if (db == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
             }
@@ -3504,7 +3502,7 @@ public class Catalog {
         db.dropTable(table.getName());
         Catalog.getCurrentRecycleBin().recycleTable(db.getId(), table);
 
-        LOG.info("finished dropping table[{}] in db[{}]", table.getName(), db.getName());
+        LOG.info("finished dropping table[{}] in db[{}]", table.getName(), db.getFullName());
         return true;
     }
 
@@ -3629,10 +3627,10 @@ public class Catalog {
     public Database getDb(String name) {
         readLock();
         try {
-            if (nameToDb.containsKey(name)) {
-                return nameToDb.get(name);
-            } else if (name.equalsIgnoreCase(InfoSchemaDb.getDatabaseName())) {
-                return nameToDb.get(InfoSchemaDb.getDatabaseName());
+            if (fullNameToDb.containsKey(name)) {
+                return fullNameToDb.get(name);
+            } else if (name.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
+                return fullNameToDb.get(InfoSchemaDb.DATABASE_NAME);
             }
             return null;
         } finally {
@@ -3666,7 +3664,7 @@ public class Catalog {
     public List<String> getDbNames() {
         readLock();
         try {
-            List<String> dbNames = Lists.newArrayList(nameToDb.keySet());
+            List<String> dbNames = Lists.newArrayList(fullNameToDb.keySet());
             return dbNames;
         } finally {
             readUnlock();
@@ -4249,8 +4247,8 @@ public class Catalog {
     }
 
     /*
-     * used for handling AlterClusterStmt (for client is the ALTER CLUSTER
-     * command). including AlterClusterHandler
+     * used for handling AlterClusterStmt 
+     * (for client is the ALTER CLUSTER command).
      */
     public void alterCluster(AlterSystemStmt stmt) throws DdlException, InternalException {
         this.alter.processAlterCluster(stmt);
@@ -4302,8 +4300,8 @@ public class Catalog {
         if (SingletonHolder.INSTANCE.idToDb != null) {
             SingletonHolder.INSTANCE.idToDb.clear();
         }
-        if (SingletonHolder.INSTANCE.nameToDb != null) {
-            SingletonHolder.INSTANCE.nameToDb.clear();
+        if (SingletonHolder.INSTANCE.fullNameToDb != null) {
+            SingletonHolder.INSTANCE.fullNameToDb.clear();
         }
         if (load.getIdToLoadJob() != null) {
             load.getIdToLoadJob().clear();
@@ -4397,8 +4395,7 @@ public class Catalog {
             if (nameToCluster.containsKey(clusterName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_HAS_EXIST, clusterName);
             } else {
-                List<Long> backendList = Lists.newArrayList();
-                backendList = systemInfo.createCluster(clusterName, stmt.getInstanceNum());
+                List<Long> backendList = systemInfo.createCluster(clusterName, stmt.getInstanceNum());
                 if (backendList != null) {
                     final long id = getNextId();
                     final Cluster cluster = new Cluster();
@@ -4409,11 +4406,12 @@ public class Catalog {
                     if (clusterName.equals(SystemInfoService.DEFAULT_CLUSTER)) {
                         for (Database db : idToDb.values()) {
                             if (db.getClusterName().equals(SystemInfoService.DEFAULT_CLUSTER)) {
-                                cluster.addDb(db.getName(), db.getId());
+                                cluster.addDb(db.getFullName(), db.getId());
                             }
                         }
                     }
                     editLog.logCreateCluster(cluster);
+                    LOG.info("finish to create cluster: {}", clusterName);
                 } else {
                     ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_BE_NOT_ENOUGH);
                 }
@@ -4431,6 +4429,7 @@ public class Catalog {
                 return;
             }
         }
+
         final Iterator<Long> iterator = cluster.getBackendIdList().iterator();
         while (iterator.hasNext()) {
             final Long id = iterator.next();
@@ -4438,26 +4437,18 @@ public class Catalog {
             backend.setOwnerClusterName(cluster.getName());
             backend.setBackendState(BackendState.using);
         }
+
         idToCluster.put(cluster.getId(), cluster);
         nameToCluster.put(cluster.getName(), cluster);
+
+        // create info schema db
         final InfoSchemaDb db = new InfoSchemaDb(cluster.getName());
         db.setClusterName(cluster.getName());
         unprotectCreateDb(db);
 
+        // only need to create default cluster once.
         if (cluster.getName().equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             isDefaultClusterCreated = true;
-            for (String dbName : cluster.getDbNames()) {
-                if (dbName.equalsIgnoreCase(ClusterNamespace.getDbFullName(SystemInfoService.DEFAULT_CLUSTER,
-                                                                           InfoSchemaDb.getDatabaseName()))) {
-                    continue;
-                }
-                Database otherDb = nameToDb.get(dbName);
-                if (otherDb == null) {
-                    LOG.error("failed to get db {} when replay create default cluster", dbName);
-                    continue;
-                }
-                otherDb.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
-            }
         }
     }
 
@@ -4484,30 +4475,26 @@ public class Catalog {
     public void dropCluster(DropClusterStmt stmt) throws DdlException {
         writeLock();
         try {
-            final Cluster cluster = nameToCluster.get(stmt.getClusterName());
             final String clusterName = stmt.getClusterName();
+            final Cluster cluster = nameToCluster.get(clusterName);
             if (cluster == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_NO_EXISTS, clusterName);
             }
             final List<Backend> backends = systemInfo.getClusterBackends(clusterName);
             for (Backend backend : backends) {
-                if (backend.isDecommissioned() && backend.getDecommissionType() == DecomissionType.SystemDecomission) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_ALTER_BE_IN_SYSTEM_DECOMMISSION, clusterName);
-                }
-
-                if (backend.isDecommissioned() && backend.getDecommissionType() == DecomissionType.ClusterDecomission) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_ALTER_BE_IN_CLUSTER_DECOMMISSION, clusterName);
+                if (backend.isDecommissioned()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_ALTER_BE_IN_DECOMMISSION, clusterName);
                 }
             }
 
-            // check if there still have database undropped, except for information_schema db
+            // check if there still have databases undropped, except for information_schema db
             if (cluster.getDbNames().size() > 1) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_DELETE_DB_EXIST, clusterName);
             }
 
-            final ClusterInfo info = new ClusterInfo(clusterName, nameToCluster.get(clusterName).getId());
-            systemInfo.releaseBackends(info.getClusterName(), true);
-            unprotectDropCluster(info, true);
+            systemInfo.releaseBackends(clusterName, false /* is not replay */);
+            final ClusterInfo info = new ClusterInfo(clusterName, cluster.getId());
+            unprotectDropCluster(info, false /* is not replay */);
             editLog.logDropCluster(info);
         } finally {
             writeUnlock();
@@ -4515,26 +4502,41 @@ public class Catalog {
 
     }
 
-    private void unprotectDropCluster(ClusterInfo info, boolean log) {
-        systemInfo.releaseBackends(info.getClusterName(), log);
+    private void unprotectDropCluster(ClusterInfo info, boolean isReplay) {
+        systemInfo.releaseBackends(info.getClusterName(), isReplay);
         idToCluster.remove(info.getClusterId());
         nameToCluster.remove(info.getClusterName());
-        final Database infoSchemaDb = nameToDb.get(InfoSchemaDb.getFullInfoSchemaDbName(info.getClusterName()));
-        nameToDb.remove(infoSchemaDb.getName());
+        final Database infoSchemaDb = fullNameToDb.get(InfoSchemaDb.getFullInfoSchemaDbName(info.getClusterName()));
+        fullNameToDb.remove(infoSchemaDb.getFullName());
         idToDb.remove(infoSchemaDb.getId());
     }
 
     public void replayDropCluster(ClusterInfo info) {
         writeLock();
-        unprotectDropCluster(info, false);
-        writeUnlock();
+        try {
+            unprotectDropCluster(info, true/* is replay */);
+        } finally {
+            writeUnlock();
+        }
     }
 
-    public void replayUpdateCluster(ClusterInfo info) {
+    public void replayExpandCluster(ClusterInfo info) {
         writeLock();
-        final Cluster cluster = nameToCluster.get(info.getClusterName());
-        cluster.setBackendIdList(info.getBackendIdList());
-        writeUnlock();
+        try {
+            final Cluster cluster = nameToCluster.get(info.getClusterName());
+            cluster.addBackends(info.getBackendIdList());
+
+            for (Long beId : info.getBackendIdList()) {
+                Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
+                if (be == null) {
+                    continue;
+                }
+                be.setOwnerClusterName(info.getClusterName());
+                be.setBackendState(BackendState.using);
+            }
+        } finally {
+            writeUnlock();
+        }
     }
 
     /**
@@ -4543,67 +4545,64 @@ public class Catalog {
      * @param stmt
      * @throws DdlException
      */
-    public void processModityCluster(AlterClusterStmt stmt) throws DdlException {
+    public void processModifyCluster(AlterClusterStmt stmt) throws DdlException {
         final String clusterName = stmt.getAlterClusterName();
         final int newInstanceNum = stmt.getInstanceNum();
         writeLock();
         try {
-            if (!nameToCluster.containsKey(clusterName)) {
+            Cluster cluster = nameToCluster.get(clusterName);
+            if (cluster == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_NO_EXISTS, clusterName);
             }
-            final int oldInstanceNum = nameToCluster.get(clusterName).getBackendIdList().size();
 
+            // check if this cluster has backend in decommission
+            final List<Long> backendIdsInCluster = cluster.getBackendIdList();
+            for (Long beId : backendIdsInCluster) {
+                Backend be = systemInfo.getBackend(beId);
+                if (be.isDecommissioned()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_ALTER_BE_IN_DECOMMISSION, clusterName);
+                }
+            }
+
+            final int oldInstanceNum = backendIdsInCluster.size();
             if (newInstanceNum > oldInstanceNum) {
-                final List<Long> backendList = systemInfo.calculateExpansionBackends(clusterName,
+                // expansion
+                final List<Long> expandBackendIds = systemInfo.calculateExpansionBackends(clusterName,
                         newInstanceNum - oldInstanceNum);
-                if (backendList == null) {
+                if (expandBackendIds == null) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_BE_NOT_ENOUGH);
                 }
-                final Cluster cluster = nameToCluster.get(clusterName);
-                cluster.addBackends(backendList);
-                final ClusterInfo ci = new ClusterInfo(clusterName, nameToCluster.get(clusterName).getId());
-                ci.setBackendIdList(cluster.getBackendIdList());
-                editLog.logModifyCluster(ci);
+                cluster.addBackends(expandBackendIds);
+                final ClusterInfo info = new ClusterInfo(clusterName, cluster.getId(), expandBackendIds);
+                editLog.logExpandCluster(info);
             } else if (newInstanceNum < oldInstanceNum) {
-                final List<Long> backendList = systemInfo.calculateDecommissionBackends(clusterName,
+                // shrink
+                final List<Long> decomBackendIds = systemInfo.calculateDecommissionBackends(clusterName,
                         oldInstanceNum - newInstanceNum);
-                if (backendList == null || backendList.size() == 0) {
+                if (decomBackendIds == null || decomBackendIds.size() == 0) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_BACKEND_ERROR);
                 }
 
-                for (Long id : backendList) {
-                    final Backend backend = systemInfo.getBackend(id);
-                    if (backend.isDecommissioned()) {
-                        if (backend.getDecommissionType() == DecomissionType.ClusterDecomission) {
-                            ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_ALTER_BE_IN_CLUSTER_DECOMMISSION,
-                                    clusterName);
-                        } else {
-                            ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_ALTER_BE_IN_SYSTEM_DECOMMISSION,
-                                    clusterName);
-                        }
-                    }
-                }
-
                 List<String> hostPortList = Lists.newArrayList();
-                for (Long id : backendList) {
+                for (Long id : decomBackendIds) {
                     final Backend backend = systemInfo.getBackend(id);
                     hostPortList.add(new StringBuilder().append(backend.getHost()).append(":")
                             .append(backend.getHeartbeatPort()).toString());
                 }
-                // cluster modify reused system Decommission, but add
-                // DecommissionType to
-                // not drop backend when finish decommission
+
+                // here we reuse the process of decommission backends. but set backend's decommission type to 
+                // ClusterDecommission, which means this backend will not be removed from the system
+                // after decommission is done.
                 final DecommissionBackendClause clause = new DecommissionBackendClause(hostPortList);
                 try {
                     clause.analyze(null);
-                    clause.setType(DecomissionType.ClusterDecomission);
+                    clause.setType(DecommissionType.ClusterDecommission);
                     AlterSystemStmt alterStmt = new AlterSystemStmt(clause);
                     alterStmt.setClusterName(clusterName);
                     this.alter.processAlterCluster(alterStmt);
                 } catch (AnalysisException e) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_BACKEND_ERROR);
+                    Preconditions.checkState(false, "should not happend: " + e.getMessage());
                 }
-
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_ALTER_BE_NO_CHANGE, newInstanceNum);
             }
@@ -4611,55 +4610,6 @@ public class Catalog {
         } finally {
             writeUnlock();
         }
-    }
-
-    /**
-     *
-     * @param ci
-     * @throws DdlException
-     */
-    private void unprotectModifyCluster(ClusterInfo ci) throws DdlException {
-        if (ci.getNewInstanceNum() > ci.getInstanceNum()) {
-            final List<Long> backendList = systemInfo.calculateExpansionBackends(ci.getClusterName(),
-                    ci.getNewInstanceNum() - ci.getInstanceNum());
-            if (backendList == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_BE_NOT_ENOUGH);
-            }
-            final Cluster cluster = nameToCluster.get(ci.getClusterName());
-            cluster.addBackends(backendList);
-        } else if (ci.getNewInstanceNum() < ci.getInstanceNum()) {
-            final List<Long> backendList = systemInfo.calculateDecommissionBackends(ci.getClusterName(),
-                    ci.getInstanceNum() - ci.getNewInstanceNum());
-            List<String> hostPortList = Lists.newArrayList();
-            for (Long id : backendList) {
-                final Backend backend = systemInfo.getBackend(id);
-                hostPortList.add(backend.getHost());
-                hostPortList.add(String.valueOf(backend.getBePort()));
-            }
-            // cluster modify reused system Decommission, but add
-            // DecommissionType to
-            // not drop backend when finish decommission
-            final DecommissionBackendClause clause = new DecommissionBackendClause(hostPortList);
-            clause.setType(DecomissionType.ClusterDecomission);
-            AlterSystemStmt stmt = new AlterSystemStmt(clause);
-            stmt.setClusterName(ci.getClusterName());
-
-            this.alter.processAlterCluster(stmt);
-        } else {
-
-        }
-    }
-
-    /**
-     * replay modify cluster
-     *
-     * @param ci
-     * @throws DdlException
-     */
-    public void replayModifyCluster(ClusterInfo ci) throws DdlException {
-        writeLock();
-        unprotectModifyCluster(ci);
-        writeUnlock();
     }
 
     /**
@@ -4686,57 +4636,66 @@ public class Catalog {
      */
     public void migrateDb(MigrateDbStmt stmt) throws DdlException {
         final String srcClusterName = stmt.getSrcCluster();
-        final String desClusterName = stmt.getDesCluster();
+        final String destClusterName = stmt.getDestCluster();
         final String srcDbName = stmt.getSrcDb();
-        final String desDbName = stmt.getDesDb();
+        final String destDbName = stmt.getDestDb();
 
         writeLock();
         try {
             if (!nameToCluster.containsKey(srcClusterName)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_SRC_CLUSTER_NO_EXIT, srcClusterName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_SRC_CLUSTER_NOT_EXIST, srcClusterName);
             }
-            if (!nameToCluster.containsKey(desClusterName)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_DES_CLUSTER_NO_EXIT, desClusterName);
+            if (!nameToCluster.containsKey(destClusterName)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_DEST_CLUSTER_NOT_EXIST, destClusterName);
             }
 
-            if (srcClusterName.equals(desClusterName)) {
+            if (srcClusterName.equals(destClusterName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_MIGRATE_SAME_CLUSTER);
             }
 
             final Cluster srcCluster = this.nameToCluster.get(srcClusterName);
             if (!srcCluster.containDb(srcDbName)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_SRC_DB_NO_EXIT, srcDbName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_SRC_DB_NOT_EXIST, srcDbName);
             }
-            final Cluster desCluster = this.nameToCluster.get(desClusterName);
-            if (!desCluster.containLink(desDbName, srcDbName)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_MIGRATION_NO_LINK, srcDbName, desDbName);
+            final Cluster destCluster = this.nameToCluster.get(destClusterName);
+            if (!destCluster.containLink(destDbName, srcDbName)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_MIGRATION_NO_LINK, srcDbName, destDbName);
             }
 
-            final Database db = nameToDb.get(srcDbName);
-            final int maxReplica = getDbMaxReplicaNum(db);
-            if (maxReplica > desCluster.getBackendIdList().size()) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_MIGRATE_BE_NOT_ENOUGH, desClusterName);
+            final Database db = fullNameToDb.get(srcDbName);
+
+            // if the max replication num of the src db is larger then the backends num of the dest cluster,
+            // the migration will not be processed.
+            final int maxReplicationNum = getDbMaxReplicationNum(db);
+            if (maxReplicationNum > destCluster.getBackendIdList().size()) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_MIGRATE_BE_NOT_ENOUGH, destClusterName);
             }
+
             if (db.getDbState() == DbState.LINK) {
                 final BaseParam param = new BaseParam();
-                param.addStringParam(desDbName);
+                param.addStringParam(destDbName);
                 param.addLongParam(db.getId());
                 param.addStringParam(srcDbName);
-                param.addStringParam(desClusterName);
+                param.addStringParam(destClusterName);
                 param.addStringParam(srcClusterName);
-                nameToDb.remove(db.getName());
-                srcCluster.removeDb(db.getName(), db.getId());
-                desCluster.removeLinkDb(param);
-                desCluster.addDb(desDbName, db.getId());
+                fullNameToDb.remove(db.getFullName());
+                srcCluster.removeDb(db.getFullName(), db.getId());
+                destCluster.removeLinkDb(param);
+                destCluster.addDb(destDbName, db.getId());
                 db.writeLock();
-                db.setDbState(DbState.MOVE);
-                db.setClusterName(desClusterName);
-                db.setName(desDbName);
-                db.setAttachDb(srcDbName);
-                db.writeUnlock();
+                try {
+                    db.setDbState(DbState.MOVE);
+                    // set cluster to the dest cluster.
+                    // and Clone process will do the migration things.
+                    db.setClusterName(destClusterName);
+                    db.setName(destDbName);
+                    db.setAttachDb(srcDbName);
+                } finally {
+                    db.writeUnlock();
+                }
                 editLog.logMigrateCluster(param);
             } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_MIGRATION_NO_LINK, srcDbName, desDbName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_MIGRATION_NO_LINK, srcDbName, destDbName);
             }
         } finally {
             writeUnlock();
@@ -4744,31 +4703,32 @@ public class Catalog {
     }
 
     /**
-     * return max replicationNum in db
+     * return max replicationNum of a db
+     * 
      * @param db
      * @return
      */
-    private int getDbMaxReplicaNum(Database db) {
+    private int getDbMaxReplicationNum(Database db) {
         int ret = 0;
         final Set<String> tableNames = db.getTableNamesWithLock();
-        for (String tableName : tableNames) {
-            try {
-                db.readLock();
+        db.readLock();
+        try {
+            for (String tableName : tableNames) {
                 Table table = db.getTable(tableName);
                 if (table == null || table.getType() != TableType.OLAP) {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
                 for (Partition partition : olapTable.getPartitions()) {
-                    long partitionId = partition.getId();
                     short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
                     if (ret < replicationNum) {
                         ret = replicationNum;
                     }
                 }
-            } finally {
-                db.readUnlock();
+
             }
+        } finally {
+            db.readUnlock();
         }
         return ret;
     }
@@ -4782,10 +4742,10 @@ public class Catalog {
             writeLock();
             final Cluster desCluster = this.nameToCluster.get(desClusterName);
             final Cluster srcCluster = this.nameToCluster.get(srcClusterName);
-            final Database db = nameToDb.get(srcDbName);
+            final Database db = fullNameToDb.get(srcDbName);
             if (db.getDbState() == DbState.LINK) {
-                nameToDb.remove(db.getName());
-                srcCluster.removeDb(db.getName(), db.getId());
+                fullNameToDb.remove(db.getFullName());
+                srcCluster.removeDb(db.getFullName(), db.getId());
                 desCluster.removeLinkDb(param);
                 desCluster.addDb(param.getStringParam(), db.getId());
 
@@ -4806,81 +4766,81 @@ public class Catalog {
         final String srcDbName = param.getStringParam(1);
         final String desDbName = param.getStringParam();
 
+        writeLock();
         try {
-            writeLock();
             final Cluster desCluster = this.nameToCluster.get(desClusterName);
-            final Database srcDb = nameToDb.get(srcDbName);
+            final Database srcDb = fullNameToDb.get(srcDbName);
             srcDb.writeLock();
-            srcDb.increaseRef();
             srcDb.setDbState(DbState.LINK);
             srcDb.setAttachDb(desDbName);
             srcDb.writeUnlock();
             desCluster.addLinkDb(param);
-            nameToDb.put(desDbName, srcDb);
+            fullNameToDb.put(desDbName, srcDb);
         } finally {
             writeUnlock();
         }
     }
 
     /**
-     * link src db to des db ,and increase src db ref。 we use java's quotation
-     * Mechanism to realize db hard links
+     * link src db to dest db. we use java's quotation Mechanism to realize db hard links
      *
      * @param stmt
      * @throws DdlException
      */
     public void linkDb(LinkDbStmt stmt) throws DdlException {
         final String srcClusterName = stmt.getSrcCluster();
-        final String desClusterName = stmt.getDesCluster();
+        final String destClusterName = stmt.getDestCluster();
         final String srcDbName = stmt.getSrcDb();
-        final String desDbName = stmt.getDesDb();
+        final String destDbName = stmt.getDestDb();
         writeLock();
         try {
             if (!nameToCluster.containsKey(srcClusterName)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_SRC_CLUSTER_NO_EXIT, srcClusterName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_SRC_CLUSTER_NOT_EXIST, srcClusterName);
             }
 
-            if (!nameToCluster.containsKey(desClusterName)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_DES_CLUSTER_NO_EXIT, desClusterName);
+            if (!nameToCluster.containsKey(destClusterName)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_DEST_CLUSTER_NOT_EXIST, destClusterName);
             }
 
-            if (srcClusterName.equals(desClusterName)) {
+            if (srcClusterName.equals(destClusterName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_MIGRATE_SAME_CLUSTER);
             }
 
-            if (nameToDb.containsKey(desDbName)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, desDbName);
+            if (fullNameToDb.containsKey(destDbName)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, destDbName);
             }
 
             final Cluster srcCluster = this.nameToCluster.get(srcClusterName);
-            final Cluster desCluster = this.nameToCluster.get(desClusterName);
+            final Cluster destCluster = this.nameToCluster.get(destClusterName);
 
             if (!srcCluster.containDb(srcDbName)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_SRC_DB_NO_EXIT, srcDbName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_SRC_DB_NOT_EXIST, srcDbName);
             }
-            final Database srcDb = nameToDb.get(srcDbName);
+            final Database srcDb = fullNameToDb.get(srcDbName);
 
             if (srcDb.getDbState() != DbState.NORMAL) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_DB_STATE_LINK_OR_MIGRATE,
-                        ClusterNamespace.getDbNameFromFullName(srcDbName));
+                        ClusterNamespace.getNameFromFullName(srcDbName));
             }
 
             srcDb.writeLock();
-            srcDb.increaseRef();
-            srcDb.setDbState(DbState.LINK);
-            srcDb.setAttachDb(desDbName);
-            srcDb.writeUnlock();
+            try {
+                srcDb.setDbState(DbState.LINK);
+                srcDb.setAttachDb(destDbName);
+            } finally {
+                srcDb.writeUnlock();
+            }
 
             final long id = getNextId();
             final BaseParam param = new BaseParam();
-            param.addStringParam(desDbName);
+            param.addStringParam(destDbName);
             param.addStringParam(srcDbName);
             param.addLongParam(id);
             param.addLongParam(srcDb.getId());
-            param.addStringParam(desClusterName);
+            param.addStringParam(destClusterName);
             param.addStringParam(srcClusterName);
-            desCluster.addLinkDb(param);
-            nameToDb.put(desDbName, srcDb);
+            destCluster.addLinkDb(param);
+            fullNameToDb.put(destDbName, srcDb);
             editLog.logLinkCluster(param);
         } finally {
             writeUnlock();
@@ -4901,7 +4861,7 @@ public class Catalog {
      */
     public Set<BaseParam> getMigrations() {
         final Set<BaseParam> infos = Sets.newHashSet();
-        for (Database db : nameToDb.values()) {
+        for (Database db : fullNameToDb.values()) {
             if (db.getDbState() == DbState.MOVE) {
                 int tabletTotal = 0;
                 int tabletQuorum = 0;
@@ -4948,7 +4908,7 @@ public class Catalog {
                 final BaseParam info = new BaseParam();
                 info.addStringParam(db.getClusterName());
                 info.addStringParam(db.getAttachDb());
-                info.addStringParam(db.getName());
+                info.addStringParam(db.getFullName());
                 final float percentage = tabletTotal > 0 ? (float) tabletQuorum / (float) tabletTotal : 0f;
                 info.addFloatParam(percentage);
                 infos.add(info);
@@ -4970,8 +4930,8 @@ public class Catalog {
                 final InfoSchemaDb db = new InfoSchemaDb(cluster.getName());
                 db.setClusterName(cluster.getName());
                 idToDb.put(db.getId(), db);
-                nameToDb.put(db.getName(), db);
-                cluster.addDb(db.getName(), db.getId());
+                fullNameToDb.put(db.getFullName(), db);
+                cluster.addDb(db.getFullName(), db.getId());
                 idToCluster.put(cluster.getId(), cluster);
                 nameToCluster.put(cluster.getName(), cluster);
             }
@@ -5010,7 +4970,7 @@ public class Catalog {
             unprotectCreateCluster(cluster);
             for (Database db : idToDb.values()) {
                 db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
-                cluster.addDb(db.getName(), db.getId());
+                cluster.addDb(db.getFullName(), db.getId());
             }
         }
         // no matter default_cluster is created or not,
@@ -5020,7 +4980,7 @@ public class Catalog {
     }
 
     public void replayUpdateDb(DatabaseInfo info) {
-        final Database db = nameToDb.get(info.getDbName());
+        final Database db = fullNameToDb.get(info.getDbName());
         db.setClusterName(info.getClusterName());
         db.setDbState(info.getDbState());
     }

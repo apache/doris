@@ -22,15 +22,15 @@ package com.baidu.palo.analysis;
 
 import java.util.List;
 
-import com.baidu.palo.alter.DecommissionBackendJob.DecomissionType;
+import com.baidu.palo.alter.DecommissionBackendJob.DecommissionType;
 
 public class DecommissionBackendClause extends BackendClause {
 
-    private DecomissionType type;
+    private DecommissionType type;
 
     public DecommissionBackendClause(List<String> hostPorts) {
         super(hostPorts);
-        type = DecomissionType.SystemDecomission;
+        type = DecommissionType.SystemDecommission;
     }
 
     @Override
@@ -46,11 +46,11 @@ public class DecommissionBackendClause extends BackendClause {
         return sb.toString();
     }
 
-    public DecomissionType getType() {
+    public DecommissionType getType() {
         return type;
     }
 
-    public void setType(DecomissionType type) {
+    public void setType(DecommissionType type) {
         this.type = type;
     }
 }

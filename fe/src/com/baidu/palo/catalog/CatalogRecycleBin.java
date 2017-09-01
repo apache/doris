@@ -71,7 +71,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
         Preconditions.checkState(db.getTables().isEmpty());
 
         // erase db with same name
-        eraseDatabaseWithSameName(db.getName());
+        eraseDatabaseWithSameName(db.getFullName());
 
         // recylce db
         RecycleDatabaseInfo databaseInfo = new RecycleDatabaseInfo(db, tableNames);
@@ -155,7 +155,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
             Map.Entry<Long, RecycleDatabaseInfo> entry = iterator.next();
             RecycleDatabaseInfo dbInfo = entry.getValue();
             Database db = dbInfo.getDb();
-            if (db.getName().equals(dbName)) {
+            if (db.getFullName().equals(dbName)) {
                 iterator.remove();
                 idToRecycleTime.remove(entry.getKey());
 
@@ -355,7 +355,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
         Iterator<Map.Entry<Long, RecycleDatabaseInfo>> iterator = idToDatabase.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Long, RecycleDatabaseInfo> entry = iterator.next();
-            if (dbName.equals(entry.getValue().getDb().getName())) {
+            if (dbName.equals(entry.getValue().getDb().getFullName())) {
                 dbInfo = entry.getValue();
                 break;
             }

@@ -93,10 +93,10 @@ public class ShowLoadWarningsStmt extends ShowStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
         } else {
-            dbName = ClusterNamespace.getDbFullName(getClusterName(), dbName);
+            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
-        final String userNameWithoutPrefix = ClusterNamespace.getUsrNameFromFullName(dbName);
-        final String dbNameWithoutPrefix = ClusterNamespace.getDbNameFromFullName(dbName);
+        final String userNameWithoutPrefix = ClusterNamespace.getNameFromFullName(dbName);
+        final String dbNameWithoutPrefix = ClusterNamespace.getNameFromFullName(dbName);
         // check access
         if (!analyzer.getCatalog().getUserMgr().checkAccess(analyzer.getUser(), dbName, AccessPrivilege.READ_ONLY)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, userNameWithoutPrefix,

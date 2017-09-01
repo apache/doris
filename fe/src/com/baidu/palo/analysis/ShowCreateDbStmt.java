@@ -53,7 +53,7 @@ public class ShowCreateDbStmt extends ShowStmt {
         if (Strings.isNullOrEmpty(db)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, db);
         }
-        db = ClusterNamespace.getDbFullName(getClusterName(), db);
+        db = ClusterNamespace.getFullName(getClusterName(), db);
         if (!analyzer.getCatalog().getUserMgr()
                 .checkAccess(analyzer.getUser(), db, AccessPrivilege.READ_ONLY)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(), db);

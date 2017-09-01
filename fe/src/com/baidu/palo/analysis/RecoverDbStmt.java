@@ -46,7 +46,7 @@ public class RecoverDbStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
         }
-        dbName = ClusterNamespace.getDbFullName(getClusterName(), dbName);
+        dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         if (!analyzer.getCatalog().getUserMgr()
                 .checkAccess(analyzer.getUser(), dbName, AccessPrivilege.READ_WRITE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(), dbName);
