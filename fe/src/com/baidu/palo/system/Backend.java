@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import com.baidu.palo.alter.DecommissionBackendJob.DecomissionType;
+import com.baidu.palo.alter.DecommissionBackendJob.DecommissionType;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.DiskInfo;
 import com.baidu.palo.catalog.DiskInfo.DiskState;
@@ -93,7 +93,7 @@ public class Backend implements Writable {
         this.ownerClusterName = new AtomicReference<String>("");
         this.backendState = new AtomicInteger(BackendState.free.ordinal());
         
-        this.decommissionType = new AtomicInteger(DecomissionType.SystemDecommission.ordinal());
+        this.decommissionType = new AtomicInteger(DecommissionType.SystemDecommission.ordinal());
     }
 
     public Backend(long id, String host, int heartbeatPort) {
@@ -112,7 +112,7 @@ public class Backend implements Writable {
 
         this.ownerClusterName = new AtomicReference<String>(""); 
         this.backendState = new AtomicInteger(BackendState.free.ordinal());
-        this.decommissionType = new AtomicInteger(DecomissionType.SystemDecommission.ordinal());
+        this.decommissionType = new AtomicInteger(DecommissionType.SystemDecommission.ordinal());
     }
 
     public long getId() {
@@ -418,7 +418,7 @@ public class Backend implements Writable {
         } else {
             ownerClusterName.set(SystemInfoService.DEFAULT_CLUSTER);
             backendState.set(BackendState.using.ordinal());
-            decommissionType.set(DecomissionType.SystemDecommission.ordinal());
+            decommissionType.set(DecommissionType.SystemDecommission.ordinal());
         }
     }
 
@@ -468,15 +468,15 @@ public class Backend implements Writable {
         }
     }
 
-    public void setDecommissionType(DecomissionType type) {
+    public void setDecommissionType(DecommissionType type) {
         decommissionType.set(type.ordinal());
     }
     
-    public DecomissionType getDecommissionType() {
-        if (decommissionType.get() == DecomissionType.ClusterDecommission.ordinal()) {
-            return DecomissionType.ClusterDecommission;
+    public DecommissionType getDecommissionType() {
+        if (decommissionType.get() == DecommissionType.ClusterDecommission.ordinal()) {
+            return DecommissionType.ClusterDecommission;
         }
-        return DecomissionType.SystemDecommission;
+        return DecommissionType.SystemDecommission;
     }
 
 }

@@ -696,14 +696,14 @@ public class SystemInfoService extends Daemon {
      * @return
      */
     private Map<String, List<Backend>> getHostBackendsMap(boolean needAlive, boolean needFree,
-                                                          boolean canBeDecomission) {
+                                                          boolean canBeDecommission) {
         final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
         final Map<String, List<Backend>> classMap = Maps.newHashMap();
 
         // to select backend where state is free
         for (Backend backend : copiedBackends.values()) {
             if ((needAlive && !backend.isAlive()) || (needFree && !backend.isFreeFromCluster())
-                    || (!canBeDecomission && backend.isDecommissioned())) {
+                    || (!canBeDecommission && backend.isDecommissioned())) {
                 continue;
             }
             if (classMap.containsKey(backend.getHost())) {

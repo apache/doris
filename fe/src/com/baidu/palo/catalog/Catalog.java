@@ -23,7 +23,7 @@ package com.baidu.palo.catalog;
 import com.baidu.palo.alter.Alter;
 import com.baidu.palo.alter.AlterJob;
 import com.baidu.palo.alter.AlterJob.JobType;
-import com.baidu.palo.alter.DecommissionBackendJob.DecomissionType;
+import com.baidu.palo.alter.DecommissionBackendJob.DecommissionType;
 import com.baidu.palo.alter.RollupHandler;
 import com.baidu.palo.alter.SchemaChangeHandler;
 import com.baidu.palo.alter.SystemHandler;
@@ -4596,7 +4596,7 @@ public class Catalog {
                 final DecommissionBackendClause clause = new DecommissionBackendClause(hostPortList);
                 try {
                     clause.analyze(null);
-                    clause.setType(DecomissionType.ClusterDecommission);
+                    clause.setType(DecommissionType.ClusterDecommission);
                     AlterSystemStmt alterStmt = new AlterSystemStmt(clause);
                     alterStmt.setClusterName(clusterName);
                     this.alter.processAlterCluster(alterStmt);

@@ -61,7 +61,7 @@ import com.google.common.collect.Sets;
 
 public class DecommissionBackendJob extends AlterJob {
 
-    public enum DecomissionType {
+    public enum DecommissionType {
         SystemDecommission, // after finished system decommission, the backend will be removed from Palo.
         ClusterDecommission // after finished cluster decommission, the backend will be removed from cluster.
     }
@@ -81,7 +81,7 @@ public class DecommissionBackendJob extends AlterJob {
     // add tabletId to 'finishedTabletIds' only if that tablet has full replicas
     private Set<Long> finishedTabletIds;
 
-    private DecomissionType decommissionType;
+    private DecommissionType decommissionType;
 
     public DecommissionBackendJob() {
         // for persist
@@ -91,7 +91,7 @@ public class DecommissionBackendJob extends AlterJob {
         finishedBackendIds = Sets.newHashSet();
         finishedTabletIds = Sets.newHashSet();
         allClusterBackendIds = Sets.newHashSet();
-        decommissionType = DecomissionType.SystemDecommission;
+        decommissionType = DecommissionType.SystemDecommission;
     }
 
     public DecommissionBackendJob(long jobId, Map<String, Map<Long, Backend>> backendIds) {
@@ -104,7 +104,7 @@ public class DecommissionBackendJob extends AlterJob {
         for (Map<Long, Backend> backends : clusterBackendsMap.values()) {
             allClusterBackendIds.addAll(backends.keySet());
         }
-        decommissionType = DecomissionType.SystemDecommission;
+        decommissionType = DecommissionType.SystemDecommission;
     }
 
     /**
@@ -134,12 +134,12 @@ public class DecommissionBackendJob extends AlterJob {
         return finishedTabletIds.size();
     }
     
-    public DecomissionType getDecomissionType() {
+    public DecommissionType getDecommissionType() {
         return decommissionType;
     }
 
-    public void setDecomissionType(DecomissionType decomissionType) {
-        this.decommissionType = decomissionType;
+    public void setDecommissionType(DecommissionType decommissionType) {
+        this.decommissionType = decommissionType;
     }
 
     @Override
@@ -475,7 +475,7 @@ public class DecommissionBackendJob extends AlterJob {
             // use '>=' not '==', because backend may be removed from backendIds
             // after it finished.
             // drop backend
-            if (decommissionType == DecomissionType.SystemDecommission) {
+            if (decommissionType == DecommissionType.SystemDecommission) {
                 for (long backendId : allClusterBackendIds) {
                     try {
                         systemInfo.dropBackend(backendId);
@@ -486,7 +486,7 @@ public class DecommissionBackendJob extends AlterJob {
                 }
             } else {
                 // Shrinking capacity in cluser
-                if (decommissionType == DecomissionType.ClusterDecommission) {
+                if (decommissionType == DecommissionType.ClusterDecommission) {
                     for (String clusterName : clusterBackendsMap.keySet()) {
                         final Map<Long, Backend> idToBackend = clusterBackendsMap.get(clusterName);
                         final Cluster cluster = Catalog.getInstance().getCluster(clusterName);
@@ -591,7 +591,7 @@ public class DecommissionBackendJob extends AlterJob {
             } else if (str.equals("ClusterDecomission")) {
                 str = "ClusterDecommission";
             }
-            decommissionType = DecomissionType.valueOf(str);
+            decommissionType = DecommissionType.valueOf(str);
         }
     }
 

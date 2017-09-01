@@ -16,7 +16,7 @@
 package com.baidu.palo.alter;
 
 import com.baidu.palo.alter.AlterJob.JobState;
-import com.baidu.palo.alter.DecommissionBackendJob.DecomissionType;
+import com.baidu.palo.alter.DecommissionBackendJob.DecommissionType;
 import com.baidu.palo.analysis.AddBackendClause;
 import com.baidu.palo.analysis.AddObserverClause;
 import com.baidu.palo.analysis.AddFollowerClause;
@@ -165,7 +165,7 @@ public class SystemHandler extends AlterHandler {
             // set backend's state as 'decommissioned'
             for (Map<Long, Backend> backends : clusterBackendsMap.values()) {
                 for (Backend backend : backends.values()) {
-                    if (((DecommissionBackendClause) alterClause).getType() == DecomissionType.ClusterDecommission) {
+                    if (((DecommissionBackendClause) alterClause).getType() == DecommissionType.ClusterDecommission) {
                         backend.setBackendState(BackendState.offline);
                     }
                     backend.setDecommissioned(true);
@@ -177,7 +177,7 @@ public class SystemHandler extends AlterHandler {
             // add job
             long jobId = Catalog.getInstance().getNextId();
             DecommissionBackendJob decommissionBackendJob = new DecommissionBackendJob(jobId, clusterBackendsMap);
-            decommissionBackendJob.setDecomissionType(decommissionBackendClause.getType());
+            decommissionBackendJob.setDecommissionType(decommissionBackendClause.getType());
             addAlterJob(decommissionBackendJob);
 
             // log
