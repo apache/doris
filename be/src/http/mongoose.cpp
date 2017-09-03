@@ -1480,6 +1480,7 @@ static int wait_until_socket_is_readable(struct mg_connection* conn) {
                 return 1;
             case EPOLLERR:
             case EPOLLHUP:
+            default:
                 return 0;
             }
         } else if (num_event == 0) {
