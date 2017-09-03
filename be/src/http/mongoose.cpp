@@ -39,6 +39,8 @@
 #define PATH_MAX FILENAME_MAX
 #endif // __SYMBIAN32__
 
+#include <sys/epoll.h>
+
 #ifndef _WIN32_WCE // Some ANSI #includes are not available on Windows CE
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -505,6 +507,8 @@ struct mg_connection {
   int throttle;               // Throttling, bytes/sec. <= 0 means no throttle
   time_t last_throttle_time;  // Last time throttled data was sent
   int64_t last_throttle_bytes;// Bytes sent this second
+
+  int ep_fd; // fd for epoll
 };
 
 const char **mg_get_valid_option_names(void) {
@@ -1429,6 +1433,8 @@ static int64_t push(FILE *fp, SOCKET sock, SSL *ssl, const char *buf,
 // with a timeout, and when returned, check the context for the stop flag.
 // If it is set, we return 0, and this means that we must not continue
 // reading, must give up and close the connection and exit serving thread.
+
+#if 0
 static int wait_until_socket_is_readable(struct mg_connection *conn) {
   int result;
   struct timeval tv;
@@ -1445,6 +1451,51 @@ static int wait_until_socket_is_readable(struct mg_connection *conn) {
 
   return conn->ctx->stop_flag || result < 0 ? 0 : 1;
 }
+#else
+static int wait_until_socket_is_readable(struct mg_connection* conn) {
+    if (conn->ep_fd < 0) {
+        // create ep_fd if not opened before
+        conn->ep_fd = epoll_create(1024);
+        if (conn->ep_fd < 0) {
+            // epoll create failed, return -
+            return 0;
+        }
+        struct epoll_event event;
+        event.events = EPOLLIN | EPOLLERR | EPOLLHUP;
+        event.data.ptr = conn;
+        int ret = epoll_ctl(conn->ep_fd, EPOLL_CTL_ADD, conn->client.sock, &event);
+        if (ret < 0) {
+            // epoll_ctl failed.
+            return 0;
+        }
+    }
+    while (conn->ctx->stop_flag == 0) {
+        struct epoll_event events[5];
+        int num_event = epoll_wait(conn->ep_fd, events, 5, 300);
+        if (num_event > 0) {
+            assert(num_event == 1);
+            switch(events[0].events) {
+            case EPOLLIN:
+                // now, we can read
+                return 1;
+            case EPOLLERR:
+            case EPOLLHUP:
+            default:
+                return 0;
+            }
+        } else if (num_event == 0) {
+            // timedout, just continue;
+        } else {
+            // num_event < 0 and errno != EINTR means error happened.
+            if (ERRNO != EINTR) {
+                return 0;
+            }
+        }
+    }
+    // Only stop, we get here
+    return 0;
+}
+#endif
 
 // Read from IO channel - opened file descriptor, socket, or SSL descriptor.
 // Return negative value on error, or number of bytes read on success.
@@ -4317,6 +4368,11 @@ static void close_connection(struct mg_connection *conn) {
   if (conn->client.sock != INVALID_SOCKET) {
     close_socket_gracefully(conn);
   }
+
+  if (conn->ep_fd >= 0) {
+      close(conn->ep_fd);
+      conn->ep_fd = -1;
+  }
 }
 
 void mg_close_connection(struct mg_connection *conn) {
@@ -4526,6 +4582,9 @@ static void worker_thread(struct mg_context *ctx) {
   } else {
     conn->buf_size = MAX_REQUEST_SIZE;
     conn->buf = (char *) (conn + 1);
+
+    // initialize ep_fd to -1;
+    conn->ep_fd = -1;
 
     // Call consume_socket() even when ctx->stop_flag > 0, to let it signal
     // sq_empty condvar to wake up the master waiting in produce_socket()
