@@ -855,8 +855,10 @@ public class Analyzer {
     public List<Expr> getAllUnassignedConjuncts(List<TupleId> tupleIds) {
         List<Expr> result = Lists.newArrayList();
         for (Expr e : globalState.conjuncts.values()) {
-            if (e.isBoundByTupleIds(tupleIds) && !globalState.assignedConjuncts.contains(
-                    e.getId()) && !globalState.ojClauseByConjunct.containsKey(e.getId())) {
+            if (!e.isAuxExpr()
+                    && e.isBoundByTupleIds(tupleIds)
+                    && !globalState.assignedConjuncts.contains(e.getId())
+                    && !globalState.ojClauseByConjunct.containsKey(e.getId())) {
                 result.add(e);
             }
         }
