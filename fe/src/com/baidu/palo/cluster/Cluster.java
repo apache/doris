@@ -48,6 +48,7 @@ import com.google.common.collect.Sets;
  */
 public class Cluster implements Writable {
     private static final Logger LOG = LogManager.getLogger(Cluster.class);
+
     private Long id;
     private String name;
     // backend which cluster own

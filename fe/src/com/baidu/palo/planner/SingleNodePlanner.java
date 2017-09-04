@@ -623,7 +623,7 @@ public class SingleNodePlanner {
         for (TableRef tblRef : selectStmt.getTableRefs()) {
             rowTuples.addAll(tblRef.getMaterializedTupleIds());
         }
-
+        
         // create left-deep sequence of binary hash joins; assign node ids as we go along
         TableRef tblRef = selectStmt.getTableRefs().get(0);
         PlanNode root = createTableRefNode(analyzer, tblRef);

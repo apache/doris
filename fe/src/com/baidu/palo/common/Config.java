@@ -15,6 +15,8 @@
 
 package com.baidu.palo.common;
 
+import java.net.InetAddress;
+
 public class Config extends ConfigBase {
 
     /*
@@ -118,6 +120,13 @@ public class Config extends ConfigBase {
      * more info, see: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.ReplicaAckPolicy.html
      */
     @ConfField public static String replica_ack_policy = "SIMPLE_MAJORITY"; // ALL, NONE, SIMPLE_MAJORITY
+
+    /*
+     * Specified a ip for frontend, instead of ip get by *InetAddress.getByName*.
+     * This can be used when *InetAddress.getByName* get a unexpected ip address.
+     * Default is "0.0.0.0", which means not set.
+     */
+    @ConfField public static String master_ip = "0.0.0.0";
 
     /*
      * Kudu is currently not supported.

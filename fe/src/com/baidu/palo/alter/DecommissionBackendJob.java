@@ -571,6 +571,17 @@ public class DecommissionBackendJob extends AlterJob {
                 }
                 clusterBackendsMap.put(cluster, backends);
             }
+
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_33) {
+                String str = Text.readString(in);
+                // this is only for rectify misspellings...
+                if (str.equals("SystemDecomission")) {
+                    str = "SystemDecommission";
+                } else if (str.equals("ClusterDecomission")) {
+                    str = "ClusterDecommission";
+                }
+                decommissionType = DecommissionType.valueOf(str);
+            }
         } else {
             int backendNum = in.readInt();
             Map<Long, Backend> backends = Maps.newHashMap();
@@ -581,17 +592,6 @@ public class DecommissionBackendJob extends AlterJob {
                 backends.put(backendId, backend);
             }
             clusterBackendsMap.put(SystemInfoService.DEFAULT_CLUSTER, backends);
-        }
-        
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_33) {
-            String str = Text.readString(in);
-            // this is only for rectify misspellings...
-            if (str.equals("SystemDecomission")) {
-                str = "SystemDecommission";
-            } else if (str.equals("ClusterDecomission")) {
-                str = "ClusterDecommission";
-            }
-            decommissionType = DecommissionType.valueOf(str);
         }
     }
 
@@ -608,6 +608,7 @@ public class DecommissionBackendJob extends AlterJob {
                 out.writeLong(id);
             }
         }
+
         Text.writeString(out, decommissionType.toString());
     }
 

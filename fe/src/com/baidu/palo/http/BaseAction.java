@@ -35,6 +35,7 @@ import com.baidu.palo.http.rest.UnauthorizedException;
 import com.baidu.palo.mysql.MysqlPassword;
 import com.baidu.palo.qe.QeService;
 import com.baidu.palo.system.SystemInfoService;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
@@ -250,7 +251,7 @@ public abstract class BaseAction implements IAction {
             final String[] elements = authInfo.fullUserName.split("@");
             if (elements != null && elements.length < 2) {
                 authInfo.fullUserName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER,
-                        authInfo.fullUserName);
+                                                                     authInfo.fullUserName);
                 authInfo.cluster = SystemInfoService.DEFAULT_CLUSTER;
             } else if (elements != null && elements.length == 2) {
                 authInfo.fullUserName = ClusterNamespace.getFullName(elements[1], elements[0]);

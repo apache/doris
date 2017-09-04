@@ -22,6 +22,7 @@ import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
 import com.baidu.palo.service.ExecuteEnv;
+
 import com.google.common.base.Strings;
 
 import io.netty.handler.codec.http.HttpMethod;
@@ -53,6 +54,7 @@ public class MultiAbort extends RestBaseAction {
         if (Strings.isNullOrEmpty(label)) {
             throw new DdlException("No label selected");
         }
+
         AuthorizationInfo authInfo = getAuthorizationInfo(request);
         String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, db);
 
