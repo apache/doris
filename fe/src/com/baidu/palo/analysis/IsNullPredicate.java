@@ -117,7 +117,7 @@ public class IsNullPredicate extends Predicate {
 
         // determine selectivity
         selectivity = 0.1;
-        LOG.info(toSql() + " selectivity: " + Double.toString(selectivity));
+        // LOG.debug(toSql() + " selectivity: " + Double.toString(selectivity));
     }
 
     @Override
