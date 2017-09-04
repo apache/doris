@@ -528,8 +528,6 @@ public class AggregateInfo extends AggregateInfoBase {
                     // SUM(DISTINCT <expr>) -> SUM(<last grouping slot>);
                     // (MIN(DISTINCT ...) and MAX(DISTINCT ...) have their DISTINCT turned
                     // off during analysis, and AVG() is changed to SUM()/COUNT())
-                    Preconditions.checkState(
-                            inputExpr.getFnName().getFunction().equalsIgnoreCase("SUM"));
                     Expr aggExprParam = new SlotRef(inputDesc.getSlots().get(origGroupingExprs.size()));
                     aggExpr = new FunctionCallExpr(inputExpr.getFnName(), Lists.newArrayList(aggExprParam));
                 }
