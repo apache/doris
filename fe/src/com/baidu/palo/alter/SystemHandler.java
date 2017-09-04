@@ -145,7 +145,7 @@ public class SystemHandler extends AlterHandler {
 
         if (alterClause instanceof AddBackendClause) {
             AddBackendClause addBackendClause = (AddBackendClause) alterClause;
-            Catalog.getCurrentSystemInfo().addBackends(addBackendClause.getHostPortPairs());
+            Catalog.getCurrentSystemInfo().addBackends(addBackendClause.getHostPortPairs(), addBackendClause.isFree());
         } else if (alterClause instanceof DropBackendClause) {
             DropBackendClause dropBackendClause = (DropBackendClause) alterClause;
             if (!dropBackendClause.isForce()) {

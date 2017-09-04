@@ -4422,14 +4422,6 @@ public class Catalog {
     }
 
     private void unprotectCreateCluster(Cluster cluster) {
-        if (cluster.getName().equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
-            if (cluster.getBackendIdList().isEmpty()) {
-                isDefaultClusterCreated = true;
-                // ignore default_cluster
-                return;
-            }
-        }
-
         final Iterator<Long> iterator = cluster.getBackendIdList().iterator();
         while (iterator.hasNext()) {
             final Long id = iterator.next();
@@ -4921,12 +4913,24 @@ public class Catalog {
 
     public long loadCluster(DataInputStream dis, long checksum) throws IOException, DdlException {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_30) {
-            int dbCount = dis.readInt();
-            checksum ^= dbCount;
-            for (long i = 0; i < dbCount; ++i) {
+            int clusterCount = dis.readInt();
+            checksum ^= clusterCount;
+            for (long i = 0; i < clusterCount; ++i) {
                 final Cluster cluster = new Cluster();
                 cluster.readFields(dis);
                 checksum ^= cluster.getId();
+ 
+                // BE is in default_cluster when added , therefore it is possible that the BE 
+                // in default_clsuter are not the latest because cluster cant't be updated when 
+                // loadCluster is after loadBackend.  
+                List<Long> latestBackendIds = systemInfo.getClusterBackendIds(cluster.getName());
+                if (cluster.getName().equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
+                    cluster.setBackendIdList(latestBackendIds);
+                } else {
+                    // The cluster has the same number of be as systeminfo recorded
+                    Preconditions.checkState(latestBackendIds.size() == cluster.getBackendIdList().size());
+                }
+
                 final InfoSchemaDb db = new InfoSchemaDb(cluster.getName());
                 db.setClusterName(cluster.getName());
                 idToDb.put(db.getId(), db);
@@ -4951,28 +4955,27 @@ public class Catalog {
         cluster.setName(SystemInfoService.DEFAULT_CLUSTER);
         cluster.setId(id);
 
-        if (backendList.size() != 0) {
-            // make sure one host hold only one backend.
-            Set<String> beHost = Sets.newHashSet();
-            for (Backend be : defaultClusterBackends) {
-                if (beHost.contains(be.getHost())) {
-                    // we can not handle this situation automatically.
-                    LOG.error("found more than one backends in same host: {}", be.getHost());
-                    System.exit(-1);
-                } else {
-                    beHost.add(be.getHost());
-                }
-            }
-
-            // we create default_cluster only if we had existing backends.
-            // this could only happend when we upgrade Palo from version 2.4 to 3.x.
-            cluster.setBackendIdList(backendList);
-            unprotectCreateCluster(cluster);
-            for (Database db : idToDb.values()) {
-                db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
-                cluster.addDb(db.getFullName(), db.getId());
+        // make sure one host hold only one backend.
+        Set<String> beHost = Sets.newHashSet();
+        for (Backend be : defaultClusterBackends) {
+            if (beHost.contains(be.getHost())) {
+                // we can not handle this situation automatically.
+                LOG.error("found more than one backends in same host: {}", be.getHost());
+                System.exit(-1);
+            } else {
+                beHost.add(be.getHost());
             }
         }
+
+        // we create default_cluster to meet the need for ease of use, because
+        // most users hava no multi tenant needs.
+        cluster.setBackendIdList(backendList);
+        unprotectCreateCluster(cluster);
+        for (Database db : idToDb.values()) {
+            db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
+            cluster.addDb(db.getFullName(), db.getId());
+        }
+
         // no matter default_cluster is created or not,
         // mark isDefaultClusterCreated as true
         isDefaultClusterCreated = true;

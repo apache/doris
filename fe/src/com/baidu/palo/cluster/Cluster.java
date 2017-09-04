@@ -51,7 +51,7 @@ public class Cluster implements Writable {
     private Long id;
     private String name;
     // backend which cluster own
-    private List<Long> backendIdList;
+    private Set<Long> backendIdSet;
 
     private Set<Long> userIdSet;
     private Set<String> userNameSet;
@@ -66,7 +66,7 @@ public class Cluster implements Writable {
 
     public Cluster() {
         this.rwLock = new ReentrantReadWriteLock(true);
-        this.backendIdList = new LinkedList<Long>();
+        this.backendIdSet = Sets.newHashSet();
         this.userIdSet = Sets.newHashSet();
         this.userNameSet = Sets.newHashSet();
         this.linkDbNames = Maps.newHashMap();
@@ -79,7 +79,7 @@ public class Cluster implements Writable {
         this.name = name;
         this.id = id;
         this.rwLock = new ReentrantReadWriteLock(true);
-        this.backendIdList = new LinkedList<Long>();
+        this.backendIdSet = Sets.newHashSet();
         this.userIdSet = Sets.newHashSet();
         this.userNameSet = Sets.newHashSet();
         this.linkDbNames = Maps.newHashMap();
@@ -230,36 +230,36 @@ public class Cluster implements Writable {
     }
 
     public int getClusterCapacity() {
-        return backendIdList.size();
+        return backendIdSet.size();
     }
 
     public List<Long> getBackendIdList() {
-        return Lists.newArrayList(backendIdList);
+        return Lists.newArrayList(backendIdSet);
     }
 
     public void setBackendIdList(List<Long> backendIdList) {
         writeLock();
         try {
-            this.backendIdList = backendIdList;
+            this.backendIdSet = Sets.newHashSet(backendIdList);
         } finally {
             writeUnlock();
         }
     }
 
-    public void addBackend(long id) {
+    public void addBackend(long backendId) {
         writeLock();
         try {
-            this.backendIdList.add(id);
+            this.backendIdSet.add(backendId);
         } finally {
             writeUnlock();
         }
     }
 
-    public void addBackends(List<Long> backends) {
+    public void addBackends(List<Long> backendIds) {
         writeLock();
         try {
-            this.backendIdList.addAll(backends);
-        } finally {
+            this.backendIdSet.addAll(backendIds);
+       } finally {
             writeUnlock();
         }
     }
@@ -285,8 +285,8 @@ public class Cluster implements Writable {
         out.writeLong(id);
         Text.writeString(out, name);
 
-        out.writeLong(backendIdList.size());
-        for (Long id : backendIdList) {
+        out.writeLong(backendIdSet.size());
+        for (Long id : backendIdSet) {
             out.writeLong(id);
         }
 
@@ -329,9 +329,8 @@ public class Cluster implements Writable {
         Long len = in.readLong();
         while (len-- > 0) {
             Long id = in.readLong();
-            backendIdList.add(id);
+            backendIdSet.add(id);
         }
-
         int count = in.readInt();
         while (count-- > 0) {
             dbNames.add(Text.readString(in));
@@ -362,7 +361,7 @@ public class Cluster implements Writable {
     public void removeBackend(long removedBackendId) {
         writeLock();
         try {
-            backendIdList.remove((Long)removedBackendId);
+            backendIdSet.remove((Long)removedBackendId);
         } finally {
             writeUnlock();
         }
@@ -371,7 +370,7 @@ public class Cluster implements Writable {
     public void removeBackends(List<Long> removedBackendIds) {
         writeLock();
         try {
-            backendIdList.remove(removedBackendIds);
+            backendIdSet.remove(removedBackendIds);
         } finally {
             writeUnlock();
         }

@@ -92,6 +92,7 @@ import com.baidu.palo.common.util.SqlUtils;
         keywordMap.put("charset", new Integer(SqlParserSymbols.KW_CHARSET));
         keywordMap.put("cluster", new Integer(SqlParserSymbols.KW_CLUSTER));
         keywordMap.put("clusters", new Integer(SqlParserSymbols.KW_CLUSTERS));
+        keywordMap.put("free", new Integer(SqlParserSymbols.KW_FREE));
         keywordMap.put("system", new Integer(SqlParserSymbols.KW_SYSTEM));
         keywordMap.put("link", new Integer(SqlParserSymbols.KW_LINK));
         keywordMap.put("migrate", new Integer(SqlParserSymbols.KW_MIGRATE));
