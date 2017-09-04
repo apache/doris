@@ -59,7 +59,7 @@ TmpFileMgr::TmpFileMgr() :
         _num_active_scratch_dirs_metric(NULL), _active_scratch_dirs_metric(NULL) {}
 
 Status TmpFileMgr::init(MetricGroup* metrics) {
-    std::string tmp_dirs_spec = config::query_scratch_dirs;
+    std::string tmp_dirs_spec = config::storage_root_path;
     vector<string> all_tmp_dirs;
     // Empty string should be interpreted as no scratch
     if (!tmp_dirs_spec.empty()) {
