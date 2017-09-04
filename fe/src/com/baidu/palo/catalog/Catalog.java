@@ -122,7 +122,6 @@ import com.baidu.palo.persist.DropInfo;
 import com.baidu.palo.persist.DropLinkDbAndUpdateDbInfo;
 import com.baidu.palo.persist.DropPartitionInfo;
 import com.baidu.palo.persist.EditLog;
-import com.baidu.palo.persist.LinkDbInfo;
 import com.baidu.palo.persist.ModifyPartitionInfo;
 import com.baidu.palo.persist.PartitionPersistInfo;
 import com.baidu.palo.persist.RecoverInfo;
@@ -162,6 +161,7 @@ import com.google.common.collect.Sets;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
+
 import org.apache.kudu.ColumnSchema;
 import org.apache.kudu.Schema;
 import org.apache.kudu.client.CreateTableOptions;
@@ -535,17 +535,27 @@ public class Catalog {
                 storage = new Storage(IMAGE_DIR);
                 clusterId = storage.getClusterID();
             }
-        } else { // Designate one helper node. Get the roll and version info
-                 // from the helper node
-            role = getFeNodeType();
-            if (role == FrontendNodeType.REPLICA) {
-                // for compatibility
-                role = FrontendNodeType.FOLLOWER;
-            }
-            Storage storage = new Storage(IMAGE_DIR);
-            if (role == FrontendNodeType.UNKNOWN) {
-                LOG.error("current node is not added to the group. please add it first.");
-                System.exit(-1);
+        } else { 
+            // Designate one helper node. Get the roll and version info
+            // from the helper node
+            Storage storage = null;
+            // try to get role from helper node,
+            // this loop will not end until we get centain role type
+            while(true) {
+                role = getFeNodeType();
+                storage = new Storage(IMAGE_DIR);
+                if (role == FrontendNodeType.UNKNOWN) {
+                    LOG.error("current node is not added to the group. please add it first.");
+                    // System.exit(-1);
+                    try {
+                        Thread.sleep(5000);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                        System.exit(-1);
+                    }
+                } else {
+                    break;
+                }
             }
             if (roleFile.exists() && role != storage.getRole() || !roleFile.exists()) {
                 storage.writeFrontendRole(role);

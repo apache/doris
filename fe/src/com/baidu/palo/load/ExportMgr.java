@@ -18,16 +18,12 @@ package com.baidu.palo.load;
 import com.baidu.palo.analysis.BrokerDesc;
 import com.baidu.palo.analysis.ExportStmt;
 import com.baidu.palo.catalog.Catalog;
-import com.baidu.palo.catalog.Database;
-import com.baidu.palo.catalog.Table;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.util.ListComparator;
 import com.baidu.palo.common.util.OrderByPair;
 import com.baidu.palo.common.util.TimeUtils;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -241,5 +237,20 @@ public class ExportMgr {
         } finally {
             writeUnlock();
         }
+    }
+
+    public Integer getJobNum(ExportJob.JobState state, long dbId) {
+        int size = 0;
+        readLock();
+        try {
+            for (ExportJob job : idToJob.values()) {
+                if (job.getState() == state && job.getDbId() == dbId) {
+                    ++size;
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+        return size;
     }
 }
