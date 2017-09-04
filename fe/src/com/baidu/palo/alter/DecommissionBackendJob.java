@@ -485,7 +485,7 @@ public class DecommissionBackendJob extends AlterJob {
                     }
                 }
             } else {
-                // Shrinking capacity in cluser
+                // Shrinking capacity in cluster
                 if (decommissionType == DecommissionType.ClusterDecommission) {
                     for (String clusterName : clusterBackendsMap.keySet()) {
                         final Map<Long, Backend> idToBackend = clusterBackendsMap.get(clusterName);

@@ -78,7 +78,7 @@ public class ShowVariablesStmt extends ShowStmt {
         analyze(analyzer);
         // Columns
         SelectList selectList = new SelectList();
-        ExprSubstitutionMap aliasMap = new ExprSubstitutionMap();
+        ExprSubstitutionMap aliasMap = new ExprSubstitutionMap(false);
         TableName tableName = null;
         if (type == SetType.GLOBAL) {
             tableName = new TableName(InfoSchemaDb.DATABASE_NAME, "GLOBAL_VARIABLES");
