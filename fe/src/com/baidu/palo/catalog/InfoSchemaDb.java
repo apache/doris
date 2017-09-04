@@ -86,4 +86,15 @@ public class InfoSchemaDb extends Database {
     public static String getFullInfoSchemaDbName(String cluster) {
         return ClusterNamespace.getFullName(cluster, DATABASE_NAME);
     }
+
+    public static boolean isInfoSchemaDb(String dbName) {
+        if (dbName == null) {
+            return false;
+        }
+        String[] ele = dbName.split(ClusterNamespace.CLUSTER_DELIMITER);
+        if (ele.length == 2) {
+            dbName = ele[1];
+        }
+        return DATABASE_NAME.equalsIgnoreCase(dbName);
+    }
 }

@@ -25,6 +25,7 @@ import com.baidu.palo.catalog.AggregateType;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.KeysType;
+import com.baidu.palo.catalog.PartitionType;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
@@ -279,7 +280,16 @@ public class CreateTableStmt extends DdlStmt implements Writable {
         if (engineName.equals("olap")) {
             // analyze partition
             if (partitionDesc != null) {
-                partitionDesc.analyze(columnSet, properties);
+                if (partitionDesc.getType() != PartitionType.RANGE) {
+                    throw new AnalysisException("Currently only support range partition with engine type olap");
+                }
+
+                RangePartitionDesc rangePartitionDesc = (RangePartitionDesc) partitionDesc;
+                if (rangePartitionDesc.getPartitionColNames().size() != 1) {
+                    throw new AnalysisException("Only allow partitioned by one column");
+                }
+
+                rangePartitionDesc.analyze(columns, properties);
             }
 
             // analyze distribution
