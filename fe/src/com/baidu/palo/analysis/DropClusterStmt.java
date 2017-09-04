@@ -49,7 +49,6 @@ public class DropClusterStmt extends DdlStmt {
 
     @Override
     public String toSql() {
-        // TODO Auto-generated method stub
         return "DROP CLUSTER " + name;
     }
 
