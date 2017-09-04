@@ -829,10 +829,9 @@ public class SchemaChangeJob extends AlterJob {
                 }
                 for (Tablet tablet : index.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        if (replica.getState() == ReplicaState.CLONE) {
+                        if (replica.getState() == ReplicaState.CLONE || replica.getState() == ReplicaState.NORMAL) {
                             continue;
                         }
-                        Preconditions.checkState(replica.getState() == ReplicaState.SCHEMA_CHANGE, replica.getState());
                         replica.setState(ReplicaState.NORMAL);
                     } // end for replicas
                 } // end for tablets
