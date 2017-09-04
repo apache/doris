@@ -44,8 +44,12 @@ public class PartitionDesc implements Writable {
     public PartitionDesc() {
     }
 
-    public void analyze(Set<String> colSet, Map<String, String> otherProperties) throws AnalysisException {
+    public void analyze(List<Column> cols, Map<String, String> otherProperties) throws AnalysisException {
         throw new NotImplementedException();
+    }
+
+    public PartitionType getType() {
+        return type;
     }
 
     public String toSql() {
