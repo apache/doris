@@ -56,6 +56,7 @@ import com.baidu.palo.thrift.TMasterInfo;
 import com.baidu.palo.thrift.TNetworkAddress;
 import com.baidu.palo.thrift.TStatusCode;
 import com.google.common.base.Strings;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
@@ -128,7 +129,7 @@ public class SystemInfoService extends Daemon {
         masterInfo.set(tMasterInfo);
     }
 
-    public void addBackends(List<Pair<String, Integer>> hostPortPairs) throws DdlException {
+    public void addBackends(List<Pair<String, Integer>> hostPortPairs, boolean isFree) throws DdlException {
         for (Pair<String, Integer> pair : hostPortPairs) {
             // check is already exist
             if (getBackendWithHeartbeatPort(pair.first, pair.second) != null) {
@@ -137,7 +138,7 @@ public class SystemInfoService extends Daemon {
         }
 
         for (Pair<String, Integer> pair : hostPortPairs) {
-            addBackend(pair.first, pair.second);
+            addBackend(pair.first, pair.second, isFree);
         }
     }
 
@@ -149,7 +150,7 @@ public class SystemInfoService extends Daemon {
         idToBackendRef.set(newIdToBackend);
     }
     
-    private void addBackend(String host, int heartbeatPort) throws DdlException {
+    private void addBackend(String host, int heartbeatPort, boolean isFree) throws DdlException {
         Backend newBackend = new Backend(Catalog.getInstance().getNextId(), host, heartbeatPort);
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
@@ -170,6 +171,15 @@ public class SystemInfoService extends Daemon {
         copiedHeartbeatHandlersMap.put(newBackend.getId(), heartbeatHandler);
         ImmutableMap<Long, HeartbeatHandler> newIdToHeartbeatHandler = ImmutableMap.copyOf(copiedHeartbeatHandlersMap);
         idToHeartbeatHandlerRef.set(newIdToHeartbeatHandler);
+
+        // to add be to DEFAULT_CLUSTER
+        if (!isFree) {
+            final Cluster cluster = Catalog.getInstance().getCluster(DEFAULT_CLUSTER);
+            Preconditions.checkState(cluster != null);
+            cluster.addBackend(newBackend.getId());
+            newBackend.setOwnerClusterName(DEFAULT_CLUSTER);
+            newBackend.setBackendState(BackendState.using);
+        }
 
         // log
         Catalog.getInstance().getEditLog().logAddBackend(newBackend);
@@ -241,6 +251,8 @@ public class SystemInfoService extends Daemon {
         final Cluster cluster = Catalog.getInstance().getCluster(droppedBackend.getOwnerClusterName());
         if (null != cluster) {
             cluster.removeBackend(droppedBackend.getId());
+        } else {
+            LOG.error("Cluster " + droppedBackend.getOwnerClusterName() + " no exist."); 
         }
         // log
         Catalog.getInstance().getEditLog().logDropBackend(droppedBackend);
@@ -997,6 +1009,18 @@ public class SystemInfoService extends Daemon {
         copiedHeartbeatHandlersMap.put(newBackend.getId(), heartbeatHandler);
         ImmutableMap<Long, HeartbeatHandler> newIdToHeartbeatHandler = ImmutableMap.copyOf(copiedHeartbeatHandlersMap);
         idToHeartbeatHandlerRef.set(newIdToHeartbeatHandler);
+
+        // to add be to DEFAULT_CLUSTER
+        if (newBackend.getBackendState() == BackendState.using) {
+            final Cluster cluster = Catalog.getInstance().getCluster(DEFAULT_CLUSTER);
+            if (null != cluster) {
+                // replay log
+                cluster.addBackend(newBackend.getId());
+            } else {
+                // This happens in loading image when fe is restarted, because loadCluster is after loadBackend, 
+                // cluster is not created. Be in cluster will be updated in loadCluster.
+            }
+        }
     }
 
     public void replayDropBackend(Backend backend) {
@@ -1018,10 +1042,13 @@ public class SystemInfoService extends Daemon {
         copiedHeartbeatHandlersMap.remove(backend.getId());
         ImmutableMap<Long, HeartbeatHandler> newIdToHeartbeatHandler = ImmutableMap.copyOf(copiedHeartbeatHandlersMap);
         idToHeartbeatHandlerRef.set(newIdToHeartbeatHandler);
+
         // update cluster
         final Cluster cluster = Catalog.getInstance().getCluster(backend.getOwnerClusterName());
         if (null != cluster) {
             cluster.removeBackend(backend.getId());
+        } else {
+            LOG.error("Cluster " + backend.getOwnerClusterName() + " no exist.");
         }
     }
 

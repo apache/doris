@@ -19,8 +19,12 @@ import java.util.List;
 
 public class AddBackendClause extends BackendClause {
 
-    public AddBackendClause(List<String> hostPorts) {
+    // be in free state is not owned by any cluster
+    protected boolean isFree;
+
+    public AddBackendClause(List<String> hostPorts, boolean isFree) {
         super(hostPorts);
+        this.isFree = isFree;
     }
 
     @Override
@@ -35,4 +39,13 @@ public class AddBackendClause extends BackendClause {
         }
         return sb.toString();
     }
+
+
+    public void setFree(boolean isFree) {
+        this.isFree = isFree;
+    }   
+    
+    public boolean isFree() {
+        return this.isFree;
+    } 
 }
