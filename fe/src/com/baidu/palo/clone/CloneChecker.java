@@ -31,7 +31,6 @@ import org.apache.logging.log4j.Logger;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.DataProperty;
 import com.baidu.palo.catalog.Database;
-import com.baidu.palo.catalog.Database.DbState;
 import com.baidu.palo.catalog.MaterializedIndex;
 import com.baidu.palo.catalog.MaterializedIndex.IndexState;
 import com.baidu.palo.catalog.OlapTable;
@@ -43,6 +42,7 @@ import com.baidu.palo.catalog.Replica.ReplicaState;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.catalog.Table.TableType;
 import com.baidu.palo.catalog.Tablet;
+import com.baidu.palo.catalog.Database.DbState;
 import com.baidu.palo.clone.CloneJob.JobPriority;
 import com.baidu.palo.clone.CloneJob.JobState;
 import com.baidu.palo.clone.CloneJob.JobType;
@@ -260,7 +260,7 @@ public class CloneChecker extends Daemon {
                 LOG.warn("failed to init backend infos of cluster: {}", clusterName);
                 continue;
             }
- 
+
             final Map<CapacityLevel, Set<List<Long>>> clusterCapacityLevelToBackendIds =
                     initBackendCapacityInfos(backendInfosInCluster);
             if (clusterCapacityLevelToBackendIds == null || clusterCapacityLevelToBackendIds.isEmpty()) {
@@ -269,7 +269,6 @@ public class CloneChecker extends Daemon {
             }
 
             long dbId = db.getId();
-
             Set<String> tableNames = db.getTableNamesWithLock();
             boolean hasMigrations = false;
             // check table by table

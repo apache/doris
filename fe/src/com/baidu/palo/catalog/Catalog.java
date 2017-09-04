@@ -122,7 +122,6 @@ import com.baidu.palo.persist.DropInfo;
 import com.baidu.palo.persist.DropLinkDbAndUpdateDbInfo;
 import com.baidu.palo.persist.DropPartitionInfo;
 import com.baidu.palo.persist.EditLog;
-import com.baidu.palo.persist.LinkDbInfo;
 import com.baidu.palo.persist.ModifyPartitionInfo;
 import com.baidu.palo.persist.PartitionPersistInfo;
 import com.baidu.palo.persist.RecoverInfo;
@@ -162,6 +161,7 @@ import com.google.common.collect.Sets;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
+
 import org.apache.kudu.ColumnSchema;
 import org.apache.kudu.Schema;
 import org.apache.kudu.client.CreateTableOptions;
@@ -535,18 +535,33 @@ public class Catalog {
                 storage = new Storage(IMAGE_DIR);
                 clusterId = storage.getClusterID();
             }
-        } else { // Designate one helper node. Get the roll and version info
-                 // from the helper node
-            role = getFeNodeType();
-            if (role == FrontendNodeType.REPLICA) {
-                // for compatibility
-                role = FrontendNodeType.FOLLOWER;
+        } else { 
+            // Designate one helper node. Get the roll and version info
+            // from the helper node
+            Storage storage = null;
+            // try to get role from helper node,
+            // this loop will not end until we get centain role type
+            while(true) {
+                role = getFeNodeType();
+                if (role == FrontendNodeType.REPLICA) {
+                    // for compatibility
+                    role = FrontendNodeType.FOLLOWER;
+                }
+                storage = new Storage(IMAGE_DIR);
+                if (role == FrontendNodeType.UNKNOWN) {
+                    LOG.error("current node is not added to the group. please add it first.");
+                    // System.exit(-1);
+                    try {
+                        Thread.sleep(5000);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                        System.exit(-1);
+                    }
+                } else {
+                    break;
+                }
             }
-            Storage storage = new Storage(IMAGE_DIR);
-            if (role == FrontendNodeType.UNKNOWN) {
-                LOG.error("current node is not added to the group. please add it first.");
-                System.exit(-1);
-            }
+
             if (roleFile.exists() && role != storage.getRole() || !roleFile.exists()) {
                 storage.writeFrontendRole(role);
             }
@@ -723,14 +738,18 @@ public class Catalog {
         // catalog recycle bin
         getRecycleBin().start();
 
-        this.masterIp = FrontendOptions.getLocalHostAddress();
+        if (!Config.master_ip.equals("0.0.0.0")) {
+            this.masterIp = Config.master_ip;
+        } else {
+            this.masterIp = FrontendOptions.getLocalHostAddress();
+        }
         this.masterRpcPort = Config.rpc_port;
         this.masterHttpPort = Config.http_port;
 
         MasterInfo info = new MasterInfo();
-        info.setIp(FrontendOptions.getLocalHostAddress());
-        info.setRpcPort(Config.rpc_port);
-        info.setHttpPort(Config.http_port);
+        info.setIp(masterIp);
+        info.setRpcPort(masterRpcPort);
+        info.setHttpPort(masterHttpPort);
         editLog.logMasterInfo(info);
 
         createTimePrinter();
@@ -739,7 +758,7 @@ public class Catalog {
         timePrinter.setInterval(tsInterval);
         timePrinter.start();
 
-        if (isDefaultClusterCreated) {
+        if (!isDefaultClusterCreated) {
             initDefaultCluster();
         }
     }
@@ -1627,8 +1646,7 @@ public class Catalog {
             LOG.warn("meta out of date. current time: {}, synchronized time: {}, has log: {}, fe type: {}",
                     currentTimeMs, synchronizedTimeMs, hasLog, feType);
             if (hasLog || (!hasLog && feType == FrontendNodeType.UNKNOWN)) {
-                // 1. if we read log from BDB, which means master is still
-                // alive.
+                // 1. if we read log from BDB, which means master is still alive.
                 // So we need to set meta out of date.
                 // 2. if we didn't read any log from BDB and feType is UNKNOWN,
                 // which means this non-master node is disconnected with master.
@@ -1636,6 +1654,14 @@ public class Catalog {
                 metaReplayState.setOutOfDate(currentTimeMs, synchronizedTimeMs);
                 canRead = false;
             }
+
+            // sleep 5s to avoid numerous 'meta out of date' log
+            try {
+                Thread.sleep(5000L);
+            } catch (InterruptedException e) {
+                LOG.error("unhandled exception when sleep", e);
+            }
+
         } else {
             canRead = true;
         }
@@ -1920,10 +1946,9 @@ public class Catalog {
             }
 
             // 2. drop tables in db
-            Database db = fullNameToDb.get(dbName);
+            Database db = this.fullNameToDb.get(dbName);
             db.writeLock();
             try {
-
                 if (db.getDbState() == DbState.LINK && dbName.equals(db.getAttachDb())) {
                     final DropLinkDbAndUpdateDbInfo info = new DropLinkDbAndUpdateDbInfo();
                     fullNameToDb.remove(db.getAttachDb());
@@ -4434,9 +4459,9 @@ public class Catalog {
         nameToCluster.put(cluster.getName(), cluster);
 
         // create info schema db
-        final InfoSchemaDb db = new InfoSchemaDb(cluster.getName());
-        db.setClusterName(cluster.getName());
-        unprotectCreateDb(db);
+        final InfoSchemaDb infoDb = new InfoSchemaDb(cluster.getName());
+        infoDb.setClusterName(cluster.getName());
+        unprotectCreateDb(infoDb);
 
         // only need to create default cluster once.
         if (cluster.getName().equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {

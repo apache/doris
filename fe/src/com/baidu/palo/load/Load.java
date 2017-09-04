@@ -15,25 +15,6 @@
 
 package com.baidu.palo.load;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Random;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-
-import org.apache.commons.lang.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.baidu.palo.analysis.BinaryPredicate;
 import com.baidu.palo.analysis.CancelLoadStmt;
 import com.baidu.palo.analysis.ColumnSeparator;
@@ -90,11 +71,12 @@ import com.baidu.palo.task.AgentTaskExecutor;
 import com.baidu.palo.task.AgentTaskQueue;
 import com.baidu.palo.task.CancelDeleteTask;
 import com.baidu.palo.task.PushTask;
-import com.baidu.palo.thrift.TEtlState;
 import com.baidu.palo.thrift.TMiniLoadRequest;
+import com.baidu.palo.thrift.TEtlState;
 import com.baidu.palo.thrift.TNetworkAddress;
 import com.baidu.palo.thrift.TPriority;
 import com.baidu.palo.thrift.TPushType;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -102,6 +84,25 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.Gson;
+
+import org.apache.commons.lang.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Random;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class Load {
     private static final Logger LOG = LogManager.getLogger(Load.class);

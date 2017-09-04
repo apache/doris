@@ -600,10 +600,10 @@ public class SystemInfoService extends Daemon {
      */
     public List<Backend> getClusterBackends(String name) {
         final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
-        final List<Backend> ret = new ArrayList<Backend>();
+        final List<Backend> ret = Lists.newArrayList();
 
         if (Strings.isNullOrEmpty(name)) {
-            return null;
+            return ret;
         }
 
         for (Backend backend : copiedBackends.values()) {
@@ -987,7 +987,7 @@ public class SystemInfoService extends Daemon {
 
     public void replayAddBackend(Backend newBackend) {
         // update idToBackend
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_23) {
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
             newBackend.setOwnerClusterName(DEFAULT_CLUSTER);
             newBackend.setBackendState(BackendState.using);
         }

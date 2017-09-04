@@ -52,7 +52,7 @@ public class PaloFe {
             }
 
             // pid file
-            if (!createAndLockPidFile(paloHome + "/bin/fe.pid")) {
+            if (!createAndLockPidFile(System.getenv("PID_DIR") + "/fe.pid")) {
                 throw new IOException("pid file is already locked.");
             }
 

@@ -22,6 +22,7 @@ import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
 import com.baidu.palo.load.Load;
+
 import com.google.common.base.Strings;
 
 import io.netty.handler.codec.http.HttpMethod;
@@ -44,8 +45,10 @@ public class GetLoadInfoAction extends RestBaseAction {
     @Override
     public void execute(BaseRequest request, BaseResponse response) throws DdlException {
         AuthorizationInfo authInfo = getAuthorizationInfo(request);
-        Load.JobInfo info = new Load.JobInfo(request.getSingleParameter(DB_KEY), request.getSingleParameter(LABEL_KEY),
-                authInfo.cluster);
+
+        Load.JobInfo info = new Load.JobInfo(request.getSingleParameter(DB_KEY),
+                                             request.getSingleParameter(LABEL_KEY),
+                                             authInfo.cluster);
         if (Strings.isNullOrEmpty(info.dbName)) {
             throw new DdlException("No database selected");
         }

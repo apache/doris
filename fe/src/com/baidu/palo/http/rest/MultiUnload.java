@@ -22,6 +22,7 @@ import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
 import com.baidu.palo.service.ExecuteEnv;
+
 import com.google.common.base.Strings;
 
 import io.netty.handler.codec.http.HttpMethod;

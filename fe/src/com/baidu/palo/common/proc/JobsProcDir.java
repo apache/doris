@@ -29,6 +29,8 @@ import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.clone.CloneJob.JobState;
 import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.load.ExportJob;
+import com.baidu.palo.load.ExportMgr;
 import com.baidu.palo.load.Load;
 
 import com.google.common.base.Preconditions;
@@ -179,10 +181,14 @@ public class JobsProcDir implements ProcDirInterface {
                                          finishedNum.toString(), cancelledNum.toString(), totalNum.toString()));
 
         // export
-        // TODO(lingbin): add abstract info later
-        result.addRow(Lists.newArrayList(
-                EXPORT, "pendingNum", "runningNum",
-                "finishedNum", "cancelledNum", "totalNum"));
+        ExportMgr exportMgr = Catalog.getInstance().getExportMgr();
+        pendingNum = exportMgr.getJobNum(ExportJob.JobState.PENDING, dbId);
+        runningNum = exportMgr.getJobNum(ExportJob.JobState.EXPORTING, dbId);
+        finishedNum = exportMgr.getJobNum(ExportJob.JobState.FINISHED, dbId);
+        cancelledNum = exportMgr.getJobNum(ExportJob.JobState.CANCELLED, dbId);
+        totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
+        result.addRow(Lists.newArrayList(EXPORT, pendingNum.toString(), runningNum.toString(), finishedNum.toString(),
+                cancelledNum.toString(), totalNum.toString()));
 
         return result;
     }
