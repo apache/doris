@@ -624,6 +624,7 @@ public class RollupJob extends AlterJob {
                     MaterializedIndex rollupIndex = this.partitionIdToRollupIndex.get(partitionId);
                     Preconditions.checkNotNull(rollupIndex);
 
+                    long rollupRowCount = 0L;
                     // 1. record replica info
                     for (Tablet tablet : rollupIndex.getTablets()) {
                         long tabletId = tablet.getId();
@@ -634,7 +635,20 @@ public class RollupJob extends AlterJob {
                                                                        replica.getDataSize(), replica.getRowCount());
                             this.partitionIdToReplicaInfos.put(partitionId, replicaInfo);
                         }
+
+                        // calculate rollup index row count
+                        long tabletRowCount = 0L;
+                        for (Replica replica : tablet.getReplicas()) {
+                            long replicaRowCount = replica.getRowCount();
+                            if (replicaRowCount > tabletRowCount) {
+                                tabletRowCount = replicaRowCount;
+                            }
+                        }
+                        rollupRowCount += tabletRowCount;
+ 
                     } // end for tablets
+
+                    rollupIndex.setRowCount(rollupRowCount);
 
                     // 2. add to partition
                     partition.createRollupIndex(rollupIndex);
@@ -717,11 +731,24 @@ public class RollupJob extends AlterJob {
             Partition partition = olapTable.getPartition(partitionId);
             MaterializedIndex rollupIndex = entry.getValue();
 
+            long rollupRowCount = 0L;
             for (Tablet tablet : rollupIndex.getTablets()) {
                 for (Replica replica : tablet.getReplicas()) {
                     replica.setState(ReplicaState.NORMAL);
                 }
+
+                // calculate rollup index row count
+                long tabletRowCount = 0L;
+                for (Replica replica : tablet.getReplicas()) {
+                    long replicaRowCount = replica.getRowCount();
+                    if (replicaRowCount > tabletRowCount) {
+                        tabletRowCount = replicaRowCount;
+                    }
+                }
+                rollupRowCount += tabletRowCount;
             }
+
+            rollupIndex.setRowCount(rollupRowCount);
             rollupIndex.setState(IndexState.NORMAL);
 
             MaterializedIndex baseIndex = partition.getIndex(baseIndexId);
