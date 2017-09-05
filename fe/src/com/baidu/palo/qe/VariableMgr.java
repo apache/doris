@@ -334,6 +334,9 @@ public class VariableMgr {
             ctx = ctxByVarName.get(SessionVariable.MAX_ALLOWED_PACKET);
             setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getMaxAllowedPacket()));
 
+            ctx = ctxByVarName.get(SessionVariable.EXEC_MEM_LIMIT);
+            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getMaxExecMemByte()));
+
         } finally {
             wlock.unlock();
         }

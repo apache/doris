@@ -75,6 +75,8 @@ public class SetStmt extends StatementBase {
             for (SetVar var : setVars) {
                 if (var instanceof SetPassVar) {
                     return RedirectStatus.FORWARD_WITH_SYNC;
+                } else if (var.getType() == SetType.GLOBAL) {
+                    return RedirectStatus.FORWARD_WITH_SYNC;
                 }
             }
         }

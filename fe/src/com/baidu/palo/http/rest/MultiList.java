@@ -15,19 +15,21 @@
 
 package com.baidu.palo.http.rest;
 
-import java.util.List;
-
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
+import com.baidu.palo.http.BaseAction.AuthorizationInfo;
 import com.baidu.palo.service.ExecuteEnv;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import io.netty.handler.codec.http.HttpMethod;
+
+import java.util.List;
 
 // list all multi load before commit
 public class MultiList extends RestBaseAction {
@@ -52,9 +54,9 @@ public class MultiList extends RestBaseAction {
         if (Strings.isNullOrEmpty(db)) {
             throw new DdlException("No database selected");
         }
+
         AuthorizationInfo authInfo = getAuthorizationInfo(request);
         String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, db);
-
         checkReadPriv(authInfo.fullUserName, fullDbName);
 
         if (redirectToMaster(request, response)) {

@@ -70,29 +70,36 @@ public class RangePartitionDesc extends PartitionDesc {
     }
 
     @Override
-    public void analyze(Set<String> cols, Map<String, String> otherProperties) throws AnalysisException {
+    public void analyze(List<Column> cols, Map<String, String> otherProperties) throws AnalysisException {
         if (partitionColNames == null || partitionColNames.isEmpty()) {
             throw new AnalysisException("No partition columns.");
         }
 
-        if (partitionColNames.size() != 1) {
-            throw new AnalysisException("Only allow partitioned by one column");
-        }
-
+        Set<String> partColNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (String partitionCol : partitionColNames) {
-            // use this to infer user which columns not exist
-            if (!cols.contains(partitionCol)) {
-                throw new AnalysisException("Partition column[" + partitionCol + "] does not exist.");
+            if (!partColNames.add(partitionCol)) {
+                throw new AnalysisException("Duplicated partition column " + partitionCol);
             }
-            
-            if (partitionCol.equals(PrimitiveType.HLL.toString())) {
-                throw new AnalysisException("Partition column[" + partitionCol + "] can't be HLL.");
+
+            boolean found = false;
+            for (Column col : cols) {
+                if (col.getName().equals(partitionCol)) {
+                    if (!col.isKey()) {
+                        throw new AnalysisException("Only key column can be partition column");
+                    }
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found) {
+                throw new AnalysisException("Partition column[" + partitionCol + "] does not exist in column list.");
             }
         }
 
         Set<String> nameSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (SingleRangePartitionDesc desc : singleRangePartitionDescs) {
-            if (nameSet.contains(desc.getPartitionName())) {
+            if (!nameSet.add(desc.getPartitionName())) {
                 throw new AnalysisException("Duplicated partition name: " + desc.getPartitionName());
             }
             // in create table stmt, we use given properties
@@ -102,7 +109,6 @@ public class RangePartitionDesc extends PartitionDesc {
                 givenProperties = Maps.newHashMap(otherProperties);
             }
             desc.analyze(cols.size(), givenProperties);
-            nameSet.add(desc.getPartitionName());
         }
     }
 

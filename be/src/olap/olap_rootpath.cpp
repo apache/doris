@@ -111,7 +111,7 @@ OLAPStatus OLAPRootPath::init() {
         return OLAP_ERR_MALLOC_ERROR;
     }
 
-    _unused_flag_path = string(getenv("PALO_HOME")) + UNUSED_PREFIX; 
+    _unused_flag_path = string(getenv("LOG_DIR")) + UNUSED_PREFIX; 
     if (!check_dir_existed(_unused_flag_path)) {
         if ((res = create_dir(_unused_flag_path)) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to create unused flag path.[path='%s']",

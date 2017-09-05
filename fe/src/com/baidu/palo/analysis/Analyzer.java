@@ -24,6 +24,7 @@ import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.Database;
+import com.baidu.palo.catalog.InfoSchemaDb;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.catalog.Type;
@@ -526,6 +527,10 @@ public class Analyzer {
         if (tblName == null) {
             d = resolveColumnRef(colName);
         } else {
+            if (InfoSchemaDb.isInfoSchemaDb(tblName.getDb()) ||
+                    (tblName.getDb() == null && InfoSchemaDb.isInfoSchemaDb(getDefaultDb()))) {
+                tblName = new TableName(tblName.getDb(), tblName.getTbl().toLowerCase());
+            }
             d = resolveColumnRef(tblName, colName);
         }
         if (d == null && hasAncestors() && isSubquery) {
@@ -728,15 +733,15 @@ public class Analyzer {
 
         e.setId(globalState.conjunctIdGenerator.getNextId());
         globalState.conjuncts.put(e.getId(), e);
+        
         // LOG.info("registered conjunct " + p.getId().toString() + ": " + p.toSql());
-
         ArrayList<TupleId> tupleIds = Lists.newArrayList();
         ArrayList<SlotId> slotIds = Lists.newArrayList();
         e.getIds(tupleIds, slotIds);
 
         // register full join conjuncts
         registerFullOuterJoinedConjunct(e);
-
+       
         // update tuplePredicates
         for (TupleId id : tupleIds) {
             if (!tuplePredicates.containsKey(id)) {
@@ -855,10 +860,10 @@ public class Analyzer {
     public List<Expr> getAllUnassignedConjuncts(List<TupleId> tupleIds) {
         List<Expr> result = Lists.newArrayList();
         for (Expr e : globalState.conjuncts.values()) {
-            if (!e.isAuxExpr()
-                    && e.isBoundByTupleIds(tupleIds)
-                    && !globalState.assignedConjuncts.contains(e.getId())
-                    && !globalState.ojClauseByConjunct.containsKey(e.getId())) {
+            if (!e.isAuxExpr() 
+                && e.isBoundByTupleIds(tupleIds) 
+                && !globalState.assignedConjuncts.contains(e.getId()) 
+                && !globalState.ojClauseByConjunct.containsKey(e.getId())) {
                 result.add(e);
             }
         }
@@ -1265,8 +1270,10 @@ public class Analyzer {
             // TODO(zc)
             compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType());
         }
-        if (compatibleType == Type.VARCHAR && exprs.get(0).getType().isDateType()) {
-            compatibleType = Type.DATETIME;
+        if (compatibleType == Type.VARCHAR) {
+            if (exprs.get(0).getType().isDateType()) {
+                compatibleType = Type.DATETIME;
+            }
         }
         // Add implicit casts if necessary.
         for (int i = 0; i < exprs.size(); ++i) {
@@ -1412,7 +1419,7 @@ public class Analyzer {
         }
 
         if (e.isOnClauseConjunct()) {
-
+         
             if (isAntiJoinedConjunct(e)) return canEvalAntiJoinedConjunct(e, tupleIds);
             if (isIjConjunct(e) || isSjConjunct(e)) {
                 if (!containsOuterJoinedTid(tids)) return true;

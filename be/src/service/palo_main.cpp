@@ -73,7 +73,7 @@ int main(int argc, char** argv) {
     using std::string;
 
     // open pid file, obtain file lock and save pid
-    string pid_file = string(getenv("PALO_HOME")) + "/bin/be.pid";
+    string pid_file = string(getenv("PID_DIR")) + "/be.pid";
     int fd = open(pid_file.c_str(), O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
     if (fd < 0) {
         fprintf(stderr, "fail to create pid file.");

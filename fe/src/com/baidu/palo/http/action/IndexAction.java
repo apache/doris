@@ -41,13 +41,12 @@ public class IndexAction extends WebBaseAction {
         getPageFooter(response.getContent());
         writeResponse(request, response);
     }
-    
 
     private void appendVersionInfo(StringBuilder buffer) {
         buffer.append("<h2>Version</h2>");
-        buffer.append("<pre>version info");
+        buffer.append("<pre>version info<br/>");
         buffer.append("Version: " + Version.PALO_BUILD_VERSION + "<br/>");
-        buffer.append("Svn: " + Version.PALO_BUILD_HASH + "<br/>");
+        buffer.append("Git: " + Version.PALO_BUILD_HASH + "<br/>");
         buffer.append("Build Info: " + Version.PALO_BUILD_INFO + "<br/>");
         buffer.append("Build Time: " + Version.PALO_BUILD_TIME + "<br/>");
         buffer.append("</pre>");

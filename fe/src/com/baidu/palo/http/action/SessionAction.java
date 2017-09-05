@@ -72,7 +72,7 @@ public class SessionAction extends WebBaseAction {
         
         buffer.append("<p>This page lists the session info, there are "
                 + rowSet.size()
-                + "active sessions.</p>");
+                + " active sessions.</p>");
         
         appendTableHeader(buffer, SESSION_TABLE_HEADER);
         appendTableBody(buffer, rowSet);

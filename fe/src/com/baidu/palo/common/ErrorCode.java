@@ -149,7 +149,7 @@ public enum ErrorCode {
     ERR_CLUSTER_INSTANCE_NUM_WRONG(5035, new byte[] { 'H', 'Y', '0', '0', '0' }, "Cluster '%s' has exist"),
     ERR_CLUSTER_BE_NOT_ENOUGH(5036, new byte[] { 'H', 'Y', '0', '0', '0' }, "Be is not enough"),
     ERR_CLUSTER_DELETE_DB_EXIST(5037, new byte[] { 'H', 'Y', '0', '0', '0' }, 
-            "All datbases in cluster must be dropped before dropping cluster."),
+            "All datbases in cluster must be dropped before dropping cluster"),
     ERR_CLUSTER_DELETE_BE_ID_ERROR(5037, new byte[] { 'H', 'Y', '0', '0', '0' }, "There is no be's id in the System"),
     ERR_CLUSTER_NO_CLUSTER_NAME(5038, new byte[] { 'H', 'Y', '0', '0', '0' }, "There is no cluster name"),
     ERR_CLUSTER_SHOW_ACCESS_DENIED(5039, new byte[] {'4', '2', '0', '0', '0'}, 

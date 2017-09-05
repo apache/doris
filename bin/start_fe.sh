@@ -24,8 +24,10 @@ export PALO_HOME=`cd "$curdir/.."; pwd`
 #
 # JAVA_OPTS
 # LOG_DIR
+# PID_DIR
 export JAVA_OPTS="-Xmx1024m"
 export LOG_DIR="$PALO_HOME/log"
+export PID_DIR=`cd "$curdir"; pwd`
 
 while read line; do
     envline=`echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*="`
@@ -52,10 +54,11 @@ for f in $PALO_HOME/lib/kudu-client/*.jar; do
 done
 export CLASSPATH=${CLASSPATH}:${PALO_HOME}/lib
 
+if [ ! -d $LOG_DIR ]; then
+    mkdir -p $LOG_DIR
+fi
 
-mkdir -p $LOG_DIR
-
-pidfile=$curdir/fe.pid
+pidfile=$PID_DIR/fe.pid
 
 if [ -f $pidfile ]; then
   if kill -0 `cat $pidfile` > /dev/null 2>&1; then

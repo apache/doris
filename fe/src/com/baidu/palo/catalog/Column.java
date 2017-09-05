@@ -216,7 +216,7 @@ public class Column implements Writable {
 
         if (columnType.getType() == PrimitiveType.FLOAT || columnType.getType() == PrimitiveType.DOUBLE) {
             if (isOlap && isKey) {
-                throw new AnalysisException("Float or double can't be used as a key, use decimal instead.");
+                throw new AnalysisException("Float or double can not used as a key, use decimal instead.");
             }
         }
 

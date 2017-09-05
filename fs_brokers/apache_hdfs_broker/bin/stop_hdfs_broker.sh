@@ -18,7 +18,18 @@
 curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
 
-pidfile=$curdir/apache_hdfs_broker.pid
+export BROKER_HOME=`cd "$curdir/.."; pwd`
+export PID_DIR=`cd "$curdir"; pwd`
+
+while read line; do
+    envline=`echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*="`
+    envline=`eval "echo $envline"`
+    if [[ $envline == *"="* ]]; then
+        eval 'export "$envline"'
+    fi
+done < $BROKER_HOME/conf/apache_hdfs_broker.conf
+
+pidfile=$PID_DIR/apache_hdfs_broker.pid
 
 if [ -f $pidfile ]; then
    pid=`cat $pidfile`

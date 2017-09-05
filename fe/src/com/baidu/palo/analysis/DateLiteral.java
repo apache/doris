@@ -30,6 +30,9 @@ import com.baidu.palo.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -37,6 +40,7 @@ import java.nio.ByteBuffer;
 import java.util.Date;
 
 public class DateLiteral extends LiteralExpr {
+    private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
     private Date date;
 
     private DateLiteral() {

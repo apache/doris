@@ -19,6 +19,7 @@ curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
 
 export BROKER_HOME=`cd "$curdir/.."; pwd`
+export PID_DIR=`cd "$curdir"; pwd`
 
 #
 # JAVA_OPTS
@@ -40,7 +41,15 @@ for f in $BROKER_HOME/lib/*.jar; do
 done
 export CLASSPATH=${CLASSPATH}:${BROKER_HOME}/lib
 
-pidfile=$curdir/bos_broker.pid
+while read line; do
+    envline=`echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*="`
+    envline=`eval "echo $envline"`
+    if [[ $envline == *"="* ]]; then
+        eval 'export "$envline"'
+    fi
+done < $BROKER_HOME/conf/baidu_bos_broker.conf
+
+pidfile=$PID_DIR/bos_broker.pid
 
 if [ -f $pidfile ]; then
     if kill -0 `cat $pidfile` > /dev/null 2>&1; then
