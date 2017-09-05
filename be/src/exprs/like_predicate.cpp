@@ -45,6 +45,11 @@ static const RE2 STARTS_WITH_RE(
 // A regex to match any regex pattern which is equivalent to a constant string match.
 static const RE2 EQUALS_RE("\\^([^\\.\\^\\{\\[\\(\\|\\)\\]\\}\\+\\*\\?\\$\\\\]*)\\$");
 
+static const re2::RE2 LIKE_SUBSTRING_RE("(?:%+)(((\\\\%)|(\\\\_)|([^%_]))+)(?:%+)");
+static const re2::RE2 LIKE_ENDS_WITH_RE("(?:%+)(((\\\\%)|(\\\\_)|([^%_]))+)");
+static const re2::RE2 LIKE_STARTS_WITH_RE("(((\\\\%)|(\\\\_)|([^%_]))+)(?:%+)");
+static const re2::RE2 LIKE_EQUALS_RE("(((\\\\%)|(\\\\_)|([^%_]))+)");
+
 void LikePredicate::init() {
 }
 
@@ -62,24 +67,24 @@ void LikePredicate::like_prepare(
             return;
         }
         StringValue pattern = StringValue::from_string_val(pattern_val);
-        re2::RE2 substring_re("(?:%+)([^%_]*)(?:%+)");
-        re2::RE2 ends_with_re("(?:%+)([^%_]*)");
-        re2::RE2 starts_with_re("([^%_]*)(?:%+)");
-        re2::RE2 equals_re("([^%_]*)");
         std::string pattern_str(pattern.ptr, pattern.len);
         std::string search_string;
-        if (RE2::FullMatch(pattern_str, substring_re, &search_string)) {
-            state->set_search_string(search_string);
-            state->function = constant_substring_fn;
-        } else if (RE2::FullMatch(pattern_str, starts_with_re, &search_string)) {
-            state->set_search_string(search_string);
-            state->function = constant_starts_with_fn;
-        } else if (RE2::FullMatch(pattern_str, ends_with_re, &search_string)) {
+        if (RE2::FullMatch(pattern_str, LIKE_ENDS_WITH_RE, &search_string)) {
+            remove_escape_character(&search_string);
             state->set_search_string(search_string);
             state->function = constant_ends_with_fn;
-        } else if (RE2::FullMatch(pattern_str, equals_re, &search_string)) {
+        } else if (RE2::FullMatch(pattern_str, LIKE_SUBSTRING_RE, &search_string)) {
+            remove_escape_character(&search_string);
+            state->set_search_string(search_string);
+            state->function = constant_substring_fn;
+        } else if (RE2::FullMatch(pattern_str, LIKE_EQUALS_RE, &search_string)) {
+            remove_escape_character(&search_string);
             state->set_search_string(search_string);
             state->function = constant_equals_fn;
+        } else if (RE2::FullMatch(pattern_str, LIKE_STARTS_WITH_RE, &search_string)) {
+            remove_escape_character(&search_string);
+            state->set_search_string(search_string);
+            state->function = constant_starts_with_fn;
         } else {
             std::string re_pattern;
             convert_like_pattern(
@@ -432,6 +437,23 @@ void LikePredicate::convert_like_pattern(
             // regular character or escaped special character
             re_pattern->append(1, pattern.ptr[i]);
             is_escaped = false;
+        }
+    }
+}
+
+void LikePredicate::remove_escape_character(std::string* search_string) {
+    std::string tmp_search_string;
+    tmp_search_string.swap(*search_string);
+    int len = tmp_search_string.length();
+    for (int i = 0; i < len;) {
+        if (tmp_search_string[i] == '\\'
+            && i + 1 < len
+            && (tmp_search_string[i+1] == '%' || tmp_search_string[i+1] == '_')) {
+            search_string->append(1, tmp_search_string[i+1]);
+            i += 2;
+        } else {
+            search_string->append(1, tmp_search_string[i]);
+            i++;
         }
     }
 }
