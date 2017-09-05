@@ -4946,10 +4946,13 @@ public class Catalog {
                 checksum ^= cluster.getId();
  
                 // BE is in default_cluster when added , therefore it is possible that the BE 
-                // in default_clsuter are not the latest because cluster cant't be updated when 
-                // loadCluster is after loadBackend.  
+                // in default_cluster are not the latest because cluster cant't be updated when 
+                // loadCluster is after loadBackend. Because of forgeting to remove BE's id in 
+                // cluster when drop BE or decommission in latest versions, need to update cluster's
+                // BE.
                 List<Long> latestBackendIds = systemInfo.getClusterBackendIds(cluster.getName());
-                if (cluster.getName().equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
+                if (cluster.getName().equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)
+                       || Catalog.getCurrentCatalogJournalVersion() <= FeMetaVersion.VERSION_34) {
                     cluster.setBackendIdList(latestBackendIds);
                 } else {
                     // The cluster has the same number of be as systeminfo recorded
