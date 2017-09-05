@@ -68,4 +68,9 @@ public final class FeMetaVersion {
 
     // persist LoadJob's execMemLimit
     public static final int VERSION_34 = 34;
+
+    // update the BE in cluster, because of forgeting
+    // to remove backend in cluster when drop backend or 
+    // decommission in latest versions.
+    public static final int VERSION_35= 35;
 }
