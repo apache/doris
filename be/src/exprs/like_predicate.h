@@ -172,6 +172,8 @@ private:
         palo_udf::FunctionContext* context,
         const palo_udf::StringVal& pattern,
         std::string* re_pattern);
+
+    static void remove_escape_character(std::string* search_string);
 };
 
 }
