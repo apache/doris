@@ -112,7 +112,9 @@ public class PullLoadTask {
     }
 
     public synchronized void cancel() {
-        curCoordinator.cancel();
+        if (curCoordinator != null) {
+            curCoordinator.cancel();
+        }
     }
 
     public synchronized boolean isFinished() {
