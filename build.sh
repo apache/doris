@@ -184,10 +184,10 @@ mkdir -p ${PALO_OUTPUT}
 
 #Copy Frontend and Backend
 if [ ${BUILD_FE} -eq 1 ]; then
-    cp -R ${PALO_HOME}/fe/output ${PALO_OUTPUT}/fe
+    cp -rp ${PALO_HOME}/fe/output ${PALO_OUTPUT}/fe
 fi
 if [ ${BUILD_BE} -eq 1 ]; then
-    cp -R ${PALO_HOME}/be/output ${PALO_OUTPUT}/be
+    cp -rp ${PALO_HOME}/be/output ${PALO_OUTPUT}/be
 fi
 
 echo "***************************************"
