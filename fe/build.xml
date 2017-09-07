@@ -96,9 +96,12 @@
         <mkdir dir="${outputdir}/lib/kudu-client" />
         <mkdir dir="${outputdir}/webroot" />
 
-        <copy todir="${outputdir}/bin" >
-            <fileset dir="${basedir}/../bin/" includes="start_fe.sh,stop_fe.sh" />
-        </copy>
+        <exec executable="cp">
+            <arg line="-rp ${basedir}/../bin/start_fe.sh ${outputdir}/bin/" />
+        </exec>
+        <exec executable="cp">
+            <arg line="-rp ${basedir}/../bin/stop_fe.sh ${outputdir}/bin/" />
+        </exec>
         <copy todir="${outputdir}/conf" >
             <fileset dir="${basedir}/../conf/" includes="fe.conf" />
         </copy>
