@@ -89,8 +89,8 @@ Status ScalarFnCall::prepare(
     _fn_context_index = context->register_func(
             state, return_type, arg_types, varargs_buffer_size);
     // _scalar_fn = OpcodeRegistry::instance()->get_function_ptr(_opcode);
+    Status status = Status::OK;
     if (_scalar_fn == NULL) {
-        Status status;
         if (SymbolsUtil::is_mangled(_fn.scalar_fn.symbol)) {
             status = LibCache::instance()->get_so_function_ptr(
                 _fn.hdfs_location, _fn.scalar_fn.symbol, &_scalar_fn, &_cache_entry, true);
@@ -167,7 +167,7 @@ Status ScalarFnCall::prepare(
                                     reinterpret_cast<void**>(&_close_fn)));
     }
 
-    return Status::OK;
+    return status;
 }
 
 Status ScalarFnCall::open(

@@ -1900,8 +1900,10 @@ public class Load {
                 break;
             case INSERT:
                 break;
+            case BROKER:
+                break;
             default:
-                LOG.warn("unknown etl job type. type: {}", etlJobType.name());
+                LOG.warn("unknown etl job type. type: {}, job id: {}", etlJobType.name(), job.getId());
                 break;
         }
     }
