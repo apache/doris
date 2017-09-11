@@ -122,11 +122,12 @@ public class Config extends ConfigBase {
     @ConfField public static String replica_ack_policy = "SIMPLE_MAJORITY"; // ALL, NONE, SIMPLE_MAJORITY
 
     /*
-     * Specified a ip for frontend, instead of ip get by *InetAddress.getByName*.
-     * This can be used when *InetAddress.getByName* get a unexpected ip address.
+     * Specified an IP for frontend, instead of the ip get by *InetAddress.getByName*.
+     * This can be used when *InetAddress.getByName* get an unexpected IP address.
      * Default is "0.0.0.0", which means not set.
+     * CAN NOT set this as a hostname, only IP.
      */
-    @ConfField public static String master_ip = "0.0.0.0";
+    @ConfField public static String frontend_address = "0.0.0.0";
 
     /*
      * Kudu is currently not supported.

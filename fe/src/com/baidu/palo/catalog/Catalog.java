@@ -116,6 +116,7 @@ import com.baidu.palo.load.LoadJob;
 import com.baidu.palo.load.LoadJob.JobState;
 import com.baidu.palo.master.Checkpoint;
 import com.baidu.palo.master.MetaHelper;
+import com.baidu.palo.persist.BackendIdsUpdateInfo;
 import com.baidu.palo.persist.ClusterInfo;
 import com.baidu.palo.persist.DatabaseInfo;
 import com.baidu.palo.persist.DropInfo;
@@ -129,16 +130,15 @@ import com.baidu.palo.persist.ReplicaPersistInfo;
 import com.baidu.palo.persist.Storage;
 import com.baidu.palo.persist.StorageInfo;
 import com.baidu.palo.persist.TableInfo;
-import com.baidu.palo.persist.BackendIdsUpdateInfo;
 import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.JournalObservable;
 import com.baidu.palo.qe.SessionVariable;
 import com.baidu.palo.qe.VariableMgr;
 import com.baidu.palo.service.FrontendOptions;
 import com.baidu.palo.system.Backend;
+import com.baidu.palo.system.Backend.BackendState;
 import com.baidu.palo.system.Frontend;
 import com.baidu.palo.system.SystemInfoService;
-import com.baidu.palo.system.Backend.BackendState;
 import com.baidu.palo.task.AgentBatchTask;
 import com.baidu.palo.task.AgentTask;
 import com.baidu.palo.task.AgentTaskExecutor;
@@ -181,12 +181,12 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.HttpURLConnection;
-import java.util.Iterator;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -738,11 +738,7 @@ public class Catalog {
         // catalog recycle bin
         getRecycleBin().start();
 
-        if (!Config.master_ip.equals("0.0.0.0")) {
-            this.masterIp = Config.master_ip;
-        } else {
-            this.masterIp = FrontendOptions.getLocalHostAddress();
-        }
+        this.masterIp = FrontendOptions.getLocalHostAddress();
         this.masterRpcPort = Config.rpc_port;
         this.masterHttpPort = Config.http_port;
 

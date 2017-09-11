@@ -17,6 +17,7 @@ package com.baidu.palo.journal.bdbje;
 
 import com.baidu.palo.journal.JournalCursor;
 import com.baidu.palo.journal.JournalEntity;
+
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
@@ -103,7 +104,8 @@ public class BDBJournalCursor implements JournalCursor {
             // READ_COMMITTED guarantees no dirty read.
             int tryTimes = 0;
             while (true) {
-                if (database.get(null, theKey, theData, LockMode.READ_COMMITTED) == OperationStatus.SUCCESS) {
+                OperationStatus operationStatus = database.get(null, theKey, theData, LockMode.READ_COMMITTED);
+                if (operationStatus == OperationStatus.SUCCESS) {
                     // Recreate the data String.
                     byte[] retData = theData.getData();
                     DataInputStream in = new DataInputStream(new ByteArrayInputStream(retData));
@@ -123,7 +125,7 @@ public class BDBJournalCursor implements JournalCursor {
                     continue;
                 } else if (tryTimes < maxTryTime) {
                     tryTimes++;
-                    LOG.warn("fail to get journal {}, will try again", currentKey);
+                    LOG.warn("fail to get journal {}, will try again. status: {}", currentKey, operationStatus);
                     Thread.sleep(3000);
                     continue;
                 } else {
