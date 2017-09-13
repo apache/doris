@@ -23,16 +23,20 @@ import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
+import com.baidu.palo.http.UnauthorizedException;
+
 import com.google.common.base.Strings;
 import com.google.gson.Gson;
-
-import io.netty.handler.codec.http.HttpMethod;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import io.netty.handler.codec.http.HttpMethod;
+
 import java.util.List;
 
+// Format:
+//   http://username:password@10.73.150.30:8138/api/show_proc?path=/
 public class ShowProcAction extends RestBaseAction {
     private static final Logger LOG = LogManager.getLogger(ShowProcAction.class);
 
@@ -46,6 +50,16 @@ public class ShowProcAction extends RestBaseAction {
 
     @Override
     public void execute(BaseRequest request, BaseResponse response) {
+        // check authority
+        try {
+            checkAdmin(request);
+            request.setAdmin(true);
+        } catch (UnauthorizedException e) {
+            response.appendContent("Authentication Failed. " + e.getMessage());
+            sendResult(request, response);
+            return;
+        }
+
         String path = request.getSingleParameter("path");
         ProcNodeInterface procNode = null;
         ProcService instance = ProcService.getInstance();
@@ -59,13 +73,13 @@ public class ShowProcAction extends RestBaseAction {
             LOG.warn(e.getMessage());
             response.getContent().append("[]");
         }
-        
+
         if (procNode != null) {
             ProcResult result;
             try {
                 result = procNode.fetchResult();
                 List<List<String>> rows = result.getRows();
-                
+
                 Gson gson = new Gson();
                 response.setContentType("application/json");
                 response.getContent().append(gson.toJson(rows));
