@@ -74,6 +74,8 @@ public:
     // declarations for classes in scoped_ptrs.
     virtual ~ExecEnv();
 
+    uint32_t cluster_id();
+
     DataStreamMgr* stream_mgr() {
         return _stream_mgr.get();
     }
@@ -101,8 +103,8 @@ public:
     MemTracker* process_mem_tracker() {
         return _mem_tracker.get();
     }
-    PoolMemTrackerRegistry* pool_mem_trackers() { 
-        return _pool_mem_trackers.get(); 
+    PoolMemTrackerRegistry* pool_mem_trackers() {
+        return _pool_mem_trackers.get();
     }
     ThreadResourceMgr* thread_mgr() {
         return _thread_mgr.get();
@@ -162,6 +164,7 @@ public:
     Status init_for_tests();
 
 private:
+    Status start_webserver();
     // Leave protected so that subclasses can override
     boost::scoped_ptr<DataStreamMgr> _stream_mgr;
     boost::scoped_ptr<ResultBufferMgr> _result_mgr;

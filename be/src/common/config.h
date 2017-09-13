@@ -312,6 +312,9 @@ namespace config {
     // "If true, Kudu features will be disabled."
     CONF_Bool(disable_kudu, "false")
 
+    // to forward compatibility, will be removed later
+    CONF_Bool(enable_token_check, "true");
+
 } // namespace config
 
 } // namespace palo

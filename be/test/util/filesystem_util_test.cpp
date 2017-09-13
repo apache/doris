@@ -27,11 +27,11 @@ namespace palo {
 namespace filesystem = boost::filesystem;
 using filesystem::path;
 
-TEST(FilesystemUtil, rlimit) {
+TEST(FileSystemUtil, rlimit) {
     ASSERT_LT(0ul, FileSystemUtil::max_num_file_handles());
 }
 
-TEST(FilesystemUtil, CreateDirectory) {
+TEST(FileSystemUtil, CreateDirectory) {
     // Setup a temporary directory with one subdir
     path dir = filesystem::unique_path();
     path subdir1 = dir / "path1";
@@ -61,14 +61,71 @@ TEST(FilesystemUtil, CreateDirectory) {
     filesystem::remove_all(dir);
 }
 
+TEST(FilesystemUtil, contain_path) {
+    {
+        std::string parent("/a/b");
+        std::string sub("/a/b/c");
+        EXPECT_TRUE(FileSystemUtil::contain_path(parent, sub));
+        EXPECT_FALSE(FileSystemUtil::contain_path(sub, parent));
+        EXPECT_TRUE(FileSystemUtil::contain_path(parent, parent));
+        EXPECT_TRUE(FileSystemUtil::contain_path(sub, sub));
+    }
+
+    {
+        std::string parent("/a/b/");
+        std::string sub("/a/b/c/");
+        EXPECT_TRUE(FileSystemUtil::contain_path(parent, sub));
+        EXPECT_FALSE(FileSystemUtil::contain_path(sub, parent));
+        EXPECT_TRUE(FileSystemUtil::contain_path(parent, parent));
+        EXPECT_TRUE(FileSystemUtil::contain_path(sub, sub));
+    }
+
+    {
+        std::string parent("/a///./././/./././b/"); // "/a/b/."
+        std::string sub("/a/b/../././b/c/");    // "/a/b/c/"
+        EXPECT_TRUE(FileSystemUtil::contain_path(parent, sub));
+        EXPECT_FALSE(FileSystemUtil::contain_path(sub, parent));
+        EXPECT_TRUE(FileSystemUtil::contain_path(parent, parent));
+        EXPECT_TRUE(FileSystemUtil::contain_path(sub, sub));
+    }
+
+    {
+        // relative path
+        std::string parent("a/b/"); // "a/b/"
+        std::string sub("a/b/c/");  // "a/b/c/"
+        EXPECT_TRUE(FileSystemUtil::contain_path(parent, sub));
+        EXPECT_FALSE(FileSystemUtil::contain_path(sub, parent));
+        EXPECT_TRUE(FileSystemUtil::contain_path(parent, parent));
+        EXPECT_TRUE(FileSystemUtil::contain_path(sub, sub));
+    }
+    {
+        // relative path
+        std::string parent("a////./././b/"); // "a/b/"
+        std::string sub("a/b/../././b/c/");  // "a/b/c/"
+        EXPECT_TRUE(FileSystemUtil::contain_path(parent, sub));
+        EXPECT_FALSE(FileSystemUtil::contain_path(sub, parent));
+        EXPECT_TRUE(FileSystemUtil::contain_path(parent, parent));
+        EXPECT_TRUE(FileSystemUtil::contain_path(sub, sub));
+    }
+    {
+        // absolute path and relative path
+        std::string parent("/a////./././b/"); // "/a/b/"
+        std::string sub("a/b/../././b/c/");  // "a/b/c/"
+        EXPECT_FALSE(FileSystemUtil::contain_path(parent, sub));
+        EXPECT_FALSE(FileSystemUtil::contain_path(sub, parent));
+        EXPECT_TRUE(FileSystemUtil::contain_path(parent, parent));
+        EXPECT_TRUE(FileSystemUtil::contain_path(sub, sub));
+    }
+}
+
 } // end namespace palo
 
 int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
-    // if (!palo::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
+    std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
+    if (!palo::config::init(conffile.c_str(), false)) {
+        fprintf(stderr, "error read config file. \n");
+        return -1;
+    }
     palo::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
