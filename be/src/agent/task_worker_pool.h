@@ -31,15 +31,6 @@
 
 namespace palo {
 
-const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
-const uint32_t TASK_FINISH_MAX_RETRY = 3;
-const uint32_t PUSH_MAX_RETRY = 1;
-const uint32_t REPORT_TASK_WORKER_COUNT = 1;
-const uint32_t REPORT_DISK_STATE_WORKER_COUNT = 1;
-const uint32_t REPORT_OLAP_TABLE_WORKER_COUNT = 1;
-const uint32_t LIST_REMOTE_FILE_TIMEOUT = 15;
-const std::string HTTP_REQUEST_PREFIX = "/api/_tablet/_download?file=";
-
 class TaskWorkerPool {
 public:
     enum TaskWorkerType {

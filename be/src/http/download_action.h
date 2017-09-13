@@ -13,10 +13,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  BDG_PALO_BE_SRC_COMMON_UTIL_DOWNLOAD_ACTION_H
-#define  BDG_PALO_BE_SRC_COMMON_UTIL_DOWNLOAD_ACTION_H
-
-#include <boost/scoped_ptr.hpp>
+#ifndef  BDG_PALO_BE_SRC_HTTP_DOWNLOAD_ACTION_H
+#define  BDG_PALO_BE_SRC_HTTP_DOWNLOAD_ACTION_H
 
 #include "exec/csv_scanner.h"
 #include "exec/scan_node.h"
@@ -30,16 +28,19 @@ class ExecEnv;
 //
 // TODO(lingbin): implements two useful header ('If-Modified-Since' and 'RANGE') to reduce
 // transmission consumption.
-// We use parameter named 'file' to specify the static resource path, it relative to the
-// root path of http server.
+// We use parameter named 'file' to specify the static resource path, it is an absolute path.
 class DownloadAction : public HttpHandler {
 public:
-    DownloadAction(ExecEnv* exec_env, const std::string& base_dir);
+    DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs);
 
     virtual ~DownloadAction() {}
 
     virtual void handle(HttpRequest *req, HttpChannel *channel);
+
 private:
+    Status check_token(HttpRequest *req);
+    Status check_path(const std::string& path);
+
     void do_file_response(const std::string& dir_path, HttpRequest *req, HttpChannel *channel);
     void do_dir_response(const std::string& dir_path, HttpRequest *req, HttpChannel *channel);
 
@@ -54,10 +55,10 @@ private:
     std::string get_content_type(const std::string& file_name);
 
     ExecEnv* _exec_env;
-    std::string _base_dir;
+    std::vector<std::string> _allow_paths;
 
 }; // end class DownloadAction
 
 } // end namespace palo
-#endif // BDG_PALO_BE_SRC_COMMON_UTIL_DOWNLOAD_ACTION_H
+#endif // BDG_PALO_BE_SRC_HTTP_DOWNLOAD_ACTION_H
 

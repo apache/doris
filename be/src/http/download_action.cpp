@@ -28,23 +28,40 @@
 #include "http/http_status.h"
 #include "util/defer_op.h"
 #include "util/file_utils.h"
+#include "util/filesystem_util.h"
+#include "util/string_parser.hpp"
+#include "runtime/exec_env.h"
 
 namespace palo {
 
 const std::string FILE_PARAMETER = "file";
 const std::string DB_PARAMETER = "db";
 const std::string LABEL_PARAMETER = "label";
+const std::string TOKEN_PARAMETER = "token";
 
-DownloadAction::DownloadAction(ExecEnv* exec_env, const std::string& base_dir) :
-        _exec_env(exec_env),
-        _base_dir(base_dir) {
+DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs) :
+    _exec_env(exec_env),
+    _allow_paths(allow_dirs) {
 }
 
 void DownloadAction::handle(HttpRequest *req, HttpChannel *channel) {
-    LOG(INFO) << "accept one request " << req->debug_string();
+    LOG(INFO) << "accept one download request " << req->debug_string();
 
     // add tid to cgroup in order to limit read bandwidth
     CgroupsMgr::apply_system_cgroup();
+
+    // check token
+    Status status;
+    if (config::disable_deprecated_download) {
+        status = check_token(req);
+        if (!status.ok()) {
+            std::string error_msg = status.get_error_msg();
+            HttpResponse response(HttpStatus::OK, &error_msg);
+            channel->send_response(response);
+            return;
+        }
+    }
+
     // Get 'file' parameter, then assembly file absolute path
     const std::string& file_path = req->param(FILE_PARAMETER);
     if (file_path.empty()) {
@@ -54,28 +71,21 @@ void DownloadAction::handle(HttpRequest *req, HttpChannel *channel) {
         channel->send_response(response);
         return;
     }
-    std::string file_absolute_path = _base_dir;
-    if (!file_absolute_path.empty()) {
-        const std::string& db_name = req->param(DB_PARAMETER);
-        if (!db_name.empty()) {
-            file_absolute_path += "/" + db_name;
-        }
-        const std::string& label_name = req->param(LABEL_PARAMETER);
-        if (!label_name.empty()) {
-            file_absolute_path += "/" + label_name;
-        }
-        file_absolute_path += "/" + file_path;
-    } else {
-        // in tablet download, a absolute path is given.
-        file_absolute_path = file_path;
-    }
-    VLOG_ROW << "absolute download path: " << file_absolute_path;
 
-    if (FileUtils::is_dir(file_absolute_path)) {
-        do_dir_response(file_absolute_path, req, channel);
+    status = check_path(file_path);
+    if (!status.ok()) {
+        std::string error_msg = status.get_error_msg();
+        HttpResponse response(HttpStatus::OK, &error_msg);
+        channel->send_response(response);
+        return;
+    }
+    VLOG_ROW << "absolute download path: " << file_path;
+
+    if (FileUtils::is_dir(file_path)) {
+        do_dir_response(file_path, req, channel);
         return;
     } else {
-        do_file_response(file_absolute_path, req, channel);
+        do_file_response(file_path, req, channel);
     }
     LOG(INFO) << "deal with requesst finished! ";
 
@@ -102,8 +112,7 @@ void DownloadAction::do_dir_response(
     HttpResponse response(HttpStatus::OK, &result_str);
     channel->send_response(response);
     return;
-} 
-
+}
 
 void DownloadAction::do_file_response(
         const std::string& file_path, HttpRequest *req, HttpChannel *channel) {
@@ -213,6 +222,38 @@ std::string DownloadAction::get_content_type(const std::string& file_name) {
         return "text/plain; charset=utf-8";
     }
     return std::string();
+}
+
+Status DownloadAction::check_token(HttpRequest *req) {
+    const std::string& token_str = req->param(TOKEN_PARAMETER);
+    if (token_str.empty()) {
+        return Status("token is not specified.");
+    }
+
+    StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+    int32_t token = StringParser::string_to_int<int32_t>(
+            token_str.c_str(), token_str.size(), &parse_result);
+    if (parse_result != StringParser::PARSE_SUCCESS) {
+        return Status("token format is wrong.");
+    }
+
+    int32_t local_token = static_cast<int32_t>(_exec_env->cluster_id());
+    if (token != local_token) {
+        return Status("invalid token.");
+    }
+
+    return Status::OK;
+}
+
+Status DownloadAction::check_path(const std::string& file_path) {
+    for (auto& allow_path : _allow_paths) {
+        VLOG_ROW << "allow path: " << allow_path;
+        if (FileSystemUtil::contain_path(allow_path, file_path)) {
+            return Status::OK;
+        }
+    }
+
+    return Status("file path Not Allowed.");
 }
 
 } // end namespace palo

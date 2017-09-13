@@ -39,7 +39,9 @@ namespace palo {
 std::string EtlJobMgr::to_http_path(const std::string& file_name) {
     std::stringstream url;
     url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
-        << "/api/_download_load?file=" << file_name;
+        << "/api/_download_load?"
+        << "token=" << _exec_env->cluster_id()
+        << "&file=" << file_name;
     return url.str();
 }
 

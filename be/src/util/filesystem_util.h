@@ -57,6 +57,8 @@ public:
     // Returns the currently allowed maximum of possible file descriptors. In case of an
     // error returns 0.
     static uint64_t max_num_file_handles();
+
+    static bool contain_path(const std::string& parent_path, const std::string& sub_path);
 };
 
 }

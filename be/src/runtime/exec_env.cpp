@@ -51,6 +51,7 @@
 #include "http/download_action.h"
 #include "http/monitor_action.h"
 #include "http/http_method.h"
+#include "olap/olap_rootpath.h"
 #include "util/network_util.h"
 #include "util/bfd_parser.h"
 #include "runtime/etl_job_mgr.h"
@@ -157,51 +158,7 @@ Status ExecEnv::start_services() {
 
     // Start services in order to ensure that dependencies between them are met
     if (_enable_webserver) {
-        add_default_path_handlers(_web_page_handler.get(), _mem_tracker.get());
-        _webserver->register_handler(HttpMethod::PUT,
-                                     "/api/{db}/{table}/_load",
-                                     new MiniLoadAction(this));
-        DownloadAction* download_action = new DownloadAction(this, "");
-                // = new DownloadAction(this, config::mini_load_download_path);
-        _webserver->register_handler(HttpMethod::GET, "/api/_download_load", download_action);
-        _webserver->register_handler(HttpMethod::HEAD, "/api/_download_load", download_action);
-
-        DownloadAction* tablet_download_action = new DownloadAction(this, "");
-        _webserver->register_handler(HttpMethod::HEAD,
-                                     "/api/_tablet/_download",
-                                     tablet_download_action);
-        _webserver->register_handler(HttpMethod::GET,
-                                     "/api/_tablet/_download",
-                                     tablet_download_action);
-
-        // Register monitor
-        MonitorAction* monitor_action = new MonitorAction();
-        monitor_action->register_module("etl_mgr", etl_job_mgr());
-        monitor_action->register_module("fragment_mgr", fragment_mgr());
-        _webserver->register_handler(HttpMethod::GET, "/_monitor/{module}", monitor_action);
-
-        // Register BE health action
-        HealthAction* health_action = new HealthAction(this);
-        _webserver->register_handler(HttpMethod::GET, "/api/health", health_action);
-
-        // register pprof actions
-        PprofActions::setup(this, _webserver.get());
-
-#ifndef BE_TEST
-        // Register BE checksum action
-        ChecksumAction* checksum_action = new ChecksumAction(this);
-        _webserver->register_handler(HttpMethod::GET, "/api/checksum", checksum_action);
-
-        // Register BE reload tablet action
-        ReloadTabletAction* reload_tablet_action = new ReloadTabletAction(this);
-        _webserver->register_handler(HttpMethod::GET, "/api/reload_tablet", reload_tablet_action);
-
-        // Register BE snapshot action
-        SnapshotAction* snapshot_action = new SnapshotAction(this);
-        _webserver->register_handler(HttpMethod::GET, "/api/snapshot", snapshot_action);
-#endif
-
-        RETURN_IF_ERROR(_webserver->start());
+        RETURN_IF_ERROR(start_webserver());
     } else {
         LOG(INFO) << "Webserver is disabled";
     }
@@ -209,6 +166,62 @@ Status ExecEnv::start_services() {
     _metrics->init(_enable_webserver ? _web_page_handler.get() : NULL);
     RETURN_IF_ERROR(_tmp_file_mgr->init(_metrics.get()));
 
+    return Status::OK;
+}
+
+uint32_t ExecEnv::cluster_id() {
+    return OLAPRootPath::get_instance()->effective_cluster_id();
+}
+
+Status ExecEnv::start_webserver() {
+    add_default_path_handlers(_web_page_handler.get(), _mem_tracker.get());
+    _webserver->register_handler(HttpMethod::PUT,
+                                 "/api/{db}/{table}/_load",
+                                 new MiniLoadAction(this));
+
+    std::vector<std::string> allow_paths;
+    OLAPRootPath::get_instance()->get_all_available_root_path(&allow_paths);
+    DownloadAction* download_action = new DownloadAction(this, allow_paths);
+    // = new DownloadAction(this, config::mini_load_download_path);
+    _webserver->register_handler(HttpMethod::GET, "/api/_download_load", download_action);
+    _webserver->register_handler(HttpMethod::HEAD, "/api/_download_load", download_action);
+
+    DownloadAction* tablet_download_action = new DownloadAction(this, allow_paths);
+    _webserver->register_handler(HttpMethod::HEAD,
+                                 "/api/_tablet/_download",
+                                 tablet_download_action);
+    _webserver->register_handler(HttpMethod::GET,
+                                 "/api/_tablet/_download",
+                                 tablet_download_action);
+
+    // Register monitor
+    MonitorAction* monitor_action = new MonitorAction();
+    monitor_action->register_module("etl_mgr", etl_job_mgr());
+    monitor_action->register_module("fragment_mgr", fragment_mgr());
+    _webserver->register_handler(HttpMethod::GET, "/_monitor/{module}", monitor_action);
+
+    // Register BE health action
+    HealthAction* health_action = new HealthAction(this);
+    _webserver->register_handler(HttpMethod::GET, "/api/health", health_action);
+
+    // register pprof actions
+    PprofActions::setup(this, _webserver.get());
+
+#ifndef BE_TEST
+    // Register BE checksum action
+    ChecksumAction* checksum_action = new ChecksumAction(this);
+    _webserver->register_handler(HttpMethod::GET, "/api/checksum", checksum_action);
+
+    // Register BE reload tablet action
+    ReloadTabletAction* reload_tablet_action = new ReloadTabletAction(this);
+    _webserver->register_handler(HttpMethod::GET, "/api/reload_tablet", reload_tablet_action);
+
+    // Register BE snapshot action
+    SnapshotAction* snapshot_action = new SnapshotAction(this);
+    _webserver->register_handler(HttpMethod::GET, "/api/snapshot", snapshot_action);
+#endif
+
+    RETURN_IF_ERROR(_webserver->start());
     return Status::OK;
 }
 
