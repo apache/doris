@@ -87,7 +87,13 @@ public abstract class BaseAction implements IAction {
     public void handleRequest(BaseRequest request) throws Exception {
         BaseResponse response = new BaseResponse();
         LOG.debug("receive http request. url={}", request.getRequest().uri());
-        execute(request, response);
+        try {
+            execute(request, response);
+        } catch (Exception e) {
+            LOG.warn("fail to process url={}. error={}",
+                    request.getRequest().uri(), e);
+            writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
+        }
     }
 
     public abstract void execute(BaseRequest request, BaseResponse response) throws DdlException;
