@@ -178,8 +178,6 @@ bool FileSystemUtil::contain_path(
     boost::filesystem::path sub(sub_path);
     parent = parent.lexically_normal();
     sub = sub.lexically_normal();
-    VLOG_ROW << "parent lexically_normal: " << parent;
-    VLOG_ROW << "sub lexically_normal: " << sub;
 
     if (parent == sub) {
         return true;

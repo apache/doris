@@ -52,7 +52,7 @@ void DownloadAction::handle(HttpRequest *req, HttpChannel *channel) {
 
     // check token
     Status status;
-    if (config::disable_deprecated_download) {
+    if (config::enable_token_check) {
         status = check_token(req);
         if (!status.ok()) {
             std::string error_msg = status.get_error_msg();
@@ -247,7 +247,6 @@ Status DownloadAction::check_token(HttpRequest *req) {
 
 Status DownloadAction::check_path(const std::string& file_path) {
     for (auto& allow_path : _allow_paths) {
-        VLOG_ROW << "allow path: " << allow_path;
         if (FileSystemUtil::contain_path(allow_path, file_path)) {
             return Status::OK;
         }

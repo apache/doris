@@ -313,7 +313,7 @@ namespace config {
     CONF_Bool(disable_kudu, "false")
 
     // to forward compatibility, will be removed later
-    CONF_Bool(disable_deprecated_download, "false");
+    CONF_Bool(enable_token_check, "true");
 
 } // namespace config
 
