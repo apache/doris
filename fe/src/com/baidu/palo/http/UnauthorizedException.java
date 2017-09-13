@@ -13,7 +13,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package com.baidu.palo.http.rest;
+package com.baidu.palo.http;
 
 import com.baidu.palo.common.DdlException;
 
