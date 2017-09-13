@@ -21,6 +21,7 @@ import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseAction;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
+import com.baidu.palo.http.UnauthorizedException;
 import com.baidu.palo.thrift.TNetworkAddress;
 
 import org.apache.logging.log4j.LogManager;
