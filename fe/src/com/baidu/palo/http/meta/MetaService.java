@@ -28,17 +28,18 @@ import com.baidu.palo.persist.MetaCleaner;
 import com.baidu.palo.persist.Storage;
 import com.baidu.palo.persist.StorageInfo;
 import com.baidu.palo.system.Frontend;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -179,8 +180,21 @@ public class MetaService {
             if (!Strings.isNullOrEmpty(strVersion)) {
                 long version = Long.parseLong(strVersion);
                 String machine = request.getHostString();
-                String port = request.getSingleParameter(PORT);
-                String url = "http://" + machine + ":" + port + "/image?version=" + version;
+                String portParam = request.getSingleParameter(PORT);
+                // check port to avoid SSRF(Server-Side Request Forgery)
+                if (Strings.isNullOrEmpty(portParam)) {
+                    LOG.warn("port is not provided.");
+                    writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
+                }
+                {
+                    int port = Integer.parseInt(portParam);
+                    if (port < 0 || port > 65535) {
+                        LOG.warn("port is invalid. port={}", port);
+                        writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
+                    }
+                }
+                String url = "http://" + machine + ":" + portParam + "/image?version=" + version;
+                LOG.debug("generated image url={}", url);
                 String filename = Storage.IMAGE + "." + version;
                 try {
                     OutputStream out = MetaHelper.getOutputStream(filename, dir);
@@ -229,11 +243,11 @@ public class MetaService {
             writeResponse(request, response);
         }
     }
-    
+
     public static class RoleAction extends MetaBaseAction {
         private static final String HOST = "host";
         private static final String PORT = "port";
-        
+
         public RoleAction(ActionController controller, File imageDir) {
             super(controller, imageDir);
         }
@@ -274,17 +288,17 @@ public class MetaService {
      */
     public static class CheckAction extends MetaBaseAction {
         private static final Logger LOG = LogManager.getLogger(CheckAction.class);
-        
+
         public CheckAction(ActionController controller, File imageDir) {
             super(controller, imageDir);
         }
-        
-        public static void registerAction (ActionController controller, File imageDir) 
+
+        public static void registerAction (ActionController controller, File imageDir)
                 throws IllegalArgException {
-            controller.registerHandler(HttpMethod.GET, "/check", 
+            controller.registerHandler(HttpMethod.GET, "/check",
                     new CheckAction(controller, imageDir));
         }
-        
+
         @Override
         public void executeGet(BaseRequest request, BaseResponse response) {
             try {
@@ -295,12 +309,12 @@ public class MetaService {
                 LOG.error(e);
             }
             writeResponse(request, response);
-        } 
+        }
     }
-    
+
     public static class DumpAction extends MetaBaseAction {
         private static final Logger LOG = LogManager.getLogger(CheckAction.class);
-        
+
         public DumpAction(ActionController controller, File imageDir) {
             super(controller, imageDir);
         }
@@ -322,7 +336,7 @@ public class MetaService {
              * the jobs' read lock. This will guarantee the consistance of database and job queues.
              * But Backend may still inconsistent.
              */
-            
+
             // TODO: Still need to lock ClusterInfoService to prevent add or drop Backends
             LOG.info("begin to dump meta data.");
             Catalog catalog = Catalog.getInstance();
@@ -348,11 +362,11 @@ public class MetaService {
                     db.readLock();
                 }
                 LOG.info("acquired all the dbs' read lock.");
-                
+
                 catalog.getAlterInstance().getRollupHandler().readLock();
                 catalog.getAlterInstance().getSchemaChangeHandler().readLock();
                 catalog.getLoadInstance().readLock();
-                
+
                 LOG.info("acquired all jobs' read lock.");
                 long journalId = catalog.getMaxJournalId();
                 File dumpFile = new File(Config.meta_dir, "image." + journalId);
@@ -363,7 +377,7 @@ public class MetaService {
                 } catch (IOException e) {
                     LOG.error(e);
                 }
-                
+
             } finally {
                 // unlock all
 
@@ -377,9 +391,9 @@ public class MetaService {
 
                 catalog.readUnlock();
             }
-            
+
             LOG.info("dump finished.");
-            
+
             response.appendContent("dump finished. " + dumpFilePath);
             writeResponse(request, response);
             return;
