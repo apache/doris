@@ -831,7 +831,9 @@ public class Catalog {
             StorageInfo info = getStorageInfo(infoUrl);
             long version = info.getImageSeq();
             if (version > localImageVersion) {
-                String url = "http://" + helperNode.first + ":" + Config.http_port + "/image?version=" + version;
+                String url = "http://" + helperNode.first + ":" + Config.http_port
+                        + "/image?version=" + version
+                        + "&token=" + clusterId;
                 String filename = Storage.IMAGE + "." + version;
                 File dir = new File(IMAGE_DIR);
                 MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getOutputStream(filename, dir));
@@ -5083,5 +5085,4 @@ public class Catalog {
             backend.setBackendState(BackendState.free);
         }
     }
-
 }

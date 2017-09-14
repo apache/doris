@@ -86,7 +86,7 @@ public abstract class BaseAction implements IAction {
     @Override
     public void handleRequest(BaseRequest request) throws Exception {
         BaseResponse response = new BaseResponse();
-        LOG.debug("receive http request. url={}", request.getRequest().uri());
+        LOG.info("receive http request. url={}", request.getRequest().uri());
         try {
             execute(request, response);
         } catch (Exception e) {
@@ -321,5 +321,13 @@ public abstract class BaseAction implements IAction {
     protected void writeAuthResponse(BaseRequest request, BaseResponse response) {
         response.addHeader(HttpHeaders.Names.WWW_AUTHENTICATE, "Basic realm=\"\"");
         writeResponse(request, response, HttpResponseStatus.UNAUTHORIZED);
+    }
+
+    protected int checkIntParam(String strParam) {
+        return Integer.parseInt(strParam);
+    }
+
+    protected long checkLongParam(String strParam) {
+        return Long.parseLong(strParam);
     }
 }

@@ -53,6 +53,7 @@ public class MetaService {
 
     public static class ImageAction extends MetaBaseAction {
         private static final String VERSION = "version";
+        private static final String TOKEN = "token";
 
         public ImageAction(ActionController controller, File imageDir) {
             super(controller, imageDir);
@@ -65,17 +66,41 @@ public class MetaService {
 
         @Override
         public void executeGet(BaseRequest request, BaseResponse response) {
-            String strVersion = request.getSingleParameter(VERSION);
-
-            if (!Strings.isNullOrEmpty(strVersion)) {
-                long version = Long.parseLong(strVersion);
-                File imageFile = Storage.getImageFile(imageDir, version);
-                writeFileResponse(request, response, imageFile);
-            } else {
+            String versionStr = request.getSingleParameter(VERSION);
+            if (Strings.isNullOrEmpty(versionStr)) {
                 response.appendContent("Miss version parameter");
                 writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
                 return;
             }
+
+            long version = checkLongParam(versionStr);
+            if (version < 0) {
+                writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
+                return;
+            }
+
+            if (Config.enable_token_check) {
+                String tokenStr = request.getSingleParameter(TOKEN);
+                if (Strings.isNullOrEmpty(tokenStr)) {
+                    response.appendContent("Miss token parameter");
+                    writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
+                    return;
+                }
+                int token = checkIntParam(tokenStr);
+                if (token != catalog.getClusterId()) {
+                    response.appendContent("wrong token.");
+                    writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
+                    return;
+                }
+            }
+
+            File imageFile = Storage.getImageFile(imageDir, version);
+            if (!imageFile.exists()) {
+                writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
+                return;
+            }
+
+            writeFileResponse(request, response, imageFile);
         }
     }
 
@@ -130,6 +155,7 @@ public class MetaService {
                 Gson gson = new Gson();
                 response.appendContent(gson.toJson(storageInfo));
                 writeResponse(request, response);
+                return;
             } catch (IOException e) {
                 LOG.warn("IO error.", e);
                 response.appendContent("Miss version parameter");
@@ -174,54 +200,57 @@ public class MetaService {
 
         @Override
         public void executeGet(BaseRequest request, BaseResponse response) {
-            File dir = new File(Catalog.IMAGE_DIR);
-            String strVersion = request.getSingleParameter(VERSION);
-
-            if (!Strings.isNullOrEmpty(strVersion)) {
-                long version = Long.parseLong(strVersion);
-                String machine = request.getHostString();
-                String portParam = request.getSingleParameter(PORT);
-                // check port to avoid SSRF(Server-Side Request Forgery)
-                if (Strings.isNullOrEmpty(portParam)) {
-                    LOG.warn("port is not provided.");
-                    writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
-                }
-                {
-                    int port = Integer.parseInt(portParam);
-                    if (port < 0 || port > 65535) {
-                        LOG.warn("port is invalid. port={}", port);
-                        writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
-                    }
-                }
-                String url = "http://" + machine + ":" + portParam + "/image?version=" + version;
-                LOG.debug("generated image url={}", url);
-                String filename = Storage.IMAGE + "." + version;
-                try {
-                    OutputStream out = MetaHelper.getOutputStream(filename, dir);
-                    MetaHelper.getRemoteFile(url, TIMEOUT_SECOND * 1000, out);
-                    MetaHelper.complete(filename, dir);
-                    writeResponse(request, response);
-                } catch (FileNotFoundException e) {
-                    LOG.warn("file not found. file: {}", filename, e);
-                    writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
-                    return;
-                } catch (IOException e) {
-                    LOG.warn("failed to get remote file. url: {}", url, e);
-                    writeResponse(request, response, HttpResponseStatus.INTERNAL_SERVER_ERROR);
+            String machine = request.getHostString();
+            String portStr = request.getSingleParameter(PORT);
+            // check port to avoid SSRF(Server-Side Request Forgery)
+            if (Strings.isNullOrEmpty(portStr)) {
+                writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
+                return;
+            }
+            {
+                int port = Integer.parseInt(portStr);
+                if (port < 0 || port > 65535) {
+                    LOG.warn("port is invalid. port={}", port);
+                    writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
                     return;
                 }
+            }
 
-                // Delete old image files
-                MetaCleaner cleaner = new MetaCleaner(Config.meta_dir + "/image");
-                try {
-                    cleaner.clean();
-                } catch (IOException e) {
-                    LOG.error("Follower/Observer delete old image file fail.", e);
-                }
-            } else {
+            String versionStr = request.getSingleParameter(VERSION);
+            if (Strings.isNullOrEmpty(versionStr)) {
                 response.appendContent("Miss version parameter");
                 writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
                 return;
+            }
+            checkLongParam(versionStr);
+
+            String url = "http://" + machine + ":" + portStr
+                    + "/image?version=" + versionStr
+                    + "&token=" + catalog.getClusterId();
+            String filename = Storage.IMAGE + "." + versionStr;
+
+            File dir = new File(Catalog.IMAGE_DIR);
+            try {
+                OutputStream out = MetaHelper.getOutputStream(filename, dir);
+                MetaHelper.getRemoteFile(url, TIMEOUT_SECOND * 1000, out);
+                MetaHelper.complete(filename, dir);
+                writeResponse(request, response);
+            } catch (FileNotFoundException e) {
+                LOG.warn("file not found. file: {}", filename, e);
+                writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
+                return;
+            } catch (IOException e) {
+                LOG.warn("failed to get remote file. url: {}", url, e);
+                writeResponse(request, response, HttpResponseStatus.INTERNAL_SERVER_ERROR);
+                return;
+            }
+
+            // Delete old image files
+            MetaCleaner cleaner = new MetaCleaner(Config.meta_dir + "/image");
+            try {
+                cleaner.clean();
+            } catch (IOException e) {
+                LOG.error("Follower/Observer delete old image file fail.", e);
             }
         }
     }
