@@ -43,13 +43,14 @@ public class BrokerBootstrap {
             System.setProperty("BROKER_LOG_DIR", System.getenv("BROKER_LOG_DIR"));
             PropertyConfigurator.configure(brokerHome + "/conf/log4j.properties");
             Logger logger = Logger.getLogger(BrokerBootstrap.class);
-            logger.debug("starting apache hdfs broker....");
+            logger.info("starting apache hdfs broker....");
             new BrokerConfig().init(brokerHome + "/conf/apache_hdfs_broker.conf");
 
             TProcessor tprocessor = new TPaloBrokerService.Processor<TPaloBrokerService.Iface>(
                     new HDFSBrokerServiceImpl());
             ThriftServer server = new ThriftServer(BrokerConfig.broker_ipc_port, tprocessor);
             server.start();
+            logger.info("starting apache hdfs broker....succeed");
             while (true) {
                 Thread.sleep(2000);
             }
