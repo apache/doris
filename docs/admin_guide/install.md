@@ -104,7 +104,7 @@ Palo 主要包括 Frontend（FE）和 Backend（BE）两个进程。其中 FE �
 
 ### 3.3 （可选）FS_Broker 部署
 
-broker 以插件的形式，独立于 Palo 部署。如果需要从第三方存储系统导入数据，需要部署相应的 broker，默认提供了读取HDFS 和百度云 BOS 的 fs_broker。fs_broker 是无状态的，建议每一个 FE 和 BE 节点都部署一个 broker。
+broker 以插件的形式，独立于 Palo 部署。如果需要从第三方存储系统导入数据，需要部署相应的 broker，默认提供了读取 HDFS 和百度云 BOS 的 fs_broker。fs_broker 是无状态的，建议每一个 FE 和 BE 节点都部署一个 broker。
 
 * 拷贝源码 fs_broker 的 output 目录下的相应 broker 目录到需要部署的所有节点上。建议和 BE 或者 FE 目录保持同级。
 
@@ -114,7 +114,7 @@ broker 以插件的形式，独立于 Palo 部署。如果需要从第三方存�
 
  * 启动broker
 
-    sh bin/start_hdfs_broker.sh 启动hdfs的broker，其他类型的broker请进入相应的目录予以启动
+    sh bin/start_broker.sh 启动broker。
 
 * 添加broker
 
