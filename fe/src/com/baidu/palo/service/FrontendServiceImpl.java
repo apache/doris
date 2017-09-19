@@ -28,9 +28,11 @@ import com.baidu.palo.common.AuditLog;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.PatternMatcher;
-import com.baidu.palo.load.MiniEtlTaskInfo;
+import com.baidu.palo.common.ThriftServerContext;
+import com.baidu.palo.common.ThriftServerEventProcessor;
 import com.baidu.palo.load.EtlStatus;
 import com.baidu.palo.load.LoadJob;
+import com.baidu.palo.load.MiniEtlTaskInfo;
 import com.baidu.palo.master.MasterImpl;
 import com.baidu.palo.mysql.MysqlPassword;
 import com.baidu.palo.qe.AuditBuilder;
@@ -38,12 +40,10 @@ import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.ConnectProcessor;
 import com.baidu.palo.qe.QeProcessor;
 import com.baidu.palo.qe.VariableMgr;
-import com.baidu.palo.service.FrontendOptions;
+import com.baidu.palo.system.Frontend;
 import com.baidu.palo.system.SystemInfoService;
 import com.baidu.palo.thrift.FrontendService;
 import com.baidu.palo.thrift.FrontendServiceVersion;
-import com.baidu.palo.thrift.TMiniLoadEtlStatusResult;
-import com.baidu.palo.thrift.TMiniLoadRequest;
 import com.baidu.palo.thrift.TColumnDef;
 import com.baidu.palo.thrift.TColumnDesc;
 import com.baidu.palo.thrift.TDescribeTableParams;
@@ -60,6 +60,9 @@ import com.baidu.palo.thrift.TLoadCheckRequest;
 import com.baidu.palo.thrift.TMasterOpRequest;
 import com.baidu.palo.thrift.TMasterOpResult;
 import com.baidu.palo.thrift.TMasterResult;
+import com.baidu.palo.thrift.TMiniLoadEtlStatusResult;
+import com.baidu.palo.thrift.TMiniLoadRequest;
+import com.baidu.palo.thrift.TNetworkAddress;
 import com.baidu.palo.thrift.TReportExecStatusParams;
 import com.baidu.palo.thrift.TReportExecStatusResult;
 import com.baidu.palo.thrift.TReportRequest;
@@ -69,8 +72,8 @@ import com.baidu.palo.thrift.TStatus;
 import com.baidu.palo.thrift.TStatusCode;
 import com.baidu.palo.thrift.TTableStatus;
 import com.baidu.palo.thrift.TUniqueId;
-import com.baidu.palo.thrift.TUpdateMiniEtlTaskStatusRequest;
 import com.baidu.palo.thrift.TUpdateExportTaskStatusRequest;
+import com.baidu.palo.thrift.TUpdateMiniEtlTaskStatusRequest;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -399,6 +402,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TMasterOpResult forward(TMasterOpRequest params) throws TException {
+        ThriftServerContext connectionContext = ThriftServerEventProcessor.getConnectionContext();
+        // For NonBlockingServer, we can not get client ip.
+        if (connectionContext != null) {
+            TNetworkAddress clientAddress = connectionContext.getClient();
+            LOG.debug("debug: client address in forward: {}", clientAddress);
+
+            Frontend fe = Catalog.getInstance().checkFeExist(
+                    clientAddress.getHostname(),
+                    clientAddress.getPort());
+            if (fe == null) {
+                throw new TException("request from invalid host, reject.");
+            }
+        }
+
         ConnectContext context = new ConnectContext(null);
         ConnectProcessor processor = new ConnectProcessor(context);
         TMasterOpResult result = processor.proxyExecute(params);

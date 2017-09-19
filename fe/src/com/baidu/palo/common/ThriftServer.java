@@ -1,13 +1,8 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
+// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
 
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -20,8 +15,12 @@
 
 package com.baidu.palo.common;
 
-import org.apache.logging.log4j.Logger;
+import com.baidu.palo.thrift.TNetworkAddress;
+
+import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TProcessor;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.server.TServer;
@@ -33,20 +32,25 @@ import org.apache.thrift.transport.TServerSocket;
 import org.apache.thrift.transport.TTransportException;
 
 import java.io.IOException;
+import java.util.Set;
 
-/**
- * Created by zhaochun on 14-9-2.
- */
 public class ThriftServer {
-    private static final Logger           LOG  = LogManager.getLogger(ThriftServer.class);
-    private              ThriftServerType type = ThriftServerType.THREAD_POOL;
-    private int        port;
+    private static final Logger LOG = LogManager.getLogger(ThriftServer.class);
+    private ThriftServerType type = ThriftServerType.THREAD_POOL;
+    private int port;
     private TProcessor processor;
-    private TServer    server;
-    private Thread     serverThread;
+    private TServer server;
+    private Thread serverThread;
+    private Set<TNetworkAddress> connects;
+
     public ThriftServer(int port, TProcessor processor) {
         this.port = port;
         this.processor = processor;
+        this.connects = Sets.newConcurrentHashSet();
+    }
+
+    public ThriftServerType getType() {
+        return type;
     }
 
     private void createSimpleServer() throws TTransportException {
@@ -86,6 +90,10 @@ public class ThriftServer {
             LOG.warn("create thrift server failed.", ex);
             throw new IOException("create thrift server failed.", ex);
         }
+
+        ThriftServerEventProcessor eventProcessor = new ThriftServerEventProcessor(this);
+        server.setServerEventHandler(eventProcessor);
+
         serverThread = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -107,6 +115,14 @@ public class ThriftServer {
             server.stop();
         }
         serverThread.join();
+    }
+
+    public void addConnect(TNetworkAddress clientAddress) {
+        connects.add(clientAddress);
+    }
+
+    public void removeConnect(TNetworkAddress clientAddress) {
+        connects.remove(clientAddress);
     }
 
     public static enum ThriftServerType {
