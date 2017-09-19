@@ -406,13 +406,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // For NonBlockingServer, we can not get client ip.
         if (connectionContext != null) {
             TNetworkAddress clientAddress = connectionContext.getClient();
-            LOG.debug("debug: client address in forward: {}", clientAddress);
 
             Frontend fe = Catalog.getInstance().checkFeExist(
                     clientAddress.getHostname(),
                     clientAddress.getPort());
             if (fe == null) {
-                throw new TException("request from invalid host, reject.");
+                LOG.warn("reject request from invalid host. client: {}", clientAddress);
+                throw new TException("request from invalid host was rejected.");
             }
         }
 
