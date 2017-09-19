@@ -26,7 +26,7 @@ public class HttpAuthManager {
     private static long SESSION_EXPIRE_TIME = 2; // hour
     private static long SESSION_MAX_SIZE = 100; // avoid to store too many
 
-    private static HttpAuthManager instance = null;
+    private static HttpAuthManager instance = new HttpAuthManager();
 
     // session_id => username
     private Cache<String, String> authSessions =  CacheBuilder.newBuilder()
@@ -39,9 +39,6 @@ public class HttpAuthManager {
     }
 
     public static HttpAuthManager getInstance() {
-        if (instance == null) {
-            instance = new HttpAuthManager();
-        }
         return instance;
     }
 

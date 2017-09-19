@@ -15,13 +15,6 @@
 
 package com.baidu.palo.http.action;
 
-import java.net.InetSocketAddress;
-import java.util.Date;
-import java.util.List;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.DdlException;
@@ -33,12 +26,20 @@ import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.HttpAuthManager;
 import com.baidu.palo.http.rest.RestBaseResult;
+
 import com.google.common.base.Strings;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import io.netty.handler.codec.http.DefaultCookie;
 import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
+
+import java.net.InetSocketAddress;
+import java.util.List;
+import java.util.UUID;
 
 public class WebBaseAction extends BaseAction {
     private static final Logger LOG = LogManager.getLogger(WebBaseAction.class);
@@ -118,7 +119,6 @@ public class WebBaseAction extends BaseAction {
         } else if (method.equals(HttpMethod.POST)) {
             executePost(request, response);
         } else {
-            
             response.appendContent(new RestBaseResult("HTTP method is not allowed.").toJson());
             writeResponse(request, response, HttpResponseStatus.METHOD_NOT_ALLOWED);
         }
@@ -150,7 +150,7 @@ public class WebBaseAction extends BaseAction {
                 return true;
             } catch (DdlException e) {
                 response.appendContent("Authentication Failed. <br/> "
-                        + "You can only access test  <a href=\"/help\">'/help'</a> page without login!");
+                        + "You can only access <a href=\"/help\">'/help'</a> page without login!");
                 writeAuthResponse(request, response);
                 return false;
             }
@@ -196,9 +196,7 @@ public class WebBaseAction extends BaseAction {
         // We use hashcode of client's IP and timestamp, which not only can identify users from
         // different host machine, but also can improve the difficulty of forging cookie.
         int clientAddrHashCode = ((InetSocketAddress) request.getContext().channel().remoteAddress()).hashCode();
-        String key = String.valueOf(clientAddrHashCode)
-                + "_"
-                + String.valueOf(new Date().getTime());
+        String key = UUID.randomUUID().toString();
         DefaultCookie cookie = new DefaultCookie(PALO_SESSION_ID, key);
         cookie.setMaxAge(PALO_SESSION_EXPIRED_TIME);
         response.addCookie(cookie);
@@ -333,4 +331,3 @@ public class WebBaseAction extends BaseAction {
         return NOT_FOUND_ACTION;
     }
 }
-
