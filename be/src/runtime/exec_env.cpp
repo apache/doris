@@ -169,10 +169,6 @@ Status ExecEnv::start_services() {
     return Status::OK;
 }
 
-uint32_t ExecEnv::cluster_id() {
-    return OLAPRootPath::get_instance()->effective_cluster_id();
-}
-
 Status ExecEnv::start_webserver() {
     add_default_path_handlers(_web_page_handler.get(), _mem_tracker.get());
     _webserver->register_handler(HttpMethod::PUT,
@@ -223,6 +219,14 @@ Status ExecEnv::start_webserver() {
 
     RETURN_IF_ERROR(_webserver->start());
     return Status::OK;
+}
+
+uint32_t ExecEnv::cluster_id() {
+    return OLAPRootPath::get_instance()->effective_cluster_id();
+}
+
+const std::string& ExecEnv::token() const {
+    return _master_info->token;
 }
 
 }

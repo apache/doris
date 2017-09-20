@@ -407,9 +407,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (connectionContext != null) {
             TNetworkAddress clientAddress = connectionContext.getClient();
 
-            Frontend fe = Catalog.getInstance().checkFeExist(
-                    clientAddress.getHostname(),
-                    clientAddress.getPort());
+            Frontend fe = Catalog.getInstance().getFeByHost(clientAddress.getHostname());
             if (fe == null) {
                 LOG.warn("reject request from invalid host. client: {}", clientAddress);
                 throw new TException("request from invalid host was rejected.");

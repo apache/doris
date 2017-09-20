@@ -52,7 +52,7 @@ void HeartbeatServer::heartbeat(
                   master_info.network_address.hostname.c_str(),
                   master_info.network_address.port,
                   master_info.cluster_id);
-    
+
     // Check cluster id
     if (_master_info->cluster_id == -1) {
         OLAP_LOG_INFO("get first heartbeat. update cluster id");
@@ -97,7 +97,20 @@ void HeartbeatServer::heartbeat(
                         _epoch, master_info.epoch);
                 error_msgs.push_back("epoch is not greater than local. ignore heartbeat.");
                 status = PALO_ERROR;
-            }            
+            }
+        }
+    }
+
+    if (status == PALO_SUCCESS && master_info.__isset.token) {
+        if (!_master_info->__isset.token) {
+            _master_info->__set_token(master_info.token);
+            OLAP_LOG_INFO("get token.  token: %s", _master_info->token.c_str());
+        } else if (_master_info->token != master_info.token) {
+            OLAP_LOG_WARNING("invalid token. local_token:%s, token:%s",
+                    _master_info->token.c_str(),
+                    master_info.token.c_str());
+            error_msgs.push_back("invalid token.");
+            status = PALO_ERROR;
         }
     }
 

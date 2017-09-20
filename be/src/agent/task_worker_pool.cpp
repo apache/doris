@@ -997,13 +997,7 @@ AgentStatus TaskWorkerPool::_clone_copy(
     AgentStatus status = PALO_SUCCESS;
 
 
-    std::string token;
-    {
-        uint32_t cluster_id = OLAPRootPath::get_instance()->effective_cluster_id();
-        stringstream token_stream;
-        token_stream << cluster_id;
-        token = token_stream.str();
-    }
+    std::string token = _master_info.token;
 
     for (auto src_backend : clone_req.src_backends) {
         stringstream http_host_stream;
