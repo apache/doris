@@ -29,7 +29,6 @@
 #include "util/defer_op.h"
 #include "util/file_utils.h"
 #include "util/filesystem_util.h"
-#include "util/string_parser.hpp"
 #include "runtime/exec_env.h"
 
 namespace palo {
@@ -230,15 +229,7 @@ Status DownloadAction::check_token(HttpRequest *req) {
         return Status("token is not specified.");
     }
 
-    StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-    int32_t token = StringParser::string_to_int<int32_t>(
-            token_str.c_str(), token_str.size(), &parse_result);
-    if (parse_result != StringParser::PARSE_SUCCESS) {
-        return Status("token format is wrong.");
-    }
-
-    int32_t local_token = static_cast<int32_t>(_exec_env->cluster_id());
-    if (token != local_token) {
+    if (token_str != _exec_env->token()) {
         return Status("invalid token.");
     }
 

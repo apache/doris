@@ -28,7 +28,7 @@ import java.io.IOException;
 
 public class StorageTest {
     private String meta = "storageTestDir/";
-    
+
     public void mkdir() {
         File dir = new File(meta);
         if (!dir.exists()) {
@@ -42,7 +42,7 @@ public class StorageTest {
             }
         }
     }
-    
+
     public void addFiles(int image, int edit) {
         File imageFile = new File(meta + "image." + image);
         try {
@@ -50,7 +50,7 @@ public class StorageTest {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        
+
         for (int i = 1; i <= edit; i++) {
             File editFile = new File(meta + "edits." + i);
             try {
@@ -59,14 +59,14 @@ public class StorageTest {
                 e.printStackTrace();
             }
         }
-        
+
         File current = new File(meta + "edits");
         try {
             current.createNewFile();
         } catch (IOException e) {
             e.printStackTrace();
         }
-        
+
         File version = new File(meta + "VERSION");
         try {
             version.createNewFile();
@@ -81,7 +81,7 @@ public class StorageTest {
             e.printStackTrace();
         }
     }
-    
+
     public void deleteDir() {
         File dir = new File(meta);
         if (dir.exists()) {
@@ -91,29 +91,29 @@ public class StorageTest {
                     file.delete();
                 }
             }
-            
+
             dir.delete();
         }
     }
-    
+
     @Test
     public void testConstruct() {
-        Storage storage1 = new Storage(1, "test");
+        Storage storage1 = new Storage(1, "token", "test");
         Assert.assertEquals(1, storage1.getClusterID());
         Assert.assertEquals("test", storage1.getMetaDir());
-        
-        Storage storage2 = new Storage(1, 2, 3, "test");
+
+        Storage storage2 = new Storage(1, "token", 2, 3, "test");
         Assert.assertEquals(1, storage2.getClusterID());
         Assert.assertEquals(2, storage2.getImageSeq());
         Assert.assertEquals(3, storage2.getEditsSeq());
         Assert.assertEquals("test", storage2.getMetaDir());
     }
-    
+
     @Test
     public void testStorage() throws Exception {
         mkdir();
         addFiles(0, 10);
-        
+
         Storage storage = new Storage("storageTestDir");
         Assert.assertEquals(966271669, storage.getClusterID());
         storage.setClusterID(1234);
@@ -122,34 +122,34 @@ public class StorageTest {
         Assert.assertEquals(10, Storage.getMetaSeq(new File("storageTestDir/edits.10")));
         Assert.assertTrue(Storage.getCurrentEditsFile(new File("storageTestDir"))
                 .equals(new File("storageTestDir/edits")));
-        
+
         Assert.assertTrue(storage.getCurrentImageFile().equals(new File("storageTestDir/image.0")));
         Assert.assertTrue(storage.getImageFile(0).equals(new File("storageTestDir/image.0")));
         Assert.assertTrue(Storage.getImageFile(new File("storageTestDir"), 0)
                 .equals(new File("storageTestDir/image.0")));
-        
+
         Assert.assertTrue(storage.getCurrentEditsFile().equals(new File("storageTestDir/edits")));
         Assert.assertTrue(storage.getEditsFile(5).equals(new File("storageTestDir/edits.5")));
         Assert.assertTrue(Storage.getEditsFile(new File("storageTestDir"), 3)
                 .equals(new File("storageTestDir/edits.3")));
-        
+
         Assert.assertTrue(storage.getVersionFile().equals(new File("storageTestDir/VERSION")));
-        
+
         storage.setImageSeq(100);
         Assert.assertEquals(100, storage.getImageSeq());
-        
+
         storage.setEditsSeq(100);
         Assert.assertEquals(100, storage.getEditsSeq());
-        
+
         Assert.assertEquals("storageTestDir", storage.getMetaDir());
         storage.setMetaDir("abcd");
         Assert.assertEquals("abcd", storage.getMetaDir());
-        
+
         storage.setMetaDir("storageTestDir");
         storage.clear();
         File file = new File(storage.getMetaDir());
         Assert.assertEquals(0, file.list().length);
-        
+
         deleteDir();
     }
 }

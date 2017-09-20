@@ -53,7 +53,6 @@ public class MetaService {
 
     public static class ImageAction extends MetaBaseAction {
         private static final String VERSION = "version";
-        private static final String TOKEN = "token";
 
         public ImageAction(ActionController controller, File imageDir) {
             super(controller, imageDir);
@@ -79,21 +78,6 @@ public class MetaService {
                 return;
             }
 
-            if (Config.enable_token_check) {
-                String tokenStr = request.getSingleParameter(TOKEN);
-                if (Strings.isNullOrEmpty(tokenStr)) {
-                    response.appendContent("Miss token parameter");
-                    writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
-                    return;
-                }
-                int token = checkIntParam(tokenStr);
-                if (token != catalog.getClusterId()) {
-                    response.appendContent("wrong token.");
-                    writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
-                    return;
-                }
-            }
-
             File imageFile = Storage.getImageFile(imageDir, version);
             if (!imageFile.exists()) {
                 writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
@@ -101,34 +85,6 @@ public class MetaService {
             }
 
             writeFileResponse(request, response, imageFile);
-        }
-    }
-
-    public static class EditsAction extends MetaBaseAction {
-        private static final String SEQ = "seq";
-
-        public EditsAction(ActionController controller, File imageDir) {
-            super(controller, imageDir);
-        }
-
-        public static void registerAction(ActionController controller, File imageDir)
-                throws IllegalArgException {
-            controller.registerHandler(HttpMethod.GET, "/edits", new EditsAction(controller, imageDir));
-        }
-
-        @Override
-        public void executeGet(BaseRequest request, BaseResponse response) {
-            String strSeq = request.getSingleParameter(SEQ);
-            File edits = null;
-
-            if (Strings.isNullOrEmpty(strSeq)) {
-                long seq = Long.parseLong(strSeq);
-                edits = Storage.getEditsFile(imageDir, seq);
-            } else {
-                edits = Storage.getCurrentEditsFile(imageDir);
-            }
-
-            writeFileResponse(request, response, edits);
         }
     }
 
@@ -158,7 +114,7 @@ public class MetaService {
                 return;
             } catch (IOException e) {
                 LOG.warn("IO error.", e);
-                response.appendContent("Miss version parameter");
+                response.appendContent("failed to get master info.");
                 writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
                 return;
             }
@@ -166,6 +122,7 @@ public class MetaService {
     }
 
     public static class VersionAction extends MetaBaseAction {
+        private static final Logger LOG = LogManager.getLogger(VersionAction.class);
 
         public VersionAction(ActionController controller, File imageDir) {
             super(controller, imageDir);
@@ -225,8 +182,7 @@ public class MetaService {
             checkLongParam(versionStr);
 
             String url = "http://" + machine + ":" + portStr
-                    + "/image?version=" + versionStr
-                    + "&token=" + catalog.getClusterId();
+                    + "/image?version=" + versionStr;
             String filename = Storage.IMAGE + "." + versionStr;
 
             File dir = new File(Catalog.IMAGE_DIR);
@@ -332,9 +288,9 @@ public class MetaService {
         public void executeGet(BaseRequest request, BaseResponse response) {
             try {
                 Storage storage = new Storage(imageDir.getAbsolutePath());
-                response.addHeader("cluster_id", Integer.toString(storage.getClusterID()));
+                response.addHeader(MetaBaseAction.CLUSTER_ID, Integer.toString(storage.getClusterID()));
+                response.addHeader(MetaBaseAction.TOKEN, storage.getToken());
             } catch (IOException e) {
-                e.printStackTrace();
                 LOG.error(e);
             }
             writeResponse(request, response);
@@ -356,6 +312,11 @@ public class MetaService {
         @Override
         public boolean needAdmin() {
             return true;
+        }
+
+        @Override
+        protected boolean needCheckClientIsFe() {
+            return false;
         }
 
         @Override

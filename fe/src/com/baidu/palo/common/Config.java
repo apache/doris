@@ -175,6 +175,10 @@ public class Config extends ConfigBase {
      * You can also sepecify one.
      */
     @ConfField public static int cluster_id = -1;
+    /*
+     * Cluster token used for internal authentication.
+     */
+    @ConfField public static String auth_token = "";
 
     // Configurations for load, clone, create table, alter table etc. We will rarely change them
     /*

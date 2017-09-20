@@ -28,6 +28,7 @@ struct TMasterInfo {
     1: required Types.TNetworkAddress network_address
     2: required Types.TClusterId cluster_id
     3: required Types.TEpoch epoch
+    4: optional string token 
 }
 
 struct TBackendInfo {

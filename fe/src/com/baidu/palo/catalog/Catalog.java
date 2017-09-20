@@ -102,6 +102,7 @@ import com.baidu.palo.consistency.ConsistencyChecker;
 import com.baidu.palo.ha.FrontendNodeType;
 import com.baidu.palo.ha.HAProtocol;
 import com.baidu.palo.ha.MasterInfo;
+import com.baidu.palo.http.meta.MetaBaseAction;
 import com.baidu.palo.journal.JournalCursor;
 import com.baidu.palo.journal.JournalEntity;
 import com.baidu.palo.journal.bdbje.Timestamp;
@@ -152,6 +153,7 @@ import com.baidu.palo.thrift.TTaskType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Joiner.MapJoiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -255,6 +257,7 @@ public class Catalog {
     private String metaDir;
     private EditLog editLog;
     private int clusterId;
+    private String token;
     // For checkpoint and observer memory replayed marker
     private AtomicLong replayedJournalId;
 
@@ -437,7 +440,6 @@ public class Catalog {
     }
 
     public void initialize(String[] args) throws Exception {
-
         // 0. get local node and helper node info
         getSelfHostPort();
         checkArgs(args);
@@ -496,7 +498,8 @@ public class Catalog {
         // first node to start
         // or when one node to restart.
         if (isMyself()) {
-            if (roleFile.exists() && !versionFile.exists() || !roleFile.exists() && versionFile.exists()) {
+            if ((roleFile.exists() && !versionFile.exists())
+                    || (!roleFile.exists() && versionFile.exists())) {
                 LOG.error("role file and version file must both exist or both not exist. "
                         + "please specific one helper node to recover. will exit.");
                 System.exit(-1);
@@ -518,8 +521,10 @@ public class Catalog {
 
             if (!versionFile.exists()) {
                 clusterId = Config.cluster_id == -1 ? Storage.newClusterID() : Config.cluster_id;
-                storage = new Storage(clusterId, IMAGE_DIR);
-                storage.writeClusterId();
+                token = Strings.isNullOrEmpty(Config.auth_token) ?
+                        Storage.newToken() : Config.auth_token;
+                storage = new Storage(clusterId, token, IMAGE_DIR);
+                storage.writeClusterIdAndToken();
                 // If the version file and role file does not exist and the
                 // helper node is itself,
                 // it must be the very beginning startup of the cluster
@@ -534,6 +539,16 @@ public class Catalog {
                 }
             } else {
                 clusterId = storage.getClusterID();
+                if (storage.getToken() == null) {
+                    token = Strings.isNullOrEmpty(Config.auth_token) ?
+                            Storage.newToken() : Config.auth_token;
+                    LOG.info("new token={}", token);
+                    storage.setToken(token);
+                    storage.writeClusterIdAndToken();
+                } else {
+                    token = storage.getToken();
+                }
+                isFirstTimeStartUp = false;
             }
         } else {
             // Designate one helper node. Get the roll and version info
@@ -576,24 +591,44 @@ public class Catalog {
                 //       so we new one.
                 storage = new Storage(IMAGE_DIR);
                 clusterId = storage.getClusterID();
+                token = storage.getToken();
+                if (Strings.isNullOrEmpty(token)) {
+                    token = Config.auth_token;
+                }
             } else {
                 // If the version file exist, read the cluster id and check the
                 // id with helper node to make sure they are identical
                 clusterId = storage.getClusterID();
+                token = storage.getToken();
                 try {
                     URL idURL = new URL("http://" + helperNode.first + ":" + Config.http_port + "/check");
                     HttpURLConnection conn = null;
                     conn = (HttpURLConnection) idURL.openConnection();
                     conn.setConnectTimeout(2 * 1000);
                     conn.setReadTimeout(2 * 1000);
-                    String clusterIdString = conn.getHeaderField("cluster_id");
+                    String clusterIdString = conn.getHeaderField(MetaBaseAction.CLUSTER_ID);
                     int remoteClusterId = Integer.parseInt(clusterIdString);
                     if (remoteClusterId != clusterId) {
-                        LOG.error("cluster id not equal with node {}. will exit.", helperNode.first);
+                        LOG.error("cluster id is not equal with helper node {}. will exit.", helperNode.first);
                         System.exit(-1);
                     }
+                    String remoteToken = conn.getHeaderField(MetaBaseAction.TOKEN);
+                    if (token == null && remoteToken != null) {
+                        LOG.info("get token from helper node. token={}.", remoteToken);
+                        token = remoteToken;
+                        storage.writeClusterIdAndToken();
+                        storage.reload();
+                    }
+                    if (Config.enable_token_check) {
+                        Preconditions.checkNotNull(token);
+                        Preconditions.checkNotNull(remoteToken);
+                        if (!token.equals(remoteToken)) {
+                            LOG.error("token is not equal with helper node {}. will exit.", helperNode.first);
+                            System.exit(-1);
+                        }
+                    }
                 } catch (Exception e) {
-                    LOG.warn("fail to check cluster_id from helper node.", e);
+                    LOG.warn("fail to check cluster_id and token with helper node.", e);
                     System.exit(-1);
                 }
             }
@@ -710,7 +745,8 @@ public class Catalog {
         LOG.info("checkpointer thread started. thread id is {}", checkpointThreadId);
 
         // ClusterInfoService
-        Catalog.getCurrentSystemInfo().setMaster(FrontendOptions.getLocalHostAddress(), Config.rpc_port, clusterId, epoch);
+        Catalog.getCurrentSystemInfo().setMaster(
+                FrontendOptions.getLocalHostAddress(), Config.rpc_port, clusterId, token, epoch);
         Catalog.getCurrentSystemInfo().start();
 
         pullLoadJobMgr.start();
@@ -832,8 +868,7 @@ public class Catalog {
             long version = info.getImageSeq();
             if (version > localImageVersion) {
                 String url = "http://" + helperNode.first + ":" + Config.http_port
-                        + "/image?version=" + version
-                        + "&token=" + clusterId;
+                        + "/image?version=" + version;
                 String filename = Storage.IMAGE + "." + version;
                 File dir = new File(IMAGE_DIR);
                 MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getOutputStream(filename, dir));
@@ -1858,19 +1893,43 @@ public class Catalog {
     }
 
     public Frontend checkFeExist(String host, int port) {
-        for (Frontend fe : frontends) {
-            if (fe.getHost().equals(host) && fe.getPort() == port) {
-                return fe;
+        readLock();
+        try {
+            for (Frontend fe : frontends) {
+                if (fe.getHost().equals(host) && fe.getPort() == port) {
+                    return fe;
+                }
             }
+        } finally {
+            readUnlock();
         }
         return null;
     }
 
     public Frontend checkFeRemoved(String host, int port) {
-        for (Frontend fe : removedFrontends) {
-            if (fe.getHost().equals(host) && fe.getPort() == port) {
-                return fe;
+        readLock();
+        try {
+            for (Frontend fe : removedFrontends) {
+                if (fe.getHost().equals(host) && fe.getPort() == port) {
+                    return fe;
+                }
             }
+        } finally {
+            readUnlock();
+        }
+        return null;
+    }
+
+    public Frontend getFeByHost(String host) {
+        readLock();
+        try {
+            for (Frontend fe : frontends) {
+                if (fe.getHost().equals(host)) {
+                    return fe;
+                }
+            }
+        } finally {
+            readUnlock();
         }
         return null;
     }

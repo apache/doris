@@ -76,6 +76,8 @@ public:
 
     uint32_t cluster_id();
 
+    const std::string& token() const;
+
     DataStreamMgr* stream_mgr() {
         return _stream_mgr.get();
     }

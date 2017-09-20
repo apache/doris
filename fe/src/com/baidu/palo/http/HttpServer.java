@@ -28,7 +28,6 @@ import com.baidu.palo.http.action.SystemAction;
 import com.baidu.palo.http.action.VariableAction;
 import com.baidu.palo.http.meta.MetaService.CheckAction;
 import com.baidu.palo.http.meta.MetaService.DumpAction;
-import com.baidu.palo.http.meta.MetaService.EditsAction;
 import com.baidu.palo.http.meta.MetaService.ImageAction;
 import com.baidu.palo.http.meta.MetaService.InfoAction;
 import com.baidu.palo.http.meta.MetaService.JournalIdAction;
@@ -63,6 +62,9 @@ import com.baidu.palo.http.rest.ShowRuntimeInfoAction;
 import com.baidu.palo.master.MetaHelper;
 import com.baidu.palo.qe.QeService;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
@@ -74,9 +76,6 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.stream.ChunkedWriteHandler;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.io.File;
 
 public class HttpServer {
@@ -85,9 +84,9 @@ public class HttpServer {
     private QeService qeService = null;
     private int port;
     private ActionController controller;
-    
+
     private Thread serverThread;
-    
+
     public HttpServer(QeService qeService, int port) {
         this.qeService = qeService;
         this.port = port;
@@ -97,7 +96,7 @@ public class HttpServer {
     public void setup() throws IllegalArgException {
         registerActions();
     }
-    
+
     private void registerActions() throws IllegalArgException {
         // add rest action
         LoadAction.registerAction(controller);
@@ -106,7 +105,7 @@ public class HttpServer {
         SetConfigAction.registerAction(controller);
         GetDdlStmtAction.registerAction(controller);
         MigrationAction.registerAction(controller);
-        
+
         // add web action
         IndexAction.registerAction(controller);
         SystemAction.registerAction(controller);
@@ -142,7 +141,6 @@ public class HttpServer {
         // meta service action
         File imageDir = MetaHelper.getMasterImageDir();
         ImageAction.registerAction(controller, imageDir);
-        EditsAction.registerAction(controller, imageDir);
         InfoAction.registerAction(controller, imageDir);
         VersionAction.registerAction(controller, imageDir);
         PutAction.registerAction(controller, imageDir);
@@ -158,12 +156,12 @@ public class HttpServer {
 
         BootstrapFinishAction.registerAction(controller);
     }
-    
+
     public void start() {
         serverThread = new Thread(new HttpServerThread(), "FE Http Server");
         serverThread.start();
     }
-    
+
     protected class PaloHttpServerInitializer extends ChannelInitializer<SocketChannel> {
         @Override
         protected void initChannel(SocketChannel ch) throws Exception {
@@ -173,7 +171,7 @@ public class HttpServer {
             ch.pipeline().addLast(new HttpServerHandler(controller, qeService));
         }
     }
-    
+
     private class HttpServerThread implements Runnable {
         @Override
         public void run() {
@@ -197,7 +195,7 @@ public class HttpServer {
             }
         }
     }
-    
+
     public static void main(String[] args) throws Exception {
         QeService qeService = new QeService(9030);
         HttpServer httpServer = new HttpServer(qeService, 8080);
@@ -205,7 +203,7 @@ public class HttpServer {
         System.out.println("before start http server.");
         httpServer.start();
         System.out.println("after start http server.");
-        
+
         while (true) {
             Thread.sleep(2000);
         }
