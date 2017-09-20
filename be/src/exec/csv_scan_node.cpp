@@ -180,7 +180,7 @@ Status CsvScanNode::prepare(RuntimeState* state) {
         }
 
         // add 'unspecified_columns' which have default values
-        if (_columns.end() != std::find(
+        if (_unspecified_columns.end() != std::find(
                     _unspecified_columns.begin(),
                     _unspecified_columns.end(),
                     column_name)) {
