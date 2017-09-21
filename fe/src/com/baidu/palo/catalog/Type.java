@@ -20,39 +20,22 @@
 
 package com.baidu.palo.catalog;
 
-// Copyright 2012 Cloudera Inc.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-// http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-import java.io.StringReader;
-import java.util.ArrayList;
-import java.util.List;
-
-import com.baidu.palo.analysis.CreateTableStmt;
-import com.baidu.palo.analysis.SqlParser;
-import com.baidu.palo.analysis.SqlScanner;
 import com.baidu.palo.common.Pair;
-import com.baidu.palo.thrift.TTypeDesc;
 import com.baidu.palo.thrift.TPrimitiveType;
 import com.baidu.palo.thrift.TScalarType;
 import com.baidu.palo.thrift.TStructField;
+import com.baidu.palo.thrift.TTypeDesc;
 import com.baidu.palo.thrift.TTypeNode;
 import com.baidu.palo.thrift.TTypeNodeType;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Abstract class describing an Impala data type (scalar/complex type).
@@ -504,6 +487,7 @@ public abstract class Type {
     protected static Pair<Type, Integer> fromThrift(TTypeDesc col, int nodeIdx) {
         TTypeNode node = col.getTypes().get(nodeIdx);
         Type type = null;
+        int tmpNodeIdx = nodeIdx;
         switch (node.getType()) {
             case SCALAR: {
                 Preconditions.checkState(node.isSetScalar_type());
@@ -525,28 +509,28 @@ public abstract class Type {
                     type = ScalarType.createType(
                             PrimitiveType.fromThrift(scalarType.getType()));
                 }
-                ++nodeIdx;
+                ++tmpNodeIdx;
                 break;
             }
             case ARRAY: {
-                Preconditions.checkState(nodeIdx + 1 < col.getTypesSize());
-                Pair<Type, Integer> childType = fromThrift(col, nodeIdx + 1);
+                Preconditions.checkState(tmpNodeIdx + 1 < col.getTypesSize());
+                Pair<Type, Integer> childType = fromThrift(col, tmpNodeIdx + 1);
                 type = new ArrayType(childType.first);
-                nodeIdx = childType.second;
+                tmpNodeIdx = childType.second;
                 break;
             }
             case MAP: {
-                Preconditions.checkState(nodeIdx + 2 < col.getTypesSize());
-                Pair<Type, Integer> keyType = fromThrift(col, nodeIdx + 1);
+                Preconditions.checkState(tmpNodeIdx + 2 < col.getTypesSize());
+                Pair<Type, Integer> keyType = fromThrift(col, tmpNodeIdx + 1);
                 Pair<Type, Integer> valueType = fromThrift(col, keyType.second);
                 type = new MapType(keyType.first, valueType.first);
-                nodeIdx = valueType.second;
+                tmpNodeIdx = valueType.second;
                 break;
             }
             case STRUCT: {
-                Preconditions.checkState(nodeIdx + node.getStruct_fieldsSize() < col.getTypesSize());
+                Preconditions.checkState(tmpNodeIdx + node.getStruct_fieldsSize() < col.getTypesSize());
                 ArrayList<StructField> structFields = Lists.newArrayList();
-                ++nodeIdx;
+                ++tmpNodeIdx;
                 for (int i = 0; i < node.getStruct_fieldsSize(); ++i) {
                     TStructField thriftField = node.getStruct_fields().get(i);
                     String name = thriftField.getName();
@@ -554,15 +538,15 @@ public abstract class Type {
                     if (thriftField.isSetComment()) {
                         comment = thriftField.getComment();
                     }
-                    Pair<Type, Integer> res = fromThrift(col, nodeIdx);
-                    nodeIdx = res.second.intValue();
+                    Pair<Type, Integer> res = fromThrift(col, tmpNodeIdx);
+                    tmpNodeIdx = res.second.intValue();
                     structFields.add(new StructField(name, res.first, comment));
                 }
                 type = new StructType(structFields);
                 break;
             }
         }
-        return new Pair<Type, Integer>(type, nodeIdx);
+        return new Pair<Type, Integer>(type, tmpNodeIdx);
     }
 
     /**

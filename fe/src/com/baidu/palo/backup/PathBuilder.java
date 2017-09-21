@@ -59,22 +59,22 @@ public class PathBuilder implements Writable {
     }
 
     public static PathBuilder createPathBuilder(String path) throws IOException {
-        path = formatPath(path);
-        if (Strings.isNullOrEmpty(path)) {
-            throw new IOException("Invalid path: " + path);
+        String formattedPath = formatPath(path);
+        if (Strings.isNullOrEmpty(formattedPath)) {
+            throw new IOException("Invalid path: " + formattedPath);
         }
-        PathBuilder pathBuilder = new PathBuilder(path);
+        PathBuilder pathBuilder = new PathBuilder(formattedPath);
         File file = new File(pathBuilder.getRoot().getFullPath());
         if (file.exists()) {
-            LOG.warn("path[{}] dir already exist", path);
+            LOG.warn("path[{}] dir already exist", formattedPath);
         }
         return pathBuilder;
     }
 
     private static String formatPath(String path) {
-        path = path.replaceAll(" ", "");
-        path = path.replaceAll("/+", "/");
-        return path;
+        String formattedPath = path.replaceAll(" ", "");
+        formattedPath = formattedPath.replaceAll("/+", "/");
+        return formattedPath;
     }
 
     public DirSaver getRoot() {

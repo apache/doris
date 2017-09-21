@@ -27,7 +27,6 @@ import com.baidu.palo.load.AsyncDeleteJob;
 import com.baidu.palo.load.DeleteInfo;
 import com.baidu.palo.load.LoadErrorHub;
 import com.baidu.palo.load.LoadJob;
-import com.baidu.palo.persist.PartitionPersistInfo;
 import com.baidu.palo.persist.CloneInfo;
 import com.baidu.palo.persist.ConsistencyCheckInfo;
 import com.baidu.palo.persist.CreateTableInfo;
@@ -37,12 +36,16 @@ import com.baidu.palo.persist.DropPartitionInfo;
 import com.baidu.palo.persist.EditLogFileInputStream;
 import com.baidu.palo.persist.ModifyPartitionInfo;
 import com.baidu.palo.persist.OperationType;
-import com.baidu.palo.persist.ReplicaPersistInfo;
+import com.baidu.palo.persist.PartitionPersistInfo;
 import com.baidu.palo.persist.RecoverInfo;
+import com.baidu.palo.persist.ReplicaPersistInfo;
 import com.baidu.palo.persist.Storage;
 import com.baidu.palo.persist.TableInfo;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.Frontend;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
@@ -51,10 +54,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.List;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-public class LocalJournalCursor implements JournalCursor {
+public final class LocalJournalCursor implements JournalCursor {
     private static final Logger LOG = LogManager.getLogger(LocalJournalCursor.class);
     private String imageDir;
     private long toKey;
@@ -69,12 +69,13 @@ public class LocalJournalCursor implements JournalCursor {
             System.out.println("Invalid key range!");
             return null;
         }
-        if (toKey == -1) {
-            toKey = Long.MAX_VALUE;
+        long newToKey = toKey;
+        if (newToKey == -1) {
+            newToKey = Long.MAX_VALUE;
         }
         LocalJournalCursor cursor;
         try {
-            cursor = new LocalJournalCursor(imageDir, fromKey, toKey);
+            cursor = new LocalJournalCursor(imageDir, fromKey, newToKey);
         } catch (IOException e) {
             LOG.error(e);
             return null;

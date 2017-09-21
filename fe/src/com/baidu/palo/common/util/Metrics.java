@@ -20,12 +20,13 @@
 
 package com.baidu.palo.common.util;
 
+import org.codehaus.jackson.map.ObjectMapper;
+
 import io.dropwizard.metrics.Metric;
 import io.dropwizard.metrics.MetricName;
 import io.dropwizard.metrics.MetricRegistry;
-import org.codehaus.jackson.map.ObjectMapper;
 
-public class Metrics {
+public final class Metrics {
     private static final MetricRegistry METRICS = new MetricRegistry();
     
     public enum MetricType {

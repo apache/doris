@@ -21,7 +21,7 @@ import com.baidu.palo.common.Version;
 // You can get this variable from MySQL client with statement `SELECT @@variable_name`,
 // and change its value through `SET variable_name = xxx`
 // NOTE: If you want access your variable safe, please hold VariableMgr's lock before access.
-public class GlobalVariable {
+public final class GlobalVariable {
     @VariableMgr.VarAttr(name = "version_comment", flag = VariableMgr.READ_ONLY)
     public static String versionComment = "Palo version " + Version.PALO_BUILD_VERSION;
 

@@ -27,6 +27,7 @@ import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.PartitionKey;
 import com.baidu.palo.catalog.Type;
 import com.baidu.palo.common.AnalysisException;
+
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
@@ -34,8 +35,8 @@ import com.google.common.collect.RangeMap;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeRangeMap;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
 import java.util.List;
@@ -163,12 +164,12 @@ public class RangePartitionPruner implements PartitionPruner {
         }
         Set<Long> resultSet = Sets.newHashSet();
         int childrenNum = inPredicate.getChildren().size();
-        complex = inPredicate.getChildren().size() * complex;
+        int newComplex = inPredicate.getChildren().size() * complex;
         for (int i = 1; i < childrenNum; ++i) {
             LiteralExpr expr = (LiteralExpr) inPredicate.getChild(i);
             minKey.pushColumn(expr, keyColumn.getDataType());
             maxKey.pushColumn(expr, keyColumn.getDataType());
-            Collection<Long> subList = prune(rangeMap, columnId + 1, minKey, maxKey, complex);
+            Collection<Long> subList = prune(rangeMap, columnId + 1, minKey, maxKey, newComplex);
             for (long partId : subList) {
                 resultSet.add(partId);
             }

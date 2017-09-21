@@ -23,6 +23,7 @@ import com.baidu.palo.thrift.TMysqlErrorHubInfo;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -188,6 +189,7 @@ public class MysqlLoadErrorHub extends LoadErrorHub {
             }
 
             MysqlUtil.closeConnection(conn);
+            conn = null;
         }
 
         return result;

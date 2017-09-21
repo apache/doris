@@ -996,55 +996,55 @@ public class Catalog {
 
     public long loadHeader(DataInputStream dis, long checksum) throws IOException {
         imageVersion = dis.readInt();
-        checksum ^= imageVersion;
+        long newChecksum = checksum ^ imageVersion;
         journalVersion = imageVersion;
         long replayedJournalId = dis.readLong();
-        checksum ^= replayedJournalId;
+        newChecksum ^= replayedJournalId;
         long id = dis.readLong();
-        checksum ^= id;
+        newChecksum ^= id;
         nextId.set(id);
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_32) {
             isDefaultClusterCreated = dis.readBoolean();
         }
 
-        return checksum;
+        return newChecksum;
     }
 
     public long loadMasterInfo(DataInputStream dis, long checksum) throws IOException {
         masterIp = Text.readString(dis);
         masterRpcPort = dis.readInt();
-        checksum ^= masterRpcPort;
+        long newChecksum = checksum ^ masterRpcPort;
         masterHttpPort = dis.readInt();
-        checksum ^= masterHttpPort;
+        newChecksum ^= masterHttpPort;
 
-        return checksum;
+        return newChecksum;
     }
 
     public long loadFrontends(DataInputStream dis, long checksum) throws IOException {
         int size = dis.readInt();
-        checksum ^= size;
+        long newChecksum = checksum ^ size;
         for (int i = 0; i < size; i++) {
             Frontend fe = Frontend.read(dis);
             frontends.add(fe);
         }
 
         size = dis.readInt();
-        checksum ^= size;
+        newChecksum ^= size;
         for (int i = 0; i < size; i++) {
             Frontend fe = Frontend.read(dis);
             removedFrontends.add(fe);
         }
-        return checksum;
+        return newChecksum;
     }
 
     public long loadDb(DataInputStream dis, long checksum) throws IOException, DdlException {
         int dbCount = dis.readInt();
-        checksum ^= dbCount;
+        long newChecksum = checksum ^ dbCount;
         for (long i = 0; i < dbCount; ++i) {
             Database db = new Database();
             db.readFields(dis);
-            checksum ^= db.getId();
+            newChecksum ^= db.getId();
             idToDb.put(db.getId(), db);
             fullNameToDb.put(db.getFullName(), db);
             if (db.getDbState() == DbState.LINK) {
@@ -1052,19 +1052,19 @@ public class Catalog {
             }
         }
 
-        return checksum;
+        return newChecksum;
     }
 
     public long loadLoadJob(DataInputStream dis, long checksum) throws IOException, DdlException {
         // load jobs
         int jobSize = dis.readInt();
-        checksum ^= jobSize;
+        long newChecksum = checksum ^ jobSize;
         for (int i = 0; i < jobSize; i++) {
             long dbId = dis.readLong();
-            checksum ^= dbId;
+            newChecksum ^= dbId;
 
             int loadJobCount = dis.readInt();
-            checksum ^= loadJobCount;
+            newChecksum ^= loadJobCount;
             for (int j = 0; j < loadJobCount; j++) {
                 LoadJob job = new LoadJob();
                 job.readFields(dis);
@@ -1083,13 +1083,13 @@ public class Catalog {
         // delete jobs
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_11) {
             jobSize = dis.readInt();
-            checksum ^= jobSize;
+            newChecksum ^= jobSize;
             for (int i = 0; i < jobSize; i++) {
                 long dbId = dis.readLong();
-                checksum ^= dbId;
+                newChecksum ^= dbId;
 
                 int deleteCount = dis.readInt();
-                checksum ^= deleteCount;
+                newChecksum ^= deleteCount;
                 for (int j = 0; j < deleteCount; j++) {
                     DeleteInfo deleteInfo = new DeleteInfo();
                     deleteInfo.readFields(dis);
@@ -1111,36 +1111,38 @@ public class Catalog {
             load.setLoadErrorHubInfo(param);
         }
 
-        return checksum;
+        return newChecksum;
     }
 
     public long loadExportJob(DataInputStream dis, long checksum) throws IOException, DdlException {
+        long newChecksum = checksum;
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_32) {
             int size = dis.readInt();
-            checksum ^= size;
+            newChecksum = checksum ^ size;
             for (int i = 0; i < size; ++i) {
                 long jobId = dis.readLong();
-                checksum ^= jobId;
+                newChecksum ^= jobId;
                 ExportJob job = new ExportJob();
                 job.readFields(dis);
                 exportMgr.unprotectAddJob(job);
             }
         }
 
-        return checksum;
+        return newChecksum;
     }
 
     public long loadAlterJob(DataInputStream dis, long checksum) throws IOException {
+        long newChecksum = checksum;
         for (JobType type : JobType.values()) {
             if (type == JobType.DECOMMISSION_BACKEND) {
                 if (Catalog.getCurrentCatalogJournalVersion() >= 5) {
-                    checksum = loadAlterJob(dis, checksum, type);
+                    newChecksum = loadAlterJob(dis, newChecksum, type);
                 }
             } else {
-                checksum = loadAlterJob(dis, checksum, type);
+                newChecksum = loadAlterJob(dis, newChecksum, type);
             }
         }
-        return checksum;
+        return newChecksum;
     }
 
     public long loadAlterJob(DataInputStream dis, long checksum, JobType type) throws IOException {
@@ -1160,10 +1162,10 @@ public class Catalog {
 
         // alter jobs
         int size = dis.readInt();
-        checksum ^= size;
+        long newChecksum = checksum ^ size;
         for (int i = 0; i < size; i++) {
             long tableId = dis.readLong();
-            checksum ^= tableId;
+            newChecksum ^= tableId;
             AlterJob job = AlterJob.read(dis);
             alterJobs.put(tableId, job);
 
@@ -1178,10 +1180,10 @@ public class Catalog {
             // finished or cancelled jobs
             long currentTimeMs = System.currentTimeMillis();
             size = dis.readInt();
-            checksum ^= size;
+            newChecksum ^= size;
             for (int i = 0; i < size; i++) {
                 long tableId = dis.readLong();
-                checksum ^= tableId;
+                newChecksum ^= tableId;
                 AlterJob job = AlterJob.read(dis);
                 if ((currentTimeMs - job.getCreateTimeMs()) / 1000 <= Config.label_keep_max_second) {
                     // delete history jobs
@@ -1190,16 +1192,17 @@ public class Catalog {
             }
         }
 
-        return checksum;
+        return newChecksum;
     }
 
     public long loadBackupAndRestoreJob(DataInputStream dis, long checksum) throws IOException {
+        long newChecksum = checksum;
         if (getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
-            checksum = loadBackupAndRestoreJob(dis, checksum, BackupJob.class);
-            checksum = loadBackupAndRestoreJob(dis, checksum, RestoreJob.class);
-            checksum = loadBackupAndRestoreLabel(dis, checksum);
+            newChecksum = loadBackupAndRestoreJob(dis, newChecksum, BackupJob.class);
+            newChecksum = loadBackupAndRestoreJob(dis, newChecksum, RestoreJob.class);
+            newChecksum = loadBackupAndRestoreLabel(dis, newChecksum);
         }
-        return checksum;
+        return newChecksum;
     }
 
     private long loadBackupAndRestoreJob(DataInputStream dis, long checksum,
@@ -1217,10 +1220,10 @@ public class Catalog {
         }
 
         int size = dis.readInt();
-        checksum ^= size;
+        long newChecksum = checksum ^ size;
         for (int i = 0; i < size; i++) {
             long dbId = dis.readLong();
-            checksum ^= dbId;
+            newChecksum ^= dbId;
             if (jobClass == BackupJob.class) {
                 BackupJob job = new BackupJob();
                 job.readFields(dis);
@@ -1235,10 +1238,10 @@ public class Catalog {
 
         // finished or cancelled
         size = dis.readInt();
-        checksum ^= size;
+        newChecksum ^= size;
         for (int i = 0; i < size; i++) {
             long dbId = dis.readLong();
-            checksum ^= dbId;
+            newChecksum ^= dbId;
             if (jobClass == BackupJob.class) {
                 BackupJob job = new BackupJob();
                 job.readFields(dis);
@@ -1250,29 +1253,29 @@ public class Catalog {
             }
         }
 
-        return checksum;
+        return newChecksum;
     }
 
     private long loadBackupAndRestoreLabel(DataInputStream dis, long checksum) throws IOException {
         int size = dis.readInt();
-        checksum ^= size;
+        long newChecksum = checksum ^ size;
 
         Multimap<Long, String> dbIdtoLabels = getBackupHandler().unprotectedGetDbIdToLabels();
 
         for (int i = 0; i < size; i++) {
             long dbId = dis.readLong();
-            checksum ^= dbId;
+            newChecksum ^= dbId;
             String label = Text.readString(dis);
             dbIdtoLabels.put(dbId, label);
         }
-        return checksum;
+        return newChecksum;
     }
 
     public long loadAccessService(DataInputStream dis, long checksum) throws IOException {
         int size = dis.readInt();
-        checksum ^= size;
+        long newChecksum = checksum ^ size;
         userPropertyMgr.readFields(dis);
-        return checksum;
+        return newChecksum;
     }
 
     public long loadRecycleBin(DataInputStream dis, long checksum) throws IOException {
@@ -1796,17 +1799,18 @@ public class Catalog {
     }
 
     public synchronized boolean replayJournal(long toJournalId) {
-        if (toJournalId == -1) {
-            toJournalId = getMaxJournalId();
+        long newToJournalId = toJournalId;
+        if (newToJournalId == -1) {
+            newToJournalId = getMaxJournalId();
         }
-        if (toJournalId <= replayedJournalId.get()) {
+        if (newToJournalId <= replayedJournalId.get()) {
             return false;
         }
 
-        LOG.info("replayed journal id is {}, replay to journal id is {}", replayedJournalId, toJournalId);
-        JournalCursor cursor = editLog.read(replayedJournalId.get() + 1, toJournalId);
+        LOG.info("replayed journal id is {}, replay to journal id is {}", replayedJournalId, newToJournalId);
+        JournalCursor cursor = editLog.read(replayedJournalId.get() + 1, newToJournalId);
         if (cursor == null) {
-            LOG.warn("failed to get cursor from {} to {}", replayedJournalId.get() + 1, toJournalId);
+            LOG.warn("failed to get cursor from {} to {}", replayedJournalId.get() + 1, newToJournalId);
             return false;
         }
 

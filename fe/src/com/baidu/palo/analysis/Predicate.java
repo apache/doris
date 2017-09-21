@@ -20,7 +20,6 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.PrimitiveType;
 import com.baidu.palo.catalog.Type;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.Pair;
@@ -104,6 +103,7 @@ public abstract class Predicate extends Expr {
      * If predicate is of the form "<slotref> = <slotref>", returns both SlotRefs,
      * otherwise returns null.
      */
-    public Pair<SlotId, SlotId> getEqSlots() { return null; }
-
+    public Pair<SlotId, SlotId> getEqSlots() {
+        return null;
+    }
 }

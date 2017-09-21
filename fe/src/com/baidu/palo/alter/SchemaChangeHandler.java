@@ -31,21 +31,21 @@ import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.DistributionInfo;
+import com.baidu.palo.catalog.DistributionInfo.DistributionInfoType;
 import com.baidu.palo.catalog.HashDistributionInfo;
 import com.baidu.palo.catalog.KeysType;
 import com.baidu.palo.catalog.MaterializedIndex;
+import com.baidu.palo.catalog.MaterializedIndex.IndexState;
 import com.baidu.palo.catalog.OlapTable;
+import com.baidu.palo.catalog.OlapTable.OlapTableState;
 import com.baidu.palo.catalog.Partition;
+import com.baidu.palo.catalog.Partition.PartitionState;
 import com.baidu.palo.catalog.PartitionInfo;
 import com.baidu.palo.catalog.PartitionType;
 import com.baidu.palo.catalog.RangePartitionInfo;
 import com.baidu.palo.catalog.Replica;
-import com.baidu.palo.catalog.Tablet;
-import com.baidu.palo.catalog.DistributionInfo.DistributionInfoType;
-import com.baidu.palo.catalog.MaterializedIndex.IndexState;
-import com.baidu.palo.catalog.OlapTable.OlapTableState;
-import com.baidu.palo.catalog.Partition.PartitionState;
 import com.baidu.palo.catalog.Replica.ReplicaState;
+import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.DdlException;
@@ -56,8 +56,8 @@ import com.baidu.palo.common.util.TimeUtils;
 import com.baidu.palo.common.util.Util;
 import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.thrift.TResourceInfo;
-
 import com.baidu.palo.thrift.TStorageType;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
@@ -579,8 +579,7 @@ public class SchemaChangeHandler extends AlterHandler {
                      * then put the column in base table as end key
                      */
                     modIndexSchema = indexSchemaMap.get(baseIndexId);
-                    columnPos = null;
-                    checkAndAddColumn(modIndexSchema, newColumn, columnPos);
+                    checkAndAddColumn(modIndexSchema, newColumn, null);
                 } else {
                     modIndexSchema = indexSchemaMap.get(baseIndexId);
                     checkAndAddColumn(modIndexSchema, newColumn, columnPos);

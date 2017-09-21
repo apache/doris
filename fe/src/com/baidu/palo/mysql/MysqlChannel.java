@@ -15,8 +15,8 @@
 
 package com.baidu.palo.mysql;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -204,9 +204,11 @@ public class MysqlChannel {
         if (leftLength < 4) {
             flush();
         }
+
+        long newLen = length;
         for (int i = 0; i < 3; ++i) {
-            sendBuffer.put((byte) length);
-            length >>= 8;
+            sendBuffer.put((byte) newLen);
+            newLen >>= 8;
         }
         sendBuffer.put((byte) sequenceId);
     }

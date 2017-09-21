@@ -275,11 +275,11 @@ public class Storage {
         return new File(dir, IMAGE + "." + version);
     }
 
-    public File getVersionFile() {
+    public final File getVersionFile() {
         return new File(metaDir, VERSION_FILE);
     }
 
-    public File getRoleFile() {
+    public final File getRoleFile() {
         return new File(metaDir, ROLE_FILE);
     }
 
