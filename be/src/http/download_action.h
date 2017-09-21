@@ -33,13 +33,28 @@ class DownloadAction : public HttpHandler {
 public:
     DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs);
 
+    // for load error
+    DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir);
+
     virtual ~DownloadAction() {}
 
     virtual void handle(HttpRequest *req, HttpChannel *channel);
 
 private:
+    enum DOWNLOAD_TYPE {
+        NORMAL = 1,
+        ERROR_LOG = 2,
+    };
+
     Status check_token(HttpRequest *req);
-    Status check_path(const std::string& path);
+    Status check_path_is_allowed(const std::string& path);
+    Status check_log_path_is_allowed(const std::string& file_path);
+
+    void handle_normal(HttpRequest *req, HttpChannel *channel, const std::string& file_param);
+    void handle_error_log(
+            HttpRequest *req,
+            HttpChannel *channel,
+            const std::string& file_param);
 
     void do_file_response(const std::string& dir_path, HttpRequest *req, HttpChannel *channel);
     void do_dir_response(const std::string& dir_path, HttpRequest *req, HttpChannel *channel);
@@ -55,7 +70,11 @@ private:
     std::string get_content_type(const std::string& file_name);
 
     ExecEnv* _exec_env;
+    DOWNLOAD_TYPE _download_type;
+
     std::vector<std::string> _allow_paths;
+    std::string _error_log_root_dir;
+
 
 }; // end class DownloadAction
 

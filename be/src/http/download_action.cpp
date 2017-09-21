@@ -40,15 +40,22 @@ const std::string TOKEN_PARAMETER = "token";
 
 DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs) :
     _exec_env(exec_env),
+    _download_type(NORMAL),
     _allow_paths(allow_dirs) {
+
 }
 
-void DownloadAction::handle(HttpRequest *req, HttpChannel *channel) {
-    LOG(INFO) << "accept one download request " << req->debug_string();
+DownloadAction::DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir) :
+    _exec_env(exec_env),
+    _download_type(ERROR_LOG),
+    _error_log_root_dir(error_log_root_dir) {
 
-    // add tid to cgroup in order to limit read bandwidth
-    CgroupsMgr::apply_system_cgroup();
+}
 
+void DownloadAction::handle_normal(
+        HttpRequest *req,
+        HttpChannel *channel,
+        const std::string& file_param) {
     // check token
     Status status;
     if (config::enable_token_check) {
@@ -61,6 +68,51 @@ void DownloadAction::handle(HttpRequest *req, HttpChannel *channel) {
         }
     }
 
+    status = check_path_is_allowed(file_param);
+    if (!status.ok()) {
+        std::string error_msg = status.get_error_msg();
+        HttpResponse response(HttpStatus::OK, &error_msg);
+        channel->send_response(response);
+        return;
+    }
+
+    if (FileUtils::is_dir(file_param)) {
+        do_dir_response(file_param, req, channel);
+    } else {
+        do_file_response(file_param, req, channel);
+    }
+}
+
+void DownloadAction::handle_error_log(
+        HttpRequest *req,
+        HttpChannel *channel,
+        const std::string& file_param) {
+    const std::string absolute_path = _error_log_root_dir + "/" + file_param;
+
+    Status status = check_log_path_is_allowed(absolute_path);
+    if (!status.ok()) {
+        std::string error_msg = status.get_error_msg();
+        HttpResponse response(HttpStatus::OK, &error_msg);
+        channel->send_response(response);
+        return;
+    }
+
+    if (FileUtils::is_dir(absolute_path)) {
+        std::string error_msg = "error log can only be file.";
+        HttpResponse response(HttpStatus::OK, &error_msg);
+        channel->send_response(response);
+        return;
+    }
+
+    do_file_response(absolute_path, req, channel);
+}
+
+void DownloadAction::handle(HttpRequest *req, HttpChannel *channel) {
+    LOG(INFO) << "accept one download request " << req->debug_string();
+
+    // add tid to cgroup in order to limit read bandwidth
+    CgroupsMgr::apply_system_cgroup();
+
     // Get 'file' parameter, then assembly file absolute path
     const std::string& file_path = req->param(FILE_PARAMETER);
     if (file_path.empty()) {
@@ -71,23 +123,13 @@ void DownloadAction::handle(HttpRequest *req, HttpChannel *channel) {
         return;
     }
 
-    status = check_path(file_path);
-    if (!status.ok()) {
-        std::string error_msg = status.get_error_msg();
-        HttpResponse response(HttpStatus::OK, &error_msg);
-        channel->send_response(response);
-        return;
+    if (_download_type == ERROR_LOG) {
+        handle_error_log(req, channel, file_path);
+    } else if (_download_type == NORMAL) {
+        handle_normal(req, channel, file_path);
     }
-    VLOG_ROW << "absolute download path: " << file_path;
 
-    if (FileUtils::is_dir(file_path)) {
-        do_dir_response(file_path, req, channel);
-        return;
-    } else {
-        do_file_response(file_path, req, channel);
-    }
-    LOG(INFO) << "deal with requesst finished! ";
-
+    LOG(INFO) << "deal with download requesst finished! ";
 }
 
 void DownloadAction::do_dir_response(
@@ -236,11 +278,21 @@ Status DownloadAction::check_token(HttpRequest *req) {
     return Status::OK;
 }
 
-Status DownloadAction::check_path(const std::string& file_path) {
+Status DownloadAction::check_path_is_allowed(const std::string& file_path) {
+    DCHECK_EQ(_download_type, NORMAL);
     for (auto& allow_path : _allow_paths) {
         if (FileSystemUtil::contain_path(allow_path, file_path)) {
             return Status::OK;
         }
+    }
+
+    return Status("file path Not Allowed.");
+}
+
+Status DownloadAction::check_log_path_is_allowed(const std::string& file_path) {
+    DCHECK_EQ(_download_type, ERROR_LOG);
+    if (FileSystemUtil::contain_path(_error_log_root_dir, file_path)) {
+        return Status::OK;
     }
 
     return Status("file path Not Allowed.");
