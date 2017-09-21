@@ -24,6 +24,8 @@
 
 namespace palo {
 
+class TUniqueId;
+
 // In every directory, '.trash' directory is used to save data need to delete
 // daemon thread is check no used directory to delete
 class LoadPathMgr {
@@ -39,9 +41,20 @@ public:
 
     void get_load_data_path(std::vector<std::string>* data_paths);
 
+    Status get_load_error_file_name(
+            const std::string& db,
+            const std::string&label,
+            const TUniqueId& fragment_instance_id,
+            std::string* error_path);
+    std::string get_load_error_absolute_path(const std::string& file_name);
+    const std::string& get_load_error_file_dir() const {
+        return _error_log_dir;
+    }
+
 private:
-    bool can_delete_label(time_t cur_time, const std::string& label_dir);
+    bool is_too_old(time_t cur_time, const std::string& label_dir);
     void clean_one_path(const std::string& path);
+    void clean_error_log();
     void clean();
 
     static void* cleaner(void* param);
@@ -51,6 +64,7 @@ private:
     int _idx;
     int _reserved_hours;
     pthread_t _cleaner_id;
+    std::string _error_log_dir;
 };
 
 }

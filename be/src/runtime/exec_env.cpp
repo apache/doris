@@ -190,6 +190,13 @@ Status ExecEnv::start_webserver() {
                                  "/api/_tablet/_download",
                                  tablet_download_action);
 
+    DownloadAction* error_log_download_action = new DownloadAction(
+            this, _load_path_mgr->get_load_error_file_dir());
+    _webserver->register_handler(
+            HttpMethod::GET, "/api/_load_error_log", error_log_download_action);
+    _webserver->register_handler(
+            HttpMethod::HEAD, "/api/_load_error_log", error_log_download_action);
+
     // Register monitor
     MonitorAction* monitor_action = new MonitorAction();
     monitor_action->register_module("etl_mgr", etl_job_mgr());

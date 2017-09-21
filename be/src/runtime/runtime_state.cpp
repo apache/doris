@@ -320,14 +320,18 @@ Status RuntimeState::create_load_dir() {
 
 Status RuntimeState::create_error_log_file() {
     // Make sure that load dir exists.
-    create_load_dir();
+    // create_load_dir();
 
-    std::stringstream ss;
-    ss << load_dir() << "/" << ERROR_FILE_NAME
-        << "_" << std::hex << fragment_instance_id().hi
-        << "_" << fragment_instance_id().lo;
-    _error_log_file_path = ss.str();
-    _error_log_file = new std::ofstream(_error_log_file_path, std::ifstream::out);
+    _exec_env->load_path_mgr()->get_load_error_file_name(
+            _db_name, _import_label, _fragment_instance_id, &_error_log_file_path);
+    // std::stringstream ss;
+    // ss << load_dir() << "/" << ERROR_FILE_NAME
+    //     << "_" << std::hex << fragment_instance_id().hi
+    //     << "_" << fragment_instance_id().lo;
+    // _error_log_file_path = ss.str();
+    std::string error_log_absolute_path
+        = _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
+    _error_log_file = new std::ofstream(error_log_absolute_path, std::ifstream::out);
     if (!_error_log_file->is_open()) {
         std::stringstream error_msg;
         error_msg << "Fail to open error file: [" << _error_log_file_path << "].";

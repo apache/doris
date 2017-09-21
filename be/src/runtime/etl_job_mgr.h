@@ -90,6 +90,7 @@ public:
 
 private:
     std::string to_http_path(const std::string& file_path);
+    std::string to_load_error_http_path(const std::string& file_path);
 
     void report_to_master(PlanFragmentExecutor* executor);
 

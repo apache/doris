@@ -45,6 +45,14 @@ std::string EtlJobMgr::to_http_path(const std::string& file_name) {
     return url.str();
 }
 
+std::string EtlJobMgr::to_load_error_http_path(const std::string& file_name) {
+    std::stringstream url;
+    url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
+        << "/api/_load_error_log?"
+        << "&file=" << file_name;
+    return url.str();
+}
+
 const std::string DPP_NORMAL_ALL = "dpp.norm.ALL";
 const std::string DPP_ABNORMAL_ALL = "dpp.abnorm.ALL";
 const std::string ERROR_FILE_PREFIX = "error_log";
@@ -239,7 +247,7 @@ Status EtlJobMgr::get_job_state(const TUniqueId& id,
 
         if (!ctx.result.debug_path.empty()) {
             result->__set_tracking_url(
-                    to_http_path(ctx.result.debug_path));
+                    to_load_error_http_path(ctx.result.debug_path));
         }
         return Status::OK;
     }

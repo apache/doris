@@ -62,6 +62,7 @@ static const std::string DPP_PREFIX = "/dpp_download";
 static const std::string SNAPSHOT_PREFIX = "/snapshot";
 static const std::string TRASH_PREFIX = "/trash";
 static const std::string UNUSED_PREFIX = "/unused";
+static const std::string ERROR_LOG_PREFIX = "/error_log";
 
 static const int32_t OLAP_DATA_VERSION_APPLIED = PALO_V1;
 
