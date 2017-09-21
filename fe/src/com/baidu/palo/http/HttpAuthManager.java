@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit;
 
 // We simulate a simplified session here: only store user-name of clients who already logged in,
 // and we only have a default admin user for now.
-public class HttpAuthManager {
+public final class HttpAuthManager {
     private static long SESSION_EXPIRE_TIME = 2; // hour
     private static long SESSION_MAX_SIZE = 100; // avoid to store too many
 

@@ -20,6 +20,20 @@
 
 package com.baidu.palo.common.util;
 
+import com.baidu.palo.common.Pair;
+import com.baidu.palo.common.Reference;
+import com.baidu.palo.thrift.TCounter;
+import com.baidu.palo.thrift.TRuntimeProfileNode;
+import com.baidu.palo.thrift.TRuntimeProfileTree;
+import com.baidu.palo.thrift.TUnit;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Formatter;
@@ -27,21 +41,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
-
-import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.LogManager;
-
-import com.baidu.palo.common.Pair;
-import com.baidu.palo.common.Reference;
-import com.baidu.palo.thrift.TCounter;
-import com.baidu.palo.thrift.TUnit;
-import com.baidu.palo.thrift.TRuntimeProfileNode;
-import com.baidu.palo.thrift.TRuntimeProfileTree;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 public class RuntimeProfile {
     private static final Logger LOG = LogManager.getLogger(RuntimeProfile.class);
@@ -236,56 +235,57 @@ public class RuntimeProfile {
     
     private String printCounter(long value, TUnit type) {
         StringBuilder builder = new StringBuilder();
+        long tmpValue = value;
         switch (type) {
             case UNIT: {
-                Pair<Double, String> pair = DebugUtil.getUint(value);
+                Pair<Double, String> pair = DebugUtil.getUint(tmpValue);
                 if (pair.second.isEmpty()) {
-                    builder.append(value);
+                    builder.append(tmpValue);
                 } else {
                     builder.append(pair.first).append(pair.second)
-                        .append(" (").append(value).append(")");
+                            .append(" (").append(tmpValue).append(")");
                 }
                 break;
             }
             case TIME_NS: {
-                if (value >= DebugUtil.BILLION) {
+                if (tmpValue >= DebugUtil.BILLION) {
                     // If the time is over a second, print it up to ms.
-                    value /= DebugUtil.MILLION;
-                    DebugUtil.printTimeMs(value, builder);
-                } else if (value >= DebugUtil.MILLION) {
+                    tmpValue /= DebugUtil.MILLION;
+                    DebugUtil.printTimeMs(tmpValue, builder);
+                } else if (tmpValue >= DebugUtil.MILLION) {
                     // if the time is over a ms, print it up to microsecond in the unit of ms.
-                    value /= 1000;
-                    builder.append(value / 1000).append(".").append(value % 1000).append("ms");
-                } else if (value > 1000) {
+                    tmpValue /= 1000;
+                    builder.append(tmpValue / 1000).append(".").append(tmpValue % 1000).append("ms");
+                } else if (tmpValue > 1000) {
                     // if the time is over a microsecond, print it using unit microsecond
-                    builder.append(value / 1000).append(".").append(value % 1000).append("us");
+                    builder.append(tmpValue / 1000).append(".").append(tmpValue % 1000).append("us");
                 } else {
-                    builder.append(value).append("ns");
+                    builder.append(tmpValue).append("ns");
                 }
                 break;
             }
             case BYTES: {
-                Pair<Double, String> pair = DebugUtil.getByteUint(value);
+                Pair<Double, String> pair = DebugUtil.getByteUint(tmpValue);
                 Formatter fmt = new Formatter();
                 builder.append(fmt.format("%.2f", pair.first)).append(" ").append(pair.second);
                 fmt.close();
                 break;
             }
             case BYTES_PER_SECOND: {
-                Pair<Double, String> pair = DebugUtil.getByteUint(value);
+                Pair<Double, String> pair = DebugUtil.getByteUint(tmpValue);
                 builder.append(pair.first).append(" ").append(pair.second).append("/sec");
                 break;
             }
             case DOUBLE_VALUE: {
                 Formatter fmt = new Formatter();
-                builder.append(fmt.format("%.2f", (double) value));
+                builder.append(fmt.format("%.2f", (double) tmpValue));
                 fmt.close();
                 break;
             }
             case UNIT_PER_SECOND: {
-                Pair<Double, String> pair = DebugUtil.getUint(value);
+                Pair<Double, String> pair = DebugUtil.getUint(tmpValue);
                 if (pair.second.isEmpty()) {
-                    builder.append(value);
+                    builder.append(tmpValue);
                 } else {
                     builder.append(pair.first).append(pair.second)
                         .append(" ").append("/sec");

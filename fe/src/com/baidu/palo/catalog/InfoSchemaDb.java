@@ -92,9 +92,10 @@ public class InfoSchemaDb extends Database {
             return false;
         }
         String[] ele = dbName.split(ClusterNamespace.CLUSTER_DELIMITER);
+        String newDbName = dbName;
         if (ele.length == 2) {
-            dbName = ele[1];
+            newDbName = ele[1];
         }
-        return DATABASE_NAME.equalsIgnoreCase(dbName);
+        return DATABASE_NAME.equalsIgnoreCase(newDbName);
     }
 }

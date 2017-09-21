@@ -24,6 +24,5 @@ public abstract class MysqlPacket {
         return false;
     }
 
-    public void writeTo(MysqlSerializer serializer) {
-    }
+    abstract public void writeTo(MysqlSerializer serializer);
 }

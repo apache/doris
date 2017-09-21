@@ -15,20 +15,21 @@
 
 package com.baidu.palo.catalog;
 
+import com.baidu.palo.common.DdlException;
+import com.baidu.palo.common.io.Text;
+import com.baidu.palo.common.io.Writable;
+
+import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import com.baidu.palo.common.DdlException;
-import com.baidu.palo.common.io.Text;
-import com.baidu.palo.common.io.Writable;
-import com.google.common.collect.Sets;
 
 public class WhiteList implements Writable {
     private static final Logger LOG = LogManager.getLogger(WhiteList.class);
@@ -51,43 +52,45 @@ public class WhiteList implements Writable {
     }
 
     public boolean hasAccess(String ip) {
-        // whileList is null, all people can visit
+        // whileList is null, all people can access
         if (getSize() == 0) {
             return true;
         }
 
-        // 1. check ipWhiteList if contains ip
+        // 1. check if specified ip in white list
         if (ipWhiteLists.contains(ip)) {
             return true;
         }
-        // 2. check ipWhiteList if contains star ip
-        for (String entryIp : starIpWhiteLists) {
-            String[] entryIpArray = entryIp.split("\\.");
-            String[] ipArray = ip.split("\\.");
-            int outerIpArraySize = entryIpArray.length;
-            int ipArraySize = ipArray.length;
-            if (!(ipArraySize == 4 && outerIpArraySize == 4)) {
-                String msg = "ip wrong outerIp=" + entryIp + " innerIp=" + " request ip=" + ip;
-                LOG.warn("whitelist access  {}", msg);
+
+        // 2. check if specified ip in start white list
+        for (String starIp : starIpWhiteLists) {
+            String[] splittedStarIp = starIp.split("\\.");
+            String[] splittedSpecifiedIp = ip.split("\\.");
+            int starIpLen = splittedStarIp.length;
+            int specifiedIpLen = splittedSpecifiedIp.length;
+            if (!(specifiedIpLen == 4 && starIpLen == 4)) {
+                String msg = String.format("Invalid IP format: %s", ip);
+                LOG.warn(msg);
                 throw new RuntimeException(msg);
             }
 
-            boolean target = true;
+            boolean hit = true;
             for (int i = 0; i < 4; i++) {
-                if (ipArray[i].equals(entryIpArray[i])) {
+                if (splittedSpecifiedIp[i].equals(splittedStarIp[i])) {
                     continue;
-                } else if (entryIpArray[i].equals("*")) {
+                } else if (splittedStarIp[i].equals("*")) {
                     continue;
+                } else {
+                    hit = false;
+                    break;
                 }
-                target = false;
-                break;
             }
 
-            if (target == false) {
-                continue;
+            if (hit) {
+                return true;
             }
-            return true;
         }
+
         ipOfHostWhiteLists = DomainParserServer.getInstance().getUserHostIp(user);
         // 3. check ipWhiteList
         if (ipOfHostWhiteLists != null) {

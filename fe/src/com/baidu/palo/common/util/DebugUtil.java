@@ -20,12 +20,12 @@
 
 package com.baidu.palo.common.util;
 
+import com.baidu.palo.common.Pair;
+import com.baidu.palo.thrift.TUniqueId;
+
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.text.DecimalFormat;
-
-import com.baidu.palo.common.Pair;
-import com.baidu.palo.thrift.TUniqueId;
 
 public class DebugUtil {
     public static final DecimalFormat DECIMAL_FORMAT_SCALE_3 = new DecimalFormat("#.000");
@@ -62,27 +62,28 @@ public class DebugUtil {
     // Print the value (timestamp in ms) to builder
     // ATTN: for hour and minute granularity, we ignore ms precision.
     public static void printTimeMs(long value, StringBuilder builder) {
-        if (value == 0) {
+        long newValue = value;
+        if (newValue == 0) {
             builder.append("0");
         } else {
             boolean hour = false;
             boolean minute = false;
-            if (value >= HOUR) {
-                builder.append(value / HOUR).append("h");
-                value %= HOUR;
+            if (newValue >= HOUR) {
+                builder.append(newValue / HOUR).append("h");
+                newValue %= HOUR;
                 hour = true;
             } 
-            if (value >= MINUTE) {
-                builder.append(value / MINUTE).append("m");
-                value %= value;
+            if (newValue >= MINUTE) {
+                builder.append(newValue / MINUTE).append("m");
+                newValue %= newValue;
                 minute = true;
             }
-            if (!hour && value >= SECOND) {
-                builder.append(value / SECOND).append("s");
-                value %= SECOND;
+            if (!hour && newValue >= SECOND) {
+                builder.append(newValue / SECOND).append("s");
+                newValue %= SECOND;
             }
             if (!hour && !minute) {
-                builder.append(value).append("ms");
+                builder.append(newValue).append("ms");
             }
         }
     }

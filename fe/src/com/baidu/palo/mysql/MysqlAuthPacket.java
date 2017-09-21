@@ -50,6 +50,10 @@ public class MysqlAuthPacket extends MysqlPacket {
         return randomString;
     }
 
+    public MysqlCapability getCapability() {
+        return capability;
+    }
+
     @Override
     public boolean readFrom(ByteBuffer buffer) {
         // read capability four byte, which CLIENT_PROTOCOL_41 must be set
@@ -105,7 +109,8 @@ public class MysqlAuthPacket extends MysqlPacket {
         return true;
     }
 
-    public MysqlCapability getCapability() {
-        return capability;
+    @Override
+    public void writeTo(MysqlSerializer serializer) {
+
     }
 }

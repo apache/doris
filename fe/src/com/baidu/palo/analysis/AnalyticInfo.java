@@ -25,6 +25,7 @@ import com.baidu.palo.catalog.Type;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,7 +36,7 @@ import java.util.List;
  * Encapsulates the analytic functions found in a single select block plus
  * the corresponding analytic result tuple and its substitution map.
  */
-public class AnalyticInfo extends AggregateInfoBase {
+public final class AnalyticInfo extends AggregateInfoBase {
     private final static Logger LOG = LoggerFactory.getLogger(AnalyticInfo.class);
 
     // All unique analytic exprs of a select block. Used to populate

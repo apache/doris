@@ -52,7 +52,6 @@ import com.baidu.palo.catalog.MysqlTable;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.InternalException;
-import com.baidu.palo.common.NotImplementedException;
 import com.baidu.palo.common.Pair;
 import com.baidu.palo.common.Reference;
 
@@ -61,6 +60,7 @@ import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -203,13 +203,14 @@ public class SingleNodePlanner {
             throws InternalException, AnalysisException {
         if (analyzer.hasEmptyResultSet()) return createEmptyNode(stmt, analyzer);
 
-        if (defaultOrderByLimit == -1) {
-            defaultOrderByLimit = 65535;
+        long newDefaultOrderByLimit = defaultOrderByLimit;
+        if (newDefaultOrderByLimit == -1) {
+            newDefaultOrderByLimit = 65535;
         }
         PlanNode root;
         if (stmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) stmt;
-            root = createSelectPlan(selectStmt, analyzer, defaultOrderByLimit);
+            root = createSelectPlan(selectStmt, analyzer, newDefaultOrderByLimit);
 
             // TODO(zc)
             // insert possible AnalyticEvalNode before SortNode
@@ -227,7 +228,7 @@ public class SingleNodePlanner {
             }
         } else {
             Preconditions.checkState(stmt instanceof UnionStmt);
-            root = createUnionPlan((UnionStmt) stmt, analyzer, defaultOrderByLimit);
+            root = createUnionPlan((UnionStmt) stmt, analyzer, newDefaultOrderByLimit);
         }
 
         // Avoid adding a sort node if the sort tuple has no materialized slots.
@@ -253,7 +254,7 @@ public class SingleNodePlanner {
             root = new SortNode(ctx_.getNextNodeId(), root, stmt.getSortInfo(),
                     useTopN, limit == -1, stmt.getOffset());
             if (useTopN) {
-                root.setLimit(limit != -1 ? limit : defaultOrderByLimit);
+                root.setLimit(limit != -1 ? limit : newDefaultOrderByLimit);
             } else {
                 root.setLimit(limit);
             }
@@ -723,23 +724,23 @@ public class SingleNodePlanner {
         Preconditions.checkState(selectStmt.getAggInfo() != null);
         // add aggregation, if required
         AggregateInfo aggInfo = selectStmt.getAggInfo();
-        root = new AggregationNode(ctx_.getNextNodeId(), root, aggInfo);
-        root.init(analyzer);
-        Preconditions.checkState(root.hasValidStats());
+        PlanNode newRoot = new AggregationNode(ctx_.getNextNodeId(), root, aggInfo);
+        newRoot.init(analyzer);
+        Preconditions.checkState(newRoot.hasValidStats());
         // if we're computing DISTINCT agg fns, the analyzer already created the
         // 2nd phase agginfo
         if (aggInfo.isDistinctAgg()) {
-            ((AggregationNode)root).unsetNeedsFinalize();
+            ((AggregationNode) newRoot).unsetNeedsFinalize();
             // The output of the 1st phase agg is the 1st phase intermediate.
-            ((AggregationNode)root).setIntermediateTuple();
-            root = new AggregationNode(ctx_.getNextNodeId(), root,
+            ((AggregationNode) newRoot).setIntermediateTuple();
+            newRoot = new AggregationNode(ctx_.getNextNodeId(), newRoot,
                     aggInfo.getSecondPhaseDistinctAggInfo());
-            root.init(analyzer);
-            Preconditions.checkState(root.hasValidStats());
+            newRoot.init(analyzer);
+            Preconditions.checkState(newRoot.hasValidStats());
         }
         // add Having clause
-        root.assignConjuncts(analyzer);
-        return root;
+        newRoot.assignConjuncts(analyzer);
+        return newRoot;
     }
 
     /**

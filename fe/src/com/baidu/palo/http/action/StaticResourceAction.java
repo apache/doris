@@ -222,17 +222,17 @@ public class StaticResourceAction extends WebBaseAction {
             return null;
         }
         // Convert file separators
-        path = path.replace('/', File.separatorChar);
+        String newPath = path.replace('/', File.separatorChar);
 
         // Simplistic dumb security check.
-        if (path.contains(File.separator + '.')
-                || path.contains('.' + File.separator)
-                || path.charAt(0) == '.'
-                || path.charAt(path.length() - 1) == '.'
-                || INSECURE_URI.matcher(path).matches()) {
+        if (newPath.contains(File.separator + '.')
+                || newPath.contains('.' + File.separator)
+                || newPath.charAt(0) == '.'
+                || newPath.charAt(newPath.length() - 1) == '.'
+                || INSECURE_URI.matcher(newPath).matches()) {
             return null;
         }
 
-        return path;
+        return newPath;
     }
 }

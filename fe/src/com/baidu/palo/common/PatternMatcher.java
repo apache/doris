@@ -41,9 +41,10 @@ public class PatternMatcher {
     }
 
     private static String convertMysqlPattern(String mysqlPattern)  {
+        String newMysqlPattern = mysqlPattern;
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < mysqlPattern.length(); ++i) {
-            char ch = mysqlPattern.charAt(i);
+        for (int i = 0; i < newMysqlPattern.length(); ++i) {
+            char ch = newMysqlPattern.charAt(i);
             switch (ch) {
                 case '%':
                     sb.append(".*");
@@ -52,11 +53,11 @@ public class PatternMatcher {
                     sb.append(".");
                     break;
                 case '\\': {
-                    if (i == mysqlPattern.length() - 1) {
+                    if (i == newMysqlPattern.length() - 1) {
                         // Last character of this pattern.
-                        sb.append(mysqlPattern.charAt(i));
+                        sb.append(newMysqlPattern.charAt(i));
                     } else {
-                        sb.append(mysqlPattern.charAt(++i));
+                        sb.append(newMysqlPattern.charAt(++i));
                     }
                     break;
                 }
@@ -66,10 +67,10 @@ public class PatternMatcher {
             }
         }
         // Replace all the '\' to '\'.'\' in Java pattern
-        mysqlPattern = sb.toString();
+        newMysqlPattern = sb.toString();
         sb = new StringBuilder();
-        for (int i = 0; i < mysqlPattern.length(); ++i) {
-            char ch = mysqlPattern.charAt(i);
+        for (int i = 0; i < newMysqlPattern.length(); ++i) {
+            char ch = newMysqlPattern.charAt(i);
             switch (ch) {
                 case '\\':
                     sb.append('\\').append('\\');
@@ -87,9 +88,9 @@ public class PatternMatcher {
         PatternMatcher matcher = new PatternMatcher();
 
         // Match nothing
-        mysqlPattern = Strings.nullToEmpty(mysqlPattern);
+        String newMysqlPattern = Strings.nullToEmpty(mysqlPattern);
 
-        String javaPattern = convertMysqlPattern(mysqlPattern);
+        String javaPattern = convertMysqlPattern(newMysqlPattern);
         try {
             matcher.pattern = Pattern.compile(javaPattern, Pattern.CASE_INSENSITIVE);
         } catch (Exception e) {

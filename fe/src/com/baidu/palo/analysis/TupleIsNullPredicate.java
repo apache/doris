@@ -25,6 +25,7 @@ import com.baidu.palo.common.InternalException;
 import com.baidu.palo.thrift.TExprNode;
 import com.baidu.palo.thrift.TExprNodeType;
 import com.baidu.palo.thrift.TTupleIsNullPredicate;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
@@ -142,5 +143,10 @@ public class TupleIsNullPredicate extends Predicate {
     private static boolean requiresNullWrapping(Expr expr, Analyzer analyzer)
         throws InternalException {
         return true;
+    }
+
+    @Override
+    public String toSql() {
+        return "";
     }
 }
