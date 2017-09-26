@@ -662,7 +662,7 @@ public class Catalog {
 
             return ret;
         } catch (Exception e) {
-            LOG.warn(e);
+            LOG.warn("http connect error.", e);
         }
 
         return FrontendNodeType.UNKNOWN;

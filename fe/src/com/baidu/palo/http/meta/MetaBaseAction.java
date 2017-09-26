@@ -59,9 +59,8 @@ public class MetaBaseAction extends WebBaseAction {
                 writeResponse(request, response, HttpResponseStatus.BAD_REQUEST);
                 return;
             }
-        } else {
-            super.execute(request, response);
         }
+        super.execute(request, response);
     }
 
     protected boolean needCheckClientIsFe() {
@@ -95,7 +94,7 @@ public class MetaBaseAction extends WebBaseAction {
 
     private void checkFromValidFe(BaseRequest request, BaseResponse response)
             throws InvalidClientException {
-        if (isFromValidFe(request)) {
+        if (!isFromValidFe(request)) {
             throw new InvalidClientException("invalid client host");
         }
     }
