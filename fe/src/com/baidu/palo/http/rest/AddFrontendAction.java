@@ -25,6 +25,7 @@ import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
 import com.baidu.palo.system.SystemInfoService;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
@@ -72,6 +73,10 @@ public class AddFrontendAction extends RestBaseAction {
         String[] hostPortArr = hostPorts.split(",");
         if (hostPortArr.length == 0) {
             throw new DdlException("No host:port specified.");
+        }
+
+        if (!Catalog.getInstance().isMaster()) {
+            throw new DdlException("I am not master");
         }
 
         List<Pair<String, Integer>> hostPortPairs = Lists.newArrayList();
