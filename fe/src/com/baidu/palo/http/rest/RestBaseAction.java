@@ -21,16 +21,17 @@ import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseAction;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
+import com.baidu.palo.http.UnauthorizedException;
 import com.baidu.palo.thrift.TNetworkAddress;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import io.netty.handler.codec.http.HttpHeaders;
-import io.netty.handler.codec.http.HttpResponseStatus;
-
 import java.net.URI;
 import java.net.URISyntaxException;
+
+import io.netty.handler.codec.http.HttpHeaders;
+import io.netty.handler.codec.http.HttpResponseStatus;
 
 public class RestBaseAction extends BaseAction {
     private static final Logger LOG = LogManager.getLogger(RestBaseAction.class);

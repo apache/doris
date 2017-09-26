@@ -22,8 +22,8 @@ package com.baidu.palo.common.io;
 
 import org.apache.logging.log4j.Logger;
 
-import java.io.InputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.net.Socket;
@@ -171,13 +171,14 @@ public class IOUtils {
     public static void readFully(InputStream in, byte buf[], int off, int len)
             throws IOException {
         int toRead = len;
+        int tmpOff = off;
         while (toRead > 0) {
-            int ret = in.read(buf, off, toRead);
+            int ret = in.read(buf, tmpOff, toRead);
             if (ret < 0) {
                 throw new IOException("Premeture EOF from inputStream");
             }
             toRead -= ret;
-            off += ret;
+            tmpOff += ret;
         }
     }
 
@@ -193,12 +194,13 @@ public class IOUtils {
      *             (including EOF)
      */
     public static void skipFully(InputStream in, long len) throws IOException {
-        while (len > 0) {
-            long ret = in.skip(len);
+        long tmpLen = len;
+        while (tmpLen > 0) {
+            long ret = in.skip(tmpLen);
             if (ret < 0) {
                 throw new IOException("Premeture EOF from inputStream");
             }
-            len -= ret;
+            tmpLen -= ret;
         }
     }
 

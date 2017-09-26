@@ -26,7 +26,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class MaxLiteral extends LiteralExpr {
+public final class MaxLiteral extends LiteralExpr {
 
     public static final MaxLiteral MAX_VALUE = new MaxLiteral();
 

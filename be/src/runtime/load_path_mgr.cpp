@@ -25,6 +25,7 @@
 #include "olap/olap_define.h"
 #include "olap/olap_rootpath.h"
 #include "util/file_utils.h"
+#include "gen_cpp/Types_types.h"
 
 namespace palo {
 
@@ -37,8 +38,13 @@ Status LoadPathMgr::init() {
     for (auto& one_path : all_available_root_path) {
         _path_vec.push_back(one_path + MINI_PREFIX);
     }
-
     LOG(INFO) << "Load path configured to [" << boost::join(_path_vec, ",") << "]";
+
+    // error log is saved in first root path
+    _error_log_dir = all_available_root_path[0] + ERROR_LOG_PREFIX;
+    // check and make dir
+    RETURN_IF_ERROR(FileUtils::create_dir(_error_log_dir));
+
     _idx = 0;
     _reserved_hours = std::max(config::load_data_reserve_hours, 1L);
     pthread_create(&_cleaner_id, nullptr, LoadPathMgr::cleaner, this);
@@ -83,18 +89,13 @@ Status LoadPathMgr::allocate_dir(
     return status;
 }
 
-bool LoadPathMgr::can_delete_label(time_t cur_time, const std::string& label_dir) {
+bool LoadPathMgr::is_too_old(time_t cur_time, const std::string& label_dir) {
     struct stat dir_stat;
     if (stat(label_dir.c_str(), &dir_stat)) {
         char buf[64];
         // State failed, just information
-        LOG(WARNING) << "stat directory failed.path=" << label_dir 
+        LOG(WARNING) << "stat directory failed.path=" << label_dir
             << ",code=" << strerror_r(errno, buf, 64);
-        return false;
-    }
-
-    if (!S_ISDIR(dir_stat.st_mode)) {
-        // Not a directory
         return false;
     }
 
@@ -108,6 +109,29 @@ bool LoadPathMgr::can_delete_label(time_t cur_time, const std::string& label_dir
 void LoadPathMgr::get_load_data_path(std::vector<std::string>* data_paths) {
     data_paths->insert(data_paths->end(), _path_vec.begin(), _path_vec.end());
     return;
+}
+
+const std::string ERROR_FILE_NAME = "error_log";
+
+Status LoadPathMgr::get_load_error_file_name(
+        const std::string& db,
+        const std::string&label,
+        const TUniqueId& fragment_instance_id,
+        std::string* error_path) {
+    std::stringstream ss;
+    ss << ERROR_FILE_NAME << "_" << db << "_" << label
+        << "_" << std::hex << fragment_instance_id.hi
+        << "_" << fragment_instance_id.lo;
+    *error_path = ss.str();
+    return Status::OK;
+}
+
+std::string LoadPathMgr::get_load_error_absolute_path(const std::string& file_name) {
+    std::string path;
+    path.append(_error_log_dir);
+    path.append("/");
+    path.append(file_name);
+    return path;
 }
 
 void LoadPathMgr::clean_one_path(const std::string& path) {
@@ -130,7 +154,7 @@ void LoadPathMgr::clean_one_path(const std::string& path) {
         // delete this file
         for (auto& label : labels) {
             std::string label_dir = db_dir + "/" + label;
-            if (!can_delete_label(now, label_dir)) {
+            if (!is_too_old(now, label_dir)) {
                 continue;
             }
             LOG(INFO) << "Going to remove load directory. path=" << label_dir;
@@ -147,6 +171,31 @@ void LoadPathMgr::clean_one_path(const std::string& path) {
 void LoadPathMgr::clean() {
     for (auto& path : _path_vec) {
         clean_one_path(path);
+    }
+    clean_error_log();
+}
+
+void LoadPathMgr::clean_error_log() {
+    time_t now = time(nullptr);
+    std::vector<std::string> error_logs;
+    Status status = FileUtils::scan_dir(_error_log_dir, &error_logs);
+    if (!status.ok()) {
+        LOG(WARNING) << "scan error_log dir failed. dir=" << _error_log_dir;
+        return;
+    }
+
+    for (auto& error_log : error_logs) {
+        std::string log_path = _error_log_dir + "/" + error_log;
+        if (!is_too_old(now, log_path)) {
+            continue;
+        }
+        LOG(INFO) << "Going to remove error log file. path=" << log_path;
+        status = FileUtils::remove_all(log_path);
+        if (status.ok()) {
+            LOG(INFO) << "Remove load directory success. path=" << log_path;
+        } else {
+            LOG(WARNING) << "Remove load directory failed. path=" << log_path;
+        }
     }
 }
 

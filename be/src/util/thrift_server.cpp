@@ -33,7 +33,6 @@
 #include <thrift/server/TThreadPoolServer.h>
 #include <thrift/server/TThreadedServer.h>
 #include <thrift/transport/TSocket.h>
-#include <thrift/server/TThreadPoolServer.h>
 #include <thrift/transport/TServerSocket.h>
 
 namespace palo {
@@ -42,12 +41,16 @@ namespace palo {
 // Helper class that starts a server in a separate thread, and handles
 // the inter-thread communication to monitor whether it started
 // correctly.
-class ThriftServer::ThriftServerEventProcessor 
+class ThriftServer::ThriftServerEventProcessor
         : public apache::thrift::server::TServerEventHandler {
 public:
-    ThriftServerEventProcessor(ThriftServer* thrift_server) : 
+    ThriftServerEventProcessor(ThriftServer* thrift_server) :
             _thrift_server(thrift_server),
-            _signal_fired(false) { 
+            _signal_fired(false) {
+    }
+
+    // friendly to code style
+    virtual ~ThriftServerEventProcessor() {
     }
 
     // Called by TNonBlockingServer when server has acquired its resources and is ready to
@@ -103,7 +106,7 @@ Status ThriftServer::ThriftServerEventProcessor::start_and_wait_for_server() {
     _thrift_server->_server_thread.reset(
         new boost::thread(&ThriftServer::ThriftServerEventProcessor::supervise, this));
 
-    boost::system_time deadline = boost::get_system_time() 
+    boost::system_time deadline = boost::get_system_time()
             + boost::posix_time::milliseconds(TIMEOUT_MS);
 
     // Loop protects against spurious wakeup. Locks provide necessary fences to ensure
@@ -265,7 +268,7 @@ ThriftServer::ThriftServer(
         int port,
         MetricGroup* metrics,
         int num_worker_threads,
-        ServerType server_type) : 
+        ServerType server_type) :
             _started(false),
             _port(port),
             _num_worker_threads(num_worker_threads),
@@ -291,10 +294,10 @@ ThriftServer::ThriftServer(
 
 Status ThriftServer::start() {
     DCHECK(!_started);
-    boost::shared_ptr<apache::thrift::protocol::TProtocolFactory> 
+    boost::shared_ptr<apache::thrift::protocol::TProtocolFactory>
             protocol_factory(new apache::thrift::protocol::TBinaryProtocolFactory());
     boost::shared_ptr<apache::thrift::concurrency::ThreadManager> thread_mgr;
-    boost::shared_ptr<apache::thrift::concurrency::ThreadFactory> 
+    boost::shared_ptr<apache::thrift::concurrency::ThreadFactory>
             thread_factory(new apache::thrift::concurrency::PosixThreadFactory());
     boost::shared_ptr<apache::thrift::transport::TServerTransport> fe_server_transport;
     boost::shared_ptr<apache::thrift::transport::TTransportFactory> transport_factory;

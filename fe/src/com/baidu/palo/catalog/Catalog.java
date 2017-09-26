@@ -102,6 +102,7 @@ import com.baidu.palo.consistency.ConsistencyChecker;
 import com.baidu.palo.ha.FrontendNodeType;
 import com.baidu.palo.ha.HAProtocol;
 import com.baidu.palo.ha.MasterInfo;
+import com.baidu.palo.http.meta.MetaBaseAction;
 import com.baidu.palo.journal.JournalCursor;
 import com.baidu.palo.journal.JournalEntity;
 import com.baidu.palo.journal.bdbje.Timestamp;
@@ -116,6 +117,7 @@ import com.baidu.palo.load.LoadJob;
 import com.baidu.palo.load.LoadJob.JobState;
 import com.baidu.palo.master.Checkpoint;
 import com.baidu.palo.master.MetaHelper;
+import com.baidu.palo.persist.BackendIdsUpdateInfo;
 import com.baidu.palo.persist.ClusterInfo;
 import com.baidu.palo.persist.DatabaseInfo;
 import com.baidu.palo.persist.DropInfo;
@@ -129,16 +131,15 @@ import com.baidu.palo.persist.ReplicaPersistInfo;
 import com.baidu.palo.persist.Storage;
 import com.baidu.palo.persist.StorageInfo;
 import com.baidu.palo.persist.TableInfo;
-import com.baidu.palo.persist.BackendIdsUpdateInfo;
 import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.JournalObservable;
 import com.baidu.palo.qe.SessionVariable;
 import com.baidu.palo.qe.VariableMgr;
 import com.baidu.palo.service.FrontendOptions;
 import com.baidu.palo.system.Backend;
+import com.baidu.palo.system.Backend.BackendState;
 import com.baidu.palo.system.Frontend;
 import com.baidu.palo.system.SystemInfoService;
-import com.baidu.palo.system.Backend.BackendState;
 import com.baidu.palo.task.AgentBatchTask;
 import com.baidu.palo.task.AgentTask;
 import com.baidu.palo.task.AgentTaskExecutor;
@@ -152,6 +153,7 @@ import com.baidu.palo.thrift.TTaskType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Joiner.MapJoiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -181,12 +183,12 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.HttpURLConnection;
-import java.util.Iterator;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -255,8 +257,9 @@ public class Catalog {
     private String metaDir;
     private EditLog editLog;
     private int clusterId;
-    private long replayedJournalId; // For checkpoint and observer memory
-                                    // replayed marker
+    private String token;
+    // For checkpoint and observer memory replayed marker
+    private AtomicLong replayedJournalId;
 
     private static Catalog CHECKPOINT = null;
     private static long checkpointThreadId = -1;
@@ -329,7 +332,7 @@ public class Catalog {
 
         this.canWrite = false;
         this.canRead = false;
-        this.replayedJournalId = 0;
+        this.replayedJournalId = new AtomicLong(0L);
         this.isMaster = false;
         this.isElectable = false;
         this.synchronizedTimeMs = 0;
@@ -437,7 +440,6 @@ public class Catalog {
     }
 
     public void initialize(String[] args) throws Exception {
-
         // 0. get local node and helper node info
         getSelfHostPort();
         checkArgs(args);
@@ -464,7 +466,7 @@ public class Catalog {
             }
         }
 
-        // 3. get cluster id and role (Observer or Replica)
+        // 3. get cluster id and role (Observer or Follower)
         getClusterIdAndRole();
 
         // 4. Load image first and replay edits
@@ -472,6 +474,7 @@ public class Catalog {
         loadImage(IMAGE_DIR); // load image file
         editLog.open(); // open bdb env or local output stream
         this.userPropertyMgr.setEditLog(editLog);
+
         // 5. start load label cleaner thread
         createCleaner();
         cleaner.setName("labelCleaner");
@@ -495,7 +498,8 @@ public class Catalog {
         // first node to start
         // or when one node to restart.
         if (isMyself()) {
-            if (roleFile.exists() && !versionFile.exists() || !roleFile.exists() && versionFile.exists()) {
+            if ((roleFile.exists() && !versionFile.exists())
+                    || (!roleFile.exists() && versionFile.exists())) {
                 LOG.error("role file and version file must both exist or both not exist. "
                         + "please specific one helper node to recover. will exit.");
                 System.exit(-1);
@@ -517,8 +521,10 @@ public class Catalog {
 
             if (!versionFile.exists()) {
                 clusterId = Config.cluster_id == -1 ? Storage.newClusterID() : Config.cluster_id;
-                storage = new Storage(clusterId, IMAGE_DIR);
-                storage.writeClusterId();
+                token = Strings.isNullOrEmpty(Config.auth_token) ?
+                        Storage.newToken() : Config.auth_token;
+                storage = new Storage(clusterId, token, IMAGE_DIR);
+                storage.writeClusterIdAndToken();
                 // If the version file and role file does not exist and the
                 // helper node is itself,
                 // it must be the very beginning startup of the cluster
@@ -532,10 +538,19 @@ public class Catalog {
                     frontends.add(self);
                 }
             } else {
-                storage = new Storage(IMAGE_DIR);
                 clusterId = storage.getClusterID();
+                if (storage.getToken() == null) {
+                    token = Strings.isNullOrEmpty(Config.auth_token) ?
+                            Storage.newToken() : Config.auth_token;
+                    LOG.info("new token={}", token);
+                    storage.setToken(token);
+                    storage.writeClusterIdAndToken();
+                } else {
+                    token = storage.getToken();
+                }
+                isFirstTimeStartUp = false;
             }
-        } else { 
+        } else {
             // Designate one helper node. Get the roll and version info
             // from the helper node
             Storage storage = null;
@@ -566,34 +581,55 @@ public class Catalog {
                 storage.writeFrontendRole(role);
             }
             if (!versionFile.exists()) {
-                // If the version file doesn't exist, download it from helper
-                // node
+                // If the version file doesn't exist, download it from helper node
                 if (!getVersionFile()) {
                     LOG.error("fail to download version file from " + helperNode.first + " will exit.");
                     System.exit(-1);
                 }
 
+                // NOTE: cluster_id will be init when Storage object is constructed,
+                //       so we new one.
                 storage = new Storage(IMAGE_DIR);
                 clusterId = storage.getClusterID();
+                token = storage.getToken();
+                if (Strings.isNullOrEmpty(token)) {
+                    token = Config.auth_token;
+                }
             } else {
                 // If the version file exist, read the cluster id and check the
-                // id with helper node
-                // to make sure they are identical
+                // id with helper node to make sure they are identical
                 clusterId = storage.getClusterID();
+                token = storage.getToken();
                 try {
                     URL idURL = new URL("http://" + helperNode.first + ":" + Config.http_port + "/check");
                     HttpURLConnection conn = null;
                     conn = (HttpURLConnection) idURL.openConnection();
                     conn.setConnectTimeout(2 * 1000);
                     conn.setReadTimeout(2 * 1000);
-                    String clusterIdString = conn.getHeaderField("cluster_id");
+                    String clusterIdString = conn.getHeaderField(MetaBaseAction.CLUSTER_ID);
                     int remoteClusterId = Integer.parseInt(clusterIdString);
                     if (remoteClusterId != clusterId) {
-                        LOG.error("cluster id not equal with node {}. will exit.", helperNode.first);
+                        LOG.error("cluster id is not equal with helper node {}. will exit.", helperNode.first);
                         System.exit(-1);
                     }
+                    String remoteToken = conn.getHeaderField(MetaBaseAction.TOKEN);
+                    if (token == null && remoteToken != null) {
+                        LOG.info("get token from helper node. token={}.", remoteToken);
+                        token = remoteToken;
+                        storage.writeClusterIdAndToken();
+                        storage.reload();
+                    }
+                    if (Config.enable_token_check) {
+                        Preconditions.checkNotNull(token);
+                        Preconditions.checkNotNull(remoteToken);
+                        if (!token.equals(remoteToken)) {
+                            LOG.error("token is not equal with helper node {}. will exit.", helperNode.first);
+                            System.exit(-1);
+                        }
+                    }
                 } catch (Exception e) {
-                    LOG.warn(e);
+                    LOG.warn("fail to check cluster_id and token with helper node.", e);
+                    System.exit(-1);
                 }
             }
 
@@ -626,7 +662,7 @@ public class Catalog {
 
             return ret;
         } catch (Exception e) {
-            LOG.warn(e);
+            LOG.warn("http connect error.", e);
         }
 
         return FrontendNodeType.UNKNOWN;
@@ -709,7 +745,8 @@ public class Catalog {
         LOG.info("checkpointer thread started. thread id is {}", checkpointThreadId);
 
         // ClusterInfoService
-        Catalog.getCurrentSystemInfo().setMaster(FrontendOptions.getLocalHostAddress(), Config.rpc_port, clusterId, epoch);
+        Catalog.getCurrentSystemInfo().setMaster(
+                FrontendOptions.getLocalHostAddress(), Config.rpc_port, clusterId, token, epoch);
         Catalog.getCurrentSystemInfo().start();
 
         pullLoadJobMgr.start();
@@ -738,11 +775,7 @@ public class Catalog {
         // catalog recycle bin
         getRecycleBin().start();
 
-        if (!Config.master_ip.equals("0.0.0.0")) {
-            this.masterIp = Config.master_ip;
-        } else {
-            this.masterIp = FrontendOptions.getLocalHostAddress();
-        }
+        this.masterIp = FrontendOptions.getLocalHostAddress();
         this.masterRpcPort = Config.rpc_port;
         this.masterHttpPort = Config.http_port;
 
@@ -834,7 +867,8 @@ public class Catalog {
             StorageInfo info = getStorageInfo(infoUrl);
             long version = info.getImageSeq();
             if (version > localImageVersion) {
-                String url = "http://" + helperNode.first + ":" + Config.http_port + "/image?version=" + version;
+                String url = "http://" + helperNode.first + ":" + Config.http_port
+                        + "/image?version=" + version;
                 String filename = Storage.IMAGE + "." + version;
                 File dir = new File(IMAGE_DIR);
                 MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getOutputStream(filename, dir));
@@ -888,7 +922,7 @@ public class Catalog {
             LOG.info("image does not exist: {}", curFile.getAbsolutePath());
             return;
         }
-        replayedJournalId = storage.getImageSeq();
+        replayedJournalId.set(storage.getImageSeq());
         LOG.info("start load image from {}. is ckpt: {}", curFile.getAbsolutePath(), Catalog.isCheckpointThread());
         long loadImageStartTime = System.currentTimeMillis();
         DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(curFile)));
@@ -962,55 +996,55 @@ public class Catalog {
 
     public long loadHeader(DataInputStream dis, long checksum) throws IOException {
         imageVersion = dis.readInt();
-        checksum ^= imageVersion;
+        long newChecksum = checksum ^ imageVersion;
         journalVersion = imageVersion;
         long replayedJournalId = dis.readLong();
-        checksum ^= replayedJournalId;
+        newChecksum ^= replayedJournalId;
         long id = dis.readLong();
-        checksum ^= id;
+        newChecksum ^= id;
         nextId.set(id);
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_32) {
             isDefaultClusterCreated = dis.readBoolean();
         }
 
-        return checksum;
+        return newChecksum;
     }
 
     public long loadMasterInfo(DataInputStream dis, long checksum) throws IOException {
         masterIp = Text.readString(dis);
         masterRpcPort = dis.readInt();
-        checksum ^= masterRpcPort;
+        long newChecksum = checksum ^ masterRpcPort;
         masterHttpPort = dis.readInt();
-        checksum ^= masterHttpPort;
+        newChecksum ^= masterHttpPort;
 
-        return checksum;
+        return newChecksum;
     }
 
     public long loadFrontends(DataInputStream dis, long checksum) throws IOException {
         int size = dis.readInt();
-        checksum ^= size;
+        long newChecksum = checksum ^ size;
         for (int i = 0; i < size; i++) {
             Frontend fe = Frontend.read(dis);
             frontends.add(fe);
         }
 
         size = dis.readInt();
-        checksum ^= size;
+        newChecksum ^= size;
         for (int i = 0; i < size; i++) {
             Frontend fe = Frontend.read(dis);
             removedFrontends.add(fe);
         }
-        return checksum;
+        return newChecksum;
     }
 
     public long loadDb(DataInputStream dis, long checksum) throws IOException, DdlException {
         int dbCount = dis.readInt();
-        checksum ^= dbCount;
+        long newChecksum = checksum ^ dbCount;
         for (long i = 0; i < dbCount; ++i) {
             Database db = new Database();
             db.readFields(dis);
-            checksum ^= db.getId();
+            newChecksum ^= db.getId();
             idToDb.put(db.getId(), db);
             fullNameToDb.put(db.getFullName(), db);
             if (db.getDbState() == DbState.LINK) {
@@ -1018,19 +1052,19 @@ public class Catalog {
             }
         }
 
-        return checksum;
+        return newChecksum;
     }
 
     public long loadLoadJob(DataInputStream dis, long checksum) throws IOException, DdlException {
         // load jobs
         int jobSize = dis.readInt();
-        checksum ^= jobSize;
+        long newChecksum = checksum ^ jobSize;
         for (int i = 0; i < jobSize; i++) {
             long dbId = dis.readLong();
-            checksum ^= dbId;
+            newChecksum ^= dbId;
 
             int loadJobCount = dis.readInt();
-            checksum ^= loadJobCount;
+            newChecksum ^= loadJobCount;
             for (int j = 0; j < loadJobCount; j++) {
                 LoadJob job = new LoadJob();
                 job.readFields(dis);
@@ -1049,13 +1083,13 @@ public class Catalog {
         // delete jobs
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_11) {
             jobSize = dis.readInt();
-            checksum ^= jobSize;
+            newChecksum ^= jobSize;
             for (int i = 0; i < jobSize; i++) {
                 long dbId = dis.readLong();
-                checksum ^= dbId;
+                newChecksum ^= dbId;
 
                 int deleteCount = dis.readInt();
-                checksum ^= deleteCount;
+                newChecksum ^= deleteCount;
                 for (int j = 0; j < deleteCount; j++) {
                     DeleteInfo deleteInfo = new DeleteInfo();
                     deleteInfo.readFields(dis);
@@ -1077,36 +1111,38 @@ public class Catalog {
             load.setLoadErrorHubInfo(param);
         }
 
-        return checksum;
+        return newChecksum;
     }
 
     public long loadExportJob(DataInputStream dis, long checksum) throws IOException, DdlException {
+        long newChecksum = checksum;
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_32) {
             int size = dis.readInt();
-            checksum ^= size;
+            newChecksum = checksum ^ size;
             for (int i = 0; i < size; ++i) {
                 long jobId = dis.readLong();
-                checksum ^= jobId;
+                newChecksum ^= jobId;
                 ExportJob job = new ExportJob();
                 job.readFields(dis);
                 exportMgr.unprotectAddJob(job);
             }
         }
 
-        return checksum;
+        return newChecksum;
     }
 
     public long loadAlterJob(DataInputStream dis, long checksum) throws IOException {
+        long newChecksum = checksum;
         for (JobType type : JobType.values()) {
             if (type == JobType.DECOMMISSION_BACKEND) {
                 if (Catalog.getCurrentCatalogJournalVersion() >= 5) {
-                    checksum = loadAlterJob(dis, checksum, type);
+                    newChecksum = loadAlterJob(dis, newChecksum, type);
                 }
             } else {
-                checksum = loadAlterJob(dis, checksum, type);
+                newChecksum = loadAlterJob(dis, newChecksum, type);
             }
         }
-        return checksum;
+        return newChecksum;
     }
 
     public long loadAlterJob(DataInputStream dis, long checksum, JobType type) throws IOException {
@@ -1126,10 +1162,10 @@ public class Catalog {
 
         // alter jobs
         int size = dis.readInt();
-        checksum ^= size;
+        long newChecksum = checksum ^ size;
         for (int i = 0; i < size; i++) {
             long tableId = dis.readLong();
-            checksum ^= tableId;
+            newChecksum ^= tableId;
             AlterJob job = AlterJob.read(dis);
             alterJobs.put(tableId, job);
 
@@ -1144,10 +1180,10 @@ public class Catalog {
             // finished or cancelled jobs
             long currentTimeMs = System.currentTimeMillis();
             size = dis.readInt();
-            checksum ^= size;
+            newChecksum ^= size;
             for (int i = 0; i < size; i++) {
                 long tableId = dis.readLong();
-                checksum ^= tableId;
+                newChecksum ^= tableId;
                 AlterJob job = AlterJob.read(dis);
                 if ((currentTimeMs - job.getCreateTimeMs()) / 1000 <= Config.label_keep_max_second) {
                     // delete history jobs
@@ -1156,16 +1192,17 @@ public class Catalog {
             }
         }
 
-        return checksum;
+        return newChecksum;
     }
 
     public long loadBackupAndRestoreJob(DataInputStream dis, long checksum) throws IOException {
+        long newChecksum = checksum;
         if (getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
-            checksum = loadBackupAndRestoreJob(dis, checksum, BackupJob.class);
-            checksum = loadBackupAndRestoreJob(dis, checksum, RestoreJob.class);
-            checksum = loadBackupAndRestoreLabel(dis, checksum);
+            newChecksum = loadBackupAndRestoreJob(dis, newChecksum, BackupJob.class);
+            newChecksum = loadBackupAndRestoreJob(dis, newChecksum, RestoreJob.class);
+            newChecksum = loadBackupAndRestoreLabel(dis, newChecksum);
         }
-        return checksum;
+        return newChecksum;
     }
 
     private long loadBackupAndRestoreJob(DataInputStream dis, long checksum,
@@ -1183,10 +1220,10 @@ public class Catalog {
         }
 
         int size = dis.readInt();
-        checksum ^= size;
+        long newChecksum = checksum ^ size;
         for (int i = 0; i < size; i++) {
             long dbId = dis.readLong();
-            checksum ^= dbId;
+            newChecksum ^= dbId;
             if (jobClass == BackupJob.class) {
                 BackupJob job = new BackupJob();
                 job.readFields(dis);
@@ -1201,10 +1238,10 @@ public class Catalog {
 
         // finished or cancelled
         size = dis.readInt();
-        checksum ^= size;
+        newChecksum ^= size;
         for (int i = 0; i < size; i++) {
             long dbId = dis.readLong();
-            checksum ^= dbId;
+            newChecksum ^= dbId;
             if (jobClass == BackupJob.class) {
                 BackupJob job = new BackupJob();
                 job.readFields(dis);
@@ -1216,29 +1253,29 @@ public class Catalog {
             }
         }
 
-        return checksum;
+        return newChecksum;
     }
 
     private long loadBackupAndRestoreLabel(DataInputStream dis, long checksum) throws IOException {
         int size = dis.readInt();
-        checksum ^= size;
+        long newChecksum = checksum ^ size;
 
         Multimap<Long, String> dbIdtoLabels = getBackupHandler().unprotectedGetDbIdToLabels();
 
         for (int i = 0; i < size; i++) {
             long dbId = dis.readLong();
-            checksum ^= dbId;
+            newChecksum ^= dbId;
             String label = Text.readString(dis);
             dbIdtoLabels.put(dbId, label);
         }
-        return checksum;
+        return newChecksum;
     }
 
     public long loadAccessService(DataInputStream dis, long checksum) throws IOException {
         int size = dis.readInt();
-        checksum ^= size;
+        long newChecksum = checksum ^ size;
         userPropertyMgr.readFields(dis);
-        return checksum;
+        return newChecksum;
     }
 
     public long loadRecycleBin(DataInputStream dis, long checksum) throws IOException {
@@ -1257,9 +1294,9 @@ public class Catalog {
     public void saveImage() throws IOException {
         // Write image.ckpt
         Storage storage = new Storage(IMAGE_DIR);
-        File curFile = storage.getImageFile(replayedJournalId);
+        File curFile = storage.getImageFile(replayedJournalId.get());
         File ckpt = new File(IMAGE_DIR, Storage.IMAGE_NEW);
-        saveImage(ckpt, replayedJournalId);
+        saveImage(ckpt, replayedJournalId.get());
 
         // Move image.ckpt to image.dataVersion
         LOG.info("Move " + ckpt.getAbsolutePath() + " to " + curFile.getAbsolutePath());
@@ -1762,17 +1799,18 @@ public class Catalog {
     }
 
     public synchronized boolean replayJournal(long toJournalId) {
-        if (toJournalId == -1) {
-            toJournalId = getMaxJournalId();
+        long newToJournalId = toJournalId;
+        if (newToJournalId == -1) {
+            newToJournalId = getMaxJournalId();
         }
-        if (toJournalId <= replayedJournalId) {
+        if (newToJournalId <= replayedJournalId.get()) {
             return false;
         }
 
-        LOG.info("replayed journal id is {}, replay to journal id is {}", replayedJournalId, toJournalId);
-        JournalCursor cursor = editLog.read(replayedJournalId + 1, toJournalId);
+        LOG.info("replayed journal id is {}, replay to journal id is {}", replayedJournalId, newToJournalId);
+        JournalCursor cursor = editLog.read(replayedJournalId.get() + 1, newToJournalId);
         if (cursor == null) {
-            LOG.warn("failed to get cursor from {} to {}", replayedJournalId + 1, toJournalId);
+            LOG.warn("failed to get cursor from {} to {}", replayedJournalId.get() + 1, newToJournalId);
             return false;
         }
 
@@ -1785,10 +1823,10 @@ public class Catalog {
             }
             hasLog = true;
             EditLog.loadJournal(this, entity);
-            replayedJournalId++;
+            replayedJournalId.incrementAndGet();
             LOG.debug("journal {} replayed.", replayedJournalId);
             if (!isMaster) {
-                journalObservable.notifyObservers(replayedJournalId);
+                journalObservable.notifyObservers(replayedJournalId.get());
             }
         }
         long cost = System.currentTimeMillis() - startTime;
@@ -1859,19 +1897,43 @@ public class Catalog {
     }
 
     public Frontend checkFeExist(String host, int port) {
-        for (Frontend fe : frontends) {
-            if (fe.getHost().equals(host) && fe.getPort() == port) {
-                return fe;
+        readLock();
+        try {
+            for (Frontend fe : frontends) {
+                if (fe.getHost().equals(host) && fe.getPort() == port) {
+                    return fe;
+                }
             }
+        } finally {
+            readUnlock();
         }
         return null;
     }
 
     public Frontend checkFeRemoved(String host, int port) {
-        for (Frontend fe : removedFrontends) {
-            if (fe.getHost().equals(host) && fe.getPort() == port) {
-                return fe;
+        readLock();
+        try {
+            for (Frontend fe : removedFrontends) {
+                if (fe.getHost().equals(host) && fe.getPort() == port) {
+                    return fe;
+                }
             }
+        } finally {
+            readUnlock();
+        }
+        return null;
+    }
+
+    public Frontend getFeByHost(String host) {
+        readLock();
+        try {
+            for (Frontend fe : frontends) {
+                if (fe.getHost().equals(host)) {
+                    return fe;
+                }
+            }
+        } finally {
+            readUnlock();
         }
         return null;
     }
@@ -3703,13 +3765,13 @@ public class Catalog {
             final Cluster cluster = nameToCluster.get(clusterName);
             if (cluster == null) {
                 throw new AnalysisException("No cluster selected");
-            }    
+            }
             List<String> dbNames = Lists.newArrayList(cluster.getDbNames());
             return dbNames;
         } finally {
             readUnlock();
-        }    
-    } 
+        }
+    }
 
     public List<Long> getDbIds() {
         readLock();
@@ -3870,7 +3932,7 @@ public class Catalog {
     }
 
     public long getReplayedJournalId() {
-        return this.replayedJournalId;
+        return this.replayedJournalId.get();
     }
 
     public HAProtocol getHaProtocol() {
@@ -4272,7 +4334,7 @@ public class Catalog {
     }
 
     /*
-     * used for handling AlterClusterStmt 
+     * used for handling AlterClusterStmt
      * (for client is the ALTER CLUSTER command).
      */
     public void alterCluster(AlterSystemStmt stmt) throws DdlException, InternalException {
@@ -4607,7 +4669,7 @@ public class Catalog {
                             .append(backend.getHeartbeatPort()).toString());
                 }
 
-                // here we reuse the process of decommission backends. but set backend's decommission type to 
+                // here we reuse the process of decommission backends. but set backend's decommission type to
                 // ClusterDecommission, which means this backend will not be removed from the system
                 // after decommission is done.
                 final DecommissionBackendClause clause = new DecommissionBackendClause(hostPortList);
@@ -4721,7 +4783,7 @@ public class Catalog {
 
     /**
      * return max replicationNum of a db
-     * 
+     *
      * @param db
      * @return
      */
@@ -4944,10 +5006,10 @@ public class Catalog {
                 final Cluster cluster = new Cluster();
                 cluster.readFields(dis);
                 checksum ^= cluster.getId();
- 
-                // BE is in default_cluster when added , therefore it is possible that the BE 
-                // in default_cluster are not the latest because cluster cant't be updated when 
-                // loadCluster is after loadBackend. Because of forgeting to remove BE's id in 
+
+                // BE is in default_cluster when added , therefore it is possible that the BE
+                // in default_cluster are not the latest because cluster cant't be updated when
+                // loadCluster is after loadBackend. Because of forgeting to remove BE's id in
                 // cluster when drop BE or decommission in latest versions, need to update cluster's
                 // BE.
                 List<Long> latestBackendIds = systemInfo.getClusterBackendIds(cluster.getName());
@@ -5079,12 +5141,11 @@ public class Catalog {
                 final Cluster cluster = nameToCluster.get(backend.getOwnerClusterName());
                 cluster.removeBackend(id);
             } finally {
-                writeUnlock();  
+                writeUnlock();
             }
             backend.setDecommissioned(false);
             backend.clearClusterName();
-            backend.setBackendState(BackendState.free);            
+            backend.setBackendState(BackendState.free);
         }
     }
-
 }

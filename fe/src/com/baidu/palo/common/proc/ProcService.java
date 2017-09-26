@@ -24,11 +24,12 @@ import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
 
 import com.google.common.base.Strings;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 // proc服务提供接口
-public class ProcService {
+public final class ProcService {
     private static final Logger LOG = LogManager.getLogger(ProcService.class);
     private static ProcService INSTANCE;
 

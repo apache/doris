@@ -27,6 +27,7 @@ import com.baidu.palo.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -170,10 +171,6 @@ public class Function {
         }
         Preconditions.checkState(argTypes.length > 0);
         return argTypes[argTypes.length - 1];
-    }
-
-    public void setName(FunctionName name) {
-        name = name;
     }
 
     public void setHasVarArgs(boolean v) {

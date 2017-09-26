@@ -20,9 +20,9 @@
 
 package com.baidu.palo.analysis;
 
-import java.io.StringWriter;
-
 import com.baidu.palo.common.AnalysisException;
+
+import java.io.StringWriter;
 
 public class ColumnSeparator {
     private static final String HEX_STRING = "0123456789ABCDEF";
@@ -40,9 +40,9 @@ public class ColumnSeparator {
     }
 
     private static byte[] hexStrToBytes(String hexStr) {
-        hexStr = hexStr.toUpperCase();
-        int length = hexStr.length() / 2;
-        char[] hexChars = hexStr.toCharArray();
+        String upperHexStr = hexStr.toUpperCase();
+        int length = upperHexStr.length() / 2;
+        char[] hexChars = upperHexStr.toCharArray();
         byte[] bytes = new byte[length];
         for (int i = 0; i < length; i++) {
             int pos = i * 2;

@@ -20,13 +20,6 @@
 
 package com.baidu.palo.analysis;
 
-import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.List;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.baidu.palo.analysis.AnalyticWindow.Boundary;
 import com.baidu.palo.analysis.AnalyticWindow.BoundaryType;
 import com.baidu.palo.catalog.AggregateFunction;
@@ -40,6 +33,13 @@ import com.baidu.palo.thrift.TExprNode;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Representation of an analytic function call with OVER clause.
@@ -811,5 +811,10 @@ public class AnalyticExpr extends Expr {
         // Re-sync state after possible child substitution.
         ((AnalyticExpr) e).syncWithChildren();
         return e;
+    }
+
+    @Override
+    public String toSql() {
+        return "";
     }
 }

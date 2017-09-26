@@ -15,10 +15,13 @@
 
 package com.baidu.palo.persist;
 
-import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.LogManager;
-
 import com.baidu.palo.ha.FrontendNodeType;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -30,11 +33,13 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 import java.util.Random;
+import java.util.UUID;
 
 public class Storage {
     private static final Logger LOG = LogManager.getLogger(Storage.class);
 
     public static final String CLUSTER_ID = "clusterId";
+    public static final String TOKEN = "token";
     public static final String FRONTEND_ROLE = "role";
     public static final String EDITS = "edits";
     public static final String IMAGE = "image";
@@ -42,29 +47,41 @@ public class Storage {
     public static final String VERSION_FILE = "VERSION";
     public static final String ROLE_FILE = "ROLE";
 
-    private int clusterID;
+    private int clusterID = 0;
+    private String token;
     private FrontendNodeType role = FrontendNodeType.UNKNOWN;
     private long editsSeq;
     private long imageSeq;
     private String metaDir;
     private List<Long> editsFileSequenceNumbers;
-    
-    public Storage(int clusterID, String metaDir) {
+
+    public Storage(int clusterID, String token, String metaDir) {
         this.clusterID = clusterID;
+        this.token = token;
         this.metaDir = metaDir;
     }
 
-    public Storage(int clusterID, long imageSeq, long editsSeq, String metaDir) {
+    public Storage(int clusterID, String token, long imageSeq, long editsSeq, String metaDir) {
         this.clusterID = clusterID;
+        this.token = token;
         this.editsSeq = editsSeq;
         this.imageSeq = imageSeq;
         this.metaDir = metaDir;
     }
-    
+
     public Storage(String metaDir) throws IOException {
         this.editsFileSequenceNumbers = new ArrayList<Long>();
         this.metaDir = metaDir;
 
+        reload();
+    }
+
+    public List<Long> getEditsFileSequenceNumbers() {
+        Collections.sort(editsFileSequenceNumbers);
+        return this.editsFileSequenceNumbers;
+    }
+
+    public void reload() throws IOException {
         // Read version file info
         Properties prop = new Properties();
         File versionFile = getVersionFile();
@@ -73,8 +90,11 @@ public class Storage {
             prop.load(in);
             in.close();
             clusterID = Integer.parseInt(prop.getProperty(CLUSTER_ID));
+            if (prop.getProperty(TOKEN) != null) {
+                token = prop.getProperty(TOKEN);
+            }
         }
-        
+
         File roleFile = getRoleFile();
         if (roleFile.isFile()) {
             FileInputStream in = new FileInputStream(roleFile);
@@ -92,7 +112,7 @@ public class Storage {
             for (File child : children) {
                 String name = child.getName();
                 try {
-                    if (!name.equals(EDITS) && !name.equals(IMAGE_NEW) 
+                    if (!name.equals(EDITS) && !name.equals(IMAGE_NEW)
                             && !name.endsWith(".part") && name.contains(".")) {
                         if (name.startsWith(IMAGE)) {
                             imageSeq = Math.max(Long.parseLong(name.substring(name.lastIndexOf('.') + 1)), imageSeq);
@@ -107,11 +127,7 @@ public class Storage {
                 }
             }
         }
-    }
-    
-    public List<Long> getEditsFileSequenceNumbers() {
-        Collections.sort(editsFileSequenceNumbers);
-        return this.editsFileSequenceNumbers;
+
     }
 
     public int getClusterID() {
@@ -121,7 +137,15 @@ public class Storage {
     public void setClusterID(int clusterID) {
         this.clusterID = clusterID;
     }
-    
+
+    public String getToken() {
+        return token;
+    }
+
+    public void setToken(String token) {
+        this.token = token;
+    }
+
     public FrontendNodeType getRole() {
         return role;
     }
@@ -161,43 +185,20 @@ public class Storage {
         return newID;
     }
 
-    public void read() throws IOException {
-        read(getVersionFile());
+    public static String newToken() {
+        return UUID.randomUUID().toString();
     }
 
-    public void read(File from) throws IOException {
-        RandomAccessFile file = new RandomAccessFile(from, "rws");
-        FileInputStream in = null;
-
-        try {
-            in = new FileInputStream(file.getFD());
-            file.seek(0);
-            Properties properties = new Properties();
-            properties.load(in);
-            getFields(properties);
-        } finally {
-            if (in != null) {
-                in.close();
-            }
-            file.close();
-        }
-    }
-
-    public void getFields(Properties properties) throws IOException {
-        String tmpClusterID = properties.getProperty(CLUSTER_ID);
-
-        if (tmpClusterID == null) {
-            throw new IOException("File " + VERSION_FILE + " is invalid.");
-        }
-
-        clusterID = Integer.parseInt(tmpClusterID);
-    }
-
-    public void setFields(Properties properties) throws IOException {
+    private void setFields(Properties properties) throws IOException {
+        Preconditions.checkState(clusterID > 0);
         properties.setProperty(CLUSTER_ID, String.valueOf(clusterID));
+
+        if (!Strings.isNullOrEmpty(token)) {
+            properties.setProperty(TOKEN, token);
+        }
     }
 
-    public void writeClusterId() throws IOException {
+    public void writeClusterIdAndToken() throws IOException {
         Properties properties = new Properties();
         setFields(properties);
 
@@ -216,7 +217,7 @@ public class Storage {
             file.close();
         }
     }
-    
+
     public void writeFrontendRole(FrontendNodeType role) throws IOException {
         Properties properties = new Properties();
         properties.setProperty(FRONTEND_ROLE, role.name());
@@ -274,11 +275,11 @@ public class Storage {
         return new File(dir, IMAGE + "." + version);
     }
 
-    public File getVersionFile() {
+    public final File getVersionFile() {
         return new File(metaDir, VERSION_FILE);
     }
-    
-    public File getRoleFile() {
+
+    public final File getRoleFile() {
         return new File(metaDir, ROLE_FILE);
     }
 
@@ -302,5 +303,5 @@ public class Storage {
         String filename = file.getName();
         return Long.parseLong(filename.substring(filename.lastIndexOf('.') + 1));
     }
-    
+
 }

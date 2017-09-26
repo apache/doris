@@ -15,21 +15,35 @@
 
 package com.baidu.palo.service;
 
-import java.net.Inet4Address;
-import java.net.InetAddress;
-import java.util.List;
-import java.util.ArrayList;
+import com.baidu.palo.common.Config;
+import com.baidu.palo.common.util.NetUtils;
 
+import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import com.baidu.palo.common.util.NetUtils;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.List;
 
 
 public class FrontendOptions {
     private static final Logger LOG = LogManager.getLogger(FrontendOptions.class);
     
-    public static void init() {
+    private static InetAddress localHost;
+
+    public static void init() throws UnknownHostException {
+        if (!Config.frontend_address.equals("0.0.0.0")) {
+            if (!InetAddressValidator.getInstance().isValidInet4Address(Config.frontend_address)) {
+                throw new UnknownHostException("invalid frontend_address: " + Config.frontend_address);
+            }
+            localHost = InetAddress.getByName(Config.frontend_address);
+            return;
+        }
+        
+        // if not set frontend_address, get a non-loopback ip
         List<InetAddress> hosts = new ArrayList<InetAddress>();
         NetUtils.getHosts(hosts);
         if (hosts.isEmpty()) {
@@ -49,6 +63,7 @@ public class FrontendOptions {
             }
         }
         
+        // nothing found, use loopback addr
         if (localHost == null) {
             localHost = loopBack;
         }
@@ -61,7 +76,5 @@ public class FrontendOptions {
     public static String getLocalHostAddress() {
         return localHost.getHostAddress();
     }
-
-    private static InetAddress localHost;
 };
 

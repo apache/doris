@@ -26,15 +26,13 @@ import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.InfoSchemaDb;
 import com.baidu.palo.catalog.Table;
-import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.catalog.Type;
 import com.baidu.palo.catalog.View;
+import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.IdGenerator;
-import com.baidu.palo.common.InternalException;
-import com.baidu.palo.common.Reference;
 import com.baidu.palo.planner.PlanNode;
 import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.rewrite.BetweenToCompoundRule;
@@ -524,36 +522,33 @@ public class Analyzer {
      */
     public SlotDescriptor registerColumnRef(TableName tblName, String colName) throws AnalysisException {
         TupleDescriptor d;
-        if (tblName == null) {
+        TableName newTblName = tblName;
+        if (newTblName == null) {
             d = resolveColumnRef(colName);
         } else {
-            if (InfoSchemaDb.isInfoSchemaDb(tblName.getDb()) ||
-                    (tblName.getDb() == null && InfoSchemaDb.isInfoSchemaDb(getDefaultDb()))) {
-                tblName = new TableName(tblName.getDb(), tblName.getTbl().toLowerCase());
+            if (InfoSchemaDb.isInfoSchemaDb(newTblName.getDb())
+                    || (newTblName.getDb() == null && InfoSchemaDb.isInfoSchemaDb(getDefaultDb()))) {
+                newTblName = new TableName(newTblName.getDb(), newTblName.getTbl().toLowerCase());
             }
-            d = resolveColumnRef(tblName, colName);
+            d = resolveColumnRef(newTblName, colName);
         }
         if (d == null && hasAncestors() && isSubquery) {
             // analyzer father for subquery
-            if (tblName == null) {
+            if (newTblName == null) {
                 d = getParentAnalyzer().resolveColumnRef(colName);
             } else {
-                d = getParentAnalyzer().resolveColumnRef(tblName, colName);
+                d = getParentAnalyzer().resolveColumnRef(newTblName, colName);
             }
         }
         if (d == null) {
-            ErrorReport.reportAnalysisException(
-                    ErrorCode.ERR_BAD_FIELD_ERROR,
-                    colName,
-                    tblName == null ? "table list" : tblName.toString());
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, colName,
+                                                newTblName == null ? "table list" : newTblName.toString());
         }
 
         Column col = d.getTable().getColumn(colName);
         if (col == null) {
-            ErrorReport.reportAnalysisException(
-                    ErrorCode.ERR_BAD_FIELD_ERROR,
-                    colName,
-                    tblName == null ? d.getTable().getName() : tblName.toString());
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, colName,
+                                                newTblName == null ? d.getTable().getName() : newTblName.toString());
         }
 
         // Make column name case insensitive

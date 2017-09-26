@@ -37,7 +37,7 @@ import com.baidu.palo.common.AnalysisException;
  * A BETWEEN X AND Y ==> A >= X AND A <= Y
  * A NOT BETWEEN X AND Y ==> A < X OR A > Y
  */
-public class BetweenToCompoundRule implements ExprRewriteRule {
+public final class BetweenToCompoundRule implements ExprRewriteRule {
     public static ExprRewriteRule INSTANCE = new BetweenToCompoundRule();
 
     @Override

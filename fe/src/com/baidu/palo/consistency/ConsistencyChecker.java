@@ -16,14 +16,14 @@
 package com.baidu.palo.consistency;
 
 import com.baidu.palo.catalog.Catalog;
-import com.baidu.palo.catalog.MetaObject;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.MaterializedIndex;
+import com.baidu.palo.catalog.MetaObject;
 import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.catalog.Partition;
 import com.baidu.palo.catalog.Table;
-import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.catalog.Table.TableType;
+import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.util.Daemon;
 import com.baidu.palo.common.util.TimeUtils;
@@ -330,14 +330,12 @@ public class ConsistencyChecker extends Daemon {
                                                       tablet.getCheckedVersionHash());
                                             continue;
                                         }
+                                    } else {
+                                        LOG.info("chose tablet[{}-{}-{}-{}-{}] to check consistency", db.getId(),
+                                                 table.getId(), partition.getId(), index.getId(), chosenTabletId);
+
+                                        return chosenTabletId;
                                     }
-
-                                    LOG.info("chose tablet[{}-{}-{}-{}-{}] to check consistency",
-                                              db.getId(), table.getId(), partition.getId(), index.getId(),
-                                              chosenTabletId);
-
-                                    return chosenTabletId;
-
                                 } // end while tabletQueue
                             } // end while indexQueue
                         } // end while partitionQueue 

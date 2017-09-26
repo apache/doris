@@ -17,6 +17,7 @@ package com.baidu.palo.catalog;
 
 import com.baidu.palo.analysis.SetUserPropertyVar;
 import com.baidu.palo.analysis.SetVar;
+import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.FeMetaVersion;
@@ -25,7 +26,6 @@ import com.baidu.palo.common.Pair;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.io.Writable;
 import com.baidu.palo.load.DppConfig;
-import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
@@ -297,10 +297,11 @@ public class UserProperty implements Writable {
             return true;
         }
         // information_schema is case insensitive
-        if (db.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
-            db = InfoSchemaDb.DATABASE_NAME;
+        String tmpDb = db;
+        if (tmpDb.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
+            tmpDb = InfoSchemaDb.DATABASE_NAME;
         }
-        AccessPrivilege dbPriv = dbPrivMap.get(db);
+        AccessPrivilege dbPriv = dbPrivMap.get(tmpDb);
         if (dbPriv == null) {
             return false;
         }
@@ -331,19 +332,20 @@ public class UserProperty implements Writable {
     }
 
     public Pair<String, DppConfig> getClusterInfo(String cluster) {
-        if (cluster == null) {
-            cluster = defaultLoadCluster;
+        String tmpCluster = cluster;
+        if (tmpCluster == null) {
+            tmpCluster = defaultLoadCluster;
         }
 
         DppConfig dppConfig = null;
-        if (cluster != null) {
-            dppConfig = clusterToDppConfig.get(cluster);
+        if (tmpCluster != null) {
+            dppConfig = clusterToDppConfig.get(tmpCluster);
             if (dppConfig != null) {
                 dppConfig = dppConfig.getCopiedDppConfig();
             }
         }
 
-        return Pair.create(cluster, dppConfig);
+        return Pair.create(tmpCluster, dppConfig);
     }
 
     public List<List<String>> fetchProperty() {

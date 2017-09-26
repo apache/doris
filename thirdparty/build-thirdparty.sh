@@ -394,7 +394,7 @@ build_curl() {
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
     ./configure --prefix=$TP_INSTALL_DIR \
-    --with-ssl=$TP_INSTALL_DIR
+    --without-ssl --without-libidn2 --disable-ldap
     make -j$PARALLEL && make install
 }
 

@@ -71,8 +71,8 @@ import com.baidu.palo.task.AgentTaskExecutor;
 import com.baidu.palo.task.AgentTaskQueue;
 import com.baidu.palo.task.CancelDeleteTask;
 import com.baidu.palo.task.PushTask;
-import com.baidu.palo.thrift.TMiniLoadRequest;
 import com.baidu.palo.thrift.TEtlState;
+import com.baidu.palo.thrift.TMiniLoadRequest;
 import com.baidu.palo.thrift.TNetworkAddress;
 import com.baidu.palo.thrift.TPriority;
 import com.baidu.palo.thrift.TPushType;
@@ -1919,13 +1919,14 @@ public class Load {
         long jobId = job.getId();
         long dbId = job.getDbId();
         Database db = Catalog.getInstance().getDb(dbId);
+        String errMsg = msg;
         if (db == null) {
             // if db is null, update job to cancelled
-            msg = "db does not exist. id: " + dbId;
-            LOG.warn(msg);
+            errMsg = "db does not exist. id: " + dbId;
+            LOG.warn(errMsg);
             writeLock();
             try {
-                processCancelled(job, cancelType, msg);
+                processCancelled(job, cancelType, errMsg);
             } finally {
                 writeUnlock();
             }
@@ -1969,8 +1970,8 @@ public class Load {
                                 // Write edit log
                                 Catalog.getInstance().getEditLog().logLoadQuorum(job);
                             } else {
-                                msg = "process loading finished fail";
-                                processCancelled(job, cancelType, msg);
+                                errMsg = "process loading finished fail";
+                                processCancelled(job, cancelType, errMsg);
                             }
                             break;
                         case FINISHED:
@@ -1989,7 +1990,7 @@ public class Load {
                             Catalog.getInstance().getEditLog().logLoadDone(job);
                             break;
                         case CANCELLED:
-                            processCancelled(job, cancelType, msg);
+                            processCancelled(job, cancelType, errMsg);
                             break;
                         default:
                             Preconditions.checkState(false, "wrong job state: " + destState.name());
@@ -2124,10 +2125,11 @@ public class Load {
         }
         
         // set failMsg and state
-        if (cancelType == CancelType.UNKNOWN) {
-            cancelType = tmpCancelType;
+        CancelType newCancelType = cancelType;
+        if (newCancelType == CancelType.UNKNOWN) {
+            newCancelType = tmpCancelType;
         }
-        FailMsg failMsg = new FailMsg(cancelType, msg);
+        FailMsg failMsg = new FailMsg(newCancelType, msg);
         job.setFailMsg(failMsg);
         job.setLoadFinishTimeMs(System.currentTimeMillis());
         job.setState(JobState.CANCELLED);

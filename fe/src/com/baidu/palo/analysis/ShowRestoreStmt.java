@@ -75,48 +75,50 @@ public class ShowRestoreStmt extends ShowStmt {
 
     private void analyzeWhere() throws AnalysisException {
         boolean valid = true;
-        while (where != null) {
+        if (where == null) {
+            return;
+        }
+
+        CHECK: {
             if (where instanceof BinaryPredicate) {
                 BinaryPredicate binaryPredicate = (BinaryPredicate) where;
                 if (binaryPredicate.getOp() != Operator.EQ) {
                     valid = false;
-                    break;
+                    break CHECK;
                 }
             } else if (where instanceof LikePredicate) {
                 LikePredicate likePredicate = (LikePredicate) where;
                 if (likePredicate.getOp() != LikePredicate.Operator.LIKE) {
                     valid = false;
-                    break;
+                    break CHECK;
                 }
             } else {
                 valid = false;
-                break;
+                break CHECK;
             }
 
             // left child
             if (!(where.getChild(0) instanceof SlotRef)) {
                 valid = false;
-                break;
+                break CHECK;
             }
             String leftKey = ((SlotRef) where.getChild(0)).getColumnName();
             if (!leftKey.equalsIgnoreCase("label")) {
                 valid = false;
-                break;
+                break CHECK;
             }
 
             // right child
             if (!(where.getChild(1) instanceof StringLiteral)) {
                 valid = false;
-                break;
+                break CHECK;
             }
 
             label = ((StringLiteral) where.getChild(1)).getStringValue();
             if (Strings.isNullOrEmpty(label)) {
                 valid = false;
-                break;
+                break CHECK;
             }
-
-            break;
         }
 
         if (!valid) {

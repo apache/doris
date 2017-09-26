@@ -15,29 +15,19 @@
 
 package com.baidu.palo.http;
 
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.io.UnsupportedEncodingException;
-import java.nio.ByteBuffer;
-import java.util.List;
-import java.util.Map;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.DdlException;
-import com.baidu.palo.http.rest.UnauthorizedException;
 import com.baidu.palo.mysql.MysqlPassword;
 import com.baidu.palo.qe.QeService;
 import com.baidu.palo.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -63,6 +53,15 @@ import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.stream.ChunkedFile;
 import io.netty.util.CharsetUtil;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.io.UnsupportedEncodingException;
+import java.nio.ByteBuffer;
+import java.util.List;
+import java.util.Map;
+
 public abstract class BaseAction implements IAction {
     private static final Logger LOG = LogManager.getLogger(BaseAction.class);
 
@@ -87,7 +86,14 @@ public abstract class BaseAction implements IAction {
     @Override
     public void handleRequest(BaseRequest request) throws Exception {
         BaseResponse response = new BaseResponse();
-        execute(request, response);
+        LOG.info("receive http request. url={}", request.getRequest().uri());
+        try {
+            execute(request, response);
+        } catch (Exception e) {
+            LOG.warn("fail to process url={}. error={}",
+                    request.getRequest().uri(), e);
+            writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
+        }
     }
 
     public abstract void execute(BaseRequest request, BaseResponse response) throws DdlException;
@@ -269,7 +275,8 @@ public abstract class BaseAction implements IAction {
     }
 
     // check authenticate information
-    private AuthorizationInfo checkAndGetUser(BaseRequest request) throws DdlException {
+    private AuthorizationInfo checkAndGetUser(BaseRequest request)
+            throws UnauthorizedException {
         AuthorizationInfo authInfo = new AuthorizationInfo();
         if (!parseAuth(request, authInfo)) {
             throw new UnauthorizedException("Need auth information.");
@@ -277,35 +284,50 @@ public abstract class BaseAction implements IAction {
         byte[] hashedPasswd = catalog.getUserMgr().getPassword(authInfo.fullUserName);
         if (hashedPasswd == null) {
             // No such user
-            throw new DdlException("No such user(" + authInfo.fullUserName + ")");
+            throw new UnauthorizedException("No such user(" + authInfo.fullUserName + ")");
         }
         if (!MysqlPassword.checkPlainPass(hashedPasswd, authInfo.password)) {
-            throw new DdlException("Password error");
+            throw new UnauthorizedException("Password error");
         }
         return authInfo;
     }
 
-    protected void checkAdmin(BaseRequest request) throws DdlException {
+    protected void checkAdmin(BaseRequest request) throws UnauthorizedException {
         final AuthorizationInfo authInfo = checkAndGetUser(request);
         if (!catalog.getUserMgr().isAdmin(authInfo.fullUserName)) {
-            throw new DdlException("Administrator needed");
+            throw new UnauthorizedException("Administrator needed");
         }
     }
 
-    protected void checkReadPriv(String fullUserName, String fullDbName) throws DdlException {
+    protected void checkReadPriv(String fullUserName, String fullDbName)
+            throws UnauthorizedException {
         if (!catalog.getUserMgr().checkAccess(fullUserName, fullDbName, AccessPrivilege.READ_ONLY)) {
-            throw new DdlException("Read Privilege needed");
+            throw new UnauthorizedException("Read Privilege needed");
         }
     }
 
-    protected void checkWritePriv(String fullUserName, String fullDbName) throws DdlException {
+    protected void checkWritePriv(String fullUserName, String fullDbName)
+            throws UnauthorizedException {
         if (!catalog.getUserMgr().checkAccess(fullUserName, fullDbName, AccessPrivilege.READ_WRITE)) {
-            throw new DdlException("Write Privilege needed");
+            throw new UnauthorizedException("Write Privilege needed");
         }
     }
 
-    public AuthorizationInfo getAuthorizationInfo(BaseRequest request) throws DdlException {
+    public AuthorizationInfo getAuthorizationInfo(BaseRequest request)
+            throws UnauthorizedException {
         return checkAndGetUser(request);
     }
 
+    protected void writeAuthResponse(BaseRequest request, BaseResponse response) {
+        response.addHeader(HttpHeaders.Names.WWW_AUTHENTICATE, "Basic realm=\"\"");
+        writeResponse(request, response, HttpResponseStatus.UNAUTHORIZED);
+    }
+
+    protected int checkIntParam(String strParam) {
+        return Integer.parseInt(strParam);
+    }
+
+    protected long checkLongParam(String strParam) {
+        return Long.parseLong(strParam);
+    }
 }

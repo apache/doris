@@ -21,7 +21,6 @@
 package com.baidu.palo.planner;
 
 import com.baidu.palo.analysis.AggregateInfo;
-import com.baidu.palo.analysis.Analyzer;
 import com.baidu.palo.analysis.Expr;
 import com.baidu.palo.analysis.InsertStmt;
 import com.baidu.palo.analysis.JoinOperator;
@@ -34,6 +33,7 @@ import com.baidu.palo.thrift.TPartitionType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -134,9 +134,9 @@ public class DistributedPlanner {
 
         // Need a merge node to merge all partition of input framgent
         if (needMerge) {
-            inputFragment = createMergeFragment(inputFragment);
-            fragments.add(inputFragment);
-            return inputFragment;
+            PlanFragment newInputFragment = createMergeFragment(inputFragment);
+            fragments.add(newInputFragment);
+            return newInputFragment;
         }
 
         // Following is repartition logic

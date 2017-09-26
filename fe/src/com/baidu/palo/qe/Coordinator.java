@@ -771,10 +771,11 @@ public class Coordinator {
     // Returns the id of the leftmost node of any of the gives types in 'plan_root',
     // or INVALID_PLAN_NODE_ID if no such node present.
     private PlanNode findLeftmostNode(PlanNode plan) {
-        while (plan.getChildren().size() != 0) {
-            plan = plan.getChild(0);
+        PlanNode newPlan = plan;
+        while (newPlan.getChildren().size() != 0) {
+            newPlan = newPlan.getChild(0);
         }
-        return plan;
+        return newPlan;
     }
 
     private <K, V> V findOrInsert(HashMap<K, V> m, final K key, final V defaultVal) {
@@ -1026,7 +1027,7 @@ public class Coordinator {
             this.addressToBackendID = addressToBackendID;
         }
 
-        public TNetworkAddress getBackendAddress() {
+        public final TNetworkAddress getBackendAddress() {
             return fragmentExecParams.get(fragmentId).hosts.get(instanceId);
         }
 
@@ -1122,6 +1123,7 @@ public class Coordinator {
         List<TExecPlanFragmentParams> toThrift(int backendNum) {
             List<TExecPlanFragmentParams> paramsList = Lists.newArrayList();
 
+            int tmpBackendNum = backendNum;
             for (int i = 0; i < instanceIds.size(); ++i) {
                 TExecPlanFragmentParams params = new TExecPlanFragmentParams();
                 params.setProtocol_version(PaloInternalServiceVersion.V1);
@@ -1143,7 +1145,7 @@ public class Coordinator {
                 params.params.setDestinations(destinations);
                 params.params.setSender_id(i);
                 params.setCoord(coordAddress);
-                params.setBackend_num(backendNum++);
+                params.setBackend_num(tmpBackendNum++);
                 params.setQuery_globals(queryGlobals);
                 params.setQuery_options(queryOptions);
 

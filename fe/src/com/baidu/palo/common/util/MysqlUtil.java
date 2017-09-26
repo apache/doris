@@ -21,6 +21,7 @@
 package com.baidu.palo.common.util;
 
 import com.google.common.base.Preconditions;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -80,7 +81,6 @@ public class MysqlUtil {
             } catch (SQLException sqlEx) {
                 LOG.warn("fail to close connection to mysql.");
             }
-            conn = null;
         }
     }
 }

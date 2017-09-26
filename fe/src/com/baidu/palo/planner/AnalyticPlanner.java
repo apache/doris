@@ -20,13 +20,6 @@
 
 package com.baidu.palo.planner;
 
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.baidu.palo.analysis.AnalyticExpr;
 import com.baidu.palo.analysis.AnalyticInfo;
 import com.baidu.palo.analysis.AnalyticWindow;
@@ -48,8 +41,16 @@ import com.baidu.palo.analysis.TupleIsNullPredicate;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.InternalException;
 import com.baidu.palo.thrift.TPartitionType;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 
 /**
  * The analytic planner adds plan nodes to an existing plan tree in order to
@@ -125,18 +126,17 @@ public class AnalyticPlanner {
                 partitionGroups, groupingExprs, root.getNumNodes(), inputPartitionExprs);
         }
 
-        PlanNode analyticInputNode = root;
-
+        PlanNode newRoot = root;
         for (PartitionGroup partitionGroup : partitionGroups) {
             for (int i = 0; i < partitionGroup.sortGroups.size(); ++i) {
-                root = createSortGroupPlan(root, partitionGroup.sortGroups.get(i),
+                newRoot = createSortGroupPlan(newRoot, partitionGroup.sortGroups.get(i),
                                            i == 0 ? partitionGroup.partitionByExprs : null);
             }
         }
 
         // create equiv classes for newly added slots
         //    analyzer_.createIdentityEquivClasses();
-        return root;
+        return newRoot;
     }
 
     /**
@@ -394,16 +394,17 @@ public class AnalyticPlanner {
         // map from input to buffered tuple
         ExprSubstitutionMap bufferedSmap = new ExprSubstitutionMap();
 
+        PlanNode newRoot = root;
         // sort on partition by (pb) + order by (ob) exprs and create pb/ob predicates
         if (!partitionByExprs.isEmpty() || !orderByElements.isEmpty()) {
             // first sort on partitionExprs (direction doesn't matter)
             List<Expr> sortExprs = Lists.newArrayList(partitionByExprs);
             List<Boolean> isAsc =
-                Lists.newArrayList(Collections.nCopies(sortExprs.size(), new Boolean(true)));
+                    Lists.newArrayList(Collections.nCopies(sortExprs.size(), Boolean.TRUE));
             // TODO: utilize a direction and nulls/first last that has benefit
             // for subsequent sort groups
             List<Boolean> nullsFirst =
-                Lists.newArrayList(Collections.nCopies(sortExprs.size(), new Boolean(true)));
+                    Lists.newArrayList(Collections.nCopies(sortExprs.size(), Boolean.FALSE));
 
             // then sort on orderByExprs
             for (OrderByElement orderByElement : sortGroup.orderByElements) {
@@ -412,8 +413,8 @@ public class AnalyticPlanner {
                 nullsFirst.add(orderByElement.getNullsFirstParam());
             }
 
-            SortInfo sortInfo = createSortInfo(root, sortExprs, isAsc, nullsFirst);
-            SortNode sortNode = new SortNode(ctx_.getNextNodeId(), root, sortInfo, false, false, 0);
+            SortInfo sortInfo = createSortInfo(newRoot, sortExprs, isAsc, nullsFirst);
+            SortNode sortNode = new SortNode(ctx_.getNextNodeId(), newRoot, sortInfo, false, false, 0);
 
             // if this sort group does not have partitioning exprs, we want the sort
             // to be executed like a regular distributed sort
@@ -434,7 +435,7 @@ public class AnalyticPlanner {
             }
 
             sortNode.init(analyzer);
-            root = sortNode;
+            newRoot = sortNode;
             sortSmap = sortNode.getOutputSmap();
 
             // create bufferedTupleDesc and bufferedSmap
@@ -481,7 +482,7 @@ public class AnalyticPlanner {
                 LOG.trace("orderByEq: " + orderByEq.debugString());
             }
 
-            AnalyticEvalNode node = new AnalyticEvalNode(ctx_.getNextNodeId(), root,
+            AnalyticEvalNode node = new AnalyticEvalNode(ctx_.getNextNodeId(), newRoot,
                     windowGroup.analyticFnCalls, windowGroup.partitionByExprs,
                     windowGroup.orderByElements,
                     windowGroup.window,
@@ -489,10 +490,10 @@ public class AnalyticPlanner {
                     windowGroup.physicalOutputTuple, windowGroup.logicalToPhysicalSmap,
                     partitionByEq, orderByEq, bufferedTupleDesc);
             node.init(analyzer);
-            root = node;
+            newRoot = node;
         }
 
-        return root;
+        return newRoot;
     }
 
     /**

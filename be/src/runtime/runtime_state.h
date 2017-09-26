@@ -382,10 +382,6 @@ public:
         return _load_dir;
     }
 
-    const void set_load_dir(std::string& dir) {
-        _load_dir = dir;
-    }
-
     void set_load_job_id(int64_t job_id) {
         _load_job_id = job_id;
     }
@@ -424,10 +420,6 @@ public:
 
     const std::string get_error_log_file_path() const {
         return _error_log_file_path;
-    }
-
-    const void set_error_log_file_path(const std::string& file_path) {
-        _error_log_file_path = file_path;
     }
 
     // TODO(lingbin): remove this file error method after mysql error exporter is stable.
