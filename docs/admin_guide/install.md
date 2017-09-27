@@ -15,8 +15,8 @@ Palo 当前只能运行在 Linux 系统上，无论是编译还是部署，都�
 ## 2. 编译
 
 默认提供了 Ubuntu 16.04, Centos 7.2 环境的预编译版本，可以直接下载使用。
-下载链接（20170922 update）：
-[palo-0.8.0_centos7.2.tar.gz](http://palo-opensource.gz.bcebos.com/palo-0.8.0_20170921_centos7.2_gcc485.tar.gz?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2017-09-22T01%3A18%3A15Z%2F-1%2Fhost%2F241907633bbd0c1230ff36cfccb84806b52780576702812a85f4ec575a5ac927), [palo-0.8.0_ubuntu16.04.tar.gz](http://palo-opensource.gz.bcebos.com/palo-0.8.0_20170921_ubuntu16.04_gcc540.tar.gz?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2017-09-22T01%3A44%3A46Z%2F-1%2Fhost%2F99bd9dabaea38d73f9c60be184c8819f52d90a1a3d82bec12fe13b62ef93a6cf)
+下载链接（20170926 update）：
+[palo-0.8.0_centos7.2.tar.gz](http://palo-opensource.gz.bcebos.com/palo-0.8.0_20170926_centos7.2_gcc485.tar.gz?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2017-09-27T03%3A27%3A37Z%2F-1%2Fhost%2F3544aac7e4b05998238df641d9cc982fed004a0c10a7f930d81e13c75adcf98a), [palo-0.8.0_ubuntu16.04.tar.gz](http://palo-opensource.gz.bcebos.com/palo-0.8.0_20170926_ubuntu16.04_gcc540.tar.gz?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2017-09-27T03%3A28%3A00Z%2F-1%2Fhost%2F28b1eddbee1ad2e1f92d46a48251c418d0fcd3b4c7ce76472a0cd8c5c78f83cc)
 
 同时我们提供了 docker 镜像下载（20170822 update）：[palo-0.8.0-centos-docker.tar](http://palo-opensource.gz.bcebos.com/palo-0.8.0-centos-docker-20170822.tar?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2017-08-22T11%3A38%3A15Z%2F-1%2Fhost%2F1e56d3d3dbc51f0d36af792197130b85743792aae282a93aaa43515e5eba5dc6)
 
