@@ -90,7 +90,13 @@ Palo 主要包括 Frontend（FE）和 Backend（BE）两个进程。其中 FE �
 
     `ALTER SYSTEM ADD BACKEND "host:port";`
 
-    其中 host 为 BE所在节点 ip；port 为 be/conf/be.conf 中的 heartbeat_service_port。
+	如果使用多租户功能，则执行以下命令添加BE:
+    
+   	`ALTER SYSTEM ADD FREE BACKEND "host:port";`
+   	
+   	其中 host 为 BE所在节点 ip；port 为 be/conf/be.conf 中的 heartbeat_service_port。
+   	
+   	如果不添加free关键字，be默认进入自动生成的cluster，添加了free关键字后新的be不属于任何cluster，这样创建新cluster的时候就可以从这些空闲的be中选取，详细见[多租户设计文档](https://github.com/baidu/palo/wiki/Multi-Tenant)
 
 * 启动 BE
 

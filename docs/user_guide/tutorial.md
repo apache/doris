@@ -3,7 +3,7 @@ Palo采用mysql协议进行通信，用户可通过mysql client或者JDBC连接�
 
 # 基础使用指南
 
-## 1. 创建cluster与创建用户
+## 1. 创建用户
 
 #### 1.1 Root用户登录与密码修改
 
@@ -18,9 +18,8 @@ mysql -h 127.0.0.1 -P9030 -uroot
 set password for 'root' = PASSWORD('root');
 ```
 
-#### 1.2 创建cluster
-Palo运行在多租户模式下，用户以及相关的数据库都在cluster之下。
-修改完root用户密码之后，紧接着需要创建cluster，创建cluster时会为cluster创建一个superuser用户，创建cluster的命令如下:
+#### 1.2 创建cluster (可选，如果需要使用palo的多租户功能)
+如果需要使用多租户功能，则在部署的时候需要按照[安装文档](https://github.com/baidu/palo/blob/master/docs/admin_guide/install.md)3.2节中提示的方法添加be。在多租户模式下，用户以及相关的数据库都在cluster之下。修改完root用户密码之后，紧接着需要创建cluster，创建cluster时会为cluster创建一个superuser用户，创建cluster的命令如下:
 
 ```
 CREATE CLUSTER example_cluster PROPERTIES("instance_num"="1") IDENTIFIED BY 'superuser';
@@ -34,6 +33,10 @@ enter example_cluster;
 ```
 
 #### 1.3 创建新用户
+
+如果使用多租户则按照1.3.1，没使用则按照1.3.2。
+
+#####	1.3.1 使用多租户
 
 进入到指定cluster之后，可以在里面创建新的用户。
 ```
@@ -66,13 +69,48 @@ mysql -h 127.0.0.1 -P9030 -usuperuser@example_cluster -psuperuser
 使用test登录Palo集群，并进入example_cluster。
 ```
 mysql -h 127.0.0.1 -P9030 -utest@example_cluster -ptest
+
+#####	1.3.2 不使用多租户
+
+通过下面的命令创建一个普通用户。
+
+
+```
+create user 'test' identified by 'test';
+```
+
+
+也可以创建一个管理员superuser用户，指定密码的方式如1.1节描述。
+
+```
+create user 'test' superuser;
+```
+
+后续登录时就可以通过下列连接命令登录。
+```
+mysql -h FE_HOST -P QUERY_PORT -uUSERNAME -pPASSWORD
+```	
+- FE_HOST: 部署FE的机器。
+- QUERY_PORT: 在fe.conf中进行配置,默认配置为9030。
+- USERNAME: 用户名。
+- PASSWORD: 创建用户时指定的密码。
+
+使用root登录Palo集群。
+```
+mysql -h 127.0.0.1 -P9030 -uroot -proot
+```
+
+使用test登录Palo集群。
+
+```
+mysql -h 127.0.0.1 -P9030 -utest -ptest
 ```
 
 ## 2 数据表的创建与数据导入
 
 #### 2.1 创建数据库
 
-Palo中只有root账户和superuser账户有权限建立数据库，使用root或superuser用户登录到example_cluster，建立example_db数据库:
+Palo中只有root账户和superuser账户有权限建立数据库，使用root或superuser用户登录，建立example_db数据库:
 
     CREATE DATABASE example_db;
 
@@ -253,7 +291,7 @@ Palo 支持两种数据导入方式：
 
 示例1：以 "table1_20170707"为Label，使用本地文件table1_data导入table1表。
 
-curl --location-trusted -u test@example_cluster:test -T table1_data http://127.0.0.1:8030/api/example_db/table1/_load?label=table1_20170707
+curl --location-trusted -u test:test -T table1_data http://127.0.0.1:8030/api/example_db/table1/_load?label=table1_20170707
 
 本地table1_data以\t作为数据之间的分隔，具体内容如下：
        
@@ -265,7 +303,7 @@ curl --location-trusted -u test@example_cluster:test -T table1_data http://127.0
         
 示例2: 以"table2_20170707"为Label，使用本地文件table2_data导入table2表。
 
-curl --location-trusted -u test@example_cluster:test -T table2_data http://127.0.0.1:8030/api/example_db/table2/_load?label=table2_20170707
+curl --location-trusted -u test:test -T table2_data http://127.0.0.1:8030/api/example_db/table2/_load?label=table2_20170707
 
 本地table2_data以\t作为数据之间的分隔，具体内容如下：
     
@@ -280,6 +318,7 @@ curl --location-trusted -u test@example_cluster:test -T table2_data http://127.0
 - 每一批导入数据都需要取一个Label，Label 最好是一个和一批数据有关的字符串，方便阅读和管理。Palo基于Label 保证在一个Database内，同一批数据只可导入成功一次。失败任务的Label可以重用。
 - 该方式可以支持用户同时向多个表进行导入，并且多表间原子生效。用法请参阅：'HELP MULTI LOAD'。
 - 导入label建议采用表名+时间的方式。
+- 如果使用了多租户上面的用户名的格式需要是test@example_cluster
 
 #### 批量导入
 
