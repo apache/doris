@@ -34,9 +34,44 @@ enter example_cluster;
 
 #### 1.3 创建新用户
 
-如果使用多租户则按照1.3.1，没使用则按照1.3.2。
+如果不使用多租户则按照1.3.1，使用则按照1.3.2。
 
-#####	1.3.1 使用多租户
+###### 1.3.1 不使用多租户
+
+通过下面的命令创建一个普通用户。
+
+
+```
+create user 'test' identified by 'test';
+```
+
+也可以创建一个管理员superuser用户，指定密码的方式如1.1节描述。
+
+```
+create user 'test' superuser;
+```
+
+后续登录时就可以通过下列连接命令登录。
+```
+mysql -h FE_HOST -P QUERY_PORT -uUSERNAME -pPASSWORD
+```
+- FE_HOST: 部署FE的机器。
+- QUERY_PORT: 在fe.conf中进行配置,默认配置为9030。
+- USERNAME: 用户名。
+- PASSWORD: 创建用户时指定的密码。
+
+使用root登录Palo集群。
+```
+mysql -h 127.0.0.1 -P9030 -uroot -proot
+```
+
+使用test登录Palo集群。
+
+```
+mysql -h 127.0.0.1 -P9030 -utest -ptest
+```
+
+###### 1.3.2 使用多租户
 
 进入到指定cluster之后，可以在里面创建新的用户。
 ```
@@ -69,41 +104,6 @@ mysql -h 127.0.0.1 -P9030 -usuperuser@example_cluster -psuperuser
 使用test登录Palo集群，并进入example_cluster。
 ```
 mysql -h 127.0.0.1 -P9030 -utest@example_cluster -ptest
-
-#####	1.3.2 不使用多租户
-
-通过下面的命令创建一个普通用户。
-
-
-```
-create user 'test' identified by 'test';
-```
-
-
-也可以创建一个管理员superuser用户，指定密码的方式如1.1节描述。
-
-```
-create user 'test' superuser;
-```
-
-后续登录时就可以通过下列连接命令登录。
-```
-mysql -h FE_HOST -P QUERY_PORT -uUSERNAME -pPASSWORD
-```	
-- FE_HOST: 部署FE的机器。
-- QUERY_PORT: 在fe.conf中进行配置,默认配置为9030。
-- USERNAME: 用户名。
-- PASSWORD: 创建用户时指定的密码。
-
-使用root登录Palo集群。
-```
-mysql -h 127.0.0.1 -P9030 -uroot -proot
-```
-
-使用test登录Palo集群。
-
-```
-mysql -h 127.0.0.1 -P9030 -utest -ptest
 ```
 
 ## 2 数据表的创建与数据导入
@@ -119,7 +119,7 @@ Palo中只有root账户和superuser账户有权限建立数据库，使用root�
      如键入'HELP CREATE'，可以匹配到CREATE DATABASE, CREATE TABLE, CREATE USER三个命令
 
 数据库创建完成之后，可以通过show databases查看数据库信息。
-    
+
     mysql> show databases;
     +--------------------+
     | Database           |
@@ -188,7 +188,7 @@ CREATE TABLE table1
 AGGREGATE KEY(siteid, citycode, username)
 DISTRIBUTED BY HASH(siteid) BUCKETS 10
 PROPERTIES("replication_num" = "1");
-``` 
+```
 
 #### 复合分区
 
@@ -240,7 +240,7 @@ PROPERTIES("replication_num" = "1");
     | table2               |
     +----------------------+
     2 rows in set (0.01 sec)
-    
+
     mysql> desc table1;
     +----------+-------------+------+-------+---------+-------+
     | Field    | Type        | Null | Key   | Default | Extra |
@@ -251,7 +251,7 @@ PROPERTIES("replication_num" = "1");
     | pv       | bigint(20)  | Yes  | false | 0       | SUM   |
     +----------+-------------+------+-------+---------+-------+
     4 rows in set (0.00 sec)
-    
+
     mysql> desc table2;
     +-----------+-------------+------+-------+---------+-------+
     | Field     | Type        | Null | Key   | Default | Extra |
@@ -294,25 +294,25 @@ Palo 支持两种数据导入方式：
 curl --location-trusted -u test:test -T table1_data http://127.0.0.1:8030/api/example_db/table1/_load?label=table1_20170707
 
 本地table1_data以\t作为数据之间的分隔，具体内容如下：
-       
-    1	1	'jim'	2
-    2	1	'grace'	2
-    3	2	'tom'	2
-    4	3	'bush'	3
-    5	3	'helen'	3
-        
+
+    1   1   'jim'   2
+    2   1   'grace' 2
+    3   2   'tom'   2
+    4   3   'bush'  3
+    5   3   'helen' 3
+
 示例2: 以"table2_20170707"为Label，使用本地文件table2_data导入table2表。
 
 curl --location-trusted -u test:test -T table2_data http://127.0.0.1:8030/api/example_db/table2/_load?label=table2_20170707
 
 本地table2_data以\t作为数据之间的分隔，具体内容如下：
-    
-    2017-07-03	1	1	'jim'	2
-    2017-07-05	2	1	'grace'	2
-    2017-07-12	3	2	'tom'	2
-    2017-07-15	4	3	'bush'	3
-    2017-07-12	5	3	'helen'	3
-        
+
+    2017-07-03  1   1   'jim'   2
+    2017-07-05  2   1   'grace' 2
+    2017-07-12  3   2   'tom'   2
+    2017-07-15  4   3   'bush'  3
+    2017-07-12  5   3   'helen' 3
+
 **注意事项**:
 - 小批量导入单批次导入的数据量限制为1GB，用户如果要导入大量数据，需要自己手动拆分成多个小于1GB的文件，分多个批次导入，或者采用批量导入。
 - 每一批导入数据都需要取一个Label，Label 最好是一个和一批数据有关的字符串，方便阅读和管理。Palo基于Label 保证在一个Database内，同一批数据只可导入成功一次。失败任务的Label可以重用。
@@ -392,11 +392,11 @@ PROPERTIES
 示例1：显示当前数据库内以"table1_20170707"为Label 的所有任务的状态的详细信息
 
     SHOW LOAD WHERE LABEL = "table1_20170707";
-    
+
 示例2：显示当前正在做ETL的所有任务的状态信息
 
     SHOW LOAD WHERE STATE = "ETL";
-    
+
 示例3：显示当前数据库内最后20个导入任务的状态
 
     SHOW LOAD ORDER BY CreateTime DESC LIMIT 20;
