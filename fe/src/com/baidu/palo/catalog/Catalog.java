@@ -3716,9 +3716,17 @@ public class Catalog {
         try {
             if (fullNameToDb.containsKey(name)) {
                 return fullNameToDb.get(name);
-            } else if (name.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
-                return fullNameToDb.get(InfoSchemaDb.DATABASE_NAME);
-            }
+            } else {
+                // This maybe a information_schema db request, and information_schema db name is case insensitive.
+                // So, we first extract db name to check if it is information_schema.
+                // Then we reassemble the origin cluster name with lower case db name,
+                // and finally get information_schema db from the name map.
+                String dbName = ClusterNamespace.getNameFromFullName(name);
+                if (dbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
+                    String clusterName = ClusterNamespace.getClusterNameFromFullName(name);
+                    return fullNameToDb.get(ClusterNamespace.getFullName(clusterName, dbName.toLowerCase()));
+                }
+            } 
             return null;
         } finally {
             readUnlock();
