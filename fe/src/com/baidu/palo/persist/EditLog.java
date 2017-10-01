@@ -403,7 +403,7 @@ public class EditLog {
                 case OperationType.OP_ADD_FIRST_FRONTEND:
                 case OperationType.OP_ADD_FRONTEND: {
                     Frontend fe = (Frontend) journal.getData();
-                    catalog.replayAddFrontend(fe);
+                    catalog.addFrontendWithCheck(fe);
                     break;
                 }
                 case OperationType.OP_REMOVE_FRONTEND: {
