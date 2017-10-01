@@ -809,8 +809,8 @@ public class Analyzer {
         // create an eq predicate between lhs and rhs
         BinaryPredicate p = new BinaryPredicate(BinaryPredicate.Operator.EQ, lhs, rhs);
         p.setIsAuxExpr();
-        if (LOG.isTraceEnabled()) {
-            LOG.trace("register equiv predicate: " + p.toSql() + " " + p.debugString());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("register equiv predicate: " + p.toSql() + " " + p.debugString());
         }
         registerConjunct(p);
     }
