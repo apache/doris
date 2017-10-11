@@ -60,9 +60,9 @@ public class Column implements Writable {
     private boolean isAllowNull;
     private String defaultValue;
     private String comment;
-    
+
     private ColumnStats stats;     // cardinality and selectivity etc.
-    
+
     public Column() {
         this.name = "";
         this.columnType = new ColumnType();
@@ -74,7 +74,12 @@ public class Column implements Writable {
     public Column(String name, PrimitiveType dataType) {
         this(name, new ColumnType(dataType, -1, -1, -1), false, null, false, null, "");
     }
-    
+
+    public Column(String name, PrimitiveType dataType, boolean isAllowNull) {
+        this(name, new ColumnType(dataType, -1, -1, -1),
+                false, null, isAllowNull, null, "");
+    }
+
     public Column(String name, ColumnType columnType) {
         this(name, columnType, false, null, false, null, "");
     }
@@ -155,11 +160,11 @@ public class Column implements Writable {
     public int getStrLen() {
         return this.columnType.getLen();
     }
-    
+
     public int getPrecision() {
         return this.columnType.getPrecision();
     }
-    
+
     public int getScale() {
         return this.columnType.getScale();
     }
@@ -188,11 +193,11 @@ public class Column implements Writable {
     public void setStats(ColumnStats stats) {
         this.stats = stats;
     }
-    
+
     public ColumnStats getStats() {
         return this.stats;
     }
-    
+
     public String getComment() {
         return comment;
     }
@@ -225,7 +230,7 @@ public class Column implements Writable {
                 throw new AnalysisException("Hll can not set default value");
             }
             defaultValue = HLL_EMPTY_SET;
-        } 
+        }
 
         if (defaultValue != null) {
             validateDefaultValue(columnType, defaultValue);
@@ -442,7 +447,7 @@ public class Column implements Writable {
 
         out.writeBoolean(isKey);
         out.writeBoolean(isAllowNull);
-        
+
         if (defaultValue == null) {
             out.writeBoolean(false);
         } else {

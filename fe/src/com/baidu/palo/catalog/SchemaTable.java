@@ -490,7 +490,7 @@ public class SchemaTable extends Table {
                                     .column("TABLE_NAME", ColumnType.createVarchar(NAME_CHAR_LEN))
                                     .column("COLUMN_NAME", ColumnType.createVarchar(NAME_CHAR_LEN))
                                     .column("ORDINAL_POSITION", ColumnType.createType(PrimitiveType.BIGINT))
-                                    .column("POSITION_IN_UNIQUE_CONSTRAINT", 
+                                    .column("POSITION_IN_UNIQUE_CONSTRAINT",
                                         ColumnType.createType(PrimitiveType.BIGINT))
                                     .column("REFERENCED_TABLE_SCHEMA", ColumnType.createVarchar(64))
                                     .column("REFERENCED_TABLE_NAME", ColumnType.createVarchar(64))
@@ -636,7 +636,7 @@ public class SchemaTable extends Table {
         }
 
         public Builder column(String name, ColumnType type) {
-            columns.add(new Column(name, type.getType()));
+            columns.add(new Column(name, type.getType(), true));
             return this;
         }
 
