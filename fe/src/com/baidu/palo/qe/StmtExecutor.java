@@ -553,7 +553,15 @@ public class StmtExecutor {
         }
 
         if (!coord.getExecStatus().ok()) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_FAILED_WHEN_INSERT);
+            String errMsg = coord.getExecStatus().getErrorMsg();
+            LOG.warn("insert failed: {}", errMsg);
+
+            // hide host info
+            int hostIndex = errMsg.indexOf("host");
+            if (hostIndex != -1) {
+                errMsg = errMsg.substring(0, hostIndex);
+            }
+            ErrorReport.reportDdlException(errMsg, ErrorCode.ERR_FAILED_WHEN_INSERT);
         }
 
         LOG.info("delta files is {}", coord.getDeltaUrls());
