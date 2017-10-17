@@ -56,6 +56,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -67,6 +68,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Full scan of an Olap table.
@@ -157,57 +159,58 @@ public class OlapScanNode extends ScanNode {
     // }
 
     private List<MaterializedIndex> selectRollupIndex(Partition partition) throws InternalException {
-        ArrayList<MaterializedIndex> containTupleIndices = Lists.newArrayList();
-
         if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
             isPreAggregation = true;
         }
 
-        // 4.1 find table has tuple column
         List<MaterializedIndex> allIndices = Lists.newArrayList();
         allIndices.add(partition.getBaseIndex());
         allIndices.addAll(partition.getRollupIndices());
-        LOG.debug("rollup size={} isPreAggregation={}", allIndices.size(), isPreAggregation);
+        LOG.debug("num of rollup(base included): {}, pre aggr: {}", allIndices.size(), isPreAggregation);
 
+        // 1. find all rollup indexes which contains all tuple columns
+        List<MaterializedIndex> containTupleIndexes = Lists.newArrayList();
         List<Column> baseIndexKeyColumns = olapTable.getKeyColumnsByIndexId(partition.getBaseIndex().getId());
         for (MaterializedIndex index : allIndices) {
-            LOG.debug("index id = " + index.getId());
-            HashSet<String> indexColumns = new HashSet<String>();
+            Set<String> indexColNames = Sets.newHashSet();
             for (Column col : olapTable.getSchemaByIndexId(index.getId())) {
-                indexColumns.add(col.getName());
+                indexColNames.add(col.getName());
             }
 
-            if (indexColumns.containsAll(tupleColumns)) {
+            if (indexColNames.containsAll(tupleColumns)) {
                 // If preAggregation is off, so that we only can use base table
-                // or those rollup tables whose key columns is the same with base table
+                // or those rollup tables which key columns is the same with base table
                 // (often in different order)
                 if (isPreAggregation) {
-                    containTupleIndices.add(index);
+                    LOG.debug("preAggregation is on. add index {} which contains all tuple columns", index.getId());
+                    containTupleIndexes.add(index);
                 } else if (olapTable.getKeyColumnsByIndexId(index.getId()).size() == baseIndexKeyColumns.size()) {
-                    LOG.debug("preAggregation is off, but index id (" + index.getId()
-                            + ") have same key columns with base index.");
-                    containTupleIndices.add(index);
+                    LOG.debug("preAggregation is off, but index {} have same key columns with base index.",
+                              index.getId());
+                    containTupleIndexes.add(index);
                 }
+            } else {
+                LOG.debug("exclude index {} because it does not contain all tuple columns", index.getId());
             }
         }
 
-        if (containTupleIndices.isEmpty()) {
+        if (containTupleIndexes.isEmpty()) {
             throw new InternalException("Failed to select index, no match index");
         }
 
-        // 4.2 find table match index
-        ArrayList<MaterializedIndex> predicateIndexMatchIndices = new ArrayList<MaterializedIndex>();
-        int maxIndexMatchCount = 0;
-        int indexMatchCount = 0;
-        for (MaterializedIndex index : containTupleIndices) {
-            LOG.debug("containTupleIndex: " + index.getId());
-            indexMatchCount = 0;
+        // 2. find all indexes which match the prefix most based on predicate/sort/in predicate columns
+        // from containTupleIndices.
+        List<MaterializedIndex> prefixMatchedIndexes = Lists.newArrayList();
+        int maxPrefixMatchCount = 0;
+        int prefixMatchCount = 0;
+        for (MaterializedIndex index : containTupleIndexes) {
+            prefixMatchCount = 0;
             for (Column col : olapTable.getSchemaByIndexId(index.getId())) {
                 if (sortColumn != null) {
                     if (inPredicateColumns.contains(col.getName())) {
-                        indexMatchCount++;
+                        prefixMatchCount++;
                     } else if (sortColumn.equals(col.getName())) {
-                        indexMatchCount++;
+                        prefixMatchCount++;
                         break;
                     } else {
                         break;
@@ -218,65 +221,69 @@ public class OlapScanNode extends ScanNode {
                     }
                 }
             }
-            if (indexMatchCount == maxIndexMatchCount) {
-                predicateIndexMatchIndices.add(index);
-            } else if (indexMatchCount > maxIndexMatchCount) {
-                maxIndexMatchCount = indexMatchCount;
-                predicateIndexMatchIndices.clear();
-                predicateIndexMatchIndices.add(index);
+            if (prefixMatchCount == maxPrefixMatchCount) {
+                LOG.debug("s2: find a equal prefix match index {}. match count: {}", index.getId(), prefixMatchCount);
+                prefixMatchedIndexes.add(index);
+            } else if (prefixMatchCount > maxPrefixMatchCount) {
+                LOG.debug("s2: find a better prefix match index {}. match count: {}", index.getId(), prefixMatchCount);
+                maxPrefixMatchCount = prefixMatchCount;
+                prefixMatchedIndexes.clear();
+                prefixMatchedIndexes.add(index);
             }
         }
 
-        ArrayList<MaterializedIndex> eqJoinIndexMatchIndices = new ArrayList<MaterializedIndex>();
-        maxIndexMatchCount = 0;
-        indexMatchCount = 0;
-        for (MaterializedIndex index : containTupleIndices) {
-            indexMatchCount = 0;
+        // 3. find all indexes which match the prefix most based on equal join columns
+        // from containTupleIndices.
+        List<MaterializedIndex> eqJoinPrefixMatchedIndexes = Lists.newArrayList();
+        maxPrefixMatchCount = 0;
+        for (MaterializedIndex index : containTupleIndexes) {
+            prefixMatchCount = 0;
             for (Column col : olapTable.getSchemaByIndexId(index.getId())) {
                 if (eqJoinColumns.contains(col.getName()) || predicateColumns.contains(col.getName())) {
-                    indexMatchCount++;
+                    prefixMatchCount++;
                 } else {
                     break;
                 }
             }
-            if (indexMatchCount == maxIndexMatchCount) {
-                eqJoinIndexMatchIndices.add(index);
-            } else if (indexMatchCount > maxIndexMatchCount) {
-                maxIndexMatchCount = indexMatchCount;
-                eqJoinIndexMatchIndices.clear();
-                eqJoinIndexMatchIndices.add(index);
+            if (prefixMatchCount == maxPrefixMatchCount) {
+                LOG.debug("s3: find a equal prefix match index {}. match count: {}", index.getId(), prefixMatchCount);
+                eqJoinPrefixMatchedIndexes.add(index);
+            } else if (prefixMatchCount > maxPrefixMatchCount) {
+                LOG.debug("s3: find a better prefix match index {}. match count: {}", index.getId(), prefixMatchCount);
+                maxPrefixMatchCount = prefixMatchCount;
+                eqJoinPrefixMatchedIndexes.clear();
+                eqJoinPrefixMatchedIndexes.add(index);
             }
         }
 
-        ArrayList<MaterializedIndex> indexMatchIndices = new ArrayList<MaterializedIndex>();
-        for (MaterializedIndex index : predicateIndexMatchIndices) {
-            LOG.debug("predicateIndexMatchIndex: " + index.getId());
-            for (MaterializedIndex oneIndex : eqJoinIndexMatchIndices) {
+        // 4. find the intersection of prefixMatchIndices and eqJoinPrefixMatchIndices as candidate indexes
+        List<MaterializedIndex> finalCandidateIndexes = Lists.newArrayList();
+        for (MaterializedIndex index : prefixMatchedIndexes) {
+            for (MaterializedIndex oneIndex : eqJoinPrefixMatchedIndexes) {
                 if (oneIndex.getId() == index.getId()) {
-                    indexMatchIndices.add(index);
-                    LOG.debug("Add indexMatchId: " + index.getId());
+                    finalCandidateIndexes.add(index);
+                    LOG.debug("find a matched index {} in intersection of "
+                            + "prefixMatchIndices and eqJoinPrefixMatchIndices",
+                              index.getId());
                 }
             }
         }
-
-        if (indexMatchIndices.isEmpty()) {
-            indexMatchIndices = predicateIndexMatchIndices;
+        // maybe there is no intersection between prefixMatchIndices and eqJoinPrefixMatchIndices.
+        // in this case, use prefixMatchIndices;
+        if (finalCandidateIndexes.isEmpty()) {
+            finalCandidateIndexes = prefixMatchedIndexes;
         }
 
-        // 4.3 return all the candidate index
-        List<MaterializedIndex> selectedIndex = new ArrayList<MaterializedIndex>();
-        for (MaterializedIndex table : indexMatchIndices) {
-            selectedIndex.add(table);
-        }
-
-        Collections.sort(selectedIndex, new Comparator<MaterializedIndex>() {
+        // 5. sorted the final candidate indexes by index id
+        // this is to make sure that candidate indexes find in all partitions will be returned in same order
+        Collections.sort(finalCandidateIndexes, new Comparator<MaterializedIndex>() {
             @Override
             public int compare(MaterializedIndex index1, MaterializedIndex index2)
             {
                 return (int) (index1.getId() - index2.getId());
             }
         });
-        return selectedIndex;
+        return finalCandidateIndexes;
     }
 
     private void normalizePredicate(Analyzer analyzer) throws InternalException {

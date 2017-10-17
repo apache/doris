@@ -38,6 +38,7 @@ extern "C" {
 #include "io_handler_data.h"
 #include "reactor_factory.h"
 #include "reactor_runner.h"
+#include "service/backend_options.h"
 #include "scope_guard.h"
 
 namespace palo {
@@ -52,9 +53,7 @@ Comm::Comm() {
                    << "rpc::comm object";
         abort();
     }
-    char host[1024];
-    gethostname(host, sizeof(host));
-    InetAddr::initialize(&m_local_addr, host, 0);
+    InetAddr::initialize(&m_local_addr, BackendOptions::get_localhost().c_str(), 0);
     ReactorFactory::get_timer_reactor(m_timer_reactor);
     m_handler_map = ReactorRunner::handler_map;
 }

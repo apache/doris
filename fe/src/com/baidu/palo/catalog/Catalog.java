@@ -281,16 +281,15 @@ public class Catalog {
 
     private MetaReplayState metaReplayState;
 
-    // TODO(zc):
     private PullLoadJobMgr pullLoadJobMgr;
     private BrokerMgr brokerMgr;
 
     public List<Frontend> getFrontends() {
-        return frontends;
+        return Lists.newArrayList(frontends);
     }
 
     public List<Frontend> getRemovedFrontends() {
-        return removedFrontends;
+        return Lists.newArrayList(removedFrontends);
     }
 
     public JournalObservable getJournalObservable() {
@@ -505,10 +504,18 @@ public class Catalog {
                 System.exit(-1);
             }
 
+            // ATTN:
+            // If the version file and role file does not exist and the helper node is itself,
+            // this should be the very beginning startup of the cluster, so we create ROLE and VERSION file,
+            // set isFirstTimeStartUp to true, and add itself to frontends list.
+            // If ROLE and VERSION file is deleted for some reason, we may arbitrarily start this node as
+            // FOLLOWER, which may cause UNDEFINED behavior.
+            // Everything may be OK if the origin role is exactly FOLLOWER,
+            // but if not, FE process will exit somehow.
             Storage storage = new Storage(IMAGE_DIR);
             if (!roleFile.exists()) {
                 // The very first time to start the first node of the cluster.
-                // It should be one REPLICA node.
+                // It should became a Master node (Master node's role is also FOLLOWER, which means electable)
                 storage.writeFrontendRole(FrontendNodeType.FOLLOWER);
                 role = FrontendNodeType.FOLLOWER;
             } else {
@@ -525,18 +532,12 @@ public class Catalog {
                         Storage.newToken() : Config.auth_token;
                 storage = new Storage(clusterId, token, IMAGE_DIR);
                 storage.writeClusterIdAndToken();
-                // If the version file and role file does not exist and the
-                // helper node is itself,
-                // it must be the very beginning startup of the cluster
+
                 isFirstTimeStartUp = true;
                 Frontend self = new Frontend(role, selfNode.first, selfNode.second);
-                // In normal case, checkFeExist will return null.
-                // However, if version file and role file are deleted by some
-                // reason,
-                // the self node may already added to the frontends list.
-                if (checkFeExist(selfNode.first, selfNode.second) == null) {
-                    frontends.add(self);
-                }
+                // We don't need to check if frontends collection already contains self.
+                // frontends collection must be empty cause no image is loaded and no journal is replayed yet.
+                frontends.add(self);
             } else {
                 clusterId = storage.getClusterID();
                 if (storage.getToken() == null) {
@@ -800,7 +801,7 @@ public class Catalog {
         canWrite = false;
         isMaster = false;
 
-        // donot set canRead
+        // do not set canRead
         // let canRead be what it was
 
         if (formerFeType == FrontendNodeType.OBSERVER && feType == FrontendNodeType.UNKNOWN) {
@@ -1026,7 +1027,7 @@ public class Catalog {
         long newChecksum = checksum ^ size;
         for (int i = 0; i < size; i++) {
             Frontend fe = Frontend.read(dis);
-            frontends.add(fe);
+            addFrontendWithCheck(fe);
         }
 
         size = dis.readInt();
@@ -3679,11 +3680,25 @@ public class Catalog {
         }
     }
 
-    public void replayAddFrontend(Frontend fe) {
+    public void addFrontendWithCheck(Frontend fe) {
         writeLock();
         try {
-            if (checkFeExist(fe.getHost(), fe.getPort()) != null) {
-                LOG.warn("Fe {} already exist.", fe);
+            Frontend existFe = checkFeExist(fe.getHost(), fe.getPort());
+            if (existFe != null) {
+                LOG.warn("fe {} already exist.", existFe);
+                if (existFe.getRole() != fe.getRole()) {
+                    /*
+                     * This may happen if:
+                     * 1. first, add a FE as OBSERVER.
+                     * 2. This OBSERVER is restarted with ROLE and VERSION file being DELETED.
+                     *    In this case, this OBSERVER will be started as a FOLLOWER, and add itself to the frontends.
+                     * 3. this "FOLLOWER" begin to load image or replay journal,
+                     *    then find the origin OBSERVER in image or journal.
+                     * This will cause UNDEFINED behavior, so it is better to exit and fix it manually.
+                     */
+                    LOG.error("Try to add an already exist FE with different role: {}", fe.getRole());
+                    System.exit(-1);
+                }
                 return;
             }
             frontends.add(fe);
@@ -3716,9 +3731,17 @@ public class Catalog {
         try {
             if (fullNameToDb.containsKey(name)) {
                 return fullNameToDb.get(name);
-            } else if (name.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
-                return fullNameToDb.get(InfoSchemaDb.DATABASE_NAME);
-            }
+            } else {
+                // This maybe a information_schema db request, and information_schema db name is case insensitive.
+                // So, we first extract db name to check if it is information_schema.
+                // Then we reassemble the origin cluster name with lower case db name,
+                // and finally get information_schema db from the name map.
+                String dbName = ClusterNamespace.getNameFromFullName(name);
+                if (dbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
+                    String clusterName = ClusterNamespace.getClusterNameFromFullName(name);
+                    return fullNameToDb.get(ClusterNamespace.getFullName(clusterName, dbName.toLowerCase()));
+                }
+            } 
             return null;
         } finally {
             readUnlock();
