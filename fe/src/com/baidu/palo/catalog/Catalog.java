@@ -2310,7 +2310,7 @@ public class Catalog {
         }
 
         // check cluster capacity
-        Catalog.getCurrentSystemInfo().checkCapacity();
+        Catalog.getCurrentSystemInfo().checkClusterCapacity(stmt.getClusterName());
         // check db quota
         db.checkQuota();
 
@@ -3091,7 +3091,6 @@ public class Catalog {
                 LOG.info("successfully create table[{};{}] to restore", tableName, tableId);
             } else {
                 if (!db.createTableWithLock(olapTable, false, stmt.isSetIfNotExists())) {
-                    // TODO(cmy): add error code timeout;
                     ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exists");
                 }
                 LOG.info("successfully create table[{};{}]", tableName, tableId);

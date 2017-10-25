@@ -392,7 +392,7 @@ public class Load {
 
     private void addLoadJob(LoadJob job, Database db) throws DdlException {
         // check cluster capacity
-        Catalog.getCurrentSystemInfo().checkCapacity();
+        Catalog.getCurrentSystemInfo().checkClusterCapacity(db.getClusterName());
         // check db quota
         db.checkQuota();
 

@@ -1068,11 +1068,15 @@ public class SystemInfoService extends Daemon {
         memoryBe.setDecommissionType(be.getDecommissionType());
     }
 
-    public long getAvailableCapacityB() {
+    private long getClusterAvailableCapacityB(String clusterName) {
+        List<Backend> clusterBackends = getClusterBackends(clusterName);
         long capacity = 0L;
-        ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
-        for (Backend backend : idToBackend.values()) {
+        for (Backend backend : clusterBackends) {
+            // Here we do not check if backend is alive,
+            // We suppose the dead backends will back to alive later.
             if (backend.isDecommissioned()) {
+                // Data on decommissioned backend will move to other backends,
+                // So we need to minus size of those data.
                 capacity -= backend.getTotalCapacityB() - backend.getAvailableCapacityB();
             } else {
                 capacity += backend.getAvailableCapacityB();
@@ -1081,21 +1085,9 @@ public class SystemInfoService extends Daemon {
         return capacity;
     }
 
-    public void checkCapacity() throws DdlException {
-        if (getAvailableCapacityB() <= 0L) {
-            throw new DdlException("Cluster has no available capacity");
-        }
-    }
-
-    /**
-     * now we will only check capacity of logic cluster when execute operation
-     *
-     * @param clusterName
-     * @throws DdlException
-     */
     public void checkClusterCapacity(String clusterName) throws DdlException {
-        if (getClusterBackends(clusterName).isEmpty()) {
-            throw new DdlException("Cluster has no available capacity");
+        if (getClusterAvailableCapacityB(clusterName) <= 0L) {
+            throw new DdlException("Cluster " + clusterName + " has no available capacity");
         }
     }
 
