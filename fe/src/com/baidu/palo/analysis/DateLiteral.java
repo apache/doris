@@ -55,13 +55,11 @@ public class DateLiteral extends LiteralExpr {
         } else {
             date = isMax ? TimeUtils.MAX_DATETIME : TimeUtils.MIN_DATETIME;
         }
-        analysisDone();
     }
 
     public DateLiteral(String s, Type type) throws AnalysisException {
         super();
         init(s, type);
-        analysisDone();
     }
 
     protected DateLiteral(DateLiteral other) {

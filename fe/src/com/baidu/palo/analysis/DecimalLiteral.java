@@ -50,7 +50,6 @@ public class DecimalLiteral extends LiteralExpr {
 
     public DecimalLiteral(BigDecimal value) {
         init(value);
-        analysisDone();
     }
 
     public DecimalLiteral(String value) throws AnalysisException {
@@ -61,7 +60,6 @@ public class DecimalLiteral extends LiteralExpr {
             throw new AnalysisException("Invalid floating-point literal: " + value, e);
         }
         init(v);
-        analysisDone();
     }
 
     protected DecimalLiteral(DecimalLiteral other) {

@@ -50,7 +50,6 @@ public class StringLiteral extends LiteralExpr {
         super();
         this.value = value;
         type = Type.VARCHAR;
-        analysisDone();
     }
 
     protected StringLiteral(StringLiteral other) {
