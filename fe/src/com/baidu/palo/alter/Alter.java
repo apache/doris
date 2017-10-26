@@ -17,19 +17,19 @@ package com.baidu.palo.alter;
 
 import com.baidu.palo.analysis.AddColumnClause;
 import com.baidu.palo.analysis.AddColumnsClause;
-import com.baidu.palo.analysis.AddRollupClause;
 import com.baidu.palo.analysis.AddPartitionClause;
+import com.baidu.palo.analysis.AddRollupClause;
 import com.baidu.palo.analysis.AlterClause;
 import com.baidu.palo.analysis.AlterSystemStmt;
 import com.baidu.palo.analysis.AlterTableStmt;
 import com.baidu.palo.analysis.ColumnRenameClause;
 import com.baidu.palo.analysis.DropColumnClause;
-import com.baidu.palo.analysis.DropRollupClause;
 import com.baidu.palo.analysis.DropPartitionClause;
+import com.baidu.palo.analysis.DropRollupClause;
 import com.baidu.palo.analysis.ModifyColumnClause;
 import com.baidu.palo.analysis.ModifyPartitionClause;
-import com.baidu.palo.analysis.PartitionRenameClause;
 import com.baidu.palo.analysis.ModifyTablePropertiesClause;
+import com.baidu.palo.analysis.PartitionRenameClause;
 import com.baidu.palo.analysis.ReorderColumnsClause;
 import com.baidu.palo.analysis.RollupRenameClause;
 import com.baidu.palo.analysis.TableName;
@@ -48,8 +48,8 @@ import com.baidu.palo.load.Load;
 
 import com.google.common.base.Preconditions;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
 import java.util.List;
@@ -84,9 +84,7 @@ public class Alter {
         }
 
         // check cluster capacity
-        Catalog.getCurrentSystemInfo().checkCapacity();
-        // check db quota
-        db.checkQuota();
+        Catalog.getCurrentSystemInfo().checkClusterCapacity(clusterName);
 
         // schema change ops can appear several in one alter stmt without other alter ops entry
         boolean hasSchemaChange = false;

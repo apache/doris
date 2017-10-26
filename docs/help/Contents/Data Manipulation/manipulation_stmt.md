@@ -34,7 +34,7 @@
             [SET (k1 = func(k2))]
     
         说明：
-            file_path:broker中的文件路径，可以指定到一个文件，也可以用/*通配符指定某个目录下的所有文件。
+            file_path: 文件路径，可以指定到一个文件，也可以用 * 通配符指定某个目录下的所有文件。
 
             PARTITION:
             如果指定此参数，则只会导入指定的分区，导入分区以外的数据会被过滤掉。
@@ -101,6 +101,15 @@
         max_filter_ratio：最大容忍可过滤（数据不规范等原因）的数据比例。默认零容忍。
         load_delete_flag：指定该导入是否通过导入key列的方式删除数据，仅适用于UNIQUE KEY，
                           导入时可不指定value列。默认为false。
+
+    5. 导入数据格式样例
+
+        整型类（TINYINT/SMALLINT/INT/BIGINT/LARGEINT）：1, 1000, 1234
+        浮点类（FLOAT/DOUBLE/DECIMAL）：1.1, 0.23, .356
+        日期类（DATE/DATETIME）：2017-10-03, 2017-06-13 12:34:03。
+        （注：如果是其他日期格式，可以在导入命令中，使用 strftime 或者 time_format 函数进行转换）
+        字符串类（CHAR/VARCHAR）："I am a student", "a"
+        NULL值：\N
 
 ## example
 
@@ -476,8 +485,8 @@
           [PROPERTIES ("key"="value", ...)]
         
           可以指定如下参数：
-          column_separator：指定导出的列分隔符，默认为\t。
-		      line_delimiter:指定导出的行分隔符，默认为\n。
+            column_separator：指定导出的列分隔符，默认为\t。
+            line_delimiter:指定导出的行分隔符，默认为\n。
     5. broker
       用于指定导出使用的broker
           语法：

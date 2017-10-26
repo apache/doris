@@ -30,7 +30,6 @@
 # CREATE TABLE
 ## description
     该语句用于创建 table。
-    执行成功后，该表将生成一个 base index。之后可通过 base index 创建其他 rollup index。
     语法：
         CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name
         (column_definition1[, column_definition2, ...])
@@ -60,7 +59,7 @@
                                 范围：0 ~ 2^127 - 1
                             FLOAT（4字节）
                             DOUBLE（12字节）
-                            DECIMAL[(precision, scale)]
+                            DECIMAL[(precision, scale)] (40字节)
                                 保证精度的小数类型。默认是 DECIMAL(10, 0)
                                 precision: 1 ~ 27
                                 scale: 0 ~ 9
@@ -108,7 +107,7 @@
             "column_separator" = "value_separator"
             "line_delimiter" = "value_delimiter"
             )
-            另外还可以提供Broker需要的Property信息，通过BROKER PROPERTIES来传递，例如HDFS需要传入
+            另外还需要提供Broker需要的Property信息，通过BROKER PROPERTIES来传递，例如HDFS需要传入
             BROKER PROPERTIES(
                 "username" = "name", 
                 "password" = "password"
