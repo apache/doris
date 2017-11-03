@@ -47,6 +47,7 @@ import com.baidu.palo.task.AgentTask;
 import com.baidu.palo.thrift.TTabletInfo;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang.NotImplementedException;
@@ -145,7 +146,14 @@ public class SystemHandler extends AlterHandler {
 
         if (alterClause instanceof AddBackendClause) {
             AddBackendClause addBackendClause = (AddBackendClause) alterClause;
-            Catalog.getCurrentSystemInfo().addBackends(addBackendClause.getHostPortPairs(), addBackendClause.isFree());
+            final String destClusterName = addBackendClause.getDestCluster();
+            
+            if (!Strings.isNullOrEmpty(destClusterName) 
+                    && Catalog.getInstance().getCluster(destClusterName) == null) {
+                throw new DdlException("Cluster: " + destClusterName + " does not exist.");
+            }
+            Catalog.getCurrentSystemInfo().addBackends(addBackendClause.getHostPortPairs(), 
+                addBackendClause.isFree(), addBackendClause.getDestCluster());
         } else if (alterClause instanceof DropBackendClause) {
             DropBackendClause dropBackendClause = (DropBackendClause) alterClause;
             if (!dropBackendClause.isForce()) {

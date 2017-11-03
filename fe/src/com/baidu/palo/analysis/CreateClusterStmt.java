@@ -75,10 +75,11 @@ public class CreateClusterStmt extends DdlStmt {
         } catch (NumberFormatException e) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_PARAMETER);
         }
-        if (instanceNum <= 0) {
+
+        if (instanceNum < 0) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_CREATE_ISTANCE_NUM_ERROR);
         }
-
+        
         final String password = passwd;
         if (!Strings.isNullOrEmpty(password)) {
             scramblePassword = MysqlPassword.makeScrambledPassword(password);
