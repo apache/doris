@@ -515,8 +515,7 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
-
-        // hll must be userd in agg_keys
+        // hll must be used in agg_keys
         if (newColumn.getType().isHllType() && KeysType.AGG_KEYS != olapTable.getKeysType()) {
             throw new DdlException("HLL must be used in AGG_KEYS");
         }
@@ -648,6 +647,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 modIndexSchema.add(newColumn);
             }
         }
+
+        checkRowLength(modIndexSchema);
     }
 
     private void checkKeyModificationIfInRandomDistributedTable(OlapTable olapTable) throws DdlException {
@@ -657,6 +658,18 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Cannot add/del/reorder/modify key column "
                         + "in table which is distributed by random");
             }
+        }
+    }
+
+    private void checkRowLength(List<Column> modIndexSchema) throws DdlException {
+        int rowLengthBytes = 0;
+        for (Column column : modIndexSchema) {
+            rowLengthBytes += column.getColumnType().getMemlayoutBytes();
+        }
+
+        if (rowLengthBytes > Config.max_layout_length_per_row) {
+            throw new DdlException("The size of a row (" + rowLengthBytes + ") exceed the maximal row size: "
+                    + Config.max_layout_length_per_row);
         }
     }
 
