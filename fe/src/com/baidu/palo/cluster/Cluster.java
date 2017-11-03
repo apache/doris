@@ -239,6 +239,9 @@ public class Cluster implements Writable {
     }
 
     public void setBackendIdList(List<Long> backendIdList) {
+        if (backendIdList == null) {
+            return;
+        }
         writeLock();
         try {
             this.backendIdSet = Sets.newHashSet(backendIdList);

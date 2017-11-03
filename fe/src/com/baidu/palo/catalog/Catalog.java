@@ -4505,7 +4505,9 @@ public class Catalog {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_HAS_EXIST, clusterName);
             } else {
                 List<Long> backendList = systemInfo.createCluster(clusterName, stmt.getInstanceNum());
-                if (backendList != null) {
+                // 1: BE returned is less than requested, throws DdlException.
+                // 2: BE returned is more than or equal to 0, succeeds.
+                if (backendList != null || stmt.getInstanceNum() == 0) {
                     final long id = getNextId();
                     final Cluster cluster = new Cluster();
                     cluster.setName(clusterName);
@@ -4948,8 +4950,13 @@ public class Catalog {
         }
     }
 
-    public Cluster getCluster(String cluster) {
-        return nameToCluster.get(cluster);
+    public Cluster getCluster(String clusterName) {
+        readLock();
+        try {
+            return nameToCluster.get(clusterName);
+        } finally {
+            readUnlock();
+        }
     }
 
     public List<String> getClusterNames() {
@@ -5029,19 +5036,16 @@ public class Catalog {
                 cluster.readFields(dis);
                 checksum ^= cluster.getId();
 
-                // BE is in default_cluster when added , therefore it is possible that the BE
-                // in default_cluster are not the latest because cluster cant't be updated when
-                // loadCluster is after loadBackend. Because of forgeting to remove BE's id in
-                // cluster when drop BE or decommission in latest versions, need to update cluster's
-                // BE.
                 List<Long> latestBackendIds = systemInfo.getClusterBackendIds(cluster.getName());
-                if (cluster.getName().equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)
-                       || Catalog.getCurrentCatalogJournalVersion() <= FeMetaVersion.VERSION_34) {
-                    cluster.setBackendIdList(latestBackendIds);
-                } else {
-                    // The cluster has the same number of be as systeminfo recorded
-                    Preconditions.checkState(latestBackendIds.size() == cluster.getBackendIdList().size());
+                if (latestBackendIds.size() != cluster.getBackendIdList().size()) {
+                    LOG.warn("Cluster:" + cluster.getName() + ", backends in Cluster is " 
+                        + cluster.getBackendIdList().size() + ", backends in SystemInfoService is "
+                        + cluster.getBackendIdList().size());
                 }
+                // The number of BE in cluster is not same as in SystemInfoService, when perform 'ALTER
+                // SYSTEM ADD BACKEND TO ...' or 'ALTER SYSTEM ADD BACKEND ...', because both of them are 
+                // for adding BE to some Cluster, but loadCluster is after loadBackend.
+                cluster.setBackendIdList(latestBackendIds);               
 
                 final InfoSchemaDb db = new InfoSchemaDb(cluster.getName());
                 db.setClusterName(cluster.getName());
