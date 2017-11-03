@@ -24,6 +24,7 @@ import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
+import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.io.Writable;
 
 import com.google.common.collect.Lists;
@@ -62,7 +63,8 @@ public class AlterTableStmt extends DdlStmt implements Writable {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+        super.analyze(analyzer);
         if (tbl == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
         }
