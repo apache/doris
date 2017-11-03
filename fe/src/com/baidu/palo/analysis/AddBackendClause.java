@@ -17,20 +17,43 @@ package com.baidu.palo.analysis;
 
 import java.util.List;
 
+import com.baidu.palo.catalog.Catalog;
+import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.InternalException;
+import com.google.common.base.Strings;
+
 public class AddBackendClause extends BackendClause {
 
     // be in free state is not owned by any cluster
     protected boolean isFree;
-
+    // cluster that backend will be added to 
+    protected String destCluster;
+   
     public AddBackendClause(List<String> hostPorts, boolean isFree) {
         super(hostPorts);
         this.isFree = isFree;
+        this.destCluster = "";
+    }
+
+    public AddBackendClause(List<String> hostPorts, String destCluster) {
+        super(hostPorts);
+        this.isFree = false;
+        this.destCluster = destCluster;
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ADD BACKEND ");
+        sb.append("ADD ");
+        if (isFree) {
+            sb.append("FREE ");
+        }
+        sb.append("BACKEND ");
+
+        if (!Strings.isNullOrEmpty(destCluster)) {
+            sb.append("to").append(destCluster);
+        }
+
         for (int i = 0; i < hostPorts.size(); i++) {
             sb.append("\"").append(hostPorts.get(i)).append("\"");
             if (i != hostPorts.size() - 1) {
@@ -40,12 +63,12 @@ public class AddBackendClause extends BackendClause {
         return sb.toString();
     }
 
-
-    public void setFree(boolean isFree) {
-        this.isFree = isFree;
-    }   
-    
     public boolean isFree() {
         return this.isFree;
     } 
+
+    public String getDestCluster() {
+        return destCluster;
+    }
+
 }

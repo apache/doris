@@ -132,6 +132,18 @@ public class SystemInfoService extends Daemon {
     }
 
     public void addBackends(List<Pair<String, Integer>> hostPortPairs, boolean isFree) throws DdlException {
+        addBackends(hostPortPairs, isFree, "");
+    }
+    
+    /**
+     * 
+     * @param hostPortPairs : backend's host and port
+     * @param isFree : if true the backend is not owned by any cluster
+     * @param destCluster : if not null or empty backend will be added to destCluster 
+     * @throws DdlException
+     */
+    public void addBackends(List<Pair<String, Integer>> hostPortPairs, 
+        boolean isFree, String destCluster) throws DdlException {
         for (Pair<String, Integer> pair : hostPortPairs) {
             // check is already exist
             if (getBackendWithHeartbeatPort(pair.first, pair.second) != null) {
@@ -140,7 +152,7 @@ public class SystemInfoService extends Daemon {
         }
 
         for (Pair<String, Integer> pair : hostPortPairs) {
-            addBackend(pair.first, pair.second, isFree);
+            addBackend(pair.first, pair.second, isFree, destCluster);
         }
     }
 
@@ -152,7 +164,15 @@ public class SystemInfoService extends Daemon {
         idToBackendRef.set(newIdToBackend);
     }
 
-    private void addBackend(String host, int heartbeatPort, boolean isFree) throws DdlException {
+    private void setBackendOwner(Backend backend, String clusterName) {
+        final Cluster cluster = Catalog.getInstance().getCluster(clusterName);
+        Preconditions.checkState(cluster != null);
+        cluster.addBackend(backend.getId());
+        backend.setOwnerClusterName(clusterName);
+        backend.setBackendState(BackendState.using);
+    }
+
+    private void addBackend(String host, int heartbeatPort, boolean isFree, String destCluster) throws DdlException {
         Backend newBackend = new Backend(Catalog.getInstance().getNextId(), host, heartbeatPort);
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
@@ -174,13 +194,14 @@ public class SystemInfoService extends Daemon {
         ImmutableMap<Long, HeartbeatHandler> newIdToHeartbeatHandler = ImmutableMap.copyOf(copiedHeartbeatHandlersMap);
         idToHeartbeatHandlerRef.set(newIdToHeartbeatHandler);
 
-        // to add be to DEFAULT_CLUSTER
-        if (!isFree) {
-            final Cluster cluster = Catalog.getInstance().getCluster(DEFAULT_CLUSTER);
-            Preconditions.checkState(cluster != null);
-            cluster.addBackend(newBackend.getId());
-            newBackend.setOwnerClusterName(DEFAULT_CLUSTER);
-            newBackend.setBackendState(BackendState.using);
+        if (!Strings.isNullOrEmpty(destCluster)) {
+         // add backend to destCluster
+            setBackendOwner(newBackend, destCluster);
+        } else if (!isFree) {
+            // add backend to DEFAULT_CLUSTER
+            setBackendOwner(newBackend, DEFAULT_CLUSTER);
+        } else {
+            // backend is free
         }
 
         // log
@@ -327,7 +348,7 @@ public class SystemInfoService extends Daemon {
      *
      * @param clusterName
      * @param instanceNum
-     * @return
+     * @return if BE avaliable is less than requested , return null.
      */
     public List<Long> createCluster(String clusterName, int instanceNum) {
         final List<Long> chosenBackendIds = Lists.newArrayList();

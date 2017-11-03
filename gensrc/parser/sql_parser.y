@@ -686,6 +686,10 @@ alter_system_clause ::=
     {:
         RESULT = new AddBackendClause(hostPorts, true);
     :}
+    | KW_ADD KW_BACKEND KW_TO ident:clusterName string_list:hostPorts
+    {:   
+        RESULT = new AddBackendClause(hostPorts, clusterName);
+    :} 
     | KW_DROP KW_BACKEND string_list:hostPorts
     {:
         RESULT = new DropBackendClause(hostPorts, false);
