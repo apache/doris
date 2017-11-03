@@ -187,6 +187,7 @@ public class CreateTableStmt extends DdlStmt implements Writable {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+        super.analyze(analyzer);
         tableName.analyze(analyzer);
         FeNameFormat.checkTableName(tableName.getTbl());
 
