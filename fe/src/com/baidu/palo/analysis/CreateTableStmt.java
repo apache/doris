@@ -27,10 +27,11 @@ import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.KeysType;
 import com.baidu.palo.catalog.PartitionType;
 import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.Config;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
-import com.baidu.palo.common.FeNameFormat;
 import com.baidu.palo.common.FeMetaVersion;
+import com.baidu.palo.common.FeNameFormat;
 import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.io.Writable;
@@ -250,6 +251,7 @@ public class CreateTableStmt extends DdlStmt implements Writable {
             throw new AnalysisException("Kudu table does not support column num more than 300");
         }
 
+        int rowLengthBytes = 0;
         boolean hasHll = false;
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (Column col : columns) {
@@ -271,6 +273,13 @@ public class CreateTableStmt extends DdlStmt implements Writable {
             if (!columnSet.add(col.getName())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col.getName());
             }
+
+            rowLengthBytes += col.getColumnType().getMemlayoutBytes();
+        }
+
+        if (rowLengthBytes > Config.max_layout_length_per_row) {
+            throw new AnalysisException("The size of a row (" + rowLengthBytes + ") exceed the maximal row size: "
+                    + Config.max_layout_length_per_row);
         }
 
         if (hasHll && keysDesc.getKeysType() != KeysType.AGG_KEYS) {

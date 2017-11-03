@@ -20,15 +20,15 @@
 
 package com.baidu.palo.catalog;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.FeMetaVersion;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.io.Writable;
 import com.baidu.palo.thrift.TColumnType;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 
 /**
  * 这个是对Column类型的一个封装，对于大多数类型，primitive type足够了，这里有两个例外需要用到这个信息
@@ -197,6 +197,40 @@ public class ColumnType implements Writable {
 
     public boolean isString() {
         return type == PrimitiveType.CHAR || type == PrimitiveType.VARCHAR || type == PrimitiveType.HLL;
+    }
+
+    public int getMemlayoutBytes() {
+        switch (type) {
+            case BOOLEAN:
+                return 0;
+            case TINYINT:
+                return 1;
+            case SMALLINT:
+                return 2;
+            case INT:
+                return 4;
+            case BIGINT:
+                return 8;
+            case LARGEINT:
+                return 16;
+            case FLOAT:
+                return 4;
+            case DOUBLE:
+                return 12;
+            case DATE:
+                return 3;
+            case DATETIME:
+                return 8;
+            case DECIMAL:
+                return 40;
+            case CHAR:
+            case VARCHAR:
+                return len;
+            case HLL:
+                return 16385;
+            default:
+                return 0;
+        }
     }
 
     public void analyze() throws AnalysisException {
