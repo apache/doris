@@ -101,6 +101,8 @@
         max_filter_ratio：最大容忍可过滤（数据不规范等原因）的数据比例。默认零容忍。
         load_delete_flag：指定该导入是否通过导入key列的方式删除数据，仅适用于UNIQUE KEY，
                           导入时可不指定value列。默认为false。
+        exec_mem_limit:   当使用 broker 方式导入时，可以指定导入作业在单个 BE 上的内存大小限制。
+                          单位是字节。（默认是 2147483648，即 2G）
 
     5. 导入数据格式样例
 
