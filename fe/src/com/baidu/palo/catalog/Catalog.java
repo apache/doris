@@ -2279,11 +2279,10 @@ public class Catalog {
     public void replayRenameDatabase(String dbName, String newDbName) {
         writeLock();
         try {
-            Database db = getDb(dbName);
-            db.setNameWithLock(newDbName);
-            db = fullNameToDb.get(dbName);
-            final Cluster cluster = nameToCluster.get(db.getClusterName());
+            Database db = fullNameToDb.get(dbName);
+            Cluster cluster = nameToCluster.get(db.getClusterName());
             cluster.removeDb(db.getFullName(), db.getId());
+            db.setName(newDbName);
             cluster.addDb(newDbName, db.getId());
             fullNameToDb.remove(dbName);
             fullNameToDb.put(newDbName, db);
@@ -2291,7 +2290,7 @@ public class Catalog {
             writeUnlock();
         }
 
-        LOG.info("replay rename database[{}] to {}", dbName, newDbName);
+        LOG.info("replay rename database {} to {}", dbName, newDbName);
     }
 
     public void createTable(CreateTableStmt stmt) throws DdlException {
