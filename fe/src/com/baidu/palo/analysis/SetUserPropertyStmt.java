@@ -23,6 +23,7 @@ package com.baidu.palo.analysis;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.InternalException;
+
 import com.google.common.base.Strings;
 
 import java.util.List;
@@ -48,9 +49,12 @@ public class SetUserPropertyStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(user)) {
+            // If param 'user' is not set, use the login user name.
+            // The login user name is full-qualified with cluster name.
             user = analyzer.getUser();
         } else {
-            if (!analyzer.getCatalog().getUserMgr().isAdmin(analyzer.getUser())) {
+            // If param 'user' is set, check if it need to be full-qualified
+            if (!analyzer.getCatalog().getUserMgr().isAdmin(user)) {
                 user = ClusterNamespace.getFullName(getClusterName(), user);
             }
         }

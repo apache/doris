@@ -28,6 +28,7 @@ import com.baidu.palo.common.util.ListComparator;
 import com.baidu.palo.common.util.TimeUtils;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.SystemInfoService;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -41,12 +42,14 @@ import java.util.LinkedList;
 import java.util.List;
 
 public class BackendsProcDir implements ProcDirInterface {
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("Cluster")
-            .add("BackendId").add("IP").add("HostName").add("HeartbeatPort").add("BePort").add("HttpPort")
-            .add("LastStartTime").add("LastHeartbeat").add("Alive").add("SystemDecommissioned")
-            .add("ClusterDecommissioned").add("TabletNum").build();
-    public static final int IP_INDEX = 1;
-    public static final int HOSTNAME_INDEX = 2;
+    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("BackendId").add("Cluster").add("IP").add("HostName").add("HeartbeatPort")
+            .add("BePort").add("HttpPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
+            .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum").add("FreeSpace")
+            .build();
+
+    public static final int IP_INDEX = 2;
+    public static final int HOSTNAME_INDEX = 3;
 
     private SystemInfoService clusterInfoService;
 
@@ -120,8 +123,8 @@ public class BackendsProcDir implements ProcDirInterface {
 
             Integer tabletNum = Catalog.getCurrentInvertedIndex().getTabletNumByBackendId(backendId);
             List<Comparable> backendInfo = Lists.newArrayList();
-            backendInfo.add(backend.getOwnerClusterName());
             backendInfo.add(String.valueOf(backendId));
+            backendInfo.add(backend.getOwnerClusterName());
             backendInfo.add(backend.getHost());
             if (Strings.isNullOrEmpty(clusterName)) {
                 backendInfo.add(hostName);
@@ -144,11 +147,20 @@ public class BackendsProcDir implements ProcDirInterface {
                 backendInfo.add(String.valueOf("false"));
             }
             backendInfo.add(tabletNum.toString());
+
+            double free = 0.0;
+            if (backend.getTotalCapacityB() <= 0) {
+                free = 0.0;
+            } else {
+                free = (double) backend.getAvailableCapacityB() * 100 / backend.getTotalCapacityB();
+            }
+            backendInfo.add(String.format("%.2f", free) + " %");
+
             comparableBackendInfos.add(backendInfo);
         }
          
-        // sort by id, ip hostName
-        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2);
+        // sort by cluster name, host name
+        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(1, 3);
         Collections.sort(comparableBackendInfos, comparator);
 
         for (List<Comparable> backendInfo : comparableBackendInfos) {
@@ -168,16 +180,16 @@ public class BackendsProcDir implements ProcDirInterface {
     }
 
     @Override
-    public ProcNodeInterface lookup(String name) throws AnalysisException {
-        if (Strings.isNullOrEmpty(name)) {
+    public ProcNodeInterface lookup(String beIdStr) throws AnalysisException {
+        if (Strings.isNullOrEmpty(beIdStr)) {
             throw new AnalysisException("Backend id is null");
         }
 
         long backendId = -1L;
         try {
-            backendId = Long.valueOf(name);
+            backendId = Long.valueOf(beIdStr);
         } catch (NumberFormatException e) {
-            throw new AnalysisException("Invalid backend id format: " + name);
+            throw new AnalysisException("Invalid backend id format: " + beIdStr);
         }
 
         Backend backend = clusterInfoService.getBackend(backendId);
