@@ -1671,6 +1671,10 @@ show_param ::=
     {:   
         RESULT = new ShowBackendsStmt();
     :} 
+    | KW_USER
+    {:   
+        RESULT = new ShowUserStmt();
+    :} 
     ;
 
 keys_or_index ::=
