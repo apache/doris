@@ -64,7 +64,7 @@ Usage: $0 <options>
     $0                      build Backend and Frontend without clean
     $0 --be                 build Backend without clean
     $0 --fe --clean         clean and build Frontend
-    $0 --fe --be --clean    clean, build and run Frontend and Backend
+    $0 --fe --be --clean    clean and build both Frontend and Backend
   "
   exit 1
 }
@@ -122,17 +122,6 @@ echo "Get params:
     RUN_UT   -- $RUN_UT
 "
 
-# Clean output
-if [ ${CLEAN} -eq 1 ]; then
-    if [ ${BUILD_BE} -eq 1 -a ${BUILD_FE} -eq 1 ]; then
-        rm -rf ${PALO_HOME}/output/
-    elif [ ${BUILD_BE} -eq 1 ]; then
-        rm -rf ${PALO_HOME}/output/be
-    else
-        rm -rf ${PALO_HOME}/output/fe
-    fi
-fi
-
 # Clean and build generated code
 echo "Build generated code"
 cd ${PALO_HOME}/gensrc
@@ -179,15 +168,26 @@ fi
 
 # Clean and prepare output dir
 PALO_OUTPUT=${PALO_HOME}/output/
-rm -rf ${PALO_OUTPUT}
 mkdir -p ${PALO_OUTPUT}
 
 #Copy Frontend and Backend
 if [ ${BUILD_FE} -eq 1 ]; then
-    cp -rp ${PALO_HOME}/fe/output ${PALO_OUTPUT}/fe
+    install -d ${PALO_OUTPUT}/fe/bin ${PALO_OUTPUT}/fe/conf \
+               ${PALO_OUTPUT}/fe/lib/kudu-client/ ${PALO_OUTPUT}/fe/webroot/static/ 
+
+    install -t ${PALO_OUTPUT}/fe/bin/ ${PALO_HOME}/fe/output/bin/*
+    install -t ${PALO_OUTPUT}/fe/conf/ ${PALO_HOME}/fe/output/conf/*
+    install -t ${PALO_OUTPUT}/fe/lib/ ${PALO_HOME}/fe/output/lib/*.jar
+    install -t ${PALO_OUTPUT}/fe/lib/kudu-client/ ${PALO_HOME}/fe/output/lib/kudu-client/*
+    install -t ${PALO_OUTPUT}/fe/webroot/static/ ${PALO_HOME}/fe/output/webroot/static/*
 fi
 if [ ${BUILD_BE} -eq 1 ]; then
-    cp -rp ${PALO_HOME}/be/output ${PALO_OUTPUT}/be
+    install -d ${PALO_OUTPUT}/be/bin ${PALO_OUTPUT}/be/conf \
+               ${PALO_OUTPUT}/be/lib/
+
+    install -t ${PALO_OUTPUT}/be/bin/ ${PALO_HOME}/be/output/bin/*
+    install -t ${PALO_OUTPUT}/be/conf/ ${PALO_HOME}/be/output/conf/*
+    install -t ${PALO_OUTPUT}/be/lib/ ${PALO_HOME}/be/output/lib/*
 fi
 
 echo "***************************************"

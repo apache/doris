@@ -58,7 +58,8 @@ public class AccessResourceProcDir implements ProcDirInterface {
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        result.setRows(userPropertyMgr.fetchAccessResourceResult());
+        result.setRows(userPropertyMgr.fetchAccessResourceResult(UserPropertyMgr.ROOT_USER));
         return result;
     }
 }
+
