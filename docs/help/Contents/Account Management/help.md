@@ -139,3 +139,18 @@
 ## keyword
     SET, PROPERTY
 
+# SHOW USER
+## description
+    用于显示当前用户有权限查看的所有用户的权限信息。
+    如果是普通用户，仅可以查看自己的权限信息。
+    如果是 superuser 用户，可以看到自己所属 cluster 的所有用户的权限信息。
+    如果是 admin（root）用户，可以看到所有用户的权限信息。
+    语法：
+        SHOW USER;
+        
+## example
+   1. 查看用户权限信息
+   SHOW USER;
+
+## keyword
+   SHOW,USER

@@ -109,11 +109,6 @@ SNAPPY_DOWNLOAD="https://github.com/google/snappy/releases/download/1.1.4/snappy
 SNAPPY_NAME=snappy-1.1.4.tar.gz
 SNAPPY_SOURCE=snappy-1.1.4
 
-# libunwind
-LIBUNWIND_DOWNLOAD="http://download.savannah.nongnu.org/releases/libunwind/libunwind-1.2.tar.gz"
-LIBUNWIND_NAME=libunwind-1.2.tar.gz
-LIBUNWIND_SOURCE=libunwind-1.2
-
 # gperftools
 GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/releases/download/gperftools-2.5.93/gperftools-2.5.93.tar.gz"
 GPERFTOOLS_NAME=gperftools-2.5.93.tar.gz
@@ -175,4 +170,4 @@ BOOST_FOR_MYSQL_NAME=boost_1_59_0.tar.gz
 BOOST_FOR_MYSQL_SOURCE=boost_1_59_0
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
-export TP_ARCHIVES=(LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY LIBUNWIND GPERFTOOLS ZLIB LZ4 BZIP LZO2 NCURSES CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL)
+export TP_ARCHIVES=(LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 NCURSES CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL)

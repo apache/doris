@@ -15,9 +15,22 @@
 
 package com.baidu.palo.catalog;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.baidu.palo.analysis.AlterUserStmt;
 import com.baidu.palo.analysis.AlterUserType;
 import com.baidu.palo.analysis.SetUserPropertyStmt;
+import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.DdlException;
@@ -31,23 +44,9 @@ import com.baidu.palo.thrift.TAgentServiceVersion;
 import com.baidu.palo.thrift.TFetchResourceResult;
 import com.baidu.palo.thrift.TTopicItem;
 import com.baidu.palo.thrift.TTopicType;
-import com.baidu.palo.cluster.ClusterNamespace;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.LogManager;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 // TODO(dhc): we don't consider "drop database"
 public class UserPropertyMgr {
@@ -56,8 +55,8 @@ public class UserPropertyMgr {
     private EditLog editLog;
     protected Map<String, UserProperty> userMap;
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-    private static final String ROOT_USER = "root";
-    private static final String SYSTEM_RESOURCE_USER = "system";
+    public static final String ROOT_USER = "root";
+    public static final String SYSTEM_RESOURCE_USER = "system";
     private AtomicLong resourceVersion;
 
     public UserPropertyMgr() {
@@ -113,23 +112,55 @@ public class UserPropertyMgr {
         }, Config.meta_resource_publish_interval_ms);
     }
 
-    public List<List<String>> fetchAccessResourceResult() {
+    public List<List<String>> fetchAccessResourceResult(String user) {
         List<List<String>> result = Lists.newArrayList();
         readLock();
         try {
-            for (Map.Entry<String, UserProperty> entry : userMap.entrySet()) {
-                String userName = entry.getKey();
-                UserProperty userProperty = entry.getValue();
+            LOG.debug("get user name: {}", user);
+            UserProperty userProperty = userMap.get(user);
+            if (userProperty == null) {
+                // no such user
+                return result;
+            }
 
-                if (Strings.isNullOrEmpty(userName) || (userProperty == null)) {
-                    continue;
-                }
+            boolean isAdmin = userProperty.isAdmin();
+            boolean isSuperuser = userProperty.isSuperuser();
 
-                String privilegeResult = userProperty.fetchPrivilegeResult();
+            if (!isAdmin && !isSuperuser) {
+                // just a normal user, show its own property
                 result.add(Arrays.asList(userProperty.getUser(), new String(userProperty.getPassword()),
                         String.valueOf(userProperty.isAdmin()), String.valueOf(userProperty.isSuperuser()),
-                        String.valueOf(userProperty.getMaxConn()), privilegeResult));
+                        String.valueOf(userProperty.getMaxConn()), userProperty.fetchPrivilegeResult()));
+                return result;
             }
+
+            if (isAdmin) {
+                // If this is admin user(root), show all users' property.
+                for (Map.Entry<String, UserProperty> entry : userMap.entrySet()) {
+                    UserProperty oneProp = entry.getValue();
+                    
+                    result.add(Arrays.asList(oneProp.getUser(), new String(oneProp.getPassword()),
+                            String.valueOf(oneProp.isAdmin()), String.valueOf(oneProp.isSuperuser()),
+                            String.valueOf(oneProp.getMaxConn()), oneProp.fetchPrivilegeResult()));
+                }
+            } else if (isSuperuser) {
+                // If this is a superuser, show property of all users' who are belong to the
+                // cluster.
+                String clusterName = ClusterNamespace.getClusterNameFromFullName(user);
+                LOG.debug("cluster name: {}", clusterName);
+
+                for (Map.Entry<String, UserProperty> entry : userMap.entrySet()) {
+                    UserProperty oneProp = entry.getValue();
+                    if (!oneProp.getClusterName().equals(clusterName)) {
+                        continue;
+                    }
+
+                    result.add(Arrays.asList(oneProp.getUser(), new String(oneProp.getPassword()),
+                            String.valueOf(oneProp.isAdmin()), String.valueOf(oneProp.isSuperuser()),
+                            String.valueOf(oneProp.getMaxConn()), oneProp.fetchPrivilegeResult()));
+                }
+            }
+            
             return result;
         } finally {
             readUnlock();
@@ -144,13 +175,13 @@ public class UserPropertyMgr {
         writeLock();
         try {
             checkUserNotExists(user);
-            UserProperty resource = unprotectAddUser(cluster, user, password);
-            resource.setIsSuperuser(isSuperuser);
+            UserProperty userProperty = unprotectAddUser(cluster, user, password);
+            userProperty.setIsSuperuser(isSuperuser);
             // all user has READ_ONLY privilege to InfoSchemaDb
             this.getAccessResource(user).setAccess(ClusterNamespace.getFullName(cluster, InfoSchemaDb.DATABASE_NAME),
                                                    AccessPrivilege.READ_ONLY);
             String msg = "addUser username=" + user + " password='" + password;
-            writeEditsOfAlterAccess(resource, msg);
+            writeEditsOfAlterAccess(userProperty, msg);
         } finally {
             writeUnlock();
         }
@@ -389,26 +420,26 @@ public class UserPropertyMgr {
     }
 
     private UserProperty unprotectAddUser(String cluster, String user, byte[] password) {
-        UserProperty resource = new UserProperty();
-        resource.setUser(user);
-        resource.setPassword(password);
-        resource.setClusterName(cluster);
+        UserProperty userProperty = new UserProperty();
+        userProperty.setUser(user);
+        userProperty.setPassword(password);
+        userProperty.setClusterName(cluster);
         // 默认“root”用户是管理员，其他需要其他接口
         if (user.equals(ROOT_USER)) {
-            resource.setIsAdmin(true);
+            userProperty.setIsAdmin(true);
         }
         try {
             if (user.equals(SYSTEM_RESOURCE_USER)) {
-                setSystemUserDefaultResource(resource);
+                setSystemUserDefaultResource(userProperty);
             }
             if (!user.equals(SYSTEM_RESOURCE_USER) && !user.equals(ROOT_USER)) {
-                setNormalUserDefaultResource(resource);
+                setNormalUserDefaultResource(userProperty);
             }
         } catch (DdlException e) {
             // this should not happen, because the value is set by us!!
         }
-        userMap.put(user, resource);
-        return resource;
+        userMap.put(user, userProperty);
+        return userProperty;
     }
 
     private void setSystemUserDefaultResource(UserProperty user) throws DdlException {
@@ -431,8 +462,8 @@ public class UserPropertyMgr {
         userResource.updateResource("HDD_READ_MBPS", 30);
     }
 
-    private void writeEditsOfAlterAccess(UserProperty resource, String msg) {
-        editLog.logAlterAccess(resource);
+    private void writeEditsOfAlterAccess(UserProperty userProperty, String msg) {
+        editLog.logAlterAccess(userProperty);
         resourceVersion.incrementAndGet();
     }
 
@@ -621,3 +652,4 @@ public class UserPropertyMgr {
         }
     }
 }
+
