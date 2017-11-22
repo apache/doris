@@ -307,18 +307,6 @@ build_snappy() {
     make -j$PARALLEL && make install
 }
 
-# libunwind
-build_libunwind() {
-    check_if_source_exist $LIBUNWIND_SOURCE
-    cd $TP_SOURCE_DIR/$LIBUNWIND_SOURCE
-
-    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
-    LDFLAGS="-L${TP_LIB_DIR}" \
-    CFLAGS="-fPIC" \
-    ./configure --prefix=$TP_INSTALL_DIR
-    make -j$PARALLEL && make install
-}
-
 # gperftools
 build_gperftools() {
     check_if_source_exist $GPERFTOOLS_SOURCE
@@ -455,7 +443,7 @@ build_lz4
 build_bzip
 build_lzo2
 build_boost # must before thrift
-build_ncurses #must before cmake
+build_ncurses
 build_llvm
 build_protobuf
 build_gflags

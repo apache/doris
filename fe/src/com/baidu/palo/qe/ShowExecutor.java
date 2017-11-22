@@ -15,6 +15,15 @@
 
 package com.baidu.palo.qe;
 
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import com.baidu.palo.analysis.DescribeStmt;
 import com.baidu.palo.analysis.HelpStmt;
 import com.baidu.palo.analysis.ShowAlterStmt;
@@ -45,6 +54,7 @@ import com.baidu.palo.analysis.ShowTableStatusStmt;
 import com.baidu.palo.analysis.ShowTableStmt;
 import com.baidu.palo.analysis.ShowTabletStmt;
 import com.baidu.palo.analysis.ShowUserPropertyStmt;
+import com.baidu.palo.analysis.ShowUserStmt;
 import com.baidu.palo.analysis.ShowVariablesStmt;
 import com.baidu.palo.analysis.ShowWhiteListStmt;
 import com.baidu.palo.catalog.AccessPrivilege;
@@ -77,20 +87,10 @@ import com.baidu.palo.load.LoadErrorHub;
 import com.baidu.palo.load.LoadErrorHub.HubType;
 import com.baidu.palo.load.LoadJob;
 import com.baidu.palo.load.LoadJob.JobState;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.util.ArrayList;
-import java.util.Iterator;
-
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 // Execute one show statement.
 public class ShowExecutor {
@@ -170,6 +170,8 @@ public class ShowExecutor {
             handleShowExport();
         } else if (stmt instanceof ShowBackendsStmt) {
             handleShowBackends();
+        } else if (stmt instanceof ShowUserStmt) {
+            handleShowUser();
         } else {
             handleEmtpy();
         }
@@ -847,13 +849,10 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), showStmt.getResultRows());
     }
 
-    // Handle show engines
+    // Handle show brokers
     private void handleShowBroker() {
         ShowBrokerStmt showStmt = (ShowBrokerStmt) stmt;
-        List<List<String>> rowSet = Lists.newArrayList();
-        for (String broker : Catalog.getInstance().getBrokerMgr().getBrokerNames()) {
-            rowSet.add(Lists.newArrayList(broker, ""));
-        }
+        List<List<String>> rowSet = Catalog.getInstance().getBrokerMgr().getBrokersInfo();
 
         // Only success
         resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
@@ -882,7 +881,6 @@ public class ShowExecutor {
         List<List<String>> rows = Lists.newArrayList();
         for (List<Comparable> loadInfo : infos) {
             List<String> oneInfo = new ArrayList<String>(loadInfo.size());
-
             for (Comparable element : loadInfo) {
                 oneInfo.add(element.toString());
             }
@@ -904,4 +902,12 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), backendInfos);
     }
 
+    private void handleShowUser() {
+        final ShowUserStmt showStmt = (ShowUserStmt) stmt;
+        final List<List<String>> userInfos = Catalog.getInstance().getUserMgr()
+                .fetchAccessResourceResult(showStmt.getUser());
+        resultSet = new ShowResultSet(showStmt.getMetaData(), userInfos);
+    }
+
 }
+

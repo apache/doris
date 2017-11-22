@@ -24,7 +24,7 @@ public class ShowBrokerStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Broker", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Description", ColumnType.createVarchar(200)))
+                    .addColumn(new Column("Instances", ColumnType.createVarchar(200)))
                     .build();
 
     public ShowBrokerStmt() {

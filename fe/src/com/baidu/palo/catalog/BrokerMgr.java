@@ -25,6 +25,7 @@ import com.baidu.palo.common.proc.BaseProcResult;
 import com.baidu.palo.common.proc.ProcNodeInterface;
 import com.baidu.palo.common.proc.ProcResult;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -329,6 +330,18 @@ public class BrokerMgr {
         }
     }
 
+    public List<List<String>> getBrokersInfo() {
+        lock.lock();
+        try {
+            if (procNode == null) {
+                procNode = new BrokerProcNode();
+            }
+            return procNode.fetchResult().getRows();
+        } finally {
+            lock.unlock();
+        }
+    }
+
     public BrokerProcNode getProcNode() {
         lock.lock();
         try {
@@ -343,16 +356,19 @@ public class BrokerMgr {
 
     public class BrokerProcNode implements ProcNodeInterface {
         @Override
-        public ProcResult fetchResult() throws AnalysisException {
+        public ProcResult fetchResult() {
             BaseProcResult result = new BaseProcResult();
             result.setNames(BROKER_PROC_NODE_TITLE_NAMES);
 
             lock.lock();
             try {
                 for (Map.Entry<String, ArrayListMultimap<String, BrokerAddress>> entry : brokersMap.entrySet()) {
+                    String brokerName = entry.getKey();
+                    List<String> brokerAddrs = Lists.newArrayList();
                     for (BrokerAddress address : entry.getValue().values()) {
-                        result.addRow(Lists.newArrayList(entry.getKey(), address.toString()));
+                        brokerAddrs.add(address.toString());
                     }
+                    result.addRow(Lists.newArrayList(brokerName, Joiner.on(", ").join(brokerAddrs)));
                 }
             } finally {
                 lock.unlock();
