@@ -772,7 +772,7 @@ public class Coordinator {
     // or INVALID_PLAN_NODE_ID if no such node present.
     private PlanNode findLeftmostNode(PlanNode plan) {
         PlanNode newPlan = plan;
-        while (newPlan.getChildren().size() != 0) {
+        while (newPlan.getChildren().size() != 0 && !(newPlan instanceof ExchangeNode)) {
             newPlan = newPlan.getChild(0);
         }
         return newPlan;
