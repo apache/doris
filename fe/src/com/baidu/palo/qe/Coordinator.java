@@ -27,6 +27,7 @@ import com.baidu.palo.common.util.DebugUtil;
 import com.baidu.palo.common.util.RuntimeProfile;
 import com.baidu.palo.planner.DataPartition;
 import com.baidu.palo.planner.DataSink;
+import com.baidu.palo.planner.ExchangeNode;
 import com.baidu.palo.planner.PlanFragment;
 import com.baidu.palo.planner.PlanFragmentId;
 import com.baidu.palo.planner.PlanNode;
