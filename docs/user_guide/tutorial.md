@@ -339,7 +339,7 @@ PROPERTIES
 
 示例：以 "table2_20170707"为Label，使用HDFS上的文件导入table2表
 ```
-LOAD LABEL table1_20170707
+LOAD LABEL table2_20170707
 (
     DATA INFILE("hdfs://your.namenode.host:port/dir/table2_data")
     INTO TABLE table2
