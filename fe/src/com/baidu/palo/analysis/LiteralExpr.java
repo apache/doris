@@ -40,7 +40,6 @@ public abstract class LiteralExpr extends Expr {
 
     public LiteralExpr() {
         numDistinctValues = 1;
-        isAnalyzed = true;
     }
 
     protected LiteralExpr(LiteralExpr other) {

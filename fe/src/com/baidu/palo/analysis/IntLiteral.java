@@ -64,6 +64,7 @@ public class IntLiteral extends LiteralExpr {
     public IntLiteral(long value) {
         super();
         init(value);
+        analysisDone();
     }
 
     public IntLiteral(long longValue, Type type) throws AnalysisException {
@@ -102,6 +103,7 @@ public class IntLiteral extends LiteralExpr {
 
         this.value = longValue;
         this.type = type;
+        analysisDone();
     }
 
     public IntLiteral(String value, Type type) throws AnalysisException {
@@ -147,6 +149,7 @@ public class IntLiteral extends LiteralExpr {
 
         this.value = longValue;
         this.type = type;
+        analysisDone();
     }
 
     protected IntLiteral(IntLiteral other) {

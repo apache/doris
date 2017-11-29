@@ -461,4 +461,7 @@ public class Config extends ConfigBase {
     // for forward compatibility, will be removed later.
     // check token when download image file.
     @ConfField public static boolean enable_token_check = true;
+
+    // white list limit
+    @ConfField public static int per_user_white_list_limit = 1024;
 }
