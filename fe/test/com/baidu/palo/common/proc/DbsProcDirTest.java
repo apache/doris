@@ -26,9 +26,9 @@ import com.baidu.palo.common.AnalysisException;
 
 import com.google.common.collect.Lists;
 
-import org.junit.Assert;
 import org.easymock.EasyMock;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -149,8 +149,8 @@ public class DbsProcDirTest {
         Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Quota", "LastConsistencyCheckTime"),
                             result.getColumnNames());
         List<List<String>> rows = Lists.newArrayList();
-        rows.add(Arrays.asList(String.valueOf(db1.getId()), db1.getName(), "0", "1024.000 GB", "N/A"));
-        rows.add(Arrays.asList(String.valueOf(db2.getId()), db2.getName(), "0", "1024.000 GB", "N/A"));
+        rows.add(Arrays.asList(String.valueOf(db1.getId()), db1.getFullName(), "0", "1024.000 GB", "N/A"));
+        rows.add(Arrays.asList(String.valueOf(db2.getId()), db2.getFullName(), "0", "1024.000 GB", "N/A"));
         Assert.assertEquals(rows, result.getRows());
     }
 

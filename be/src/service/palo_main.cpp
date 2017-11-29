@@ -94,7 +94,7 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
-    string conffile = string(getenv("PALO_HOME")) + "/conf/be.conf"; 
+    string conffile = string(getenv("PALO_HOME")) + "/conf/be.conf";
     if (!palo::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
@@ -104,7 +104,9 @@ int main(int argc, char** argv) {
     palo::init_daemon(argc, argv);
 
     palo::ResourceTls::init();
-    palo::BackendOptions::init();
+    if (!palo::BackendOptions::init()) {
+        exit(-1);
+    }
 
     // initialize storage
     if (0 != palo::olap_main(argc, argv)) {
@@ -119,8 +121,8 @@ int main(int argc, char** argv) {
     palo::ThriftServer* be_server = nullptr;
 
     EXIT_IF_ERROR(palo::BackendService::create_service(
-            &exec_env, 
-            palo::config::be_port, 
+            &exec_env,
+            palo::config::be_port,
             &be_server));
     Status status = be_server->start();
     if (!status.ok()) {

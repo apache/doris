@@ -31,9 +31,9 @@ import com.baidu.palo.common.FeMetaVersion;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.util.PropertyAnalyzer;
 import com.baidu.palo.common.util.Util;
+import com.baidu.palo.thrift.TOlapTable;
 import com.baidu.palo.thrift.TStorageType;
 import com.baidu.palo.thrift.TTableDescriptor;
-import com.baidu.palo.thrift.TOlapTable;
 import com.baidu.palo.thrift.TTableType;
 
 import com.google.common.base.Joiner;

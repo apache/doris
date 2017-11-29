@@ -20,12 +20,12 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.InternalException;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
 
 public class MigrateDbStmtTest {
 
@@ -43,7 +43,7 @@ public class MigrateDbStmtTest {
         final MigrateDbStmt stmt = new MigrateDbStmt(cn1, cn2);
         stmt.analyze(analyzer);
         final String sql = "MIGRATE DATABASE " + stmt.getSrcCluster() + "." + stmt.getSrcDb() + " "
-                + stmt.getDesCluster() + "." + stmt.getDesDb();
+                + stmt.getDestCluster() + "." + stmt.getDestDb();
         Assert.assertEquals(sql, stmt.toSql());
     }
 

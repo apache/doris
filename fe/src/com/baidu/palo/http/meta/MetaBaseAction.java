@@ -26,9 +26,9 @@ import com.baidu.palo.system.Frontend;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import io.netty.handler.codec.http.HttpResponseStatus;
-
 import java.io.File;
+
+import io.netty.handler.codec.http.HttpResponseStatus;
 
 public class MetaBaseAction extends WebBaseAction {
     private static final Logger LOG = LogManager.getLogger(MetaBaseAction.class);
@@ -86,7 +86,7 @@ public class MetaBaseAction extends WebBaseAction {
         String clientHost = request.getHostString();
         Frontend fe = Catalog.getInstance().getFeByHost(clientHost);
         if (fe == null) {
-            LOG.warn("request is not from valid FE . client: {}", clientHost);
+            LOG.warn("request is not from valid FE. client: {}", clientHost);
             return false;
         }
         return true;

@@ -15,8 +15,12 @@
 
 package com.baidu.palo.service;
 
+import com.baidu.palo.common.CIDR;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.util.NetUtils;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 
 import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
@@ -28,21 +32,26 @@ import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.List;
 
-
 public class FrontendOptions {
     private static final Logger LOG = LogManager.getLogger(FrontendOptions.class);
-    
-    private static InetAddress localHost;
+
+    private static String PRIORITY_CIDR_SEPARATOR = ";";
+
+    private static List<CIDR> priorityCidrs = Lists.newArrayList();
+    private static InetAddress localAddr;
 
     public static void init() throws UnknownHostException {
         if (!Config.frontend_address.equals("0.0.0.0")) {
             if (!InetAddressValidator.getInstance().isValidInet4Address(Config.frontend_address)) {
                 throw new UnknownHostException("invalid frontend_address: " + Config.frontend_address);
             }
-            localHost = InetAddress.getByName(Config.frontend_address);
+            localAddr = InetAddress.getByName(Config.frontend_address);
+            LOG.info("use configured address. {}", localAddr);
             return;
         }
-        
+
+        analyzePriorityCidrs();
+
         // if not set frontend_address, get a non-loopback ip
         List<InetAddress> hosts = new ArrayList<InetAddress>();
         NetUtils.getHosts(hosts);
@@ -50,31 +59,61 @@ public class FrontendOptions {
             LOG.error("fail to get localhost");
             System.exit(-1);
         }
-        
+
         InetAddress loopBack = null;
         for (InetAddress addr : hosts) {
+            LOG.debug("check ip address: {}", addr);
             if (addr instanceof Inet4Address) {
                 if (addr.isLoopbackAddress()) {
                     loopBack = addr;
+                } else if (!priorityCidrs.isEmpty()) {
+                    if (isInPriorNetwork(addr.getHostAddress())) {
+                        localAddr = addr;
+                        break;
+                    }
                 } else {
-                    localHost = addr;
+                    localAddr = addr;
                     break;
                 }
             }
         }
-        
+
         // nothing found, use loopback addr
-        if (localHost == null) {
-            localHost = loopBack;
+        if (localAddr == null) {
+            localAddr = loopBack;
+        }
+        LOG.info("local address: {}.", localAddr);
+    }
+
+    public static InetAddress getLocalHost() {
+        return localAddr;
+    }
+
+    public static String getLocalHostAddress() {
+        return localAddr.getHostAddress();
+    }
+
+    private static void analyzePriorityCidrs() {
+        String prior_cidrs = Config.priority_networks;
+        if (Strings.isNullOrEmpty(prior_cidrs)) {
+            return;
+        }
+        LOG.info("configured prior_cidrs value: {}", prior_cidrs);
+
+        String[] cidrList = prior_cidrs.split(PRIORITY_CIDR_SEPARATOR);
+        List<String> priorNetworks = Lists.newArrayList(cidrList);
+        for (String cidrStr : priorNetworks) {
+            priorityCidrs.add(new CIDR(cidrStr));
         }
     }
-    
-    public static InetAddress getLocalHost() {
-        return localHost;
+
+    private static boolean isInPriorNetwork(String ip) {
+        for (CIDR cidr : priorityCidrs) {
+            if (cidr.contains(ip)) {
+                return true;
+            }
+        }
+        return false;
     }
-    
-    public static String getLocalHostAddress() {
-        return localHost.getHostAddress();
-    }
-};
+}
 

@@ -20,11 +20,16 @@
 
 package com.baidu.palo.catalog;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
+import com.baidu.palo.analysis.Analyzer;
+import com.baidu.palo.analysis.CreateTableStmt;
+import com.baidu.palo.analysis.KeysDesc;
+import com.baidu.palo.analysis.RandomDistributionDesc;
+import com.baidu.palo.analysis.TableName;
+import com.baidu.palo.common.DdlException;
+import com.baidu.palo.system.Backend;
+import com.baidu.palo.system.SystemInfoService;
+
+import com.google.common.collect.Lists;
 
 import org.easymock.EasyMock;
 import org.easymock.IAnswer;
@@ -37,15 +42,11 @@ import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
-import com.baidu.palo.analysis.Analyzer;
-import com.baidu.palo.analysis.CreateTableStmt;
-import com.baidu.palo.analysis.KeysDesc;
-import com.baidu.palo.analysis.RandomDistributionDesc;
-import com.baidu.palo.analysis.TableName;
-import com.baidu.palo.common.DdlException;
-import com.baidu.palo.system.Backend;
-import com.baidu.palo.system.SystemInfoService;
-import com.google.common.collect.Lists;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("org.apache.log4j.*")
@@ -200,7 +201,7 @@ public class CreateTableTest {
         }).anyTimes();
         systemInfoService.getBackend(EasyMock.anyLong());
         EasyMock.expectLastCall().andReturn(backend).anyTimes();
-        systemInfoService.checkCapacity();
+        systemInfoService.checkClusterCapacity(EasyMock.anyString());
         EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(systemInfoService);
 
@@ -251,7 +252,7 @@ public class CreateTableTest {
         }).anyTimes();
         systemInfoService.getBackend(EasyMock.anyLong());
         EasyMock.expectLastCall().andReturn(backend).anyTimes();
-        systemInfoService.checkCapacity();
+        systemInfoService.checkClusterCapacity(EasyMock.anyString());
         EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(systemInfoService);
 
@@ -337,7 +338,7 @@ public class CreateTableTest {
         }).anyTimes();
         systemInfoService.getBackend(EasyMock.anyLong());
         EasyMock.expectLastCall().andReturn(backend).anyTimes();
-        systemInfoService.checkCapacity();
+        systemInfoService.checkClusterCapacity(EasyMock.anyString());
         EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(systemInfoService);
 

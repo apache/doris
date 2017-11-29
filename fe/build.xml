@@ -94,6 +94,7 @@
         <mkdir dir="${outputdir}/conf" />
         <mkdir dir="${outputdir}/lib" />
         <mkdir dir="${outputdir}/lib/kudu-client" />
+        <mkdir dir="${outputdir}/lib/k8s-client" />
         <mkdir dir="${outputdir}/webroot" />
 
         <exec executable="cp">

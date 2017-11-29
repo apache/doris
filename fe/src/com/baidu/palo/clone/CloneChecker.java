@@ -15,22 +15,10 @@
 
 package com.baidu.palo.clone;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.DataProperty;
 import com.baidu.palo.catalog.Database;
+import com.baidu.palo.catalog.Database.DbState;
 import com.baidu.palo.catalog.MaterializedIndex;
 import com.baidu.palo.catalog.MaterializedIndex.IndexState;
 import com.baidu.palo.catalog.OlapTable;
@@ -42,7 +30,6 @@ import com.baidu.palo.catalog.Replica.ReplicaState;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.catalog.Table.TableType;
 import com.baidu.palo.catalog.Tablet;
-import com.baidu.palo.catalog.Database.DbState;
 import com.baidu.palo.clone.CloneJob.JobPriority;
 import com.baidu.palo.clone.CloneJob.JobState;
 import com.baidu.palo.clone.CloneJob.JobType;
@@ -59,6 +46,7 @@ import com.baidu.palo.task.AgentTaskExecutor;
 import com.baidu.palo.task.CloneTask;
 import com.baidu.palo.thrift.TBackend;
 import com.baidu.palo.thrift.TStorageMedium;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.LinkedHashMultimap;
@@ -66,6 +54,19 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * CloneChecker for replica supplement, migration and deletion
@@ -112,6 +113,7 @@ public class CloneChecker extends Daemon {
         }
         
         // 2. init backends and capacity info
+        // beId -> beInfo
         Map<Long, BackendInfo> backendInfos = initBackendInfos(db.getClusterName());
         if (backendInfos == null || backendInfos.isEmpty()) {
             LOG.warn("init backend infos error");
@@ -468,12 +470,12 @@ public class CloneChecker extends Daemon {
     }
 
     /**
-     * maybe more than one backend in same host, so capacity of backend are saved into one 
-     * list with same host. it need to randomly select one backend in migration and supplement, 
+     * maybe more than one backend in same host, so capacity of backend are saved into one
+     * list with same host. it need to randomly select one backend in migration and supplement,
      * and select all in delete.
      * 
      * @param backendInfos
-     * @return
+     * @return CapLvl to Set of BE List, each BE list represents all BE in one host
      */
     private Map<CapacityLevel, Set<List<Long>>> initBackendCapacityInfos(Map<Long, BackendInfo> backendInfos) {
         Preconditions.checkNotNull(backendInfos);
@@ -584,7 +586,7 @@ public class CloneChecker extends Daemon {
         Map<CapacityLevel, Set<List<Long>>> distributionLevelToBackendIds =
                 new HashMap<CapacityLevel, Set<List<Long>>>();
         for (CapacityLevel level : CapacityLevel.values()) {
-            distributionLevelToBackendIds.put(level, new HashSet());
+            distributionLevelToBackendIds.put(level, Sets.newHashSet());
         }
 
         int totalReplicaNum = 0;
@@ -646,7 +648,8 @@ public class CloneChecker extends Daemon {
      * 2. if supplement, select from 2.1 low distribution and capacity 2.2 low
      * distribution 2.3 all order by distribution
      */
-    private long selectCloneReplicaBackendId(Map<CapacityLevel, Set<List<Long>>> distributionLevelToBackendIds,
+    private long selectCloneReplicaBackendId(
+            Map<CapacityLevel, Set<List<Long>>> distributionLevelToBackendIds,
             Map<CapacityLevel, Set<List<Long>>> capacityLevelToBackendIds, 
             Map<Long, BackendInfo> backendInfos, TabletInfo tabletInfo,
             JobType jobType, JobPriority priority) {
@@ -667,14 +670,13 @@ public class CloneChecker extends Daemon {
             // 1. HIGH priority
             List<Long> allBackendIds = Lists.newArrayList();
             for (Set<List<Long>> backendIds : distributionLevelToBackendIds.values()) {
+                // select one backend from each host
                 for (List<Long> list : backendIds) {
-                    // select one backend in same host
                     Collections.shuffle(list);
                     allBackendIds.add(list.get(0));
                 }
             }
 
-            Collections.shuffle(allBackendIds);
             candidateBackendId = selectRandomBackendId(allBackendIds, existBackendHosts, backendInfos);
             step = "0";
         } else {
@@ -689,13 +691,19 @@ public class CloneChecker extends Daemon {
             // 2. check canCloneByCapacity && canCloneByDistribution from
             // candidateBackendIds
             List<Long> candidateBackendIds = Lists.newArrayList();
+            // select one backend from each host
             for (List<Long> list : candidateBackendIdsByDistribution) {
-                // select one backend in same host
                 Collections.shuffle(list);
                 candidateBackendIds.add(list.get(0));
             }
-            candidateBackendIds.retainAll(candidateBackendIdsByCapacity);
+            // here we choose candidate backends which are bost in Low capacity and low distribution.
+            Set<Long> candidateBackendIdsByCapacitySet = Sets.newHashSet();
+            for (List<Long> list : candidateBackendIdsByCapacity) {
+                candidateBackendIdsByCapacitySet.addAll(list);
+            }
+            candidateBackendIds.retainAll(candidateBackendIdsByCapacitySet);
             Collections.shuffle(candidateBackendIds);
+
             for (long backendId : candidateBackendIds) {
                 if (existBackendHosts.contains(backendInfos.get(backendId).getHost())) {
                     continue;
@@ -775,7 +783,6 @@ public class CloneChecker extends Daemon {
         long indexId = tabletInfo.getIndexId();
         long tabletId = tabletInfo.getTabletId();
         final String clusterName = db.getClusterName();
-        DbState dbState = db.getDbState();
 
         db.writeLock();
         try {
@@ -913,22 +920,19 @@ public class CloneChecker extends Daemon {
                 // delete high distribution backend, order by level desc and
                 // shuffle in level
                 List<Long> backendIds = Lists.newArrayList();
-                List<CapacityLevel> levels = Lists.newArrayList(CapacityLevel.HIGH,
-                                                                CapacityLevel.MID,
-                                                                CapacityLevel.LOW);
-                // delete where 
-                
-                for (CapacityLevel level : levels) {
-                    List<Long> levelBackendIds = Lists.newArrayList();
-                    for (Set<List<Long>> sets : distributionLevelToBackendIds.values()) {
-                        for (List<Long> list : sets) {
-                            Collections.shuffle(list);
-                            levelBackendIds.add(list.get(0));
-                        }
+
+                List<Long> levelBackendIds = Lists.newArrayList();
+                // select from each distribution level
+                for (Set<List<Long>> sets : distributionLevelToBackendIds.values()) {
+                    // select one BE from each host
+                    for (List<Long> list : sets) {
+                        Collections.shuffle(list);
+                        levelBackendIds.add(list.get(0));
                     }
-                    Collections.shuffle(levelBackendIds);
-                    backendIds.addAll(levelBackendIds);
                 }
+                Collections.shuffle(levelBackendIds);
+                backendIds.addAll(levelBackendIds);
+
                 for (long backendId : backendIds) {
                     Replica replica = tablet.getReplicaByBackendId(backendId);
                     if (tablet.deleteReplica(replica)) {
@@ -968,7 +972,7 @@ public class CloneChecker extends Daemon {
             Set<List<Long>>> capacityLevelToBackendIds,
             Map<Long, BackendInfo> backendInfos) {
         // select src tablet from high distribution or high capacity backends
-        Set<List<Long>> highBackendIds = new HashSet();
+        Set<List<Long>> highBackendIds = Sets.newHashSet();
         highBackendIds.addAll(distributionLevelToBackendIds.get(CapacityLevel.HIGH));
         highBackendIds.addAll(capacityLevelToBackendIds.get(CapacityLevel.HIGH));
         if (highBackendIds.isEmpty()) {
@@ -976,7 +980,7 @@ public class CloneChecker extends Daemon {
             return;
         }
 
-        Set<TabletInfo> candidateMigrationTablets = new HashSet<TabletInfo>();
+        Set<TabletInfo> candidateMigrationTablets = Sets.newHashSet();
         for (List<Long> backendIds : highBackendIds) {
             // select one backend in same host
             Collections.shuffle(backendIds);
@@ -1161,11 +1165,10 @@ public class CloneChecker extends Daemon {
                 }
 
                 // DO NOT choose replica with stale version or invalid version hash
-                if (replica.getVersion() != committedVersion || replica.getVersionHash() != committedVersionHash) {
-                    continue;
+                if (replica.getVersion() > committedVersion || (replica.getVersion() == committedVersion
+                            && replica.getVersionHash() == committedVersionHash)) {
+                    srcBackends.add(new TBackend(backend.getHost(), backend.getBePort(), backend.getHttpPort()));
                 }
-
-                srcBackends.add(new TBackend(backend.getHost(), backend.getBePort(), backend.getHttpPort()));
             }
 
             // no src backend found
@@ -1332,10 +1335,6 @@ public class CloneChecker extends Daemon {
             return host;
         }
 
-        public void setHost(String host) {
-            this.host = host;
-        }
-        
         public long getBackendId() {
             return backendId;
         }
@@ -1388,3 +1387,4 @@ public class CloneChecker extends Daemon {
     }
 
 }
+

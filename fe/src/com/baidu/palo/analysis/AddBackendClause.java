@@ -15,12 +15,9 @@
 
 package com.baidu.palo.analysis;
 
-import java.util.List;
-
-import com.baidu.palo.catalog.Catalog;
-import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
 import com.google.common.base.Strings;
+
+import java.util.List;
 
 public class AddBackendClause extends BackendClause {
 
@@ -28,6 +25,12 @@ public class AddBackendClause extends BackendClause {
     protected boolean isFree;
     // cluster that backend will be added to 
     protected String destCluster;
+
+    public AddBackendClause(List<String> hostPorts) {
+        super(hostPorts);
+        this.isFree = true;
+        this.destCluster = "";
+    }
    
     public AddBackendClause(List<String> hostPorts, boolean isFree) {
         super(hostPorts);

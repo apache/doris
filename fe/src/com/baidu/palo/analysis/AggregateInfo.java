@@ -691,21 +691,43 @@ public final class AggregateInfo extends AggregateInfoBase {
         materializedSlots_.clear();
         List<Expr> exprs = Lists.newArrayList();
         exprs.addAll(groupingExprs_);
-        for (int i = 0; i < aggregateExprs_.size(); ++i) {
+     
+        boolean hasCountStar = false;
+        int aggregateExprsSize = aggregateExprs_.size();
+        int groupExprsSize = groupingExprs_.size();
+        boolean isDistinctAgg = isDistinctAgg();
+        for (int i = 0; i < aggregateExprsSize; ++i) {
+            FunctionCallExpr functionCallExpr = aggregateExprs_.get(i);
             SlotDescriptor slotDesc =
-                    outputTupleDesc_.getSlots().get(groupingExprs_.size() + i);
+                    outputTupleDesc_.getSlots().get(groupExprsSize + i);
             SlotDescriptor intermediateSlotDesc =
-                    intermediateTupleDesc_.getSlots().get(groupingExprs_.size() + i);
-            if (isDistinctAgg()) {
+                    intermediateTupleDesc_.getSlots().get(groupExprsSize + i);
+            
+            if (isDistinctAgg) {
                 slotDesc.setIsMaterialized(true);
                 intermediateSlotDesc.setIsMaterialized(true);
             }
+            
+            if (functionCallExpr.isCountStar()) {
+                hasCountStar = true;
+            }
+            
             if (!slotDesc.isMaterialized()) continue;
+            
             intermediateSlotDesc.setIsMaterialized(true);
-            exprs.add(aggregateExprs_.get(i));
+            exprs.add(functionCallExpr);
             materializedSlots_.add(i);
         }
+        
         List<Expr> resolvedExprs = Expr.substituteList(exprs, smap, analyzer, false);
+        
+        // In order to meet the requirements materialize slots In the top-down phase 
+        // over query statements, if aggregate functions contain count(*), now 
+        // materialize all slots this SelectStmt maps.
+        // chenhao added.
+        if (hasCountStar) {
+            resolvedExprs = smap.getRhs();
+        } 
         analyzer.materializeSlots(resolvedExprs);
 
         if (isDistinctAgg()) {

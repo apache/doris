@@ -28,18 +28,18 @@ import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.util.UnitTestUtil;
 import com.baidu.palo.load.DppConfig;
+import com.baidu.palo.load.DppScheduler;
 import com.baidu.palo.load.EtlStatus;
 import com.baidu.palo.load.Load;
-import com.baidu.palo.load.LoadChecker;
 import com.baidu.palo.load.LoadJob;
+import com.baidu.palo.load.LoadJob.JobState;
 import com.baidu.palo.load.PartitionLoadInfo;
+import com.baidu.palo.load.Source;
 import com.baidu.palo.load.TableLoadInfo;
 import com.baidu.palo.load.TabletLoadInfo;
-import com.baidu.palo.load.LoadJob.JobState;
-import com.baidu.palo.load.DppScheduler;
-import com.baidu.palo.load.Source;
 import com.baidu.palo.persist.EditLog;
 import com.baidu.palo.thrift.TEtlState;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -94,7 +94,7 @@ public class LoadEtlTaskTest {
         db = UnitTestUtil.createDb(dbId, tableId, paritionId, indexId, tabletId, backendId, 1L, 0L);
         catalog = EasyMock.createNiceMock(Catalog.class);
         EasyMock.expect(catalog.getDb(dbId)).andReturn(db).anyTimes();
-        EasyMock.expect(catalog.getDb(db.getName())).andReturn(db).anyTimes();
+        EasyMock.expect(catalog.getDb(db.getFullName())).andReturn(db).anyTimes();
         // mock editLog
         EditLog editLog = EasyMock.createMock(EditLog.class);
         EasyMock.expect(catalog.getEditLog()).andReturn(editLog).anyTimes();

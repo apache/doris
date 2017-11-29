@@ -20,10 +20,6 @@
 
 package com.baidu.palo.analysis;
 
-import java.util.List;
-
-import org.apache.commons.lang.NotImplementedException;
-
 import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
@@ -32,7 +28,12 @@ import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
+
 import com.google.common.base.Strings;
+
+import org.apache.commons.lang.NotImplementedException;
+
+import java.util.List;
 
 public class AlterUserStmt extends DdlStmt {
     private String userName;
@@ -70,7 +71,7 @@ public class AlterUserStmt extends DdlStmt {
             try {
                 if (analyzer.getCatalog().getUserMgr().getWhiteListSize(userName) 
                         > Config.per_user_white_list_limit) {
-                    throw new AnalysisException("whitelist size excced the max (" 
+                    throw new AnalysisException("whitelist size excced the max ("
                             + Config.per_user_white_list_limit + ")");
                 } 
             } catch (DdlException e) {
