@@ -51,6 +51,7 @@ public class FloatLiteral extends LiteralExpr {
     public FloatLiteral(Double value, Type type) {
         this.value = value.doubleValue();
         this.type = type;
+        analysisDone();
     }
 
     public FloatLiteral(String value) throws AnalysisException {

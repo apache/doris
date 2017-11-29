@@ -35,6 +35,7 @@ import com.baidu.palo.planner.PlanNodeId;
 import com.baidu.palo.planner.Planner;
 import com.baidu.palo.planner.ResultSink;
 import com.baidu.palo.planner.ScanNode;
+import com.baidu.palo.planner.UnionNode;
 import com.baidu.palo.service.FrontendOptions;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.task.LoadEtlTask;
@@ -713,6 +714,25 @@ public class Coordinator {
         return dest;
     }
 
+    // estimate if this fragment contains UnionNode
+    private boolean containsUnionNode(PlanNode node) {
+        if (node instanceof UnionNode) {
+            return true;
+        }
+
+        for (PlanNode child : node.getChildren()) {
+            if (child instanceof ExchangeNode) {
+                // Ignore other fragment's node
+                continue;
+            } else if (child instanceof UnionNode) {
+                return true;
+            } else {
+                return containsUnionNode(child);
+            }
+        }
+        return false;
+    }
+
     // For each fragment in fragments, computes hosts on which to run the instances
     // and stores result in fragmentExecParams.hosts.
     private void computeFragmentHosts() throws Exception {
@@ -737,7 +757,12 @@ public class Coordinator {
             }
 
             PlanNode leftMostNode = findLeftmostNode(fragment.getPlanRoot());
-            if (!(leftMostNode instanceof ScanNode)) {
+            // When fragment contains UnionNode, because  the fragment may has child 
+            // and not all BE will receive the fragment, child fragment's dest must 
+            // be BE that fragment's scannode locates,  avoid less data.
+            // chenhao added
+            boolean hasUnionNode = containsUnionNode(fragment.getPlanRoot());
+            if (!(leftMostNode instanceof ScanNode) && !hasUnionNode) {
                 // there is no leftmost scan; we assign the same hosts as those of our
                 // leftmost input fragment (so that a partitioned aggregation
                 // fragment runs on the hosts that provide the input data)
