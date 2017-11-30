@@ -55,6 +55,9 @@
         <fileset dir="${kudulibdir}">
              <include name="*.jar" />
         </fileset>
+        <fileset dir="${k8slibdir}">
+             <include name="*.jar" />
+        </fileset>
     </path>
 
     <!-- compile source files. -->
