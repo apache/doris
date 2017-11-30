@@ -19,22 +19,23 @@
 
 package com.baidu.palo.task;
 
-import com.baidu.palo.catalog.KeysType;
 import com.baidu.palo.catalog.AggregateType;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
+import com.baidu.palo.catalog.KeysType;
 import com.baidu.palo.catalog.PartitionKey;
 import com.baidu.palo.catalog.PrimitiveType;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.MarkedCountDownLatch;
 import com.baidu.palo.thrift.TAgentTaskRequest;
 import com.baidu.palo.thrift.TBackend;
+import com.baidu.palo.thrift.TKeysType;
 import com.baidu.palo.thrift.TPriority;
 import com.baidu.palo.thrift.TPushType;
-import com.baidu.palo.thrift.TKeysType;
 import com.baidu.palo.thrift.TStorageMedium;
 import com.baidu.palo.thrift.TStorageType;
 import com.baidu.palo.thrift.TTaskType;
+
 import com.google.common.collect.Range;
 
 import org.junit.Assert;
@@ -126,7 +127,7 @@ public class AgentTaskTest {
         // clone
         cloneTask =
                 new CloneTask(backendId1, dbId, tableId, partitionId, indexId1, tabletId1, schemaHash1,
-                              Arrays.asList(new TBackend("host1", 8290, 8390)), TStorageMedium.HDD);
+                        Arrays.asList(new TBackend("host1", 8290, 8390)), TStorageMedium.HDD, -1, -1);
 
         // rollup
         rollupTask =

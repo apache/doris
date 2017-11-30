@@ -33,6 +33,7 @@ import com.baidu.palo.persist.EditLog;
 import com.baidu.palo.task.AgentTaskQueue;
 import com.baidu.palo.task.MasterTask;
 import com.baidu.palo.task.MasterTaskExecutor;
+
 import com.google.common.collect.Lists;
 
 import org.easymock.EasyMock;
@@ -83,7 +84,7 @@ public class LoadCheckerTest {
         db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L, 0L);
         catalog = EasyMock.createNiceMock(Catalog.class);
         EasyMock.expect(catalog.getDb(dbId)).andReturn(db).anyTimes();
-        EasyMock.expect(catalog.getDb(db.getName())).andReturn(db).anyTimes();
+        EasyMock.expect(catalog.getDb(db.getFullName())).andReturn(db).anyTimes();
         // mock editLog
         EditLog editLog = EasyMock.createMock(EditLog.class);
         EasyMock.expect(catalog.getEditLog()).andReturn(editLog).anyTimes();

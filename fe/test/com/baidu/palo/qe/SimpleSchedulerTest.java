@@ -20,9 +20,16 @@
 
 package com.baidu.palo.qe;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import com.baidu.palo.catalog.Catalog;
+import com.baidu.palo.common.FeConstants;
+import com.baidu.palo.common.Reference;
+import com.baidu.palo.persist.EditLog;
+import com.baidu.palo.system.Backend;
+import com.baidu.palo.thrift.TNetworkAddress;
+import com.baidu.palo.thrift.TScanRangeLocation;
+
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 
 import org.easymock.EasyMock;
 import org.junit.Assert;
@@ -33,16 +40,9 @@ import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
-import com.baidu.palo.catalog.Catalog;
-import com.baidu.palo.common.Config;
-import com.baidu.palo.common.FeConstants;
-import com.baidu.palo.common.Reference;
-import com.baidu.palo.persist.EditLog;
-import com.baidu.palo.system.Backend;
-import com.baidu.palo.thrift.TNetworkAddress;
-import com.baidu.palo.thrift.TScanRangeLocation;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("org.apache.log4j.*")
@@ -178,7 +178,6 @@ public class SimpleSchedulerTest {
     // @Test
     public void testBlackList() {
         FeConstants.heartbeat_interval_second = Integer.MAX_VALUE;
-        Config.blacklist_backends_max_times = 1;
         TNetworkAddress address = null;
 
         Backend backendA = new Backend(0, "addressA", 0);

@@ -173,21 +173,20 @@ mkdir -p ${PALO_OUTPUT}
 #Copy Frontend and Backend
 if [ ${BUILD_FE} -eq 1 ]; then
     install -d ${PALO_OUTPUT}/fe/bin ${PALO_OUTPUT}/fe/conf \
-               ${PALO_OUTPUT}/fe/lib/kudu-client/ ${PALO_OUTPUT}/fe/webroot/static/ 
+               ${PALO_OUTPUT}/fe/webroot/ ${PALO_OUTPUT}/fe/lib/
 
-    install -t ${PALO_OUTPUT}/fe/bin/ ${PALO_HOME}/fe/output/bin/*
-    install -t ${PALO_OUTPUT}/fe/conf/ ${PALO_HOME}/fe/output/conf/*
-    install -t ${PALO_OUTPUT}/fe/lib/ ${PALO_HOME}/fe/output/lib/*.jar
-    install -t ${PALO_OUTPUT}/fe/lib/kudu-client/ ${PALO_HOME}/fe/output/lib/kudu-client/*
-    install -t ${PALO_OUTPUT}/fe/webroot/static/ ${PALO_HOME}/fe/output/webroot/static/*
+    cp -r -p ${PALO_HOME}/fe/output/bin/* ${PALO_OUTPUT}/fe/bin/
+    cp -r -p ${PALO_HOME}/fe/output/conf/* ${PALO_OUTPUT}/fe/conf/
+    cp -r -p ${PALO_HOME}/fe/output/lib/* ${PALO_OUTPUT}/fe/lib/
+    cp -r -p ${PALO_HOME}/fe/output/webroot/* ${PALO_OUTPUT}/fe/webroot/
 fi
 if [ ${BUILD_BE} -eq 1 ]; then
     install -d ${PALO_OUTPUT}/be/bin ${PALO_OUTPUT}/be/conf \
                ${PALO_OUTPUT}/be/lib/
 
-    install -t ${PALO_OUTPUT}/be/bin/ ${PALO_HOME}/be/output/bin/*
-    install -t ${PALO_OUTPUT}/be/conf/ ${PALO_HOME}/be/output/conf/*
-    install -t ${PALO_OUTPUT}/be/lib/ ${PALO_HOME}/be/output/lib/*
+    cp -r -p ${PALO_HOME}/be/output/bin/* ${PALO_OUTPUT}/be/bin/ 
+    cp -r -p ${PALO_HOME}/be/output/conf/* ${PALO_OUTPUT}/be/conf/
+    cp -r -p ${PALO_HOME}/be/output/lib/* ${PALO_OUTPUT}/be/lib/
 fi
 
 echo "***************************************"

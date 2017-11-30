@@ -37,7 +37,6 @@
 
 namespace palo {
 
-
 // Helper class that starts a server in a separate thread, and handles
 // the inter-thread communication to monitor whether it started
 // correctly.

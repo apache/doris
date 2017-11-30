@@ -25,9 +25,9 @@ import com.baidu.palo.catalog.MaterializedIndex;
 import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.catalog.Partition;
 import com.baidu.palo.catalog.Replica;
-import com.baidu.palo.catalog.TabletMeta;
 import com.baidu.palo.catalog.Replica.ReplicaState;
 import com.baidu.palo.catalog.Tablet;
+import com.baidu.palo.catalog.TabletMeta;
 import com.baidu.palo.clone.CloneJob.JobPriority;
 import com.baidu.palo.clone.CloneJob.JobState;
 import com.baidu.palo.clone.CloneJob.JobType;
@@ -233,7 +233,8 @@ public class CloneTest {
         CloneJob job = pendingJobs.get(0);
         job.setState(JobState.RUNNING);
         CloneTask task = new CloneTask(backendId, dbId, tableId, partitionId, indexId, tabletId,
-                                       schemaHash, new ArrayList<TBackend>(), TStorageMedium.HDD);
+                schemaHash, new ArrayList<TBackend>(), TStorageMedium.HDD,
+                version, versionHash);
         TTabletInfo tabletInfo = new TTabletInfo(tabletId, schemaHash, version, versionHash, 0L, 0L);
         clone.finishCloneJob(task, tabletInfo);
         Assert.assertEquals(1, clone.getJobNum());

@@ -34,9 +34,6 @@ import com.baidu.palo.http.meta.MetaService.JournalIdAction;
 import com.baidu.palo.http.meta.MetaService.PutAction;
 import com.baidu.palo.http.meta.MetaService.RoleAction;
 import com.baidu.palo.http.meta.MetaService.VersionAction;
-import com.baidu.palo.http.rest.AddApacheHdfsBrokerAction;
-import com.baidu.palo.http.rest.AddBackendAction;
-import com.baidu.palo.http.rest.AddFrontendAction;
 import com.baidu.palo.http.rest.BootstrapFinishAction;
 import com.baidu.palo.http.rest.CheckDecommissionAction;
 import com.baidu.palo.http.rest.GetDdlStmtAction;
@@ -148,11 +145,6 @@ public class HttpServer {
         CheckAction.registerAction(controller, imageDir);
         DumpAction.registerAction(controller, imageDir);
         RoleAction.registerAction(controller, imageDir);
-
-        // add frontend backend broker action
-        AddBackendAction.registerAction(controller);
-        AddFrontendAction.registerAction(controller);
-        AddApacheHdfsBrokerAction.registerAction(controller);
 
         BootstrapFinishAction.registerAction(controller);
     }

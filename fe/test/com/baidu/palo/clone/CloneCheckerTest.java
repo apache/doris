@@ -29,19 +29,20 @@ import com.baidu.palo.catalog.Replica.ReplicaState;
 import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.catalog.TabletInvertedIndex;
 import com.baidu.palo.catalog.TabletMeta;
-import com.baidu.palo.clone.CloneChecker.Level;
+import com.baidu.palo.clone.CloneChecker.CapacityLevel;
 import com.baidu.palo.clone.CloneJob.JobPriority;
 import com.baidu.palo.clone.CloneJob.JobState;
 import com.baidu.palo.clone.CloneJob.JobType;
-import com.baidu.palo.system.Backend;
-import com.baidu.palo.system.SystemInfoService;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.util.UnitTestUtil;
 import com.baidu.palo.persist.EditLog;
+import com.baidu.palo.system.Backend;
+import com.baidu.palo.system.SystemInfoService;
 import com.baidu.palo.task.AgentTask;
 import com.baidu.palo.task.AgentTaskQueue;
 import com.baidu.palo.thrift.TDisk;
 import com.baidu.palo.thrift.TTaskType;
+
 import com.google.common.collect.Lists;
 
 import org.easymock.EasyMock;
@@ -153,9 +154,9 @@ public class CloneCheckerTest {
         EasyMock.expect(catalog.getDb(dbId)).andReturn(db).anyTimes();
 
         List<String> dbNames = new ArrayList<String>();
-        String dbName = db.getName();
+        String dbName = db.getFullName();
         dbNames.add(dbName);
-        EasyMock.expect(catalog.getDb(db.getName())).andReturn(db).anyTimes();
+        EasyMock.expect(catalog.getDb(db.getFullName())).andReturn(db).anyTimes();
         EasyMock.expect(catalog.getDbNames()).andReturn(dbNames).anyTimes();
 
         EasyMock.replay(catalog);
@@ -184,8 +185,8 @@ public class CloneCheckerTest {
 
         // mock private method
         Map<Long, Object> backendInfos = new HashMap<Long, Object>();
-        Map<Level, Set<Long>> distributionLevelToBackendIds = new HashMap<Level, Set<Long>>();
-        Map<Level, Set<Long>> capacityLevelToBackendIds = new HashMap<Level, Set<Long>>();
+        Map<CapacityLevel, Set<Long>> distributionLevelToBackendIds = new HashMap<CapacityLevel, Set<Long>>();
+        Map<CapacityLevel, Set<Long>> capacityLevelToBackendIds = new HashMap<CapacityLevel, Set<Long>>();
         CloneChecker mockChecker = PowerMock.createPartialMock(CloneChecker.class, "initBackendInfos",
                 "initBackendCapacityInfos", "initBackendDistributionInfos");
         PowerMock.expectPrivate(mockChecker, "initBackendInfos", "testCluster").andReturn(backendInfos).anyTimes();
@@ -203,16 +204,16 @@ public class CloneCheckerTest {
         backendInfos.put(backendId2, constructor.newInstance(new Object[] { mockChecker, backendId2, 10L, 0L }));
         backendInfos.put(backendId3, constructor.newInstance(new Object[] { mockChecker, backendId3, 10L, 0L }));
 
-        for (Level level : Level.values()) {
+        for (CapacityLevel level : CapacityLevel.values()) {
             distributionLevelToBackendIds.put(level, new HashSet<Long>());
             capacityLevelToBackendIds.put(level, new HashSet<Long>());
         }
-        distributionLevelToBackendIds.get(Level.LOW).add(backendId1);
-        distributionLevelToBackendIds.get(Level.MID).add(backendId2);
-        distributionLevelToBackendIds.get(Level.HIGH).add(backendId3);
-        capacityLevelToBackendIds.get(Level.LOW).add(backendId1);
-        capacityLevelToBackendIds.get(Level.MID).add(backendId2);
-        capacityLevelToBackendIds.get(Level.HIGH).add(backendId3);
+        distributionLevelToBackendIds.get(CapacityLevel.LOW).add(backendId1);
+        distributionLevelToBackendIds.get(CapacityLevel.MID).add(backendId2);
+        distributionLevelToBackendIds.get(CapacityLevel.HIGH).add(backendId3);
+        capacityLevelToBackendIds.get(CapacityLevel.LOW).add(backendId1);
+        capacityLevelToBackendIds.get(CapacityLevel.MID).add(backendId2);
+        capacityLevelToBackendIds.get(CapacityLevel.HIGH).add(backendId3);
 
         // test check tablet for supplment
         Assert.assertTrue(mockChecker.checkTabletForSupplement(dbId, tableId, partitionId, indexId, tabletId));
@@ -292,11 +293,11 @@ public class CloneCheckerTest {
 
         // test
         Map<Long, Object> backendInfos = (Map<Long, Object>) initBackendInfos.invoke(checker, new Object[] { null });
-        Map<Level, Set<Long>> capacityLevelToBackendIds = (Map<Level, Set<Long>>) initBackendCapacityInfos
+        Map<CapacityLevel, Set<Long>> capacityLevelToBackendIds = (Map<CapacityLevel, Set<Long>>) initBackendCapacityInfos
                 .invoke(checker, new Object[] { backendInfos });
-        Assert.assertTrue(capacityLevelToBackendIds.get(Level.HIGH).contains(backendId1));
-        Assert.assertTrue(capacityLevelToBackendIds.get(Level.MID).contains(backendId2));
-        Assert.assertTrue(capacityLevelToBackendIds.get(Level.LOW).contains(backendId3));
+        Assert.assertTrue(capacityLevelToBackendIds.get(CapacityLevel.HIGH).contains(backendId1));
+        Assert.assertTrue(capacityLevelToBackendIds.get(CapacityLevel.MID).contains(backendId2));
+        Assert.assertTrue(capacityLevelToBackendIds.get(CapacityLevel.LOW).contains(backendId3));
     }
 
     @Test
@@ -334,11 +335,11 @@ public class CloneCheckerTest {
                 "initBackendDistributionInfos", new Class[] { Map.class });
 
         // test
-        Map<Level, Set<Long>> distributionLevelToBackendIds = (Map<Level, Set<Long>>) initBackendDistributionInfos
+        Map<CapacityLevel, Set<Long>> distributionLevelToBackendIds = (Map<CapacityLevel, Set<Long>>) initBackendDistributionInfos
                 .invoke(checker, new Object[] { backendInfos });
-        Assert.assertTrue(distributionLevelToBackendIds.get(Level.HIGH).contains(backendId1));
-        Assert.assertTrue(distributionLevelToBackendIds.get(Level.MID).contains(backendId2));
-        Assert.assertTrue(distributionLevelToBackendIds.get(Level.LOW).contains(backendId3));
+        Assert.assertTrue(distributionLevelToBackendIds.get(CapacityLevel.HIGH).contains(backendId1));
+        Assert.assertTrue(distributionLevelToBackendIds.get(CapacityLevel.MID).contains(backendId2));
+        Assert.assertTrue(distributionLevelToBackendIds.get(CapacityLevel.LOW).contains(backendId3));
     }
 
     @Test
@@ -396,16 +397,16 @@ public class CloneCheckerTest {
         backendInfos.put(backendId1, backendInfo1);
         backendInfos.put(backendId2, backendInfo2);
 
-        Map<Level, Set<Long>> distributionLevelToBackendIds = new HashMap<CloneChecker.Level, Set<Long>>();
-        Map<Level, Set<Long>> capacityLevelToBackendIds = new HashMap<CloneChecker.Level, Set<Long>>();
-        for (Level level : Level.values()) {
+        Map<CapacityLevel, Set<Long>> distributionLevelToBackendIds = new HashMap<CloneChecker.CapacityLevel, Set<Long>>();
+        Map<CapacityLevel, Set<Long>> capacityLevelToBackendIds = new HashMap<CloneChecker.CapacityLevel, Set<Long>>();
+        for (CapacityLevel level : CapacityLevel.values()) {
             distributionLevelToBackendIds.put(level, new HashSet<Long>());
             capacityLevelToBackendIds.put(level, new HashSet<Long>());
         }
-        distributionLevelToBackendIds.get(Level.MID).add(backendId1);
-        distributionLevelToBackendIds.get(Level.HIGH).add(backendId2);
-        capacityLevelToBackendIds.get(Level.MID).add(backendId1);
-        capacityLevelToBackendIds.get(Level.MID).add(backendId2);
+        distributionLevelToBackendIds.get(CapacityLevel.MID).add(backendId1);
+        distributionLevelToBackendIds.get(CapacityLevel.HIGH).add(backendId2);
+        capacityLevelToBackendIds.get(CapacityLevel.MID).add(backendId1);
+        capacityLevelToBackendIds.get(CapacityLevel.MID).add(backendId2);
 
         // get method
         Method selectCloneReplicaBackendId = UnitTestUtil.getPrivateMethod(CloneChecker.class,
@@ -519,17 +520,17 @@ public class CloneCheckerTest {
                 onlineReplicaNum, tabletSizeB, backendIds };
         Object tabletInfo = tabletInfoConstructor.newInstance(objects);
 
-        Map<Level, Set<Long>> distributionLevelToBackendIds = new HashMap<CloneChecker.Level, Set<Long>>();
-        for (Level level : Level.values()) {
+        Map<CapacityLevel, Set<Long>> distributionLevelToBackendIds = new HashMap<CloneChecker.CapacityLevel, Set<Long>>();
+        for (CapacityLevel level : CapacityLevel.values()) {
             distributionLevelToBackendIds.put(level, new HashSet<Long>());
         }
-        Set<Long> midBackendIds = distributionLevelToBackendIds.get(Level.MID);
+        Set<Long> midBackendIds = distributionLevelToBackendIds.get(CapacityLevel.MID);
         midBackendIds.add(backendId1);
         midBackendIds.add(backendId2);
         midBackendIds.add(backendId3);
         midBackendIds.add(backendId4);
         midBackendIds.add(backendId6);
-        Set<Long> highBackendIds = distributionLevelToBackendIds.get(Level.HIGH);
+        Set<Long> highBackendIds = distributionLevelToBackendIds.get(CapacityLevel.HIGH);
         highBackendIds.add(backendId5);
 
         long version = 1L;

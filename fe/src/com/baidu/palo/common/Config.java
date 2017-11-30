@@ -128,6 +128,14 @@ public class Config extends ConfigBase {
     @ConfField public static String frontend_address = "0.0.0.0";
 
     /*
+     * Declare a selection strategy for those servers have many ips.
+     * Note that there should at most one ip match this list.
+     * this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
+     * If no ip match this rule, will choose one randomly.
+     */
+    @ConfField public static String priority_networks = "";
+
+    /*
      * Kudu is currently not supported.
      */
     @ConfField public static String kudu_master_addresses = "127.0.0.1:8030";
@@ -250,7 +258,19 @@ public class Config extends ConfigBase {
      * Default pull load timeout
      */
     @ConfField
-    public static int pull_load_task_default_timeout_second = 3600; // 1hour
+    public static int pull_load_task_default_timeout_second = 3600; // 1 hour
+
+    /*
+     * Default mini load timeout
+     */
+    @ConfField
+    public static int mini_load_default_timeout_second = 86400; // 1 day
+
+    /*
+     * Default hadoop load timeout
+     */
+    @ConfField
+    public static int hadoop_load_default_timeout_second = 86400 * 3; // 3 day
 
     /*
      * Same meaning as *tablet_create_timeout_second*, but used when delete a tablet.
@@ -317,7 +337,7 @@ public class Config extends ConfigBase {
      */
     @ConfField public static int max_backend_down_time_second = 3600; // 1h
     /*
-     * When create a table(or partition), you can specfied its storage media(HDD or SSD).
+     * When create a table(or partition), you can specify its storage media(HDD or SSD).
      * If set to SSD, this specifies the default duration that tablets will stay on SSD.
      * After that, tablets will be moved to HDD automatically.
      * You can set storage cooldown time in LOAD stmt.
@@ -457,6 +477,19 @@ public class Config extends ConfigBase {
             + "hadoop.job.ugi=user,password"
             + "'}"
             + "}";
+
+    /*
+     * Set to true if you deploy Palo using thirdparty deploy manager
+     * Valid options are:
+     *      disable:    no deploy manager
+     *      k8s:        Kubernetes
+     *      ambari:     Ambari
+     *      local:      Local File (test only)
+     */
+    @ConfField public static String enable_deploy_manager = "disable";
+
+    // if use k8s deploy manager locally, set this to true and prepare the certs files
+    @ConfField public static boolean with_k8s_certs = false;
 
     // for forward compatibility, will be removed later.
     // check token when download image file.

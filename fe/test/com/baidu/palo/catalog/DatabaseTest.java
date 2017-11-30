@@ -20,15 +20,10 @@
 
 package com.baidu.palo.catalog;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
+import com.baidu.palo.catalog.MaterializedIndex.IndexState;
+import com.baidu.palo.common.FeConstants;
+import com.baidu.palo.persist.CreateTableInfo;
+import com.baidu.palo.persist.EditLog;
 
 import org.easymock.EasyMock;
 import org.junit.Assert;
@@ -40,10 +35,15 @@ import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
-import com.baidu.palo.catalog.MaterializedIndex.IndexState;
-import com.baidu.palo.common.FeConstants;
-import com.baidu.palo.persist.CreateTableInfo;
-import com.baidu.palo.persist.EditLog;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("org.apache.log4j.*")
@@ -97,7 +97,7 @@ public class DatabaseTest {
 
     @Test
     public void createAndDropPartitionTest() {
-        Assert.assertEquals("dbTest", db.getName());
+        Assert.assertEquals("dbTest", db.getFullName());
         Assert.assertEquals(dbId, db.getId());
 
         MaterializedIndex baseIndex = new MaterializedIndex(10001, IndexState.NORMAL);

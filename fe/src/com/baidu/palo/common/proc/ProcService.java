@@ -43,7 +43,7 @@ public final class ProcService {
         root.register("jobs", new JobsDbProcDir(Catalog.getInstance()));
         root.register("statistic", new StatisticProcDir(Catalog.getInstance()));
         root.register("tasks", new TasksProcDir());
-        root.register("frontend", new FrontendProcNode(Catalog.getInstance()));
+        root.register("frontends", new FrontendsProcNode(Catalog.getInstance()));
         root.register("brokers", Catalog.getInstance().getBrokerMgr().getProcNode());
         root.register("load_error_hub_url", new LoadErrorProcNode(Catalog.getInstance()));
     }

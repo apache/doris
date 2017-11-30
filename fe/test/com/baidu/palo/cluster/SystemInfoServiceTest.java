@@ -19,24 +19,6 @@
 
 package com.baidu.palo.cluster;
 
-import java.io.BufferedInputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-
-import org.easymock.EasyMock;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
-
 import com.baidu.palo.analysis.AccessTestUtil;
 import com.baidu.palo.analysis.AddBackendClause;
 import com.baidu.palo.analysis.Analyzer;
@@ -49,7 +31,26 @@ import com.baidu.palo.common.FeConstants;
 import com.baidu.palo.persist.EditLog;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.SystemInfoService;
+
 import com.google.common.collect.Lists;
+
+import org.easymock.EasyMock;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.powermock.api.easymock.PowerMock;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.modules.junit4.PowerMockRunner;
+
+import java.io.BufferedInputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("org.apache.log4j.*")
@@ -188,13 +189,13 @@ public class SystemInfoServiceTest {
         AddBackendClause stmt = new AddBackendClause(Lists.newArrayList("192.168.0.1:1234"));
         stmt.analyze(analyzer);
         try {
-            Catalog.getCurrentSystemInfo().addBackends(stmt.getHostPortPairs());
+            Catalog.getCurrentSystemInfo().addBackends(stmt.getHostPortPairs(), true);
         } catch (DdlException e) {
             Assert.fail();
         }
 
         try {
-            Catalog.getCurrentSystemInfo().addBackends(stmt.getHostPortPairs());
+            Catalog.getCurrentSystemInfo().addBackends(stmt.getHostPortPairs(), true);
         } catch (DdlException e) {
             Assert.assertTrue(e.getMessage().contains("already exists"));
         }
@@ -217,7 +218,7 @@ public class SystemInfoServiceTest {
         AddBackendClause stmt = new AddBackendClause(Lists.newArrayList("192.168.0.1:1234"));
         stmt.analyze(analyzer);
         try {
-            Catalog.getCurrentSystemInfo().addBackends(stmt.getHostPortPairs());
+            Catalog.getCurrentSystemInfo().addBackends(stmt.getHostPortPairs(), true);
         } catch (DdlException e) {
             e.printStackTrace();
         }

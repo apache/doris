@@ -31,15 +31,12 @@ import com.baidu.palo.common.util.PropertyAnalyzer;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
 
 // EXPORT statement, export data to dirs by broker.
 //
@@ -204,11 +201,12 @@ public class ExportStmt extends StatementBase {
 
         String upperCasePath = path.toUpperCase();
         if (upperCasePath.startsWith("BOS://")
-                || upperCasePath.startsWith("HDFS://")) {
+                || upperCasePath.startsWith("HDFS://")
+                || upperCasePath.startsWith("AFS://")) {
             return;
         }
 
-        throw new AnalysisException("Invalid export path. please use valid 'HDFS://' or 'BOS://' path.");
+        throw new AnalysisException("Invalid export path. please use valid 'HDFS://', 'AFS://' or 'BOS://' path.");
     }
 
     private void checkProperties(Map<String, String> properties) throws AnalysisException {

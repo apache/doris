@@ -39,7 +39,7 @@ public class CreateDbStmtTest {
     public void testAnalyzeNormal() throws InternalException, AnalysisException {
         CreateDbStmt dbStmt = new CreateDbStmt(false, "test");
         dbStmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:test", dbStmt.getDbName());
+        Assert.assertEquals("testCluster:test", dbStmt.getFullDbName());
         Assert.assertEquals("CREATE DATABASE `testCluster:test`", dbStmt.toString());
     }
 

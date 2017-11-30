@@ -20,15 +20,15 @@ import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.catalog.Database;
-import com.baidu.palo.catalog.Replica;
 import com.baidu.palo.catalog.MaterializedIndex;
 import com.baidu.palo.catalog.OlapTable;
+import com.baidu.palo.catalog.Partition;
+import com.baidu.palo.catalog.Replica;
+import com.baidu.palo.catalog.Replica.ReplicaState;
+import com.baidu.palo.catalog.Table;
+import com.baidu.palo.catalog.Table.TableType;
 import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.cluster.ClusterNamespace;
-import com.baidu.palo.catalog.Partition;
-import com.baidu.palo.catalog.Table;
-import com.baidu.palo.catalog.Replica.ReplicaState;
-import com.baidu.palo.catalog.Table.TableType;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
@@ -147,8 +147,24 @@ public class ShowDataStmt extends ShowStmt {
                 Pair<Double, String> totalSizePair = DebugUtil.getByteUint(totalSize);
                 String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalSizePair.first) + " "
                         + totalSizePair.second;
-                List<String> row = Arrays.asList("Total", readableSize);
-                totalRows.add(row);
+                List<String> total = Arrays.asList("Total", readableSize);
+                totalRows.add(total);
+
+                // quota
+                long quota = db.getDataQuota();
+                Pair<Double, String> quotaPair = DebugUtil.getByteUint(quota);
+                String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaPair.first) + " "
+                        + quotaPair.second;
+                List<String> quotaRow = Arrays.asList("Quota", readableQuota);
+                totalRows.add(quotaRow);
+
+                // left
+                long left = Math.max(0, quota - totalSize);
+                Pair<Double, String> leftPair = DebugUtil.getByteUint(left);
+                String readableLeft = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(leftPair.first) + " "
+                        + leftPair.second;
+                List<String> leftRow = Arrays.asList("Left", readableLeft);
+                totalRows.add(leftRow);
             } else {
                 Table table = db.getTable(tableName);
                 if (table == null) {
@@ -254,3 +270,4 @@ public class ShowDataStmt extends ShowStmt {
         return toSql();
     }
 }
+

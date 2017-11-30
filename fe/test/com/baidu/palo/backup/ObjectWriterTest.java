@@ -65,7 +65,7 @@ public class ObjectWriterTest {
         // write olap table
         Table olapTable = db.getTable(CatalogMocker.TEST_TBL_ID);
         int tableSignature = olapTable.getSignature(BackupVersion.VERSION_1);
-        CreateTableStmt stmt = olapTable.toCreateTableStmt(db.getName());
+        CreateTableStmt stmt = olapTable.toCreateTableStmt(db.getFullName());
         stmt.setTableSignature(tableSignature);
 
         PathBuilder pathBuilder =
@@ -88,7 +88,7 @@ public class ObjectWriterTest {
         // write mysql table
         Table mysqlTable = db.getTable(CatalogMocker.MYSQL_TABLE_NAME);
         tableSignature = mysqlTable.getSignature(BackupVersion.VERSION_1);
-        stmt = mysqlTable.toCreateTableStmt(db.getName());
+        stmt = mysqlTable.toCreateTableStmt(db.getFullName());
         stmt.setTableSignature(tableSignature);
 
         filePath = pathBuilder.createTableStmt(CatalogMocker.TEST_DB_NAME, CatalogMocker.MYSQL_TABLE_NAME);

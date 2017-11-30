@@ -19,22 +19,6 @@
 
 package com.baidu.palo.load;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.concurrent.TimeUnit;
-
-import org.easymock.EasyMock;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
-
 import com.baidu.palo.analysis.CancelLoadStmt;
 import com.baidu.palo.analysis.ColumnSeparator;
 import com.baidu.palo.analysis.DataDescription;
@@ -62,7 +46,24 @@ import com.baidu.palo.persist.EditLog;
 import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.SystemInfoService;
+
 import com.google.common.collect.Lists;
+
+import org.easymock.EasyMock;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.powermock.api.easymock.PowerMock;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.modules.junit4.PowerMockRunner;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.concurrent.TimeUnit;
 
 @RunWith(PowerMockRunner.class)
 @PrepareForTest({ Load.class, Catalog.class, ConnectContext.class, SystemInfoService.class })
@@ -107,7 +108,7 @@ public class LoadTest {
         db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L, 0L);
         Catalog catalog = EasyMock.createNiceMock(Catalog.class);
         EasyMock.expect(catalog.getDb(dbId)).andReturn(db).anyTimes();
-        EasyMock.expect(catalog.getDb(db.getName())).andReturn(db).anyTimes();
+        EasyMock.expect(catalog.getDb(db.getFullName())).andReturn(db).anyTimes();
         // mock editLog
         EditLog editLog = EasyMock.createMock(EditLog.class);
         EasyMock.expect(catalog.getEditLog()).andReturn(editLog).anyTimes();
@@ -126,7 +127,7 @@ public class LoadTest {
         // SystemInfoService
         SystemInfoService systemInfoService = EasyMock.createMock(SystemInfoService.class);
         EasyMock.expect(systemInfoService.checkBackendAvailable(EasyMock.anyLong())).andReturn(true).anyTimes();
-        systemInfoService.checkCapacity();
+        systemInfoService.checkClusterCapacity(EasyMock.anyString());
         EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(systemInfoService);
 
@@ -146,7 +147,7 @@ public class LoadTest {
     }
 
     private void addLoadJob(String label) throws DdlException {
-        LabelName labelName = new LabelName(db.getName(), label);
+        LabelName labelName = new LabelName(db.getFullName(), label);
         List<DataDescription> dataDescriptions = new ArrayList<DataDescription>();
         DataDescription dataDescription = new DataDescription(UnitTestUtil.TABLE_NAME,
                 Lists.newArrayList(UnitTestUtil.PARTITION_NAME), filePathes, null, new ColumnSeparator(columnSeparator),
@@ -204,7 +205,7 @@ public class LoadTest {
 
         // cancel success
         CancelLoadStmt cancelStmt = EasyMock.createMock(CancelLoadStmt.class);
-        EasyMock.expect(cancelStmt.getDbName()).andReturn(db.getName()).anyTimes();
+        EasyMock.expect(cancelStmt.getDbName()).andReturn(db.getFullName()).anyTimes();
         EasyMock.expect(cancelStmt.getLabel()).andReturn(label).anyTimes();
         EasyMock.replay(cancelStmt);
         load.cancelLoadJob(cancelStmt);
@@ -278,7 +279,7 @@ public class LoadTest {
 
         // mock delete stmt
         DeleteStmt deleteStmt = EasyMock.createMock(DeleteStmt.class);
-        EasyMock.expect(deleteStmt.getDbName()).andReturn(db.getName()).times(1);
+        EasyMock.expect(deleteStmt.getDbName()).andReturn(db.getFullName()).times(1);
         EasyMock.expect(deleteStmt.getTableName()).andReturn(UnitTestUtil.TABLE_NAME).times(1);
         EasyMock.expect(deleteStmt.getDeleteConditions()).andReturn(new ArrayList<Predicate>()).times(1);
         EasyMock.expect(deleteStmt.getPartitionName()).andReturn(UnitTestUtil.TABLE_NAME).times(1);

@@ -17,16 +17,24 @@
 #define BDG_PALO_BE_SERVICE_BACKEND_OPTIONS_H
 
 #include <string>
+#include <vector>
 #include <gutil/macros.h>
 
 namespace palo {
 
+class CIDR;
+
 class BackendOptions {
 public:
-    static void init();
+    static bool init();
     static std::string get_localhost();
+
 private:
-    static std::string _localhost;
+    static bool analyze_priority_cidrs();
+    static bool is_in_prior_network(const std::string& ip);
+
+    static std::string _s_localhost;
+    static std::vector<CIDR> _s_priority_cidrs;
 
     DISALLOW_COPY_AND_ASSIGN(BackendOptions);
 };

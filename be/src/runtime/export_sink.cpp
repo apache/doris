@@ -85,22 +85,22 @@ Status ExportSink::open(RuntimeState* state) {
 }
 
 Status ExportSink::send(RuntimeState* state, RowBatch* batch) {
-    LOG(ERROR) << "debug: export_sink send batch: " << print_batch(batch);
+    VLOG_ROW << "debug: export_sink send batch: " << print_batch(batch);
     SCOPED_TIMER(_profile->total_time_counter());
     int num_rows = batch->num_rows();
     std::stringstream ss;
     for (int i = 0; i < num_rows; ++i) {
         ss.str("");
         RETURN_IF_ERROR(gen_row_buffer(batch->get_row(i), &ss));
-        LOG(ERROR) << "debug: export_sink send row: " << ss.str();
+        VLOG_ROW << "debug: export_sink send row: " << ss.str();
         const std::string& buf = ss.str();
         size_t written_len = 0;
 
         SCOPED_TIMER(_write_timer);
         // TODO(lingbin): for broker writer, we should not send rpc each row.
-        _file_writer->write(reinterpret_cast<const uint8_t*>(buf.c_str()),
+        RETURN_IF_ERROR(_file_writer->write(reinterpret_cast<const uint8_t*>(buf.c_str()),
                              buf.size(),
-                             &written_len);
+                             &written_len));
         COUNTER_UPDATE(_bytes_written_counter, buf.size());
     }
     COUNTER_UPDATE(_rows_written_counter, num_rows);

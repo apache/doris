@@ -20,15 +20,15 @@ import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.KeysType;
 import com.baidu.palo.catalog.MaterializedIndex;
+import com.baidu.palo.catalog.MaterializedIndex.IndexState;
 import com.baidu.palo.catalog.OlapTable;
+import com.baidu.palo.catalog.OlapTable.OlapTableState;
 import com.baidu.palo.catalog.Partition;
+import com.baidu.palo.catalog.Partition.PartitionState;
 import com.baidu.palo.catalog.Replica;
+import com.baidu.palo.catalog.Replica.ReplicaState;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.catalog.Tablet;
-import com.baidu.palo.catalog.MaterializedIndex.IndexState;
-import com.baidu.palo.catalog.OlapTable.OlapTableState;
-import com.baidu.palo.catalog.Partition.PartitionState;
-import com.baidu.palo.catalog.Replica.ReplicaState;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.FeMetaVersion;
 import com.baidu.palo.common.MetaNotFoundException;
@@ -313,6 +313,7 @@ public class SchemaChangeJob extends AlterJob {
                 List<AgentTask> tasks = new LinkedList<AgentTask>();
                 for (Partition partition : olapTable.getPartitions()) {
                     long partitionId = partition.getId();
+                    short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partitionId);
                     for (Long indexId : this.changedIndexIdToSchema.keySet()) {
                         MaterializedIndex alterIndex = partition.getIndex(indexId);
                         if (alterIndex == null) {
@@ -340,7 +341,15 @@ public class SchemaChangeJob extends AlterJob {
 
                         for (Tablet tablet : alterIndex.getTablets()) {
                             long tabletId = tablet.getId();
+                            short replicaSendNum = 0;
                             for (Replica replica : tablet.getReplicas()) {
+                                if (replica.getState() == ReplicaState.CLONE) {
+                                    // There may be MIGRATION or SUPPLEMENT clone replica generated
+                                    // before starting this schema change job.
+                                    // And we cannot add schema change task to this clone replica.
+                                    // So here we skip it.
+                                    continue;
+                                }
                                 long backendId = replica.getBackendId();
                                 long replicaId = replica.getId();
                                 SchemaChangeTask schemaChangeTask =
@@ -351,6 +360,17 @@ public class SchemaChangeJob extends AlterJob {
                                                              storageType, bfColumns, bfFpp, schemaChangeKeysType);
                                 addReplicaId(indexId, replicaId, backendId);
                                 tasks.add(schemaChangeTask);
+                                replicaSendNum++;
+                            }
+                            
+                            if (replicaSendNum < replicationNum / 2 + 1) {
+                                // In the case that quorum num of non-NORMAL replica(probably CLONE)
+                                // in this tablet, schema change job can not finish.
+                                // So cancel it.
+                                cancelMsg = String.format("num of normal replica in tablet %d is less than quorum num",
+                                                          tabletId);
+                                LOG.warn(cancelMsg);
+                                return false;
                             }
                         } // end for tablets
                     } // end for alter indices
