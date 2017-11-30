@@ -22,6 +22,7 @@
     <!-- set global properties for this build -->
     <property name="libdir"  value="${basedir}/../thirdparty/installed/lib/jar"/>
     <property name="kudulibdir"  value="${basedir}/../thirdparty/installed/lib/jar/kudu-client"/>
+    <property name="k8slibdir"  value="${basedir}/../thirdparty/installed/lib/jar/k8s-client"/>
     <property name="builddir" value="${basedir}/build/"/>
     <property name="genjavadir" value="${basedir}/../gensrc/build/java"/>
     <property name="outputdir" value="${basedir}/output/"/>
@@ -115,6 +116,9 @@
         </copy>
         <copy todir="${outputdir}/lib/kudu-client" >
             <fileset dir="${kudulibdir}/" includes="*.jar"/>
+        </copy>
+        <copy todir="${outputdir}/lib/k8s-client" >
+            <fileset dir="${k8slibdir}/" includes="*.jar"/>
         </copy>
         <copy todir="${outputdir}/webroot" >
             <fileset dir="${basedir}/../webroot/" />
