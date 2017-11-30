@@ -20,8 +20,6 @@
 
 package com.baidu.palo.common;
 
-import com.baidu.palo.analysis.ClusterName;
-import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.system.SystemInfoService;
 
 import com.google.common.base.Strings;

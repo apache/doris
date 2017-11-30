@@ -1,3 +1,4 @@
+
 // Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
 
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -30,13 +31,13 @@ import com.baidu.palo.thrift.TScanRangeLocation;
 import com.baidu.palo.thrift.TScanRangeLocations;
 import com.baidu.palo.thrift.TSnapshotRequest;
 import com.baidu.palo.thrift.TStatusCode;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 
-import java.util.List;
+import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.List;
 
 public class ExportPendingTask extends MasterTask {
     private static final Logger LOG = LogManager.getLogger(ExportPendingTask.class);
@@ -121,7 +122,7 @@ public class ExportPendingTask extends MasterTask {
 
                 AgentClient client = new AgentClient(host, port);
                 TAgentResult result = client.makeSnapshot(snapshotRequest);
-                if (result.getStatus().getStatus_code() != TStatusCode.OK) {
+                if (result == null || result.getStatus().getStatus_code() != TStatusCode.OK) {
                     return Status.CANCELLED;
                 }
                 snapshotPaths.add(new Pair<TNetworkAddress, String>(address, result.getSnapshot_path()));

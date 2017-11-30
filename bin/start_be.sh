@@ -37,12 +37,16 @@ while read line; do
     fi
 done < $PALO_HOME/conf/be.conf
 
+if [ -e $PALO_HOME/bin/palo_env.sh ]; then
+    source $PALO_HOME/bin/palo_env.sh
+fi
+
 if [ ! -d $LOG_DIR ]; then
     mkdir -p $LOG_DIR
 fi
 
 if [ ! -d $UDF_RUNTIME_DIR ]; then
-		mkdir -p ${UDF_RUNTIME_DIR}
+    mkdir -p ${UDF_RUNTIME_DIR}
 fi
 
 rm -f ${UDF_RUNTIME_DIR}/*

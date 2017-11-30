@@ -15,11 +15,6 @@
 
 package com.baidu.palo.http.action;
 
-import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.util.Date;
-import java.util.List;
-
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.ha.HAProtocol;
@@ -29,6 +24,11 @@ import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
 import com.baidu.palo.persist.Storage;
 import com.baidu.palo.system.Frontend;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.util.Date;
+import java.util.List;
 
 import io.netty.handler.codec.http.HttpMethod;
 
@@ -146,7 +146,7 @@ public class HaAction extends WebBaseAction {
     }
     
     private void appendFe(StringBuilder buffer) {
-        List<Frontend> fes = Catalog.getInstance().getFrontends();
+        List<Frontend> fes = Catalog.getInstance().getFrontends(null /* all */);
         if (fes == null) {
             return;
         }

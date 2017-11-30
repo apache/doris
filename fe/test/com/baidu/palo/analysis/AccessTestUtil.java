@@ -160,7 +160,7 @@ public class AccessTestUtil {
         EasyMock.expectLastCall().anyTimes();
         db.readUnlock();
         EasyMock.expectLastCall().anyTimes();
-        db.getName();
+        db.getFullName();
         EasyMock.expectLastCall().andReturn(name).anyTimes();
         EasyMock.replay(db);
         return db;

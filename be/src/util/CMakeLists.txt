@@ -63,6 +63,7 @@ add_library(Util STATIC
   load_error_hub.cpp
   mysql_load_error_hub.cpp
   null_load_error_hub.cpp
+  cidr.cpp
 )
 
 #ADD_BE_TEST(integer-array-test)

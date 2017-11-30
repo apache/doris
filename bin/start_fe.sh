@@ -37,6 +37,10 @@ while read line; do
     fi
 done < $PALO_HOME/conf/fe.conf
 
+if [ -e $PALO_HOME/bin/palo_env.sh ]; then
+    source $PALO_HOME/bin/palo_env.sh
+fi
+
 # java
 if [ "$JAVA_HOME" = "" ]; then
   echo "Error: JAVA_HOME is not set."
@@ -50,6 +54,9 @@ for f in $PALO_HOME/lib/*.jar; do
   CLASSPATH=$f:${CLASSPATH};
 done
 for f in $PALO_HOME/lib/kudu-client/*.jar; do
+  CLASSPATH=$f:${CLASSPATH};
+done
+for f in $PALO_HOME/lib/k8s-client/*.jar; do
   CLASSPATH=$f:${CLASSPATH};
 done
 export CLASSPATH=${CLASSPATH}:${PALO_HOME}/lib

@@ -652,24 +652,6 @@ public class SingleNodePlanner {
         // add aggregate node here
         AggregateInfo aggInfo = selectStmt.getAggInfo();
 
-
-        // for case: select count(*) from (select col from table) t
-        // for simple, we just materialize sub tree if has count star
-        if (aggInfo != null && !(root instanceof SortNode)) {
-            for (FunctionCallExpr aggExpr : aggInfo.getAggregateExprs()) {
-                if (aggExpr.isCountStar()) {
-                    analyzer.markRefdSlots(analyzer, root, null, null);
-                    break;
-                }
-            }
-            for (Expr groupExpr : aggInfo.getGroupingExprs()) {
-                if (groupExpr.isConstant()) {
-                    analyzer.markRefdSlots(analyzer, root, null, null);
-                    break;
-                }
-            }
-        }
-
         turnOffPreAgg(aggInfo, selectStmt, analyzer, root);
 
         if (root instanceof OlapScanNode) {

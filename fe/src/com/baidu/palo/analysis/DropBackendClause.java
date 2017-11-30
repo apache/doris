@@ -20,6 +20,11 @@ import java.util.List;
 public class DropBackendClause extends BackendClause {
     private boolean force;
 
+    public DropBackendClause(List<String> hostPorts) {
+        super(hostPorts);
+        this.force = true;
+    }
+
     public DropBackendClause(List<String> hostPorts, boolean force) {
         super(hostPorts);
         this.force = force;

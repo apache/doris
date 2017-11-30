@@ -21,8 +21,10 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.InternalException;
 
 import com.google.common.collect.Lists;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -38,7 +40,7 @@ public class AlterTableStmtTest {
     }
 
     @Test
-    public void testNormal() throws AnalysisException {
+    public void testNormal() throws AnalysisException, InternalException {
         List<AlterClause> ops = Lists.newArrayList();
         ops.add(new DropColumnClause("col1", "", null));
         ops.add(new DropColumnClause("col2", "", null));
@@ -51,7 +53,7 @@ public class AlterTableStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoPriv() throws AnalysisException {
+    public void testNoPriv() throws AnalysisException, InternalException {
         List<AlterClause> ops = Lists.newArrayList();
         ops.add(new DropColumnClause("col1", "", null));
         AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
@@ -60,7 +62,7 @@ public class AlterTableStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoTable() throws AnalysisException {
+    public void testNoTable() throws AnalysisException, InternalException {
         List<AlterClause> ops = Lists.newArrayList();
         ops.add(new DropColumnClause("col1", "", null));
         AlterTableStmt stmt = new AlterTableStmt(null, ops);
@@ -70,7 +72,7 @@ public class AlterTableStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoClause() throws AnalysisException {
+    public void testNoClause() throws AnalysisException, InternalException {
         List<AlterClause> ops = Lists.newArrayList();
         AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
         stmt.analyze(analyzer);

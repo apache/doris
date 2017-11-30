@@ -31,6 +31,12 @@ namespace config {
     CONF_Int32(be_port, "9060");
     CONF_Int32(be_rpc_port, "10060");
 
+    // Declare a selection strategy for those servers have many ips.
+    // Note that there should at most one ip match this list.
+    // this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
+    // If no ip match this rule, will choose one randomly.
+    CONF_String(priority_networks, "")
+
     ////
     //// tcmalloc gc parameter
     ////
@@ -314,7 +320,6 @@ namespace config {
 
     // to forward compatibility, will be removed later
     CONF_Bool(enable_token_check, "true");
-
 } // namespace config
 
 } // namespace palo

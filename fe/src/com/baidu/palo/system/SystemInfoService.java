@@ -241,7 +241,7 @@ public class SystemInfoService extends Daemon {
         dropBackend(backend.getHost(), backend.getHeartbeatPort());
     }
 
-    private void dropBackend(String host, int heartbeatPort) throws DdlException {
+    public void dropBackend(String host, int heartbeatPort) throws DdlException {
         if (getBackendWithHeartbeatPort(host, heartbeatPort) == null) {
             throw new DdlException("backend does not exists[" + host + ":" + heartbeatPort + "]");
         }
@@ -882,7 +882,6 @@ public class SystemInfoService extends Daemon {
     public ImmutableMap<Long, Backend> getIdToBackend() {
         return idToBackendRef.get();
     }
-
 
     public ImmutableMap<Long, Backend> getBackendsInCluster(String cluster) {
         if (Strings.isNullOrEmpty(cluster)) {

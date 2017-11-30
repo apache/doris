@@ -99,6 +99,10 @@ import com.baidu.palo.common.util.PrintableMap;
 import com.baidu.palo.common.util.PropertyAnalyzer;
 import com.baidu.palo.common.util.Util;
 import com.baidu.palo.consistency.ConsistencyChecker;
+import com.baidu.palo.deploy.DeployManager;
+import com.baidu.palo.deploy.impl.AmbariDeployManager;
+import com.baidu.palo.deploy.impl.K8sDeployManager;
+import com.baidu.palo.deploy.impl.LocalFileDeployManager;
 import com.baidu.palo.ha.FrontendNodeType;
 import com.baidu.palo.ha.HAProtocol;
 import com.baidu.palo.ha.MasterInfo;
@@ -284,8 +288,26 @@ public class Catalog {
     private PullLoadJobMgr pullLoadJobMgr;
     private BrokerMgr brokerMgr;
 
-    public List<Frontend> getFrontends() {
-        return Lists.newArrayList(frontends);
+    private DeployManager deployManager;
+
+    public List<Frontend> getFrontends(FrontendNodeType nodeType) {
+        List<Frontend> result = Lists.newArrayList();
+        readLock();
+        try {
+            if (nodeType == null) {
+                // get all
+                return Lists.newArrayList(frontends);
+            }
+            for (Frontend frontend : frontends) {
+                if (frontend.getRole() == nodeType) {
+                    result.add(frontend);
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+
+        return result;
     }
 
     public List<Frontend> getRemovedFrontends() {
@@ -360,8 +382,8 @@ public class Catalog {
 
         this.isDefaultClusterCreated = false;
 
-        pullLoadJobMgr = new PullLoadJobMgr();
-        brokerMgr = new BrokerMgr();
+        this.pullLoadJobMgr = new PullLoadJobMgr();
+        this.brokerMgr = new BrokerMgr();
     }
 
     public static void destroyCheckpoint() {
@@ -441,12 +463,9 @@ public class Catalog {
     public void initialize(String[] args) throws Exception {
         // 0. get local node and helper node info
         getSelfHostPort();
-        checkArgs(args);
+        getHelperNode(args);
 
-        // // 1. add Information schema database
-        // unprotectCreateDb(new InfoSchemaDb());
-
-        // 2. check and create dirs and files
+        // 1. check and create dirs and files
         File meta = new File(metaDir);
         if (!meta.exists()) {
             LOG.error("{} does not exist, will exit", meta.getAbsolutePath());
@@ -465,22 +484,22 @@ public class Catalog {
             }
         }
 
-        // 3. get cluster id and role (Observer or Follower)
+        // 2. get cluster id and role (Observer or Follower)
         getClusterIdAndRole();
 
-        // 4. Load image first and replay edits
+        // 3. Load image first and replay edits
         this.editLog = new EditLog();
         loadImage(IMAGE_DIR); // load image file
         editLog.open(); // open bdb env or local output stream
         this.userPropertyMgr.setEditLog(editLog);
 
-        // 5. start load label cleaner thread
+        // 4. start load label cleaner thread
         createCleaner();
         cleaner.setName("labelCleaner");
         cleaner.setInterval(Config.label_clean_interval_second * 1000L);
         cleaner.start();
 
-        // 6. start state listener thread
+        // 5. start state listener thread
         createStateListener();
         listener.setName("stateListener");
         listener.setInterval(STATE_CHANGE_CHECK_INTERVAL_MS);
@@ -566,7 +585,6 @@ public class Catalog {
                 storage = new Storage(IMAGE_DIR);
                 if (role == FrontendNodeType.UNKNOWN) {
                     LOG.error("current node is not added to the group. please add it first.");
-                    // System.exit(-1);
                     try {
                         Thread.sleep(5000);
                     } catch (InterruptedException e) {
@@ -653,8 +671,8 @@ public class Catalog {
     // to the cluster yet.
     private FrontendNodeType getFeNodeType() {
         try {
-            URL url = new URL("http://" + helperNode.first + ":" + Config.http_port + "/role?host=" + selfNode.first
-                    + "&port=" + selfNode.second);
+            URL url = new URL("http://" + helperNode.first + ":" + Config.http_port
+                    + "/role?host=" + selfNode.first + "&port=" + selfNode.second);
             HttpURLConnection conn = null;
             conn = (HttpURLConnection) url.openConnection();
             String type = conn.getHeaderField("role");
@@ -663,7 +681,7 @@ public class Catalog {
 
             return ret;
         } catch (Exception e) {
-            LOG.warn("http connect error.", e);
+            LOG.warn("failed to get fe node type from helper node: {}.", helperNode, e);
         }
 
         return FrontendNodeType.UNKNOWN;
@@ -673,7 +691,7 @@ public class Catalog {
         selfNode = new Pair<String, Integer>(FrontendOptions.getLocalHostAddress(), Config.edit_log_port);
     }
 
-    private void checkArgs(String[] args) throws AnalysisException {
+    private void getHelperNode(String[] args) throws AnalysisException {
         String helper = null;
         for (int i = 0; i < args.length; i++) {
             if (args[i].equalsIgnoreCase("-helper")) {
@@ -686,11 +704,57 @@ public class Catalog {
             }
         }
 
-        // If helper node is not designated, use local node as helper node.
-        if (helper != null) {
-            helperNode = SystemInfoService.validateHostAndPort(helper);
+        if (!Config.enable_deploy_manager.equalsIgnoreCase("disable")) {
+            if (Config.enable_deploy_manager.equalsIgnoreCase("k8s")) {
+                deployManager = new K8sDeployManager(this, 5000 /* 5s interval */);
+            } else if (Config.enable_deploy_manager.equalsIgnoreCase("ambari")) {
+                deployManager = new AmbariDeployManager(this, 5000 /* 5s interval */);
+            } else if (Config.enable_deploy_manager.equalsIgnoreCase("local")) {
+                deployManager = new LocalFileDeployManager(this, 5000 /* 5s interval */);
+            } else {
+                System.err.println("Unknow deploy manager: " + Config.enable_deploy_manager);
+                System.exit(-1);
+            }
+
+            getHelperNodeFromDeployManager();
+
         } else {
+            // If helper node is not designated, use local node as helper node.
+            if (helper != null) {
+                helperNode = SystemInfoService.validateHostAndPort(helper);
+            } else {
+                helperNode = new Pair<String, Integer>(selfNode.first, Config.edit_log_port);
+            }
+        }
+    }
+
+    private void getHelperNodeFromDeployManager() {
+        Preconditions.checkNotNull(deployManager);
+
+        // 1. check if this is the first time to start up
+        File roleFile = new File(IMAGE_DIR, Storage.ROLE_FILE);
+        File versionFile = new File(IMAGE_DIR, Storage.VERSION_FILE);
+        if ((roleFile.exists() && !versionFile.exists())
+                || (!roleFile.exists() && versionFile.exists())) {
+            LOG.error("role file and version file must both exist or both not exist. "
+                    + "please specific one helper node to recover. will exit.");
+            System.exit(-1);
+        }
+
+        if (roleFile.exists()) {
+            // This is not the first time this node start up.
+            // It should already added to FE group, just set helper node as it self.
+            LOG.info("role file exist. this is not the first time to start up");
             helperNode = new Pair<String, Integer>(selfNode.first, Config.edit_log_port);
+            return;
+        }
+
+        // This is the first time this node start up.
+        // Get helper node from deploy manager.
+        helperNode = deployManager.getHelperNode();
+        if (helperNode == null) {
+            LOG.error("failed to get helper node from deploy manager. exit");
+            System.exit(-1);
         }
     }
 
@@ -794,6 +858,11 @@ public class Catalog {
 
         if (!isDefaultClusterCreated) {
             initDefaultCluster();
+        }
+
+        if (!Config.enable_deploy_manager.equalsIgnoreCase("disable")) {
+            LOG.info("deploy manager {} start", deployManager.getName());
+            deployManager.start();
         }
     }
 

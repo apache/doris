@@ -20,13 +20,12 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.InternalException;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import com.baidu.palo.analysis.LinkDbStmt;
-import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
 
 public class LinkDbStmtTest {
 
@@ -45,7 +44,7 @@ public class LinkDbStmtTest {
         stmt.analyze(analyzer);
 
         Assert.assertEquals("LINK DATABASE " + stmt.getSrcCluster() + "." + stmt.getSrcDb()
-                 +  " " + stmt.getDesCluster() + "." + stmt.getDesDb(), stmt.toString());
+                + " " + stmt.getDestCluster() + "." + stmt.getDestDb(), stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)
