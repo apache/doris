@@ -10,7 +10,9 @@ Palo 当前只能运行在 Linux 系统上，无论是编译还是部署，都�
 
 * Ubuntu需要安装：`sudo apt-get install g++ ant cmake zip byacc flex automake libtool binutils-dev libiberty-dev bison`；安转完成后，需要执行 `sudo updatedb`。
 
-* CentOS需要安装：`sudo yum install ant cmake byacc flex automake libtool binutils-devel bison`；安装完成后，需要执行 `sudo updatedb`。
+* CentOS需要安装：`sudo yum install gcc-c++ ant cmake byacc flex automake libtool binutils-devel bison`；安装完成后，需要执行 `sudo updatedb`。
+
+* 某些 CentOS 发行版本不包含 `lsb_release` 命令。如果没有，Ubuntu 用户可以通过以下命令安装：`apt-get install lsb-release`；CentOS 用户可以通过以下命令安装：`yum install redhat-lsb`。
 
 ## 2. 编译
 
