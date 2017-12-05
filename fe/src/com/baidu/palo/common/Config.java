@@ -160,6 +160,13 @@ public class Config extends ConfigBase {
     @ConfField public static boolean ignore_meta_check = false;
 
     /*
+     * Set the maximum acceptable clock skew between non-master FE to Master FE host.
+     * This value is checked whenever a non-master FE establishes a connection to master FE via BDBJE.
+     * The connection is abandoned if the clock skew is larger than this value.
+     */
+    @ConfField public static long max_bdbje_clock_delta_ms = 5000; // 5s
+
+    /*
      * Fe http port
      * Currently, all FEs' http port must be same.
      */

@@ -149,7 +149,7 @@ public class DeployManager extends Daemon {
 
         if (!Strings.isNullOrEmpty(brokerServiceGroup)) {
             LOG.info("Broker service group is found");
-            hasObserverService = true;
+            hasBrokerService = true;
         }
 
         LOG.info("get electableFeServiceGroup: {}, observerFeServiceGroup: {}, backendServiceGroup: {}"
