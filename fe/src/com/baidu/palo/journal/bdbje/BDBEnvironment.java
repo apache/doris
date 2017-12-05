@@ -20,6 +20,7 @@ import com.baidu.palo.common.Config;
 import com.baidu.palo.ha.BDBHA;
 import com.baidu.palo.ha.BDBStateChangeListener;
 import com.baidu.palo.ha.HAProtocol;
+
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseConfig;
 import com.sleepycat.je.DatabaseException;
@@ -102,6 +103,8 @@ public class BDBEnvironment {
         replicationConfig.setHelperHosts(helperHostPort);
         replicationConfig.setGroupName(PALO_JOURNAL_GROUP);
         replicationConfig.setConfigParam(ReplicationConfig.ENV_UNKNOWN_STATE_TIMEOUT, "10");
+        replicationConfig.setMaxClockDelta(Config.max_bdbje_clock_delta_ms, TimeUnit.MILLISECONDS);
+
         if (isElectable) {
             replicationConfig.setConsistencyPolicy(new NoConsistencyRequiredPolicy());
             replicationConfig.setReplicaAckTimeout(2, TimeUnit.SECONDS);
