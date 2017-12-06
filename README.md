@@ -199,10 +199,10 @@ Currently we only support full data backup data rather than incremental backups 
 In addition to improving data security, the backup function also provides a way to export the data. Data can be exported to other downstream systems for further processing.
 
 # Install
-Palo only supports Linux System. Oracle JDK 8.0+ and GCC 4.8.2+ are required. See the document of [INSTALL](./docs/admin_guide/install.md).
+Palo only supports Linux System. Oracle JDK 8.0+ and GCC 4.8.2+ are required. See the document of [INSTALL](https://github.com/baidu/palo/wiki/Palo-Install) and [Deploy & Update](https://github.com/baidu/palo/wiki/Palo-Deploy-%26-Upgrade)
 
 # User Guide
-See the [Tutorial](./docs/user_guide/tutorial.md) and [SQL Reference](./docs/user_guide/sql_reference.md)
+See the [Palo Wiki](https://github.com/baidu/palo/wiki) for more information.
 
 # Contact us
 palo-rd@baidu.com
