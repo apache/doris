@@ -299,6 +299,9 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
             ++_num_rows_returned;
 
             if (reached_limit()) {
+                // avoid calling finalize() duplicately with last tuple
+                // when _output_iterator don't reach end.
+                // chenhao added
                 break;
             }
         }
