@@ -23,10 +23,10 @@ import com.baidu.palo.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 
-import io.netty.handler.codec.http.HttpMethod;
-
 import java.util.ArrayList;
 import java.util.List;
+
+import io.netty.handler.codec.http.HttpMethod;
 
 public class SessionAction extends WebBaseAction {
     // we make 
@@ -36,6 +36,7 @@ public class SessionAction extends WebBaseAction {
         SESSION_TABLE_HEADER.add("Id");
         SESSION_TABLE_HEADER.add("User");
         SESSION_TABLE_HEADER.add("Host");
+        SESSION_TABLE_HEADER.add("Cluster");
         SESSION_TABLE_HEADER.add("Db");
         SESSION_TABLE_HEADER.add("Command");
         SESSION_TABLE_HEADER.add("Time");
