@@ -1539,8 +1539,9 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
         for (auto root_path_state : root_paths_stat) {
             TDisk disk;
             disk.__set_root_path(root_path_state.root_path);
-            disk.__set_total_capacity(static_cast<double>(root_path_state.capacity));
-            disk.__set_available_capacity(static_cast<double>(root_path_state.available));
+            disk.__set_disk_total_capacity(static_cast<double>(root_path_state.disk_total_capacity));
+            disk.__set_data_used_capacity(static_cast<double>(root_path_state.data_used_capacity));
+            disk.__set_disk_available_capacity(static_cast<double>(root_path_state.disk_available_capacity));
             disk.__set_used(root_path_state.is_used);
             disks[root_path_state.root_path] = disk;
         }

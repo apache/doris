@@ -276,7 +276,8 @@ public class Backend implements Writable {
         List<String> diskInfoStrings = new LinkedList<String>();
         for (DiskInfo diskInfo : disks.values()) {
             diskInfoStrings.add(diskInfo.getRootPath() + "|" + diskInfo.getTotalCapacityB() + "|"
-                    + diskInfo.getAvailableCapacityB() + "|" + diskInfo.getState().name());
+                    + diskInfo.getDataUsedCapacityB() + "|" + diskInfo.getAvailableCapacityB() + "|"
+                    + diskInfo.getState().name());
         }
         return diskInfoStrings;
     }
@@ -304,14 +305,26 @@ public class Backend implements Writable {
         return availableCapacityB;
     }
 
+    public long getDataUsedCapacityB() {
+        ImmutableMap<String, DiskInfo> disks = disksRef.get();
+        long dataUsedCapacityB = 0L;
+        for (DiskInfo diskInfo : disks.values()) {
+            if (diskInfo.getState() == DiskState.ONLINE) {
+                dataUsedCapacityB += diskInfo.getDataUsedCapacityB();
+            }
+        }
+        return dataUsedCapacityB;
+    }
+
     public void updateDisks(Map<String, TDisk> backendDisks) {
         // update status or add new diskInfo
         ImmutableMap<String, DiskInfo> disks = disksRef.get();
         Map<String, DiskInfo> newDisks = Maps.newHashMap();
         for (TDisk tDisk : backendDisks.values()) {
             String rootPath = tDisk.getRoot_path();
-            long totalCapacityB = tDisk.getTotal_capacity();
-            long availableCapacityB = tDisk.getAvailable_capacity();
+            long totalCapacityB = tDisk.getDisk_total_capacity();
+            long dataUsedCapacityB = tDisk.getData_used_capacity();
+            long diskAvailableCapacityB = tDisk.getDisk_available_capacity();
             boolean isUsed = tDisk.isUsed();
 
             DiskInfo diskInfo = disks.get(rootPath);
@@ -322,7 +335,8 @@ public class Backend implements Writable {
             newDisks.put(rootPath, diskInfo);
 
             diskInfo.setTotalCapacityB(totalCapacityB);
-            diskInfo.setAvailableCapacityB(availableCapacityB);
+            diskInfo.setDataUsedCapacityB(dataUsedCapacityB);
+            diskInfo.setAvailableCapacityB(diskAvailableCapacityB);
             if (isUsed) {
                 diskInfo.setState(DiskState.ONLINE);
             } else {

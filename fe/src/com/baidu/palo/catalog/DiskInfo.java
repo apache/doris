@@ -15,6 +15,7 @@
 
 package com.baidu.palo.catalog;
 
+import com.baidu.palo.common.FeMetaVersion;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.io.Writable;
 
@@ -32,7 +33,8 @@ public class DiskInfo implements Writable {
 
     private String rootPath;
     private long totalCapacityB;
-    private long availableCapacityB;
+    private long dataUsedCapacityB;
+    private long diskAvailableCapacityB;
     private DiskState state;
 
     private DiskInfo() {
@@ -42,7 +44,8 @@ public class DiskInfo implements Writable {
     public DiskInfo(String rootPath) {
         this.rootPath = rootPath;
         this.totalCapacityB = DEFAULT_CAPACITY_B;
-        this.availableCapacityB = DEFAULT_CAPACITY_B;
+        this.dataUsedCapacityB = 0;
+        this.diskAvailableCapacityB = DEFAULT_CAPACITY_B;
         this.state = DiskState.ONLINE;
     }
 
@@ -58,13 +61,22 @@ public class DiskInfo implements Writable {
         this.totalCapacityB = totalCapacityB;
     }
 
+    public long getDataUsedCapacityB() {
+        return dataUsedCapacityB;
+    }
+
+    public void setDataUsedCapacityB(long dataUsedCapacityB) {
+        this.dataUsedCapacityB = dataUsedCapacityB;
+    }
+
     public long getAvailableCapacityB() {
-        return availableCapacityB;
+        return diskAvailableCapacityB;
     }
 
     public void setAvailableCapacityB(long availableCapacityB) {
-        this.availableCapacityB = availableCapacityB;
+        this.diskAvailableCapacityB = availableCapacityB;
     }
+
 
     public DiskState getState() {
         return state;
@@ -76,15 +88,16 @@ public class DiskInfo implements Writable {
 
     @Override
     public String toString() {
-        return "DiskInfo [rootPath=" + rootPath + ", totalCapacityB=" + totalCapacityB + ", availableCapacityB="
-                + availableCapacityB + ", state=" + state + "]";
+        return "DiskInfo [rootPath=" + rootPath + ", totalCapacityB=" + totalCapacityB + ", dataUsedCapacityB="
+                + dataUsedCapacityB + ", diskAvailableCapacityB=" + diskAvailableCapacityB + ", state=" + state + "]";
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, rootPath);
         out.writeLong(totalCapacityB);
-        out.writeLong(availableCapacityB);
+        out.writeLong(dataUsedCapacityB);
+        out.writeLong(diskAvailableCapacityB);
         Text.writeString(out, state.name());
     }
 
@@ -92,7 +105,14 @@ public class DiskInfo implements Writable {
     public void readFields(DataInput in) throws IOException {
         this.rootPath = Text.readString(in);
         this.totalCapacityB = in.readLong();
-        this.availableCapacityB = in.readLong();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_36) {
+            this.dataUsedCapacityB = in.readLong();
+            this.diskAvailableCapacityB = in.readLong();
+        } else {
+            long availableCapacityB = in.readLong();
+            this.dataUsedCapacityB = this.totalCapacityB - availableCapacityB;
+            this.diskAvailableCapacityB = availableCapacityB;
+        }
         this.state = DiskState.valueOf(Text.readString(in));
     }
 

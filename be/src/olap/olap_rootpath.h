@@ -31,11 +31,16 @@
 namespace palo {
 
 struct OLAPRootPathStat {
-    OLAPRootPathStat(): capacity(0), available(0), is_used(false) {}
+    OLAPRootPathStat(): 
+          disk_total_capacity(0),
+          data_used_capacity(0),
+          disk_available_capacity(0),
+          is_used(false) {}
 
     std::string root_path;
-    int64_t capacity;
-    int64_t available;
+    int64_t disk_total_capacity;
+    int64_t data_used_capacity;
+    int64_t disk_available_capacity;
     bool is_used;
 };
 
@@ -166,8 +171,7 @@ private:
 
     OLAPStatus _get_root_path_capacity(
             const std::string& root_path,
-            int64_t capacity,
-            int64_t* available);
+            int64_t* data_used);
 
     OLAPStatus _get_disk_capacity(
             const std::string& root_path,
