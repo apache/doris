@@ -55,9 +55,10 @@ struct TTablet {
 
 struct TDisk {
     1: required string root_path
-    2: required Types.TSize total_capacity
-    3: required Types.TSize available_capacity
+    2: required Types.TSize disk_total_capacity
+    3: required Types.TSize data_used_capacity
     4: required bool used
+    5: optional Types.TSize disk_available_capacity
 }
 
 struct TReportRequest {

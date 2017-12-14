@@ -73,4 +73,7 @@ public final class FeMetaVersion {
     // to remove backend in cluster when drop backend or 
     // decommission in latest versions.
     public static final int VERSION_35= 35;
+
+    // persist diskAvailableCapacity
+    public static final int VERSION_36= 36;
 }

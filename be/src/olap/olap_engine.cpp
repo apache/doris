@@ -1146,8 +1146,8 @@ OLAPStatus OLAPEngine::start_trash_sweep(double* usage) {
             continue;
         }
 
-        double curr_usage = (stat.capacity - stat.available)
-                / (double) stat.capacity;
+        double curr_usage = (stat.disk_total_capacity - stat.disk_available_capacity)
+                / (double) stat.disk_total_capacity;
         *usage = *usage > curr_usage ? *usage : curr_usage;
 
         OLAPStatus curr_res = OLAP_SUCCESS;
