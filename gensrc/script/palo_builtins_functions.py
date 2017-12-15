@@ -187,10 +187,10 @@ visible_functions = [
     [['seconds_sub'], 'DATETIME', ['DATETIME', 'INT'],
         '_ZN4palo18TimestampFunctions11seconds_subEPN8palo_udf'
         '15FunctionContextERKNS1_11DateTimeValERKNS1_6IntValE'],
-    [['microseconds_sub'], 'DATETIME', ['DATETIME', 'INT'],
+    [['microseconds_add'], 'DATETIME', ['DATETIME', 'INT'],
         '_ZN4palo18TimestampFunctions10micros_addEPN8palo_udf'
         '15FunctionContextERKNS1_11DateTimeValERKNS1_6IntValE'],
-    [['microseconds_sub'], 'DATETIME', ['DATETIME', 'BIGINT'],
+    [['microseconds_sub'], 'DATETIME', ['DATETIME', 'INT'],
         '_ZN4palo18TimestampFunctions10micros_subEPN8palo_udf'
         '15FunctionContextERKNS1_11DateTimeValERKNS1_6IntValE'],
 
