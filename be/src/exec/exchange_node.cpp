@@ -201,7 +201,7 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
         }
 
         _next_row_idx = 0;
-        DCHECK(_input_batch->row_desc().is_prefix_of(output_batch->row_desc()));
+        DCHECK(_input_batch->row_desc().layout_is_prefix_of(output_batch->row_desc()));
     }
 }
 
