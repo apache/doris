@@ -78,6 +78,7 @@ public enum PrimitiveType {
         builder.put(NULL_TYPE, DATE);
         builder.put(NULL_TYPE, DATETIME);
         builder.put(NULL_TYPE, DECIMAL);
+        builder.put(NULL_TYPE, CHAR);
         builder.put(NULL_TYPE, VARCHAR);
         // Boolean
         builder.put(BOOLEAN, BOOLEAN);
