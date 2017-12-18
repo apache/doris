@@ -432,7 +432,7 @@ public class SelectStmt extends QueryStmt {
         // can also be safely evaluated below the join (picked up by getBoundPredicates()).
         // Such predicates will be marked twice and that is ok.
         List<Expr> unassigned =
-            analyzer.getUnassignedConjuncts(getTableRefIds());
+            analyzer.getUnassignedConjuncts(getTableRefIds(), true);
         List<Expr> unassignedJoinConjuncts = Lists.newArrayList();
         for (Expr e: unassigned) {
             if (analyzer.evalByJoin(e)) {
