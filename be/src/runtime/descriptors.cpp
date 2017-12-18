@@ -58,6 +58,7 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
       _null_indicator_offset(tdesc.nullIndicatorByte, tdesc.nullIndicatorBit),
       _col_name(tdesc.colName),
       _slot_idx(tdesc.slotIdx),
+      _slot_size(_type.get_slot_size()),
       _field_idx(-1),
       _is_materialized(tdesc.isMaterialized),
       _is_null_fn(NULL),
@@ -189,6 +190,26 @@ void TupleDescriptor::add_slot(SlotDescriptor* slot) {
             _no_string_slots.push_back(slot);
         }
     }
+}
+
+std::vector<SlotDescriptor*> TupleDescriptor::slots_ordered_by_idx() const {
+    std::vector<SlotDescriptor*> sorted_slots(slots().size());
+    for (SlotDescriptor* slot: slots()) {
+        sorted_slots[slot->_slot_idx] = slot;
+    }
+    return sorted_slots;
+}
+
+bool TupleDescriptor::layout_equals(const TupleDescriptor& other_desc) const {
+    if (byte_size() != other_desc.byte_size()) return false;
+    if (slots().size() != other_desc.slots().size()) return false;
+
+    std::vector<SlotDescriptor*> slots = slots_ordered_by_idx();
+    std::vector<SlotDescriptor*> other_slots = other_desc.slots_ordered_by_idx();
+    for (int i = 0; i < slots.size(); ++i) {
+      if (!slots[i]->layout_equals(*other_slots[i])) return false;
+    }
+    return true;
 }
 
 std::string TupleDescriptor::debug_string() const {
@@ -330,6 +351,19 @@ bool RowDescriptor::equals(const RowDescriptor& other_desc) const {
     return true;
 }
 
+bool RowDescriptor::layout_is_prefix_of(const RowDescriptor& other_desc) const {
+  if (_tuple_desc_map.size() > other_desc._tuple_desc_map.size()) return false;
+  for (int i = 0; i < _tuple_desc_map.size(); ++i) {
+    if (!_tuple_desc_map[i]->layout_equals(*other_desc._tuple_desc_map[i])) return false;
+  }
+  return true;
+}
+
+bool RowDescriptor::layout_equals(const RowDescriptor& other_desc) const {
+    if (_tuple_desc_map.size() != other_desc._tuple_desc_map.size()) return false;
+    return layout_is_prefix_of(other_desc);
+}
+
 std::string RowDescriptor::debug_string() const {
     std::stringstream ss;
 
@@ -466,6 +500,15 @@ void DescriptorTbl::get_tuple_descs(std::vector<TupleDescriptor*>* descs) const 
             i != _tuple_desc_map.end(); ++i) {
         descs->push_back(i->second);
     }
+}
+
+bool SlotDescriptor::layout_equals(const SlotDescriptor& other_desc) const {
+    if (type() != other_desc.type()) return false;
+    if (is_nullable() != other_desc.is_nullable()) return false;
+    if (slot_size() != other_desc.slot_size()) return false;
+    if (tuple_offset() != other_desc.tuple_offset()) return false;
+    if (!null_indicator_offset().equals(other_desc.null_indicator_offset())) return false;
+  return true;
 }
 
 // Generate function to check if a slot is null.  The resulting IR looks like:
