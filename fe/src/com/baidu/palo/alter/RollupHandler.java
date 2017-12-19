@@ -15,17 +15,6 @@
 
 package com.baidu.palo.alter;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.baidu.palo.alter.AlterJob.JobState;
 import com.baidu.palo.analysis.AddRollupClause;
 import com.baidu.palo.analysis.AlterClause;
@@ -36,9 +25,6 @@ import com.baidu.palo.catalog.AggregateType;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.Database;
-import com.baidu.palo.catalog.DistributionInfo;
-import com.baidu.palo.catalog.DistributionInfo.DistributionInfoType;
-import com.baidu.palo.catalog.HashDistributionInfo;
 import com.baidu.palo.catalog.KeysType;
 import com.baidu.palo.catalog.MaterializedIndex;
 import com.baidu.palo.catalog.MaterializedIndex.IndexState;
@@ -46,9 +32,6 @@ import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.catalog.OlapTable.OlapTableState;
 import com.baidu.palo.catalog.Partition;
 import com.baidu.palo.catalog.Partition.PartitionState;
-import com.baidu.palo.catalog.PartitionInfo;
-import com.baidu.palo.catalog.PartitionType;
-import com.baidu.palo.catalog.RangePartitionInfo;
 import com.baidu.palo.catalog.Replica;
 import com.baidu.palo.catalog.Replica.ReplicaState;
 import com.baidu.palo.catalog.Table;
@@ -73,8 +56,22 @@ import com.baidu.palo.task.DropReplicaTask;
 import com.baidu.palo.thrift.TKeysType;
 import com.baidu.palo.thrift.TResourceInfo;
 import com.baidu.palo.thrift.TStorageType;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
 
 public class RollupHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(RollupHandler.class);
@@ -161,15 +158,55 @@ public class RollupHandler extends AlterHandler {
                 }       
             }
         } else if (KeysType.DUP_KEYS == keysType) {
-            if (true == alterClause.getDupKeys().isEmpty()) {
-                // rollup have the same dup keys with base table
+            /*
+             * eg.
+             * Base Table's schema is (k1,k2,k3,k4,k5) dup key (k1,k2,k3).
+             * The following rollup is allowed:
+             * 1. (k1) dup key (k1)
+             * 2. (k2,k3) dup key (k2)
+             * 3. (k1,k2,k3) dup key (k1,k2)
+             * 
+             * The following rollup is forbidden:
+             * 1. (k1) dup key (k2)
+             * 2. (k2,k3) dup key (k3,k2)
+             * 3. (k1,k2,k3) dup key (k2,k3)
+             */
+            if (alterClause.getDupKeys() == null || alterClause.getDupKeys().isEmpty()) {
+                // user does not specify duplicate key for rollup,
+                // use base table's duplicate key.
+                // so we should check if rollup column contains all base table's duplicate key.
+                List<Column> baseIdxCols = olapTable.getSchemaByIndexId(baseIndexId);
+                Set<String> baseIdxKeyColNames = Sets.newHashSet();
+                for (Column baseCol : baseIdxCols) {
+                    if (baseCol.isKey()) {
+                        baseIdxKeyColNames.add(baseCol.getName());
+                    } else {
+                        break;
+                    }
+                }
+
+                boolean found = false;
+                for (String baseIdxKeyColName : baseIdxKeyColNames) {
+                    found = false;
+                    for (String rollupColName : rollupColumnNames) {
+                        if (rollupColName.equalsIgnoreCase(baseIdxKeyColName)) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        throw new DdlException("Rollup should contains all base table's duplicate keys if "
+                                + "no duplicate key is specified: " + baseIdxKeyColName);
+                    }
+                }
+
                 for (String columnName : rollupColumnNames) {
                     Column oneColumn = olapTable.getColumn(columnName);
                     if (oneColumn == null) {
                         throw new DdlException("Column[" + columnName + "] does not exist");
                     }
                     if (oneColumn.isKey() && meetValue) {
-                        throw new DdlException("Invalid column order. value should be after key");
+                        throw new DdlException("Invalid column order. key should before all values: " + columnName);
                     }
                     if (oneColumn.isKey()) {
                         hasKey = true;
@@ -185,24 +222,30 @@ public class RollupHandler extends AlterHandler {
             } else {
                 // rollup have different dup keys with base table
                 List<String> dupKeys = alterClause.getDupKeys();
-                for (String dupKey : dupKeys) {
-                    LOG.info("dupKey: {}", dupKey);
+                if (dupKeys.size() > rollupColumnNames.size()) {
+                    throw new DdlException("Duplicate key should be the prefix of rollup columns. Exceeded");
                 }
-                for (String columnName : dupKeys) {
-                    Column oneColumn = olapTable.getColumn(columnName);
-                    if (oneColumn == null) {
-                        throw new DdlException("Column[" + columnName + "] in dupkey does not exist");
+
+                for (int i = 0; i < rollupColumnNames.size(); i++) {
+                    String rollupColName = rollupColumnNames.get(i);
+                    boolean isKey = false;
+                    if (i < dupKeys.size()) {
+                        String dupKeyName = dupKeys.get(i);
+                        if (!rollupColName.equalsIgnoreCase(dupKeyName)) {
+                            throw new DdlException("Duplicate key should be the prefix of rollup columns");
+                        }
+                        isKey = true;
                     }
-                }
-                for (String columnName : rollupColumnNames) {
-                    if (null == olapTable.getColumn(columnName)) {
-                        throw new DdlException("Column[" + columnName + "] does not exist");
+
+                    if (olapTable.getColumn(rollupColName) == null) {
+                        throw new DdlException("Column[" + rollupColName + "] does not exist");
                     }
-                    Column oneColumn = new Column(olapTable.getColumn(columnName));
-                    boolean isKey = dupKeys.contains(oneColumn.getName());
+
                     if (isKey && meetValue) {
-                        throw new DdlException("Invalid column order. value should be after key");
+                        throw new DdlException("Invalid column order. key should before all values: " + rollupColName);
                     }
+
+                    Column oneColumn = new Column(olapTable.getColumn(rollupColName));
                     if (isKey) {
                         hasKey = true;
                         oneColumn.setIsKey(true);
@@ -215,7 +258,6 @@ public class RollupHandler extends AlterHandler {
                     rollupSchema.add(oneColumn);
                 }
             }
-
         }
 
         // 4. do create things
