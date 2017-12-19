@@ -20,15 +20,10 @@
 
 package com.baidu.palo.catalog;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
+import com.baidu.palo.analysis.AccessTestUtil;
+import com.baidu.palo.common.FeConstants;
+import com.baidu.palo.system.Backend;
+import com.baidu.palo.thrift.TDisk;
 
 import org.easymock.EasyMock;
 import org.junit.Assert;
@@ -40,10 +35,15 @@ import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
-import com.baidu.palo.analysis.AccessTestUtil;
-import com.baidu.palo.common.FeConstants;
-import com.baidu.palo.system.Backend;
-import com.baidu.palo.thrift.TDisk;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("org.apache.log4j.*")
@@ -102,16 +102,16 @@ public class BackendTest {
 
         // first update
         backend.updateDisks(diskInfos);
-        Assert.assertEquals(disk1.getTotal_capacity() + disk2.getTotal_capacity(),
+        Assert.assertEquals(disk1.getDisk_total_capacity() + disk2.getDisk_total_capacity(),
                             backend.getTotalCapacityB());
-        Assert.assertEquals(disk1.getAvailable_capacity() + disk2.getAvailable_capacity() + 1,
+        Assert.assertEquals(disk1.getDisk_total_capacity() + disk2.getDisk_total_capacity() + 1,
                             backend.getAvailableCapacityB());
 
         // second update
         diskInfos.remove(disk1.getRoot_path());
         backend.updateDisks(diskInfos);
-        Assert.assertEquals(disk2.getTotal_capacity(), backend.getTotalCapacityB());
-        Assert.assertEquals(disk2.getAvailable_capacity() + 1, backend.getAvailableCapacityB());
+        Assert.assertEquals(disk2.getDisk_total_capacity(), backend.getTotalCapacityB());
+        Assert.assertEquals(disk2.getDisk_available_capacity() + 1, backend.getAvailableCapacityB());
     }
 
     @Test
