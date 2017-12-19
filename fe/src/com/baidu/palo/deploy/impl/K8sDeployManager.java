@@ -46,7 +46,7 @@ public class K8sDeployManager extends DeployManager {
     public static final String K8S_CLIENT_CERT_FILE = "cce-admin.pem";
     public static final String K8S_CLIENT_KEY_FILE = "cce-admin-key.pem";
     
-    public static final String TEST_MASTER_URL = "https://180.76.174.153:6443/";
+    public static final String TEST_MASTER_URL = "https://127.0.0.1:1111/";
     public static final String TEST_NAMESPACE = "default";
     public static final String TEST_SERVICENAME = "palo-fe";
     // =======for test only==========
