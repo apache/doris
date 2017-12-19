@@ -264,20 +264,17 @@ public class Config extends ConfigBase {
     /*
      * Default pull load timeout
      */
-    @ConfField
-    public static int pull_load_task_default_timeout_second = 3600; // 1 hour
+    @ConfField public static int pull_load_task_default_timeout_second = 14400; // 4 hour
 
     /*
      * Default mini load timeout
      */
-    @ConfField
-    public static int mini_load_default_timeout_second = 86400; // 1 day
+    @ConfField public static int mini_load_default_timeout_second = 3600; // 1 hour
 
     /*
      * Default hadoop load timeout
      */
-    @ConfField
-    public static int hadoop_load_default_timeout_second = 86400 * 3; // 3 day
+    @ConfField public static int hadoop_load_default_timeout_second = 86400 * 3; // 3 day
 
     /*
      * Same meaning as *tablet_create_timeout_second*, but used when delete a tablet.
