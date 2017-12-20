@@ -499,7 +499,7 @@ public class OlapScanNode extends ScanNode {
                 selectedIndexId = tables.get(0).get(i).getId();
                 partitionPos = i;
             } else if (rowCount == minRowCount) {
-                // check column number, select one mimumum column number
+                // check column number, select one minimum column number
                 int selectedColumnSize = olapTable.getIndexIdToSchema().get(selectedIndexId).size();
                 int currColumnSize = olapTable.getIndexIdToSchema().get(tables.get(0).get(i).getId()).size();
                 if (currColumnSize < selectedColumnSize) {
