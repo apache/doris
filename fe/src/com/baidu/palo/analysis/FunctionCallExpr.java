@@ -435,7 +435,17 @@ public class FunctionCallExpr extends Expr {
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{type},
                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         }  else if (fnName.getFunction().equalsIgnoreCase("count_distinct")) {
-            fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{children.get(0).getType()},
+            Type compatibleType = this.children.get(0).getType();
+            for (int i = 1; i < this.children.size(); ++i) {
+                Type type = this.children.get(i).getType();
+                compatibleType = Type.getAssignmentCompatibleType(compatibleType, type, true);
+                if (compatibleType.isInvalid()) {
+                    compatibleType = Type.VARCHAR;
+                    break;
+                }
+            }
+
+            fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{compatibleType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), collectChildReturnTypes(),
