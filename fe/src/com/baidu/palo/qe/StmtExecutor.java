@@ -91,7 +91,7 @@ public class StmtExecutor {
     private RuntimeProfile summaryProfile;
     private volatile Coordinator coord = null;
     private MasterOpExecutor masterOpExecutor = null;
-    private RedirectStatus redicrtStatus = null;
+    private RedirectStatus redirectStatus = null;
     private Planner planner;
     private boolean isProxy;
     private ShowResultSet proxyResultSet = null;
@@ -139,10 +139,10 @@ public class StmtExecutor {
             return false;
         }
 
-        if (redicrtStatus == null) {
+        if (redirectStatus == null) {
             return false;
         } else {
-            return redicrtStatus.isForwardToMaster();
+            return redirectStatus.isForwardToMaster();
         }
     }
 
@@ -263,7 +263,7 @@ public class StmtExecutor {
     }
 
     private void forwardToMaster() throws Exception {
-        masterOpExecutor = new MasterOpExecutor(originStmt, context, redicrtStatus);
+        masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus);
         LOG.debug("need to transfer to Master originStmt={}", originStmt);
         masterOpExecutor.execute();
     }
@@ -305,7 +305,7 @@ public class StmtExecutor {
         SqlParser parser = new SqlParser(input);
         try {
             parsedStmt = (StatementBase) parser.parse().value;
-            redicrtStatus = parsedStmt.getRedirectStatus();
+            redirectStatus = parsedStmt.getRedirectStatus();
         } catch (Error e) {
             LOG.warn("error happens when parsing sql: {}", e);
             throw new AnalysisException("sql parsing error, please check your sql");
