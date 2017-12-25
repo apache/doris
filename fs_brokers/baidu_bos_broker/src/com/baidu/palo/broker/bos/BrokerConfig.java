@@ -35,7 +35,7 @@ public class BrokerConfig extends ConfigBase {
     @ConfField
     public static String sys_log_dir = System.getenv("BROKER_HOME") + "/log";
     @ConfField
-    public static String sys_log_level = "DEBUG"; // INFO, WARNING, ERROR, FATAL
+    public static String sys_log_level = "INFO"; // INFO, WARNING, ERROR, FATAL
     @ConfField
     public static String sys_log_roll_mode = "SIZE-MB-1024"; // TIME-DAY
                                                              // TIME-HOUR
