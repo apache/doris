@@ -317,7 +317,8 @@ public class FileSystemManager {
         }
         if (currentStreamOffset != offset) {
             throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_OFFSET, 
-                    "current read offset {} is not equal to {}", currentStreamOffset, offset);
+                    "current outputstream offset is {} not equal to request {}", 
+                    currentStreamOffset, offset);
         }
         try {
             fsDataOutputStream.write(data);
