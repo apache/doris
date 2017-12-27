@@ -67,6 +67,7 @@ public:
     void callback(const Status& status, RuntimeProfile* profile, bool done);
 
     std::string to_http_path(const std::string& file_name);
+    std::string to_load_error_http_path(const std::string& file_name);
 
     Status execute();
 
@@ -216,6 +217,14 @@ std::string FragmentExecState::to_http_path(const std::string& file_name) {
     return url.str();
 }
 
+std::string FragmentExecState::to_load_error_http_path(const std::string& file_name) {
+    std::stringstream url;
+    url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
+        << "/api/_load_error_log?"
+        << "&file=" << file_name;
+    return url.str();
+}
+
 // There can only be one of these callbacks in-flight at any moment, because
 // it is only invoked from the executor's reporting thread.
 // Also, the reported status will always reflect the most recent execution status,
@@ -267,7 +276,8 @@ void FragmentExecState::coordinator_callback(
             s_dpp_abnormal_all, std::to_string(runtime_state->num_rows_load_filtered()));
     }
     if (!runtime_state->get_error_log_file_path().empty()) {
-        params.__set_tracking_url(to_http_path(runtime_state->get_error_log_file_path()));
+        params.__set_tracking_url(
+                to_load_error_http_path(runtime_state->get_error_log_file_path()));
     }
     if (!runtime_state->export_output_files().empty()) {
         params.__isset.export_files = true;
