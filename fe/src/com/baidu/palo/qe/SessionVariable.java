@@ -17,6 +17,8 @@ package com.baidu.palo.qe;
 
 import com.baidu.palo.thrift.TQueryOptions;
 import com.baidu.palo.common.io.Writable;
+import com.baidu.palo.catalog.Catalog;
+import com.baidu.palo.common.FeMetaVersion;
 import com.baidu.palo.common.io.Text;
 
 import java.io.Serializable;
@@ -400,7 +402,6 @@ public class SessionVariable implements Serializable, Writable {
         out.writeLong(sqlSelectLimit);
         out.writeBoolean(sqlAutoIsNull);
         Text.writeString(out, collationDatabase);
-        Text.writeString(out, collationServer);
         Text.writeString(out, collationConnection);
         Text.writeString(out, charsetServer);
         Text.writeString(out, charsetResults);
@@ -413,6 +414,7 @@ public class SessionVariable implements Serializable, Writable {
         out.writeBoolean(isReportSucc);
         out.writeInt(queryTimeoutS);
         out.writeLong(maxExecMemByte);
+        Text.writeString(out, collationServer);
     }
 
     @Override
@@ -431,7 +433,6 @@ public class SessionVariable implements Serializable, Writable {
         sqlSelectLimit = in.readLong();
         sqlAutoIsNull = in.readBoolean();
         collationDatabase = Text.readString(in);
-        collationServer = Text.readString(in);
         collationConnection = Text.readString(in);
         charsetServer = Text.readString(in);
         charsetResults = Text.readString(in);
@@ -444,5 +445,8 @@ public class SessionVariable implements Serializable, Writable {
         isReportSucc = in.readBoolean();
         queryTimeoutS = in.readInt();
         maxExecMemByte = in.readLong();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_37) {
+          collationServer = Text.readString(in);
+        }
     }
 }
