@@ -72,8 +72,11 @@ public final class FeMetaVersion {
     // update the BE in cluster, because of forgeting
     // to remove backend in cluster when drop backend or 
     // decommission in latest versions.
-    public static final int VERSION_35= 35;
+    public static final int VERSION_35 = 35;
 
     // persist diskAvailableCapacity
-    public static final int VERSION_36= 36;
+    public static final int VERSION_36 = 36;
+
+    // added collation_server to variables (palo-3059)
+    public static final int VERSION_37 = 37;
 }
