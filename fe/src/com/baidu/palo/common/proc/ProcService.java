@@ -46,6 +46,7 @@ public final class ProcService {
         root.register("frontends", new FrontendsProcNode(Catalog.getInstance()));
         root.register("brokers", Catalog.getInstance().getBrokerMgr().getProcNode());
         root.register("load_error_hub_url", new LoadErrorProcNode(Catalog.getInstance()));
+        root.register("monitor", new MonitorProcDir());
     }
 
     // 通过指定的路径获得对应的PROC Node
