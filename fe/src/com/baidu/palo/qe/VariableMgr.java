@@ -298,6 +298,9 @@ public class VariableMgr {
             ctx = ctxByVarName.get(SessionVariable.COLLATION_DATABASE);
             setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getCollationDatabase()));
         
+            ctx = ctxByVarName.get(SessionVariable.COLLATION_SERVER);
+            setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getCollationServer()));
+        
             ctx = ctxByVarName.get(SessionVariable.COLLATION_CONNECTION);
             setValue(ctx.getObj(), ctx.getField(), String.valueOf(variable.getCollationConnection()));
         
