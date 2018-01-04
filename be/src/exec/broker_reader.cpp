@@ -145,6 +145,7 @@ Status BrokerReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
             client->pread(response, request);
         } catch (apache::thrift::transport::TTransportException& e) {
             RETURN_IF_ERROR(client.reopen());
+            LOG(INFO) << "retry reading from broker: " << broker_addr << ". reason: " << e.what();
             client->pread(response, request);
         }
     } catch (apache::thrift::TException& e) {
