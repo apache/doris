@@ -235,43 +235,45 @@ public class FileSystemManager {
     
     public ByteBuffer pread(TBrokerFD fd, long offset, long length) {
         FSDataInputStream fsDataInputStream = clientContextManager.getFsDataInputStream(fd);
-        long currentStreamOffset;
-        try {
-            currentStreamOffset = fsDataInputStream.getPos();
-        } catch (IOException e) {
-            logger.error("errors while get file pos from output stream", e);
-            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR, 
-                    "errors while get file pos from output stream");
-        }
-        if (currentStreamOffset != offset) {
-            logger.warn("invalid offset, current read offset is " 
-                    + currentStreamOffset + " is not equal to request offset " 
-                    + offset + " seek to it");
+        synchronized (fsDataInputStream) {
+            long currentStreamOffset;
             try {
-                fsDataInputStream.seek(offset);
+                currentStreamOffset = fsDataInputStream.getPos();
             } catch (IOException e) {
-                throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_OFFSET, 
-                        e, "current read offset {} is not equal to {}, and could not seek to it", 
-                        currentStreamOffset, offset);
+                logger.error("errors while get file pos from output stream", e);
+                throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR, 
+                        "errors while get file pos from output stream");
             }
-        }
-        byte[] buf;
-        if (length > readBufferSize) {
-            buf = new byte[readBufferSize];
-        } else {
-            buf = new byte[(int) length];
-        }
-        try {
-            int readLength = fsDataInputStream.read(buf);
-            if (readLength < 0) {
-                throw new BrokerException(TBrokerOperationStatusCode.END_OF_FILE, 
-                        "end of file reached");
+            if (currentStreamOffset != offset) {
+                logger.warn("invalid offset, current read offset is " 
+                        + currentStreamOffset + " is not equal to request offset " 
+                        + offset + " seek to it");
+                try {
+                    fsDataInputStream.seek(offset);
+                } catch (IOException e) {
+                    throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_OFFSET, 
+                            e, "current read offset {} is not equal to {}, and could not seek to it", 
+                            currentStreamOffset, offset);
+                }
             }
-            return ByteBuffer.wrap(buf, 0, readLength);
-        } catch (IOException e) {
-            logger.error("errors while read data from stream", e);
-            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR, 
-                    e, "errors while write data to output stream");
+            byte[] buf;
+            if (length > readBufferSize) {
+                buf = new byte[readBufferSize];
+            } else {
+                buf = new byte[(int) length];
+            }
+            try {
+                int readLength = fsDataInputStream.read(buf);
+                if (readLength < 0) {
+                    throw new BrokerException(TBrokerOperationStatusCode.END_OF_FILE, 
+                            "end of file reached");
+                }
+                return ByteBuffer.wrap(buf, 0, readLength);
+            } catch (IOException e) {
+                logger.error("errors while read data from stream", e);
+                throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR, 
+                        e, "errors while write data to output stream");
+            }
         }
     }
     
@@ -282,12 +284,14 @@ public class FileSystemManager {
     
     public void closeReader(TBrokerFD fd) {
         FSDataInputStream fsDataInputStream = clientContextManager.getFsDataInputStream(fd);
-        try {
-            fsDataInputStream.close();
-        } catch (IOException e) {
-            logger.error("errors while close file input stream", e);
-        } finally {
-            clientContextManager.removeInputStream(fd);
+        synchronized (fsDataInputStream) {
+            try {
+                fsDataInputStream.close();
+            } catch (IOException e) {
+                logger.error("errors while close file input stream", e);
+            } finally {
+                clientContextManager.removeInputStream(fd);
+            }
         }
     }
     
@@ -312,36 +316,40 @@ public class FileSystemManager {
     
     public void pwrite(TBrokerFD fd, long offset, byte[] data) {
         FSDataOutputStream fsDataOutputStream = clientContextManager.getFsDataOutputStream(fd);
-        long currentStreamOffset;
-        try {
-            currentStreamOffset = fsDataOutputStream.getPos();
-        } catch (IOException e) {
-            logger.error("errors while get file pos from output stream", e);
-            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR, 
-                    "errors while get file pos from output stream");
-        }
-        if (currentStreamOffset != offset) {
-            throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_OFFSET, 
-                    "current outputstream offset is {} not equal to request {}", 
-                    currentStreamOffset, offset);
-        }
-        try {
-            fsDataOutputStream.write(data);
-        } catch (IOException e) {
-            logger.error("errors while write data to output stream", e);
-            throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR, 
-                    e, "errors while write data to output stream");
+        synchronized (fsDataOutputStream) {
+            long currentStreamOffset;
+            try {
+                currentStreamOffset = fsDataOutputStream.getPos();
+            } catch (IOException e) {
+                logger.error("errors while get file pos from output stream", e);
+                throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR, 
+                        "errors while get file pos from output stream");
+            }
+            if (currentStreamOffset != offset) {
+                throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_OFFSET, 
+                        "current outputstream offset is {} not equal to request {}", 
+                        currentStreamOffset, offset);
+            }
+            try {
+                fsDataOutputStream.write(data);
+            } catch (IOException e) {
+                logger.error("errors while write data to output stream", e);
+                throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR, 
+                        e, "errors while write data to output stream");
+            }
         }
     }
     
     public void closeWriter(TBrokerFD fd) {
         FSDataOutputStream fsDataOutputStream = clientContextManager.getFsDataOutputStream(fd);
-        try {
-            fsDataOutputStream.close();
-        } catch (IOException e) {
-            logger.error("errors while close file output stream", e);
-        } finally {
-            clientContextManager.removeOutputStream(fd);
+        synchronized (fsDataOutputStream) {
+            try {
+                fsDataOutputStream.close();
+            } catch (IOException e) {
+                logger.error("errors while close file output stream", e);
+            } finally {
+                clientContextManager.removeOutputStream(fd);
+            }
         }
     }
     
