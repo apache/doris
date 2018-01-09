@@ -93,7 +93,7 @@ Status ExportSink::send(RuntimeState* state, RowBatch* batch) {
     std::stringstream ss;
     for (int i = 0; i < num_rows;) {
         ss.str("");
-        for (int j = 0; j < batch_send_rows, i < num_rows; ++j, ++i) {
+        for (int j = 0; j < batch_send_rows && i < num_rows; ++j, ++i) {
             RETURN_IF_ERROR(gen_row_buffer(batch->get_row(i), &ss));
         }
 

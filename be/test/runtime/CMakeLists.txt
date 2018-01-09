@@ -19,7 +19,7 @@
 # under the License.
 
 # where to put generated binaries
-set(EXECUTABLE_OUTPUT_PATH "${BINARY_DIR}/test/runtime")
+set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test/runtime")
 
 #ADD_BE_TEST(buffered_tuple_stream_test)
 #ADD_BE_TEST(sorter_test)
@@ -53,4 +53,4 @@ ADD_BE_TEST(disk_io_mgr_test)
 ADD_BE_TEST(mem_limit_test)
 ADD_BE_TEST(buffered_block_mgr2_test)
 ADD_BE_TEST(buffered_tuple_stream2_test)
-ADD_BE_TEST(export_task_mgr_test)
+#ADD_BE_TEST(export_task_mgr_test)
