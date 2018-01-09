@@ -154,7 +154,7 @@ public class ConnectProcessor {
         }
         ctx.getAuditBuilder().reset();
         // replace '\n' to '\\\n' to make string in one line
-        ctx.getAuditBuilder().put("client", ctx.getMysqlChannel().getRemote());
+        ctx.getAuditBuilder().put("client", ctx.getMysqlChannel().getRemoteHostString());
         ctx.getAuditBuilder().put("user", ctx.getUser());
         ctx.getAuditBuilder().put("db", ctx.getDatabase());
         ctx.getAuditBuilder().put("query", stmt.replace("\n", "\\n"));
@@ -362,7 +362,7 @@ public class ConnectProcessor {
         try {
             packetBuf = channel.fetchOnePacket();
             if (packetBuf == null) {
-                LOG.warn("Null packet received from network. remote: {}", channel.getRemote());
+                LOG.warn("Null packet received from network. remote: {}", channel.getRemoteHostString());
                 throw new IOException("Error happened when receiving packet.");
             }
         } catch (AsynchronousCloseException e) {

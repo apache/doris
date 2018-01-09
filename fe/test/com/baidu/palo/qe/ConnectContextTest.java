@@ -49,7 +49,7 @@ public class ConnectContextTest {
     @Before
     public void setUp() throws Exception {
         channel = EasyMock.createMock(MysqlChannel.class);
-        EasyMock.expect(channel.getRemote()).andReturn("127.0.0.1:12345").anyTimes();
+        EasyMock.expect(channel.getRemoteHostString()).andReturn("127.0.0.1:12345").anyTimes();
         channel.close();
         EasyMock.expectLastCall().anyTimes();
         executor = EasyMock.createMock(StmtExecutor.class);

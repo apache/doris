@@ -108,7 +108,7 @@ public class ConnectProcessorTest {
         // Mock
         MysqlChannel channel = EasyMock.createNiceMock(MysqlChannel.class);
         PowerMock.expectNew(MysqlChannel.class, EasyMock.isA(SocketChannel.class)).andReturn(channel).anyTimes();
-        EasyMock.expect(channel.getRemote()).andReturn("127.0.0.1:12345").anyTimes();
+        EasyMock.expect(channel.getRemoteHostString()).andReturn("127.0.0.1:12345").anyTimes();
         PowerMock.replay(MysqlChannel.class);
         myContext = new ConnectContext(EasyMock.createMock(SocketChannel.class));
     }
@@ -126,7 +126,7 @@ public class ConnectProcessorTest {
             channel.sendAndFlush(EasyMock.isA(ByteBuffer.class));
             EasyMock.expectLastCall().anyTimes();
 
-            EasyMock.expect(channel.getRemote()).andReturn("127.0.0.1:12345").anyTimes();
+            EasyMock.expect(channel.getRemoteHostString()).andReturn("127.0.0.1:12345").anyTimes();
 
             EasyMock.replay(channel);
 
