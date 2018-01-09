@@ -45,32 +45,36 @@ public class MysqlChannel {
     // default packet byte buffer for most packet
     private ByteBuffer defaultBuffer = ByteBuffer.allocate(16 * 1024);
     private ByteBuffer sendBuffer;
-    private String remote;
+    private String remoteHostString;
     private String remoteIp;
     private boolean isSend;
 
     public MysqlChannel(SocketChannel channel) {
-        if (null != channel) {
-            this.sequenceId = 0;
-            this.channel = channel;
-            this.sendBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
-            this.isSend = false;
+        this.sequenceId = 0;
+        this.channel = channel;
+        this.sendBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
+        this.isSend = false;
+        this.remoteHostString = "";
+        this.remoteIp = "";
 
-            // get remote description
+        if (channel != null) {
             try {
                 if (channel.getRemoteAddress() instanceof InetSocketAddress) {
                     InetSocketAddress address = (InetSocketAddress) channel.getRemoteAddress();
-                    remote = address.getHostName() + ":" + address.getPort();
+                    
+                    // avoid calling getHostName() which may trigger a name service reverse lookup
+                    remoteHostString = address.getHostString() + ":" + address.getPort();
                     remoteIp = address.getAddress().getHostAddress();
                 } else {
                     // Reach here, what's it?
-                    remote = channel.getRemoteAddress().toString();
+                    remoteHostString = channel.getRemoteAddress().toString();
                     remoteIp = channel.getRemoteAddress().toString();
                 }
             } catch (Exception e) {
-                remote = "";
-                remoteIp = "";
+                  LOG.warn("get remote host string failed: " + e.toString());
             }
+        } else {
+            LOG.warn("get remote host string failed: " + "channel is null.");
         }
     }
 
@@ -265,7 +269,7 @@ public class MysqlChannel {
         return isSend;
     }
 
-    public String getRemote() {
-        return remote;
+    public String getRemoteHostString() {
+        return remoteHostString;
     }
 }
