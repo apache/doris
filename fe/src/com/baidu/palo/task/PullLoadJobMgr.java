@@ -20,6 +20,7 @@ import com.baidu.palo.common.Status;
 import com.baidu.palo.thrift.TStatusCode;
 
 import com.google.common.collect.Maps;
+
 import org.apache.kudu.client.shaded.com.google.common.collect.Queues;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;

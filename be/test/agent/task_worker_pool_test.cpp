@@ -24,6 +24,7 @@
 #include "agent/mock_file_downloader.h"
 #include "agent/mock_pusher.h"
 #include "agent/mock_utils.h"
+#include "agent/mock_task_worker_pool.h"
 #include "agent/task_worker_pool.h"
 #include "agent/utils.h"
 #include "olap/mock_command_executor.h"

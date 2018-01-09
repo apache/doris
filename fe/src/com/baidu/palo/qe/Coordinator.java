@@ -186,7 +186,7 @@ public class Coordinator {
 
     // Used for pull load task coordinator
     public Coordinator(TUniqueId queryId, DescriptorTable descTable,
-                       List<PlanFragment> fragments, List<ScanNode> scanNodes, String cluster) {
+            List<PlanFragment> fragments, List<ScanNode> scanNodes, String cluster) {
         this.isBlockQuery = true;
         this.queryId = queryId;
         this.descTable = descTable.toThrift();

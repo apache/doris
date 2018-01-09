@@ -19,7 +19,7 @@
 # under the License.
 
 # where to put generated libraries
-set(EXECUTABLE_OUTPUT_PATH "${BINARY_DIR}/test/util")
+set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test/util")
 
 #ADD_BE_TEST(integer-array-test)
 #ADD_BE_TEST(runtime_profile_test)
