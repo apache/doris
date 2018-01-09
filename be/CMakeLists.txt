@@ -372,7 +372,13 @@ set (PALO_LINK_LIBS ${PALO_LINK_LIBS}
 )
 
 # Set libraries for test
-set (TEST_LINK_LIBS ${PALO_LINK_LIBS} gmock LLVMSupport)
+set (TEST_LINK_LIBS ${PALO_LINK_LIBS} 
+    ${WL_START_GROUP}
+    gmock
+    gtest
+    LLVMSupport
+    ${WL_END_GROUP}
+)
 
 # Set CXX flags
 SET(CXX_COMMON_FLAGS "-msse4.2 -Wall -Wno-sign-compare -Wno-deprecated -pthread -fno-omit-frame-pointer")
@@ -394,7 +400,7 @@ add_definitions(-DHAVE_INTTYPES_H -DHAVE_NETINET_IN_H)
 set(BUILD_SHARED_LIBS OFF)
 
 if (${MAKE_TEST} STREQUAL "ON")
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0")
     SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage -lgcov")
     add_definitions(-DBE_TEST)
 endif ()
@@ -416,6 +422,23 @@ add_subdirectory(${SRC_DIR}/testutil)
 add_subdirectory(${SRC_DIR}/rpc)
 add_subdirectory(${SRC_DIR}/aes)
 
+# Utility CMake function to make specifying tests and benchmarks less verbose
+FUNCTION(ADD_BE_TEST TEST_NAME)
+    set(BUILD_OUTPUT_ROOT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/")
+    # This gets the directory where the test is from (e.g. 'exprs' or 'runtime')
+    get_filename_component(DIR_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
+    get_filename_component(TEST_DIR_NAME ${TEST_NAME} PATH)
+    get_filename_component(TEST_FILE_NAME ${TEST_NAME} NAME)
+
+    ADD_EXECUTABLE(${TEST_FILE_NAME} ${TEST_NAME}.cpp)
+    TARGET_LINK_LIBRARIES(${TEST_FILE_NAME} ${TEST_LINK_LIBS})
+    SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES COMPILE_FLAGS "-Dprivate=public -Dprotected=public")
+    if (NOT "${TEST_DIR_NAME}" STREQUAL "")
+        SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${BUILD_OUTPUT_ROOT_DIRECTORY}/${DIR_NAME}/${TEST_DIR_NAME}")
+    endif()
+    ADD_TEST(${TEST_FILE_NAME} "${BUILD_OUTPUT_ROOT_DIRECTORY}/${TEST_NAME}")
+ENDFUNCTION()
+
 if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/agent)
     add_subdirectory(${TEST_DIR}/olap)
@@ -425,7 +448,6 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/exec)
     add_subdirectory(${TEST_DIR}/exprs)
     add_subdirectory(${TEST_DIR}/runtime)
-    add_subdirectory(${TEST_DIR}/udf)
 endif ()
 
 # Install be
@@ -444,20 +466,4 @@ install(FILES
 install(FILES
     ${BASE_DIR}/../conf/be.conf
     DESTINATION ${OUTPUT_DIR}/conf)
-
-# Utility CMake function to make specifying tests and benchmarks less verbose
-FUNCTION(ADD_BE_TEST TEST_NAME)
-    # This gets the directory where the test is from (e.g. 'exprs' or 'runtime')
-    get_filename_component(DIR_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
-    get_filename_component(TEST_DIR_NAME ${TEST_NAME} PATH)
-    get_filename_component(TEST_FILE_NAME ${TEST_NAME} NAME)
-
-    ADD_EXECUTABLE(${TEST_FILE_NAME} ${TEST_NAME}.cpp)
-    TARGET_LINK_LIBRARIES(${TEST_FILE_NAME} ${TEST_LINK_LIBS})
-    SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES COMPILE_FLAGS "-Dprivate=public -Dprotected=public")
-    if (NOT "${TEST_DIR_NAME}" STREQUAL "")
-        SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${BUILD_OUTPUT_ROOT_DIRECTORY}/${DIR_NAME}/${TEST_DIR_NAME}")
-    endif()
-    ADD_TEST(${TEST_FILE_NAME} "${BUILD_OUTPUT_ROOT_DIRECTORY}/${DIR_NAME}/${TEST_NAME}")
-ENDFUNCTION()
 

@@ -22,7 +22,6 @@ import com.baidu.palo.common.Config;
 import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.Status;
 import com.baidu.palo.load.BrokerFileGroup;
-import com.baidu.palo.load.LoadJob;
 import com.baidu.palo.qe.Coordinator;
 import com.baidu.palo.qe.QeProcessor;
 import com.baidu.palo.thrift.TQueryType;
@@ -30,6 +29,7 @@ import com.baidu.palo.thrift.TStatusCode;
 import com.baidu.palo.thrift.TUniqueId;
 
 import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -162,7 +162,7 @@ public class PullLoadTask {
         }
     }
 
-    public void actualExecute() {
+    private void actualExecute() {
         int waitSecond = (int) (getLeftTimeMs() / 1000);
         if (waitSecond <= 0) {
             onCancelled();
@@ -207,6 +207,7 @@ public class PullLoadTask {
                     planner.getFragments(), planner.getScanNodes(), db.getClusterName());
             curCoordinator.setQueryType(TQueryType.LOAD);
             curCoordinator.setExecMemoryLimit(execMemLimit);
+            curCoordinator.setTimeout((int) (getLeftTimeMs() / 1000));
         }
 
         boolean needUnregister = false;
