@@ -235,6 +235,21 @@ public class Coordinator {
         this.queryOptions.setQuery_timeout(timeout);
     }
 
+    public void clearExportStatus() {
+        lock.lock();
+        try {
+            this.backendExecStates.clear();
+            this.backendExecStateMap.clear();
+            this.queryStatus.setStatus(new Status());
+            if (this.exportFiles == null) {
+                this.exportFiles = Lists.newArrayList();
+            }
+            this.exportFiles.clear();
+        } finally {
+            lock.unlock();
+        }
+    }
+
     // Initiate
     private void prepare() {
         for (PlanFragment fragment : fragments) {

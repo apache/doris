@@ -74,7 +74,6 @@ public class ExportPendingTask extends MasterTask {
 
         // make snapshots
         Status snapshotStatus = makeSnapshots();
-        // TODO(pengyubing): if export job fail, release snapshot
         if (!snapshotStatus.ok()) {
             String failMsg = "make snapshot failed.";
             failMsg += snapshotStatus.getErrorMsg();
@@ -94,7 +93,6 @@ public class ExportPendingTask extends MasterTask {
         if (tabletLocations == null) {
             return Status.OK;
         }
-        List<Pair<TNetworkAddress, String>> snapshotPaths = Lists.newArrayList();
         for (TScanRangeLocations tablet : tabletLocations) {
             TScanRange scanRange = tablet.getScan_range();
             if (!scanRange.isSetPalo_scan_range()) {
@@ -125,11 +123,10 @@ public class ExportPendingTask extends MasterTask {
                 if (result == null || result.getStatus().getStatus_code() != TStatusCode.OK) {
                     return Status.CANCELLED;
                 }
-                snapshotPaths.add(new Pair<TNetworkAddress, String>(address, result.getSnapshot_path()));
+                job.addSnapshotPath(new Pair<TNetworkAddress, String>(address, result.getSnapshot_path()));
                 LOG.debug("snapshot address:{}, path:{}", address, result.getSnapshot_path());
             }
         }
-        job.setSnapshotPaths(snapshotPaths);
         return Status.OK;
     }
 }
