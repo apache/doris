@@ -54,6 +54,7 @@ import java.util.Set;
 
 public class ExportExportingTask extends MasterTask {
     private static final Logger LOG = LogManager.getLogger(ExportExportingTask.class);
+    private static final int RETRY_NUM = 3;
 
     protected final ExportJob job;
 
@@ -92,7 +93,6 @@ public class ExportExportingTask extends MasterTask {
         }
 
         // if one instance finished, we send request to BE to exec next instance
-        // TODO(lingbin): add retry sending logic if send fail
         List<Coordinator> coords = job.getCoordList();
         int coordSize = coords.size();
         for (int i = 0; i < coordSize; i++) {
@@ -100,7 +100,19 @@ public class ExportExportingTask extends MasterTask {
                 break;
             }
             Coordinator coord = coords.get(i);
-            execOneCoord(coord);
+            for (int j = 0; j < RETRY_NUM; ++j) {
+                execOneCoord(coord);
+                if (coord.getExecStatus().ok()) {
+                    break;
+                }
+                if (j < RETRY_NUM - 1) {
+                    coord.clearExportStatus();
+                    LOG.info("export exporting job fail. job: {}. Retry.", job);
+                }
+            }
+            if (!coord.getExecStatus().ok()) {
+                onFailed(coord.getExecStatus());
+            }
             int progress = (int) (i + 1) * 100 / coordSize;
             if (progress >= 100) {
                 progress = 99;
@@ -122,7 +134,7 @@ public class ExportExportingTask extends MasterTask {
         }
 
         // release snapshot
-        Status releaseSnapshotStatus = releaseSnapshotPaths();
+        Status releaseSnapshotStatus = job.releaseSnapshotPaths();
         if (!releaseSnapshotStatus.ok()) {
             String failMsg = "release snapshot fail.";
             failMsg += releaseSnapshotStatus.getErrorMsg();
@@ -161,7 +173,7 @@ public class ExportExportingTask extends MasterTask {
             needUnregister = true;
             actualExecCoord(queryId, coord);
         } catch (InternalException e) {
-            onFailed(new Status(TStatusCode.INTERNAL_ERROR, e.getMessage()));
+            LOG.warn("export exporting internal error. {}", e.getMessage());
         } finally {
             if (needUnregister) {
                 QeProcessor.unregisterQuery(queryId);
@@ -181,22 +193,20 @@ public class ExportExportingTask extends MasterTask {
         try {
             coord.exec();
         } catch (Exception e) {
-            onFailed(new Status(TStatusCode.INTERNAL_ERROR, "export Coordinator execute failed."));
+            LOG.warn("export Coordinator execute failed.");
         }
 
         if (coord.join(waitSecond)) {
             Status status = coord.getExecStatus();
             if (status.ok()) {
-                onFinished(coord.getExportFiles());
-            } else {
-                onFailed(status);
+                onSubTaskFinished(coord.getExportFiles());
             }
         } else {
-            onTimeout();
+            coord.cancel();
         }
     }
 
-    private synchronized void onFinished(List<String> exportFiles) {
+    private synchronized void onSubTaskFinished(List<String> exportFiles) {
         job.addExportedFiles(exportFiles);
     }
 
@@ -206,7 +216,7 @@ public class ExportExportingTask extends MasterTask {
         cancelType = ExportFailMsg.CancelType.RUN_FAIL;
         String failMsg = "export exporting job fail. ";
         failMsg += failStatus.getErrorMsg();
-        job.cancel(cancelType, failMsg);
+        job.setFailMsg(new ExportFailMsg(cancelType, failMsg));
         LOG.warn("export exporting job fail. job: {}", job);
     }
 
@@ -215,7 +225,6 @@ public class ExportExportingTask extends MasterTask {
         this.failStatus = new Status(TStatusCode.TIMEOUT, "timeout");
         cancelType = ExportFailMsg.CancelType.TIMEOUT;
         String failMsg = "export exporting job timeout";
-        job.cancel(cancelType, failMsg);
         LOG.warn("export exporting job timeout. job: {}", job);
     }
 
@@ -246,32 +255,6 @@ public class ExportExportingTask extends MasterTask {
             profile.addChild(p);
         }
         ProfileManager.getInstance().pushProfile(profile);
-    }
-
-    private Status releaseSnapshotPaths() {
-        List<Pair<TNetworkAddress, String>> snapshotPaths = job.getSnapshotPaths();
-        LOG.debug("snapshotPaths:{}", snapshotPaths);
-        for (Pair<TNetworkAddress, String> snapshotPath : snapshotPaths) {
-            TNetworkAddress address = snapshotPath.first;
-            String host = address.getHostname();
-            int port = address.getPort();
-            Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(host, port);
-            if (backend == null) {
-                return Status.CANCELLED;
-            }
-            long backendId = backend.getId();
-            if (!Catalog.getCurrentSystemInfo().checkBackendAvailable(backendId)) {
-                return Status.CANCELLED;
-            }
-
-            AgentClient client = new AgentClient(host, port);
-            TAgentResult result = client.releaseSnapshot(snapshotPath.second);
-            if (result.getStatus().getStatus_code() != TStatusCode.OK) {
-                return Status.CANCELLED;
-            }
-        }
-        snapshotPaths.clear();
-        return Status.OK;
     }
 
     private Status moveTmpFiles() {

@@ -38,6 +38,7 @@ import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.io.Writable;
 import com.baidu.palo.common.Pair;
+import com.baidu.palo.common.Status;
 import com.baidu.palo.common.util.TimeUtils;
 import com.baidu.palo.planner.DataPartition;
 import com.baidu.palo.planner.ExportSink;
@@ -49,7 +50,11 @@ import com.baidu.palo.planner.PlanFragmentId;
 import com.baidu.palo.planner.PlanNodeId;
 import com.baidu.palo.planner.ScanNode;
 import com.baidu.palo.qe.Coordinator;
+import com.baidu.palo.system.Backend;
+import com.baidu.palo.task.AgentClient;
+import com.baidu.palo.thrift.TAgentResult;
 import com.baidu.palo.thrift.TNetworkAddress;
+import com.baidu.palo.thrift.TStatusCode;
 import com.baidu.palo.thrift.TScanRangeLocation;
 import com.baidu.palo.thrift.TScanRangeLocations;
 import com.baidu.palo.thrift.TUniqueId;
@@ -489,8 +494,8 @@ public class ExportJob implements Writable {
         return this.snapshotPaths;
     }
 
-    public void setSnapshotPaths(List<Pair<TNetworkAddress, String>> snapshotPaths) {
-        this.snapshotPaths = snapshotPaths;
+    public void addSnapshotPath(Pair<TNetworkAddress, String> snapshotPath) {
+        this.snapshotPaths.add(snapshotPath);
     }
 
     public String getSql() {
@@ -502,6 +507,7 @@ public class ExportJob implements Writable {
     }
 
     public synchronized void cancel(ExportFailMsg.CancelType type, String msg) {
+        releaseSnapshotPaths();
         failMsg = new ExportFailMsg(type, msg);
         updateState(ExportJob.JobState.CANCELLED, false);
     }
@@ -532,6 +538,32 @@ public class ExportJob implements Writable {
             Catalog.getInstance().getEditLog().logExportUpdateState(id, newState);
         }
         return true;
+    }
+
+    public Status releaseSnapshotPaths() {
+        List<Pair<TNetworkAddress, String>> snapshotPaths = getSnapshotPaths();
+        LOG.debug("snapshotPaths:{}", snapshotPaths);
+        for (Pair<TNetworkAddress, String> snapshotPath : snapshotPaths) {
+            TNetworkAddress address = snapshotPath.first;
+            String host = address.getHostname();
+            int port = address.getPort();
+            Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(host, port);
+            if (backend == null) {
+                continue;
+            }
+            long backendId = backend.getId();
+            if (!Catalog.getCurrentSystemInfo().checkBackendAvailable(backendId)) {
+                continue;
+            }
+
+            AgentClient client = new AgentClient(host, port);
+            TAgentResult result = client.releaseSnapshot(snapshotPath.second);
+            if (result == null || result.getStatus().getStatus_code() != TStatusCode.OK) {
+                continue;
+            }
+        }
+        snapshotPaths.clear();
+        return Status.OK;
     }
 
     @Override
