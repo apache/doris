@@ -212,24 +212,50 @@ public class BDBEnvironment {
     }
     
     // return the database reference with the given name
+    // also try to close previous opened database.
     public Database openDatabase(String dbName) {
         Database db = null;
         lock.writeLock().lock();
         try {
+            // find if the specified database is already opened. find and return it.
             for (java.util.Iterator<Database> iter = openedDatabases.iterator(); iter.hasNext();) {
                 Database openedDb = iter.next();
-                if (openedDb == null || openedDb.getDatabaseName() == null) {
-                    if (openedDb != null) {
+                try {
+                    if (openedDb.getDatabaseName() == null) {
                         openedDb.close();
+                        iter.remove();
+                        continue;
                     }
+                } catch (Exception e) {
+                    /*
+                     * In the case when 3 FE (1 master and 2 followers) start at same time,
+                     * We may catch com.sleepycat.je.rep.DatabasePreemptedException which said that
+                     * "Database xx has been forcibly closed in order to apply a replicated remove operation."
+                     * 
+                     * Because when Master FE finished to save image, it try to remove old journals,
+                     * and also remove the databases these old journals belongs to.
+                     * So after Master removed the database from replicatedEnvironment,
+                     * call db.getDatabaseName() will throw DatabasePreemptedException,
+                     * because it has already been destroyed.
+                     * 
+                     * The reason why Master can safely remove a database is because it knows that all
+                     * non-master FE have already load the journal ahead of this database. So remove the
+                     * database is safe.
+                     * 
+                     * Here we just try to close the useless database(which may be removed by Master),
+                     * so even we catch the exception, just ignore it is OK.
+                     */
+                    LOG.warn("get exception when try to close previously opened bdb database. ignore it", e);
                     iter.remove();
                     continue;
                 }
+
                 if (openedDb.getDatabaseName().equals(dbName)) {
                     return openedDb;
                 }
             }
 
+            // open the specified database.
             // the first parameter null means auto-commit
             try {
                 db = replicatedEnvironment.openDatabase(null, dbName, dbConfig);
@@ -253,6 +279,7 @@ public class BDBEnvironment {
                 String name = db.getDatabaseName();
                 if (dbName.equals(name)) {
                     db.close();
+                    LOG.info("database {} has been closed", name);
                     targetDbName = name;
                     break;
                 }

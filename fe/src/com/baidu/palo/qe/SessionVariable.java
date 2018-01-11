@@ -17,6 +17,8 @@ package com.baidu.palo.qe;
 
 import com.baidu.palo.thrift.TQueryOptions;
 import com.baidu.palo.common.io.Writable;
+import com.baidu.palo.catalog.Catalog;
+import com.baidu.palo.common.FeMetaVersion;
 import com.baidu.palo.common.io.Text;
 
 import java.io.Serializable;
@@ -43,6 +45,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String CHARACTER_SET_SERVER = "character_set_server";
     public static final String COLLATION_CONNECTION = "collation_connection";
     public static final String COLLATION_DATABASE = "collation_database";
+    public static final String COLLATION_SERVER = "collation_server";
     public static final String SQL_AUTO_IS_NULL = "SQL_AUTO_IS_NULL";
     public static final String SQL_SELECT_LIMIT = "sql_select_limit";
     public static final String MAX_ALLOWED_PACKET = "max_allowed_packet";
@@ -99,6 +102,9 @@ public class SessionVariable implements Serializable, Writable {
     private String collationConnection = "utf8_general_ci";
     @VariableMgr.VarAttr(name = COLLATION_DATABASE)
     private String collationDatabase = "utf8_general_ci";
+
+    @VariableMgr.VarAttr(name = COLLATION_SERVER)
+    private String collationServer = "utf8_general_ci";
 
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = SQL_AUTO_IS_NULL)
@@ -236,6 +242,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setCollationDatabase(String collationDatabase) {
         this.collationDatabase = collationDatabase;
+    }
+
+    public String getCollationServer() {
+        return collationServer;
+    }
+
+    public void setCollationServer(String collationServer) {
+        this.collationServer = collationServer;
     }
 
     public boolean isSqlAutoIsNull() {
@@ -400,6 +414,7 @@ public class SessionVariable implements Serializable, Writable {
         out.writeBoolean(isReportSucc);
         out.writeInt(queryTimeoutS);
         out.writeLong(maxExecMemByte);
+        Text.writeString(out, collationServer);
     }
 
     @Override
@@ -430,5 +445,8 @@ public class SessionVariable implements Serializable, Writable {
         isReportSucc = in.readBoolean();
         queryTimeoutS = in.readInt();
         maxExecMemByte = in.readLong();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_37) {
+          collationServer = Text.readString(in);
+        }
     }
 }

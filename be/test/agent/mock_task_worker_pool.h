@@ -17,6 +17,7 @@
 #define BDG_PALO_BE_SRC_MOCK_MOCK_TASK_WORKER_POOL_H
 
 #include "agent/status.h"
+#include "agent/task_worker_pool.h"
 
 namespace palo {
 
@@ -25,6 +26,7 @@ const uint32_t PUSH_MAX_RETRY = 3;
 const uint32_t REPORT_TASK_WORKER_COUNT = 1;
 const uint32_t REPORT_DISK_STATE_WORKER_COUNT = 1;
 const uint32_t REPORT_OLAP_TABLE_WORKER_COUNT = 1;
+const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
 
 class MockTaskWorkerPool : public TaskWorkerPool {
 public:

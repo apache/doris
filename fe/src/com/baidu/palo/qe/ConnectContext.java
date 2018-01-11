@@ -257,7 +257,7 @@ public class ConnectContext {
         }
 
         LOG.warn("kill timeout query, {}, kill connection: {}",
-                 mysqlChannel.getRemote(), killConnection);
+                 mysqlChannel.getRemoteHostString(), killConnection);
 
         if (killConnection) {
             isKilled = true;
@@ -283,7 +283,7 @@ public class ConnectContext {
             if (delta > sessionVariable.getWaitTimeoutS() * 1000) {
                 // Need kill this connection.
                 LOG.warn("kill wait timeout connection, remote: {}, wait timeout: {}",
-                         mysqlChannel.getRemote(), sessionVariable.getWaitTimeoutS());
+                         mysqlChannel.getRemoteHostString(), sessionVariable.getWaitTimeoutS());
 
                 killFlag = true;
                 killConnection = true;
@@ -291,7 +291,7 @@ public class ConnectContext {
         } else {
             if (delta > sessionVariable.getQueryTimeoutS() * 1000) {
                 LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                         mysqlChannel.getRemote(), sessionVariable.getQueryTimeoutS());
+                         mysqlChannel.getRemoteHostString(), sessionVariable.getQueryTimeoutS());
 
                 // Only kill
                 killFlag = true;
@@ -315,7 +315,7 @@ public class ConnectContext {
             List<String> row = Lists.newArrayList();
             row.add("" + connectionId);
             row.add(ClusterNamespace.getNameFromFullName(user));
-            row.add(mysqlChannel.getRemote());
+            row.add(mysqlChannel.getRemoteHostString());
             row.add(clusterName);
             row.add(ClusterNamespace.getNameFromFullName(currentDb));
             row.add(command.toString());
