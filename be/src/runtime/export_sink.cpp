@@ -243,8 +243,13 @@ Status ExportSink::open_file_writer() {
 // TODO(lingbin): add some other info to file name, like partition
 std::string ExportSink::gen_file_name() {
     const TUniqueId& id = _state->fragment_instance_id();
+
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+
     std::stringstream file_name;
-    file_name << "export_data_" << id.hi << "_" << id.lo;
+    file_name << "export_data_" << id.hi << "_" << id.lo << "_" 
+            << (tv.tv_sec * 1000 + tv.tv_usec / 1000);
     return file_name.str();
 }
 
