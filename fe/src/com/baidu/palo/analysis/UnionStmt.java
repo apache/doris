@@ -572,7 +572,7 @@ public class UnionStmt extends QueryStmt {
             strBuilder.append(" ORDER BY ");
             for (int i = 0; i < orderByElements.size(); ++i) {
                 strBuilder.append(orderByElements.get(i).getExpr().toSql());
-                strBuilder.append((sortInfo.getIsAscOrder().get(i)) ? " ASC" : " DESC");
+                strBuilder.append(orderByElements.get(i).getIsAsc() ? " ASC" : " DESC");
                 strBuilder.append((i + 1 != orderByElements.size()) ? ", " : "");
             }
         }
