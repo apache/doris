@@ -42,6 +42,7 @@ IF_NULL_COMPUTE_FUNCTION(DoubleVal, double_val);
 IF_NULL_COMPUTE_FUNCTION(StringVal, string_val);
 IF_NULL_COMPUTE_FUNCTION(DateTimeVal, datetime_val);
 IF_NULL_COMPUTE_FUNCTION(DecimalVal, decimal_val);
+IF_NULL_COMPUTE_FUNCTION(LargeIntVal, large_int_val);
 
 #define NULL_IF_COMPUTE_FUNCTION(TYPE, type_name) \
     TYPE NullIfExpr::get_##type_name(ExprContext* ctx, TupleRow* row) { \
@@ -71,6 +72,7 @@ NULL_IF_COMPUTE_FUNCTION_WRAPPER(DoubleVal, double_val);
 NULL_IF_COMPUTE_FUNCTION_WRAPPER(StringVal, string_val);
 NULL_IF_COMPUTE_FUNCTION_WRAPPER(DateTimeVal, datetime_val);
 // NULL_IF_COMPUTE_FUNCTION(DecimalVal, decimal_val);
+NULL_IF_COMPUTE_FUNCTION_WRAPPER(LargeIntVal, large_int_val);
 
 #define IF_COMPUTE_FUNCTION(type, type_name) \
     type IfExpr::get_##type_name(ExprContext* context, TupleRow* row) { \
@@ -92,6 +94,7 @@ IF_COMPUTE_FUNCTION(DoubleVal, double_val);
 IF_COMPUTE_FUNCTION(StringVal, string_val);
 IF_COMPUTE_FUNCTION(DateTimeVal, datetime_val);
 IF_COMPUTE_FUNCTION(DecimalVal, decimal_val);
+IF_COMPUTE_FUNCTION(LargeIntVal, large_int_val);
 
 #define COALESCE_COMPUTE_FUNCTION(type, type_name) \
     type CoalesceExpr::get_##type_name(ExprContext* context, TupleRow* row) { \
@@ -113,5 +116,6 @@ COALESCE_COMPUTE_FUNCTION(DoubleVal, double_val);
 COALESCE_COMPUTE_FUNCTION(StringVal, string_val);
 COALESCE_COMPUTE_FUNCTION(DateTimeVal, datetime_val);
 COALESCE_COMPUTE_FUNCTION(DecimalVal, decimal_val);
+COALESCE_COMPUTE_FUNCTION(LargeIntVal, large_int_val);
 
 }
