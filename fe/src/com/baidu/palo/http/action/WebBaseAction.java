@@ -32,14 +32,14 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.InetSocketAddress;
+import java.util.List;
+import java.util.UUID;
+
 import io.netty.handler.codec.http.DefaultCookie;
 import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
-
-import java.net.InetSocketAddress;
-import java.util.List;
-import java.util.UUID;
 
 public class WebBaseAction extends BaseAction {
     private static final Logger LOG = LogManager.getLogger(WebBaseAction.class);
@@ -184,7 +184,7 @@ public class WebBaseAction extends BaseAction {
     }
 
     protected void writeAuthResponse(BaseRequest request, BaseResponse response) {
-        response.addHeader(HttpHeaders.Names.WWW_AUTHENTICATE, "Basic realm=\"\"");
+        response.updateHeader(HttpHeaders.Names.WWW_AUTHENTICATE, "Basic realm=\"\"");
         writeResponse(request, response, HttpResponseStatus.UNAUTHORIZED);
     }
 

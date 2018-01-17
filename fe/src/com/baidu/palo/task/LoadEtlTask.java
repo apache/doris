@@ -35,11 +35,12 @@ import com.baidu.palo.load.PartitionLoadInfo;
 import com.baidu.palo.load.TableLoadInfo;
 import com.baidu.palo.load.TabletLoadInfo;
 import com.baidu.palo.thrift.TEtlState;
+
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Map.Entry;

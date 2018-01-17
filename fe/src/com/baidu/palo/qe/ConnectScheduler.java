@@ -15,6 +15,15 @@
 
 package com.baidu.palo.qe;
 
+import com.baidu.palo.metric.MetricRepo;
+import com.baidu.palo.mysql.MysqlProto;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Timer;
@@ -22,13 +31,6 @@ import java.util.TimerTask;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import com.google.common.collect.Lists;
-import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.LogManager;
-
-import com.baidu.palo.mysql.MysqlProto;
-import com.google.common.collect.Maps;
 
 // 查询请求的调度器
 // 当前的策略比较简单，有请求过来，就为其单独申请一个线程进行服务。
@@ -99,12 +101,14 @@ public class ConnectScheduler {
         numberConnection++;
         connByUser.get(ctx.getUser()).incrementAndGet();
         connectionMap.put((long) ctx.getConnectionId(), ctx);
+        MetricRepo.COUNTER_CONNECTIONS.inc();
         return true;
     }
 
     public synchronized void unregisterConnection(ConnectContext ctx) {
         if (connectionMap.remove((long) ctx.getConnectionId()) != null) {
             numberConnection--;
+            MetricRepo.COUNTER_CONNECTIONS.dec();
             AtomicInteger conns = connByUser.get(ctx.getUser());
             if (conns != null) {
                 conns.decrementAndGet();

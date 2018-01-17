@@ -25,7 +25,7 @@ import com.baidu.palo.common.Config;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
-import com.baidu.palo.common.util.Metrics;
+import com.baidu.palo.metric.MetricRepo;
 import com.baidu.palo.mysql.MysqlChannel;
 import com.baidu.palo.mysql.MysqlCommand;
 import com.baidu.palo.mysql.MysqlPacket;
@@ -35,9 +35,9 @@ import com.baidu.palo.thrift.TMasterOpRequest;
 import com.baidu.palo.thrift.TMasterOpResult;
 
 import com.google.common.base.Strings;
-import io.dropwizard.metrics.Counter;
-import org.apache.logging.log4j.Logger;
+
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
@@ -50,10 +50,6 @@ import java.util.List;
  */
 public class ConnectProcessor {
     private static final Logger LOG = LogManager.getLogger(ConnectProcessor.class);
-    private static final String QUERY_COUNTER_NAME = "query_info.query_count";
-    private static final String SLOW_COUNTER_NAME = "query_info.slow_count";
-    private static final String FAIL_COUNTER_NAME = "query_info.fail_count";
-    private static final String ELAPSE_TIME_COUNTER_NAME = "query_info.elapse_time";
 
     private final ConnectContext ctx;
     private ByteBuffer packetBuf;
@@ -94,6 +90,8 @@ public class ConnectProcessor {
     }
 
     private void auditAfterExec() {
+        MetricRepo.COUNTER_REQUEST_ALL.inc();
+
         // slow query
         long elapseMs = System.currentTimeMillis() - ctx.getStartTime();
         // query state log
@@ -102,23 +100,17 @@ public class ConnectProcessor {
         ctx.getAuditBuilder().put("returnRows", ctx.getReturnRows());
         String auditString = ctx.getAuditBuilder().toString();
 
-        if (auditString.toLowerCase().contains("select")
-                && auditString.toLowerCase().contains("from")) {
-            if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
-                Counter failCounter = (Counter) Metrics.getMetric(Metrics.MetricType.COUNTER, FAIL_COUNTER_NAME);
-                if (failCounter != null && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
-                    failCounter.inc();
-                    ctx.getAuditBuilder().put("monitor", "yes");
-                }
+        if (auditString.toLowerCase().contains("select") && auditString.toLowerCase().contains("from")) {
+            MetricRepo.COUNTER_QUERY_ALL.inc();
+            if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR
+                    && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
+                // err query
+                MetricRepo.COUNTER_QUERY_ERR.inc();
+                ctx.getAuditBuilder().put("monitor", "yes");
             } else {
-                Counter queryCounter = (Counter) Metrics.getMetric(Metrics.MetricType.COUNTER, QUERY_COUNTER_NAME);
-                if (queryCounter != null) {
-                    queryCounter.inc();
-                }
-                Counter elapseTime = (Counter) Metrics.getMetric(Metrics.MetricType.COUNTER, ELAPSE_TIME_COUNTER_NAME);
-                if (elapseTime != null) {
-                    elapseTime.inc(elapseMs);
-                }
+                // ok query
+                MetricRepo.METER_QUERY.mark();
+                MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
             }
         }
 
@@ -127,16 +119,13 @@ public class ConnectProcessor {
         // slow query
         if (elapseMs > Config.qe_slow_log_ms) {
             AuditLog.getSlowAudit().log(ctx.getAuditBuilder().toString());
-            Counter slowQueryCounter = (Counter) Metrics.getMetric(Metrics.MetricType.COUNTER, SLOW_COUNTER_NAME);
-            if (slowQueryCounter != null) {
-                slowQueryCounter.inc();
-            }
         }
     }
 
     // process COM_QUERY statement,
     // 只有在与请求客户端交互出现问题时候才抛出异常
     private void handleQuery() {
+        MetricRepo.METER_REQUEST.mark();
         // convert statement to Java string
         String stmt = null;
         try {

@@ -19,61 +19,51 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import io.netty.handler.codec.http.Cookie;
-import io.netty.handler.codec.http.HttpResponseStatus;
-
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import io.netty.handler.codec.http.Cookie;
+
 public class BaseResponse {
-    private HttpResponseStatus status;
     private String contentType;
     protected StringBuilder content = new StringBuilder();
+
     protected Map<String, List<String>> customHeaders = Maps.newHashMap();
     private Set<Cookie> cookies = Sets.newHashSet();
-    
-    public Map<String, List<String>> getCustomHeaders() {
-        return customHeaders;
-    }
-    public void setCustomHeaders(Map<String, List<String>> customHeaders) {
-        this.customHeaders = customHeaders;
-    }
+
     public String getContentType() {
         return contentType;
     }
+
     public void setContentType(String contentType) {
         this.contentType = contentType;
     }
+
     public StringBuilder getContent() {
         return content;
     }
-    public void setContent(StringBuilder buffer) {
-        this.content = buffer;
-    }
+
     public Set<Cookie> getCookies() {
         return cookies;
     }
-    public void setCookies(Set<Cookie> cookies) {
-        this.cookies = cookies;
+
+    public Map<String, List<String>> getCustomHeaders() {
+        return customHeaders;
     }
-    
-    public void addHeaders(Map<String, List<String>> headers) {
+
+    // update old key-value mapping of 'name' if Exist, or add new mapping if not exists.
+    // It will only change the mapping of 'name', other header will not be changed.
+    public void updateHeader(String name, String value) {
         if (customHeaders == null) {
-            customHeaders = Maps.newHashMapWithExpectedSize(headers.size());
+            customHeaders = Maps.newHashMap();
         }
-        for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
-            List<String> values = customHeaders.get(entry.getKey());
-            if (values == null) {
-                values = Lists.newArrayList();
-                customHeaders.put(entry.getKey(), values);
-            }
-            values.addAll(entry.getValue());
-        }
+        customHeaders.remove(name);
+        addHeader(name, value);
     }
 
     // Add a custom header.
-    public void addHeader(String name, String value) {
+    private void addHeader(String name, String value) {
         if (customHeaders == null) {
             customHeaders = Maps.newHashMap();
         }
@@ -84,32 +74,7 @@ public class BaseResponse {
         }
         header.add(value);
     }
-    
-    public void updateHeaders(Map<String, List<String>> headers) {
-        if (customHeaders == null) {
-            customHeaders = Maps.newHashMapWithExpectedSize(headers.size());
-        }
-        for (String keyName : headers.keySet()) {
-            customHeaders.remove(keyName);
-        }
-        this.addHeaders(headers);
-    }
-    
-    // update old key-value mapping of 'name' if Exist, or add new mapping if not exists.
-    // It will only change the mapping of 'name', other header will not be changed. 
-    public void updateHeader(String name, String value) {
-        if (customHeaders == null) {
-            customHeaders = Maps.newHashMap();
-        }
-        customHeaders.remove(name);
-        this.addHeader(name, value);
-    }
 
-    // Returns custom headers that have been added, or null if none have been set.
-    public Map<String, List<String>> getHeaders() {
-        return customHeaders;
-    }
-    
     public void appendContent(String buffer) {
         if (content == null) {
             content = new StringBuilder();
