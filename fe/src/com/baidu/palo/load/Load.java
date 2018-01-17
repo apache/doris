@@ -61,6 +61,7 @@ import com.baidu.palo.load.AsyncDeleteJob.DeleteState;
 import com.baidu.palo.load.FailMsg.CancelType;
 import com.baidu.palo.load.LoadJob.EtlJobType;
 import com.baidu.palo.load.LoadJob.JobState;
+import com.baidu.palo.metric.MetricRepo;
 import com.baidu.palo.persist.ReplicaPersistInfo;
 import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.system.Backend;
@@ -399,6 +400,7 @@ public class Load {
         writeLock();
         try {
             unprotectAddLoadJob(job);
+            MetricRepo.METER_LOAD_ADD.mark();
             Catalog.getInstance().getEditLog().logLoadStart(job);
         } finally {
             writeUnlock();
@@ -1989,6 +1991,7 @@ public class Load {
                             }
                             break;
                         case FINISHED:
+                            MetricRepo.METER_LOAD_FINISHED.mark();
                             idToQuorumFinishedLoadJob.remove(jobId);
                             job.setState(destState);
 
@@ -2461,15 +2464,15 @@ public class Load {
                     }
 
                     // check replica version.
-                    // here is a lit bit confused. the main idea is
+                    // here is a little bit confused. the main idea is
                     // 1. check if replica catch up the version
                     // 2. if not catch up and this is pre check, make sure there will be right quorum finished load jobs 
                     //    to fill the version gap between 'replica committed version' and 'partition committed version'.
                     // 3. if not catch up and this is after check
-                    //      1) if diff version == 1, some sync delete task may failed. and async deelte task.
+                    //      1) if diff version == 1, some sync delete task may failed. add async delete task.
                     //      2) if diff version > 1, make sure there will be right quorum finished load jobs 
                     //         to fill the version gap between 'replica committed version' and 'delete version - 1'.
-                    //         if ok, and async delete task.
+                    // if ok, add async delete task.
                     if (!replica.checkVersionCatchUp(checkVersion, checkVersionHash)) {
                         long replicaVersion = replica.getVersion();
                         if (replicaVersion == checkVersion) {
@@ -2573,7 +2576,7 @@ public class Load {
     }
 
     private void checkAndAddRunningSyncDeleteJob(long partitionId, String partitionName) throws DdlException {
-        // check if there are syncronized delete job under going
+        // check if there are synchronized delete job under going
         writeLock();
         try {
             checkHasRunningSyncDeleteJob(partitionId, partitionName);
@@ -3008,5 +3011,47 @@ public class Load {
             readUnlock();
         }
         return deleteInfo;
+    }
+
+    public Integer getLoadJobNumByTypeAndState(EtlJobType type, JobState state) {
+        int num = 0;
+        readLock();
+        try {
+            Map<Long, LoadJob> jobMap = null;
+            if (state == null || state == JobState.CANCELLED) {
+                jobMap = idToLoadJob;
+            } else {
+                switch (state) {
+                    case PENDING:
+                        jobMap = idToPendingLoadJob;
+                        break;
+                    case ETL:
+                        jobMap = idToEtlLoadJob;
+                        break;
+                    case LOADING:
+                        jobMap = idToLoadingLoadJob;
+                        break;
+                    case QUORUM_FINISHED:
+                        jobMap = idToQuorumFinishedLoadJob;
+                        break;
+                    default:
+                        break;
+                }
+            }
+            Preconditions.checkNotNull(jobMap);
+
+            for (LoadJob job : jobMap.values()) {
+                if (job.getEtlJobType() == type) {
+                    if (state != null && job.getState() != state) {
+                        continue;
+                    }
+                    ++num;
+                }
+            }
+            
+        } finally {
+            readUnlock();
+        }
+        return num;
     }
 }

@@ -28,8 +28,8 @@ import com.baidu.palo.common.util.Daemon;
 import com.baidu.palo.common.util.TimeUtils;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.BackendEvent;
-import com.baidu.palo.system.SystemInfoObserver;
 import com.baidu.palo.system.BackendEvent.BackendEventType;
+import com.baidu.palo.system.SystemInfoObserver;
 import com.baidu.palo.task.AgentTask;
 import com.baidu.palo.thrift.TTabletInfo;
 
@@ -389,6 +389,21 @@ public abstract class AlterHandler extends Daemon {
                 default:
                     break;
             }
+        }
+    }
+
+    public Integer getAlterJobNumByState(JobState state) {
+        int jobNum = 0;
+        this.jobsLock.readLock().lock();
+        try {
+            for (AlterJob alterJob : alterJobs.values()) {
+                if (alterJob.getState() == state) {
+                    ++jobNum;
+                }
+            }
+            return jobNum;
+        } finally {
+            this.jobsLock.readLock().unlock();
         }
     }
 }

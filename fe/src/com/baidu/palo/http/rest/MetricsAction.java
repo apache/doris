@@ -15,11 +15,11 @@
 
 package com.baidu.palo.http.rest;
 
-import com.baidu.palo.common.util.Metrics;
 import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
+import com.baidu.palo.metric.MetricRepo;
 
 import io.netty.handler.codec.http.HttpMethod;
 
@@ -35,8 +35,8 @@ public class MetricsAction extends RestBaseAction {
 
     @Override
     public void execute(BaseRequest request, BaseResponse response) {
-        response.setContentType("application/json");
-        response.getContent().append(Metrics.getJsonStr());
+        response.setContentType("text/plain");
+        response.getContent().append(MetricRepo.getPlainText());
         sendResult(request, response);
     }
 }

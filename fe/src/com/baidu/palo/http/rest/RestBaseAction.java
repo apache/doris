@@ -47,7 +47,7 @@ public class RestBaseAction extends BaseAction {
             execute(request, response);
         } catch (DdlException e) {
             if (e instanceof UnauthorizedException) {
-                response.addHeader(HttpHeaders.Names.WWW_AUTHENTICATE, "Basic realm=\"\"");
+                response.updateHeader(HttpHeaders.Names.WWW_AUTHENTICATE, "Basic realm=\"\"");
                 writeResponse(request, response, HttpResponseStatus.UNAUTHORIZED);
             } else {
                 sendResult(request, response, new RestBaseResult(e.getMessage()));
@@ -82,7 +82,7 @@ public class RestBaseAction extends BaseAction {
             LOG.warn(e.getMessage());
             throw new DdlException(e.getMessage());
         }
-        response.addHeader(HttpHeaders.Names.LOCATION, resultUriObj.toString());
+        response.updateHeader(HttpHeaders.Names.LOCATION, resultUriObj.toString());
         writeResponse(request, response, HttpResponseStatus.TEMPORARY_REDIRECT);
     }
 
