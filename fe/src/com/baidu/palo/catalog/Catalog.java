@@ -121,6 +121,7 @@ import com.baidu.palo.load.LoadJob;
 import com.baidu.palo.load.LoadJob.JobState;
 import com.baidu.palo.master.Checkpoint;
 import com.baidu.palo.master.MetaHelper;
+import com.baidu.palo.metric.MetricRepo;
 import com.baidu.palo.persist.BackendIdsUpdateInfo;
 import com.baidu.palo.persist.ClusterInfo;
 import com.baidu.palo.persist.DatabaseInfo;
@@ -864,6 +865,8 @@ public class Catalog {
             LOG.info("deploy manager {} start", deployManager.getName());
             deployManager.start();
         }
+
+        MetricRepo.init();
     }
 
     private void transferToNonMaster() {
@@ -889,6 +892,7 @@ public class Catalog {
         }
 
         formerFeType = feType;
+        MetricRepo.init();
     }
 
     /*

@@ -343,6 +343,20 @@ public class SystemInfoService extends Daemon {
         }
     }
 
+    public List<Long> getDecommissionedBackendIds() {
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
+        List<Long> backendIds = Lists.newArrayList(idToBackend.keySet());
+
+        Iterator<Long> iter = backendIds.iterator();
+        while (iter.hasNext()) {
+            Backend backend = this.getBackend(iter.next());
+            if (backend == null || !backend.isDecommissioned()) {
+                iter.remove();
+            }
+        }
+        return backendIds;
+    }
+
     /**
      * choose backends to create cluster
      *
