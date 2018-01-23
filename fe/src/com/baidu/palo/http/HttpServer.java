@@ -41,7 +41,6 @@ import com.baidu.palo.http.rest.GetLoadInfoAction;
 import com.baidu.palo.http.rest.GetLogFileAction;
 import com.baidu.palo.http.rest.HealthAction;
 import com.baidu.palo.http.rest.LoadAction;
-import com.baidu.palo.http.rest.LoadErrorMessageAction;
 import com.baidu.palo.http.rest.MetaReplayerCheckAction;
 import com.baidu.palo.http.rest.MetricsAction;
 import com.baidu.palo.http.rest.MigrationAction;
@@ -98,7 +97,6 @@ public class HttpServer {
         // add rest action
         LoadAction.registerAction(controller);
         GetLoadInfoAction.registerAction(controller);
-        LoadErrorMessageAction.registerAction(controller);
         SetConfigAction.registerAction(controller);
         GetDdlStmtAction.registerAction(controller);
         MigrationAction.registerAction(controller);

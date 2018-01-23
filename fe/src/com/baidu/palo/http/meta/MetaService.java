@@ -37,16 +37,15 @@ import com.google.gson.Gson;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import io.netty.handler.codec.http.HttpHeaders;
-import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.HttpResponseStatus;
-
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.List;
 import java.util.Map;
+
+import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpResponseStatus;
 
 public class MetaService {
     private static final int TIMEOUT_SECOND = 10;
@@ -107,7 +106,7 @@ public class MetaService {
                 StorageInfo storageInfo = new StorageInfo(currentStorageInfo.getClusterID(),
                         currentStorageInfo.getImageSeq(), currentStorageInfo.getEditsSeq());
 
-                response.addHeader(HttpHeaders.Names.CONTENT_TYPE, "application/json");
+                response.setContentType("application/json");
                 Gson gson = new Gson();
                 response.appendContent(gson.toJson(storageInfo));
                 writeResponse(request, response);
@@ -122,8 +121,6 @@ public class MetaService {
     }
 
     public static class VersionAction extends MetaBaseAction {
-        private static final Logger LOG = LogManager.getLogger(VersionAction.class);
-
         public VersionAction(ActionController controller, File imageDir) {
             super(controller, imageDir);
         }
@@ -224,7 +221,7 @@ public class MetaService {
         @Override
         public void executeGet(BaseRequest request, BaseResponse response) {
             long id = Catalog.getInstance().getReplayedJournalId();
-            response.addHeader("id", Long.toString(id));
+            response.updateHeader("id", Long.toString(id));
             writeResponse(request, response);
         }
     }
@@ -251,9 +248,9 @@ public class MetaService {
                 int port = Integer.parseInt(portString);
                 Frontend fe = Catalog.getInstance().checkFeExist(host, port);
                 if (fe == null) {
-                    response.addHeader("role", FrontendNodeType.UNKNOWN.name());
+                    response.updateHeader("role", FrontendNodeType.UNKNOWN.name());
                 } else {
-                    response.addHeader("role", fe.getRole().name());
+                    response.updateHeader("role", fe.getRole().name());
                 }
                 writeResponse(request, response);
             } else {
@@ -288,8 +285,8 @@ public class MetaService {
         public void executeGet(BaseRequest request, BaseResponse response) {
             try {
                 Storage storage = new Storage(imageDir.getAbsolutePath());
-                response.addHeader(MetaBaseAction.CLUSTER_ID, Integer.toString(storage.getClusterID()));
-                response.addHeader(MetaBaseAction.TOKEN, storage.getToken());
+                response.updateHeader(MetaBaseAction.CLUSTER_ID, Integer.toString(storage.getClusterID()));
+                response.updateHeader(MetaBaseAction.TOKEN, storage.getToken());
             } catch (IOException e) {
                 LOG.error(e);
             }

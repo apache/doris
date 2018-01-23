@@ -29,6 +29,15 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.io.UnsupportedEncodingException;
+import java.nio.ByteBuffer;
+import java.util.List;
+import java.util.Map;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFuture;
@@ -52,15 +61,6 @@ import io.netty.handler.codec.http.ServerCookieEncoder;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.stream.ChunkedFile;
 import io.netty.util.CharsetUtil;
-
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.io.UnsupportedEncodingException;
-import java.nio.ByteBuffer;
-import java.util.List;
-import java.util.Map;
 
 public abstract class BaseAction implements IAction {
     private static final Logger LOG = LogManager.getLogger(BaseAction.class);
@@ -209,14 +209,15 @@ public abstract class BaseAction implements IAction {
 
     // Set 'CONTENT_TYPE' header if it havn't been set.
     protected void checkDefaultContentTypeHeader(BaseResponse response, Object responseOj) {
-        List<String> header = response.getCustomHeaders().get(HttpHeaders.Names.CONTENT_TYPE);
-        if (header == null) {
+        if (!Strings.isNullOrEmpty(response.getContentType())) {
+            response.updateHeader(HttpHeaders.Names.CONTENT_TYPE, response.getContentType());
+        } else {
             response.updateHeader(HttpHeaders.Names.CONTENT_TYPE, "text/html");
         }
     }
 
     protected void writeCustomHeaders(BaseResponse response, HttpResponse responseObj) {
-        for (Map.Entry<String, List<String>> entry : response.getHeaders().entrySet()) {
+        for (Map.Entry<String, List<String>> entry : response.getCustomHeaders().entrySet()) {
             responseObj.headers().add(entry.getKey(), entry.getValue());
         }
     }
@@ -316,11 +317,6 @@ public abstract class BaseAction implements IAction {
     public AuthorizationInfo getAuthorizationInfo(BaseRequest request)
             throws UnauthorizedException {
         return checkAndGetUser(request);
-    }
-
-    protected void writeAuthResponse(BaseRequest request, BaseResponse response) {
-        response.addHeader(HttpHeaders.Names.WWW_AUTHENTICATE, "Basic realm=\"\"");
-        writeResponse(request, response, HttpResponseStatus.UNAUTHORIZED);
     }
 
     protected int checkIntParam(String strParam) {

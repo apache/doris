@@ -21,6 +21,7 @@ import com.baidu.palo.common.FeMetaVersion;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.io.Writable;
 import com.baidu.palo.load.FailMsg.CancelType;
+import com.baidu.palo.metric.MetricRepo;
 import com.baidu.palo.persist.ReplicaPersistInfo;
 import com.baidu.palo.task.PushTask;
 import com.baidu.palo.thrift.TPriority;
@@ -233,6 +234,24 @@ public class LoadJob implements Writable {
 
     public void setEtlFinishTimeMs(long etlFinishTimeMs) {
         this.etlFinishTimeMs = etlFinishTimeMs;
+        if (etlStartTimeMs > -1) {
+            long etlCostMs = etlFinishTimeMs - etlStartTimeMs;
+            switch (etlJobType) {
+                case HADOOP:
+                    MetricRepo.HISTO_LOAD_HADOOP_ETL_COST.update(etlCostMs);
+                    break;
+                case MINI:
+                    MetricRepo.HISTO_LOAD_MINI_ETL_COST.update(etlCostMs);
+                    break;
+                case BROKER:
+                    MetricRepo.HISTO_LOAD_BROKER_ETL_COST.update(etlCostMs);
+                    break;
+                default:
+                    break;
+            }
+        } else {
+            LOG.info("cmy debug: get load job: {}", toString());
+        }
     }
 
     public long getLoadStartTimeMs() {
@@ -249,6 +268,24 @@ public class LoadJob implements Writable {
 
     public void setLoadFinishTimeMs(long loadFinishTimeMs) {
         this.loadFinishTimeMs = loadFinishTimeMs;
+        long loadCostMs = loadFinishTimeMs - loadStartTimeMs;
+        long totalCostMs = loadFinishTimeMs - createTimeMs;
+        switch (etlJobType) {
+            case HADOOP:
+                MetricRepo.HISTO_LOAD_HADOOP_LOADING_COST.update(loadCostMs);
+                MetricRepo.HISTO_LOAD_HADOOP_COST.update(totalCostMs);
+                break;
+            case MINI:
+                MetricRepo.HISTO_LOAD_MINI_LOADING_COST.update(loadCostMs);
+                MetricRepo.HISTO_LOAD_MINI_COST.update(totalCostMs);
+                break;
+            case BROKER:
+                MetricRepo.HISTO_LOAD_BROKER_LOADING_COST.update(loadCostMs);
+                MetricRepo.HISTO_LOAD_BROKER_COST.update(totalCostMs);
+                break;
+            default:
+                break;
+        }
     }
 
     public FailMsg getFailMsg() {

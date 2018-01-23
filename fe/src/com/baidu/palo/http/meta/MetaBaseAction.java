@@ -69,14 +69,14 @@ public class MetaBaseAction extends WebBaseAction {
 
     protected void writeFileResponse(BaseRequest request, BaseResponse response, File file) {
         if (file == null || !file.exists()) {
-            response.appendContent("File not exist.");
+            response.appendContent("File does not exist.");
             writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
             return;
         }
 
-        // add customed header
-        response.addHeader(CONTENT_DISPOSITION, "attachment; filename=" + file.getName());
-        response.addHeader(MetaHelper.X_IMAGE_SIZE, String.valueOf(file.length()));
+        // add custom header
+        response.updateHeader(CONTENT_DISPOSITION, "attachment; filename=" + file.getName());
+        response.updateHeader(MetaHelper.X_IMAGE_SIZE, String.valueOf(file.length()));
 
         writeFileResponse(request, response, HttpResponseStatus.OK, file);
         return;

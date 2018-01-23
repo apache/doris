@@ -25,10 +25,6 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import io.netty.handler.codec.http.HttpHeaders;
-import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.HttpResponseStatus;
-
 import java.io.File;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -40,6 +36,10 @@ import java.util.TimeZone;
 import java.util.regex.Pattern;
 
 import javax.activation.MimetypesFileTypeMap;
+
+import io.netty.handler.codec.http.HttpHeaders;
+import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpResponseStatus;
 
 /**
  * A simple handler that serves incoming HTTP requests to send their respective
@@ -113,7 +113,7 @@ public class StaticResourceAction extends WebBaseAction {
         this.rootDir = rootDir;
     }
 
-    public static void registerAction (ActionController controller) throws IllegalArgException {
+    public static void registerAction(ActionController controller) throws IllegalArgException {
         String httpDir = System.getenv("PALO_HOME") + "/webroot";
         StaticResourceAction action = new StaticResourceAction(controller, httpDir + "/static");
         controller.registerHandler(HttpMethod.GET, "/static/js", action);
