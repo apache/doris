@@ -132,6 +132,7 @@ public:
     // Note: the base is 10^9 for parameter frac_value, which means the max length of fraction part
     // is 9, and the parameter frac_value need to be divided by 10^9.
     DecimalValue(int64_t int_value, int64_t frac_value) : _buffer_length(DECIMAL_BUFF_LENGTH) {
+        set_to_zero();
         if (int_value < 0 || frac_value < 0) {
             _sign = true;
         } else {
@@ -148,6 +149,7 @@ public:
     }
 
     DecimalValue(int64_t int_value) : _buffer_length(DECIMAL_BUFF_LENGTH){
+        set_to_zero();
         _sign = int_value < 0 ? true : false;
 
         int32_t big_digit_length = copy_int_to_decimal_int(
@@ -390,7 +392,7 @@ public:
     // set DecimalValue to zero
     void set_to_zero() {
         _buffer_length = DECIMAL_BUFF_LENGTH;
-        _buffer[0] = 0;
+        memset(_buffer, 0, sizeof(int32_t) * DECIMAL_BUFF_LENGTH);
         _int_length = 1;
         _frac_length = 0;
         _sign = false;

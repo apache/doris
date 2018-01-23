@@ -672,7 +672,7 @@ struct DecimalVal : public AnyVal {
     }
     
     void set_to_zero() {
-        buffer[0] = 0;
+        memset(buffer, 0, sizeof(int32_t) * 9);
         int_len = 0;
         frac_len = 0;
         sign = 0;
