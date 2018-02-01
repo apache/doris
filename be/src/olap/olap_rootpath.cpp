@@ -76,7 +76,10 @@ OLAPRootPath::OLAPRootPath() :
         _total_storage_medium_type_count(0),
         _available_storage_medium_type_count(0),
         _effective_cluster_id(-1),
-        _is_all_cluster_id_exist(true) {}
+        _is_all_cluster_id_exist(true),
+        _is_drop_tables(false),
+        is_report_disk_state_already(false),
+        is_report_olap_table_already(false) {}
 
 OLAPRootPath::~OLAPRootPath() {
     clear();
@@ -435,7 +438,24 @@ void OLAPRootPath::start_disk_stat_monitor() {
     _start_check_disks();
     _detect_unused_flag();
     _delete_tables_on_unused_root_path();
+    
+    // if drop tables
+    // notify disk_state_worker_thread and olap_table_worker_thread until they received
+    if (_is_drop_tables) {
+        disk_broken_cv.notify_all();
+
+        bool is_report_disk_state_expected = true;
+        bool is_report_olap_table_expected = true;
+        bool is_report_disk_state_exchanged = 
+                is_report_disk_state_already.compare_exchange_strong(is_report_disk_state_expected, false);
+        bool is_report_olap_table_exchanged =
+                is_report_olap_table_already.compare_exchange_strong(is_report_olap_table_expected, false);
+        if (is_report_disk_state_exchanged && is_report_olap_table_exchanged) {
+            _is_drop_tables = false;
+        }
+    }
 }
+
 
 void OLAPRootPath::_start_check_disks() {
     OLAPRootPath::RootPathVec all_available_root_path;
@@ -940,6 +960,10 @@ void OLAPRootPath::_delete_tables_on_unused_root_path() {
         exit(0);
     }
 
+    if (!table_info_vec.empty()) {
+        _is_drop_tables = true;
+    }
+    
     OLAPEngine::get_instance()->drop_tables_on_error_root_path(table_info_vec);
 }
 

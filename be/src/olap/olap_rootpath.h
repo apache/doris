@@ -16,6 +16,8 @@
 #ifndef BDG_PALO_BE_SRC_OLAP_OLAP_ROOTPATH_H
 #define BDG_PALO_BE_SRC_OLAP_OLAP_ROOTPATH_H
 
+#include <atomic>
+#include <boost/thread/condition_variable.hpp>
 #include <list>
 #include <memory>
 #include <queue>
@@ -130,6 +132,10 @@ public:
             const std::vector<std::string>& root_path_vec,
             const std::vector<bool>& is_accessable_vec);
 
+    boost::condition_variable disk_broken_cv;
+    std::atomic_bool is_report_disk_state_already;
+    std::atomic_bool is_report_olap_table_already;
+
 private:
     struct RootPathInfo {
         RootPathInfo():
@@ -221,6 +227,7 @@ private:
 
     int32_t _effective_cluster_id;
     bool _is_all_cluster_id_exist;
+    bool _is_drop_tables;
 
     // 错误磁盘所在百分比，超过设定的值，则engine需要退出运行
     uint32_t _min_percentage_of_error_disk;
