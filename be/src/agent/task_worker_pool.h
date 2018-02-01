@@ -17,6 +17,9 @@
 #define BDG_PALO_BE_SRC_TASK_WORKER_POOL_H
 
 #include <atomic>
+#include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/thread/condition_variable.hpp>
+#include <boost/thread/mutex.hpp>
 #include <deque>
 #include <utility>
 #include <vector>
@@ -27,6 +30,7 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "olap/command_executor.h"
 #include "olap/olap_define.h"
+#include "olap/olap_rootpath.h"
 #include "olap/utils.h"
 
 namespace palo {
@@ -146,6 +150,9 @@ private:
     static MutexLock _s_task_signatures_lock;
     static MutexLock _s_running_task_user_count_lock;
     static FrontendServiceClientCache _master_service_client_cache;
+
+    static boost::mutex _disk_broken_lock;
+    static boost::posix_time::time_duration _wait_duration;
 
     DISALLOW_COPY_AND_ASSIGN(TaskWorkerPool);
 };  // class TaskWorkerPool

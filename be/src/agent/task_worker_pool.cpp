@@ -71,6 +71,8 @@ map<TTaskType::type, map<string, uint32_t>> TaskWorkerPool::_s_running_task_user
 map<TTaskType::type, map<string, uint32_t>> TaskWorkerPool::_s_total_task_user_count;
 map<TTaskType::type, uint32_t> TaskWorkerPool::_s_total_task_count;
 FrontendServiceClientCache TaskWorkerPool::_master_service_client_cache;
+boost::mutex TaskWorkerPool::_disk_broken_lock;
+boost::posix_time::time_duration TaskWorkerPool::_wait_duration;
 
 TaskWorkerPool::TaskWorkerPool(
         const TaskWorkerType task_worker_type,
@@ -146,10 +148,12 @@ void TaskWorkerPool::start() {
         _callback_function = _report_task_worker_thread_callback;
         break;
     case TaskWorkerType::REPORT_DISK_STATE:
+        _wait_duration = boost::posix_time::time_duration(0, 0, config::report_disk_state_interval_seconds, 0);
         _worker_count = REPORT_DISK_STATE_WORKER_COUNT;
         _callback_function = _report_disk_state_worker_thread_callback;
         break;
     case TaskWorkerType::REPORT_OLAP_TABLE:
+        _wait_duration = boost::posix_time::time_duration(0, 0, config::report_disk_state_interval_seconds, 0);
         _worker_count = REPORT_OLAP_TABLE_WORKER_COUNT;
         _callback_function = _report_olap_table_worker_thread_callback;
         break;
@@ -1525,15 +1529,6 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
 
         OLAPStatus get_all_root_path_stat =
                 worker_pool_this->_command_executor->get_all_root_path_stat(&root_paths_stat);
-        if (get_all_root_path_stat != OLAPStatus::OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to get all root path stat.");
-#ifndef BE_TEST
-            sleep(config::report_disk_state_interval_seconds);
-            continue;
-#else
-            return (void*)0;
-#endif
-        }
 
         map<string, TDisk> disks;
         for (auto root_path_state : root_paths_stat) {
@@ -1558,7 +1553,15 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
         }
 
 #ifndef BE_TEST
-        sleep(config::report_disk_state_interval_seconds);
+        {
+            // wait disk_broken_cv awaken
+            // if awaken, set is_report_disk_state_already to true, it will not notify again
+            // if overtime, while will go to next cycle
+            boost::unique_lock<boost::mutex> lk(_disk_broken_lock);
+            if (OLAPRootPath::get_instance()->disk_broken_cv.timed_wait(lk, _wait_duration)) {
+                OLAPRootPath::get_instance()->is_report_disk_state_already = true;
+            }
+        }
     }
 #endif
 
@@ -1588,7 +1591,13 @@ void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) 
             OLAP_LOG_WARNING("report get all tablets info failed. status: %d",
                              report_all_tablets_info_status);
 #ifndef BE_TEST
-            sleep(config::report_olap_table_interval_seconds);
+            // wait disk_broken_cv awaken
+            // if awaken, set is_report_olap_table_already to true, it will not notify again
+            // if overtime, while will go to next cycle
+            boost::unique_lock<boost::mutex> lk(_disk_broken_lock);
+            if (OLAPRootPath::get_instance()->disk_broken_cv.timed_wait(lk, _wait_duration)) {
+                OLAPRootPath::get_instance()->is_report_olap_table_already =  true;
+            }
             continue;
 #else
             return (void*)0;
@@ -1606,7 +1615,13 @@ void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) 
         }
 
 #ifndef BE_TEST
-        sleep(config::report_olap_table_interval_seconds);
+        // wait disk_broken_cv awaken
+        // if awaken, set is_report_olap_table_already to true, it will not notify again
+        // if overtime, while will go to next cycle
+        boost::unique_lock<boost::mutex> lk(_disk_broken_lock);
+        if (OLAPRootPath::get_instance()->disk_broken_cv.timed_wait(lk, _wait_duration)) {
+            OLAPRootPath::get_instance()->is_report_olap_table_already =  true;
+        }
     }
 #endif
 
