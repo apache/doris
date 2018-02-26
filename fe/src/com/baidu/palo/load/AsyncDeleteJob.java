@@ -235,13 +235,13 @@ public class AsyncDeleteJob implements Writable {
         for (int i = 0; i < count; i++) {
             String key = Text.readString(in);
             String opStr = Text.readString(in);
-            if (opStr == "IS") {
+            if (opStr.equals("IS")) {
                 String value = Text.readString(in);
                 IsNullPredicate predicate;
-                if ("NOT NULL" == value) {
+                if ("NOT NULL".equals(value)) {
                     predicate = new IsNullPredicate(new SlotRef(null, key), true);
                 } else {
-                    predicate = new IsNullPredicate(new SlotRef(null, key), true);
+                    predicate = new IsNullPredicate(new SlotRef(null, key), false);
                 }
                 conditions.add(predicate);
             } else {
