@@ -110,8 +110,17 @@ public abstract class QueryStmt extends StatementBase {
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         if (isAnalyzed()) return;
         super.analyze(analyzer);
-        // analyzeLimit(analyzer);
+        analyzeLimit(analyzer);
         if (hasWithClause()) withClause_.analyze(analyzer);
+    }
+
+    private void analyzeLimit(Analyzer analyzer) throws AnalysisException {
+        // TODO chenhao
+        if (limitElement.getOffset() > 0 && !hasOrderByClause()) {
+          throw new AnalysisException("OFFSET requires an ORDER BY clause: " +
+                  limitElement.toSql().trim());
+        }
+        limitElement.analyze(analyzer);
     }
 
     /**
