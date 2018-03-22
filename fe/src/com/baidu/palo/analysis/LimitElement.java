@@ -97,7 +97,5 @@ class LimitElement {
     }
     
     public void reset() {
-        limit = -1;
-        offset = 0;
     }
 }

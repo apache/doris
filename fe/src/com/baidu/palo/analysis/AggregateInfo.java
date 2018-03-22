@@ -262,12 +262,12 @@ public final class AggregateInfo extends AggregateInfoBase {
                 }
             }
             if (!Expr.equalLists(expr0Children, exprIChildren)) {
+                if (exprIChildren.size() > 1 || expr0Children.size() > 1) {
+                    throw new AnalysisException("The query contains multi count distinct or "
+                            + "sum distinct, each can't have multi columns.");   
+                } 
                 this.isMultiDistinct_ = true;
                 break;
-                // throw new AnalysisException(
-                //         "all DISTINCT aggregate functions need to have the same set of "
-                //                 + "parameters as " + distinctAggExprs.get(0).toSql()
-                //                 + "; deviating function: " + distinctAggExprs.get(i).toSql());
             }
         }
         isDistinctAgg = true;
@@ -546,7 +546,7 @@ public final class AggregateInfo extends AggregateInfoBase {
                     aggExpr = new FunctionCallExpr("SUM_DISTINCT",
                             new FunctionParams(params));
                 } else {
-                    Preconditions.checkState(false);
+                    throw new AnalysisException(inputExpr.getFnName() + " can't support multi distinct."); 
                 }
 
             }

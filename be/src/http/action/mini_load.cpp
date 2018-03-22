@@ -376,14 +376,11 @@ static bool parse_auth(const std::string& auth, std::string* user,
     }
     user->assign(decoded_auth.c_str(), pos);
     passwd->assign(decoded_auth.c_str() + pos + 1);
-    std::string::size_type cluster_pos = decoded_auth.find('@');
-    if (cluster_pos == std::string::npos) {
-        cluster_pos = pos;
-    } else {
-        cluster->assign(decoded_auth.c_str(), cluster_pos + 1, (pos - cluster_pos - 1));
+    const std::string::size_type cluster_pos = user->find('@');
+    if (cluster_pos != std::string::npos) {
+        cluster->assign(user->c_str(), cluster_pos + 1, pos - cluster_pos - 1);
+        user->assign(user->c_str(), cluster_pos);
     }
-
-    user->assign(decoded_auth.c_str(), cluster_pos);
     return true;
 }
 

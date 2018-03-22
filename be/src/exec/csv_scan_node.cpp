@@ -276,7 +276,7 @@ Status CsvScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos
     }
 
     _tuple = reinterpret_cast<Tuple*>(tuple_buffer);
-    memset(_tuple, 0, sizeof(_tuple_desc->num_null_bytes()));
+    memset(_tuple, 0, _tuple_desc->num_null_bytes());
 
     // Indicates whether there are more rows to process.
     bool csv_eos = false;

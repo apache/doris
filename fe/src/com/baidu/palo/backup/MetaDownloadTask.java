@@ -27,6 +27,7 @@ import com.baidu.palo.catalog.RangePartitionInfo;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.catalog.Table.TableType;
 import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.Config;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.util.CommandResult;
@@ -326,7 +327,8 @@ public class MetaDownloadTask extends ResultfulTask {
                 }
             }
 
-            CommandResult result = Util.executeCommand(downloadCmd);
+            String[] envp = { "LC_ALL=" + Config.locale };
+            CommandResult result = Util.executeCommand(downloadCmd, envp);
             if (result.getReturnCode() != 0) {
                 msg = "failed to download file[" + result + "]. job[" + jobId + "]";
                 LOG.warn("{}. job[{}]. retry: {}", msg, jobId, i);

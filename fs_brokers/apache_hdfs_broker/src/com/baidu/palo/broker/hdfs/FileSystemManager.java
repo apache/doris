@@ -357,6 +357,7 @@ public class FileSystemManager {
         URI pathUri;
         try {
             pathUri = new URI(path);
+            pathUri = pathUri.normalize();
         } catch (URISyntaxException e) {
             logger.error("invalid input path " + path);
             throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH, 

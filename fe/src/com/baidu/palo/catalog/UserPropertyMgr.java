@@ -544,7 +544,7 @@ public class UserPropertyMgr {
         // check host if can dns
         if (type == AlterUserType.ADD_USER_WHITELIST) {
             for (String host : hosts) {
-                boolean isAvaliable = DomainParserServer.getInstance().isAvaliableDomain(host);
+                boolean isAvaliable = DomainResolverServer.getInstance().isAvaliableDomain(host);
                 if (!isAvaliable) {
                     String msg = "May be error hostname. host=" + host;
                     LOG.warn("alter user={} stmt={} occur dns Exception msg={}", stmt.getUser(), stmt, msg);

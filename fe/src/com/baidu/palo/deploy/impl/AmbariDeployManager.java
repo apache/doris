@@ -242,7 +242,7 @@ public class AmbariDeployManager extends DeployManager {
         }
 
         Map<String, List<Pair<String, Integer>>> brokers = Maps.newHashMap();
-        brokers.put("hdfs", hostPorts);
+        brokers.put(brokerName, hostPorts);
         LOG.info("get brokers from ambari: {}", brokers);
         return brokers;
     }

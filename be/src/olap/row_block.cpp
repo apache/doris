@@ -332,7 +332,7 @@ OLAPStatus RowBlock::_load_to_vectorized_row_batch(const std::vector<FieldInfo>&
     if (NULL == _vectorized_row_batch) {
         // TODO(lingbin): is the MemTracker should come from runtime-state?
         _vectorized_row_batch
-            = new (nothrow) VectorizedRowBatch(_tablet_schema, _info.row_num, new MemTracker(-1));
+            = new (nothrow) VectorizedRowBatch(_tablet_schema, _info.row_num);
         if (NULL == _vectorized_row_batch) {
             OLAP_LOG_WARNING("fail to allocte VectorizedRowBatch.");
             return OLAP_ERR_MALLOC_ERROR;

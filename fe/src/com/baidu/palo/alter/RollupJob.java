@@ -324,6 +324,11 @@ public class RollupJob extends AlterJob {
                 }
 
                 LOG.info("sending create rollup job[{}] tasks.", tableId);
+                // in palo 3.2, the rollup keys type is not serialized, when a fe follower change to fe master
+                // the rollup keys type == null, so that send tasks will report error
+                if (rollupKeysType == null) {
+                    rollupKeysType = olapTable.getKeysType().toThrift();
+                }
                 for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
                     long partitionId = entry.getKey();
                     Partition partition = olapTable.getPartition(partitionId);

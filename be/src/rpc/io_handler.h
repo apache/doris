@@ -179,16 +179,21 @@ public:
      * @param proxy Proxy name to set for this connection.
      */
     void set_proxy(const std::string &proxy) {
+        /*
         std::lock_guard<std::mutex> lock(m_mutex);
         m_proxy = proxy;
+        */
     }
 
     /** Gets the proxy name for this connection.
      * @return Proxy name for this connection.
      */
-    const std::string& get_proxy() {
+    const std::string get_proxy() {
+        return std::string("");
+        /*
         std::lock_guard<std::mutex> lock(m_mutex);
         return m_proxy;
+        */
     }
 
     /** Gets the socket descriptor for this connection.

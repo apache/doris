@@ -91,13 +91,13 @@ public class WhiteList implements Writable {
             }
         }
 
-        ipOfHostWhiteLists = DomainParserServer.getInstance().getUserHostIp(user);
+        ipOfHostWhiteLists = DomainResolverServer.getInstance().getUserDomainToIps(user);
         // 3. check ipWhiteList
         if (ipOfHostWhiteLists != null) {
             for (String entryIp : ipOfHostWhiteLists.keySet()) {
                 Set<String> ipSet = ipOfHostWhiteLists.get(entryIp);
                 if (ipSet == null || ipSet.size() == 0) {
-                    LOG.warn("dns error ip={}", entryIp);
+                    LOG.debug("dns error ip={}", entryIp);
                     continue;
                 }
                 if (ipSet.contains(ip)) {
@@ -105,7 +105,7 @@ public class WhiteList implements Writable {
                 }
             }
         }
-        LOG.warn("can't match whitelist ip={}", ip);
+        LOG.debug("can't match whitelist ip={}", ip);
         return false;
     }
 
@@ -113,7 +113,7 @@ public class WhiteList implements Writable {
         ipWhiteLists.addAll(ips);
         starIpWhiteLists.addAll(starIps);
         hostWhiteLists.addAll(hosts);
-        DomainParserServer.getInstance().register(user, hosts);
+        DomainResolverServer.getInstance().register(user, hosts);
     }
 
     public void deleteWhiteList(List<String> ips, List<String> starIps, List<String> hosts) {
@@ -127,7 +127,7 @@ public class WhiteList implements Writable {
             hostWhiteLists.removeAll(hosts);
         }
         if (hosts != null && hosts.size() > 0) {
-            DomainParserServer.getInstance().unregister(user, hosts);
+            DomainResolverServer.getInstance().unregister(user, hosts);
         }
 
     }
@@ -191,7 +191,7 @@ public class WhiteList implements Writable {
         }
 
         if (hostWhiteLists != null && hostWhiteLists.size() > 0) {
-            DomainParserServer.getInstance().register(user, hostWhiteLists);
+            DomainResolverServer.getInstance().register(user, hostWhiteLists);
         }
     }
 

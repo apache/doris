@@ -255,8 +255,6 @@ DateTimeVal TimestampFunctions::str_to_date(
     if (str.is_null || format.is_null) {
         return DateTimeVal::null();
     }
-    LOG(INFO) << "format is " << std::string((const char*)format.ptr, format.len)
-        << "str is " << std::string((const char*)str.ptr, str.len);
     DateTimeValue ts_value;
     if (!ts_value.from_date_format_str((const char*)format.ptr, format.len,
                                        (const char*)str.ptr, str.len)) {

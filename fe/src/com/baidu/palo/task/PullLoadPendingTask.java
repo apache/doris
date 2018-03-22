@@ -18,20 +18,29 @@ package com.baidu.palo.task;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.common.DdlException;
+import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.util.BrokerUtil;
 import com.baidu.palo.load.BrokerFileGroup;
 import com.baidu.palo.load.EtlSubmitResult;
 import com.baidu.palo.load.LoadJob;
 import com.baidu.palo.load.TableLoadInfo;
+import com.baidu.palo.thrift.TBrokerFileStatus;
 import com.baidu.palo.thrift.TStatus;
 import com.baidu.palo.thrift.TStatusCode;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
 
 // Making a pull load job to some tasks
 public class PullLoadPendingTask extends LoadPendingTask {
+    private static final Logger LOG = LogManager.getLogger(PullLoadPendingTask.class);
+
     private PullLoadJob pullLoadJob = null;
 
     public PullLoadPendingTask(LoadJob job) {
@@ -47,6 +56,14 @@ public class PullLoadPendingTask extends LoadPendingTask {
         List<PullLoadTask> pullLoadTaskList = Lists.newArrayList();
         // we need to make sure that the 'Plan' used the correct schema version,
         // So, we generate task plan here
+
+        // first we should get file status outside the lock
+        // table id -> file status
+        Map<Long, List<List<TBrokerFileStatus>>> fileStatusMap = Maps.newHashMap();
+        // table id -> total file num
+        Map<Long, Integer> fileNumMap = Maps.newHashMap();
+        getAllFileStatus(fileStatusMap, fileNumMap);
+
         db.readLock();
         try {
             int nextTaskId = 1;
@@ -63,7 +80,7 @@ public class PullLoadPendingTask extends LoadPendingTask {
                 PullLoadTask task = new PullLoadTask(
                         job.getId(), nextTaskId, db, table,
                         job.getBrokerDesc(), entry.getValue(), jobDeadlineMs, job.getExecMemLimit());
-                task.init();
+                task.init(fileStatusMap.get(tableId), fileNumMap.get(tableId));
                 pullLoadTaskList.add(task);
                 nextTaskId++;
 
@@ -82,5 +99,31 @@ public class PullLoadPendingTask extends LoadPendingTask {
     protected EtlSubmitResult submitEtlJob(int retry) {
         Catalog.getInstance().getPullLoadJobMgr().submit(pullLoadJob);
         return new EtlSubmitResult(new TStatus(TStatusCode.OK), null);
+    }
+
+    private void getAllFileStatus(Map<Long, List<List<TBrokerFileStatus>>> fileStatusMap,
+            Map<Long, Integer> fileNumMap)
+            throws InternalException {
+        for (Map.Entry<Long, List<BrokerFileGroup>> entry : job.getPullLoadSourceInfo().getIdToFileGroups().entrySet()) {
+            long tableId = entry.getKey();
+
+            List<List<TBrokerFileStatus>> fileStatusList = Lists.newArrayList();
+            int filesAdded = 0;
+            List<BrokerFileGroup> fileGroups = entry.getValue();
+            for (BrokerFileGroup fileGroup : fileGroups) {
+                List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
+                for (String path : fileGroup.getFilePathes()) {
+                    BrokerUtil.parseBrokerFile(path, job.getBrokerDesc(), fileStatuses);
+                }
+                fileStatusList.add(fileStatuses);
+                filesAdded += fileStatuses.size();
+                for (TBrokerFileStatus fstatus : fileStatuses) {
+                    LOG.info("pull load job: {}. Add file status is {}", job.getId(), fstatus);
+                }
+            }
+
+            fileStatusMap.put(tableId, fileStatusList);
+            fileNumMap.put(tableId, filesAdded);
+        }
     }
 }

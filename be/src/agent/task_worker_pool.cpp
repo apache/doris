@@ -153,7 +153,7 @@ void TaskWorkerPool::start() {
         _callback_function = _report_disk_state_worker_thread_callback;
         break;
     case TaskWorkerType::REPORT_OLAP_TABLE:
-        _wait_duration = boost::posix_time::time_duration(0, 0, config::report_disk_state_interval_seconds, 0);
+        _wait_duration = boost::posix_time::time_duration(0, 0, config::report_olap_table_interval_seconds, 0);
         _worker_count = REPORT_OLAP_TABLE_WORKER_COUNT;
         _callback_function = _report_olap_table_worker_thread_callback;
         break;
@@ -1525,10 +1525,17 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
 #ifndef BE_TEST
     while (true) {
 #endif
+        if (worker_pool_this->_master_info.network_address.port == 0) {
+            // port == 0 means not received heartbeat yet
+            // sleep a short time and try again
+            OLAP_LOG_INFO("waiting to receive first heartbeat from frontend");
+            sleep(config::sleep_one_second);
+            continue;
+        }
+
         vector<OLAPRootPathStat> root_paths_stat;
 
-        OLAPStatus get_all_root_path_stat =
-                worker_pool_this->_command_executor->get_all_root_path_stat(&root_paths_stat);
+        worker_pool_this->_command_executor->get_all_root_path_stat(&root_paths_stat);
 
         map<string, TDisk> disks;
         for (auto root_path_state : root_paths_stat) {
@@ -1579,9 +1586,14 @@ void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) 
 #ifndef BE_TEST
     while (true) {
 #endif
-        MasterServerClient client(
-                worker_pool_this->_master_info,
-                &_master_service_client_cache);
+        if (worker_pool_this->_master_info.network_address.port == 0) {
+            // port == 0 means not received heartbeat yet
+            // sleep a short time and try again
+            OLAP_LOG_INFO("waiting to receive first heartbeat from frontend");
+            sleep(config::sleep_one_second);
+            continue;
+        }
+
         request.tablets.clear();
 
         request.__set_report_version(_s_report_version);

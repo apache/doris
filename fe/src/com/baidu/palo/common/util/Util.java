@@ -22,10 +22,11 @@ package com.baidu.palo.common.util;
 
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.PrimitiveType;
+
 import com.google.common.collect.Lists;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -123,17 +124,17 @@ public class Util {
         }
     }
 
-    public static CommandResult executeCommand(String cmd) {
-        return executeCommand(cmd, DEFAULT_EXEC_CMD_TIMEOUT_MS);
+    public static CommandResult executeCommand(String cmd, String[] envp) {
+        return executeCommand(cmd, envp, DEFAULT_EXEC_CMD_TIMEOUT_MS);
     }
 
-    public static CommandResult executeCommand(String cmd, long timeoutMs) {
+    public static CommandResult executeCommand(String cmd, String[] envp, long timeoutMs) {
         CommandResult result = new CommandResult();
         List<String> cmdList = shellSplit(cmd);
         String[] cmds = cmdList.toArray(new String[0]);
 
         try {
-            Process p = Runtime.getRuntime().exec(cmds);
+            Process p = Runtime.getRuntime().exec(cmds, envp);
             CmdWorker cmdWorker = new CmdWorker(p);
             cmdWorker.start();
 
@@ -300,6 +301,5 @@ public class Util {
         }
         return directory.delete();
     }
-
 }
 

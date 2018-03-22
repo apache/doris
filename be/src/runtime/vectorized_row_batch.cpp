@@ -20,13 +20,17 @@ namespace palo {
 
 //VectorizedRowBatch::VectorizedRowBatch(const TupleDescriptor& tuple_desc, int capacity)
 VectorizedRowBatch::VectorizedRowBatch(
-        const std::vector<FieldInfo>& schema, int capacity, MemTracker* mem_tracker)
-    : _schema(schema), _capacity(capacity), _num_cols(schema.size()), _mem_pool(mem_tracker) {
+        const std::vector<FieldInfo>& schema, int capacity)
+    : _schema(schema), _capacity(capacity), _num_cols(schema.size()) {
     _selected_in_use = false;
     _size = 0;
+
+    _mem_tracker.reset(new MemTracker(-1));
+    _mem_pool.reset(new MemPool(_mem_tracker.get()));
+
     _row_iter = 0;
     _has_backup = false;
-    _selected = reinterpret_cast<int*>(_mem_pool.allocate(sizeof(int) * _capacity));
+    _selected = reinterpret_cast<int*>(_mem_pool->allocate(sizeof(int) * _capacity));
 
     for (int i = 0; i < _num_cols; ++i) {
         boost::shared_ptr<ColumnVector> col_vec(new ColumnVector(_capacity));

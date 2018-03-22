@@ -61,6 +61,7 @@ Status SelectNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
         *eos = true;
         return Status::OK;
     }
+    *eos = false;
 
     // start (or continue) consuming row batches from child
     while (true) {

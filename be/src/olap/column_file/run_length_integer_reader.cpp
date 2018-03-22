@@ -382,7 +382,6 @@ OLAPStatus RunLengthIntegerReader::seek(PositionProvider* position) {
     OLAPStatus res = OLAP_SUCCESS;
 
     if (OLAP_SUCCESS != (res = _input->seek(position))) {
-        OLAP_LOG_WARNING("fail to ReadOnlyFileStream seek.[res = %d]", res);
         return res;
     }
 

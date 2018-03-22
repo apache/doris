@@ -54,6 +54,8 @@ public enum ErrorCode {
     ERR_INVALID_GROUP_FUNC_USE(1111, new byte[] {'H', 'Y', '0', '0', '0'}, "Invalid use of group function"),
     ERR_TABLE_MUST_HAVE_COLUMNS(1113, new byte[] {'4', '2', '0', '0', '0'}, "A table must have at least 1 column"),
     ERR_UNKNOWN_CHARACTER_SET(1115, new byte[] {'4', '2', '0', '0', '0'}, "Unknown character set: '%s'"),
+    ERR_IP_NOT_ALLOWED(1130, new byte[] { '4', '2', '0', '0', '0' },
+            "Host %s is not allowed to connect to this MySQL server"),
     ERR_PASSWORD_NOT_ALLOWED(1132, new byte[] {'4', '2', '0', '0', '0'},
             "You must have privileges to "
                     + "update tables in the mysql database to be able to change passwords for others"),

@@ -297,11 +297,12 @@ public class UserProperty implements Writable {
             return true;
         }
         // information_schema is case insensitive
-        String tmpDb = db;
-        if (tmpDb.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
-            tmpDb = InfoSchemaDb.DATABASE_NAME;
+        String dbPrivMapKey = db;
+        final String qualifiedDbNameSuffix = ClusterNamespace.getNameFromFullName(db);
+        if (qualifiedDbNameSuffix.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
+            dbPrivMapKey = db.toLowerCase();
         }
-        AccessPrivilege dbPriv = dbPrivMap.get(tmpDb);
+        final AccessPrivilege dbPriv = dbPrivMap.get(dbPrivMapKey);
         if (dbPriv == null) {
             return false;
         }

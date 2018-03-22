@@ -24,6 +24,7 @@ import com.baidu.palo.common.Status;
 import com.baidu.palo.load.BrokerFileGroup;
 import com.baidu.palo.qe.Coordinator;
 import com.baidu.palo.qe.QeProcessor;
+import com.baidu.palo.thrift.TBrokerFileStatus;
 import com.baidu.palo.thrift.TQueryType;
 import com.baidu.palo.thrift.TStatusCode;
 import com.baidu.palo.thrift.TUniqueId;
@@ -87,9 +88,9 @@ public class PullLoadTask {
         this.execMemLimit = execMemLimit;
     }
 
-    public void init() throws InternalException {
+    public void init(List<List<TBrokerFileStatus>> fileStatusList, int fileNum) throws InternalException {
         planner = new PullLoadTaskPlanner(this);
-        planner.plan();
+        planner.plan(fileStatusList, fileNum);
     }
 
     public Map<String, Long> getFileMap() {

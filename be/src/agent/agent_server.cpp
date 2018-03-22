@@ -58,9 +58,9 @@ AgentServer::AgentServer(ExecEnv* exec_env,
 
     // clean dpp download dir
     _command_executor = new CommandExecutor();
-    vector<OLAPRootPathStat>* root_paths_stat = new vector<OLAPRootPathStat>();
-    _command_executor->get_all_root_path_stat(root_paths_stat);
-    for (auto root_path_stat : *root_paths_stat) {
+    vector<OLAPRootPathStat> root_paths_stat;
+    _command_executor->get_all_root_path_stat(&root_paths_stat);
+    for (auto root_path_stat : root_paths_stat) {
         try {
             string dpp_download_path_str = root_path_stat.root_path + DPP_PREFIX;
             boost::filesystem::path dpp_download_path(dpp_download_path_str);

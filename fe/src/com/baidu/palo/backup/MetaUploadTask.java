@@ -15,6 +15,7 @@
 
 package com.baidu.palo.backup;
 
+import com.baidu.palo.common.Config;
 import com.baidu.palo.common.util.CommandResult;
 import com.baidu.palo.common.util.Util;
 
@@ -30,7 +31,8 @@ public class MetaUploadTask implements Callable<String> {
 
     @Override
     public String call() throws Exception {
-        CommandResult result = Util.executeCommand(cmd);
+        String[] envp = { "LC_ALL=" + Config.locale };
+        CommandResult result = Util.executeCommand(cmd, envp);
         if (result.getReturnCode() != 0) {
             return result.toString();
         }

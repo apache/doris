@@ -23,7 +23,6 @@ import com.baidu.palo.analysis.SlotRef;
 import com.baidu.palo.analysis.TupleDescriptor;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
-import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.InternalException;
@@ -37,8 +36,10 @@ import com.baidu.palo.planner.PlanFragment;
 import com.baidu.palo.planner.PlanFragmentId;
 import com.baidu.palo.planner.PlanNodeId;
 import com.baidu.palo.planner.ScanNode;
+import com.baidu.palo.thrift.TBrokerFileStatus;
 
 import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -71,7 +72,7 @@ public class PullLoadTaskPlanner {
     }
 
     // NOTE: DB lock need hold when call this function.
-    public void plan() throws InternalException {
+    public void plan(List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) throws InternalException {
         // Tuple descriptor used for all nodes in plan.
         OlapTable table = task.table;
 
@@ -92,7 +93,8 @@ public class PullLoadTaskPlanner {
 
         // Generate plan tree
         // 1. first Scan node
-        BrokerScanNode scanNode = new BrokerScanNode(new PlanNodeId(nextNodeId++), tupleDesc, "BrokerScanNode");
+        BrokerScanNode scanNode = new BrokerScanNode(new PlanNodeId(nextNodeId++), tupleDesc, "BrokerScanNode",
+                                                     fileStatusesList, filesAdded);
         scanNode.setLoadInfo(table, task.brokerDesc, task.fileGroups);
         scanNode.init(analyzer);
         scanNodes.add(scanNode);

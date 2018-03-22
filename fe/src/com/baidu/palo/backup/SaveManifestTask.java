@@ -15,6 +15,7 @@
 
 package com.baidu.palo.backup;
 
+import com.baidu.palo.common.Config;
 import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.io.Writable;
 import com.baidu.palo.common.util.CommandResult;
@@ -200,7 +201,8 @@ public class SaveManifestTask extends ResultfulTask {
                 }
             }
 
-            CommandResult result = Util.executeCommand(uploadCmd);
+            String[] envp = { "LC_ALL=" + Config.locale };
+            CommandResult result = Util.executeCommand(uploadCmd, envp);
             if (result.getReturnCode() != 0) {
                 msg = "failed to upload meta files[" + result + "]. backup job[" + jobId + "]";
                 LOG.warn("{}. job[{}]. retry: {}", errMsg, jobId, i);

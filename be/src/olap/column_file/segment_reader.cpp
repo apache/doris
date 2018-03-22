@@ -95,7 +95,7 @@ SegmentReader::~SegmentReader() {
     _lru_cache = NULL;
     _file_handler.close();
 
-    if (_is_data_loaded && _runtime_state != NULL) {
+    if (_runtime_state != NULL) {
         MemTracker::update_limits(_buffer_size * -1, _runtime_state->mem_trackers()); 
     }
 
