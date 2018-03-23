@@ -273,6 +273,9 @@ Status AggFnEvaluator::open(RuntimeState* state, FunctionContext* agg_fn_ctx) {
 
 void AggFnEvaluator::close(RuntimeState* state) {
     Expr::close(_input_exprs_ctxs, state);
+    if (UNLIKELY(_total_mem_consumption > 0)) {
+        _mem_tracker->release(_total_mem_consumption);
+    }
 }
 
 // Utility to put val into an AnyVal struct
@@ -449,9 +452,6 @@ void AggFnEvaluator::update_mem_limlits(int len) {
 }
 
 AggFnEvaluator::~AggFnEvaluator() {
-    if (UNLIKELY(_total_mem_consumption > 0)) {
-        _mem_tracker->release(_total_mem_consumption);
-    }
 }
 
 inline void AggFnEvaluator::update_mem_trackers(bool is_filter, bool is_add_buckets, int len) {

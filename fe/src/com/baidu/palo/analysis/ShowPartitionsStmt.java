@@ -68,6 +68,8 @@ public class ShowPartitionsStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+        super.analyze(analyzer);
+
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
             if (Strings.isNullOrEmpty(dbName)) {

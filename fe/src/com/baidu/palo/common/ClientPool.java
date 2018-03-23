@@ -20,10 +20,10 @@
 
 package com.baidu.palo.common;
 
-import com.baidu.palo.thrift.TPaloBrokerService;
 import com.baidu.palo.thrift.BackendService;
 import com.baidu.palo.thrift.FrontendService;
 import com.baidu.palo.thrift.HeartbeatService;
+import com.baidu.palo.thrift.TPaloBrokerService;
 
 import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
 
@@ -54,7 +54,7 @@ public class ClientPool {
     }
 
     static GenericKeyedObjectPoolConfig brokerPoolConfig = new GenericKeyedObjectPoolConfig();
-    static int brokerTimeoutMs = 300000;
+    static int brokerTimeoutMs = 10000;
 
     static {
         brokerPoolConfig.setLifo(true);            // set Last In First Out strategy

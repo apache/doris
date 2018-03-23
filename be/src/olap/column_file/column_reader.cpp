@@ -62,48 +62,14 @@ OLAPStatus IntegerColumnReader::init(
 }
 
 OLAPStatus IntegerColumnReader::seek(PositionProvider* position) {
-#ifndef PERFORMANCE
-
-    if (NULL == _data_reader) {
-        OLAP_LOG_WARNING("reader not init.");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-    if (NULL == position) {
-        OLAP_LOG_WARNING("input positions is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-#endif
     return _data_reader->seek(position);
 }
 
 OLAPStatus IntegerColumnReader::skip(uint64_t row_count) {
-#ifndef PERFORMANCE
-
-    if (NULL == _data_reader) {
-        OLAP_LOG_WARNING("reader not init.");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-#endif
     return _data_reader->skip(row_count);
 }
 
 OLAPStatus IntegerColumnReader::next(int64_t* value) {
-#ifndef PERFORMANCE
-
-    if (NULL == _data_reader) {
-        OLAP_LOG_WARNING("reader not init.");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-    if (NULL == value) {
-        OLAP_LOG_WARNING("input value pointer is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-#endif
     return _data_reader->next(value);
 }
 
@@ -158,19 +124,6 @@ OLAPStatus StringColumnDirectReader::init(std::map<StreamName, ReadOnlyFileStrea
 }
 
 OLAPStatus StringColumnDirectReader::seek(PositionProvider* position) {
-#ifndef PERFORMANCE
-
-    if (NULL == _data_stream || NULL == _length_reader) {
-        OLAP_LOG_WARNING("reader not init.");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-    if (NULL == position) {
-        OLAP_LOG_WARNING("input positions is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-#endif
     OLAPStatus res = _data_stream->seek(position);
 
     // All strings in segment may be empty, so the data stream is EOF and
@@ -207,14 +160,6 @@ OLAPStatus StringColumnDirectReader::skip(uint64_t row_count) {
 
 // Return string field of current row_count
 OLAPStatus StringColumnDirectReader::next(char* buffer, uint32_t* length) {
-#ifndef PERFORMANCE
-
-    if (NULL == buffer || NULL == length) {
-        OLAP_LOG_WARNING("input parameters is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-#endif
     int64_t read_length = 0;
     OLAPStatus res = _length_reader->next(&read_length);
     *length = read_length;
@@ -465,48 +410,14 @@ OLAPStatus StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileS
 }
 
 OLAPStatus StringColumnDictionaryReader::seek(PositionProvider* position) {
-#ifndef PERFORMANCE
-
-    if (NULL == position) {
-        OLAP_LOG_WARNING("input positions is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-    if (NULL == _data_reader) {
-        OLAP_LOG_WARNING("reader not init ");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-#endif
     return _data_reader->seek(position);
 }
 
 OLAPStatus StringColumnDictionaryReader::skip(uint64_t row_count) {
-#ifndef PERFORMANCE
-
-    if (NULL == _data_reader) {
-        OLAP_LOG_WARNING("reader not init ");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-#endif
     return _data_reader->skip(row_count);
 }
 
 OLAPStatus StringColumnDictionaryReader::next(char* buffer, uint32_t* length) {
-#ifndef PERFORMANCE
-
-    if (NULL == buffer || NULL == length) {
-        OLAP_LOG_WARNING("input buffer or length is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-    if (NULL == _data_reader) {
-        OLAP_LOG_WARNING("reader not init ");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-#endif
     int64_t value;
     OLAPStatus res = _data_reader->next(&value);
     // 错误或是EOF
@@ -768,15 +679,6 @@ OLAPStatus ColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams
 }
 
 OLAPStatus ColumnReader::seek(PositionProvider* position) {
-#ifndef PERFORMANCE
-
-    if (NULL == position) {
-        OLAP_LOG_WARNING("input positions is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-#endif
-
     if (NULL != _present_reader) {
         return _present_reader->seek(position);
     }
@@ -862,19 +764,6 @@ OLAPStatus TinyColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* str
 }
 
 OLAPStatus TinyColumnReader::seek(PositionProvider* positions) {
-#ifndef PERFORMANCE
-
-    if (NULL == _data_reader) {
-        OLAP_LOG_WARNING("reader not init.");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-    if (NULL == position) {
-        OLAP_LOG_WARNING("input positions is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-#endif
     OLAPStatus res;
     if (NULL == _present_reader) {
         res = _data_reader->seek(positions);
@@ -897,14 +786,6 @@ OLAPStatus TinyColumnReader::seek(PositionProvider* positions) {
 }
 
 OLAPStatus TinyColumnReader::skip(uint64_t row_count) {
-#ifndef PERFORMANCE
-
-    if (NULL == _data_reader) {
-        OLAP_LOG_WARNING("reader not init.");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-#endif
     // count_none_nulls 其实就是columnReader的跳过函数。
     return _data_reader->skip(_count_none_nulls(row_count));
 }
@@ -1004,19 +885,6 @@ OLAPStatus DecimalColumnReader::attach(RowCursor* cursor) {
 }
 
 OLAPStatus DecimalColumnReader::seek(PositionProvider* positions) {
-#ifndef PERFORMANCE
-
-    if (NULL == _frac_reader || NULL == _int_reader) {
-        OLAP_LOG_WARNING("reader not init.");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-    if (NULL == position) {
-        OLAP_LOG_WARNING("input positions is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-#endif
     OLAPStatus res;
     if (NULL == _present_reader) {
         res = _int_reader->seek(positions);
@@ -1184,19 +1052,6 @@ OLAPStatus LargeIntColumnReader::attach(RowCursor* cursor) {
 }
 
 OLAPStatus LargeIntColumnReader::seek(PositionProvider* positions) {
-#ifndef PERFORMANCE
-
-    if (NULL == _low_reader || NULL == _high_reader) {
-        OLAP_LOG_WARNING("reader not init.");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-    if (NULL == position) {
-        OLAP_LOG_WARNING("input positions is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-#endif
     OLAPStatus res;
     if (NULL == _present_reader) {
         res = _high_reader->seek(positions);

@@ -53,11 +53,24 @@ private:
 class Dispatcher : public DispatchHandler {
 public:
     Dispatcher(ExecEnv* exec_env, Comm *comm, ApplicationQueue *app_queue)
-        : _exec_env(exec_env), _comm(comm) {}
+        : _exec_env(exec_env), _comm(comm), _sender_thread(&Dispatcher::sender, this) {
+    }
 
-    ~Dispatcher() {}
+    virtual ~Dispatcher() {
+        _thread_stop = true;
+        _cond.notify_all();
+        _sender_thread.join();
+    }
 
-    virtual void handle(EventPtr &event_ptr) {
+    void handle(EventPtr &event_ptr) override {
+        {
+            std::lock_guard<std::mutex> l(_lock);
+            _events.push_back(event_ptr);
+        }
+        _cond.notify_one();
+    }
+
+    void process(EventPtr& event_ptr) {
         if (event_ptr->type == Event::CONNECTION_ESTABLISHED) {
             LOG(INFO) << "Connection Established.";
         }
@@ -117,7 +130,9 @@ public:
             }
 
             if (params.eos || !buffer_overflow) {
-                VLOG(3) << "send last response to client";
+                VLOG(3) << "send last response to client"
+                    << ", send response header id:" << header.id
+                    << ", fragmentid: " << params.dest_fragment_instance_id;
                 int error = _comm->send_response(event_ptr->addr, response);
                 if (error != error::OK) {
                     LOG(ERROR) << "Comm::send_response returned" << error::get_text(error);
@@ -126,9 +141,34 @@ public:
         }
     }
 
+    void sender() {
+        while (!_thread_stop) {
+            EventPtr event;
+            {
+                std::unique_lock<std::mutex> l(_lock);
+                while (!_thread_stop && _events.empty()) {
+                    _cond.wait(l);
+                }
+                if (_thread_stop) {
+                    break;
+                }
+                DCHECK(!_events.empty());
+                event = _events.front();
+                _events.pop_front();
+            }
+            process(event);
+        }
+    }
+
 private:
     ExecEnv* _exec_env;
     Comm* _comm;
+
+    std::mutex _lock;
+    std::condition_variable _cond;
+    std::deque<EventPtr> _events;
+    std::thread _sender_thread;
+    bool _thread_stop = false;
 
 };
 

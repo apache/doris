@@ -63,7 +63,7 @@ public class MultiAbort extends RestBaseAction {
             return;
         }
 
-        execEnv.getMultiLoadMgr().abort(db, label);
+        execEnv.getMultiLoadMgr().abort(fullDbName, label);
         sendResult(request, response, RestBaseResult.getOk());
     }
 }

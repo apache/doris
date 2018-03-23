@@ -15,11 +15,6 @@
 
 package com.baidu.palo.http.rest;
 
-import java.util.List;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.DdlException;
@@ -30,7 +25,13 @@ import com.baidu.palo.http.IllegalArgException;
 import com.baidu.palo.service.ExecuteEnv;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.thrift.TNetworkAddress;
+
 import com.google.common.base.Strings;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.List;
 
 import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpMethod;
@@ -111,7 +112,7 @@ public class LoadAction extends RestBaseAction {
 
         TNetworkAddress redirectAddr = new TNetworkAddress(backend.getHost(), backend.getHttpPort());
         if (!Strings.isNullOrEmpty(subLabel)) {
-            redirectAddr = execEnv.getMultiLoadMgr().redirectAddr(dbName, label, tableName, redirectAddr);
+            redirectAddr = execEnv.getMultiLoadMgr().redirectAddr(fullDbName, label, tableName, redirectAddr);
         }
         LOG.info("mini load redirect to backend: {}, label: {}", redirectAddr.toString(), label);
 

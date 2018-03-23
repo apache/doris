@@ -556,6 +556,10 @@ public class SelectStmt extends QueryStmt {
         fromClause_.add(firstRef);
         tableRefMap.remove(firstRef.getId());
 
+
+        // reserve TupleId has been added successfully
+        Set<TupleId> validTupleId = Sets.newHashSet();
+        validTupleId.add(firstRef.getId());
         // find table
         int i = 0;
         while (i < fromClause_.size()) {
@@ -565,10 +569,28 @@ public class SelectStmt extends QueryStmt {
             List<TupleId> tuple_list = Lists.newArrayList();
             Expr.getIds(eqJoinPredicates, tuple_list, null);
             for (TupleId tid : tuple_list) {
-                TableRef table_ref = tableRefMap.get(tid);
-                if (null != table_ref) {
-                    fromClause_.add(table_ref);
-                    tableRefMap.remove(tid);
+                TableRef candidateTableRef = tableRefMap.get(tid);
+                if (candidateTableRef != null) {
+                    
+                    // When sorting table according to the rows, you must ensure 
+                    // that all tables On-conjuncts referenced has been added or
+                    // is being added.
+                    List<Expr> candidateEqJoinPredicates = analyzer.getEqJoinConjunctsExcludeAuxPredicates(
+                            candidateTableRef.getId());
+                    List<TupleId> candidateTupleList = Lists.newArrayList();
+                    Expr.getIds(candidateEqJoinPredicates, candidateTupleList, null);
+                    int count = candidateTupleList.size();
+                    for (TupleId tupleId : candidateTupleList) {
+                        if (validTupleId.contains(tupleId) || candidateTableRef.getId() == tupleId) {
+                            count--;
+                        }
+                    }
+                    
+                    if (count == 0) {
+                        fromClause_.add(candidateTableRef);
+                        validTupleId.add(candidateTableRef.getId());
+                        tableRefMap.remove(tid);
+                    }
                 }
             }
             i++;
@@ -630,9 +652,9 @@ public class SelectStmt extends QueryStmt {
           }
 
           // ordering
-          if (sortInfo != null) {
+          //if (sortInfo != null) {
               // sortInfo.substitute(sMap);
-          }
+          //}
       }
 
     /**
@@ -1154,7 +1176,9 @@ public class SelectStmt extends QueryStmt {
     public void getMaterializedTupleIds(ArrayList<TupleId> tupleIdList) {
         // If select statement has an aggregate, then the aggregate tuple id is materialized.
         // Otherwise, all referenced tables are materialized.
-        if (aggInfo != null) {
+        if (evaluateOrderBy) {
+            tupleIdList.add(sortInfo.getSortTupleDescriptor().getId());
+        } else if (aggInfo != null) {
             // Return the tuple id produced in the final aggregation step.
             if (aggInfo.isDistinctAgg()) {
                 tupleIdList.add(aggInfo.getSecondPhaseDistinctAggInfo().getOutputTupleId());

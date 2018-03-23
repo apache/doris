@@ -434,9 +434,7 @@ public class EditLog {
                 }
                 case OperationType.OP_MASTER_INFO_CHANGE: {
                     MasterInfo info = (MasterInfo) journal.getData();
-                    catalog.setMasterIp(info.getIp());
-                    catalog.setMasterHttpPort(info.getHttpPort());
-                    catalog.setMasterRpcPort(info.getRpcPort());
+                    catalog.setMaster(info);
                     break;
                 }
                 case OperationType.OP_META_VERSION: {

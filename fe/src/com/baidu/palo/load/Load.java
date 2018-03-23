@@ -218,7 +218,7 @@ public class Load {
 
     public boolean addLoadJob(TMiniLoadRequest request) throws DdlException {
         // get params
-        String dbName = request.getDb();
+        String fullDbName = request.getDb();
         String tableName = request.getTbl();
         String label = request.getLabel();
         long timestamp = 0;
@@ -231,7 +231,7 @@ public class Load {
 
         // create load stmt
         // label name
-        LabelName labelName = new LabelName(dbName, label);
+        LabelName labelName = new LabelName(fullDbName, label);
 
         // data descriptions
         // file paths
@@ -313,14 +313,14 @@ public class Load {
         LoadStmt stmt = new LoadStmt(labelName, dataDescriptions, null, null, properties);
 
         // try to register mini label
-        if (!registerMiniLabel(dbName, label, timestamp)) {
+        if (!registerMiniLabel(fullDbName, label, timestamp)) {
             return false;
         }
 
         try {
             addLoadJob(stmt, EtlJobType.MINI, timestamp);
         } finally {
-            deregisterMiniLabel(dbName, label);
+            deregisterMiniLabel(fullDbName, label);
         }
 
         return true;
@@ -899,10 +899,10 @@ public class Load {
 
 
     public boolean registerMiniLabel(
-              String dbName, String label, long timestamp) throws DdlException {
-        Database db = Catalog.getInstance().getDb(dbName);
+              String fullDbName, String label, long timestamp) throws DdlException {
+        Database db = Catalog.getInstance().getDb(fullDbName);
         if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
+            throw new DdlException("Db does not exist. name: " + fullDbName);
         }
 
         long dbId = db.getId();
@@ -927,10 +927,10 @@ public class Load {
         return true;
     }
     
-    public void deregisterMiniLabel(String dbName, String label) throws DdlException {
-        Database db = Catalog.getInstance().getDb(dbName);
+    public void deregisterMiniLabel(String fullDbName, String label) throws DdlException {
+        Database db = Catalog.getInstance().getDb(fullDbName);
         if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
+            throw new DdlException("Db does not exist. name: " + fullDbName);
         }
 
         long dbId = db.getId();
@@ -950,10 +950,10 @@ public class Load {
         }
     }
 
-    public void checkLabelUsed(String dbName, String label, long timestamp) throws DdlException {
-        Database db = Catalog.getInstance().getDb(dbName);
+    public void checkLabelUsed(String fullDbName, String label, long timestamp) throws DdlException {
+        Database db = Catalog.getInstance().getDb(fullDbName);
         if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
+            throw new DdlException("Db does not exist. name: " + fullDbName);
         }
 
         readLock();

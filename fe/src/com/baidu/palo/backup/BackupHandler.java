@@ -26,10 +26,10 @@ import com.baidu.palo.backup.RestoreJob.RestoreJobState;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.OlapTable;
+import com.baidu.palo.catalog.OlapTable.OlapTableState;
 import com.baidu.palo.catalog.Partition;
 import com.baidu.palo.catalog.PartitionType;
 import com.baidu.palo.catalog.Table;
-import com.baidu.palo.catalog.OlapTable.OlapTableState;
 import com.baidu.palo.catalog.Table.TableType;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.Config;
@@ -116,7 +116,6 @@ public class BackupHandler extends Daemon {
         if (db == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
-
 
         long dbId = db.getId();
         String label = stmt.getLabel();

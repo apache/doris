@@ -266,7 +266,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         ConnectContext context = new ConnectContext(null);
         String cluster;
-        String user;
         if (request.isSetCluster()) {
             cluster = request.cluster;
         } else {

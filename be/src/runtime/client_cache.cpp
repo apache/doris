@@ -37,6 +37,12 @@
 
 namespace palo {
 
+ClientCacheHelper::~ClientCacheHelper() {
+    for (auto& it : _client_map) {
+        delete it.second;
+    }
+}
+
 Status ClientCacheHelper::get_client(
         const TNetworkAddress& hostport,
         client_factory factory_method, void** client_key, int timeout_ms) {
@@ -120,8 +126,7 @@ Status ClientCacheHelper::create_client(
     }
 
     // Because the client starts life 'checked out', we don't add it to the cache map
-    _client_map[*client_key] = client_impl.get();
-    client_impl.release();
+    _client_map[*client_key] = client_impl.release();
 
     if (_metrics_enabled) {
         _total_clients_metric->increment(1);

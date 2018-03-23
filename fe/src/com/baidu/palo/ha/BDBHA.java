@@ -17,6 +17,8 @@ package com.baidu.palo.ha;
 
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.journal.bdbje.BDBEnvironment;
+
+import com.google.common.collect.Sets;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
@@ -34,6 +36,7 @@ import org.apache.logging.log4j.Logger;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 public class BDBHA implements HAProtocol {
     private static final Logger LOG = LogManager.getLogger(BDBHA.class);
@@ -201,5 +204,23 @@ public class BDBHA implements HAProtocol {
             return false;
         }
         return true;
+    }
+
+    // When new Follower FE is added to the cluster, it should also be added to the helper sockets in
+    // ReplicationGroupAdmin, in order to fix the following case:
+    // 1. A Observer starts with helper of master FE.
+    // 2. Master FE is dead, new Master is elected.
+    // 3. Observer's helper sockets only contains the info of the dead master FE.
+    //    So when you try to get frontends' info from this Observer, it will throw the Exception:
+    //    "Could not determine master from helpers at:[/dead master FE host:port]"
+    public void addHelperSocket(String ip, Integer port) {
+        ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
+        Set<InetSocketAddress> helperSockets = Sets.newHashSet(replicationGroupAdmin.getHelperSockets());
+        InetSocketAddress newHelperSocket =  new InetSocketAddress(ip,port);
+        if (!helperSockets.contains(newHelperSocket)) {
+            helperSockets.add(newHelperSocket);
+            environment.setNewReplicationGroupAdmin(helperSockets);
+            LOG.info("add {}:{} to helper sockets", ip, port);
+        }
     }
 }

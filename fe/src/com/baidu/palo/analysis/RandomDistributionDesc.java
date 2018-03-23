@@ -46,9 +46,7 @@ public class RandomDistributionDesc extends DistributionDesc {
 
     @Override
     public void analyze(Set<String> colSet) throws AnalysisException {
-        if (numBucket <= 0) {
-            throw new AnalysisException("Invalid partition numbers" + numBucket + ".");
-        }
+        throw new AnalysisException("Random distribution is deprecated now. Use hash distribution instead.");
     }
 
     @Override

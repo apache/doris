@@ -393,7 +393,7 @@ public class SingleNodePlanner {
                 for (SlotDescriptor slot : selectStmt.getTableRefs().get(0).getDesc().getSlots()) {
                     if (!slot.getColumn().isKey()) {
                         if (conjunctSlotIds.contains(slot.getId())) {
-                            LOG.info(logStr + "conjunct on " + slot.getColumn().getName() + "which is "
+                            LOG.info(logStr + "conjunct on " + slot.getColumn().getName() + " which is "
                                     + "OlapEngine value column");
                             valueColumnValidate = false;
                             break;
@@ -1116,7 +1116,8 @@ public class SingleNodePlanner {
                 scanNode = new SchemaScanNode(ctx_.getNextNodeId(), tblRef.getDesc());
                 break;
             case BROKER:
-                scanNode = new BrokerScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "BrokerScanNode");
+                scanNode = new BrokerScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "BrokerScanNode",
+                        null, -1);
                 break;
             default:
                 break;

@@ -21,15 +21,14 @@ import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
-import com.baidu.palo.http.BaseAction.AuthorizationInfo;
 import com.baidu.palo.service.ExecuteEnv;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
-import io.netty.handler.codec.http.HttpMethod;
-
 import java.util.List;
+
+import io.netty.handler.codec.http.HttpMethod;
 
 // List all labels of one multi-load
 public class MultiDesc extends RestBaseAction {
@@ -67,8 +66,9 @@ public class MultiDesc extends RestBaseAction {
         if (redirectToMaster(request, response)) {
             return;
         }
+
         final List<String> labels = Lists.newArrayList();
-        execEnv.getMultiLoadMgr().desc(db, label, labels);
+        execEnv.getMultiLoadMgr().desc(fullDbName, label, labels);
         sendResult(request, response, new Result(labels));
     }
 

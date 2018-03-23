@@ -103,6 +103,7 @@ import com.baidu.palo.deploy.DeployManager;
 import com.baidu.palo.deploy.impl.AmbariDeployManager;
 import com.baidu.palo.deploy.impl.K8sDeployManager;
 import com.baidu.palo.deploy.impl.LocalFileDeployManager;
+import com.baidu.palo.ha.BDBHA;
 import com.baidu.palo.ha.FrontendNodeType;
 import com.baidu.palo.ha.HAProtocol;
 import com.baidu.palo.ha.MasterInfo;
@@ -882,6 +883,15 @@ public class Catalog {
             metaReplayState.setTransferToUnknown();
         } else {
             Config.ignore_meta_check = false;
+        }
+
+        // add helper sockets
+        if (Config.edit_log_type.equalsIgnoreCase("BDB")) {
+            for (Frontend fe : frontends) {
+                if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
+                    ((BDBHA) getHaProtocol()).addHelperSocket(fe.getHost(), fe.getPort());
+                }
+            }
         }
 
         if (replayer == null) {
@@ -1940,6 +1950,9 @@ public class Catalog {
             }
             fe = new Frontend(role, host, port);
             frontends.add(fe);
+            if (role == FrontendNodeType.FOLLOWER || role == FrontendNodeType.REPLICA) {
+                ((BDBHA) getHaProtocol()).addHelperSocket(host, port);
+            }
             editLog.logAddFrontend(fe);
         } finally {
             writeUnlock();
@@ -3767,12 +3780,16 @@ public class Catalog {
                      *    then find the origin OBSERVER in image or journal.
                      * This will cause UNDEFINED behavior, so it is better to exit and fix it manually.
                      */
-                    LOG.error("Try to add an already exist FE with different role: {}", fe.getRole());
+                    System.err.println("Try to add an already exist FE with different role" + fe.getRole());
                     System.exit(-1);
                 }
                 return;
             }
             frontends.add(fe);
+            if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
+                // DO NOT add helper sockets here, cause BDBHA is not instantiated yet.
+                // helper sockets will be added after start BDBHA
+            }
         } finally {
             writeUnlock();
         }
@@ -4072,19 +4089,11 @@ public class Catalog {
         return this.masterRpcPort;
     }
 
-    public void setMasterRpcPort(int port) {
-        this.masterRpcPort = port;
-    }
-
     public int getMasterHttpPort() {
         if (feType == FrontendNodeType.UNKNOWN || feType == FrontendNodeType.MASTER && !canWrite) {
             return 0;
         }
         return this.masterHttpPort;
-    }
-
-    public void setMasterHttpPort(int port) {
-        this.masterHttpPort = port;
     }
 
     public String getMasterIp() {
@@ -4094,8 +4103,10 @@ public class Catalog {
         return this.masterIp;
     }
 
-    public void setMasterIp(String ip) {
-        this.masterIp = ip;
+    public void setMaster(MasterInfo info) {
+        this.masterIp = info.getIp();
+        this.masterHttpPort = info.getHttpPort();
+        this.masterRpcPort = info.getRpcPort();
     }
 
     public boolean canWrite() {

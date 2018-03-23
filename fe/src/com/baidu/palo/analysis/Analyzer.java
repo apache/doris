@@ -60,6 +60,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -1169,6 +1170,21 @@ public class Analyzer {
             }
         }
         return result;
+    }
+
+    /**
+     * Returns list of candidate equi-join conjuncts excluding auxiliary predicates
+     */
+    public List<Expr> getEqJoinConjunctsExcludeAuxPredicates(TupleId id) {
+        final List<Expr> candidateEqJoinPredicates = getEqJoinConjuncts(id, null);
+        final Iterator<Expr> iterator = candidateEqJoinPredicates.iterator();
+        while (iterator.hasNext()) {
+            final Expr expr = iterator.next();
+            if (expr.isAuxExpr()) {
+                iterator.remove();
+            }
+        }
+        return candidateEqJoinPredicates;
     }
 
     public List<Expr> getBufferReuseConjuncts(TupleId id) {

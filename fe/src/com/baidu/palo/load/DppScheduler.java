@@ -31,8 +31,8 @@ import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 
 import org.apache.commons.lang.StringUtils;
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -175,8 +175,8 @@ public class DppScheduler {
         }
         int reduceNumByTablet = calcReduceNumByTablet(jobConf);
         int reduceNum = Math.min(reduceNumByInputSize, reduceNumByTablet);
-        LOG.debug("calculate reduce num. reduceNum: {}, reduceNumByInputSize: {}, reduceNumByTablet: {}",
-                reduceNum, reduceNumByInputSize, reduceNumByTablet);
+        LOG.info("calculate reduce num. reduceNum: {}, reduceNumByInputSize: {}, reduceNumByTablet: {}",
+                 reduceNum, reduceNumByInputSize, reduceNumByTablet);
 
         // rm path
         String outputPath = (String) jobConf.get("output_path");
@@ -240,6 +240,7 @@ public class DppScheduler {
     }
 
     private void prepareDppApplications() throws LoadException {
+        String[] envp = { "LC_ALL=" + Config.locale };
         String hadoopDppDir = applicationsPath + "/dpp";
         boolean needUpload = false;
 
@@ -254,12 +255,12 @@ public class DppScheduler {
         // test hadoop dpp dir
         String hadoopTestCmd = String.format(HADOOP_TEST_CMD, HADOOP_CLIENT, hadoopConfig, "-d", hadoopDppDir);
         LOG.info(hadoopTestCmd);
-        CommandResult testResult = Util.executeCommand(hadoopTestCmd);
+        CommandResult testResult = Util.executeCommand(hadoopTestCmd, envp);
         if (testResult.getReturnCode() == 0) {
             String hadoopDppFilePath = hadoopDppDir + "/*";
             String hadoopCountCmd = String.format(HADOOP_COUNT_CMD, HADOOP_CLIENT, hadoopConfig, hadoopDppFilePath);
             LOG.info(hadoopCountCmd);
-            CommandResult countResult = Util.executeCommand(hadoopCountCmd);
+            CommandResult countResult = Util.executeCommand(hadoopCountCmd, envp);
             if (countResult.getReturnCode() != 0) {
                 LOG.warn("hadoop count error, result: {}", countResult);
                 throw new LoadException("hadoop count error. msg: " + countResult.getStderr());
@@ -308,10 +309,10 @@ public class DppScheduler {
             // rmdir and mkdir
             String hadoopRmrCmd = String.format(HADOOP_RMR_CMD, HADOOP_CLIENT, hadoopConfig, hadoopDppDir);
             LOG.info(hadoopRmrCmd);
-            Util.executeCommand(hadoopRmrCmd);
+            Util.executeCommand(hadoopRmrCmd, envp);
             String hadoopMkdirCmd = String.format(HADOOP_MKDIR_CMD, HADOOP_CLIENT, hadoopConfig, hadoopDppDir);
             LOG.info(hadoopMkdirCmd);
-            Util.executeCommand(hadoopMkdirCmd);
+            Util.executeCommand(hadoopMkdirCmd, envp);
 
             // upload dpp applications
             String hadoopPutConfig = hadoopConfig + String.format(" -D speed.limit.kb=%d", HADOOP_SPEED_LIMIT_KB);
@@ -321,7 +322,7 @@ public class DppScheduler {
                 hadoopPutCmd = String.format(HADOOP_PUT_CMD, HADOOP_CLIENT, hadoopPutConfig,
                         LOCAL_DPP_DIR + "/" + file.getName(), hadoopDppDir);
                 LOG.info(hadoopPutCmd);
-                putResult = Util.executeCommand(hadoopPutCmd);
+                putResult = Util.executeCommand(hadoopPutCmd, envp);
                 if (putResult.getReturnCode() != 0) {
                     LOG.warn("hadoop put fail. result: {}", putResult);
                     throw new LoadException("hadoop put fail. msg: " + putResult.getStderr());
@@ -344,11 +345,12 @@ public class DppScheduler {
     }
     
     private int calcReduceNumByInputSize(Set<String> inputPaths) throws InputSizeInvalidException {
+        String[] envp = { "LC_ALL=" + Config.locale };
         int reduceNum = 0;
         String hadoopCountCmd = String.format(HADOOP_COUNT_CMD, HADOOP_CLIENT, hadoopConfig,
                 StringUtils.join(inputPaths, " "));
         LOG.info(hadoopCountCmd);
-        CommandResult result = Util.executeCommand(hadoopCountCmd);
+        CommandResult result = Util.executeCommand(hadoopCountCmd, envp);
         if (result.getReturnCode() != 0) {
             LOG.warn("hadoop count error, result: {}", result);
             return DEFAULT_REDUCE_NUM;
@@ -406,7 +408,8 @@ public class DppScheduler {
         String hadoopStatusCmd = String.format(HADOOP_STATUS_CMD, HADOOP_CLIENT, hadoopConfig, etlJobId);
         LOG.info(hadoopStatusCmd);
 
-        CommandResult result = Util.executeCommand(hadoopStatusCmd);
+        String[] envp = { "LC_ALL=" + Config.locale };
+        CommandResult result = Util.executeCommand(hadoopStatusCmd, envp);
         String stdout = result.getStdout();
         if (result.getReturnCode() != 0) {
             if (stdout != null && stdout.contains("Could not find job")) {
@@ -463,17 +466,18 @@ public class DppScheduler {
     }
 
     public Map<String, Long> getEtlFiles(String outputPath) {
+        String[] envp = { "LC_ALL=" + Config.locale };
         Map<String, Long> fileMap = Maps.newHashMap();
 
         String fileDir = outputPath + "/" + DPP_OUTPUT_DIR;
         String hadoopLsCmd = String.format(HADOOP_LS_CMD, HADOOP_CLIENT, hadoopConfig, fileDir);
         LOG.info(hadoopLsCmd);
-        CommandResult lsResult = Util.executeCommand(hadoopLsCmd);
+        CommandResult lsResult = Util.executeCommand(hadoopLsCmd, envp);
         if (lsResult.getReturnCode() != 0) {
             // check outputPath exist
             String hadoopTestCmd = String.format(HADOOP_TEST_CMD, HADOOP_CLIENT, hadoopConfig, "-d", outputPath);
             LOG.info(hadoopTestCmd);
-            CommandResult testResult = Util.executeCommand(hadoopTestCmd);
+            CommandResult testResult = Util.executeCommand(hadoopTestCmd, envp);
             if (testResult.getReturnCode() != 0) {
                 LOG.info("hadoop dir does not exist. dir: {}", outputPath);
                 return null;
@@ -482,7 +486,7 @@ public class DppScheduler {
             // check outputPath + DPP_OUTPUT_DIR exist
             hadoopTestCmd = String.format(HADOOP_TEST_CMD, HADOOP_CLIENT, hadoopConfig, "-d", fileDir);
             LOG.info(hadoopTestCmd);
-            testResult = Util.executeCommand(hadoopTestCmd);
+            testResult = Util.executeCommand(hadoopTestCmd, envp);
             if (testResult.getReturnCode() != 0) {
                 LOG.info("hadoop dir does not exist. dir: {}", fileDir);
                 return fileMap;
@@ -512,15 +516,17 @@ public class DppScheduler {
     }
     
     public void killEtlJob(String etlJobId) {
+        String[] envp = { "LC_ALL=" + Config.locale };
         String hadoopKillCmd = String.format(HADOOP_KILL_CMD, HADOOP_CLIENT, hadoopConfig, etlJobId);
         LOG.info(hadoopKillCmd);
-        Util.executeCommand(hadoopKillCmd);
+        Util.executeCommand(hadoopKillCmd, envp);
     }
     
     public void deleteEtlOutputPath(String outputPath) {
+        String[] envp = { "LC_ALL=" + Config.locale };
         String hadoopRmCmd = String.format(HADOOP_RMR_CMD, HADOOP_CLIENT, hadoopConfig, outputPath);
         LOG.info(hadoopRmCmd);
-        Util.executeCommand(hadoopRmCmd);
+        Util.executeCommand(hadoopRmCmd, envp);
     }
     
     public static String getEtlOutputPath(String fsDefaultName, String outputPath, long dbId, String loadLabel,

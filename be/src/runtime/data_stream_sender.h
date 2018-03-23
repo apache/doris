@@ -31,7 +31,6 @@
 #include "util/runtime_profile.h"
 #include "gen_cpp/Data_types.h"  // for TRowBatch
 
-#include "sender_dispatcher.h"
 #include "rpc/dispatch_handler.h"
 #include "rpc/io_handler.h"
 #include "rpc/poll_event.h"
@@ -146,6 +145,7 @@ private:
     std::vector<ExprContext*> _partition_expr_ctxs;  // compute per-row partition values
 
     std::vector<Channel*> _channels;
+    std::vector<std::shared_ptr<Channel>> _channel_shared_ptrs;
 
     // map from range value to partition_id
     // sorted in ascending orderi by range for binary search

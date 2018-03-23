@@ -331,9 +331,9 @@ public class SchemaChangeJob extends AlterJob {
                         TStorageType storageType = olapTable.getStorageTypeByIndexId(indexId);
                         KeysType keysType = olapTable.getKeysType();
                         TKeysType schemaChangeKeysType;
-                        if ("DUP_KEYS" == keysType.name()) {
+                        if (keysType == KeysType.DUP_KEYS) {
                             schemaChangeKeysType = TKeysType.DUP_KEYS;
-                        } else if ("UNIQUE_KEYS" == keysType.name()) {
+                        } else if (keysType == KeysType.UNIQUE_KEYS) {
                             schemaChangeKeysType = TKeysType.UNIQUE_KEYS;
                         } else {
                             schemaChangeKeysType = TKeysType.AGG_KEYS;
@@ -518,7 +518,7 @@ public class SchemaChangeJob extends AlterJob {
             if (replica == null) {
                 throw new MetaNotFoundException("Cannot find replica[" + replicaId + "]");
             }
-            Preconditions.checkState(replica.getState() == ReplicaState.SCHEMA_CHANGE);
+            // replica's state may be NORMAL(due to clone), so no need to check
 
             long version = finishTabletInfo.getVersion();
             long versionHash = finishTabletInfo.getVersion_hash();

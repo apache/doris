@@ -264,9 +264,9 @@ public class RollupHandler extends AlterHandler {
         // 4.1 get storage type. default is COLUMN
         
         TKeysType rollupKeysType;
-        if ("DUP_KEYS" == keysType.name()) {
+        if (keysType == KeysType.DUP_KEYS) {
             rollupKeysType = TKeysType.DUP_KEYS;
-        } else if ("UNIQUE_KEYS" == keysType.name()) {
+        } else if (keysType == KeysType.UNIQUE_KEYS) {
             rollupKeysType = TKeysType.UNIQUE_KEYS;
         } else {
             rollupKeysType = TKeysType.AGG_KEYS;
@@ -278,6 +278,10 @@ public class RollupHandler extends AlterHandler {
             rollupStorageType = PropertyAnalyzer.analyzeStorageType(properties);
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
+        }
+
+        if (rollupStorageType == TStorageType.ROW) {
+            throw new DdlException("Can not add rollup with ROW storage type");
         }
 
         // check storage type if has null column

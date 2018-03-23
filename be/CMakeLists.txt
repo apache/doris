@@ -385,10 +385,10 @@ SET(CXX_COMMON_FLAGS "-msse4.2 -Wall -Wno-sign-compare -Wno-deprecated -pthread 
 SET(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG -D__STDC_FORMAT_MACROS")
 
 # Add by zhaochun: use gnu++11 for make_unsigned<__int128>
-SET(CMAKE_CXX_FLAGS "-g -O2 -ggdb -Wno-unused-local-typedefs -Wno-strict-aliasing -std=gnu++11 -DPERFORMANCE -D_FILE_OFFSET_BITS=64")
+SET(CMAKE_CXX_FLAGS "-g -ggdb -O2 -Wno-unused-local-typedefs -Wno-strict-aliasing -std=gnu++11 -D_FILE_OFFSET_BITS=64")
 
 # use address sanitizer, commented the malloc in ld flags
-# SET(CMAKE_CXX_FLAGS "-g -ggdb -Wno-unused-local-typedefs -Wno-strict-aliasing -std=gnu++11 -DPERFORMANCE -fsanitize=address -fno-omit-frame-pointer -DADDRESS_SANITIZER")
+# SET(CMAKE_CXX_FLAGS "-g -ggdb -Wno-unused-local-typedefs -Wno-strict-aliasing -std=gnu++11 -fsanitize=address -fno-omit-frame-pointer -DADDRESS_SANITIZER")
 SET(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS}")
 
 MESSAGE(STATUS "Compiler Flags: ${CMAKE_CXX_FLAGS}")

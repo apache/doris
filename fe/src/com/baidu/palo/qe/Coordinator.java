@@ -203,6 +203,10 @@ public class Coordinator {
         return queryId;
     }
 
+    public void setQueryId(TUniqueId queryId) {
+        this.queryId = queryId;
+    }
+
     public void setQueryType(TQueryType type) {
         this.queryOptions.setQuery_type(type);
     }
@@ -772,8 +776,8 @@ public class Coordinator {
             }
 
             PlanNode leftMostNode = findLeftmostNode(fragment.getPlanRoot());
-            // When fragment contains UnionNode, because  the fragment may has child 
-            // and not all BE will receive the fragment, child fragment's dest must 
+            // When fragment contains UnionNode, because  the fragment may has child
+            // and not all BE will receive the fragment, child fragment's dest must
             // be BE that fragment's scannode locates,  avoid less data.
             // chenhao added
             boolean hasUnionNode = containsUnionNode(fragment.getPlanRoot());

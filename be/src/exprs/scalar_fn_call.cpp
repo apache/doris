@@ -533,7 +533,7 @@ Status ScalarFnCall::get_udf(RuntimeState* state, Function** udf) {
         }
         *udf = codegen->finalize_function(*udf);
         if (*udf == NULL) {
-            return Status("udf verify falied");
+            return Status("udf verify failed");
             // TODO(zc)
             // TErrorCode::UDF_VERIFY_FAILED, _fn.scalar_fn.symbol, _fn.hdfs_location);
         }

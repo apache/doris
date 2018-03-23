@@ -15,7 +15,7 @@
 
 #include "mysql_scan_node.h"
 
-#include <boost/foreach.hpp>
+#include <sstream>
 
 #include "exec/text_converter.hpp"
 #include "gen_cpp/PlanNodes_types.h"
@@ -35,10 +35,7 @@ MysqlScanNode::MysqlScanNode(ObjectPool* pool, const TPlanNode& tnode,
       _tuple_id(tnode.mysql_scan_node.tuple_id),
       _columns(tnode.mysql_scan_node.columns),
       _filters(tnode.mysql_scan_node.filters),
-      _tuple_desc(NULL),
-      _tuple_pool(NULL),
-      _mysql_scanner(NULL),
-      _text_converter(NULL) {
+      _tuple_desc(nullptr) {
 }
 
 MysqlScanNode::~MysqlScanNode() {
@@ -138,9 +135,9 @@ Status MysqlScanNode::write_text_slot(char* value, int value_length,
                                     SlotDescriptor* slot, RuntimeState* state) {
     if (!_text_converter->write_slot(slot, _tuple, value, value_length,
                                      true, false, _tuple_pool.get())) {
-        LOG(WARNING) << "Error converting column "
-                     << "'" << value << "' TO " << slot->type();
-        return Status("convert mysql string failed.");
+        std::stringstream ss;
+        ss << "fail to convert mysql value '" << value << "' TO " << slot->type();
+        return Status(ss.str());
     }
 
     return Status::OK;
@@ -205,20 +202,27 @@ Status MysqlScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
         TupleRow* row = row_batch->get_row(row_idx);
         // scan node is the first tuple of tuple row
         row->set_tuple(0, _tuple);
-        memset(_tuple, 0, sizeof(_tuple_desc->num_null_bytes()));
+        memset(_tuple, 0, _tuple_desc->num_null_bytes());
         int j = 0;
 
         for (int i = 0; i < _slot_num; ++i) {
+            auto slot_desc = _tuple_desc->slots()[i];
             // because the fe planner filter the non_materialize column
-            if (!_tuple_desc->slots()[i]->is_materialized()) {
+            if (!slot_desc->is_materialized()) {
                 continue;
             }
 
-            if (NULL == data[j]) {
-                _tuple->set_null(_tuple_desc->slots()[i]->null_indicator_offset());
+            if (data[j] == nullptr) {
+                if (slot_desc->is_nullable()) {
+                    _tuple->set_null(slot_desc->null_indicator_offset());
+                } else {
+                    std::stringstream ss;
+                    ss << "nonnull column contains NULL. table=" << _table_name
+                        << ", column=" << slot_desc->col_name();
+                    return Status(ss.str());
+                }
             } else {
-                RETURN_IF_ERROR(write_text_slot(data[j], length[j],
-                                              _tuple_desc->slots()[i], state));
+                RETURN_IF_ERROR(write_text_slot(data[j], length[j], slot_desc, state));
             }
 
             j++;
@@ -248,6 +252,7 @@ Status MysqlScanNode::close(RuntimeState* state) {
     if (memory_used_counter() != NULL) {
         COUNTER_UPDATE(memory_used_counter(), _tuple_pool->peak_allocated_bytes());
     }
+    _tuple_pool.reset();
 
     return ExecNode::close(state);
 }

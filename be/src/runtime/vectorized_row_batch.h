@@ -99,11 +99,11 @@ private:
 class VectorizedRowBatch : public RowBatchInterface {
 public:
     //VectorizedRowBatch(const TupleDescriptor& tuple_desc, int capacity);
-    VectorizedRowBatch(const std::vector<FieldInfo>& schema, int capacity, MemTracker* mem_tracker);
+    VectorizedRowBatch(const std::vector<FieldInfo>& schema, int capacity);
     virtual ~VectorizedRowBatch() { }
 
     MemPool* mem_pool() {
-        return &_mem_pool;
+        return _mem_pool.get();
     }
 
     void add_column(int index, const TypeDescriptor& type) {
@@ -113,7 +113,7 @@ public:
 
         DCHECK_EQ(index, _columns.size());
         boost::shared_ptr<ColumnVector> col_vec(new ColumnVector(_capacity));
-        col_vec->set_col_data(_mem_pool.allocate(type.get_slot_size() * _capacity));
+        col_vec->set_col_data(_mem_pool->allocate(type.get_slot_size() * _capacity));
         _columns.push_back(col_vec);
     }
 
@@ -164,7 +164,7 @@ public:
         if (_selected_in_use) {
             if (NULL == _backup_info.selected) {
                 _backup_info.selected
-                    = reinterpret_cast<int*>(_mem_pool.allocate(sizeof(int) * _capacity));
+                    = reinterpret_cast<int*>(_mem_pool->allocate(sizeof(int) * _capacity));
             }
             for (int i = 0; i < _capacity; ++i) {
                 _backup_info.selected[i] = _selected[i];
@@ -203,8 +203,8 @@ public:
         _selected_in_use = false;
         _row_iter = 0;
         _columns.erase(_columns.begin() + _num_cols, _columns.end());
-        _mem_pool.clear();
-        _selected = reinterpret_cast<int*>(_mem_pool.allocate(sizeof(int) * _capacity));
+        _mem_pool->clear();
+        _selected = reinterpret_cast<int*>(_mem_pool->allocate(sizeof(int) * _capacity));
     }
 
     bool get_next_tuple(Tuple* tuple, const TupleDescriptor& tuple_desc);
@@ -225,7 +225,8 @@ private:
     bool _has_backup;
     std::vector<boost::shared_ptr<ColumnVector> > _columns;
 
-    MemPool _mem_pool;
+    std::unique_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemPool> _mem_pool;
 };
 
 }

@@ -190,14 +190,12 @@ public class PropertyAnalyzer {
     }
 
     public static TStorageType analyzeStorageType(Map<String, String> properties) throws AnalysisException {
-        // default is COLUMN
+        // only COLUMN is allowed now
         TStorageType tStorageType = TStorageType.COLUMN;
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_TYPE)) {
             String storageType = properties.get(PROPERTIES_STORAGE_TYPE);
             if (storageType.equalsIgnoreCase(TStorageType.COLUMN.name())) {
                 tStorageType = TStorageType.COLUMN;
-            } else if (storageType.equalsIgnoreCase(TStorageType.ROW.name())) {
-                tStorageType = TStorageType.ROW;
             } else {
                 throw new AnalysisException("Invalid storage type: " + storageType);
             }

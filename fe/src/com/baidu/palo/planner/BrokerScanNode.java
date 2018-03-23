@@ -39,26 +39,20 @@ import com.baidu.palo.catalog.ScalarType;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.catalog.Type;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.ClientPool;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.util.BrokerUtil;
 import com.baidu.palo.load.BrokerFileGroup;
-import com.baidu.palo.service.FrontendOptions;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.thrift.TBrokerFileStatus;
-import com.baidu.palo.thrift.TBrokerListPathRequest;
-import com.baidu.palo.thrift.TBrokerListResponse;
-import com.baidu.palo.thrift.TBrokerOperationStatusCode;
 import com.baidu.palo.thrift.TBrokerRangeDesc;
 import com.baidu.palo.thrift.TBrokerScanNode;
 import com.baidu.palo.thrift.TBrokerScanRange;
 import com.baidu.palo.thrift.TBrokerScanRangeParams;
-import com.baidu.palo.thrift.TBrokerVersion;
 import com.baidu.palo.thrift.TExplainLevel;
 import com.baidu.palo.thrift.TFileFormatType;
 import com.baidu.palo.thrift.TFileType;
 import com.baidu.palo.thrift.TNetworkAddress;
-import com.baidu.palo.thrift.TPaloBrokerService;
 import com.baidu.palo.thrift.TPlanNode;
 import com.baidu.palo.thrift.TPlanNodeType;
 import com.baidu.palo.thrift.TScanRange;
@@ -66,17 +60,14 @@ import com.baidu.palo.thrift.TScanRangeLocation;
 import com.baidu.palo.thrift.TScanRangeLocations;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.thrift.TException;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
 import java.nio.charset.Charset;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -116,10 +107,12 @@ public class BrokerScanNode extends ScanNode {
     private BrokerDesc brokerDesc;
     private List<BrokerFileGroup> fileGroups;
 
-    private ArrayList<ArrayList<TBrokerFileStatus>> fileStatusesList;
+    private List<List<TBrokerFileStatus>> fileStatusesList;
+    // file num
+    private int filesAdded;
 
     // Only used for external table in select statement
-    private ArrayList<Backend> backends;
+    private List<Backend> backends;
     private int nextBe = 0;
 
     private Analyzer analyzer;
@@ -137,8 +130,11 @@ public class BrokerScanNode extends ScanNode {
 
     private List<ParamCreateContext> paramCreateContexts;
 
-    public BrokerScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
+    public BrokerScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
+            List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
         super(id, desc, planNodeName);
+        this.fileStatusesList = fileStatusesList;
+        this.filesAdded = filesAdded;
     }
 
     @Override
@@ -159,7 +155,7 @@ public class BrokerScanNode extends ScanNode {
 
         // Get all broker file status
         assignBackends();
-        getAllBrokerFileStatus();
+        getFileStatusAndCalcInstance();
 
         paramCreateContexts = Lists.newArrayList();
         for (BrokerFileGroup fileGroup : fileGroups) {
@@ -481,80 +477,34 @@ public class BrokerScanNode extends ScanNode {
         return locations.scan_range.broker_scan_range;
     }
 
-    private void parseBrokerFile(String path, ArrayList<TBrokerFileStatus> fileStatuses) throws InternalException {
-        BrokerMgr.BrokerAddress brokerAddress = null;
-        try {
-            String localIP = FrontendOptions.getLocalHostAddress();
-            brokerAddress = Catalog.getInstance().getBrokerMgr().getBroker(brokerDesc.getName(), localIP);
-        } catch (AnalysisException e) {
-            throw new InternalException(e.getMessage());
-        }
-        TNetworkAddress address = new TNetworkAddress(brokerAddress.ip, brokerAddress.port);
-        TPaloBrokerService.Client client = null;
-        try {
-            client  = ClientPool.brokerPool.borrowObject(address);
-        } catch (Exception e) {
-            try {
-                client  = ClientPool.brokerPool.borrowObject(address);
-            } catch (Exception e1) {
-                throw new InternalException("Create connection to broker(" + address + ") failed.");
-            }
-        }
-        boolean failed = true;
-        try {
-            TBrokerListPathRequest request = new TBrokerListPathRequest(
-                    TBrokerVersion.VERSION_ONE, path, false, brokerDesc.getProperties());
-            TBrokerListResponse tBrokerListResponse = null;
-            try {
-                tBrokerListResponse = client.listPath(request);
-            } catch (TException e) {
-                ClientPool.brokerPool.reopen(client);
-                tBrokerListResponse = client.listPath(request);
-            }
-            if (tBrokerListResponse.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
-                throw new InternalException("Broker list path failed.path=" + path
-                        + ",broker=" + address + ",msg=" + tBrokerListResponse.getOpStatus().getMessage());
-            }
-            failed = false;
-            for (TBrokerFileStatus tBrokerFileStatus : tBrokerListResponse.getFiles()) {
-                if (tBrokerFileStatus.isDir) {
-                    continue;
+    private void getFileStatusAndCalcInstance() throws InternalException {
+        if (fileStatusesList == null || filesAdded == -1) {
+            // FIXME(cmy): fileStatusesList and filesAdded can be set out of db lock when doing pull load,
+            // but for now it is very difficult set them out of db lock when doing broker query.
+            // So we leave this code block here.
+            // This will be fixed later.
+            fileStatusesList = Lists.newArrayList();
+            filesAdded = 0;
+            for (BrokerFileGroup fileGroup : fileGroups) {
+                List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
+                for (String path : fileGroup.getFilePathes()) {
+                    BrokerUtil.parseBrokerFile(path, brokerDesc, fileStatuses);
                 }
-                fileStatuses.add(tBrokerFileStatus);
-            }
-        } catch (TException e) {
-            LOG.warn("Broker list path exception, path={}, address={}, exception={}", path, address, e);
-            throw new InternalException("Broker list path exception.path=" + path + ",broker=" + address);
-        } finally {
-            if (failed) {
-                ClientPool.brokerPool.invalidateObject(address, client);
-            } else {
-                ClientPool.brokerPool.returnObject(address, client);
+                fileStatusesList.add(fileStatuses);
+                filesAdded += fileStatuses.size();
+                for (TBrokerFileStatus fstatus : fileStatuses) {
+                    LOG.info("Add file status is {}", fstatus);
+                }
             }
         }
-    }
-
-    private void getAllBrokerFileStatus() throws InternalException {
-        int filesAdded = 0;
-        fileStatusesList = Lists.newArrayList();
-        for (BrokerFileGroup fileGroup : fileGroups) {
-            ArrayList<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
-            for (String path : fileGroup.getFilePathes()) {
-                parseBrokerFile(path, fileStatuses);
-            }
-            fileStatusesList.add(fileStatuses);
-            filesAdded += fileStatuses.size();
-            for (TBrokerFileStatus fstatus : fileStatuses) {
-                LOG.info("Add file status is {}", fstatus);
-            }
-        }
+        Preconditions.checkState(fileStatusesList.size() == fileGroups.size());
 
         if (isLoad() && filesAdded == 0) {
             throw new InternalException("No source file in this table(" + targetTable.getName() + ").");
         }
 
         totalBytes = 0;
-        for (ArrayList<TBrokerFileStatus> fileStatuses : fileStatusesList) {
+        for (List<TBrokerFileStatus> fileStatuses : fileStatusesList) {
             Collections.sort(fileStatuses, T_BROKER_FILE_STATUS_COMPARATOR);
             for (TBrokerFileStatus fileStatus : fileStatuses) {
                 totalBytes += fileStatus.size;
@@ -599,7 +549,7 @@ public class BrokerScanNode extends ScanNode {
 
     private void processFileGroup(
             TBrokerScanRangeParams params,
-            ArrayList<TBrokerFileStatus> fileStatuses)
+            List<TBrokerFileStatus> fileStatuses)
             throws InternalException {
         if (fileStatuses == null || fileStatuses.isEmpty()) {
             return;
@@ -674,7 +624,7 @@ public class BrokerScanNode extends ScanNode {
         locationsList = Lists.newArrayList();
 
         for (int i = 0; i < fileGroups.size(); ++i) {
-            ArrayList<TBrokerFileStatus> fileStatuses = fileStatusesList.get(i);
+            List<TBrokerFileStatus> fileStatuses = fileStatusesList.get(i);
             if (fileStatuses.isEmpty()) {
                 continue;
             }

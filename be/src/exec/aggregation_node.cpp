@@ -302,7 +302,7 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
                 // avoid calling finalize() duplicately with last tuple
                 // when _output_iterator don't reach end.
                 // chenhao added
-                _output_iterator.next<false>(); 
+                _output_iterator.next<false>();
                 break;
             }
         }

@@ -22,15 +22,14 @@ import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
-import com.baidu.palo.http.BaseAction.AuthorizationInfo;
 import com.baidu.palo.service.ExecuteEnv;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
-import io.netty.handler.codec.http.HttpMethod;
-
 import java.util.Map;
+
+import io.netty.handler.codec.http.HttpMethod;
 
 // Start multi action
 public class MultiStart extends RestBaseAction {
@@ -77,7 +76,7 @@ public class MultiStart extends RestBaseAction {
                 properties.put(key, value);
             }
         }
-        execEnv.getMultiLoadMgr().startMulti(db, label, properties);
+        execEnv.getMultiLoadMgr().startMulti(fullDbName, label, properties);
         sendResult(request, response, RestBaseResult.getOk());
     }
 }
