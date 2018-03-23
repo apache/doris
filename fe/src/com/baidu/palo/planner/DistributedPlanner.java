@@ -526,19 +526,29 @@ public class DistributedPlanner {
         PlanFragment unionFragment = new PlanFragment(ctx_.getNextFragmentId(), unionNode, DataPartition.RANDOM);
         for (int i = 0; i < childFragments.size(); ++i) {
             PlanFragment childFragment = childFragments.get(i);
-            if (childFragment.isPartitioned()) {
-                // absorb the plan trees of all partitioned child fragments into unionNode
-                unionNode.addChild(childFragment.getPlanRoot());
-                unionFragment.setFragmentInPlanTree(unionNode.getChild(i));
-                unionFragment.addChildren(childFragment.getChildren());
-                fragments.remove(childFragment);
-            } else {
-                // dummy entry for subsequent addition of the ExchangeNode
-                unionNode.addChild(null);
-                // Connect the unpartitioned child fragments to unionNode via a random exchange.
-                connectChildFragment(unionNode, i, unionFragment, childFragment);
-                childFragment.setOutputPartition(DataPartition.RANDOM);
-            }
+            /* if (childFragment.isPartitioned() && childFragment.getPlanRoot().getNumInstances() > 1) {
+             *   // absorb the plan trees of all partitioned child fragments into unionNode
+             *   unionNode.addChild(childFragment.getPlanRoot());
+             *   unionFragment.setFragmentInPlanTree(unionNode.getChild(i));
+             *   unionFragment.addChildren(childFragment.getChildren());
+             *   fragments.remove(childFragment);
+             * } else {
+             *   // dummy entry for subsequent addition of the ExchangeNode
+             *   unionNode.addChild(null);
+             *   // Connect the unpartitioned child fragments to unionNode via a random exchange.
+             *   connectChildFragment(unionNode, i, unionFragment, childFragment);
+             *   childFragment.setOutputPartition(DataPartition.RANDOM);
+             * }
+             */
+
+            // UnionNode should't be absorbed by childFragment, because it reduce
+            // the degree of concurrency.
+            // chenhao16 add
+            // dummy entry for subsequent addition of the ExchangeNode
+            unionNode.addChild(null);
+            // Connect the unpartitioned child fragments to unionNode via a random exchange.
+            connectChildFragment(unionNode, i, unionFragment, childFragment);
+            childFragment.setOutputPartition(DataPartition.RANDOM);
         }
         unionNode.init(ctx_.getRootAnalyzer());
         return unionFragment;

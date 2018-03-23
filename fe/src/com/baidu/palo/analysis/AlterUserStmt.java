@@ -73,7 +73,7 @@ public class AlterUserStmt extends DdlStmt {
                         > Config.per_user_white_list_limit) {
                     throw new AnalysisException("whitelist size excced the max ("
                             + Config.per_user_white_list_limit + ")");
-                } 
+                }
             } catch (DdlException e) {
                 throw new AnalysisException(e.getMessage());
             }

@@ -64,7 +64,7 @@ public class BDBEnvironment {
     private static final int RETRY_TIME = 3;
     private static final int MEMORY_CACHE_PERCENT = 20;
     
-    private static final String PALO_JOURNAL_GROUP = "PALO_JOURNAL_GROUP";
+    public static final String PALO_JOURNAL_GROUP = "PALO_JOURNAL_GROUP";
 
     private ReplicatedEnvironment replicatedEnvironment;
     private EnvironmentConfig environmentConfig;
@@ -106,9 +106,9 @@ public class BDBEnvironment {
         replicationConfig.setMaxClockDelta(Config.max_bdbje_clock_delta_ms, TimeUnit.MILLISECONDS);
 
         if (isElectable) {
-            replicationConfig.setConsistencyPolicy(new NoConsistencyRequiredPolicy());
             replicationConfig.setReplicaAckTimeout(2, TimeUnit.SECONDS);
             replicationConfig.setConfigParam(ReplicationConfig.REPLICA_MAX_GROUP_COMMIT, "0");
+            replicationConfig.setConsistencyPolicy(new NoConsistencyRequiredPolicy());
         } else {
             replicationConfig.setNodeType(NodeType.SECONDARY);
             replicationConfig.setConsistencyPolicy(new NoConsistencyRequiredPolicy());
@@ -157,7 +157,6 @@ public class BDBEnvironment {
                     LOG.info("add self[{}] as ReplicationGroupAdmin", selfNodeHostPort);
                 }
 
-
                 replicationGroupAdmin = new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, adminNodes);
                 
                 // get a BDBHA object and pass the reference to Catalog
@@ -201,6 +200,10 @@ public class BDBEnvironment {
         return this.replicationGroupAdmin;
     }
     
+    public void setNewReplicationGroupAdmin(Set<InetSocketAddress> newHelperNodes) {
+        this.replicationGroupAdmin = new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, newHelperNodes);
+    }
+
     // Return a handle to the epochDB
     public Database getEpochDB() {
         return epochDB;

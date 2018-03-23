@@ -80,7 +80,7 @@ void SnapshotAction::handle(HttpRequest *req, HttpChannel *channel) {
     std::string snapshot_path;
     int64_t ret = make_snapshot(tablet_id, schema_hash, &snapshot_path);
     if (ret != 0L) {
-        std::string error_msg = std::string("make snapshot falied");
+        std::string error_msg = std::string("make snapshot failed");
         HttpResponse response(HttpStatus::INTERNAL_SERVER_ERROR, &error_msg);
         channel->send_response(response);
         return;

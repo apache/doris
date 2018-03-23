@@ -21,23 +21,20 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.catalog.AccessPrivilege;
-import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.util.PrintableMap;
-
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Set;
 
 // LOAD statement, load files into tables.
 //
@@ -64,7 +61,7 @@ public class LoadStmt extends DdlStmt {
     public static final String LOAD_DELETE_FLAG_PROPERTY = "load_delete_flag";
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String CLUSTER_PROPERTY = "cluster";
-
+    
     // for load data from Baidu Object Store(BOS)
     public static final String BOS_ENDPOINT = "bos_endpoint";
     public static final String BOS_ACCESSKEY = "bos_accesskey";
@@ -85,6 +82,18 @@ public class LoadStmt extends DdlStmt {
     private final Map<String, String> properties;
     private String user;
 
+    // properties set
+    private final static ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
+        .add(TIMEOUT_PROPERTY)
+        .add(MAX_FILTER_RATIO_PROPERTY)
+        .add(LOAD_DELETE_FLAG_PROPERTY)
+        .add(EXEC_MEM_LIMIT)
+        .add(CLUSTER_PROPERTY)
+        .add(BOS_ENDPOINT)
+        .add(BOS_ACCESSKEY)
+        .add(BOS_SECRET_ACCESSKEY)
+        .build();
+    
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
                     BrokerDesc brokerDesc, String cluster, Map<String, String> properties) {
         this.label = label;
@@ -124,29 +133,48 @@ public class LoadStmt extends DdlStmt {
             return;
         }
 
-        Set<String> propertySet = Sets.newHashSet();
-        propertySet.add(LoadStmt.TIMEOUT_PROPERTY);
-        propertySet.add(LoadStmt.MAX_FILTER_RATIO_PROPERTY);
-        propertySet.add(LoadStmt.LOAD_DELETE_FLAG_PROPERTY);
-        propertySet.add(LoadStmt.EXEC_MEM_LIMIT);
-        propertySet.add(LoadStmt.CLUSTER_PROPERTY);
-
         for (Entry<String, String> entry : properties.entrySet()) {
-            if (!propertySet.contains(entry.getKey())) {
-                throw new DdlException(entry.getKey() + "is invalid property");
+            if (!PROPERTIES_SET.contains(entry.getKey())) {
+                throw new DdlException(entry.getKey() + " is invalid property");
             }
         }
 
-        if (properties.get(LoadStmt.MAX_FILTER_RATIO_PROPERTY) != null) {
-            double maxFilterRatio = 0.0;
+        // exec mem
+        final String execMemProperty = properties.get(EXEC_MEM_LIMIT);
+        if (execMemProperty != null) {
             try {
-                maxFilterRatio = Double.valueOf(properties.get(LoadStmt.MAX_FILTER_RATIO_PROPERTY));
+                final long execMem = Long.valueOf(execMemProperty);
+                if (execMem <= 0) {
+                    throw new DdlException(EXEC_MEM_LIMIT + " must be greater than 0");
+                }
             } catch (NumberFormatException e) {
-                throw new DdlException(LoadStmt.MAX_FILTER_RATIO_PROPERTY + " is not a number.");
-
+                throw new DdlException(EXEC_MEM_LIMIT + " is not a number.");
             }
-            if (maxFilterRatio < 0.0 || maxFilterRatio > 1.0) {
-                throw new DdlException(LoadStmt.MAX_FILTER_RATIO_PROPERTY + " must between 0.0 and 1.0.");
+        }
+
+        // timeout
+        final String timeoutLimitProperty = properties.get(TIMEOUT_PROPERTY);
+        if (timeoutLimitProperty != null) {
+            try {
+                final int timeoutLimit = Integer.valueOf(timeoutLimitProperty);
+                if (timeoutLimit < 0) {
+                    throw new DdlException(TIMEOUT_PROPERTY + " must be greater than 0");
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(TIMEOUT_PROPERTY + " is not a number.");
+            }
+        }
+
+        // max filter ratio
+        final String maxFilterRadioProperty = properties.get(MAX_FILTER_RATIO_PROPERTY);
+        if (maxFilterRadioProperty != null) {
+            try {
+                double maxFilterRatio = Double.valueOf(maxFilterRadioProperty);
+                if (maxFilterRatio < 0.0 || maxFilterRatio > 1.0) {
+                    throw new DdlException(MAX_FILTER_RATIO_PROPERTY + " must between 0.0 and 1.0.");
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(MAX_FILTER_RATIO_PROPERTY + " is not a number.");
             }
         }
     }

@@ -21,7 +21,6 @@ import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ClientPool;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.InternalException;
-import com.baidu.palo.common.Pair;
 import com.baidu.palo.common.Status;
 import com.baidu.palo.common.util.DebugUtil;
 import com.baidu.palo.common.util.ProfileManager;
@@ -32,8 +31,6 @@ import com.baidu.palo.load.ExportJob;
 import com.baidu.palo.qe.Coordinator;
 import com.baidu.palo.qe.QeProcessor;
 import com.baidu.palo.service.FrontendOptions;
-import com.baidu.palo.system.Backend;
-import com.baidu.palo.thrift.TAgentResult;
 import com.baidu.palo.thrift.TBrokerOperationStatus;
 import com.baidu.palo.thrift.TBrokerOperationStatusCode;
 import com.baidu.palo.thrift.TBrokerRenamePathRequest;
@@ -51,6 +48,7 @@ import org.apache.thrift.TException;
 
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 public class ExportExportingTask extends MasterTask {
     private static final Logger LOG = LogManager.getLogger(ExportExportingTask.class);
@@ -106,8 +104,16 @@ public class ExportExportingTask extends MasterTask {
                     break;
                 }
                 if (j < RETRY_NUM - 1) {
+                    TUniqueId queryId = coord.getQueryId();
+                    LOG.info("export exporting job fail. query_id: {}, job: {}. Retry.", queryId, job);
                     coord.clearExportStatus();
-                    LOG.info("export exporting job fail. job: {}. Retry.", job);
+
+                    // gen one new queryId here, to avoid being rejected by BE,
+                    // because the request is considered as a repeat request.
+                    // we make the high part of query id unchanged to facilitate tracing problem by log.
+                    UUID uuid = UUID.randomUUID();
+                    TUniqueId newQueryId = new TUniqueId(queryId.hi, uuid.getLeastSignificantBits());
+                    coord.setQueryId(newQueryId);
                 }
             }
             if (!coord.getExecStatus().ok()) {

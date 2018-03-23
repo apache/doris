@@ -311,7 +311,7 @@ Status BrokerScanNode::scanner_scan(
             TupleRow* row = row_batch->get_row(row_idx);
             // scan node is the first tuple of tuple row
             row->set_tuple(0, tuple);
-            memset(tuple, 0, sizeof(_tuple_desc->num_null_bytes()));
+            memset(tuple, 0, _tuple_desc->num_null_bytes());
 
             // Get from scanner
             RETURN_IF_ERROR(scanner->get_next(tuple, tuple_pool, &scanner_eof));

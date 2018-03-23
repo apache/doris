@@ -25,6 +25,7 @@ import com.baidu.palo.common.DdlException;
 import com.baidu.palo.load.LoadJob.EtlJobType;
 import com.baidu.palo.thrift.TMiniLoadRequest;
 import com.baidu.palo.thrift.TNetworkAddress;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -42,8 +43,8 @@ public class MultiLoadMgr {
 
     // Start multi-load transaction.
     // Label is the only need parameter, maybe other properties?
-    public void startMulti(String db, String label, Map<String, String> properties) throws DdlException {
-        if (Strings.isNullOrEmpty(db)) {
+    public void startMulti(String fullDbName, String label, Map<String, String> properties) throws DdlException {
+        if (Strings.isNullOrEmpty(fullDbName)) {
             throw new DdlException("Database is empty");
         }
         if (Strings.isNullOrEmpty(label)) {
@@ -51,7 +52,7 @@ public class MultiLoadMgr {
         }
 
         LoadStmt.checkProperties(properties);
-        LabelName multiLabel = new LabelName(db, label);
+        LabelName multiLabel = new LabelName(fullDbName, label);
         lock.writeLock().lock();
         try {
             if (infoMap.containsKey(multiLabel)) {
@@ -62,7 +63,7 @@ public class MultiLoadMgr {
             lock.writeLock().unlock();
         }
         // Register to Load after put into map.
-        Catalog.getInstance().getLoadInstance().registerMiniLabel(db, label, System.currentTimeMillis());
+        Catalog.getInstance().getLoadInstance().registerMiniLabel(fullDbName, label, System.currentTimeMillis());
     }
 
     public void load(TMiniLoadRequest request) throws DdlException {
@@ -71,12 +72,12 @@ public class MultiLoadMgr {
     }
 
     // Add one load job, we have
-    public void load(String db, String label,
+    private void load(String fullDbName, String label,
                      String subLabel, String table,
                      List<String> files,
                      TNetworkAddress fileAddr,
                      Map<String, String> properties) throws DdlException {
-        LabelName multiLabel = new LabelName(db, label);
+        LabelName multiLabel = new LabelName(fullDbName, label);
         lock.writeLock().lock();
         try {
             MultiLoadDesc multiLoadDesc = infoMap.get(multiLabel);
@@ -89,8 +90,8 @@ public class MultiLoadMgr {
         }
     }
 
-    public void unload(String db, String label, String subLabel) throws DdlException {
-        LabelName multiLabel = new LabelName(db, label);
+    public void unload(String fullDbName, String label, String subLabel) throws DdlException {
+        LabelName multiLabel = new LabelName(fullDbName, label);
         lock.writeLock().lock();
         try {
             MultiLoadDesc multiLoadDesc = infoMap.get(multiLabel);
@@ -105,8 +106,8 @@ public class MultiLoadMgr {
 
     // 'db' and 'label' form a multiLabel used to
     // user can pass commitLabel which use this string commit to jobmgr
-    public void commit(String db, String label) throws DdlException {
-        LabelName multiLabel = new LabelName(db, label);
+    public void commit(String fullDbName, String label) throws DdlException {
+        LabelName multiLabel = new LabelName(fullDbName, label);
         lock.writeLock().lock();
         try {
             MultiLoadDesc multiLoadDesc = infoMap.get(multiLabel);
@@ -121,12 +122,12 @@ public class MultiLoadMgr {
         } finally {
             lock.writeLock().unlock();
         }
-        Catalog.getInstance().getLoadInstance().deregisterMiniLabel(db, label);
+        Catalog.getInstance().getLoadInstance().deregisterMiniLabel(fullDbName, label);
     }
 
     // Abort a in-progress multi-load job
-    public void abort(String db, String label) throws DdlException {
-        LabelName multiLabel = new LabelName(db, label);
+    public void abort(String fullDbName, String label) throws DdlException {
+        LabelName multiLabel = new LabelName(fullDbName, label);
         lock.writeLock().lock();
         try {
             MultiLoadDesc multiLoadDesc = infoMap.get(multiLabel);
@@ -137,11 +138,11 @@ public class MultiLoadMgr {
         } finally {
             lock.writeLock().unlock();
         }
-        Catalog.getInstance().getLoadInstance().deregisterMiniLabel(db, label);
+        Catalog.getInstance().getLoadInstance().deregisterMiniLabel(fullDbName, label);
     }
 
-    public void desc(String db, String label, List<String> subLabels) throws DdlException {
-        LabelName multiLabel = new LabelName(db, label);
+    public void desc(String fullDbName, String label, List<String> subLabels) throws DdlException {
+        LabelName multiLabel = new LabelName(fullDbName, label);
         lock.readLock().lock();
         try {
             MultiLoadDesc multiLoadDesc = infoMap.get(multiLabel);
@@ -155,14 +156,14 @@ public class MultiLoadMgr {
     }
 
     // List all in-progress labels in database.
-    public void list(String db, List<String> labels) throws DdlException {
-        if (Strings.isNullOrEmpty(db)) {
+    public void list(String fullDbName, List<String> labels) throws DdlException {
+        if (Strings.isNullOrEmpty(fullDbName)) {
             throw new DdlException("No database selected");
         }
         lock.readLock().lock();
         try {
             for (LabelName label : infoMap.keySet()) {
-                if (db.equals(label.getDbName())) {
+                if (fullDbName.equals(label.getDbName())) {
                     labels.add(label.getLabelName());
                 }
             }
@@ -171,9 +172,9 @@ public class MultiLoadMgr {
         }
     }
 
-    public TNetworkAddress redirectAddr(String db, String label, String tbl, TNetworkAddress defaultAddr)
+    public TNetworkAddress redirectAddr(String fullDbName, String label, String tbl, TNetworkAddress defaultAddr)
             throws DdlException {
-        LabelName multiLabel = new LabelName(db, label);
+        LabelName multiLabel = new LabelName(fullDbName, label);
         lock.writeLock().lock();
         try {
             MultiLoadDesc desc = infoMap.get(multiLabel);

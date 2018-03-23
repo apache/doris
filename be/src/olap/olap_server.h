@@ -79,12 +79,12 @@ private:
     static Condition _s_session_timeout_cond;
 
     // thread to run base expansion
-    pthread_t* _be_threads;
+    std::vector<pthread_t> _be_threads;
 
     // thread to check cumulative
-    pthread_t* _cumulative_threads;
+    std::vector<pthread_t> _cumulative_threads;
 
-    pthread_t* _fd_cache_clean_thread;
+    pthread_t _fd_cache_clean_thread;
 
     static atomic_t _s_request_number;
 };

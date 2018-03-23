@@ -30,7 +30,7 @@ public class MetricsAction extends RestBaseAction {
     }
 
     public static void registerAction(ActionController controller) throws IllegalArgException {
-        controller.registerHandler(HttpMethod.GET, "/api/metrics", new MetricsAction(controller));
+        controller.registerHandler(HttpMethod.GET, "/metrics", new MetricsAction(controller));
     }
 
     @Override

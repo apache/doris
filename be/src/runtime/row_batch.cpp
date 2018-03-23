@@ -356,6 +356,12 @@ void RowBatch::transfer_resource_ownership(RowBatch* dest) {
     if (!config::enable_partitioned_aggregation) {
         _tuple_ptrs = NULL;
     }
+
+    if (_needs_deep_copy) {
+        dest->mark_needs_deep_copy();
+    } else if (_flush == FlushMode::FLUSH_RESOURCES) {
+        dest->mark_flush_resources();
+    }
     reset();
 }
 

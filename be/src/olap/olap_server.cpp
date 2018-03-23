@@ -55,9 +55,8 @@ Condition OLAPServer::_s_check_disks_cond = Condition(OLAPServer::_s_check_disks
 MutexLock OLAPServer::_s_session_timeout_mutex = MutexLock();
 Condition OLAPServer::_s_session_timeout_cond = Condition(OLAPServer::_s_session_timeout_mutex);
 
-OLAPServer::OLAPServer()  
-        : _be_threads(NULL),
-        _cumulative_threads(NULL) {}
+OLAPServer::OLAPServer() { }
+
 OLAPStatus OLAPServer::init(const char* config_path, const char* config_file) {
     // start thread for monitoring the snapshot and trash folder
     if (pthread_create(&_garbage_sweeper_thread,
@@ -88,35 +87,31 @@ OLAPStatus OLAPServer::init(const char* config_path, const char* config_file) {
 
     // start be and ce threads for merge data
     int32_t be_thread_num = config::base_expansion_thread_num;
-    _be_threads = new pthread_t[be_thread_num];
+    _be_threads.resize(be_thread_num, -1);
     for (uint32_t i = 0; i < be_thread_num; ++i) {
-        if (0 != pthread_create(&(_be_threads[i]),
+        if (0 != pthread_create(&_be_threads[i],
                                 NULL,
                                 _be_thread_callback,
                                 NULL)) {
             OLAP_LOG_FATAL("failed to start base expansion thread. [id=%u]", i); 
-            SAFE_DELETE_ARRAY(_be_threads);
             return OLAP_ERR_INIT_FAILED;
-        }   
-    }   
+        }
+    }
 
     int32_t ce_thread_num = config::cumulative_thread_num;
-    _cumulative_threads = new pthread_t[ce_thread_num];
+    _cumulative_threads.resize(ce_thread_num, -1);
     for (uint32_t i = 0; i < ce_thread_num; ++i) {
-        if (0 != pthread_create(&(_cumulative_threads[i]), 
+        if (0 != pthread_create(&_cumulative_threads[i], 
                                 NULL, 
                                 _cumulative_thread_callback, 
                                 NULL)) {
             OLAP_LOG_FATAL("failed to start cumulative thread. [id=%u]", i); 
-            SAFE_DELETE_ARRAY(_cumulative_threads);
             return OLAP_ERR_INIT_FAILED;
-        }   
+        }
     }
 
-    _fd_cache_clean_thread = new pthread_t;
-    if (0 != pthread_create(_fd_cache_clean_thread, NULL, _fd_cache_clean_callback, NULL)) {
+    if (0 != pthread_create(&_fd_cache_clean_thread, NULL, _fd_cache_clean_callback, NULL)) {
         OLAP_LOG_FATAL("failed to start fd_cache_clean thread"); 
-        SAFE_DELETE(_fd_cache_clean_thread);
         return OLAP_ERR_INIT_FAILED;
     }
 

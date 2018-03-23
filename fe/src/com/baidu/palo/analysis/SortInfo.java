@@ -20,18 +20,18 @@
 
 package com.baidu.palo.analysis;
 
-import java.util.List;
-import java.util.Set;
-
-import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.TreeNode;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.List;
+import java.util.Set;
 
 /**
  * Encapsulates all the information needed to compute ORDER BY
@@ -175,7 +175,6 @@ public class SortInfo {
         // The descriptor for the tuples on which the sort operates.
         TupleDescriptor sortTupleDesc = analyzer.getDescTbl().createTupleDescriptor("sort");
         sortTupleDesc.setIsMaterialized(true);
-        LOG.info("zc sort tuple desc is {}", sortTupleDesc.debugString());
         List<Expr> sortTupleExprs = Lists.newArrayList();
 
         // substOrderBy is a mapping from exprs evaluated on the sort input that get

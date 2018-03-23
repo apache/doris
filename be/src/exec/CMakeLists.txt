@@ -26,7 +26,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 
-add_library(Exec STATIC
+set(EXEC_FILES
   aggregation_node.cpp
   #pre_aggregation_node.cpp
   aggregation_node_ir.cpp
@@ -82,6 +82,18 @@ add_library(Exec STATIC
   partitioned_aggregation_node_ir.cc
   local_file_writer.cpp
   broker_writer.cpp
+)
+
+if(EXISTS "${BASE_DIR}/src/exec/kudu_util.cpp")
+    set(EXEC_FILES ${EXEC_FILES}
+        #kudu_scan_node.cpp
+        #kudu_scanner.cpp
+        #kudu_util.cpp
+    )
+endif()
+
+add_library(Exec STATIC
+    ${EXEC_FILES}
 )
 
 # TODO: why is this test disabled?

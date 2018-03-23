@@ -339,7 +339,7 @@
         max_filter_ratio:   用于指定允许过滤不规范数据的最大比例，默认是0，不允许过滤
                             自定义指定应该如下：'max_filter_ratio=0.2'，含义是允许20%的错误率
 			    
-        timout:             指定 load 作业的超时时间，单位是秒。当load执行时间超过该阈值时，会自动取消。默认超时时间是 86400 秒。
+        timeout:             指定 load 作业的超时时间，单位是秒。当load执行时间超过该阈值时，会自动取消。默认超时时间是 86400 秒。
                             建议指定 timeout 时间小于 86400 秒。
                             
        	hll:                用于指定数据里面和表里面的HLL列的对应关系，表中的列和数据里面指定的列
@@ -362,7 +362,7 @@
         curl --location-trusted -u root -T testData http://host:port/api/testDb/testTbl/_load?label=123
 
     2. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表（用户是test_cluster中的）。超时时间是 3600 秒
-        curl --location-trusted -u root@test_cluster:root -T testData http://fe.host:port/api/testDb/testTbl/_load?label=123
+        curl --location-trusted -u root@test_cluster:root -T testData http://fe.host:port/api/testDb/testTbl/_load?label=123i\&timeout=3600
 
     3. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表, 允许20%的错误率（用户是defalut_cluster中的）
         curl --location-trusted -u root -T testData http://host:port/api/testDb/testTbl/_load?label=123\&max_filter_ratio=0.2

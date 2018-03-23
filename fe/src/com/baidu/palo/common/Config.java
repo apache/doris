@@ -482,6 +482,10 @@ public class Config extends ConfigBase {
             + "'}"
             + "}";
 
+    // for forward compatibility, will be removed later.
+    // check token when download image file.
+    @ConfField public static boolean enable_token_check = true;
+    
     /*
      * Set to true if you deploy Palo using thirdparty deploy manager
      * Valid options are:
@@ -491,14 +495,13 @@ public class Config extends ConfigBase {
      *      local:      Local File (test only)
      */
     @ConfField public static String enable_deploy_manager = "disable";
-
+    
     // if use k8s deploy manager locally, set this to true and prepare the certs files
     @ConfField public static boolean with_k8s_certs = false;
-
-    // for forward compatibility, will be removed later.
-    // check token when download image file.
-    @ConfField public static boolean enable_token_check = true;
-
+    
     // white list limit
     @ConfField public static int per_user_white_list_limit = 1024;
+    
+    // set runtime locale when exec some cmds
+    @ConfField public static String locale = "zh_CN.UTF-8";
 }

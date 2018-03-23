@@ -29,6 +29,7 @@ import com.baidu.palo.common.InternalException;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -274,7 +275,6 @@ public abstract class QueryStmt extends StatementBase {
         }
 
         ExprSubstitutionMap smap = sortInfo.createSortTupleInfo(resultExprs, analyzer);
-        LOG.info("zc: order smap is {}", smap.debugString());
 
         for (int i = 0; i < smap.size(); ++i) {
             if (!(smap.getLhs().get(i) instanceof SlotRef)
@@ -292,13 +292,7 @@ public abstract class QueryStmt extends StatementBase {
             // }
         }
 
-        for (Expr expr : resultExprs) {
-            LOG.info("befor expr {}", expr);
-        }
         substituteResultExprs(smap, analyzer);
-        for (Expr expr : resultExprs) {
-            LOG.info("after expr {}", expr);
-        }
     }
 
     /**

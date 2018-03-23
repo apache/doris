@@ -78,7 +78,8 @@ public class DppSchedulerTest {
         CommandResult result = new CommandResult();
         result.setReturnCode(0);
         PowerMock.mockStaticPartial(Util.class, "executeCommand", "shellSplit");
-        EasyMock.expect(Util.executeCommand(EasyMock.anyString())).andReturn(result).anyTimes();
+        EasyMock.expect(Util.executeCommand(EasyMock.anyString(),
+                                            EasyMock.isA(String[].class))).andReturn(result).anyTimes();
         List<String> cmdList = new ArrayList<String>();
         cmdList.add("test");
         EasyMock.expect(Util.shellSplit(EasyMock.anyString())).andReturn(cmdList).anyTimes();
@@ -117,7 +118,8 @@ public class DppSchedulerTest {
         result.setReturnCode(0);
         result.setStdout(fileInfos);
         PowerMock.mockStatic(Util.class);
-        EasyMock.expect(Util.executeCommand(EasyMock.anyString())).andReturn(result).times(3);
+        EasyMock.expect(Util.executeCommand(EasyMock.anyString(),
+                                            EasyMock.isA(String[].class))).andReturn(result).times(3);
         PowerMock.replay(Util.class);
  
         // get method
@@ -191,7 +193,8 @@ public class DppSchedulerTest {
         result.setReturnCode(0);
         result.setStdout(jobStatus);
         PowerMock.mockStatic(Util.class);
-        EasyMock.expect(Util.executeCommand(EasyMock.anyString())).andReturn(result).times(1);
+        EasyMock.expect(Util.executeCommand(EasyMock.anyString(),
+                                            EasyMock.isA(String[].class))).andReturn(result).times(1);
         PowerMock.replay(Util.class);
  
         EtlStatus status = dppScheduler.getEtlJobStatus("etlJobId");
@@ -218,7 +221,8 @@ public class DppSchedulerTest {
         String files = "-rw-r--r--   3 palo palo   29896160 2015-02-03 13:10 /label_0/export/label_0.32241.32241.0\n"
                      + "-rw-r--r--   3 palo palo   29896161 2015-02-03 13:10 /label_0/export/label_0.32241.32241.1";
         successLsResult.setStdout(files);
-        EasyMock.expect(Util.executeCommand(EasyMock.anyString())).andReturn(successLsResult).times(1);
+        EasyMock.expect(Util.executeCommand(EasyMock.anyString(),
+                                            EasyMock.isA(String[].class))).andReturn(successLsResult).times(1);
         PowerMock.replay(Util.class);
         Map<String, Long> fileMap = dppScheduler.getEtlFiles(outputPath);
         Assert.assertEquals(2, fileMap.size());
@@ -232,17 +236,22 @@ public class DppSchedulerTest {
 
         // ls fail and outputPath not exist
         PowerMock.mockStatic(Util.class);
-        EasyMock.expect(Util.executeCommand(EasyMock.anyString())).andReturn(failLsResult).times(1);
-        EasyMock.expect(Util.executeCommand(EasyMock.anyString())).andReturn(failTestDirResult).times(1);
+        EasyMock.expect(Util.executeCommand(EasyMock.anyString(),
+                                            EasyMock.isA(String[].class))).andReturn(failLsResult).times(1);
+        EasyMock.expect(Util.executeCommand(EasyMock.anyString(),
+                                            EasyMock.isA(String[].class))).andReturn(failTestDirResult).times(1);
         PowerMock.replay(Util.class);
         Assert.assertNull(dppScheduler.getEtlFiles(outputPath));
         PowerMock.verifyAll();
         
         // ls fail and fileDir not exist
         PowerMock.mockStatic(Util.class);
-        EasyMock.expect(Util.executeCommand(EasyMock.anyString())).andReturn(failLsResult).times(1);
-        EasyMock.expect(Util.executeCommand(EasyMock.anyString())).andReturn(successTestDirResult).times(1);
-        EasyMock.expect(Util.executeCommand(EasyMock.anyString())).andReturn(failTestDirResult).times(1);
+        EasyMock.expect(Util.executeCommand(EasyMock.anyString(),
+                                            EasyMock.isA(String[].class))).andReturn(failLsResult).times(1);
+        EasyMock.expect(Util.executeCommand(EasyMock.anyString(),
+                                            EasyMock.isA(String[].class))).andReturn(successTestDirResult).times(1);
+        EasyMock.expect(Util.executeCommand(EasyMock.anyString(),
+                                            EasyMock.isA(String[].class))).andReturn(failTestDirResult).times(1);
         PowerMock.replay(Util.class);
         fileMap = dppScheduler.getEtlFiles(outputPath);
         Assert.assertNotNull(fileMap);
@@ -254,7 +263,8 @@ public class DppSchedulerTest {
     public void testKillEtlJob() {
         CommandResult result = new CommandResult();
         PowerMock.mockStatic(Util.class);
-        EasyMock.expect(Util.executeCommand(EasyMock.anyString())).andReturn(result).times(1);
+        EasyMock.expect(Util.executeCommand(EasyMock.anyString(),
+                                            EasyMock.isA(String[].class))).andReturn(result).times(1);
         PowerMock.replay(Util.class);
  
         dppScheduler.killEtlJob("etlJobId");

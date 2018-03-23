@@ -22,6 +22,7 @@ import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.MaterializedIndex;
 import com.baidu.palo.catalog.OlapTable;
+import com.baidu.palo.catalog.OlapTable.OlapTableState;
 import com.baidu.palo.catalog.Partition;
 import com.baidu.palo.catalog.PartitionInfo;
 import com.baidu.palo.catalog.PartitionKey;
@@ -29,9 +30,8 @@ import com.baidu.palo.catalog.PartitionType;
 import com.baidu.palo.catalog.RangePartitionInfo;
 import com.baidu.palo.catalog.Replica;
 import com.baidu.palo.catalog.Table;
-import com.baidu.palo.catalog.Tablet;
-import com.baidu.palo.catalog.OlapTable.OlapTableState;
 import com.baidu.palo.catalog.Table.TableType;
+import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.Pair;
 import com.baidu.palo.common.io.Text;
@@ -494,7 +494,7 @@ public class BackupJob extends AbstractBackupJob {
                             if (backendIds.isEmpty()) {
                                 String msg = "tablet[" + tabletId + "] does not check up with version: "
                                         + versionInfo.first + "-" + versionInfo.second;
-                                // this should not happend
+                                // this should not happen
                                 LOG.error(msg);
                                 throw new DdlException(msg);
                             }

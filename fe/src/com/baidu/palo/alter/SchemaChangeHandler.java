@@ -60,6 +60,7 @@ import com.baidu.palo.thrift.TStorageType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
@@ -1094,66 +1095,98 @@ public class SchemaChangeHandler extends AlterHandler {
     protected void runOneCycle() {
         super.runOneCycle();
 
-        List<AlterJob> cancelledJobs = new LinkedList<AlterJob>();
+        List<AlterJob> cancelledJobs = Lists.newArrayList();
+        // copied all jobs out of alterJobs to avoid lock problems
+        List<AlterJob> copiedAlterJobs = Lists.newArrayList();
+        Set<Long> removedIds = Sets.newHashSet();
+
+        this.jobsLock.readLock().lock();
+        try {
+            copiedAlterJobs.addAll(alterJobs.values());
+        } finally {
+            this.jobsLock.readLock().unlock();
+        }
+
+        // handle all alter jobs
+        for (AlterJob alterJob : copiedAlterJobs) {
+            JobState state = alterJob.getState();
+            switch (state) {
+                case PENDING: {
+                    if (!alterJob.sendTasks()) {
+                        cancelledJobs.add(alterJob);
+                        LOG.warn("sending schema change job[" + alterJob.getTableId()
+                                + "] tasks failed. cancel it.");
+                    }
+                    break;
+                }
+                case RUNNING: {
+                    if (alterJob.isTimeout()) {
+                        cancelledJobs.add(alterJob);
+                    } else {
+                        int res = alterJob.tryFinishJob();
+                        if (res == -1) {
+                            cancelledJobs.add(alterJob);
+                            LOG.warn("cancel bad schema change job[{}]", alterJob.getTableId());
+                        } else if (res == 1) {
+                            // finished
+                            removedIds.add(alterJob.getTableId());
+                        }
+                    }
+                    break;
+                }
+                case FINISHED: {
+                    // FINISHED state should be handled in RUNNING case
+                    Preconditions.checkState(false);
+                    break;
+                }
+                case CANCELLED: {
+                    // all CANCELLED state should be handled immediately
+                    Preconditions.checkState(false);
+                    break;
+                }
+                default:
+                    Preconditions.checkState(false);
+                    break;
+            }
+        } // end for jobs
+
+        // remove job from alterJobs and add to delayDeleteSchemaChangeJobs
+        copiedAlterJobs.clear();
         this.jobsLock.writeLock().lock();
         try {
-            Iterator<Map.Entry<Long, AlterJob>> iterator = this.alterJobs.entrySet().iterator();
-            while (iterator.hasNext()) {
-                Map.Entry<Long, AlterJob> entry = iterator.next();
-                AlterJob alterJob = entry.getValue();
-
-                JobState state = alterJob.getState();
-                switch (state) {
-                    case PENDING: {
-                        if (!alterJob.sendTasks()) {
-                            cancelledJobs.add(alterJob);
-                            LOG.warn("sending schema change job[" + alterJob.getTableId()
-                                    + "] tasks failed. cancel it.");
-                        }
-                        break;
-                    }
-                    case RUNNING: {
-                        if (alterJob.isTimeout()) {
-                            cancelledJobs.add(alterJob);
-                        } else {
-                            int res = alterJob.tryFinishJob();
-                            if (res == -1) {
-                                cancelledJobs.add(alterJob);
-                                LOG.warn("cancel bad schema change job[{}]", alterJob.getTableId());
-                            } else if (res == 1) {
-                                // finished.
-                                delayDeleteSchemaChangeJobs.add((SchemaChangeJob) alterJob);
-                                iterator.remove();
-                            }
-                        }
-                        break;
-                    }
-                    case FINISHED: {
-                        // FINISHED state should be handled in RUNNING case
-                        Preconditions.checkState(false);
-                        break;
-                    }
-                    case CANCELLED: {
-                        // all CANCELLED state should be handled immediately
-                        Preconditions.checkState(false);
-                        break;
-                    }
-                    default:
-                        Preconditions.checkState(false);
-                        break;
+            for (Long tblId : removedIds) {
+                AlterJob job = alterJobs.remove(tblId);
+                if (job != null) {
+                    delayDeleteSchemaChangeJobs.add((SchemaChangeJob) job);
                 }
-            } // end for jobs
+            }
+            copiedAlterJobs.addAll(delayDeleteSchemaChangeJobs);
+        } finally {
+            this.jobsLock.writeLock().unlock();
+        }
 
-            // handle delay delete jobs
-            Iterator<SchemaChangeJob> iter = this.delayDeleteSchemaChangeJobs.iterator();
-            while (iter.hasNext()) {
-                SchemaChangeJob job = iter.next();
-                Preconditions.checkState(job.getFinishedTime() > 0L);
-                if (job.tryDeleteAllTableHistorySchema()) {
-                    addFinishedOrCancelledAlterJob(job);
-                    iter.remove();
+        // handle delay delete jobs
+        removedIds.clear();
+        for (AlterJob alterJob : copiedAlterJobs) {
+            SchemaChangeJob job = (SchemaChangeJob) alterJob;
+            Preconditions.checkState(job.getFinishedTime() > 0L);
+            if (job.tryDeleteAllTableHistorySchema()) {
+                addFinishedOrCancelledAlterJob(job);
+                removedIds.add(alterJob.getTableId());
+            }
+        }
+
+        this.jobsLock.writeLock().lock();
+        try {
+            for (Long tblId : removedIds) {
+                Iterator<SchemaChangeJob> iter = delayDeleteSchemaChangeJobs.iterator();
+                while (iter.hasNext()) {
+                    SchemaChangeJob job = iter.next();
+                    if (job.getTableId() == tblId) {
+                        iter.remove();
+                    }
                 }
-            } // end while
+            }
         } finally {
             this.jobsLock.writeLock().unlock();
         }

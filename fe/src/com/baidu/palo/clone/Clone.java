@@ -15,20 +15,6 @@
 
 package com.baidu.palo.clone;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.MaterializedIndex;
@@ -49,6 +35,20 @@ import com.baidu.palo.task.AgentTaskQueue;
 import com.baidu.palo.task.CloneTask;
 import com.baidu.palo.thrift.TTabletInfo;
 import com.baidu.palo.thrift.TTaskType;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class Clone {
     private static final Logger LOG = LogManager.getLogger(Clone.class);
@@ -118,7 +118,8 @@ public class Clone {
             }
             
             // check job num
-            if (jobNum >= Config.clone_max_job_num && priority != JobPriority.NORMAL && priority != JobPriority.HIGH) {
+            // TODO(cmy): for now we limit clone job num in all priority level.
+            if (jobNum >= Config.clone_max_job_num) {
                 LOG.debug("too many clone jobs. job num: {}", jobNum);
                 return false;
             }

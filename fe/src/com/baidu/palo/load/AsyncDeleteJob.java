@@ -238,7 +238,7 @@ public class AsyncDeleteJob implements Writable {
             if (opStr.equals("IS")) {
                 String value = Text.readString(in);
                 IsNullPredicate predicate;
-                if ("NOT NULL".equals(value)) {
+                if (value.equals("NOT NULL")) {
                     predicate = new IsNullPredicate(new SlotRef(null, key), true);
                 } else {
                     predicate = new IsNullPredicate(new SlotRef(null, key), false);

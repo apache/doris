@@ -120,9 +120,8 @@ public class MysqlProto {
         }
         boolean ok = context.getCatalog().checkWhiteList(tmpUser, remoteIp);
         if (!ok) {
-            LOG.warn("you are deny by whiltList remoteIp={} user={}",
-                    context.getMysqlChannel().getRemoteIp(), tmpUser);
-            ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, tmpUser, usePass);
+            LOG.debug("deny by whiltList. remoteIp={} user={}", context.getMysqlChannel().getRemoteIp(), tmpUser);
+            ErrorReport.report(ErrorCode.ERR_IP_NOT_ALLOWED, context.getMysqlChannel().getRemoteIp());
             return false;
         }
 

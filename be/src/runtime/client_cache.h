@@ -59,7 +59,7 @@ namespace palo {
 // TODO: limits on total number of clients, and clients per-backend
 class ClientCacheHelper {
 public:
-    ~ClientCacheHelper() {}
+    ~ClientCacheHelper();
     // Callback method which produces a client object when one cannot be
     // found in the cache. Supplied by the ClientCache wrapper.
     typedef boost::function < ThriftClientImpl* (const TNetworkAddress& hostport,

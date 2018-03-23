@@ -71,15 +71,15 @@ static const char* const kUnusedFlagFilePrefix = "unused";
 static const char* const kTestFilePath = "/.testfile";
 
 OLAPRootPath::OLAPRootPath() :
+        is_report_disk_state_already(false),
+        is_report_olap_table_already(false),
         _test_file_write_buf(NULL),
         _test_file_read_buf(NULL),
         _total_storage_medium_type_count(0),
         _available_storage_medium_type_count(0),
         _effective_cluster_id(-1),
         _is_all_cluster_id_exist(true),
-        _is_drop_tables(false),
-        is_report_disk_state_already(false),
-        is_report_olap_table_already(false) {}
+        _is_drop_tables(false) {}
 
 OLAPRootPath::~OLAPRootPath() {
     clear();
@@ -1244,6 +1244,8 @@ OLAPStatus OLAPRootPath::_check_recover_root_path_cluster_id(const std::string& 
     int lock_res = flock(fp->_fileno, LOCK_EX | LOCK_NB);
     if (lock_res < 0) {
         OLAP_LOG_WARNING("fail to lock file descriptor. [path='%s']", path.c_str());
+        fclose(fp);
+        fp = NULL;
         return OLAP_ERR_TRY_LOCK_FAILED;
     }
 
@@ -1252,6 +1254,8 @@ OLAPStatus OLAPRootPath::_check_recover_root_path_cluster_id(const std::string& 
     res = _get_cluster_id_from_path(path, &cluster_id);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to get cluster id from path. [res=%d]", res);
+        fclose(fp);
+        fp = NULL;
         return res;
     } else if (cluster_id == -1 || _effective_cluster_id == -1) {
         _is_all_cluster_id_exist = false;
@@ -1261,6 +1265,8 @@ OLAPStatus OLAPRootPath::_check_recover_root_path_cluster_id(const std::string& 
     res = _judge_and_update_effective_cluster_id(cluster_id);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to judge and update effective cluster id. [res=%d]", res);
+        fclose(fp);
+        fp = NULL;
         return res;
     }
 
@@ -1269,11 +1275,15 @@ OLAPStatus OLAPRootPath::_check_recover_root_path_cluster_id(const std::string& 
         res = set_cluster_id(_effective_cluster_id);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to write cluster id to path. [res=%d]", res);
+            fclose(fp);
+            fp = NULL;
             return res;
         }
         _is_all_cluster_id_exist = true;
     }
 
+    fclose(fp);
+    fp = NULL;
     return res;
 }
 
@@ -1337,6 +1347,8 @@ OLAPStatus OLAPRootPath::check_all_root_path_cluster_id(
             int lock_res = flock(fp->_fileno, LOCK_EX | LOCK_NB);
             if (lock_res < 0) {
                 OLAP_LOG_WARNING("fail to lock file descriptor. [path='%s']", path.c_str());
+                fclose(fp);
+                fp = NULL;
                 return OLAP_ERR_TRY_LOCK_FAILED;
             }
         }

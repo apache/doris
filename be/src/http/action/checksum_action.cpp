@@ -108,7 +108,7 @@ void ChecksumAction::handle(HttpRequest *req, HttpChannel *channel) {
 
     int64_t checksum = do_checksum(tablet_id, version, version_hash, schema_hash, req, channel);
     if (checksum == -1L) {
-        std::string error_msg = std::string("checksum falied");
+        std::string error_msg = std::string("checksum failed");
         HttpResponse response(HttpStatus::INTERNAL_SERVER_ERROR, &error_msg);
         channel->send_response(response);
         return;

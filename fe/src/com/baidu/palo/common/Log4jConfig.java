@@ -20,17 +20,17 @@
 
 package com.baidu.palo.common;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LoggerContext;
 import org.apache.logging.log4j.core.config.ConfigurationSource;
 import org.apache.logging.log4j.core.config.xml.XmlConfiguration;
 import org.apache.logging.log4j.core.lookup.Interpolator;
 import org.apache.logging.log4j.core.lookup.StrSubstitutor;
+
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 // 
 // don't use trace. use INFO, WARN, ERROR, FATAL
@@ -42,9 +42,9 @@ public class Log4jConfig extends XmlConfiguration {
         "<?xml version='1.0' encoding='UTF-8'?>" +
         "<Configuration status='debug' packages='com.baidu.palo.common'>" +
         "<Appenders>" +
-            "<RollingFile name='Sys' fileName='${sys_log_dir}/fe.log' " + 
-                                    "filePattern='${sys_log_dir}/fe.log.${sys_file_pattern}'>" +
-            "<PatternLayout>" +
+            "<RollingFile name='Sys' fileName='${sys_log_dir}/fe.log' " +
+            "filePattern='${sys_log_dir}/fe.log.${sys_file_pattern}'>" +
+            "<PatternLayout charset='UTF-8'>" +
             "<Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p %tid [%C{1}.%M():%L] %m%n</Pattern>" +
                 "</PatternLayout>" +
                 "<Policies>" + 
@@ -55,7 +55,7 @@ public class Log4jConfig extends XmlConfiguration {
             "</RollingFile>" + 
             "<RollingFile name='SysWF' fileName='${sys_log_dir}/fe.warn.log' " + 
                                       "filePattern='${sys_log_dir}/fe.warn.log.${sys_file_pattern}'>" +
-                "<PatternLayout>" +
+                "<PatternLayout charset='UTF-8'>" +
             "<Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p %tid [%C{1}.%M():%L] %m%n</Pattern>" +
                 "</PatternLayout>" +
                 "<Policies>" + 
@@ -66,7 +66,7 @@ public class Log4jConfig extends XmlConfiguration {
             "</RollingFile>" +
             "<RollingFile name='Auditfile' fileName='${audit_log_dir}/fe.audit.log' " + 
                                     "filePattern='${audit_log_dir}/fe.audit.log.${audit_file_pattern}'>" +
-                "<PatternLayout>" +
+                "<PatternLayout charset='UTF-8'>" +
                 "<Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} [%c{1}] %m%n</Pattern>" +
                 "</PatternLayout>" +
                 "<Policies>" + 

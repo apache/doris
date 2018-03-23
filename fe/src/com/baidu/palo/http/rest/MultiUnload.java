@@ -39,7 +39,7 @@ public class MultiUnload extends RestBaseAction {
         this.execEnv = execEnv;
     }
 
-    public static void registerAction (ActionController controller) throws IllegalArgException {
+    public static void registerAction(ActionController controller) throws IllegalArgException {
         ExecuteEnv executeEnv = ExecuteEnv.getInstance();
         MultiUnload action = new MultiUnload(controller, executeEnv);
         controller.registerHandler(HttpMethod.POST, "/api/{db}/_multi_unload", action);
@@ -67,7 +67,8 @@ public class MultiUnload extends RestBaseAction {
         if (redirectToMaster(request, response)) {
             return;
         }
-        execEnv.getMultiLoadMgr().unload(db, label, subLabel);
+
+        execEnv.getMultiLoadMgr().unload(fullDbName, label, subLabel);
         sendResult(request, response, RestBaseResult.getOk());
     }
 }

@@ -21,7 +21,6 @@ import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
-import com.baidu.palo.http.BaseAction.AuthorizationInfo;
 import com.baidu.palo.service.ExecuteEnv;
 
 import com.google.common.base.Strings;
@@ -63,7 +62,7 @@ public class MultiCommit extends RestBaseAction {
         if (redirectToMaster(request, response)) {
             return;
         }
-        execEnv.getMultiLoadMgr().commit(db, label);
+        execEnv.getMultiLoadMgr().commit(fullDbName, label);
         sendResult(request, response, RestBaseResult.getOk());
     }
 }
