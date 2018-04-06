@@ -311,6 +311,13 @@ public class ConnectProcessor {
         if (request.isSetResourceInfo()) {
             ctx.getSessionVariable().setResourceGroup(request.getResourceInfo().getGroup());
         }
+        if (request.isSetExecMemLimit()) {
+            ctx.getSessionVariable().setMaxExecMemByte(request.getExecMemLimit());
+        }
+        if (request.isSetQueryTimeout()) {
+            ctx.getSessionVariable().setQueryTimeoutS(request.getQueryTimeout());
+        }
+
         ctx.setThreadLocalInfo();
 
         StmtExecutor executor = null;
