@@ -156,20 +156,20 @@ public abstract class QueryStmt extends StatementBase {
         collectTableRefs(tblRefs);
         for (TableRef tblRef: tblRefs) {
             if (absoluteRef == null && !tblRef.isRelative()) absoluteRef = tblRef;
-            if (tblRef.isCorrelated()) {
-                /*
-                // Check if the correlated table ref is rooted at a tuple descriptor from within
-                // this query stmt. If so, the correlation is contained within this stmt
-                // and the table ref does not conflict with absolute refs.
-                CollectionTableRef t = (CollectionTableRef) tblRef;
-                Preconditions.checkState(t.getResolvedPath().isRootedAtTuple());
-                // This check relies on tblRefs being in depth-first order.
-                if (!tblRefIds.contains(t.getResolvedPath().getRootDesc().getId())) {
-                    if (correlatedRef == null) correlatedRef = tblRef;
-                    correlatedTupleIds.add(t.getResolvedPath().getRootDesc().getId());
-                }
-                */
-            }
+            /*if (tblRef.isCorrelated()) {
+             *   
+             *   // Check if the correlated table ref is rooted at a tuple descriptor from within
+             *   // this query stmt. If so, the correlation is contained within this stmt
+             *   // and the table ref does not conflict with absolute refs.
+             *   CollectionTableRef t = (CollectionTableRef) tblRef;
+             *   Preconditions.checkState(t.getResolvedPath().isRootedAtTuple());
+             *   // This check relies on tblRefs being in depth-first order.
+             *   if (!tblRefIds.contains(t.getResolvedPath().getRootDesc().getId())) {
+             *       if (correlatedRef == null) correlatedRef = tblRef;
+             *       correlatedTupleIds.add(t.getResolvedPath().getRootDesc().getId());
+             *   }
+             *   
+            }*/
             if (correlatedRef != null && absoluteRef != null) {
                 throw new AnalysisException(String.format(
                         "Nested query is illegal because it contains a table reference '%s' " +
@@ -234,23 +234,25 @@ public abstract class QueryStmt extends StatementBase {
         sortInfo = new SortInfo(orderingExprs, isAscOrder, nullsFirstParams);
         // order by w/o limit and offset in inline views, union operands and insert statements
         // are ignored.
-        if (!hasLimit() && !hasOffset() && !analyzer.isRootAnalyzer()) {
-            evaluateOrderBy = false;
-            // Return a warning that the order by was ignored.
-            StringBuilder strBuilder = new StringBuilder();
-            strBuilder.append("Ignoring ORDER BY clause without LIMIT or OFFSET: ");
-            strBuilder.append("ORDER BY ");
-            strBuilder.append(orderByElements.get(0).toSql());
-            for (int i = 1; i < orderByElements.size(); ++i) {
-                strBuilder.append(", ").append(orderByElements.get(i).toSql());
-            }
-            strBuilder.append(".\nAn ORDER BY appearing in a view, subquery, union operand, ");
-            strBuilder.append("or an insert/ctas statement has no effect on the query result ");
-            strBuilder.append("unless a LIMIT and/or OFFSET is used in conjunction ");
-            strBuilder.append("with the ORDER BY.");
-        } else {
-            evaluateOrderBy = true;
-        }
+        // TODO chenhao, open this when we don't limit rows subquery returns by SortNode.
+        /*if (!hasLimit() && !hasOffset() && !analyzer.isRootAnalyzer()) {
+         *   evaluateOrderBy = false;
+         *   // Return a warning that the order by was ignored.
+         *   StringBuilder strBuilder = new StringBuilder();
+         *   strBuilder.append("Ignoring ORDER BY clause without LIMIT or OFFSET: ");
+         *   strBuilder.append("ORDER BY ");
+         *   strBuilder.append(orderByElements.get(0).toSql());
+         *   for (int i = 1; i < orderByElements.size(); ++i) {
+         *       strBuilder.append(", ").append(orderByElements.get(i).toSql());
+         *   }
+         *   strBuilder.append(".\nAn ORDER BY appearing in a view, subquery, union operand, ");
+         *   strBuilder.append("or an insert/ctas statement has no effect on the query result ");
+         *   strBuilder.append("unless a LIMIT and/or OFFSET is used in conjunction ");
+         *   strBuilder.append("with the ORDER BY.");
+         * } else {
+         */
+        evaluateOrderBy = true;
+        //}
     }
 
     /**
@@ -400,8 +402,8 @@ public abstract class QueryStmt extends StatementBase {
     public boolean hasOrderByClause() {
         return orderByElements != null;
     }
-    public boolean hasLimit() { return limitElement != null; }
-    public boolean hasOffset() { return limitElement != null && limitElement.getOffset() != 0; }
+    public boolean hasLimit() { return limitElement != null && limitElement.hasLimit(); }
+    public boolean hasOffset() { return limitElement != null && limitElement.hasOffset(); }
 
     public long getLimit() {
         return limitElement.getLimit();

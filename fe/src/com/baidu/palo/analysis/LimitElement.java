@@ -80,6 +80,10 @@ class LimitElement {
         return offset;
     }
 
+    public boolean hasOffset() {
+        return offset != 0;
+    }
+
     public String toSql() {
         if (limit == -1) {
             return "";

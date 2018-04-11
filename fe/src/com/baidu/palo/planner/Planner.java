@@ -151,8 +151,9 @@ public class Planner {
             }
         }
 
+        // TODO chenhao16 , no used materialization work
         // compute referenced slots before calling computeMemLayout()
-        analyzer.markRefdSlots(analyzer, singleNodePlan, resultExprs, null);
+        //analyzer.markRefdSlots(analyzer, singleNodePlan, resultExprs, null);
 
         setResultExprScale(analyzer, queryStmt.getResultExprs());
 

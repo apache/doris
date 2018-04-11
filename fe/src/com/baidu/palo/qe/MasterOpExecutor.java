@@ -75,6 +75,8 @@ public class MasterOpExecutor {
         params.setUser(ctx.getUser());
         params.setDb(ctx.getDatabase());
         params.setResourceInfo(ctx.toResourceCtx());
+        params.setExecMemLimit(ctx.getSessionVariable().getMaxExecMemByte());
+        params.setQueryTimeout(ctx.getSessionVariable().getQueryTimeoutS());
 
         LOG.info("Forward statement {} to Master {}", originStmt, thriftAddress);
 
