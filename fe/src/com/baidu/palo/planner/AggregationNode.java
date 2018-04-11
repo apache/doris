@@ -236,8 +236,7 @@ public class AggregationNode extends PlanNode {
 
         List<TExpr> aggregateFunctions = Lists.newArrayList();
         // only serialize agg exprs that are being materialized
-        //for (FunctionCallExpr e: aggInfo.getMaterializedAggregateExprs()) {
-        for (FunctionCallExpr e : aggInfo.getAggregateExprs()) {
+        for (FunctionCallExpr e: aggInfo.getMaterializedAggregateExprs()) {
             aggregateFunctions.add(e.treeToThrift());
         }
         msg.agg_node =
@@ -254,7 +253,7 @@ public class AggregationNode extends PlanNode {
     @Override
     protected String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
-        if (aggInfo.getAggregateExprs() != null && aggInfo.getAggregateExprs().size() > 0) {
+        if (aggInfo.getAggregateExprs() != null && aggInfo.getMaterializedAggregateExprs().size() > 0) {
             output.append(detailPrefix + "output: ").append(
               getExplainString(aggInfo.getAggregateExprs()) + "\n");
         }

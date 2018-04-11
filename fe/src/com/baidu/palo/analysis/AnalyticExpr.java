@@ -660,7 +660,7 @@ public class AnalyticExpr extends Expr {
                     // -1 indicates that no NULL values are inserted even though we set the end
                     // bound to the start bound (which is PRECEDING) below; this is different from
                     // the default behavior of windows with an end bound PRECEDING.
-                    paramExprs.add(new DecimalLiteral(BigDecimal.valueOf(-1)));
+                    paramExprs.add(new IntLiteral(-1, Type.BIGINT));
                 }
 
                 window = new AnalyticWindow(window.getType(),

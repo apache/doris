@@ -400,6 +400,8 @@ struct TMasterOpRequest {
     3: required string sql 
     4: optional Types.TResourceInfo resourceInfo
     5: optional string cluster
+    6: optional i64 execMemLimit
+    7: optional i32 queryTimeout
 }
 
 struct TColumnDefinition {

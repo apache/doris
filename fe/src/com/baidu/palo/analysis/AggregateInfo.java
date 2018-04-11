@@ -297,8 +297,8 @@ public final class AggregateInfo extends AggregateInfoBase {
 
     public ArrayList<FunctionCallExpr> getMaterializedAggregateExprs() {
         ArrayList<FunctionCallExpr> result = Lists.newArrayList();
-        for (Integer i : materializedAggregateSlots_) {
-            result.add(aggregateExprs_.get(i));
+        for (Integer i: materializedSlots_) {
+          result.add(aggregateExprs_.get(i));
         }
         return result;
     }
@@ -725,8 +725,8 @@ public final class AggregateInfo extends AggregateInfoBase {
         // over query statements, if aggregate functions contain count(*), now 
         // materialize all slots this SelectStmt maps.
         // chenhao added.
-        if (hasCountStar) {
-            resolvedExprs = smap.getRhs();
+        if (hasCountStar && smap != null && smap.size() > 0) {
+            resolvedExprs.addAll(smap.getRhs());
         } 
         analyzer.materializeSlots(resolvedExprs);
 

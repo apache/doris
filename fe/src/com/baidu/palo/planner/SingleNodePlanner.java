@@ -1140,6 +1140,9 @@ public class SingleNodePlanner {
         }
         // assignConjuncts(scanNode, analyzer);
         scanNode.init(analyzer);
+        // TODO chenhao16 add
+        // materialize conjuncts in where
+        analyzer.materializeSlots(scanNode.getConjuncts());
         scanNodes.add(scanNode);
         return scanNode;
     }

@@ -442,6 +442,8 @@ Status MiniLoadAction::check_auth(HttpRequest* http_req) {
                 return status;
             }
             client->loadCheck(res, req);
+            _user.assign(req.user);
+            _cluster.assign(cluster);
         }
     } catch (apache::thrift::TException& e) {
         // failed when retry.
