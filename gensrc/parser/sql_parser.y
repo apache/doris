@@ -220,7 +220,7 @@ terminal String KW_ADD, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANT
     KW_RANDOM, KW_RANGE, KW_READ, KW_RECOVER, KW_REGEXP, KW_RELEASE, KW_RENAME,
     KW_REPEATABLE, KW_REPLACE, KW_RESOURCE, KW_RESTORE, KW_REVOKE,
     KW_RIGHT, KW_ROLLBACK, KW_ROLLUP, KW_ROW, KW_ROWS,
-    KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SHOW,
+    KW_SCHEMAS, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SHOW,
     KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STORAGE, KW_STRING, 
     KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM, 
     KW_TABLE, KW_TABLES, KW_TABLET, KW_TERMINATED, KW_THAN, KW_THEN, KW_TIMESTAMP, KW_TINYINT,
@@ -255,7 +255,7 @@ nonterminal SelectStmt select_stmt;
 
 // No return.
 nonterminal describe_command, opt_full, opt_inner, opt_outer, from_or_in, keys_or_index, opt_storage, opt_wild_where,
-            charset, equal, transaction_characteristics, isolation_level,
+            charset, opt_charset_name, equal, transaction_characteristics, isolation_level,
             transaction_access_mode, isolation_types;
 
 // String
@@ -1564,6 +1564,10 @@ show_param ::=
     {:
         RESULT = new ShowDbStmt(parser.wild, parser.where);
     :}
+    | KW_SCHEMAS opt_wild_where
+    {:
+        RESULT = new ShowDbStmt(parser.wild, parser.where);
+    :}
     /* Columns */
     | opt_full KW_COLUMNS from_or_in table_name:table opt_db:db opt_wild_where
     {:
@@ -1730,6 +1734,11 @@ old_or_new_charset_name_or_default ::=
     {:
         RESULT = null;
     :}
+    ;
+
+opt_charset_name ::=
+    /* empty */
+    | charset old_or_new_charset_name_or_default
     ;
 
 opt_collate ::=
@@ -2523,7 +2532,7 @@ select_sublist ::=
     ;
 
 select_list_item ::=
-    expr:expr select_alias:alias
+    expr:expr opt_collate:collate select_alias:alias
     {:
         RESULT = new SelectListItem(expr, alias);
     :}
@@ -2843,6 +2852,10 @@ cast_expr ::=
   {: RESULT = new CastExpr(Type.fromPrimitiveType((PrimitiveType) targetType), e, false); :}
   | KW_CAST LPAREN expr:e KW_AS primitive_type:targetType LPAREN non_pred_expr:e1 RPAREN RPAREN
   {: RESULT = new CastExpr(Type.fromPrimitiveType((PrimitiveType) targetType), e, false); :}
+  | KW_CAST LPAREN expr:e KW_AS KW_CHAR opt_charset_name RPAREN
+  {: RESULT = new CastExpr(Type.fromPrimitiveType(PrimitiveType.VARCHAR), e, false); :}
+  | KW_CAST LPAREN expr:e KW_AS KW_CHAR LPAREN non_pred_expr:e1 RPAREN opt_charset_name RPAREN
+  {: RESULT = new CastExpr(Type.fromPrimitiveType(PrimitiveType.VARCHAR), e, false); :}
   ;
 
 case_expr ::=
@@ -3271,8 +3284,6 @@ column_ref ::=
 primitive_type ::=
   KW_TINYINT
   {: RESULT = PrimitiveType.TINYINT; :}
-  | KW_CHAR
-  {: RESULT = PrimitiveType.VARCHAR; :}
   | KW_SMALLINT
   {: RESULT = PrimitiveType.SMALLINT; :}
   | KW_INT

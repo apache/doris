@@ -364,9 +364,7 @@ public class Column implements Writable {
         if (aggregationType != null && !isAggregationTypeImplicit) {
             sb.append(aggregationType.name()).append(" ");
         }
-        if (isAllowNull) {
-            sb.append("NULL ");
-        } else {
+        if (!isAllowNull) {
             sb.append("NOT NULL ");
         }
         if (defaultValue != null) {
