@@ -3346,7 +3346,9 @@ public class Catalog {
             if (idx++ != 0) {
                 sb.append(",\n");
             }
-            sb.append(" ").append(column.toSql());
+            // There MUST BE 2 space in front of each column description line
+            // sqlalchemy requires this to parse SHOW CREATE TAEBL stmt.
+            sb.append("  ").append(column.toSql());
         }
         sb.append("\n) ENGINE=");
         sb.append(table.getType().name());
@@ -3370,7 +3372,9 @@ public class Catalog {
             if (separatePartition) {
                 partitionId = Lists.newArrayList();
             }
-            sb.append("\n").append(partitionInfo.toSql(olapTable, partitionId));
+            if (partitionInfo.getType() == PartitionType.RANGE) {
+                sb.append("\n").append(partitionInfo.toSql(olapTable, partitionId));
+            }
 
             // distribution
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();

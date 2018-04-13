@@ -244,6 +244,7 @@ import com.baidu.palo.common.util.SqlUtils;
         keywordMap.put("rollup", new Integer(SqlParserSymbols.KW_ROLLUP));
         keywordMap.put("row", new Integer(SqlParserSymbols.KW_ROW));
         keywordMap.put("rows", new Integer(SqlParserSymbols.KW_ROWS));
+        keywordMap.put("schemas", new Integer(SqlParserSymbols.KW_SCHEMAS));
         keywordMap.put("select", new Integer(SqlParserSymbols.KW_SELECT));
         keywordMap.put("semi", new Integer(SqlParserSymbols.KW_SEMI));
         keywordMap.put("serializable", new Integer(SqlParserSymbols.KW_SERIALIZABLE));
