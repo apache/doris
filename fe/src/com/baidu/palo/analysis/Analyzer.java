@@ -1156,7 +1156,7 @@ public class Analyzer {
         List<ExprId> ojClauseConjuncts = null;
         if (rhsRef != null) {
             Preconditions.checkState(rhsRef.getJoinOp().isOuterJoin());
-            ojClauseConjuncts = globalState.conjunctsByOjClause.get(rhsRef);
+            ojClauseConjuncts = globalState.conjunctsByOjClause.get(rhsRef.getId());
         }
         for (ExprId conjunctId : conjunctIds) {
             Expr e = globalState.conjuncts.get(conjunctId);

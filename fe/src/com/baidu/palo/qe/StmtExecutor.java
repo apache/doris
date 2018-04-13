@@ -643,6 +643,7 @@ public class StmtExecutor {
     }
 
     public void sendShowResult(ShowResultSet resultSet) throws IOException {
+        context.updateReturnRows(resultSet.getResultRows().size());
         // Send meta data.
         sendMetaData(resultSet.getMetaData());
 
