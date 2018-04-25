@@ -210,5 +210,5 @@ palo-rd@baidu.com
 需要加入Palo微信技术讨论群的，请加微信号：myh13161636186，然后备注一下：加入Palo技术讨论群
 
 # Blogs
-[浅谈从Google Mesa到百度PALO](http://neoremind.com/2017/09/%E6%B5%85%E8%B0%88%E4%BB%8Egoogle-mesa%E5%88%B0%E7%99%BE%E5%BA%A6palo/comment-page-1/)
-[Apache Kylin VS Baidu Palo](https://blog.bcmeng.com/post/apache-kylin-vs-baidu-palo.html)
+1. [浅谈从Google Mesa到百度PALO](http://neoremind.com/2017/09/%E6%B5%85%E8%B0%88%E4%BB%8Egoogle-mesa%E5%88%B0%E7%99%BE%E5%BA%A6palo/comment-page-1/)
+2. [Apache Kylin VS Baidu Palo](https://blog.bcmeng.com/post/apache-kylin-vs-baidu-palo.html)
