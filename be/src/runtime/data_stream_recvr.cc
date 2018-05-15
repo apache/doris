@@ -82,7 +82,7 @@ public:
     void add_batch(
         const PRowBatch& pb_batch,
         int be_number, int64_t packet_seq,
-        ::google::protobuf::Closure* done);
+        ::google::protobuf::Closure** done);
 
     // Decrement the number of remaining senders for this queue and signal eos ("new data")
     // if the count drops to 0. The number of senders will be 1 for a merging
@@ -279,7 +279,7 @@ void DataStreamRecvr::SenderQueue::add_batch(const TRowBatch& thrift_batch,
 void DataStreamRecvr::SenderQueue::add_batch(
         const PRowBatch& pb_batch,
         int be_number, int64_t packet_seq,
-        ::google::protobuf::Closure* done) {
+        ::google::protobuf::Closure** done) {
     unique_lock<mutex> l(_lock);
     if (_is_cancelled) {
         return;
@@ -337,12 +337,10 @@ void DataStreamRecvr::SenderQueue::add_batch(
         << " batch_size=" << batch_size << "\n";
     _batch_queue.emplace_back(batch_size, batch);
     // if done is nullptr, this function can't delay this response
-    if (done != nullptr) {
-        if (_recvr->exceeds_limit(batch_size)) {
-            _pending_closures.push_back(done);
-        } else {
-            done->Run();
-        }
+    if (done != nullptr && _recvr->exceeds_limit(batch_size)) {
+        DCHECK(*done != nullptr);
+        _pending_closures.push_back(*done);
+        *done = nullptr;
     }
     _recvr->_num_buffered_bytes += batch_size;
     _data_arrival_cv.notify_one();
@@ -494,7 +492,7 @@ void DataStreamRecvr::add_batch(
 void DataStreamRecvr::add_batch(
         const PRowBatch& batch, int sender_id,
         int be_number, int64_t packet_seq,
-        ::google::protobuf::Closure* done) {
+        ::google::protobuf::Closure** done) {
     int use_sender_id = _is_merging ? sender_id : 0;
     // Add all batches to the same queue if _is_merging is false.
     _sender_queues[use_sender_id]->add_batch(batch, be_number, packet_seq, done);

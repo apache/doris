@@ -115,7 +115,7 @@ public class DeployManager extends Daemon {
     protected static final Integer MAX_MISSING_TIME = 3;
 
     public DeployManager(Catalog catalog, long intervalMs) {
-        super("deplotManager", intervalMs);
+        super("deployManager", intervalMs);
         this.catalog = catalog;
     }
 
@@ -320,7 +320,7 @@ public class DeployManager extends Daemon {
         if (selfHost == null) {
             // The running of this deploy manager means this node is considered self as Master.
             // If it self does not exist in electable fe service group, it should shut it self down.
-            LOG.warn("Self host {} is not in electable fe service group {}. Exit now.",
+            LOG.warn("self host {} is not in electable fe service group {}. Exit now.",
                      selfHost, electableFeServiceGroup);
             System.exit(-1);
         }
@@ -329,7 +329,9 @@ public class DeployManager extends Daemon {
         List<Frontend> localElectableFeAddrs = catalog.getFrontends(FrontendNodeType.FOLLOWER);
         List<Pair<String, Integer>> localElectableFeHosts = convertToHostPortPair(localElectableFeAddrs);
         LOG.debug("get local electable hosts: {}", localElectableFeHosts);
-        inspectNodeChange(remoteElectableFeHosts, localElectableFeHosts, NodeType.ELECTABLE);
+        if (inspectNodeChange(remoteElectableFeHosts, localElectableFeHosts, NodeType.ELECTABLE)) {
+            return;
+        }
 
         // 2. Check the backend service group
         BE_BLOCK: {
@@ -344,7 +346,9 @@ public class DeployManager extends Daemon {
                 localBackendHosts.add(Pair.create(backend.getHost(), backend.getHeartbeatPort()));
             }
             LOG.debug("get local backend addrs: {}", localBackendHosts);
-            inspectNodeChange(remoteBackendHosts, localBackendHosts, NodeType.BACKEND);
+            if (inspectNodeChange(remoteBackendHosts, localBackendHosts, NodeType.BACKEND)) {
+                return;
+            }
         }
 
         if (hasObserverService) {
@@ -358,7 +362,9 @@ public class DeployManager extends Daemon {
                 List<Frontend> localObserverFeAddrs = catalog.getFrontends(FrontendNodeType.OBSERVER);
                 List<Pair<String, Integer>> localObserverFeHosts = convertToHostPortPair(localObserverFeAddrs);
                 LOG.debug("get local observer fe hosts: {}", localObserverFeHosts);
-                inspectNodeChange(remoteObserverFeHosts, localObserverFeHosts, NodeType.OBSERVER);
+                if (inspectNodeChange(remoteObserverFeHosts, localObserverFeHosts, NodeType.OBSERVER)) {
+                    return;
+                }
             }
         }
 
@@ -461,9 +467,10 @@ public class DeployManager extends Daemon {
      * 1. Check if there are some nodes need to be dropped.
      * 2. Check if there are some nodes need to be added.
      * 
-     * We only handle one change at a time
+     * We only handle one change at a time.
+     * Return true if something changed
      */
-    private void inspectNodeChange(List<Pair<String, Integer>> remoteHosts,
+    private boolean inspectNodeChange(List<Pair<String, Integer>> remoteHosts,
             List<Pair<String, Integer>> localHosts,
             NodeType nodeType) {
 
@@ -476,7 +483,7 @@ public class DeployManager extends Daemon {
                 // Double check if is it self
                 if (isSelf(localIp, localPort)) {
                     // This is it self. Shut down now.
-                    LOG.error("Self host {}:{} does not exist in remote hosts. Showdown.");
+                    LOG.error("self host {}:{} does not exist in remote hosts. Showdown.");
                     System.exit(-1);
                 }
                 
@@ -486,20 +493,25 @@ public class DeployManager extends Daemon {
                     LOG.warn("downtime of {} node: {} detected times: 1",
                              nodeType.name(), localHost);
                     counterMap.put(localHost.toString(), 1);
-                    return;
+                    return false;
                 } else {
                     int times = counterMap.get(localHost.toString());
                     if (times < MAX_MISSING_TIME) {
                         LOG.warn("downtime of {} node: {} detected times: {}",
                                  nodeType.name(), localHost, times + 1);
                         counterMap.put(localHost.toString(), times + 1);
-                        return;
+                        return false;
                     } else {
                         // Reset the counter map and do the dropping operation
                         LOG.warn("downtime of {} node: {} detected times: {}. drop it",
                                  nodeType.name(), localHost, times + 1);
                         counterMap.remove(localHost.toString());
                     }
+                }
+
+                if (true) {
+                    // TODO(cmy): For now, Deploy Manager dose not handle shrinking operations
+                    continue;
                 }
 
                 // Can not find local host from remote host list,
@@ -520,11 +532,12 @@ public class DeployManager extends Daemon {
                     }
                 } catch (DdlException e) {
                     LOG.error("Failed to drop {} node: {}:{}", nodeType, localIp, localPort, e);
-                    return;
+                    // return true is a conservative behavior. we do not expect any exception here.
+                    return true;
                 }
 
                 LOG.info("Finished to drop {} node: {}:{}", nodeType, localIp, localPort);
-                return;
+                return true;
             }
         }
 
@@ -554,13 +567,15 @@ public class DeployManager extends Daemon {
                     }
                 } catch (DdlException e) {
                     LOG.error("Failed to add {} node: {}:{}", nodeType, remoteIp, remotePort, e);
-                    return;
+                    return true;
                 }
 
                 LOG.info("Finished to add {} node: {}:{}", nodeType, remoteIp, remotePort);
-                return;
+                return true;
             }
         }
+
+        return false;
     }
 
     // Get host port pair from pair list. Return null if not found
@@ -600,3 +615,4 @@ public class DeployManager extends Daemon {
         }
     }
 }
+

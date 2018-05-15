@@ -56,8 +56,7 @@ WrapperField* WrapperField::create_by_type(const FieldType& type) {
 }
 
 WrapperField::WrapperField(Field* rep, size_t variable_len, bool is_string_type)
-        : _rep(rep)  {
-
+        : _rep(rep), _is_string_type(is_string_type)  {
     size_t fixed_len = _rep->size();
     _length = fixed_len + variable_len + 1;
     _field_buf = new char[_length];
@@ -66,7 +65,7 @@ WrapperField::WrapperField(Field* rep, size_t variable_len, bool is_string_type)
     _is_null = _field_buf;
     _buf = _field_buf + 1;
 
-    if (is_string_type) {
+    if (_is_string_type) {
         StringSlice* slice = reinterpret_cast<StringSlice*>(_buf);
         slice->size = variable_len;
         slice->data = _buf + fixed_len;

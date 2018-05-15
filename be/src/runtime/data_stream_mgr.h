@@ -103,7 +103,7 @@ public:
     Status add_data(const PUniqueId& fragment_instance_id, int32_t node_id,
                     const PRowBatch& pb_batch, int32_t sender_id,
                     int32_t be_number, int64_t packet_seq,
-                    ::google::protobuf::Closure* done);
+                    ::google::protobuf::Closure** done);
 
     // Notifies the recvr associated with the fragment/node id that the specified
     // sender has closed.

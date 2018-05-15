@@ -37,7 +37,7 @@ void PInternalServiceImpl::transmit_data(google::protobuf::RpcController* cntl_b
             request->finst_id(), request->node_id(),
             request->row_batch(), request->sender_id(),
             request->be_number(), request->packet_seq(),
-            eos ? nullptr : done);
+            eos ? nullptr : &done);
     }
     if (eos) {
         TUniqueId finst_id;
@@ -46,6 +46,8 @@ void PInternalServiceImpl::transmit_data(google::protobuf::RpcController* cntl_b
         _exec_env->stream_mgr()->close_sender(
             finst_id, request->node_id(),
             request->sender_id(), request->be_number());
+    }
+    if (done != nullptr) {
         done->Run();
     }
 }

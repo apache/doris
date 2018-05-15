@@ -128,8 +128,20 @@ public class BDBJournalCursor implements JournalCursor {
                     LOG.warn("fail to get journal {}, will try again. status: {}", currentKey, operationStatus);
                     Thread.sleep(3000);
                     continue;
+                } else if (operationStatus == OperationStatus.NOTFOUND) {
+                    // In the case:
+                    // On non-master FE, the replayer will first get the max journal id,
+                    // than try to replay logs from current replayed id to the max journal id. But when
+                    // master FE try to write a log to bdbje, but crashed before this log is committed,
+                    // the non-master FE may still get this incomplete log's id as max journal id,
+                    // and try to replay it. We will first get LockTimeoutException (because the transaction
+                    // is hanging and waiting to be aborted after timeout). and after this log abort,
+                    // we will get NOTFOUND.
+                    // So we simply throw a exception and let the replayer get the max id again.
+                    throw new Exception(
+                            "Failed to find key " + currentKey + " in database " + database.getDatabaseName());
                 } else {
-                    LOG.error("fail to get journal {}, will exit", currentKey);
+                    LOG.error("fail to get journal {}, status: {}, will exit", currentKey);
                     System.exit(-1);
                 }
             }
@@ -144,3 +156,4 @@ public class BDBJournalCursor implements JournalCursor {
         
     }
 }
+

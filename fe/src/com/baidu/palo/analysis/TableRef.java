@@ -20,26 +20,25 @@
 
 package com.baidu.palo.analysis;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
-
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
-import com.baidu.palo.analysis.AnalyticExpr;
 import com.baidu.palo.rewrite.ExprRewriter;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import com.google.common.collect.Sets;
-import org.apache.logging.log4j.Logger;
+
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Superclass of all table references, including references to views, base tables
@@ -534,6 +533,9 @@ public class TableRef implements ParseNode {
         }
 
         StringBuilder output = new StringBuilder(" " + joinOpToSql() + " ");
+        if (joinHints != null && !joinHints.isEmpty()) {
+            output.append("[").append(Joiner.on(", ").join(joinHints)).append("] ");
+        }
         output.append(tableRefToSql()).append(" ");
         if (usingColNames != null) {
             output.append("USING (").append(Joiner.on(", ").join(usingColNames)).append(")");

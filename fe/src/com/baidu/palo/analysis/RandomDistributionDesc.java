@@ -67,7 +67,6 @@ public class RandomDistributionDesc extends DistributionDesc {
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
-
         out.writeInt(numBucket);
     }
 

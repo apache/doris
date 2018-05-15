@@ -263,7 +263,15 @@ OLAPStatus ColumnWriter::write(RowCursor* row_cursor) {
 
     if (is_bf_column()) {
         if (!is_null) {
-            _bf->add_bytes(buf, field->size());
+            if (_field_info.type == OLAP_FIELD_TYPE_CHAR ||
+                _field_info.type == OLAP_FIELD_TYPE_VARCHAR ||
+                _field_info.type == OLAP_FIELD_TYPE_HLL)
+            {
+                StringSlice* slice = reinterpret_cast<StringSlice*>(buf);
+                _bf->add_bytes(slice->data, slice->size);
+            } else {
+                _bf->add_bytes(buf, field->size());
+            }
         } else {
             _bf->add_bytes(NULL, 0);
         }

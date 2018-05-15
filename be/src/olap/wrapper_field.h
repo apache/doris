@@ -58,6 +58,8 @@ public:
         _buf = _field_buf + 1;
     }
 
+    bool is_string_type() const { return _is_string_type; }
+
     char* ptr() const {
         return _buf;
     }
@@ -125,6 +127,7 @@ public:
 
 private:
     Field* _rep = nullptr;
+    bool _is_string_type;
     char* _field_buf = nullptr;
     char* _owned_buf = nullptr;
     char* _buf = nullptr;

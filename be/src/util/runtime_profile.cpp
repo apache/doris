@@ -331,9 +331,13 @@ RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool inden
     bool prepend) {
   boost::lock_guard<boost::mutex> l(_children_lock);
   DCHECK(_child_map.find(name) == _child_map.end());
-  RuntimeProfile* child = new RuntimeProfile(_pool.get(), name);
-  ChildVector::iterator pos = prepend ? _children.begin() : _children.end();
-  add_child_unlock(child, indent, (*pos).first);
+  RuntimeProfile* child = _pool->add(new RuntimeProfile(_pool.get(), name));
+  if (_children.empty()) {
+      add_child_unlock(child, indent, NULL);
+  } else {
+      ChildVector::iterator pos = prepend ? _children.begin() : _children.end();
+      add_child_unlock(child, indent, (*pos).first);
+  }
   return child;
 }
 

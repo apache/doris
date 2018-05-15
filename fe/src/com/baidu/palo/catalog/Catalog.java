@@ -272,6 +272,8 @@ public class Catalog {
     private Checkpoint checkpointer;
     private Pair<String, Integer> helperNode = null;
     private Pair<String, Integer> selfNode = null;
+    private Pair<String, Integer> selfHostname = null;
+
     private List<Frontend> frontends;
     private List<Frontend> removedFrontends;
 
@@ -691,6 +693,8 @@ public class Catalog {
 
     private void getSelfHostPort() {
         selfNode = new Pair<String, Integer>(FrontendOptions.getLocalHostAddress(), Config.edit_log_port);
+        selfHostname = new Pair<String, Integer>(FrontendOptions.getHostname(), Config.edit_log_port);
+        LOG.debug("get self node: {}, self hostname: {}", selfNode, selfHostname);
     }
 
     private void getHelperNode(String[] args) throws AnalysisException {
@@ -4062,6 +4066,10 @@ public class Catalog {
 
     public Pair<String, Integer> getSelfNode() {
         return this.selfNode;
+    }
+
+    public Pair<String, Integer> getSelfHostname() {
+        return this.selfHostname;
     }
 
     public FrontendNodeType getFeType() {

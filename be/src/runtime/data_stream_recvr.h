@@ -122,9 +122,10 @@ private:
     void add_batch(const TRowBatch& thrift_batch, int sender_id,
                    bool* is_buf_overflow, std::pair<InetAddr, CommBufPtr> response);
 
+    // If receive queue is full, done is enqueue pending, and return with *done is nullptr
     void add_batch(const PRowBatch& batch, int sender_id,
                    int be_number, int64_t packet_seq,
-                   ::google::protobuf::Closure* done);
+                   ::google::protobuf::Closure** done);
 
     // Indicate that a particular sender is done. Delegated to the appropriate
     // sender queue. Called from DataStreamMgr.
