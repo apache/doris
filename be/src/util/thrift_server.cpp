@@ -225,8 +225,8 @@ void* ThriftServer::ThriftServerEventProcessor::createContext(
     }
 
     if (_thrift_server->_metrics_enabled) {
-        _thrift_server->_num_current_connections_metric->increment(1L);
-        _thrift_server->_total_connections_metric->increment(1L);
+        _thrift_server->_connections_total->increment(1L);
+        _thrift_server->_current_connections->increment(1L);
     }
 
     // Store the _session_key in the per-client context to avoid recomputing
@@ -257,7 +257,7 @@ void ThriftServer::ThriftServerEventProcessor::deleteContext(
     }
 
     if (_thrift_server->_metrics_enabled) {
-        _thrift_server->_num_current_connections_metric->increment(-1L);
+        _thrift_server->_current_connections->increment(-1L);
     }
 }
 
@@ -265,7 +265,7 @@ ThriftServer::ThriftServer(
         const std::string& name,
         const boost::shared_ptr<apache::thrift::TProcessor>& processor,
         int port,
-        MetricGroup* metrics,
+        MetricRegistry* metrics,
         int num_worker_threads,
         ServerType server_type) :
             _started(false),
@@ -279,13 +279,15 @@ ThriftServer::ThriftServer(
             _session_handler(NULL) {
     if (metrics != NULL) {
         _metrics_enabled = true;
-        std::stringstream count_ss;
-        count_ss << "palo_be.thrift_server." << name << ".connections_in_use";
-        _num_current_connections_metric =
-            metrics->AddGauge(count_ss.str(), 0L);
-        std::stringstream max_ss;
-        max_ss << "palo_be.thrift_server." << name << ".total_connections";
-        _total_connections_metric = metrics->AddCounter(max_ss.str(), 0L);
+        _current_connections.reset(new IntGauge());
+        metrics->register_metric("thrift_current_connections", 
+                                 MetricLabels().add("name", name),
+                                 _current_connections.get());
+
+        _connections_total.reset(new IntCounter());
+        metrics->register_metric("thrift_connections_total",
+                                 MetricLabels().add("name", name),
+                                 _connections_total.get());
     } else {
         _metrics_enabled = false;
     }

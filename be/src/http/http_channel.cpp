@@ -63,6 +63,7 @@ void HttpChannel::send_response(const HttpResponse& response) {
     mg_printf(_mg_conn, "\r\n");
     if (contain_content) {
         mg_write(_mg_conn, content->c_str(), content->length());
+        _send_bytes += content->length();
     }
 }
 
@@ -105,6 +106,7 @@ void HttpChannel::send_response_content(const HttpResponse& response) {
     bool contain_content =  content != nullptr && !content->empty();
     if (contain_content) {
         mg_write(_mg_conn, content->c_str(), content->length());
+        _send_bytes += content->length();
     }
 }
 
@@ -113,6 +115,7 @@ void HttpChannel::append_response_content(
         const char* content,
         int32_t content_size) {
     mg_write(_mg_conn, content, content_size);
+    _send_bytes += content_size;
 }
 
 int HttpChannel::read(char* buf, int len) {

@@ -231,10 +231,10 @@ private:
         int64_t _index;
 
         // Pointer to the current tuple.
-        uint8_t* _current_tuple;
+        uint8_t* _current_tuple = nullptr;
 
         // Start of the buffer containing current tuple.
-        uint8_t* _buffer_start;
+        uint8_t* _buffer_start = nullptr;
 
         // Index into _run._fixed_len_blocks of the block containing the current tuple.
         int _block_index;

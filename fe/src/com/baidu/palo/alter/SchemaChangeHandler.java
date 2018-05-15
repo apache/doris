@@ -789,6 +789,10 @@ public class SchemaChangeHandler extends AlterHandler {
             bfFpp = 0;
         }
 
+        // property 3 storage type
+        // from now on, we only support COLUMN storage type
+        TStorageType newStorageType = TStorageType.COLUMN;
+
         // resource info
         TResourceInfo resourceInfo = null;
         if (ConnectContext.get() != null) {
@@ -853,6 +857,14 @@ public class SchemaChangeHandler extends AlterHandler {
                     if (needAlter) {
                         break;
                     }
+                }
+            }
+
+            if (!needAlter) {
+                // check if storage type changed
+                TStorageType currentStorageType = olapTable.getStorageTypeByIndexId(alterIndexId);
+                if (currentStorageType != newStorageType) {
+                    needAlter = true;
                 }
             }
 
@@ -1004,6 +1016,9 @@ public class SchemaChangeHandler extends AlterHandler {
         if (schemaChangeJob.getChangedIndexToSchema().isEmpty()) {
             throw new DdlException("Nothing is changed. please check your alter stmt.");
         }
+
+        // from now on, storage type can only be column
+        schemaChangeJob.setNewStorageType(TStorageType.COLUMN);
 
         // the following operations are done outside the 'for indices' loop
         // to avoid partial check success
@@ -1283,7 +1298,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 processReorderColumn((ReorderColumnsClause) alterClause, olapTable, indexSchemaMap);
             } else if (alterClause instanceof ModifyTablePropertiesClause) {
                 // modify table properties
-                ;
+                // do nothing, properties are already in propertyMap
             } else {
                 Preconditions.checkState(false);
             }

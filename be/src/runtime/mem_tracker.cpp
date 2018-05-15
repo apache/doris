@@ -113,7 +113,11 @@ void MemTracker::Init() {
     DCHECK_EQ(_all_trackers[0], this);
 }
 
-void MemTracker::EnableReservationReporting(const ReservationTrackerCounters& counters) {
+// TODO chenhao , set MemTracker close state
+void MemTracker::close() {
+}
+
+void MemTracker::enable_reservation_reporting(const ReservationTrackerCounters& counters) {
     ReservationTrackerCounters* new_counters = new ReservationTrackerCounters(counters);
     _reservation_counters.store(new_counters);
 }
@@ -177,12 +181,15 @@ MemTracker* MemTracker::CreateQueryMemTracker(const TUniqueId& id,
     MemTracker* pool_tracker =
         ExecEnv::GetInstance()->pool_mem_trackers()->GetRequestPoolMemTracker(
                 pool_name, true);
+    return pool_tracker;
 }
 
 MemTracker::~MemTracker() {
     DCHECK_EQ(_consumption->current_value(), 0) << _label << "\n"
         << get_stack_trace() << "\n"
         << LogUsage("");
+    // TODO chenhao
+    //DCHECK(_closed) << _label;
     delete _reservation_counters.load();
 }
 
@@ -225,7 +232,12 @@ std::string MemTracker::LogUsage(const std::string& prefix, int64_t* logged_cons
         int64_t reservation = reservation_counters->peak_reservation->current_value();
         int64_t used_reservation =
             reservation_counters->peak_used_reservation->current_value();
-        int64_t reservation_limit = reservation_counters->reservation_limit->value();
+        int64_t reservation_limit = 0;
+        //TODO chenhao, reservation_limit is null when ReservationTracker 
+        // does't have reservation limit
+        if (reservation_counters->reservation_limit != nullptr) {
+             reservation_limit = reservation_counters->reservation_limit->value();
+        }
         ss << " BufferPoolUsed/Reservation="
             << PrettyPrinter::print(used_reservation, TUnit::BYTES) << "/"
             << PrettyPrinter::print(reservation, TUnit::BYTES);

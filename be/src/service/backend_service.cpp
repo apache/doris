@@ -24,6 +24,7 @@
 #include <gperftools/heap-profiler.h>
 #include <thrift/protocol/TDebugProtocol.h>
 #include <thrift/concurrency/PosixThreadFactory.h>
+
 #include "service/backend_options.h"
 #include "util/network_util.h"
 #include "util/thrift_util.h"
@@ -48,18 +49,15 @@ using apache::thrift::concurrency::PosixThreadFactory;
 BackendService::BackendService(ExecEnv* exec_env) :
         _exec_env(exec_env),
         _agent_server(new AgentServer(exec_env, *exec_env->master_info())) {
-#ifndef ADDRESS_SANITIZER
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
     // tcmalloc and address sanitizer can not be used together
     if (!config::heap_profile_dir.empty()) {
         HeapProfilerStart(config::heap_profile_dir.c_str());
     }
 #endif
-    // Initialize Palo metrics
-    PaloMetrics::create_metrics(exec_env->metrics());
     char buf[64];
     DateTimeValue value = DateTimeValue::local_time();
     value.to_string(buf);
-    PaloMetrics::palo_be_start_time()->update(buf);
 }
 
 Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer** server) {
@@ -71,8 +69,9 @@ Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer*
     boost::shared_ptr<ThreadFactory> thread_factory(new PosixThreadFactory());
 
     boost::shared_ptr<TProcessor> be_processor(new BackendServiceProcessor(handler));
-    *server = new ThriftServer("PaloBackend",
-                               be_processor, port,
+    *server = new ThriftServer("backend",
+                               be_processor,
+                               port,
                                exec_env->metrics(),
                                config::be_service_threads);
 

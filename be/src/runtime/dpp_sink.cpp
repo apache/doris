@@ -24,6 +24,7 @@
 #include "exprs/slot_ref.h"
 #include "common/object_pool.h"
 #include "runtime/dpp_writer.h"
+#include "runtime/exec_env.h"
 #include "runtime/tuple_row.h"
 #include "runtime/runtime_state.h"
 #include "runtime/row_batch.h"
@@ -898,7 +899,7 @@ Status DppSink::finish(RuntimeState* state) {
     CountDownLatch latch(_translator_count);
     for (auto& iter : _translator_map) {
         for (auto& trans : iter.second) {
-            state->etl_thread_pool()->offer(
+            state->exec_env()->etl_thread_pool()->offer(
                 boost::bind<void>(&DppSink::process, this, state, trans, &latch));
         }
     }

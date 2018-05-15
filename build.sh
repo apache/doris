@@ -128,7 +128,7 @@ cd ${PALO_HOME}/gensrc
 if [ ${CLEAN} -eq 1 ]; then
    make clean
 fi 
-make
+# make
 cd ${PALO_HOME}
 
 # Clean and build Backend
@@ -138,12 +138,12 @@ if [ ${BUILD_BE} -eq 1 ] ; then
         rm ${PALO_HOME}/be/build/ -rf
         rm ${PALO_HOME}/be/output/ -rf
     fi
-    mkdir -p ${PALO_HOME}/be/build/
-    cd ${PALO_HOME}/be/build/
-    cmake ../
-    make -j${PARALLEL}
-    make install
-    cd ${PALO_HOME}
+    # mkdir -p ${PALO_HOME}/be/build/
+    # cd ${PALO_HOME}/be/build/
+    # cmake ../
+    # make -j${PARALLEL}
+    # make install
+    # cd ${PALO_HOME}
 fi
 
 # Build docs, should be built before Frontend
@@ -152,7 +152,7 @@ cd ${PALO_HOME}/docs
 if [ ${CLEAN} -eq 1 ]; then
     make clean
 fi
-make
+# make
 cd ${PALO_HOME}
 
 # Clean and build Frontend
@@ -162,7 +162,7 @@ if [ ${BUILD_FE} -eq 1 ] ; then
     if [ ${CLEAN} -eq 1 ]; then
         ant clean
     fi
-    ant install
+    # ant install
     cd ${PALO_HOME}
 fi
 

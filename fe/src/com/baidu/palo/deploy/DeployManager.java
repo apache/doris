@@ -130,10 +130,10 @@ public class DeployManager extends Daemon {
         this.backendServiceGroup = Strings.nullToEmpty(System.getenv(envBackendServiceGroup));
         this.brokerServiceGroup = Strings.nullToEmpty(System.getenv(envBrokerServiceGroup));
 
-        LOG.info("get ambari env: {}, {}, {}, {}", envElectableFeServiceGroup, envObserverFeServiceGroup,
+        LOG.info("get deploy env: {}, {}, {}, {}", envElectableFeServiceGroup, envObserverFeServiceGroup,
                  envBackendServiceGroup, envBrokerServiceGroup);
 
-        // electableFeServiceGroup and backendServiceGroup
+        // electableFeServiceGroup and backendServiceGroup must exist
         if (Strings.isNullOrEmpty(electableFeServiceGroup) || Strings.isNullOrEmpty(backendServiceGroup)) {
             LOG.warn("failed to init service group name."
                     + " electableFeServiceGroup: {}, backendServiceGroup: {}",

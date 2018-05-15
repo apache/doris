@@ -30,26 +30,26 @@ namespace column_file {
 
 class SegmentReader;
 
-// 定义文件的读取接口, 接口定义见IData的定义
+// This class is column data reader. this class will be used in two case.
 class ColumnData : public IData {
 public:
     explicit ColumnData(OLAPIndex* olap_index);
     virtual ~ColumnData();
 
     virtual OLAPStatus init();
-    virtual void set_conjuncts(std::vector<ExprContext*>* query_conjuncts, 
-                               std::vector<ExprContext*>* delete_conjuncts);
-    virtual const RowCursor* get_first_row();
-    virtual const RowCursor* get_current_row();
-    virtual const RowCursor* get_next_row();
-    virtual const RowCursor* find_row(const RowCursor& key, bool find_last_key, bool is_end_key);
 
-    virtual OLAPStatus set_end_key(const RowCursor* end_key, bool find_last_end_key);
+    OLAPStatus prepare_block_read(
+            const RowCursor* start_key, bool find_start_key,
+            const RowCursor* end_key, bool find_end_key,
+            RowBlock** first_block) override;
+
+    OLAPStatus get_next_block(RowBlock** row_block) override;
 
     virtual void set_read_params(
             const std::vector<uint32_t>& return_columns,
             const std::set<uint32_t>& load_bf_columns,
             const Conditions& conditions,
+            const std::vector<ColumnPredicate*>& col_predicates,
             const std::vector<RowCursor*>& start_keys,
             const std::vector<RowCursor*>& end_keys,
             bool is_using_cache,
@@ -58,66 +58,96 @@ public:
     virtual OLAPStatus get_first_row_block(RowBlock** row_block);
     virtual OLAPStatus get_next_row_block(RowBlock** row_block);
 
-    virtual OLAPStatus get_row_batch(
-            uint8_t* batch_buf,
-            uint32_t batch_buf_len,
-            uint32_t* start_row_index,
-            uint32_t* batch_row_num,
-            uint32_t* block_row_num,
-            std::vector<uint32_t>& return_columns);
+    OLAPStatus pickle() override { return OLAP_SUCCESS; }
+    OLAPStatus unpickle() override { return OLAP_SUCCESS; }
 
-    virtual OLAPStatus pickle();
-    virtual OLAPStatus unpickle();
-
+    // Only used to binary search in full-key find row
     const RowCursor* seek_and_get_current_row(const RowBlockPosition& position);
 
     virtual uint64_t get_filted_rows();
 
-    void add_filted_rows(uint64_t filted_rows);
-
 private:
     DISALLOW_COPY_AND_ASSIGN(ColumnData);
-    OLAPStatus _find_row_block(const RowCursor& key,
-            bool find_last_key,
-            RowBlockPosition* block_pos);
-    OLAPStatus _find_prev_row_block(RowBlockPosition* block_pos);
-    OLAPStatus _seek_to_block(const RowBlockPosition &block_pos, bool without_filter);
-    OLAPStatus _load_row_block();
 
-    const RowCursor* _get_next_row(bool without_filter);
+    // To compatable with schmea change read, use this function to init column data
+    // for schema change read. Only called in get_first_row_block
+    OLAPStatus _schema_change_init();
+
+    // Try to seek to 'key'. If this funciton returned with OLAP_SUCCESS, current_row()
+    // point to the first row meet the requirement.
+    // If there is no such row, OLAP_ERR_DATA_EOF will return.
+    // If error happend, other code will return
+    OLAPStatus _seek_to_row(const RowCursor& key, bool find_key, bool is_end_key);
+
+    // seek to block_pos without load that block, caller must call _get_block()
+    // to load _read_block with data. If without_filter is false, this will seek to
+    // other block. Because the seeked block may be filtered by condition or delete.
+    OLAPStatus _seek_to_block(const RowBlockPosition &block_pos, bool without_filter);
+
     OLAPStatus _find_position_by_short_key(
             const RowCursor& key, bool find_last_key, RowBlockPosition *position);
     OLAPStatus _find_position_by_full_key(
             const RowCursor& key, bool find_last_key, RowBlockPosition *position);
 
+    // Used in _seek_to_row, this function will goto next row that vaild for this
+    // ColumnData
+    OLAPStatus _next_row(const RowCursor** row, bool without_filter);
+
+    // get block from reader, just read vector batch from _current_segment.
+    // The read batch return by got_batch.
+    OLAPStatus _get_block_from_reader(
+        VectorizedRowBatch** got_batch, bool without_filter);
+
+    // get block from segment reader. If this function returns OLAP_SUCCESS
+    OLAPStatus _get_block(bool without_filter);
+
+    const RowCursor* _current_row() {
+        _read_block->get_row(_read_block->pos(), &_cursor);
+        return &_cursor;
+    }
 private:
     OLAPTable* _table;
-    RowCursor* _end_key;                  // 非NULL表示设置了end key
-    bool _last_end_key;
+    // whether in normal read, use return columns to load block
+    bool _is_normal_read = false;
+    bool _end_key_is_set = false;
     bool _is_using_cache;
-    RowBlockPosition _end_key_block_position;
+    bool _segment_eof = false;
+    bool _need_eval_predicates = false;
+
     std::vector<uint32_t> _return_columns;
+    std::vector<uint32_t> _seek_columns;
     std::set<uint32_t> _load_bf_columns;
     
     SegmentReader* _segment_reader;
-    uint64_t _filted_rows;
+
+    std::unique_ptr<VectorizedRowBatch> _seek_vector_batch;
+    std::unique_ptr<VectorizedRowBatch> _read_vector_batch;
+
+    std::unique_ptr<RowBlock> _read_block = nullptr;
+    RowCursor _cursor;
+    RowCursor _short_key_cursor;
+
+    // Record when last key is found
+    uint32_t _current_block = 0;
     uint32_t _current_segment;
-    // 下面两个成员只用于block接口
-    RowBlock* _row_block;                 // 用于get_first_row_block缓存数据
-    RowBlockPosition _row_block_pos;      // 与_row_block对应的pos
+    uint32_t _next_block;
+
+    uint32_t _end_segment;
+    uint32_t _end_block;
+    int64_t _end_row_index = 0;
+
+    size_t _num_rows_per_block;
 };
 
 class ColumnDataComparator {
 public:
     ColumnDataComparator(
-            RowBlockPosition position,
-            ColumnData* olap_data,
-            const OLAPIndex* index,
-            RowCursor* helper_cursor) : 
-            _start_block_position(position),
+        RowBlockPosition position,
+        ColumnData* olap_data,
+        const OLAPIndex* index)
+            : _start_block_position(position),
             _olap_data(olap_data),
-            _index(index),
-            _helper_cursor(helper_cursor) {}
+            _index(index) {}
 
     ~ColumnDataComparator() {}
 
@@ -142,7 +172,7 @@ private:
             throw ComparatorException();
         }
         const RowCursor* helper_cursor = _olap_data->seek_and_get_current_row(position);
-        if (NULL == helper_cursor) {
+        if (helper_cursor == nullptr) {
             OLAP_LOG_WARNING("fail to seek and get current row.");
             throw ComparatorException();
         }
@@ -157,7 +187,6 @@ private:
     const RowBlockPosition _start_block_position;
     ColumnData* _olap_data;
     const OLAPIndex* _index;
-    RowCursor* _helper_cursor;
 };
 
 }  // namespace column_file

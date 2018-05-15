@@ -52,6 +52,8 @@ namespace palo {
       (profile)->add_counter(name, TUnit::TIME_NS, parent)
 #define SCOPED_TIMER(c) \
       ScopedTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
+#define SCOPED_RAW_TIMER(c) \
+      ScopedRawTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_RAW_TIMER, __COUNTER__)(c)
 #define COUNTER_UPDATE(c, v) (c)->update(v)
 #define COUNTER_SET(c, v) (c)->set(v)
 #define ADD_THREAD_COUNTERS(profile, prefix) (profile)->add_thread_counters(prefix)
@@ -62,6 +64,7 @@ namespace palo {
 #define ADD_COUNTER(profile, name, type) NULL
 #define ADD_TIMER(profile, name) NULL
 #define SCOPED_TIMER(c)
+#define SCOPED_RAW_TIMER(c)
 #define COUNTER_UPDATE(c, v)
 #define COUNTER_SET(c, v)
 #define ADD_THREADCOUNTERS(profile, prefix) NULL
@@ -82,34 +85,18 @@ class RuntimeProfile {
 public:
     class Counter {
     public:
-        /*
-        Counter(TUnit::type type) :
-                _value(0L),
-                _type(type) {
-        }
-        Counter(TUnit::type type, int64_t value) :
-                _value(value),
-                _type(type) {
-        }
-        */
-
         Counter(TUnit::type type, int64_t value = 0) :
                 _value(value),
                 _type(type) {
         }
         virtual ~Counter() { }
 
-        void update(int64_t delta) {
+        virtual void update(int64_t delta) {
             //__sync_fetch_and_add(&_value, delta);
             _value.add(delta);
         }
 
         // Use this to update if the counter is a bitmap
-        //void bit_or(int64_t delta) {
-        //    __sync_fetch_and_or(&_value, delta);
-        //}
-
-        /// Use this to update if the counter is a bitmap
         void bit_or(int64_t delta) {
             int64_t old;
             do {
@@ -118,13 +105,13 @@ public:
             } while (UNLIKELY(!_value.compare_and_swap(old, old | delta)));
         }
 
-        void set(int64_t value) {
+        virtual void set(int64_t value) {
             _value.store(value);
         }
 
-        void set(int value) { _value.store(value); }
+        virtual void set(int value) { _value.store(value); }
 
-        void set(double value) {
+        virtual void set(double value) {
             DCHECK_EQ(sizeof(value), sizeof(int64_t));
             _value.store(*reinterpret_cast<int64_t*>(&value));
         }
@@ -138,12 +125,6 @@ public:
             return *reinterpret_cast<const double*>(&v);
         }
 
-        /*
-        TUnit::type type() const {
-            return _type;
-        }
-        */
-
         TUnit::type type() const {
             return _type;
         }
@@ -151,7 +132,6 @@ public:
     private:
         friend class RuntimeProfile;
 
-        //int64_t _value;
         AtomicInt64 _value;
         TUnit::type _type;
     };
@@ -171,14 +151,14 @@ public:
     public:
         HighWaterMarkCounter(TUnit::type unit) : Counter(unit) {}
 
-        virtual void Add(int64_t delta) {
+        virtual void add(int64_t delta) {
             int64_t new_val = current_value_.add(delta);
             UpdateMax(new_val);
         }
 
         /// Tries to increase the current value by delta. If current_value() + delta
         /// exceeds max, return false and current_value is not changed.
-        bool TryAdd(int64_t delta, int64_t max) {
+        bool try_add(int64_t delta, int64_t max) {
             while (true) {
                 int64_t old_val = current_value_.load();
                 int64_t new_val = old_val + delta;
@@ -190,7 +170,7 @@ public:
             }
         }
 
-        virtual void Set(int64_t v) {
+        virtual void set(int64_t v) {
             current_value_.store(v);
             UpdateMax(v);
         }
@@ -318,6 +298,14 @@ public:
     // already be added to the profile.
     void add_child(RuntimeProfile* child, bool indent, RuntimeProfile* location);
 
+    void add_child_unlock(RuntimeProfile* child, bool indent, RuntimeProfile* loc);
+    
+    /// Creates a new child profile with the given 'name'. A child profile with that name
+    /// must not already exist. If 'prepend' is true, prepended before other child profiles,
+    /// otherwise appended after other child profiles.
+    RuntimeProfile* create_child(
+        const std::string& name, bool indent = true, bool prepend = false);
+
     // Sorts all children according to a custom comparator. Does not
     // invalidate pointers to profiles.
     template <class Compare>
@@ -370,6 +358,11 @@ public:
     // Adds all counters with 'name' that are registered either in this or
     // in any of the child profiles to 'counters'.
     void get_counters(const std::string& name, std::vector<Counter*>* counters);
+
+    // Helper to append to the "ExecOption" info string.
+    void append_exec_option(const std::string& option) {
+        add_info_string("ExecOption", option);
+    }
 
     // Adds a string to the runtime profile.  If a value already exists for 'key',
     // the value will be updated.
@@ -721,6 +714,28 @@ private:
 
     T _sw;
     RuntimeProfile::Counter* _counter;
+};
+
+// Utility class to update time elapsed when the object goes out of scope.
+// 'T' must implement the stopWatch "interface" (start,stop,elapsed_time) but
+// we use templates not to pay for virtual function overhead.
+template<class T>
+class ScopedRawTimer {
+public:
+    ScopedRawTimer(int64_t* counter) : _counter(counter) {
+        _sw.start();
+    }
+    // Update counter when object is destroyed
+    ~ScopedRawTimer() {
+        *_counter += _sw.elapsed_time();
+    }
+private:
+    // Disable copy constructor and assignment
+    ScopedRawTimer(const ScopedRawTimer& timer);
+    ScopedRawTimer& operator=(const ScopedRawTimer& timer);
+
+    T _sw;
+    int64_t* _counter;
 };
 
 }

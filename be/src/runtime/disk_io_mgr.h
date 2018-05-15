@@ -38,7 +38,7 @@
 #include "common/status.h"
 #include "util/error_util.h"
 #include "util/internal_queue.h"
-#include "util/palo_metrics.h"
+#include "util/metrics.h"
 #include "util/runtime_profile.h"
 #include "runtime/mem_tracker.h"
 

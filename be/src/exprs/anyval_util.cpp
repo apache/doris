@@ -20,6 +20,10 @@
 
 #include "exprs/anyval_util.h"
 
+#include "exprs/anyval_util.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
+
 namespace palo {
 using palo_udf::BooleanVal;
 using palo_udf::TinyIntVal;
@@ -33,6 +37,20 @@ using palo_udf::DecimalVal;
 using palo_udf::DateTimeVal;
 using palo_udf::StringVal;
 using palo_udf::AnyVal;
+
+Status allocate_any_val(RuntimeState* state, MemPool* pool, const TypeDescriptor& type,
+    const std::string& mem_limit_exceeded_msg, AnyVal** result) {
+  const int anyval_size = AnyValUtil::any_val_size(type);
+  const int anyval_alignment = AnyValUtil::any_val_alignment(type);
+  *result =
+      reinterpret_cast<AnyVal*>(pool->try_allocate_aligned(anyval_size, anyval_alignment));
+  if (*result == NULL) {
+    return pool->mem_tracker()->MemLimitExceeded(
+        state, mem_limit_exceeded_msg, anyval_size);
+  }
+  memset(*result, 0, anyval_size);
+  return Status::OK;
+}
 
 AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
     switch (type.type) {

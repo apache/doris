@@ -62,6 +62,8 @@ add_library(Exprs
   json_functions.cpp
   operators.cpp
   hll_hash_function.cpp
+  agg_fn.cc
+  new_agg_fn_evaluator.cc
 )
 #ADD_BE_TEST(json_function_test)
 #ADD_BE_TEST(binary_predicate_test)

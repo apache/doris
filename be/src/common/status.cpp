@@ -136,4 +136,14 @@ void Status::to_thrift(TStatus* status) const {
     }
 }
 
+void Status::MergeStatus(const Status& status) {
+  if (status.ok()) return;
+  if (_error_detail == NULL) {
+    _error_detail = new ErrorDetail(status.code());
+  } else {
+    std::vector<std::string> msgs_vector;
+    status.get_error_msgs(&msgs_vector);
+    for (const std::string& s: msgs_vector) add_error_msg(s);
+  }
+}
 }

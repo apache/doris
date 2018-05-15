@@ -25,6 +25,7 @@
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
 #include "olap/utils.h"
+#include "olap/wrapper_field.h"
 
 using std::ifstream;
 using std::string;
@@ -71,15 +72,22 @@ OLAPIndex::OLAPIndex(OLAPTable* table,
         _version_hash(version_hash),
         _current_num_rows_per_row_block(0),
         _inited_column_statistics(false),
-        _column_statistics(_table->num_key_fields(), std::pair<Field *, Field *>(NULL, NULL)) {
+        _column_statistics(
+            _table->num_key_fields(), std::pair<WrapperField*, WrapperField*>(NULL, NULL)) {
     const RowFields& tablet_schema = _table->tablet_schema();
     _short_key_length = 0;
+    _new_short_key_length = 0;
     _short_key_buf = NULL;
 
-    //_short_key_length += (_table->num_short_key_fields() + 7) >> 3;
     for (size_t i = 0; i < _table->num_short_key_fields(); ++i) {
         _short_key_info_list.push_back(tablet_schema[i]);
-        _short_key_length += tablet_schema[i].index_length + sizeof(bool);
+        _short_key_length += tablet_schema[i].index_length + 1;// 1 for null byte
+        if (tablet_schema[i].type == OLAP_FIELD_TYPE_CHAR ||
+            tablet_schema[i].type == OLAP_FIELD_TYPE_VARCHAR) {
+            _new_short_key_length += sizeof(StringSlice) + 1;
+        } else {
+            _new_short_key_length += tablet_schema[i].index_length + 1;
+        }
     }
 
     _index_loaded = false;
@@ -135,7 +143,7 @@ void OLAPIndex::delete_all_files() {
 }
 
 OLAPStatus OLAPIndex::set_column_statistics(
-        std::vector<std::pair<Field *, Field *> > &column_statistics) {
+        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistics) {
     if (_inited_column_statistics) {
         return OLAP_SUCCESS;
     }
@@ -147,23 +155,15 @@ OLAPStatus OLAPIndex::set_column_statistics(
     }
 
     for (size_t i = 0; i < _column_statistics.size(); ++i) {
-        _column_statistics[i].first = Field::create(_table->tablet_schema()[i]);
+        _column_statistics[i].first = WrapperField::create(_table->tablet_schema()[i]);
         if (_column_statistics[i].first == NULL) {
             OLAP_LOG_FATAL("fail to create column statistics field. [field_id=%lu]", i);
             return OLAP_ERR_MALLOC_ERROR;
         }
-        if (!_column_statistics[i].first->allocate()) {
-            OLAP_LOG_FATAL("fail to allocate column statistics field. [field_id=%lu]", i);
-            return OLAP_ERR_MALLOC_ERROR;
-        }
         
-        _column_statistics[i].second = Field::create(_table->tablet_schema()[i]);
+        _column_statistics[i].second = WrapperField::create(_table->tablet_schema()[i]);
         if (_column_statistics[i].second == NULL) {
             OLAP_LOG_FATAL("fail to create column statistics field. [field_id=%lu]", i);
-            return OLAP_ERR_MALLOC_ERROR;
-        }
-        if (!_column_statistics[i].second->allocate()) {
-            OLAP_LOG_FATAL("fail to allocate column statistics field. [field_id=%lu]", i);
             return OLAP_ERR_MALLOC_ERROR;
         }
     }
@@ -192,23 +192,15 @@ OLAPStatus OLAPIndex::set_column_statistics_from_string(
     }
 
     for (size_t i = 0; i < _column_statistics.size(); ++i) {
-        _column_statistics[i].first = Field::create(_table->tablet_schema()[i]);
+        _column_statistics[i].first = WrapperField::create(_table->tablet_schema()[i]);
         if (_column_statistics[i].first == NULL) {
             OLAP_LOG_FATAL("fail to create column statistics field. [field_id=%lu]", i);
             return OLAP_ERR_MALLOC_ERROR;
         }
-        if (!_column_statistics[i].first->allocate()) {
-            OLAP_LOG_FATAL("fail to allocate column statistics field. [field_id=%lu]", i);
-            return OLAP_ERR_MALLOC_ERROR;
-        }
         
-        _column_statistics[i].second = Field::create(_table->tablet_schema()[i]);
+        _column_statistics[i].second = WrapperField::create(_table->tablet_schema()[i]);
         if (_column_statistics[i].second == NULL) {
             OLAP_LOG_FATAL("fail to create column statistics field. [field_id=%lu]", i);
-            return OLAP_ERR_MALLOC_ERROR;
-        }
-        if (!_column_statistics[i].second->allocate()) {
-            OLAP_LOG_FATAL("fail to allocate column statistics field. [field_id=%lu]", i);
             return OLAP_ERR_MALLOC_ERROR;
         }
     }
@@ -253,8 +245,8 @@ OLAPStatus OLAPIndex::load() {
         return res;
     }
 
-    if (_index.init(_short_key_length, _table->num_short_key_fields(), 
-            &_short_key_info_list) != OLAP_SUCCESS) {
+    if (_index.init(_short_key_length, _new_short_key_length,
+                    _table->num_short_key_fields(), &_short_key_info_list) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to create MemIndex. [num_segment=%d]", _num_segments);
         return res;
     }
@@ -389,7 +381,7 @@ OLAPStatus OLAPIndex::find_short_key(const RowCursor& key,
     return _index.get_row_block_position(offset, pos);
 }
 
-OLAPStatus OLAPIndex::get_row_block_entry(const RowBlockPosition& pos, Slice* entry) const {
+OLAPStatus OLAPIndex::get_row_block_entry(const RowBlockPosition& pos, EntrySlice* entry) const {
     TABLE_PARAM_VALIDATE();
     SLICE_PARAM_VALIDATE(entry);
     
@@ -536,11 +528,7 @@ OLAPStatus OLAPIndex::add_segment() {
 
 OLAPStatus OLAPIndex::add_row_block(const RowBlock& row_block, const uint32_t data_offset) {
     // get first row of the row_block to distill index item.
-    if (row_block.get_row_to_read(0, &_current_index_row) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("get first row in row_block fail.");
-        return OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION;
-    }
-
+    row_block.get_row(0, &_current_index_row);
     return add_short_key(_current_index_row, data_offset);
 }
 
@@ -553,7 +541,7 @@ OLAPStatus OLAPIndex::add_short_key(const RowCursor& short_key, const uint32_t d
     //offset += short_key.get_num_null_byte();
     for (size_t i = 0; i < _short_key_info_list.size(); i++) {
         short_key.write_index_by_index(i, _short_key_buf + offset);
-        offset += short_key.get_field_size(i);
+        offset += short_key.get_index_size(i) + 1;
     }
 
     // 写入Short Key对应的数据
@@ -634,6 +622,16 @@ uint64_t OLAPIndex::num_index_entries() const {
     return _index.count();
 }
 
+MemIndex::MemIndex()
+    : _key_length(0),
+      _num_entries(0),
+      _index_size(0),
+      _data_size(0),
+      _num_rows(0) {
+    _tracker.reset(new MemTracker(-1));
+    _mem_pool.reset(new MemPool(_tracker.get()));
+}
+
 MemIndex::~MemIndex() {
     _num_entries = 0;
     for (vector<SegmentMetaInfo>::iterator it = _meta.begin(); it != _meta.end(); ++it) {
@@ -673,40 +671,60 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
 
     // 允许索引内容为空
     // 索引长度必须为索引项长度的整数倍
-    meta.buffer.length = meta.file_header.file_length() - meta.file_header.size();
+    size_t storage_length = meta.file_header.file_length() - meta.file_header.size();
     bool null_supported = false;
     //null_supported是为了兼容之前没有NULL字节的数据。
     //目前索引里面都加入了NULL的标志位，entry length都算了NULL标志位构成的bytes
     //对于没有标志位的索引，读取数据之后需要对每个字段补齐这部分。
-    if (false == meta.file_header.message().has_null_supported()) {
+    if (!meta.file_header.message().has_null_supported()) {
         null_supported = false;
     } else {
         null_supported = meta.file_header.message().null_supported();
     }
     size_t num_short_key_fields = short_key_num();
     bool is_align = false;
-    if (false == null_supported) {
-        is_align = (0 == meta.buffer.length % (entry_length() - num_short_key_fields));
+    if (!null_supported) {
+        is_align = (0 == storage_length % (entry_length() - num_short_key_fields));
     } else {
-        is_align = (0 == meta.buffer.length % entry_length());
+        is_align = (0 == storage_length % entry_length());
     }
-    if (false == is_align) {
+    if (!is_align) {
         res = OLAP_ERR_INDEX_LOAD_ERROR;
         OLAP_LOG_WARNING("fail to load_segment, buffer length is not correct.");
         OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
         file_handler.close();
         return res;
     }
-    if (false == null_supported) {
-        num_entries = meta.buffer.length / (entry_length() - num_short_key_fields);
-        meta.buffer.data = reinterpret_cast<char*>(
-                calloc(meta.buffer.length + num_entries * num_short_key_fields, 1));
+
+    // calculate the total size of all segments
+    if (!null_supported) {
+        _index_size += meta.file_header.file_length() + num_entries * num_short_key_fields;
+        num_entries = storage_length / (entry_length() - num_short_key_fields);
     } else {
-        num_entries = meta.buffer.length / entry_length();
-        meta.buffer.data = reinterpret_cast<char*>(calloc(meta.buffer.length, 1));
+        _index_size += meta.file_header.file_length();
+        num_entries = storage_length / entry_length();
+    }
+    _data_size += meta.file_header.extra().data_length;
+    _num_rows += meta.file_header.extra().num_rows;
+
+    meta.range.first = _num_entries;
+    meta.range.last = meta.range.first + num_entries;
+    _num_entries = meta.range.last;
+    _meta.push_back(meta);
+
+    (current_num_rows_per_row_block == NULL
+     || (*current_num_rows_per_row_block = meta.file_header.message().num_rows_per_block()));
+
+    if (OLAP_UNLIKELY(num_entries == 0)) {
+        file_handler.close();
+        return OLAP_SUCCESS;
     }
 
-    if (meta.buffer.data == NULL) {
+    // convert index memory layout for string type
+    // previous layout is size|data,
+    // target type is ptr|size, ptr pointer to data
+    char* storage_data = reinterpret_cast<char*>(calloc(storage_length, 1));
+    if (storage_data == nullptr) {
         res = OLAP_ERR_MALLOC_ERROR;
         OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
         file_handler.close();
@@ -715,78 +733,139 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
 
     // 读取索引内容
     // 为了启动加速，此处可使用mmap方式。
-    if (file_handler.pread(meta.buffer.data,
-                           meta.buffer.length,
+    if (file_handler.pread(storage_data,
+                           storage_length,
                            meta.file_header.size()) != OLAP_SUCCESS) {
         res = OLAP_ERR_IO_ERROR;
         OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
         file_handler.close();
-        free(meta.buffer.data);
+        free(storage_data);
         return res;
     }
 
-    // calculate the total size of all segments
-    if (false == null_supported) {
-        _index_size += meta.file_header.file_length() + num_entries * num_short_key_fields;
-    } else {
-        _index_size += meta.file_header.file_length();
-    }
-    _data_size += meta.file_header.extra().data_length;
-    _num_rows += meta.file_header.extra().num_rows;
-
     // checksum validation
-    adler_checksum = olap_adler32(ADLER32_INIT, meta.buffer.data, meta.buffer.length);
+    adler_checksum = olap_adler32(ADLER32_INIT, storage_data, storage_length);
     if (adler_checksum != meta.file_header.checksum()) {
         res = OLAP_ERR_INDEX_CHECKSUM_ERROR;
         OLAP_LOG_WARNING("checksum validation error.");
         OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
         file_handler.close();
-        free(meta.buffer.data);
+        free(storage_data);
         return res;
     }
 
-    if (false == null_supported) {
-        meta.buffer.length += num_entries * num_short_key_fields;
-        const RowFields& tablet_schema = short_key_fields();
-        size_t src = meta.buffer.length - num_entries * num_short_key_fields;
-        size_t dest = meta.buffer.length;
-        for (size_t i = 0; i < num_entries; ++i) {
-            memmove(meta.buffer.data + dest - sizeof(data_file_offset_t),
-                    meta.buffer.data + src - sizeof(data_file_offset_t),
-                    sizeof(data_file_offset_t));
-            dest = dest - sizeof(data_file_offset_t);
-            src = src - sizeof(data_file_offset_t);
-            for (size_t j = num_short_key_fields; j > 0; --j) {
-                size_t index_length = tablet_schema[j-1].index_length;
-                memmove(meta.buffer.data + dest - index_length, 
-                        meta.buffer.data + src - index_length, index_length);
-                *(meta.buffer.data + dest - index_length - 1) &= 0;
-                dest = dest - index_length - 1;
-                src = src - index_length;
+    /*
+     * convert storage layout to memory layout for olapindex
+     * In this procedure, string type(Varchar/Char) should be
+     * converted with caution. Hyperloglog type will not be
+     * key, it can not to be handled.
+     */
+
+    size_t storage_row_bytes = entry_length();
+    storage_row_bytes -= (null_supported ? 0 : num_short_key_fields);
+    char* storage_ptr = storage_data;
+    size_t storage_field_offset = 0;
+
+    size_t mem_row_bytes = new_entry_length();
+    char* mem_buf = reinterpret_cast<char*>(calloc(num_entries * mem_row_bytes, 1));
+    memset(mem_buf, 0, num_entries * mem_row_bytes);
+    char* mem_ptr = mem_buf;
+    size_t mem_field_offset = 0;
+
+    size_t null_byte = null_supported ? 1 : 0;
+    for (size_t i = 0; i < num_short_key_fields; ++i) {
+        storage_ptr = storage_data + storage_field_offset;
+        storage_field_offset += (*_fields)[i].index_length + null_byte;
+        mem_ptr = mem_buf + mem_field_offset;
+        if ((*_fields)[i].type == OLAP_FIELD_TYPE_VARCHAR) {
+            mem_field_offset += sizeof(StringSlice) + 1;
+            for (size_t j = 0; j < num_entries; ++j) {
+                /*
+                 * Varchar is null_byte|length|content in OlapIndex storage
+                 * Varchar is in nullbyte|length|ptr in memory
+                 * We need copy three part: nullbyte|length|content
+                 * 1. copy null byte
+                 * 2. copy length and content into addrs pointed by ptr
+                 */
+
+                // 1. copy null_byte
+                memory_copy(mem_ptr, storage_ptr, null_byte);
+
+                // 2. copy length and content
+                size_t storage_field_bytes =
+                    *reinterpret_cast<StringLengthType*>(storage_ptr + null_byte);
+                StringSlice* slice = reinterpret_cast<StringSlice*>(mem_ptr + 1);
+                char* data = reinterpret_cast<char*>(_mem_pool->allocate(storage_field_bytes));
+                memory_copy(data, storage_ptr + sizeof(StringLengthType) + null_byte, storage_field_bytes);
+                slice->data = data;
+                slice->size = storage_field_bytes;
+
+                mem_ptr += mem_row_bytes;
+                storage_ptr += storage_row_bytes;
+            }
+        } else if ((*_fields)[i].type == OLAP_FIELD_TYPE_CHAR) {
+            mem_field_offset += sizeof(StringSlice) + 1;
+            size_t storage_field_bytes = (*_fields)[i].index_length;
+            for (size_t j = 0; j < num_entries; ++j) {
+                /*
+                 * Char is in nullbyte|content with fixed length in OlapIndex
+                 * Char is in nullbyte|length|ptr in memory
+                 * We need copy three part: nullbyte|length|content
+                 * 1. copy null byte
+                 * 2. copy length and content into addrs pointed by ptr
+                 */
+
+                // 1. copy null_byte
+                memory_copy(mem_ptr, storage_ptr, null_byte);
+
+                // 2. copy length and content
+                StringSlice* slice = reinterpret_cast<StringSlice*>(mem_ptr + 1);
+                char* data = reinterpret_cast<char*>(_mem_pool->allocate(storage_field_bytes));
+                memory_copy(data, storage_ptr + null_byte, storage_field_bytes);
+                slice->data = data;
+                slice->size = storage_field_bytes;
+
+                mem_ptr += mem_row_bytes;
+                storage_ptr += storage_row_bytes;
+            }
+        } else {
+            size_t storage_field_bytes = (*_fields)[i].index_length;
+            mem_field_offset += storage_field_bytes + 1;
+            for (size_t j = 0; j < num_entries; ++j) {
+                memory_copy(mem_ptr + 1 - null_byte, storage_ptr, storage_field_bytes + null_byte);
+
+                mem_ptr += mem_row_bytes;
+                storage_ptr += storage_row_bytes;
             }
         }
     }
 
-    meta.range.first = _num_entries;
-    meta.range.last = meta.range.first + num_entries;
-    _num_entries = meta.range.last;
-    _meta.push_back(meta);
+    mem_ptr = mem_buf + mem_field_offset;
+    storage_ptr = storage_data + storage_field_offset;
+    size_t data_file_offset = sizeof(data_file_offset_t);
+    for (size_t j = 0; j < num_entries; ++j) {
+        memory_copy(mem_ptr, storage_ptr, data_file_offset);
+        mem_ptr += mem_row_bytes;
+        storage_ptr += storage_row_bytes;
+    }
 
-    (current_num_rows_per_row_block == NULL
-         || (*current_num_rows_per_row_block = meta.file_header.message().num_rows_per_block())); 
+    _meta.back().buffer.data = mem_buf;
+    _meta.back().buffer.length = num_entries * mem_row_bytes;
+    free(storage_data);
 
     file_handler.close();
-
     return OLAP_SUCCESS;
 }
 
-OLAPStatus MemIndex::init(size_t short_key_len, size_t short_key_num, RowFields* fields) {
+OLAPStatus MemIndex::init(size_t short_key_len, size_t new_short_key_len,
+                          size_t short_key_num, RowFields* fields) {
     if (fields == NULL) {
         OLAP_LOG_WARNING("fail to init MemIndex, NULL short key fields.");
         return OLAP_ERR_INDEX_LOAD_ERROR;
     }
 
     _key_length = short_key_len;
+    _new_key_length = new_short_key_len;
     _key_num = short_key_num;
     _fields = fields;
 
@@ -912,24 +991,24 @@ const OLAPIndexOffset MemIndex::get_offset(const RowBlockPosition& pos) const {
     uint32_t file_header_size = _meta[pos.segment].file_header.size();
     if (pos.segment >= segment_count()
             || pos.index_offset > file_header_size + _meta[pos.segment].buffer.length
-            || (pos.index_offset - file_header_size) % entry_length() != 0) {
+            || (pos.index_offset - file_header_size) % new_entry_length() != 0) {
         return end();
     }
 
     OLAPIndexOffset off;
     off.segment = pos.segment;
-    off.offset = (pos.index_offset - _meta[pos.segment].file_header.size()) / entry_length();
+    off.offset = (pos.index_offset - _meta[pos.segment].file_header.size()) / new_entry_length();
 
     return off;
 }
 
-OLAPStatus MemIndex::get_entry(const OLAPIndexOffset& pos, Slice* slice) const {
+OLAPStatus MemIndex::get_entry(const OLAPIndexOffset& pos, EntrySlice* slice) const {
     if (pos.segment >= segment_count() || pos.offset >= _meta[pos.segment].count()) {
         return OLAP_ERR_INDEX_EOF;
     }
 
-    slice->length = entry_length();
-    slice->data = _meta[pos.segment].buffer.data + pos.offset * entry_length();
+    slice->length = new_entry_length();
+    slice->data = _meta[pos.segment].buffer.data + pos.offset * new_entry_length();
 
     return OLAP_SUCCESS;
 }
@@ -952,16 +1031,16 @@ OLAPStatus MemIndex::get_row_block_position(
 
     rbp->segment = pos.segment;
     rbp->data_offset = *reinterpret_cast<uint32_t*>(
-                           _meta[pos.segment].buffer.data +
-                           pos.offset * entry_length() + short_key_length());
-    rbp->index_offset = _meta[pos.segment].file_header.size() + pos.offset * entry_length();
+                            _meta[pos.segment].buffer.data +
+                            pos.offset * new_entry_length() + new_short_key_length());
+    rbp->index_offset = _meta[pos.segment].file_header.size() + pos.offset * new_entry_length();
 
     if (pos.offset == _meta[pos.segment].count() - 1) {
         rbp->block_size = _meta[pos.segment].file_header.extra().data_length - rbp->data_offset;
     } else {
         uint32_t next_offset = *reinterpret_cast<uint32_t*>(
                                    _meta[pos.segment].buffer.data +
-                                   (pos.offset + 1) * entry_length() + short_key_length());
+                                   (pos.offset + 1) * new_entry_length() + new_short_key_length());
         rbp->block_size = next_offset - rbp->data_offset;
     }
 

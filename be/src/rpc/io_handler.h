@@ -22,6 +22,7 @@
 #include "reactor_factory.h"
 #include "expire_timer.h"
 #include "common/logging.h"
+#include "util/debug_util.h"
 
 #include <mutex>
 
@@ -113,7 +114,7 @@ public:
             dh->handle(event);
         } else {
             if (!m_dispatch_handler) {
-                LOG(INFO) << "event: " << event->to_str().c_str();
+                LOG(INFO) << "event: " << event->to_str();
             } else {
                 m_dispatch_handler->handle(event);
             }

@@ -50,7 +50,7 @@ static bool compare_part_use_range(const PartitionInfo* v1, const PartitionInfo*
     return v1->range() < v2->range();
 }
 
-Status BrokerScanNode::init(const TPlanNode& tnode) {
+Status BrokerScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ScanNode::init(tnode));
     auto& broker_scan_node = tnode.broker_scan_node;
     if (broker_scan_node.__isset.partition_exprs) {

@@ -83,7 +83,7 @@ public:
      * @param handler Removed dispatch handler
      * @return <i>true</i> if request removed, <i>false</i> otherwise
      */
-    bool remove_request(uint32_t id, DispatchHandler *&handler) {
+    bool remove_request(uint32_t id, DispatchHandlerPtr& handler) {
         std::lock_guard<std::mutex> lock(m_mutex);
         return m_request_cache.remove(id, handler);
     }

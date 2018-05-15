@@ -431,6 +431,8 @@ private:
 
     /** Private constructor (prevent non-singleton usage). */
     Comm();
+    // used for test
+    Comm(const char* host);
 
     /** Destructor */
     ~Comm();

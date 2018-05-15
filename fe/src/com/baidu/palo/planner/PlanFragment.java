@@ -181,6 +181,11 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             result.setOutput_sink(sink.toThrift());
         }
         result.setPartition(dataPartition.toThrift());
+
+        // TODO chenhao , calculated by cost
+        result.setMin_reservation_bytes(0);
+        result.setInitial_reservation_total_claims(0);
+        
         return result;
     }
 

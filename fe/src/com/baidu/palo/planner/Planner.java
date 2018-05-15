@@ -141,8 +141,15 @@ public class Planner {
         singleNodePlanner = new SingleNodePlanner(plannerContext);
         PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
 
+        singleNodePlanner.validatePlan(singleNodePlan);
+
         List<Expr> resultExprs = queryStmt.getResultExprs();
         if (statment instanceof InsertStmt) {
+            if (queryOptions.isSetMt_dop() && queryOptions.mt_dop > 0) {
+                throw new NotImplementedException(
+                        "MT_DOP not supported for plans with insert.");
+            }
+ 
             InsertStmt insertStmt = (InsertStmt) statment;
             if (insertStmt.getOlapTuple() != null) {
                 singleNodePlan = new OlapRewriteNode(plannerContext.getNextNodeId(), singleNodePlan, insertStmt);

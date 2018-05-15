@@ -19,7 +19,7 @@
 #include <gtest/gtest.h>
 #include "util/decompress.h"
 #include "util/compress.h"
-#include "gen-cpp/Descriptors_types.h"
+#include "gen_cpp/Descriptors_types.h"
 
 using namespace std;
 using namespace boost;

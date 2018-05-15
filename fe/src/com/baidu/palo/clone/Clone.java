@@ -559,6 +559,10 @@ public class Clone {
                 }
 
                 Replica replica = tablet.getReplicaByBackendId(backendId);
+                if (replica == null) {
+                    throw new MetaNotFoundException("replica does not exist in be: " + backendId
+                            + " . tablet id: " + tabletId);
+                }
                 if (replica.getState() == ReplicaState.CLONE) {
                     if (tablet.deleteReplicaByBackendId(backendId)) {
                         LOG.info("remove clone replica. tablet id: {}, backend id: {}", tabletId, backendId);

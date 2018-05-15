@@ -119,7 +119,7 @@ OLAPStatus OLAPDataWriter::init(uint32_t num_rows_per_row_block) {
     if (_is_push_write) {
         _write_mbytes_per_sec = config::push_write_mbytes_per_sec;
     } else {
-        _write_mbytes_per_sec = config::base_expansion_write_mbytes_per_sec;
+        _write_mbytes_per_sec = config::base_compaction_write_mbytes_per_sec;
     }
     
     _speed_limit_watch.reset();
@@ -134,13 +134,8 @@ OLAPStatus OLAPDataWriter::attached_by(RowCursor* row_cursor) {
             return OLAP_ERR_OTHER_ERROR;
         }
     }
-
     // Row points to the memory that needs to write in _row_block.
-    if (OLAP_SUCCESS != _row_block->get_row_to_write(_row_index, row_cursor)) {
-        OLAP_LOG_WARNING("fail to get row in row_block. [row_num=%u]", _row_index);
-        return OLAP_ERR_OTHER_ERROR;
-    }
-
+    _row_block->get_row(_row_index, row_cursor);
     return OLAP_SUCCESS;
 }
 
@@ -205,7 +200,7 @@ OLAPStatus OLAPDataWriter::write_row_block(RowBlock* row_block) {
     // Add row block into olap data.
     uint32_t start_offset;
     uint32_t end_offset;
-    if (OLAP_SUCCESS != _data->add_row_block(*row_block,
+    if (OLAP_SUCCESS != _data->add_row_block(row_block,
                                              &start_offset,
                                              &end_offset)) {
         OLAP_LOG_WARNING("fail to write data.");
@@ -271,6 +266,10 @@ OLAPStatus OLAPDataWriter::finalize() {
 
 uint64_t OLAPDataWriter::written_bytes() {
     return _current_segment_size + _index->num_segments() * _max_segment_size;
+}
+
+MemPool* OLAPDataWriter::mem_pool() {
+    return _row_block->mem_pool();
 }
 
 }  // namespace palo

@@ -1094,6 +1094,7 @@ public class SystemInfoService extends Daemon {
         memoryBe.setDecommissioned(be.isDecommissioned());
         memoryBe.setHttpPort(be.getHttpPort());
         memoryBe.setBeRpcPort(be.getBeRpcPort());
+        memoryBe.setBrpcPort(be.getBrpcPort());
         memoryBe.setLastUpdateMs(be.getLastUpdateMs());
         memoryBe.setLastStartTime(be.getLastStartTime());
         memoryBe.setDisks(be.getDisks());
@@ -1157,7 +1158,11 @@ public class SystemInfoService extends Daemon {
                     int bePort = tBackendInfo.getBe_port();
                     int httpPort = tBackendInfo.getHttp_port();
                     int beRpcPort = tBackendInfo.getBe_rpc_port();
-                    backend.updateOnce(bePort, httpPort, beRpcPort);
+                    int brpcPort = -1;
+                    if (tBackendInfo.isSetBrpc_port()) {
+                        brpcPort = tBackendInfo.getBrpc_port();
+                    }
+                    backend.updateOnce(bePort, httpPort, beRpcPort, brpcPort);
                 } else {
                     LOG.warn("failed to heartbeat backend[" + backendId + "]: " + result.getStatus().toString());
                     backend.setBad(eventBus);

@@ -95,6 +95,10 @@ public:
 
     void close(RuntimeState* state);
 
+    const TypeDescriptor& intermediate_type() const {
+        return _intermediate_slot_desc->type();
+    } 
+
     //PrimitiveType type() const { return _type.type; }
     AggregationOp agg_op() const {
         return _agg_op;
@@ -194,6 +198,11 @@ public:
     const std::string& fn_name() const {
         return _fn.name.function_name;
     }
+
+    const SlotDescriptor* output_slot_desc() const {
+        return _output_slot_desc;
+    }
+
 private:
     const TFunction _fn;
 

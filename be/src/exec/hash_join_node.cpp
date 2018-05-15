@@ -63,8 +63,8 @@ HashJoinNode::~HashJoinNode() {
     DCHECK(_probe_batch == NULL);
 }
 
-Status HashJoinNode::init(const TPlanNode& tnode) {
-    RETURN_IF_ERROR(ExecNode::init(tnode));
+Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::init(tnode, state));
     DCHECK(tnode.__isset.hash_join_node);
     const vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
 

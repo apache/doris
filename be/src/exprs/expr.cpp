@@ -21,6 +21,7 @@
 #include "exprs/expr.h"
 
 #include <sstream>
+#include <vector>
 #include <thrift/protocol/TDebugProtocol.h>
 #include <llvm/Support/InstIterator.h>
 
@@ -60,6 +61,7 @@ using llvm::Instruction;
 using llvm::CallInst;
 using llvm::ConstantInt;
 using llvm::Value;
+using std::vector;
 namespace palo {
 
 const char* Expr::_s_llvm_class_name = "class.palo::Expr";
@@ -919,8 +921,8 @@ int Expr::inline_constants(LlvmCodeGen* codegen, Function* fn) {
         Function* called_fn = call_instr->getCalledFunction();
 
         // Look for call to Expr::GetConstant()
-        if (called_fn == NULL
-                || called_fn->getName().find(_s_get_constant_symbol_prefix) == string::npos) {
+        if (called_fn == NULL ||
+            called_fn->getName().find(_s_get_constant_symbol_prefix) == std::string::npos) {
             continue;
         }
 
@@ -973,6 +975,120 @@ Expr* Expr::copy(ObjectPool* pool, Expr* old_expr) {
         new_expr->_children.push_back(new_child);
     }
     return new_expr;
+}
+
+void Expr::assign_fn_ctx_idx(int* next_fn_ctx_idx) {
+  _fn_ctx_idx_start = *next_fn_ctx_idx;
+  if (has_fn_ctx()) {
+    _fn_ctx_idx = *next_fn_ctx_idx;
+    ++(*next_fn_ctx_idx);
+  }
+  for (Expr* child : children()) child->assign_fn_ctx_idx(next_fn_ctx_idx);
+  _fn_ctx_idx_end = *next_fn_ctx_idx;
+}
+
+
+Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc,
+    RuntimeState* state, ObjectPool* pool, Expr** scalar_expr,
+    MemTracker* tracker) {
+  *scalar_expr = nullptr;
+  Expr* root;
+  RETURN_IF_ERROR(create_expr(pool, texpr.nodes[0], &root));
+  RETURN_IF_ERROR(create_tree(texpr, pool, root));
+  // TODO pengyubing replace by Init()
+  ExprContext* ctx = pool->add(new ExprContext(root));
+  // TODO chenhao check node type in ScalarExpr Init()
+  Status status = Status::OK;
+  if (texpr.nodes[0].node_type != TExprNodeType::CASE_EXPR) {
+      status = root->prepare(state, row_desc, ctx);
+  }
+  if (UNLIKELY(!status.ok())) {
+    root->close();
+    return status;
+  }
+  int fn_ctx_idx = 0;
+  root->assign_fn_ctx_idx(&fn_ctx_idx);
+  *scalar_expr = root;
+  return Status::OK;
+}
+
+Status Expr::create(const vector<TExpr>& texprs, const RowDescriptor& row_desc,
+    RuntimeState* state, ObjectPool* pool, vector<Expr*>* exprs, MemTracker* tracker) {
+  exprs->clear();
+  for (const TExpr& texpr: texprs) {
+    Expr* expr;
+    RETURN_IF_ERROR(create(texpr, row_desc, state, pool, &expr, tracker));
+    DCHECK(expr != nullptr);
+    exprs->push_back(expr);
+  }
+  return Status::OK;
+}
+
+Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc,
+    RuntimeState* state, Expr** scalar_expr, MemTracker* tracker) {
+  return Expr::create(texpr, row_desc, state, state->obj_pool(), scalar_expr, tracker);
+}
+
+Status Expr::create(const vector<TExpr>& texprs, const RowDescriptor& row_desc,
+    RuntimeState* state, vector<Expr*>* exprs, MemTracker* tracker) {
+  return Expr::create(texprs, row_desc, state, state->obj_pool(), exprs, tracker);
+}
+
+Status Expr::create_tree(const TExpr& texpr, ObjectPool* pool, Expr* root) {
+  DCHECK(!texpr.nodes.empty());
+  DCHECK(root != nullptr);
+  // The root of the tree at nodes[0] is already created and stored in 'root'.
+  int child_node_idx = 0;
+  int num_children = texpr.nodes[0].num_children;
+  for (int i = 0; i < num_children; ++i) {
+    ++child_node_idx;
+    Status status = create_tree_internal(texpr.nodes, pool, root, &child_node_idx);
+    if (UNLIKELY(!status.ok())) {
+      LOG(ERROR) << "Could not construct expr tree.\n" << status.get_error_msg() << "\n"
+                 << apache::thrift::ThriftDebugString(texpr);
+      return status;
+    }
+  }
+  if (UNLIKELY(child_node_idx + 1 != texpr.nodes.size())) {
+    return Status("Expression tree only partially reconstructed. Not all thrift " \
+                  "nodes were used.");
+  }
+  return Status::OK;
+}
+
+Status Expr::create_tree_internal(const vector<TExprNode>& nodes, ObjectPool* pool,
+    Expr* root, int* child_node_idx) {
+  // propagate error case
+  if (*child_node_idx >= nodes.size()) {
+    return Status("Failed to reconstruct expression tree from thrift.");
+  }
+
+  const TExprNode& texpr_node = nodes[*child_node_idx];
+  DCHECK_NE(texpr_node.node_type, TExprNodeType::AGG_EXPR);
+  Expr* child_expr;
+  RETURN_IF_ERROR(create_expr(pool, texpr_node, &child_expr));
+  root->_children.push_back(child_expr);
+
+  int num_children = nodes[*child_node_idx].num_children;
+  for (int i = 0; i < num_children; ++i) {
+    *child_node_idx += 1;
+    RETURN_IF_ERROR(create_tree_internal(nodes, pool, child_expr, child_node_idx));
+    DCHECK(child_expr->get_child(i) != nullptr);
+  }
+  return Status::OK;
+}
+
+// TODO chenhao
+void Expr::close() {
+  for (Expr* child : _children) child->close();
+  /*if (_cache_entry != nullptr) {
+    LibCache::instance()->decrement_use_count(_cache_entry);
+    _cache_entry = nullptr;
+  }*/
+}
+
+void Expr::close(const vector<Expr*>& exprs) {
+  for (Expr* expr : exprs) expr->close();
 }
 
 }

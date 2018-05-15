@@ -70,7 +70,7 @@ Status ClientCacheHelper::get_client(
     _client_map[*client_key]->set_recv_timeout(timeout_ms);
 
     if (_metrics_enabled) {
-        _clients_in_use_metric->increment(1);
+        _used_clients->increment(1);
     }
 
     return Status::OK;
@@ -98,7 +98,7 @@ Status ClientCacheHelper::reopen_client(client_factory factory_method, void** cl
     *client_key = NULL;
 
     if (_metrics_enabled) {
-        _total_clients_metric->increment(-1);
+        _opened_clients->increment(-1);
     }
 
     RETURN_IF_ERROR(create_client(make_network_address(
@@ -129,7 +129,7 @@ Status ClientCacheHelper::create_client(
     _client_map[*client_key] = client_impl.release();
 
     if (_metrics_enabled) {
-        _total_clients_metric->increment(1);
+        _opened_clients->increment(1);
     }
 
     return Status::OK;
@@ -149,7 +149,7 @@ void ClientCacheHelper::release_client(void** client_key) {
     j->second.push_back(*client_key);
 
     if (_metrics_enabled) {
-        _clients_in_use_metric->increment(-1);
+        _used_clients->increment(-1);
     }
 
     *client_key = NULL;
@@ -204,19 +204,21 @@ void ClientCacheHelper::test_shutdown() {
     }
 }
 
-void ClientCacheHelper::init_metrics(MetricGroup* metrics, const std::string& key_prefix) {
+void ClientCacheHelper::init_metrics(MetricRegistry* metrics, const std::string& key_prefix) {
     DCHECK(metrics != NULL);
     // Not strictly needed if init_metrics is called before any cache
     // usage, but ensures that _metrics_enabled is published.
     boost::lock_guard<boost::mutex> lock(_lock);
-    std::stringstream count_ss;
-    count_ss << key_prefix << ".client_cache.clients_in_use";
-    _clients_in_use_metric =
-        metrics->AddGauge(count_ss.str(), 0L);
 
-    std::stringstream max_ss;
-    max_ss << key_prefix << ".client_cache.total_clients";
-    _total_clients_metric = metrics->AddGauge(max_ss.str(), 0L);
+    _used_clients.reset(new IntGauge());
+    metrics->register_metric("thrift_used_clients",
+                             MetricLabels().add("name", key_prefix),
+                             _used_clients.get());
+
+    _opened_clients.reset(new IntGauge());
+    metrics->register_metric("thrift_opened_clients",
+                             MetricLabels().add("name", key_prefix),
+                             _opened_clients.get());
     _metrics_enabled = true;
 }
 

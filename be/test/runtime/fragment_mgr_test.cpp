@@ -16,7 +16,7 @@
 #include <gtest/gtest.h>
 #include "runtime/fragment_mgr.h"
 #include "runtime/plan_fragment_executor.h"
-#include "runtime/mem_limit.hpp"
+// #include "runtime/mem_limit.hpp"
 #include "runtime/row_batch.h"
 #include "exec/data_sink.h"
 #include "common/configbase.h"
@@ -120,5 +120,6 @@ TEST_F(FragmentMgrTest, PrepareFailed) {
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
+    palo::CpuInfo::init();
     return RUN_ALL_TESTS();
 }

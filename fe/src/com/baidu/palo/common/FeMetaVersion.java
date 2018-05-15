@@ -79,4 +79,13 @@ public final class FeMetaVersion {
 
     // added collation_server to variables (palo-3059)
     public static final int VERSION_37 = 37;
+
+    // paralle exec param and batch size
+    public static final int VERSION_38 = 38;
+
+    // schema change support row to column
+    public static final int VERSION_39 = 39;
+
+    // persistent brpc port in Backend
+    public static final int VERSION_40 = 40;
 }

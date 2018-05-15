@@ -253,34 +253,65 @@ OLAPStatus read_ints(ReadOnlyFileStream* input, int64_t* data, uint32_t count, u
     uint32_t bits_left = 0;
     char current = '\0';
 
-    for (uint32_t i = 0; i < count; i++) {
-        int64_t result = 0;
-        uint32_t bits_left_to_read = bit_width;
+    uint32_t read_bytes = (count * bit_width - 1) / 8 + 1;
+    uint32_t remaining_bytes = 0;
+    char* buf = nullptr;
+    input->get_buf(&buf, &remaining_bytes);
+    if (read_bytes <= remaining_bytes) {
+        uint32_t pos = 0;
+        input->get_position(&pos);
+        for (uint32_t i = 0; i < count; i++) {
+            int64_t result = 0;
+            uint32_t bits_left_to_read = bit_width;
 
-        while (bits_left_to_read > bits_left) {
-            result <<= bits_left;
-            result |= current & ((1 << bits_left) - 1);
-            bits_left_to_read -= bits_left;
-            res = input->read(&current);
-
-            if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
-                OLAP_LOG_WARNING("fail to write byte to stream.[res=%d]", res);
-                return res;
+            while (bits_left_to_read > bits_left) {
+                result <<= bits_left;
+                result |= current & ((1 << bits_left) - 1);
+                bits_left_to_read -= bits_left;
+                current = buf[pos++];
+                bits_left = 8;
             }
 
-            bits_left = 8;
-        }
+            // handle the left over bits
+            if (bits_left_to_read > 0) {
+                result <<= bits_left_to_read;
+                bits_left -= bits_left_to_read;
+                result |= (current >> bits_left) & ((1 << bits_left_to_read) - 1);
+            }
 
-        // handle the left over bits
-        if (bits_left_to_read > 0) {
-            result <<= bits_left_to_read;
-            bits_left -= bits_left_to_read;
-            result |= (current >> bits_left) & ((1 << bits_left_to_read) - 1);
+            data[i] = result;
         }
+        input->set_position(pos);
+    } else {
+        for (uint32_t i = 0; i < count; i++) {
+            int64_t result = 0;
+            uint32_t bits_left_to_read = bit_width;
 
-        data[i] = result;
+            while (bits_left_to_read > bits_left) {
+                result <<= bits_left;
+                result |= current & ((1 << bits_left) - 1);
+                bits_left_to_read -= bits_left;
+                res = input->read(&current);
+
+                if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
+                    OLAP_LOG_WARNING("fail to write byte to stream.[res=%d]", res);
+                    return res;
+                }
+
+                bits_left = 8;
+            }
+
+            // handle the left over bits
+            if (bits_left_to_read > 0) {
+                result <<= bits_left_to_read;
+                bits_left -= bits_left_to_read;
+                result |= (current >> bits_left) & ((1 << bits_left_to_read) - 1);
+            }
+
+            data[i] = result;
+        }
     }
-    
+
     return res;
 }
 

@@ -31,7 +31,7 @@ class OlapRewriteNode : public ExecNode {
 public:
     OlapRewriteNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
-    virtual Status init(const TPlanNode& tnode);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
     virtual ~OlapRewriteNode() { }
     virtual Status prepare(RuntimeState* state);
     virtual Status open(RuntimeState* state);

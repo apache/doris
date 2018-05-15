@@ -51,10 +51,10 @@ UnionNode::UnionNode(ObjectPool* pool, const TPlanNode& tnode,
       _to_close_child_idx(-1) { 
 }
 
-Status UnionNode::init(const TPlanNode& tnode) {
+Status UnionNode::init(const TPlanNode& tnode, RuntimeState* state) {
     // TODO(zc):
     // RETURN_IF_ERROR(ExecNode::init(tnode, state));
-    RETURN_IF_ERROR(ExecNode::init(tnode));
+    RETURN_IF_ERROR(ExecNode::init(tnode, state));
     DCHECK(tnode.__isset.union_node);
     DCHECK_EQ(_conjunct_ctxs.size(), 0);
     // Create const_expr_ctx_lists_ from thrift exprs.

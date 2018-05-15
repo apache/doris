@@ -25,7 +25,6 @@
 #include <boost/shared_ptr.hpp>
 #include <boost/unordered_set.hpp>
 #include "exprs/predicate.h"
-#include "exec/hash_join_node.h"
 #include "runtime/raw_value.h"
 #include "exprs/hybird_set.h"
 

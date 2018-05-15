@@ -80,6 +80,10 @@ set(EXEC_FILES
   partitioned_hash_table_ir.cc
   partitioned_aggregation_node.cc
   partitioned_aggregation_node_ir.cc
+  new_partitioned_hash_table.cc
+  new_partitioned_hash_table_ir.cc
+  new_partitioned_aggregation_node.cc
+  new_partitioned_aggregation_node_ir.cc
   local_file_writer.cpp
   broker_writer.cpp
 )

@@ -71,7 +71,8 @@ public:
                 0, 
                 helper.length(), 
                 NULL, 
-                OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
+                OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE,
+                &_stats);
         ASSERT_EQ(OLAP_SUCCESS, _stream->init());
 
         _reader = new (std::nothrow) RunLengthIntegerReader(_stream, false);
@@ -84,6 +85,7 @@ public:
     FileHandler helper;
     ByteBuffer* _shared_buffer;
     ReadOnlyFileStream* _stream;
+    OlapReaderStatistics _stats;
 };
 
 
@@ -148,7 +150,7 @@ TEST_F(TestRunLengthUnsignInteger, seek) {
     PositionEntryReader entry;
     entry._positions = index_entry._positions;
     entry._positions_count = index_entry._positions_count;
-    entry._statistics.init(OLAP_FIELD_TYPE_NONE, false);
+    entry._statistics.init(OLAP_FIELD_TYPE_INT, false);
 
     PositionProvider position(&entry);
     _reader->seek(&position);
@@ -381,7 +383,8 @@ virtual void SetUp() {
                 0, 
                 helper.length(), 
                 NULL, 
-                OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
+                OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE,
+                &_stats);
         ASSERT_EQ(OLAP_SUCCESS, _stream->init());
 
         _reader = new (std::nothrow) RunLengthIntegerReader(_stream, false);
@@ -394,6 +397,7 @@ virtual void SetUp() {
     FileHandler helper;
     ByteBuffer* _shared_buffer;
     ReadOnlyFileStream* _stream;
+    OlapReaderStatistics _stats;
 };
 
 
@@ -474,7 +478,7 @@ TEST_F(TestRunLengthSignInteger, seek) {
     PositionEntryReader entry;
     entry._positions = index_entry._positions;
     entry._positions_count = index_entry._positions_count;
-    entry._statistics.init(OLAP_FIELD_TYPE_NONE, false);
+    entry._statistics.init(OLAP_FIELD_TYPE_INT, false);
 
     PositionProvider position(&entry);
     _reader->seek(&position);

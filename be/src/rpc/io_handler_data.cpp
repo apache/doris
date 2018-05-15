@@ -225,7 +225,7 @@ void IOHandlerData::handle_message_header(ClockT::time_point arrival_time) {
 }
 
 void IOHandlerData::handle_message_body() {
-    DispatchHandler *dh {};
+    DispatchHandlerPtr dhp;
     if (m_event->header.flags & CommHeader::FLAGS_BIT_PROXY_MAP_UPDATE) {
         ReactorRunner::handler_map->update_proxy_map((const char *)m_message,
                 m_event->header.total_len - m_event->header.header_len);
@@ -234,7 +234,7 @@ void IOHandlerData::handle_message_body() {
     }
     else if ((m_event->header.flags & CommHeader::FLAGS_BIT_REQUEST) == 0 &&
              (m_event->header.id == 0
-              || !m_reactor->remove_request(m_event->header.id, dh))) {
+              || !m_reactor->remove_request(m_event->header.id, dhp))) {
         if ((m_event->header.flags & CommHeader::FLAGS_BIT_IGNORE_RESPONSE) == 0) {
             LOG(WARNING) << "received response for non-pending event."
                          << "[request_id=" << m_event->header.id << ", "
@@ -253,7 +253,7 @@ void IOHandlerData::handle_message_body() {
             std::lock_guard<std::mutex> lock(m_mutex);
             m_event->set_proxy(m_proxy);
         }
-        deliver_event(m_event, dh);
+        deliver_event(m_event, dhp.get());
     }
     reset_incoming_message_state();
 }

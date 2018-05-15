@@ -54,6 +54,16 @@ struct TPlanFragment {
   // This is distinct from the partitioning of each plan fragment's
   // output, which is specified by output_sink.output_partitioning.
   6: required Partitions.TDataPartition partition
+
+  // The minimum reservation size (in bytes) required for an instance of this plan
+  // fragment to execute on a single host.
+  7: optional i64 min_reservation_bytes
+
+  // Total of the initial buffer reservations that we expect to be claimed by this
+  // fragment. I.e. the sum of the min reservations over all operators (including the
+  // sink) in a single instance of this fragment. This is used for an optimization in
+  // InitialReservation. Measured in bytes. required in V1
+  8: optional i64 initial_reservation_total_claims
 }
 
 // location information for a single scan range

@@ -52,6 +52,11 @@ enum TErrorHubType {
     NULL_TYPE 
 }
 
+enum TPrefetchMode {
+    NONE,
+    HT_BUCKET
+}
+
 struct TMysqlErrorHubInfo {
     1: required string host;
     2: required i32 port;
@@ -88,6 +93,34 @@ struct TQueryOptions {
   // INT64::MAX
   17: optional i64 kudu_latest_observed_ts = 9223372036854775807
   18: optional TQueryType query_type = TQueryType.SELECT
+  19: optional i64 min_reservation = 0
+  20: optional i64 max_reservation = 107374182400
+  21: optional i64 initial_reservation_total_claims = 2147483647 // TODO chenhao
+  22: optional i64 buffer_pool_limit = 2147483648
+
+  // The default spillable buffer size in bytes, which may be overridden by the planner.
+  // Defaults to 2MB.
+  23: optional i64 default_spillable_buffer_size = 2097152;
+
+  // The minimum spillable buffer to use. The planner will not choose a size smaller than
+  // this. Defaults to 64KB.
+  24: optional i64 min_spillable_buffer_size = 65536;
+
+  // The maximum size of row that the query will reserve memory to process. Processing
+  // rows larger than this may result in a query failure. Defaults to 512KB, e.g.
+  // enough for a row with 15 32KB strings or many smaller columns.
+  //
+  // Different operators handle this option in different ways. E.g. some simply increase
+  // the size of all their buffers to fit this row size, whereas others may use more
+  // sophisticated strategies - e.g. reserving a small number of buffers large enough to
+  // fit maximum-sized rows.
+  25: optional i64 max_row_size = 524288;
+  
+  // stream preaggregation
+  26: optional bool disable_stream_preaggregations = false;
+
+  // multithreaded degree of intra-node parallelism 
+  27: optional i32 mt_dop = 0;
 }
 
 // A scan range plus the parameters needed to execute that scan.
@@ -103,6 +136,7 @@ struct TPlanFragmentDestination {
 
   // ... which is being executed on this server
   2: required Types.TNetworkAddress server
+  3: optional Types.TNetworkAddress brpc_server
 }
 
 // Parameters for a single execution instance of a particular TPlanFragment

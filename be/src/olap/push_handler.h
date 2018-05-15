@@ -59,7 +59,8 @@ public:
             const TPushReq& request,
             PushType push_type,
             std::vector<TTabletInfo>* tablet_info_vec);
-
+    int64_t write_bytes() const { return _write_bytes; }
+    int64_t write_rows() const { return _write_rows; }
 private:
     // Validate request, mainly data version check.
     OLAPStatus _validate_request(
@@ -156,6 +157,8 @@ private:
     // lock tablet header before modify tabelt header
     bool _header_locked;
 
+    int64_t _write_bytes = 0;
+    int64_t _write_rows = 0;
     DISALLOW_COPY_AND_ASSIGN(PushHandler);
 };
 
@@ -196,7 +199,7 @@ public:
     virtual OLAPStatus init(SmartOLAPTable table, BinaryFile* file) = 0;
     virtual OLAPStatus finalize() = 0;
 
-    virtual OLAPStatus next(RowCursor* row) = 0;
+    virtual OLAPStatus next(RowCursor* row, MemPool* mem_pool) = 0;
 
     virtual bool eof() = 0;
 
@@ -233,7 +236,7 @@ public:
     virtual OLAPStatus init(SmartOLAPTable table, BinaryFile* file);
     virtual OLAPStatus finalize();
 
-    virtual OLAPStatus next(RowCursor* row);
+    virtual OLAPStatus next(RowCursor* row, MemPool* mem_pool);
 
     virtual bool eof() {
         return _curr >= _content_len;
@@ -254,7 +257,7 @@ public:
     virtual OLAPStatus init(SmartOLAPTable table, BinaryFile* file);
     virtual OLAPStatus finalize();
 
-    virtual OLAPStatus next(RowCursor* row);
+    virtual OLAPStatus next(RowCursor* row, MemPool* mem_pool);
 
     virtual bool eof() {
         return _curr >= _content_len && _row_num == 0;

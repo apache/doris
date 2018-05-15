@@ -64,7 +64,7 @@ public:
             OLAPStatus(const TPushReq& request, std::vector<TTabletInfo>* tablet_info_vec));
     MOCK_METHOD1(cancel_delete, OLAPStatus(const TCancelDeleteDataReq& request));
     MOCK_METHOD3(
-            base_expansion,
+            base_compaction,
             OLAPStatus(TTabletId tablet_id, TSchemaHash schema_hash, TVersion version));
     MOCK_METHOD4(
             update_header,

@@ -498,6 +498,8 @@ int do_div_mod(
     const int32_t* buff1 = value1._buffer;
     const int32_t* buff2 = value2._buffer;
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
     // removing all the leading zeros
     // process value2
     int32_t first_big_digit_length = (prec2 - 1) % DIG_PER_DEC1 + 1;
@@ -529,6 +531,7 @@ int do_div_mod(
     for (; *buff1 < powers10[--first_big_digit_length];) {
         --prec1;
     }
+#pragma GCC diagnostic pop
 
     // 比较两个数的整形部分，得到结果的intg。 如果被除数较小，intg=0.
     int32_t dintg = (prec1 - frac1) - (prec2 - frac2) + (*buff1 >= *buff2);

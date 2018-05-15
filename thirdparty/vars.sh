@@ -70,19 +70,19 @@ THRIFT_NAME=thrift-0.9.3.tar.gz
 THRIFT_SOURCE=thrift-0.9.3
 
 # llvm
-LLVM_DOWNLOAD="http://releases.llvm.org/3.3/llvm-3.3.src.tar.gz"
-LLVM_NAME=llvm-3.3.src.tar.gz
-LLVM_SOURCE=llvm-3.3.src
+LLVM_DOWNLOAD="http://releases.llvm.org/3.4.2/llvm-3.4.2.src.tar.gz"
+LLVM_NAME=llvm-3.4.2.src.tar.gz
+LLVM_SOURCE=llvm-3.4.2.src
 
 # clang
-CLANG_DOWNLOAD="http://releases.llvm.org/3.3/cfe-3.3.src.tar.gz"
-CLANG_NAME=cfe-3.3.src.tar.gz
-CLANG_SOURCE=cfe-3.3.src
+CLANG_DOWNLOAD="http://releases.llvm.org/3.4.2/cfe-3.4.2.src.tar.gz"
+CLANG_NAME=cfe-3.4.2.src.tar.gz
+CLANG_SOURCE=cfe-3.4.2.src
 
 # compiler-rt
-COMPILER_RT_DOWNLOAD="http://releases.llvm.org/3.3/compiler-rt-3.3.src.tar.gz"
-COMPILER_RT_NAME=compiler-rt-3.3.src.tar.gz
-COMPILER_RT_SOURCE=compiler-rt-3.3.src
+COMPILER_RT_DOWNLOAD="http://releases.llvm.org/3.4/compiler-rt-3.4.src.tar.gz"
+COMPILER_RT_NAME=compiler-rt-3.4.src.tar.gz
+COMPILER_RT_SOURCE=compiler-rt-3.4
 
 # protobuf
 PROTOBUF_DOWNLOAD="https://github.com/google/protobuf/releases/download/v2.6.1/protobuf-2.6.1.tar.gz"
@@ -169,5 +169,15 @@ BOOST_FOR_MYSQL_DOWNLOAD="http://sourceforge.net/projects/boost/files/boost/1.59
 BOOST_FOR_MYSQL_NAME=boost_1_59_0.tar.gz
 BOOST_FOR_MYSQL_SOURCE=boost_1_59_0
 
+# leveldb
+LEVELDB_DOWNLOAD="https://github.com/google/leveldb/archive/v1.20.tar.gz"
+LEVELDB_NAME=leveldb-1.20.tar.gz
+LEVELDB_SOURCE=leveldb-1.20
+
+# brpc
+BRPC_DOWNLOAD="https://github.com/brpc/brpc/archive/v0.9.0.tar.gz"
+BRPC_NAME=brpc-0.9.0.tar.gz
+BRPC_SOURCE=brpc-0.9.0
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
-export TP_ARCHIVES=(LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 NCURSES CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL)
+export TP_ARCHIVES=(LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 NCURSES CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL LEVELDB BRPC)

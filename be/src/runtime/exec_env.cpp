@@ -25,7 +25,9 @@
 #include <boost/algorithm/string.hpp>
 
 #include "common/logging.h"
+#include "rpc/connection_manager.h"
 #include "runtime/broker_mgr.h"
+#include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/client_cache.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/disk_io_mgr.h"
@@ -34,6 +36,7 @@
 #include "runtime/thread_resource_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/tmp_file_mgr.h"
+#include "runtime/bufferpool/reservation_tracker.h"
 #include "util/metrics.h"
 #include "util/network_util.h"
 #include "http/webserver.h"
@@ -48,6 +51,7 @@
 #include "http/action/reload_tablet_action.h"
 #include "http/action/snapshot_action.h"
 #include "http/action/pprof_actions.h"
+#include "http/action/metrics_action.h"
 #include "http/download_action.h"
 #include "http/monitor_action.h"
 #include "http/http_method.h"
@@ -57,6 +61,9 @@
 #include "runtime/etl_job_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/pull_load_task_mgr.h"
+#include "util/pretty_printer.h"
+#include "util/palo_metrics.h"
+#include "util/brpc_stub_cache.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/TPaloBrokerService.h"
@@ -74,7 +81,6 @@ ExecEnv::ExecEnv() :
         _broker_client_cache(new BrokerServiceClientCache()),
         _webserver(new Webserver()),
         _web_page_handler(new WebPageHandler(_webserver.get())),
-        _metrics(new MetricGroup("exec_env")),
         _mem_tracker(NULL),
         _pool_mem_trackers(new PoolMemTrackerRegistry),
         _thread_mgr(new ThreadResourceMgr),
@@ -94,10 +100,12 @@ ExecEnv::ExecEnv() :
         _bfd_parser(BfdParser::create()),
         _pull_load_task_mgr(new PullLoadTaskMgr(config::pull_load_task_dir)),
         _broker_mgr(new BrokerMgr(this)),
+        _brpc_stub_cache(new BrpcStubCache()),
         _enable_webserver(true),
         _tz_database(TimezoneDatabase()) {
-    _client_cache->init_metrics(_metrics.get(), "palo.backends");
-    //_frontend_client_cache->init_metrics(_metrics.get(), "frontend-server.backends");
+    _client_cache->init_metrics(PaloMetrics::metrics(), "backend");
+    _frontend_client_cache->init_metrics(PaloMetrics::metrics(), "frontend");
+    _broker_client_cache->init_metrics(PaloMetrics::metrics(), "broker");
     _result_mgr->init();
     _cgroups_mgr->init_cgroups();
     _etl_job_mgr->init();
@@ -138,6 +146,30 @@ Status ExecEnv::start_services() {
         return Status("Failed to parse mem limit from '" + config::mem_limit + "'.");
     }
 
+    std::stringstream ss;
+    if (!BitUtil::IsPowerOf2(config::FLAGS_min_buffer_size)) {
+        ss << "--min_buffer_size must be a power-of-two: " << config::FLAGS_min_buffer_size;
+        return Status(ss.str());
+    }
+
+    int64_t buffer_pool_limit = ParseUtil::parse_mem_spec(config::FLAGS_buffer_pool_limit,
+        &is_percent);
+    if (buffer_pool_limit <= 0) {
+        ss << "Invalid --buffer_pool_limit value, must be a percentage or "
+           "positive bytes value or percentage: " << config::FLAGS_buffer_pool_limit;
+        return Status(ss.str());
+    }
+    buffer_pool_limit = BitUtil::RoundDown(buffer_pool_limit, config::FLAGS_min_buffer_size);
+
+    int64_t clean_pages_limit = ParseUtil::parse_mem_spec(config::FLAGS_buffer_pool_clean_pages_limit,
+        &is_percent);
+    if (clean_pages_limit <= 0) {
+        ss << "Invalid --buffer_pool_clean_pages_limit value, must be a percentage or "
+              "positive bytes value or percentage: " << config::FLAGS_buffer_pool_clean_pages_limit;
+        return Status(ss.str());
+    }
+
+    init_buffer_pool(config::FLAGS_min_buffer_size, buffer_pool_limit, clean_pages_limit);
     // Limit of 0 means no memory limit.
     if (bytes_limit > 0) {
         _mem_tracker.reset(new MemTracker(bytes_limit));
@@ -163,8 +195,7 @@ Status ExecEnv::start_services() {
         LOG(INFO) << "Webserver is disabled";
     }
 
-    _metrics->init(_enable_webserver ? _web_page_handler.get() : NULL);
-    RETURN_IF_ERROR(_tmp_file_mgr->init(_metrics.get()));
+    RETURN_IF_ERROR(_tmp_file_mgr->init(PaloMetrics::metrics()));
 
     return Status::OK;
 }
@@ -210,6 +241,11 @@ Status ExecEnv::start_webserver() {
     // register pprof actions
     PprofActions::setup(this, _webserver.get());
 
+    {
+        auto action = _object_pool.add(new MetricsAction(PaloMetrics::metrics()));
+        _webserver->register_handler(HttpMethod::GET, "/metrics", action);
+    }
+
 #ifndef BE_TEST
     // Register BE checksum action
     ChecksumAction* checksum_action = new ChecksumAction(this);
@@ -232,8 +268,19 @@ uint32_t ExecEnv::cluster_id() {
     return OLAPRootPath::get_instance()->effective_cluster_id();
 }
 
+void ExecEnv::init_buffer_pool(int64_t min_page_size, int64_t capacity, int64_t clean_pages_limit) {
+  DCHECK(_buffer_pool == nullptr);
+  _buffer_pool.reset(new BufferPool(min_page_size, capacity, clean_pages_limit));
+  _buffer_reservation.reset(new ReservationTracker);
+  _buffer_reservation->InitRootTracker(nullptr, capacity);
+}
+
 const std::string& ExecEnv::token() const {
     return _master_info->token;
+}
+
+MetricRegistry* ExecEnv::metrics() const {
+    return PaloMetrics::metrics();
 }
 
 }

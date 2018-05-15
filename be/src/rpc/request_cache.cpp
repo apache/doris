@@ -26,8 +26,7 @@ void
 RequestCache::insert(uint32_t id, IOHandler *handler, DispatchHandler *dh,
                      ClockT::time_point &expire) {
     VLOG(3) << "Adding id %d" << id;
-    IdHandlerMap::iterator iter = m_id_map.find(id);
-    assert(iter == m_id_map.end());
+    assert(m_id_map.find(id) == m_id_map.end());
     CacheNode *node = new CacheNode(id, handler, dh);
     node->expire = expire;
     if (m_head == 0) {
@@ -43,7 +42,7 @@ RequestCache::insert(uint32_t id, IOHandler *handler, DispatchHandler *dh,
     m_id_map[id] = node;
 }
 
-bool RequestCache::remove(uint32_t id, DispatchHandler *&handler) {
+bool RequestCache::remove(uint32_t id, DispatchHandlerPtr& handler) {
     VLOG(3) << "remove request_id from request_cache. [request_id=" << id << "]";
     IdHandlerMap::iterator iter = m_id_map.find(id);
     if (iter == m_id_map.end()) {
@@ -64,13 +63,13 @@ bool RequestCache::remove(uint32_t id, DispatchHandler *&handler) {
         node->next->prev = node->prev;
     }
     m_id_map.erase(iter);
-    handler = node->dh;
+    handler = node->dhp;
     delete node;
     return true;
 }
 
 bool RequestCache::get_next_timeout(ClockT::time_point &now, IOHandler *&handlerp,
-                                    DispatchHandler *&dh,
+                                    DispatchHandlerPtr& dhp,
                                     ClockT::time_point *next_timeout, uint32_t* header_id) {
     bool handler_removed = false;
     while (m_head && !handler_removed && m_head->expire <= now) {
@@ -86,7 +85,7 @@ bool RequestCache::get_next_timeout(ClockT::time_point &now, IOHandler *&handler
         m_id_map.erase(iter);
         if (node->handler != 0) {
             handlerp = node->handler;
-            dh = node->dh;
+            dhp = node->dhp;
             *header_id = node->id;
             handler_removed = true;
         }
@@ -112,7 +111,7 @@ void RequestCache::purge_requests(IOHandler *handler, int32_t error) {
             } else {
                 event = std::make_shared<Event>(Event::ERROR, handler->get_address(), proxy, error);
             }
-            handler->deliver_event(event, node->dh);
+            handler->deliver_event(event, node->dhp.get());
             node->handler = 0;  // mark for deletion
         }
     }

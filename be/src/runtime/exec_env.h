@@ -27,14 +27,13 @@
 
 #include "agent/cgroups_mgr.h"
 #include "common/status.h"
+#include "common/object_pool.h"
 #include "exprs/timestamp_functions.h"
 #include "runtime/client_cache.h"
 #include "runtime/lib_cache.h"
 #include "util/thread_pool.hpp"
 #include "util/priority_thread_pool.hpp"
 #include "util/thread_pool.hpp"
-
-#include "rpc/connection_manager.h"
 
 namespace palo {
 
@@ -43,7 +42,6 @@ class ResultBufferMgr;
 class TestExecEnv;
 class Webserver;
 class WebPageHandler;
-class MetricGroup;
 class MemTracker;
 class PoolMemTrackerRegistry;
 class ThreadResourceMgr;
@@ -56,6 +54,11 @@ class TmpFileMgr;
 class BfdParser;
 class PullLoadTaskMgr;
 class BrokerMgr;
+class MetricRegistry;
+class BufferPool;
+class ReservationTracker;
+class ConnectionManager;
+class BrpcStubCache;
 
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
@@ -78,6 +81,8 @@ public:
 
     const std::string& token() const;
 
+    MetricRegistry* metrics() const;
+
     DataStreamMgr* stream_mgr() {
         return _stream_mgr.get();
     }
@@ -98,9 +103,6 @@ public:
     }
     WebPageHandler* web_page_handler() {
         return _web_page_handler.get();
-    }
-    MetricGroup* metrics() {
-        return _metrics.get();
     }
     MemTracker* process_mem_tracker() {
         return _mem_tracker.get();
@@ -151,7 +153,11 @@ public:
         return _broker_mgr.get();
     }
 
-    ConnectionManagerPtr get_conn_manager() {
+    BrpcStubCache* brpc_stub_cache() const {
+        return _brpc_stub_cache.get();
+    }
+
+    std::shared_ptr<ConnectionManager> get_conn_manager() {
         return _conn_mgr;
     }
 
@@ -165,6 +171,14 @@ public:
     // Initializes the exec env for running FE tests.
     Status init_for_tests();
 
+    ReservationTracker* buffer_reservation() { 
+        return _buffer_reservation.get(); 
+    }
+ 
+    BufferPool* buffer_pool() { 
+        return _buffer_pool.get(); 
+    }
+
 private:
     Status start_webserver();
     // Leave protected so that subclasses can override
@@ -175,7 +189,6 @@ private:
     std::unique_ptr<BrokerServiceClientCache>_broker_client_cache;
     boost::scoped_ptr<Webserver> _webserver;
     boost::scoped_ptr<WebPageHandler> _web_page_handler;
-    boost::scoped_ptr<MetricGroup> _metrics;
     boost::scoped_ptr<MemTracker> _mem_tracker;
     boost::scoped_ptr<PoolMemTrackerRegistry> _pool_mem_trackers;
     boost::scoped_ptr<ThreadResourceMgr> _thread_mgr;
@@ -192,18 +205,26 @@ private:
     std::unique_ptr<BfdParser> _bfd_parser;
     std::unique_ptr<PullLoadTaskMgr> _pull_load_task_mgr;
     std::unique_ptr<BrokerMgr> _broker_mgr;
+    std::unique_ptr<BrpcStubCache> _brpc_stub_cache;
     bool _enable_webserver;
+
+    boost::scoped_ptr<ReservationTracker> _buffer_reservation;
+    boost::scoped_ptr<BufferPool> _buffer_pool;
 
     /*
     Comm* comm;
     DispatchHandlerPtr dhp;
     ApplicationQueue *app_queue;
     */
-    ConnectionManagerPtr _conn_mgr;
+    std::shared_ptr<ConnectionManager> _conn_mgr;
 
+    ObjectPool _object_pool;
 private:
     static ExecEnv* _exec_env;
     TimezoneDatabase _tz_database;
+
+    /// Initialise 'buffer_pool_' and 'buffer_reservation_' with given capacity.
+    void init_buffer_pool(int64_t min_page_len, int64_t capacity, int64_t clean_pages_limit);
 };
 
 }

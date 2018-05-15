@@ -32,6 +32,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -155,7 +156,7 @@ public final class AggregateInfo extends AggregateInfoBase {
 
     public List<Expr> getPartitionExprs() { return partitionExprs_; }
     public void setPartitionExprs(List<Expr> exprs) { partitionExprs_ = exprs; }
-
+    
     /**
      * Creates complete AggregateInfo for groupingExprs and aggExprs, including
      * aggTupleDesc and aggTupleSMap. If parameter tupleDesc != null, sets aggTupleDesc to
@@ -184,7 +185,17 @@ public final class AggregateInfo extends AggregateInfoBase {
             }
         }
 
-        if (distinctAggExprs.isEmpty()) {
+        // aggregation algorithm includes two kinds:one stage aggregation, tow stage aggregation.
+        // for case:
+        // 1: if aggExprs don't hava distinct or hava multi distinct , create aggregate info for
+        // one stage aggregation. 
+        // 2: if aggExprs hava one distinct , create aggregate info for two stage aggregation
+        boolean isMultiDistinct = result.estimateIfContainsMultiDistinct(distinctAggExprs);
+        if (distinctAggExprs.isEmpty() 
+               || isMultiDistinct) {
+            // It is used to map new aggr expr to old expr to help create an external 
+            // reference to the aggregation node tuple
+            result.setIsMultiDistinct(isMultiDistinct);
             if (tupleDesc == null) {
                 result.createTupleDescs(analyzer);
                 result.createSmaps(analyzer);
@@ -196,6 +207,7 @@ public final class AggregateInfo extends AggregateInfoBase {
             }
             result.createMergeAggInfo(analyzer);
         } else {
+            // case 2:
             // we don't allow you to pass in a descriptor for distinct aggregation
             // (we need two descriptors)
             Preconditions.checkState(tupleDesc == null);
@@ -203,6 +215,53 @@ public final class AggregateInfo extends AggregateInfoBase {
         }
         if (LOG.isDebugEnabled())  LOG.debug("agg info:\n{}", result.debugString());
         return result;
+    }
+
+
+    /**
+     * estimate if functions contains multi distinct
+     * @param distinctAggExprs
+     * @return
+     */
+    public static boolean estimateIfContainsMultiDistinct(List<FunctionCallExpr> distinctAggExprs) 
+      throws AnalysisException {
+        
+        if (distinctAggExprs == null || distinctAggExprs.size() <= 0) {
+            return false;
+        }
+
+        ArrayList<Expr> expr0Children = Lists.newArrayList();
+        if (distinctAggExprs.get(0).getFnName().getFunction().equalsIgnoreCase("group_concat")) {
+            // Ignore separator parameter, otherwise the same would have to be present for all
+            // other distinct aggregates as well.
+            // TODO: Deal with constant exprs more generally, instead of special-casing
+            // group_concat().
+            expr0Children.add(distinctAggExprs.get(0).getChild(0).ignoreImplicitCast());
+        } else {
+            for (Expr expr : distinctAggExprs.get(0).getChildren()) {
+                expr0Children.add(expr.ignoreImplicitCast());
+            }
+        }
+        boolean hasMultiDistinct = false;
+        for (int i = 1; i < distinctAggExprs.size(); ++i) {
+            ArrayList<Expr> exprIChildren = Lists.newArrayList();
+            if (distinctAggExprs.get(i).getFnName().getFunction().equalsIgnoreCase("group_concat")) {
+                exprIChildren.add(distinctAggExprs.get(i).getChild(0).ignoreImplicitCast());
+            } else {
+                for (Expr expr : distinctAggExprs.get(i).getChildren()) {
+                    exprIChildren.add(expr.ignoreImplicitCast());
+                }
+            }
+            if (!Expr.equalLists(expr0Children, exprIChildren)) {
+                if (exprIChildren.size() > 1 || expr0Children.size() > 1) {
+                    throw new AnalysisException("The query contains multi count distinct or "
+                            + "sum distinct, each can't have multi columns.");   
+                }
+                hasMultiDistinct = true;
+                break;
+            }
+        }
+        return hasMultiDistinct;
     }
 
     /**
@@ -252,39 +311,13 @@ public final class AggregateInfo extends AggregateInfoBase {
             }
         }
 
-        for (int i = 1; i < distinctAggExprs.size(); ++i) {
-            ArrayList<Expr> exprIChildren = Lists.newArrayList();
-            if (distinctAggExprs.get(i).getFnName().getFunction().equalsIgnoreCase("group_concat")) {
-                exprIChildren.add(distinctAggExprs.get(i).getChild(0).ignoreImplicitCast());
-            } else {
-                for (Expr expr : distinctAggExprs.get(i).getChildren()) {
-                    exprIChildren.add(expr.ignoreImplicitCast());
-                }
-            }
-            if (!Expr.equalLists(expr0Children, exprIChildren)) {
-                if (exprIChildren.size() > 1 || expr0Children.size() > 1) {
-                    throw new AnalysisException("The query contains multi count distinct or "
-                            + "sum distinct, each can't have multi columns.");   
-                } 
-                this.isMultiDistinct_ = true;
-                break;
-            }
-        }
+        this.isMultiDistinct_= estimateIfContainsMultiDistinct(distinctAggExprs);
         isDistinctAgg = true;
 
         // add DISTINCT parameters to grouping exprs
         if (!isMultiDistinct_) {
             groupingExprs_.addAll(expr0Children);
-        } else {
-            // TODO(zc)
-            int groupExprSize = groupingExprs_.size();
-            for (int i = 0; i < distinctAggExprs.size(); ++i) {
-                groupingExprs_.addAll(distinctAggExprs.get(i).getChildren());
-                firstIdx_.add(groupExprSize);
-                lastIdx_.add(groupExprSize + distinctAggExprs.get(i).getChildren().size());
-                groupExprSize += distinctAggExprs.get(i).getChildren().size();
-            }
-        }
+        } 
 
         // remove DISTINCT aggregate functions from aggExprs
         aggregateExprs_.removeAll(distinctAggExprs);
@@ -319,6 +352,10 @@ public final class AggregateInfo extends AggregateInfoBase {
         return !aggregateExprs_.isEmpty() ||
                 (secondPhaseDistinctAggInfo_ != null &&
                         !secondPhaseDistinctAggInfo_.getAggregateExprs().isEmpty());
+    }
+
+    public void setIsMultiDistinct(boolean value) {
+        this.isMultiDistinct_ = value;
     }
 
     public boolean isMultiDistinct() {
@@ -387,9 +424,6 @@ public final class AggregateInfo extends AggregateInfoBase {
             aggregateExprs_.add((FunctionCallExpr) substitutedAgg);
         }
 
-        if (LOG.isTraceEnabled()) {
-            LOG.trace("AggInfo: agg_exprs=" + Expr.debugString(aggregateExprs_));
-        }
         outputTupleSmap_.substituteLhs(smap, analyzer);
         intermediateTupleSmap_.substituteLhs(smap, analyzer);
         if (secondPhaseDistinctAggInfo_ != null) {
@@ -532,23 +566,8 @@ public final class AggregateInfo extends AggregateInfoBase {
                     aggExpr = new FunctionCallExpr(inputExpr.getFnName(), Lists.newArrayList(aggExprParam));
                 }
             } else {
-                List<Expr> params = new ArrayList();
-                for (int i = firstIdx_.get(distinctExprPos); i < lastIdx_.get(
-                        distinctExprPos); i++) {
-                    params.add(new SlotRef(inputDesc.getSlots().get(i)));
-                }
-                distinctExprPos += 1;
-                if (inputExpr.getFnName().getFunction().equalsIgnoreCase("COUNT")) {
-                    aggExpr = new FunctionCallExpr("COUNT_DISTINCT",
-                            new FunctionParams(params));
-
-                } else if (inputExpr.getFnName().getFunction().equalsIgnoreCase("SUM")) {
-                    aggExpr = new FunctionCallExpr("SUM_DISTINCT",
-                            new FunctionParams(params));
-                } else {
-                    throw new AnalysisException(inputExpr.getFnName() + " can't support multi distinct."); 
-                }
-
+                // multi distinct can't run here    
+                Preconditions.checkState(false);
             }
             secondPhaseAggExprs.add(aggExpr);
         }
@@ -646,10 +665,12 @@ public final class AggregateInfo extends AggregateInfoBase {
         exprs.addAll(groupingExprs_);
         exprs.addAll(aggregateExprs_);
         for (int i = 0; i < exprs.size(); ++i) {
-            outputTupleSmap_.put(exprs.get(i).clone(),
+            Expr expr = exprs.get(i);
+            outputTupleSmap_.put(expr.clone(),
                     new SlotRef(outputTupleDesc_.getSlots().get(i)));
             if (!requiresIntermediateTuple()) continue;
-            intermediateTupleSmap_.put(exprs.get(i).clone(),
+
+            intermediateTupleSmap_.put(expr.clone(),
                     new SlotRef(intermediateTupleDesc_.getSlots().get(i)));
             outputToIntermediateTupleSmap_.put(
                     new SlotRef(outputTupleDesc_.getSlots().get(i)),
@@ -702,8 +723,7 @@ public final class AggregateInfo extends AggregateInfoBase {
                     outputTupleDesc_.getSlots().get(groupExprsSize + i);
             SlotDescriptor intermediateSlotDesc =
                     intermediateTupleDesc_.getSlots().get(groupExprsSize + i);
-            
-            if (isDistinctAgg) {
+            if (isDistinctAgg || isMultiDistinct_) {
                 slotDesc.setIsMaterialized(true);
                 intermediateSlotDesc.setIsMaterialized(true);
             }

@@ -65,9 +65,11 @@ public final class DomainResolverServer {
     }
 
     public static DomainResolverServer getInstance() {
-        synchronized (DomainResolverServer.class) {
-            if (instance == null) {
-                instance = new DomainResolverServer();
+        if (instance == null) {
+            synchronized (DomainResolverServer.class) {
+                if (instance == null) {
+                    instance = new DomainResolverServer();
+                }
             }
         }
         return instance;
@@ -383,7 +385,7 @@ public final class DomainResolverServer {
         cloneLock.unlock();
         return copyMaps;
     }
-    
+ 
     // Resolve domain name at intervals, when new domain name are registered 
     // calling register() , server will immediately start a new asynchronous
     // resolvation.

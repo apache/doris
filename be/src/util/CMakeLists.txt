@@ -26,6 +26,7 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/util")
 
 add_library(Util STATIC
   bfd_parser.cpp
+  bitmap.cpp
   codec.cpp
   compress.cpp
   cpu_info.cpp
@@ -51,6 +52,7 @@ add_library(Util STATIC
   thrift_client.cpp
   thrift_server.cpp
   symbols_util.cpp
+  system_metrics.cpp
   url_parser.cpp
   url_coding.cpp
   file_utils.cpp
@@ -63,7 +65,12 @@ add_library(Util STATIC
   load_error_hub.cpp
   mysql_load_error_hub.cpp
   null_load_error_hub.cpp
+  time.cpp
+  os_info.cpp
+#  coding_util.cpp
   cidr.cpp
+  core_local.cpp
+  rpc_channel.cpp
 )
 
 #ADD_BE_TEST(integer-array-test)

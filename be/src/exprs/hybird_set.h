@@ -39,6 +39,8 @@ public:
     }
     virtual void insert(void* data) = 0;
 
+    virtual void insert(HybirdSetBase* set) = 0;
+
     virtual int size() = 0;
     virtual bool find(void* data) = 0;
 
@@ -55,7 +57,6 @@ public:
     };
 
     virtual IteratorBase* begin() = 0;
-
 };
 
 template<class T>
@@ -68,7 +69,19 @@ public:
     }
 
     virtual void insert(void* data) {
-        _set.insert(*reinterpret_cast<T*>(data));
+        if (sizeof(T) >= 16) {
+            // for largeint, it will core dump with no memcpy
+            T value;
+            memcpy(&value, data, sizeof(T));
+            _set.insert(value);
+        } else {
+            _set.insert(*reinterpret_cast<T*>(data));
+        }
+    }
+
+    virtual void insert(HybirdSetBase* set) {
+        HybirdSet<T>* hybird_set = reinterpret_cast<HybirdSet<T>*>(set);
+        _set.insert(hybird_set->_set.begin(), hybird_set->_set.end());
     }
 
     virtual int size() {
@@ -114,7 +127,9 @@ public:
     IteratorBase* begin() {
         return _pool.add(new(std::nothrow) Iterator<T>(_set.begin(), _set.end()));
     }
+
 private:
+ 
     std::unordered_set<T> _set;
     ObjectPool _pool;
 };
@@ -131,6 +146,11 @@ public:
         StringValue* value = reinterpret_cast<StringValue*>(data);
         std::string str_value(value->ptr, value->len);
         _set.insert(str_value);
+    }
+
+    void insert(HybirdSetBase* set) {
+        StringValueSet* string_set =  reinterpret_cast<StringValueSet*>(set);
+        _set.insert(string_set->_set.begin(), string_set->_set.end());
     }
 
     virtual int size() {
@@ -179,7 +199,9 @@ public:
     IteratorBase* begin() {
         return _pool.add(new(std::nothrow) Iterator(_set.begin(), _set.end()));
     }
+
 private:
+
     std::unordered_set<std::string> _set;
     ObjectPool _pool;
 };

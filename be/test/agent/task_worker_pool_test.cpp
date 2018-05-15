@@ -1322,12 +1322,14 @@ TEST(TaskWorkerPoolTest, TestReportDiskState) {
     task_worker_pool._master_client = &mock_master_server_client;
 
     // Get root path failed, report failed
+#if 0
     EXPECT_CALL(mock_command_executor, get_all_root_path_stat(_))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_master_server_client, report(_, _))
             .Times(0);
     task_worker_pool._report_disk_state_worker_thread_callback(&task_worker_pool);
+#endif
 
     // Get root path success, report failed
     EXPECT_CALL(mock_command_executor, get_all_root_path_stat(_))

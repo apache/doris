@@ -42,8 +42,8 @@ int main(int argc, char **argv) {
         return -1;
     }
     
-    palo::BackendOptions::init();
     palo::init_glog("be-test");
+    palo::BackendOptions::init();
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

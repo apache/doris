@@ -34,6 +34,12 @@ public class MasterInfo implements Writable {
         this.rpcPort = 0;
     }
     
+    public MasterInfo(String ip, int httpPort, int rpcPort) {
+        this.ip = ip;
+        this.httpPort = httpPort;
+        this.rpcPort = rpcPort;
+    }
+
     public String getIp() {
         return this.ip;
     }

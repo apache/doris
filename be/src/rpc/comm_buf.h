@@ -138,6 +138,12 @@ public:
         return data_ptr; 
     }
 
+    // get user data ptr and size
+    void get_user_data(const uint8_t** ptr, uint32_t* size) {
+        *ptr = (const uint8_t*)data.base + header.encoded_length();
+        *size = header.total_len - header.encoded_length() - ext.size;
+    }
+
     /** Returns address of the primary buffer internal data pointer
     */
     uint8_t** get_data_ptr_address() { 

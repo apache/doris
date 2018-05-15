@@ -64,7 +64,7 @@ static const char* ROLLUP_TABLE_PUSH_DATA = "./be/test/olap/test_data/all_types_
 
 // checksum for base table push data
 static const uint32_t MAX_RETRY_TIMES = 10;
-static const uint32_t BASE_TABLE_PUSH_DATA_CHECKSUM = 3878734322;
+static const uint32_t BASE_TABLE_PUSH_DATA_CHECKSUM = 1401759800;
 
 static const uint32_t MAX_PATH_LEN = 1024;
 
@@ -849,7 +849,7 @@ TEST_F(TestComputeChecksum, compute_checksum) {
             request.tablet_id, request.tablet_schema.schema_hash,
             request.version, request.version_hash, &checksum);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    ASSERT_EQ(CRC32_INIT, checksum);
+    ASSERT_EQ(0, checksum);
 
     // 3. Compute checksum normally.
     tablets_info.clear();
@@ -864,10 +864,10 @@ TEST_F(TestComputeChecksum, compute_checksum) {
     ASSERT_EQ(BASE_TABLE_PUSH_DATA_CHECKSUM, checksum);
 }
 
-class TestBaseExpansion : public ::testing::Test {
+class TestBaseCompaction : public ::testing::Test {
 public:
-    TestBaseExpansion() : _command_executor(NULL) {}
-    ~TestBaseExpansion() {
+    TestBaseCompaction() : _command_executor(NULL) {}
+    ~TestBaseCompaction() {
         SAFE_DELETE(_command_executor);
     }
 
@@ -875,7 +875,7 @@ public:
         // Create local data dir for OLAPEngine.
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
-        config::storage_root_path = string(buffer) + "/test_run/data_base_expansion";
+        config::storage_root_path = string(buffer) + "/test_run/data_base_compaction";
         remove_all_dir(config::storage_root_path);
         ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
 
@@ -894,7 +894,7 @@ public:
     CommandExecutor* _command_executor;
 };
 
-TEST_F(TestBaseExpansion, TestBaseExpansion) {
+TEST_F(TestBaseCompaction, TestBaseCompaction) {
     OLAPStatus res = OLAP_SUCCESS;
     TCreateTabletReq request;
     set_default_create_tablet_request(&request);
@@ -904,7 +904,7 @@ TEST_F(TestBaseExpansion, TestBaseExpansion) {
     std::vector<TTabletInfo> tablets_info;
 
     // 1. Start BE before tablet created.
-    res = _command_executor->base_expansion(
+    res = _command_executor->base_compaction(
             push_req.tablet_id, push_req.schema_hash, push_req.version);
     ASSERT_EQ(OLAP_ERR_TABLE_NOT_FOUND, res);
 
@@ -915,7 +915,7 @@ TEST_F(TestBaseExpansion, TestBaseExpansion) {
             request.tablet_id, request.tablet_schema.schema_hash);
     ASSERT_TRUE(tablet.get() != NULL);
 
-    res = _command_executor->base_expansion(
+    res = _command_executor->base_compaction(
             request.tablet_id, request.tablet_schema.schema_hash, request.version + 1);
     ASSERT_EQ(OLAP_ERR_BE_NO_SUITABLE_VERSION, res);
 }
@@ -1311,7 +1311,7 @@ TEST_F(TestSchemaChange, schema_change) {
     ASSERT_EQ(push_req.version_hash, tablet_info.version_hash);
     ASSERT_EQ(100, tablet_info.row_count);
    
-    //schema change, add a value column
+    //schema change, modify a key column
     TCreateTabletReq create_new_tablet4;
     set_create_tablet_request_4(create_new_tablet3, &create_new_tablet4);
     TAlterTabletReq request4;
@@ -1838,6 +1838,7 @@ int main(int argc, char** argv) {
     palo::init_glog("be-test");
     int ret = palo::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
+    palo::CpuInfo::init();
 
     palo::set_up();
     ret = RUN_ALL_TESTS();

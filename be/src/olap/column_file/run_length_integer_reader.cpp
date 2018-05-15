@@ -22,11 +22,12 @@
 namespace palo {
 namespace column_file {
 
-RunLengthIntegerReader::RunLengthIntegerReader(ReadOnlyFileStream* input, bool is_singed) : 
-        _input(input),
+RunLengthIntegerReader::RunLengthIntegerReader(ReadOnlyFileStream* input, bool is_singed)
+      : _input(input),
         _signed(is_singed),
         _num_literals(0),
-        _used(0) {}
+        _used(0) {
+}
 
 OLAPStatus RunLengthIntegerReader::_read_values() {
     OLAPStatus res = OLAP_SUCCESS;

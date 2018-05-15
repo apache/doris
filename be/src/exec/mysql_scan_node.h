@@ -86,7 +86,7 @@ private:
     // Helper class for converting text to other types;
     std::unique_ptr<TextConverter> _text_converter;
     // Current tuple.
-    Tuple* _tuple = nullptr;
+    Tuple* _tuple;
 };
 
 }

@@ -42,15 +42,15 @@ class RowBlockPosition;
 // Define OLAPTable's shared_ptr. It is used for
 typedef std::shared_ptr<OLAPTable> SmartOLAPTable;
 
-enum BaseExpansionStage {
-    BASE_EXPANSION_WAITING = 0,
-    BASE_EXPANSION_RUNNING = 1,
+enum BaseCompactionStage {
+    BASE_COMPACTION_WAITING = 0,
+    BASE_COMPACTION_RUNNING = 1,
 };
 
-struct BaseExpansionStatus {
-    BaseExpansionStatus() : status(BASE_EXPANSION_WAITING), version(-1) {}
+struct BaseCompactionStatus {
+    BaseCompactionStatus() : status(BASE_COMPACTION_WAITING), version(-1) {}
 
-    BaseExpansionStage status;
+    BaseCompactionStage status;
     int32_t version;
 };
 
@@ -222,18 +222,18 @@ public:
         _push_lock.unlock();
     }
 
-    // Prevent base expansion operations execute concurrently.
-    bool try_base_expansion_lock() {
-        return _base_expansion_lock.trylock() == OLAP_SUCCESS;
+    // Prevent base compaction operations execute concurrently.
+    bool try_base_compaction_lock() {
+        return _base_compaction_lock.trylock() == OLAP_SUCCESS;
     }
-    void obtain_base_expansion_lock() {
-        _base_expansion_lock.lock();
+    void obtain_base_compaction_lock() {
+        _base_compaction_lock.lock();
     }
-    void release_base_expansion_lock() {
-        _base_expansion_lock.unlock();
+    void release_base_compaction_lock() {
+        _base_compaction_lock.unlock();
     }
 
-    // Prevent cumulative expansion operations execute concurrently.
+    // Prevent cumulative compaction operations execute concurrently.
     bool try_cumulative_lock() {
         return (OLAP_SUCCESS == _cumulative_lock.trylock());
     }
@@ -379,8 +379,8 @@ public:
     }
 
     // 在使用之前对header加锁
-    const uint32_t get_expansion_nice_estimate() const {
-        return _header->get_expansion_nice_estimate();
+    const uint32_t get_compaction_nice_estimate() const {
+        return _header->get_compaction_nice_estimate();
     }
 
     const OLAPStatus delete_version(const Version& version) {
@@ -492,15 +492,15 @@ public:
     void clear_schema_change_request();
 
     // Following are get/set status functions.
-    // Like base-expansion, push, sync, schema-change.
-    BaseExpansionStatus base_expansion_status() {
-        return _base_expansion_status;
+    // Like base-compaction, push, sync, schema-change.
+    BaseCompactionStatus base_compaction_status() {
+        return _base_compaction_status;
     }
 
-    void set_base_expansion_status(BaseExpansionStage status, int32_t version) {
-        _base_expansion_status.status = status;
+    void set_base_compaction_status(BaseCompactionStage status, int32_t version) {
+        _base_compaction_status.status = status;
         if (version > -2) {
-            _base_expansion_status.version = version;
+            _base_compaction_status.version = version;
         }
     }
 
@@ -662,7 +662,7 @@ private:
     field_index_map_t _field_index_map;
     std::vector<int32_t> _field_sizes;
     // A series of status
-    BaseExpansionStatus _base_expansion_status;
+    BaseCompactionStatus _base_compaction_status;
     PushStatus _push_status;
     SyncStatus _sync_status;
     SchemaChangeStatus _schema_change_status;
@@ -670,7 +670,7 @@ private:
     RWLock _header_lock;
     MutexLock _push_lock;
     MutexLock _cumulative_lock;
-    MutexLock _base_expansion_lock;
+    MutexLock _base_compaction_lock;
     MutexLock _sync_lock;
     size_t _id;                        // uniq id, used in cache
     std::string _storage_root_path;

@@ -52,7 +52,7 @@ public:
 };
 
 void HeapAction::handle(HttpRequest* req, HttpChannel* channel) {
-#ifdef ADDRESS_SANITIZER
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     (void)kPprofDefaultSampleSecs; // Avoid unused variable warning.
 
     std::string str = "Heap profiling is not available with address sanitizer builds.";
@@ -93,7 +93,7 @@ public:
 };
 
 void GrowthAction::handle(HttpRequest* req, HttpChannel* channel) {
-#ifdef ADDRESS_SANITIZER
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     std::string str = "Growth profiling is not available with address sanitizer builds.";
     HttpResponse response(HttpStatus::OK, &str);
     channel->send_response(response);
@@ -116,7 +116,7 @@ public:
 };
 
 void ProfileAction::handle(HttpRequest *req, HttpChannel *channel) {
-#ifdef ADDRESS_SANITIZER
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     std::string str = "CPU profiling is not available with address sanitizer builds.";
     HttpResponse response(HttpStatus::OK, &str);
     channel->send_response(response);

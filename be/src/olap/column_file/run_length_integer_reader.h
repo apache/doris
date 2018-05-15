@@ -20,6 +20,7 @@
 #include "olap/column_file/run_length_integer_writer.h"
 #include "olap/column_file/stream_index_reader.h"
 #include "olap/olap_define.h"
+#include "util/runtime_profile.h"
 
 namespace palo {
 namespace column_file {

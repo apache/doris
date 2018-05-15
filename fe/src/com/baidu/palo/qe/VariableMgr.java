@@ -18,23 +18,26 @@ package com.baidu.palo.qe;
 import com.baidu.palo.analysis.SetType;
 import com.baidu.palo.analysis.SetVar;
 import com.baidu.palo.analysis.SysVariableDesc;
-import com.baidu.palo.catalog.PrimitiveType;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Type;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.PatternMatcher;
-import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.persist.EditLog;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Lists;
-import org.apache.commons.lang.SerializationUtils;
-import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.LogManager;
 
+import org.apache.commons.lang.SerializationUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.reflect.Field;
@@ -46,9 +49,6 @@ import java.util.Map;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
 
 // Variable manager, merge session variable and global variable
 public class VariableMgr {
@@ -244,8 +244,11 @@ public class VariableMgr {
     
     public static void read(DataInputStream in) throws IOException, DdlException {
         wlock.lock();
-        globalSessionVariable.readFields(in);
-        wlock.unlock();
+        try {
+            globalSessionVariable.readFields(in);
+        } finally {
+            wlock.unlock();
+        }
     }
 
     private static void writeGlobalVariableUpdate(SessionVariable variable, String msg) {

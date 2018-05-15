@@ -43,13 +43,14 @@ add_library(Webserver STATIC
   action/snapshot_action.cpp
   action/reload_tablet_action.cpp
   action/pprof_actions.cpp
+  action/metrics_action.cpp
   #  action/multi_start.cpp
   #  action/multi_show.cpp
   #  action/multi_commit.cpp
   #  action/multi_unload.cpp
 )
 
-target_link_libraries(Webserver pthread dl Util)
+# target_link_libraries(Webserver pthread dl Util)
 #ADD_BE_TEST(integer-array-test)
 #ADD_BE_TEST(runtime-profile-test)
 #ADD_BE_TEST(benchmark-test)

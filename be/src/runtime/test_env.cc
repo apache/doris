@@ -26,12 +26,12 @@ using boost::shared_ptr;
 
 namespace palo {
 
-boost::scoped_ptr<MetricGroup> TestEnv::_s_static_metrics;
+boost::scoped_ptr<MetricRegistry> TestEnv::_s_static_metrics;
 
 TestEnv::TestEnv() {
     if (_s_static_metrics == NULL) {
-        _s_static_metrics.reset(new MetricGroup("test_env"));
-        PaloMetrics::create_metrics(_s_static_metrics.get());
+        _s_static_metrics.reset(new MetricRegistry("test_env"));
+        // PaloMetrics::create_metrics(_s_static_metrics.get());
     }
     _exec_env.reset(new ExecEnv);
     _exec_env->init_for_tests();
@@ -44,7 +44,7 @@ TestEnv::TestEnv() {
 }
 
 void TestEnv::init_metrics() {
-    _metrics.reset(new MetricGroup("test_env"));
+    _metrics.reset(new MetricRegistry("test_env"));
 }
 
 void TestEnv::init_tmp_file_mgr(const std::vector<std::string>& tmp_dirs,

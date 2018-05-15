@@ -81,8 +81,8 @@ TEST_F(TestBloomFilter, add_and_test_bytes) {
     BloomFilter bf;
     bf.init(1024);
 
-    bf.add_bytes(NULL, 0);
-    ASSERT_TRUE(bf.test_bytes(NULL, 0));
+    bf.add_bytes(nullptr, 0);
+    ASSERT_TRUE(bf.test_bytes(nullptr, 0));
 
     bytes = "hello";
     bf.add_bytes(bytes.c_str(), bytes.size());

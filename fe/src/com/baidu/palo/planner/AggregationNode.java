@@ -55,6 +55,9 @@ public class AggregationNode extends PlanNode {
     // node is the root node of a distributed aggregation.
     private boolean needsFinalize;
 
+    // If true, use streaming preaggregation algorithm. Not valid if this is a merge agg.
+    private boolean useStreamingPreagg;
+
     /**
      * Create an agg node that is not an intermediate node.
      * isIntermediate is true if it is a slave node in a 2-part agg plan.
@@ -86,6 +89,16 @@ public class AggregationNode extends PlanNode {
         Preconditions.checkState(needsFinalize);
         needsFinalize = false;
         updateplanNodeName();
+    }
+
+    /**
+     * Sets this node as a preaggregation. Only valid to call this if it is not marked
+     * as a preaggregation
+     */
+    public void setIsPreagg(PlannerContext ctx_) {
+        useStreamingPreagg =  ctx_.getQueryOptions().isSetDisable_stream_preaggregations() 
+                && !ctx_.getQueryOptions().disable_stream_preaggregations
+                && aggInfo.getGroupingExprs().size() > 0;
     }
 
     @Override
@@ -244,15 +257,28 @@ public class AggregationNode extends PlanNode {
                   aggregateFunctions,
                   aggInfo.getIntermediateTupleId().asInt(),
                   aggInfo.getOutputTupleId().asInt(), needsFinalize);
+        msg.agg_node.setUse_streaming_preaggregation(useStreamingPreagg);
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         if (groupingExprs != null) {
             msg.agg_node.setGrouping_exprs(Expr.treesToThrift(groupingExprs));
         }
     }
 
+    protected String getDisplayLabelDetail() {
+        if (useStreamingPreagg) {
+            return "STREAMING";
+        }
+        return null;
+    }
+
     @Override
     protected String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
+        String nameDetail = getDisplayLabelDetail();
+        if (nameDetail != null) {
+            output.append(detailPrefix + nameDetail + "\n");
+        }
+
         if (aggInfo.getAggregateExprs() != null && aggInfo.getMaterializedAggregateExprs().size() > 0) {
             output.append(detailPrefix + "output: ").append(
               getExplainString(aggInfo.getAggregateExprs()) + "\n");

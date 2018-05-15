@@ -335,8 +335,7 @@ int ConnectionManager::remove_unlocked(const CommAddress &addr) {
  *
  * @param event shared pointer to event object
  */
-void
-ConnectionManager::handle(EventPtr &event) {
+void ConnectionManager::handle(EventPtr &event) {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     ConnectionStatePtr conn_state;
     {
@@ -414,8 +413,8 @@ ConnectionManager::handle(EventPtr &event) {
             conn_state->handler->handle(event);
     }
     else {
-        LOG(WARNING) << "unable to find connection in map."
-                     << "[addr=" << InetAddr::format(event->addr).c_str() << "]";
+        LOG(WARNING) << "unable to find connection in map. addr="
+            << InetAddr::format(event->addr);
     }
 }
 
@@ -438,11 +437,10 @@ void ConnectionManager::send_initialization_request(ConnectionStatePtr &conn_sta
 void ConnectionManager::schedule_retry(ConnectionStatePtr &conn_state,
                                        const std::string &message) {
     if (!m_impl->quiet_mode) {
-        LOG(ERROR) << "connection error, will retry in " << (int)conn_state->timeout_ms << " milliseconds."
-                   << "[client_addr=" << inet_ntoa(conn_state->addr.inet.sin_addr) << ", "
-                   << "client_port=" << ntohs(conn_state->addr.inet.sin_port) << ", "
-                   << "error=" << message.c_str() << ", "
-                   << "service_name" << conn_state->service_name.c_str() << "]";
+        LOG(ERROR) << "connection falied, retry in " << conn_state->timeout_ms << "ms."
+                   << " addr=" << conn_state->addr.to_str()
+                   << ", error=" << message
+                   << ", service_name=" << conn_state->service_name;
     }
     // this logic could proably be smarter.  For example, if the last
     // connection attempt was a long time ago, then schedule immediately

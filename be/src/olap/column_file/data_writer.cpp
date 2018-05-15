@@ -101,12 +101,7 @@ OLAPStatus ColumnDataWriter::attached_by(RowCursor* row_cursor) {
             return OLAP_ERR_OTHER_ERROR;
         }
     }
-
-    if (OLAP_SUCCESS != _row_block->get_row_to_write(_row_index, row_cursor)) {
-        OLAP_LOG_WARNING("fail to get row in row_block.");
-        return OLAP_ERR_OTHER_ERROR;
-    }
-
+    _row_block->get_row(_row_index, row_cursor);
     return OLAP_SUCCESS;
 }
 
@@ -159,7 +154,7 @@ OLAPStatus ColumnDataWriter::_add_segment() {
                 config::push_write_mbytes_per_sec);
     } else {
         res = _segment_writer->init(
-                config::base_expansion_write_mbytes_per_sec);
+                config::base_compaction_write_mbytes_per_sec);
     }
 
     if (OLAP_SUCCESS != res) {
@@ -195,25 +190,13 @@ OLAPStatus ColumnDataWriter::_flush_row_block(RowBlock* row_block, bool is_final
 
     // 目标是将自己的block按条写入目标block中。
     for (uint32_t i = 0; i < row_block->row_block_info().row_num; i++) {
-        res = row_block->get_row_to_read(i, &_cursor);
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to get row from row block. [res=%d]", res);
-            return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
-        }
-
+        row_block->get_row(i, &_cursor);
         res = _segment_writer->write(&_cursor);
         if (OLAP_SUCCESS != res) {
             OLAP_LOG_WARNING("fail to write row to segment. [res=%d]", res);
             return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
         }
     }
-
-    /*
-    if (OLAP_SUCCESS != (res = _segment_writer->create_row_index_entry())) {
-        OLAP_LOG_WARNING("fail to record block position. [res=%d]", res);
-        return OLAP_ERR_WRITER_INDEX_WRITE_ERROR;
-    }
-    */
 
     // 在OLAPIndex中记录的不是数据文件的偏移,而是block的编号
     if (OLAP_SUCCESS != _index->add_row_block(*row_block, _block_id++)) {
@@ -244,7 +227,6 @@ OLAPStatus ColumnDataWriter::_flush_row_block(RowBlock* row_block, bool is_final
         _num_rows = 0;
     }
 
-    row_block->reset_block();
     return OLAP_SUCCESS;
 }
 
@@ -294,6 +276,10 @@ OLAPStatus ColumnDataWriter::write_row_block(RowBlock* row_block) {
 uint64_t ColumnDataWriter::written_bytes() {
     uint64_t size = _segment * _max_segment_size + _segment_writer->estimate_segment_size();
     return size;
+}
+
+MemPool* ColumnDataWriter::mem_pool() {
+    return _row_block->mem_pool();
 }
 
 }  // namespace column_file

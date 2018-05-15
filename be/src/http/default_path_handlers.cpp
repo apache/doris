@@ -26,6 +26,7 @@
 #include "runtime/mem_tracker.h"
 #include "util/debug_util.h"
 #include "util/logging.h"
+#include "util/pretty_printer.h"
 #include "http/web_page_handler.h"
 
 namespace palo {
@@ -86,7 +87,7 @@ void mem_usage_handler(MemTracker* mem_tracker, const WebPageHandler::ArgumentMa
     }
 
     (*output) << "<pre>";
-#ifdef ADDRESS_SANITIZER
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     (*output) << "Memory tracking is not available with address sanitizer builds.";
 #else
     char buf[2048];

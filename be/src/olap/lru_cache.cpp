@@ -28,7 +28,6 @@
 #include "olap/olap_index.h"
 #include "olap/row_block.h"
 #include "olap/utils.h"
-#include "util/palo_metrics.h"
 
 using std::string;
 using std::stringstream;
@@ -237,18 +236,9 @@ Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
     ++_lookup_count;
     LRUHandle* e = _table.lookup(key, hash);
 
-    if (PaloMetrics::olap_lru_cache_lookup_count() != NULL) {
-        PaloMetrics::olap_lru_cache_lookup_count()->increment(1);
-    }
-
     if (e != NULL) {
         ++_hit_count;
         _ref(e);
-
-        if (PaloMetrics::olap_lru_cache_hit_count() != NULL) {
-            PaloMetrics::olap_lru_cache_hit_count()->increment(1);
-        }
-
     }
 
     return reinterpret_cast<Cache::Handle*>(e);

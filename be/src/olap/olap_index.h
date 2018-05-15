@@ -42,6 +42,7 @@ class OLAPTable;
 class RowBlock;
 class RowCursor;
 class SegmentComparator;
+class WrapperField;
 
 typedef uint32_t data_file_offset_t;
 typedef std::vector<FieldInfo> RowFields;
@@ -53,9 +54,10 @@ struct OLAPIndexFixedHeader {
     uint64_t num_rows;
 };
 
-struct Slice {
+struct EntrySlice {
     char* data;
     size_t length;
+    EntrySlice() : data(nullptr), length(0) {}
 };
 
 // Range of offset in one segment
@@ -87,8 +89,8 @@ struct RowBlockPosition {
 
     bool operator==(const RowBlockPosition& other) const {
         return (segment == other.segment
-                    && block_size == other.block_size
                     && data_offset == other.data_offset
+                    && block_size == other.block_size
                     && index_offset == other.index_offset);
     }
 
@@ -156,7 +158,7 @@ struct SegmentMetaInfo {
     }
 
     IDRange     range;
-    Slice       buffer;
+    EntrySlice       buffer;
     FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader>  file_header;
 };
 
@@ -167,16 +169,12 @@ public:
     friend class IndexComparator;
     friend class SegmentComparator;
 
-    explicit MemIndex() :
-            _key_length(0),
-            _num_entries(0),
-            _index_size(0),
-            _data_size(0),
-            _num_rows(0) {}
+    MemIndex();
     ~MemIndex();
 
     // 初始化MemIndex, 传入short_key的总长度和对应的Field数组
-    OLAPStatus init(size_t short_key_len, size_t short_key_num, RowFields* fields);
+    OLAPStatus init(size_t short_key_len, size_t new_short_key_len,
+                    size_t short_key_num, RowFields* fields);
 
     // 加载一个segment到内存
     OLAPStatus load_segment(const char* file, size_t *current_num_rows_per_row_block);
@@ -248,7 +246,7 @@ public:
     const OLAPIndexOffset get_relative_offset(iterator_offset_t absolute_offset) const;
 
     // Return content of index item, which IndexOffset is pos
-    OLAPStatus get_entry(const OLAPIndexOffset& pos, Slice* slice) const;
+    OLAPStatus get_entry(const OLAPIndexOffset& pos, EntrySlice* slice) const;
 
     // Return RowBlockPosition from IndexOffset
     OLAPStatus get_row_block_position(const OLAPIndexOffset& pos, RowBlockPosition* rbp) const;
@@ -263,10 +261,18 @@ public:
         return _key_length;
     }
 
+    const size_t new_short_key_length() const {
+        return _new_key_length;
+    }
+
     // Return length of full index item,
     // which actually equals to short_key_length() plus sizeof(data_file_offset_t)
     const size_t entry_length() const {
         return short_key_length() + sizeof(data_file_offset_t);
+    }
+
+    const size_t new_entry_length() const {
+        return _new_key_length + sizeof(data_file_offset_t);
     }
 
     // Return short key FieldInfo array
@@ -319,6 +325,7 @@ public:
 private:
     std::vector<SegmentMetaInfo> _meta;
     size_t _key_length;
+    size_t _new_key_length;
     size_t _key_num;
     size_t _num_entries;
     size_t _index_size;
@@ -326,6 +333,8 @@ private:
     size_t _num_rows;
     RowFields*  _fields;
 
+    std::unique_ptr<MemTracker> _tracker;
+    std::unique_ptr<MemPool> _mem_pool;
     DISALLOW_COPY_AND_ASSIGN(MemIndex);
 };
 
@@ -361,13 +370,11 @@ private:
     bool _compare(const iterator_offset_t& index,
                   const RowCursor& key,
                   ComparatorEnum comparator) {
-        Slice slice;
+        EntrySlice slice;
         OLAPIndexOffset offset(_cur_seg, index);
         _index->get_entry(offset, &slice);
 
-        if (_helper_cursor->attach(slice.data, _index->short_key_length()) != OLAP_SUCCESS) {
-            throw ComparatorException();
-        }
+        _helper_cursor->attach(slice.data);
 
         if (comparator == COMPARATOR_LESS) {
             return _helper_cursor->index_cmp(key) < 0;
@@ -403,13 +410,12 @@ private:
     bool _compare(const iterator_offset_t& index,
                   const RowCursor& key,
                   ComparatorEnum comparator) {
-        Slice slice;
+        EntrySlice slice;
         slice.data = _index->_meta[index].buffer.data;
-        slice.length = _index->short_key_length();
+        //slice.length = _index->short_key_length();
+        slice.length = _index->new_short_key_length();
 
-        if (_helper_cursor->attach(slice.data, _index->short_key_length()) != OLAP_SUCCESS) {
-            throw ComparatorException();
-        }
+        _helper_cursor->attach(slice.data);
 
         if (comparator == COMPARATOR_LESS) {
             return _helper_cursor->index_cmp(key) < 0;
@@ -448,9 +454,10 @@ public:
         return _inited_column_statistics;
     }
 
-    OLAPStatus set_column_statistics(std::vector<std::pair<Field *, Field *> > &column_statistics);
+    OLAPStatus set_column_statistics(
+        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistics);
     
-    std::vector<std::pair<Field *, Field *>> &get_column_statistics() {
+    const std::vector<std::pair<WrapperField*, WrapperField*>>& get_column_statistics() {
         return _column_statistics;
     }
 
@@ -499,7 +506,7 @@ public:
 
     OLAPStatus find_prev_point(const RowBlockPosition& current, RowBlockPosition* prev) const;
 
-    OLAPStatus get_row_block_entry(const RowBlockPosition& pos, Slice* entry) const;
+    OLAPStatus get_row_block_entry(const RowBlockPosition& pos, EntrySlice* entry) const;
 
     // Given a starting row block position, advances the position by
     // num_row_blocks, then stores back the new position through the
@@ -577,6 +584,10 @@ public:
     const size_t short_key_length() const {
         return _short_key_length;
     }
+
+    const size_t new_short_key_length() const {
+        return _new_short_key_length;
+    }
     
     const RowFields& short_key_fields() const {
         return _short_key_info_list;
@@ -643,6 +654,7 @@ private:
     RowFields _short_key_info_list;
     // short key对应的总长度
     size_t _short_key_length;
+    size_t _new_short_key_length;
 
     // 以下是写入流程时需要的一些中间状态
     // 当前写入文件的FileHandler
@@ -663,7 +675,7 @@ private:
 
     bool _inited_column_statistics;
 
-    std::vector<std::pair<Field *, Field *> > _column_statistics;
+    std::vector<std::pair<WrapperField*, WrapperField*>> _column_statistics;
     std::vector<bool> _has_null_flags;
     std::unordered_map<uint32_t, FileHeader<column_file::ColumnDataHeaderMessage> > _seg_pb_map;
 

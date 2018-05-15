@@ -157,34 +157,6 @@ ByteBuffer* ByteBuffer::mmap(FileHandler* handler, uint64_t offset, int prot, in
     return buf;
 }
 
-OLAPStatus ByteBuffer::set_position(uint64_t new_position) {
-    if (new_position <= _limit) {
-        _position = new_position;
-        return OLAP_SUCCESS;
-    } else {
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-}
-
-OLAPStatus ByteBuffer::set_limit(uint64_t new_limit) {
-    if (new_limit > _capacity) {
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-    _limit = new_limit;
-
-    if (_position > _limit) {
-        _position = _limit;
-    }
-
-    return OLAP_SUCCESS;
-}
-
-void ByteBuffer::flip() {
-    _limit = _position;
-    _position = 0;
-}
-
 OLAPStatus ByteBuffer::put(char src) {
     if (_position < _limit) {
         _array[_position++] = src;

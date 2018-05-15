@@ -34,6 +34,7 @@
 #include "runtime/datetime_value.h"
 #include "util/stopwatch.hpp"
 #include "util/debug_util.h"
+#include "util/palo_metrics.h"
 #include "util/thrift_util.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
@@ -183,18 +184,20 @@ static void register_cgroups(const std::string& user, const std::string& group) 
 }
 
 Status FragmentExecState::execute() {
-    MonotonicStopWatch watch;
-    watch.start();
-    // TODO(zc): add dpp into cgroups
-    if (_set_rsc_info) {
-        register_cgroups(_user, _group);
-    } else {
-        CgroupsMgr::apply_system_cgroup();
-    }
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        if (_set_rsc_info) {
+            register_cgroups(_user, _group);
+        } else {
+            CgroupsMgr::apply_system_cgroup();
+        }
 
-    _executor.open();
-    _executor.close();
-    LOG(INFO) << "execute time is " << watch.elapsed_time() / 1000000;
+        _executor.open();
+        _executor.close();
+    }
+    PaloMetrics::fragment_requests_total.increment(1);
+    PaloMetrics::fragment_request_duration_us.increment(duration_ns / 1000);
     return Status::OK;
 }
 

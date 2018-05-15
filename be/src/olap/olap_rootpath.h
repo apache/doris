@@ -60,6 +60,11 @@ public:
     typedef std::vector<std::string> RootPathVec;
     typedef std::vector<int64_t> CapacityVec;
 
+    static OLAPStatus parse_root_paths_from_string(
+            const char* root_paths,
+            RootPathVec* root_path_vec,
+            CapacityVec* capacity_vec);
+
     // @brief 初始化。
     // 从配置文件中读取storage_root_path信息，重名的path当成一条path，
     // 校验各root_path的目录、磁盘等。
@@ -169,11 +174,6 @@ private:
             RootPathVec& root_path_vec,
             CapacityVec* capacity_vec,
             std::vector<bool>* is_accessable_vec);
-
-    OLAPStatus _parse_root_paths_from_string(
-            const char* root_paths,
-            RootPathVec* root_path_vec,
-            CapacityVec* capacity_vec);
 
     OLAPStatus _get_root_path_capacity(
             const std::string& root_path,

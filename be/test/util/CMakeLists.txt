@@ -9,7 +9,7 @@
 # "License"); you may not use this file except in compliance
 # with the License.  You may obtain a copy of the License at
 #
-#   http://www.apache.org/licenses/LICENSE-2.0
+#   http://www.apache.org/licenses/LICENSE_2.0
 #
 # Unless required by applicable law or agreed to in writing,
 # software distributed under the License is distributed on an
@@ -21,20 +21,17 @@
 # where to put generated libraries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test/util")
 
-#ADD_BE_TEST(integer-array-test)
-#ADD_BE_TEST(runtime_profile_test)
-#ADD_BE_TEST(benchmark-test)
-#ADD_BE_TEST(decompress-test)
-#ADD_BE_TEST(metrics-test)
-#ADD_BE_TEST(debug-util-test)
-#ADD_BE_TEST(url-coding-test)
-#ADD_BE_TEST(thrift-util-test)
-#ADD_BE_TEST(bit-util-test)
-#ADD_BE_TEST(rle-test)
-##ADD_BE_TEST(perf-counters-test)
+ADD_BE_TEST(bit_util_test)
+ADD_BE_TEST(brpc_stub_cache_test)
 ADD_BE_TEST(path_trie_test)
 ADD_BE_TEST(count_down_latch_test)
 ADD_BE_TEST(lru_cache_util_test)
 ADD_BE_TEST(filesystem_util_test)
 ADD_BE_TEST(internal_queue_test)
 ADD_BE_TEST(cidr_test)
+ADD_BE_TEST(new_metrics_test)
+ADD_BE_TEST(palo_metrics_test)
+ADD_BE_TEST(system_metrics_test)
+ADD_BE_TEST(core_local_test)
+ADD_BE_TEST(types_test)
+ADD_BE_TEST(rpc_channel_test)

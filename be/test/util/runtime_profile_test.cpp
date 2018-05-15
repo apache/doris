@@ -18,9 +18,9 @@
 #include <iostream>
 #include <gtest/gtest.h>
 #include <boost/bind.hpp>
-#include "common/object-pool.h"
-#include "util/runtime-profile.h"
-#include "util/cpu-info.h"
+#include "common/object_pool.h"
+#include "util/runtime_profile.h"
+#include "util/cpu_info.h"
 
 using namespace std;
 using namespace boost;

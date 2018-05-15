@@ -325,7 +325,7 @@ class ConnectionManager : public DispatchHandler {
      * which the event was generated.
      * @param event Comm layer event
      */
-    virtual void handle(EventPtr &event);
+    void handle(EventPtr& event) override;
 
     /** Connect retry loop.
      * This method is called as the retry thread function.

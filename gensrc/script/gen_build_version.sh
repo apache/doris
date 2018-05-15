@@ -26,7 +26,7 @@
 # contains the build version based on the git hash or svn revision.
 ##############################################################
 
-build_version="0.8.0"
+build_version="PALO3.3.19-RELEASE"
 
 unset LANG
 unset LC_CTYPE
@@ -45,7 +45,7 @@ then
     echo "PALO_HOME: ${PALO_HOME}"
 fi
 
-if [[ ${RUN_BE_TEST} == 1 ]]; then
+if [[ -z ${PALO_TEST_BINARY_DIR} ]]; then
     if [ -e ${PALO_HOME}/gensrc/build/java/com/baidu/palo/common/Version.java \
          -a -e ${PALO_HOME}/gensrc/build/gen_cpp/version.h ]; then
         exit

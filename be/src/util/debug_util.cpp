@@ -33,6 +33,7 @@
 #include "runtime/row_batch.h"
 #include "util/cpu_info.h"
 #include "gen_cpp/Opcodes_types.h"
+#include "gen_cpp/types.pb.h"
 
 #define PRECISION 2
 #define KILOBYTE (1024)
@@ -93,6 +94,12 @@ THRIFT_ENUM_PRINT_FN(TUnit);
 std::string print_id(const TUniqueId& id) {
     std::stringstream out;
     out << std::hex << id.hi << ":" << id.lo;
+    return out.str();
+}
+
+std::string print_id(const PUniqueId& id) {
+    std::stringstream out;
+    out << std::hex << id.hi() << ":" << id.lo();
     return out.str();
 }
 
@@ -222,6 +229,15 @@ std::string get_stack_trace() {
     std::string s;
     google::glog_internal_namespace_::DumpStackTraceToString(&s);
     return s;
+}
+
+std::string hexdump(const char* buf, int len) {
+    std::stringstream ss;
+    ss << std::hex << std::uppercase;
+    for (int i = 0; i < len; ++i) {
+        ss << std::setfill('0') << std::setw(2) << ((uint16_t)buf[i] & 0xff);
+    }
+    return ss.str();
 }
 
 }

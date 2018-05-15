@@ -31,6 +31,9 @@ namespace config {
     CONF_Int32(be_port, "9060");
     CONF_Int32(be_rpc_port, "10060");
 
+    // port for brpc
+    CONF_Int32(brpc_port, "8060");
+
     // Declare a selection strategy for those servers have many ips.
     // Note that there should at most one ip match this list.
     // this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
@@ -187,7 +190,6 @@ namespace config {
     CONF_Int32(sorter_block_size, "8388608");
     // push_write_mbytes_per_sec
     CONF_Int32(push_write_mbytes_per_sec, "10");
-    CONF_Int32(base_expansion_write_mbytes_per_sec, "5");
 
     CONF_Int64(column_dictionary_key_ration_threshold, "0");
     CONF_Int64(column_dictionary_key_size_threshold, "0");
@@ -201,8 +203,6 @@ namespace config {
     CONF_Int64(max_unpacked_row_block_size, "104857600");
 
     CONF_Int32(file_descriptor_cache_clean_interval, "3600");
-    CONF_Int32(base_expansion_trigger_interval, "1");
-    CONF_Int32(cumulative_check_interval, "1");
     CONF_Int32(disk_stat_monitor_interval, "5");
     CONF_Int32(unused_index_monitor_interval, "30");
     CONF_String(storage_root_path, "${PALO_HOME}/storage");
@@ -219,23 +219,28 @@ namespace config {
     CONF_Int32(disk_capacity_insufficient_percentage, "90");
     // check row nums for BE/CE and schema change. true is open, false is closed.
     CONF_Bool(row_nums_check, "true")
-    // be policy
-    CONF_Int32(base_expansion_thread_num, "1");
-    CONF_Int64(be_policy_start_time, "20");
-    CONF_Int64(be_policy_end_time, "7");
     //file descriptors cache, by default, cache 30720 descriptors
     CONF_Int32(file_descriptor_cache_capacity, "30720");
     CONF_Int64(index_stream_cache_capacity, "10737418240");
     CONF_Int64(max_packed_row_block_size, "20971520");
-    CONF_Int32(cumulative_write_mbytes_per_sec, "100");
-    CONF_Int64(ce_policy_delta_files_number, "5");
-    // ce policy: max delta file's size unit:B
-    CONF_Int32(cumulative_thread_num, "1");
-    CONF_Int64(ce_policy_max_delta_file_size, "104857600");
-    CONF_Int64(be_policy_cumulative_files_number, "5");
-    CONF_Double(be_policy_cumulative_base_ratio, "0.3");
-    CONF_Int64(be_policy_be_interval_seconds, "604800");
-    CONF_Int32(cumulative_source_overflow_ratio, "5");
+
+    // be policy
+    CONF_Int64(base_compaction_start_hour, "20");
+    CONF_Int64(base_compaction_end_hour, "7");
+    CONF_Int32(base_compaction_check_interval_seconds, "60");
+    CONF_Int64(base_compaction_num_cumulative_deltas, "5");
+    CONF_Int32(base_compaction_num_threads, "1");
+    CONF_Double(base_cumulative_delta_ratio, "0.3");
+    CONF_Int64(base_compaction_interval_seconds_since_last_operation, "604800");
+    CONF_Int32(base_compaction_write_mbytes_per_sec, "5");
+
+    // cumulative compaction policy: max delta file's size unit:B
+    CONF_Int32(cumulative_compaction_check_interval_seconds, "10");
+    CONF_Int64(cumulative_compaction_num_singleton_deltas, "5");
+    CONF_Int32(cumulative_compaction_num_threads, "1");
+    CONF_Int64(cumulative_compaction_budgeted_bytes, "104857600");
+    CONF_Int32(cumulative_compaction_write_mbytes_per_sec, "100");
+
     CONF_Int32(delete_delta_expire_time, "1440");
     // Port to start debug webserver on
     CONF_Int32(webserver_port, "8040");
@@ -296,7 +301,8 @@ namespace config {
     // for partition
     CONF_Bool(enable_partitioned_hash_join, "false")
     CONF_Bool(enable_partitioned_aggregation, "false")
-
+    CONF_Bool(enable_new_partitioned_aggregation, "true")
+    
     // for kudu
     // "The maximum size of the row batch queue, for Kudu scanners."
     CONF_Int32(kudu_max_row_batches, "0")
@@ -320,6 +326,51 @@ namespace config {
 
     // to forward compatibility, will be removed later
     CONF_Bool(enable_token_check, "true");
+
+    // to open/close system metrics
+    CONF_Bool(enable_system_metrics, "true");
+    
+    CONF_Bool(enable_prefetch, "true");
+
+    // cpu count
+    CONF_Int32(flags_num_cores, "32");
+
+    CONF_Bool(FLAGS_thread_creation_fault_injection, "false");
+
+    // Set this to encrypt and perform an integrity
+    // check on all data spilled to disk during a query
+    CONF_Bool(FLAGS_disk_spill_encryption, "false");
+
+    // Writable scratch directories
+    CONF_String(FLAGS_scratch_dirs, "/tmp");
+
+    // If false and --scratch_dirs contains multiple directories on the same device,
+    // then only the first writable directory is used
+    CONF_Bool(FLAGS_allow_multiple_scratch_dirs_per_device, "false");
+
+    // linux transparent huge page
+    CONF_Bool(FLAGS_madvise_huge_pages, "false");
+
+    // whether use mmap to allocate memory
+    CONF_Bool(FLAGS_mmap_buffers, "false");
+
+    // whether or not user mem pool
+    CONF_Bool(FLAGS_disable_mem_pools, "false");
+
+    // max memory can be allocated by buffer pool
+    CONF_String(FLAGS_buffer_pool_limit, "80G");
+
+    // clean page can be hold by buffer pool
+    CONF_String(FLAGS_buffer_pool_clean_pages_limit, "20G");
+    
+    // buffer pool can support min memory allocated
+    CONF_Int32(FLAGS_min_buffer_size, "1024");
+
+    // Sleep time in seconds between memory maintenance iterations
+    CONF_Int64(FLAGS_memory_maintenance_sleep_time_s, "10");
+
+    // Aligement
+    CONF_Int32(FLAGS_MEMORY_MAX_ALIGNMENT, "16");
 } // namespace config
 
 } // namespace palo

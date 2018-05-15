@@ -46,7 +46,7 @@ public:
     ExchangeNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     virtual ~ExchangeNode() {}
 
-    virtual Status init(const TPlanNode& tnode);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
     virtual Status prepare(RuntimeState* state);
     // Blocks until the first batch is available for consumption via GetNext().
     virtual Status open(RuntimeState* state);

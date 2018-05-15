@@ -28,8 +28,8 @@
 #include <boost/filesystem.hpp>
 #include <rapidjson/document.h>
 
-#include "olap/base_expansion_handler.h"
-#include "olap/cumulative_handler.h"
+#include "olap/base_compaction.h"
+#include "olap/cumulative_compaction.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_header.h"
 #include "olap/olap_rootpath.h"
@@ -262,17 +262,17 @@ OLAPStatus OLAPEngine::init() {
     // 初始化CE调度器
     vector<OLAPRootPathStat> all_root_paths_stat;
     OLAPRootPath::get_instance()->get_all_disk_stat(&all_root_paths_stat);
-    _ce_disk_stat.reserve(all_root_paths_stat.size());
+    _cumulative_compaction_disk_stat.reserve(all_root_paths_stat.size());
     for (uint32_t i = 0; i < all_root_paths_stat.size(); i++) {
         const OLAPRootPathStat& stat = all_root_paths_stat[i];
-        _ce_disk_stat.emplace_back(stat.root_path, i, stat.is_used);
+        _cumulative_compaction_disk_stat.emplace_back(stat.root_path, i, stat.is_used);
         _disk_id_map[stat.root_path] = i;
     }
-    int32_t ce_thread_num = config::cumulative_thread_num;
-    int32_t be_thread_num = config::base_expansion_thread_num;
+    int32_t cumulative_compaction_num_threads = config::cumulative_compaction_num_threads;
+    int32_t base_compaction_num_threads = config::base_compaction_num_threads;
     uint32_t file_system_num = OLAPRootPath::get_instance()->get_file_system_count();
-    _max_ce_task_per_disk = (ce_thread_num + file_system_num - 1) / file_system_num;
-    _max_be_task_per_disk = (be_thread_num + file_system_num - 1) / file_system_num;
+    _max_cumulative_compaction_task_per_disk = (cumulative_compaction_num_threads + file_system_num - 1) / file_system_num;
+    _max_base_compaction_task_per_disk = (base_compaction_num_threads + file_system_num - 1) / file_system_num;
 
     // 加载所有table
     OLAPRootPath::get_instance()->get_all_available_root_path(&all_available_root_path);
@@ -435,7 +435,7 @@ OLAPStatus OLAPEngine::add_table(TTabletId tablet_id, SchemaHash schema_hash, OL
         smart_table->mark_dropped();
         res = OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE;
     }
-    OLAP_LOG_WARNING("add dumplicated table. [res=%d tablet_id=%ld schema_hash=%d "
+    OLAP_LOG_WARNING("add duplicated table. [res=%d tablet_id=%ld schema_hash=%d "
                      "old_version=%d new_version=%d old_time=%ld new_time=%ld]",
                      res, tablet_id, schema_hash,
                      old_version, new_version, old_time, new_time);
@@ -872,7 +872,7 @@ OLAPStatus OLAPEngine::report_all_tablets_info(
     return OLAP_SUCCESS;
 }
 
-bool OLAPEngine::_can_do_be_ce(SmartOLAPTable table) {
+bool OLAPEngine::_can_do_compaction(SmartOLAPTable table) {
     // 如果table正在做schema change，则通过选路判断数据是否转换完成
     // 如果选路成功，则转换完成，可以进行BE
     // 如果选路失败，则转换未完成，不能进行BE
@@ -902,89 +902,89 @@ void OLAPEngine::start_clean_fd_cache() {
     OLAP_LOG_TRACE("end clean file descritpor cache");
 }
 
-void OLAPEngine::start_base_expansion(string* last_be_fs, TTabletId* last_be_tablet_id) {
-    uint64_t allow_be_excute_start_time = config::be_policy_start_time;
-    uint64_t allow_be_excute_end_time = config::be_policy_end_time;
+void OLAPEngine::start_base_compaction(string* last_base_compaction_fs, TTabletId* last_base_compaction_tablet_id) {
+    uint64_t base_compaction_start_hour = config::base_compaction_start_hour;
+    uint64_t base_compaction_end_hour = config::base_compaction_end_hour;
     time_t current_time = time(NULL);
     uint64_t current_hour = localtime(&current_time)->tm_hour;
     // 如果执行BE的时间区间设置为类似以下的形式：[1:00, 8:00)
-    if (allow_be_excute_start_time <= allow_be_excute_end_time) {
-        if (current_hour < allow_be_excute_start_time
-                || current_hour >= allow_be_excute_end_time) {
-            OLAP_LOG_TRACE("don't allow to excute base expansion in this time interval. "
+    if (base_compaction_start_hour <= base_compaction_end_hour) {
+        if (current_hour < base_compaction_start_hour
+                || current_hour >= base_compaction_end_hour) {
+            OLAP_LOG_TRACE("don't allow to excute base compaction in this time interval. "
                            "[now_hour=%d; allow_start_time=%d; allow_end_time=%d]",
                            current_hour,
-                           allow_be_excute_start_time,
-                           allow_be_excute_end_time);
+                           base_compaction_start_hour,
+                           base_compaction_end_hour);
             return;
         }
     } else { // 如果执行BE的时间区间设置为类似以下的形式：[22:00, 8:00)
-        if (current_hour < allow_be_excute_start_time
-                && current_hour >= allow_be_excute_end_time) {
-            OLAP_LOG_TRACE("don't allow to excute base expansion in this time interval. "
+        if (current_hour < base_compaction_start_hour
+                && current_hour >= base_compaction_end_hour) {
+            OLAP_LOG_TRACE("don't allow to excute base compaction in this time interval. "
                            "[now_hour=%d; allow_start_time=%d; allow_end_time=%d]",
                            current_hour,
-                           allow_be_excute_start_time,
-                           allow_be_excute_end_time);
+                           base_compaction_start_hour,
+                           base_compaction_end_hour);
             return;
         }
     }
 
     SmartOLAPTable tablet;
-    BaseExpansionHandler base_expansion_handler;
+    BaseCompaction base_compaction;
 
-    bool do_base_expansion = false;
-    OLAP_LOG_TRACE("start_base_expansion begin.");
+    bool do_base_compaction = false;
+    OLAP_LOG_TRACE("start_base_compaction begin.");
     _tablet_map_lock.rdlock();
     _fs_task_mutex.lock();
 
-    if (*last_be_fs != "") {
-        _fs_be_task_num_map[*last_be_fs] -= 1;
-        last_be_fs->clear();
+    if (*last_base_compaction_fs != "") {
+        _fs_base_compaction_task_num_map[*last_base_compaction_fs] -= 1;
+        last_base_compaction_fs->clear();
     }
 
     for (const auto& i : _tablet_map) {
         for (SmartOLAPTable j : i.second.table_arr) {
             // 保证从上一次被选中进行BE的表开始轮询
-            if (i.first <= *last_be_tablet_id) {
+            if (i.first <= *last_base_compaction_tablet_id) {
                 continue;
             }
 
-            if (_fs_be_task_num_map[j->storage_root_path_name()] >= _max_be_task_per_disk) {
+            if (_fs_base_compaction_task_num_map[j->storage_root_path_name()] >= _max_base_compaction_task_per_disk) {
                 continue;
             }
 
             // 跳过正在做schema change的tablet
-            if (!_can_do_be_ce(j)) {
+            if (!_can_do_compaction(j)) {
                 OLAP_LOG_DEBUG("skip tablet, it is schema changing. [tablet=%s]",
                                j->full_name().c_str());
                 continue;
             }
 
-            if (base_expansion_handler.init(j, false) == OLAP_SUCCESS) {
+            if (base_compaction.init(j, false) == OLAP_SUCCESS) {
                 tablet = j;
-                do_base_expansion = true;
-                _fs_be_task_num_map[tablet->storage_root_path_name()] += 1;
-                *last_be_fs = tablet->storage_root_path_name();
-                *last_be_tablet_id = i.first;
+                do_base_compaction = true;
+                _fs_base_compaction_task_num_map[tablet->storage_root_path_name()] += 1;
+                *last_base_compaction_fs = tablet->storage_root_path_name();
+                *last_base_compaction_tablet_id = i.first;
                 goto TRY_START_BE_OK;
             }
         }
     }
 
     // when the loop comes the end, restart from begin
-    *last_be_tablet_id = -1;
+    *last_base_compaction_tablet_id = -1;
 
 TRY_START_BE_OK:
     _fs_task_mutex.unlock();
     _tablet_map_lock.unlock();
-    OLAP_LOG_TRACE("start_base_expansion end.");
+    OLAP_LOG_TRACE("start_base_compaction end.");
 
-    if (do_base_expansion) {
-        OLAP_LOG_NOTICE_PUSH("request", "START_BASE_EXPANSION");
-        OLAPStatus cmd_res = base_expansion_handler.run();
+    if (do_base_compaction) {
+        OLAP_LOG_NOTICE_PUSH("request", "START_BASE_COMPACTION");
+        OLAPStatus cmd_res = base_compaction.run();
         if (cmd_res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("failed to do base expansion. [tablet='%s']",
+            OLAP_LOG_WARNING("failed to do base compaction. [tablet='%s']",
                              tablet->full_name().c_str());
         }
     }
@@ -993,9 +993,9 @@ TRY_START_BE_OK:
 void OLAPEngine::_select_candidate() {
     // 这是一个小根堆，用于记录nice最大的top k个candidate tablet
     SmartOLAPTable tablet;
-    typedef priority_queue<ExpansionCandidate, vector<ExpansionCandidate>,
-            ExpansionCandidateComparator> candidate_heap_t;
-    vector<candidate_heap_t> candidate_heap_vec(_ce_disk_stat.size());
+    typedef priority_queue<CompactionCandidate, vector<CompactionCandidate>,
+            CompactionCandidateComparator> candidate_heap_t;
+    vector<candidate_heap_t> candidate_heap_vec(_cumulative_compaction_disk_stat.size());
     for (const auto& i : _tablet_map) {
         uint32_t nice = 0;
         // calc nice
@@ -1005,7 +1005,7 @@ void OLAPEngine::_select_candidate() {
             }
 
             j->obtain_header_rdlock();
-            const uint32_t curr_nice = j->get_expansion_nice_estimate();
+            const uint32_t curr_nice = j->get_compaction_nice_estimate();
             j->release_header_lock();
             nice = curr_nice > nice ? curr_nice : nice;
             tablet = j;
@@ -1015,27 +1015,27 @@ void OLAPEngine::_select_candidate() {
         if (nice > 0) {
             uint32_t disk_id = _disk_id_map[tablet->storage_root_path_name()];
             candidate_heap_vec[disk_id].emplace(nice, i.first, disk_id);
-            if (candidate_heap_vec[disk_id].size() > OLAP_EXPANSION_DEFAULT_CANDIDATE_SIZE) {
+            if (candidate_heap_vec[disk_id].size() > OLAP_COMPACTION_DEFAULT_CANDIDATE_SIZE) {
                 candidate_heap_vec[disk_id].pop();
             }
         }
     }
 
-    _ce_candidate.clear();
-    for (auto& stat : _ce_disk_stat) {
+    _cumulative_compaction_candidate.clear();
+    for (auto& stat : _cumulative_compaction_disk_stat) {
         stat.task_remaining = 0;
     }
 
     for (auto& candidate_heap : candidate_heap_vec) {
         while (!candidate_heap.empty()) {
-            _ce_candidate.push_back(candidate_heap.top());
-            ++_ce_disk_stat[candidate_heap.top().disk_index].task_remaining;
+            _cumulative_compaction_candidate.push_back(candidate_heap.top());
+            ++_cumulative_compaction_disk_stat[candidate_heap.top().disk_index].task_remaining;
             candidate_heap.pop();
         }
     }
 
     // sort small to big
-    sort(_ce_candidate.rbegin(), _ce_candidate.rend(), ExpansionCandidateComparator());
+    sort(_cumulative_compaction_candidate.rbegin(), _cumulative_compaction_candidate.rend(), CompactionCandidateComparator());
 }
 
 void OLAPEngine::start_cumulative_priority() {
@@ -1048,10 +1048,10 @@ void OLAPEngine::start_cumulative_priority() {
     OLAPRootPath::get_instance()->get_all_disk_stat(&all_root_paths_stat);
     for (uint32_t i = 0; i < all_root_paths_stat.size(); i++) {
         uint32_t disk_id = _disk_id_map[all_root_paths_stat[i].root_path];
-        _ce_disk_stat[disk_id].is_used = all_root_paths_stat[i].is_used;
+        _cumulative_compaction_disk_stat[disk_id].is_used = all_root_paths_stat[i].is_used;
     }
 
-    for (auto& disk : _ce_disk_stat) {
+    for (auto& disk : _cumulative_compaction_disk_stat) {
         if (!disk.task_remaining && disk.is_used) {
             is_select = true;
         }
@@ -1061,58 +1061,58 @@ void OLAPEngine::start_cumulative_priority() {
         _select_candidate();
     }
 
-    // traverse _ce_candidate to start cumulative expansion
-    CumulativeHandler cumulative_handler;
-    for (auto it_cand = _ce_candidate.rbegin(); it_cand != _ce_candidate.rend(); ++it_cand) {
-        ExpansionCandidate candidate = *it_cand;
+    // traverse _cumulative_compaction_candidate to start cumulative compaction
+    CumulativeCompaction cumulative_compaction;
+    for (auto it_cand = _cumulative_compaction_candidate.rbegin(); it_cand != _cumulative_compaction_candidate.rend(); ++it_cand) {
+        CompactionCandidate candidate = *it_cand;
         const auto i = _tablet_map.find(candidate.tablet_id);
         if (i == _tablet_map.end()) {
             // tablet已经不存在
-            _ce_candidate.erase(it_cand.base() - 1);
-            --_ce_disk_stat[candidate.disk_index].task_remaining;
+            _cumulative_compaction_candidate.erase(it_cand.base() - 1);
+            --_cumulative_compaction_disk_stat[candidate.disk_index].task_remaining;
             continue;
         }
 
-        if (_ce_disk_stat[candidate.disk_index].task_running >= _max_ce_task_per_disk) {
+        if (_cumulative_compaction_disk_stat[candidate.disk_index].task_running >= _max_cumulative_compaction_task_per_disk) {
             OLAP_LOG_DEBUG("skip tablet, too much ce task on disk %s",
-                    _ce_disk_stat[candidate.disk_index].storage_path.c_str());
+                    _cumulative_compaction_disk_stat[candidate.disk_index].storage_path.c_str());
             // 某个disk上任务数太多，跳过，candidate中保留这个任务
             continue;
         }
 
         for (SmartOLAPTable j : i->second.table_arr) {
-            if (!_can_do_be_ce(j)) {
+            if (!_can_do_compaction(j)) {
                 OLAP_LOG_DEBUG("skip tablet, it is schema changing. [tablet=%s]",
                                j->full_name().c_str());
                 continue;
             }
 
-            if (cumulative_handler.init(j) == OLAP_SUCCESS) {
-                _ce_candidate.erase(it_cand.base() - 1);
-                --_ce_disk_stat[candidate.disk_index].task_remaining;
-                ++_ce_disk_stat[candidate.disk_index].task_running;
+            if (cumulative_compaction.init(j) == OLAP_SUCCESS) {
+                _cumulative_compaction_candidate.erase(it_cand.base() - 1);
+                --_cumulative_compaction_disk_stat[candidate.disk_index].task_remaining;
+                ++_cumulative_compaction_disk_stat[candidate.disk_index].task_running;
                 _fs_task_mutex.unlock();
                 _tablet_map_lock.unlock();
 
                 // start cumulative
-                if (cumulative_handler.run() != OLAP_SUCCESS) {
+                if (cumulative_compaction.run() != OLAP_SUCCESS) {
                     OLAP_LOG_WARNING("failed to do cumulative. [tablet='%s']",
                                      j->full_name().c_str());
                 }
 
                 _fs_task_mutex.lock();
-                --_ce_disk_stat[candidate.disk_index].task_running;
+                --_cumulative_compaction_disk_stat[candidate.disk_index].task_running;
                 _fs_task_mutex.unlock();
                 return;
             }
         }
         // 这个tablet不适合做ce
-        _ce_candidate.erase(it_cand.base() - 1);
-        --_ce_disk_stat[candidate.disk_index].task_remaining;
+        _cumulative_compaction_candidate.erase(it_cand.base() - 1);
+        --_cumulative_compaction_disk_stat[candidate.disk_index].task_remaining;
     }
     _fs_task_mutex.unlock();
     _tablet_map_lock.unlock();
-    OLAP_LOG_TRACE("no tablet selected to do cumulative expansion this loop.");
+    OLAP_LOG_TRACE("no tablet selected to do cumulative compaction this loop.");
 }
 
 void OLAPEngine::get_cache_status(rapidjson::Document* document) const {
@@ -1289,8 +1289,8 @@ OLAPStatus OLAPEngine::_create_new_table_header_file(
         if (true == is_schema_change_table) {
             /*
              * schema change的old_olap_table和new_olap_table的schema进行比较
-             * 1. 新表的列名在旧表中存在，则新版相应列的unique_id复用旧表列的unique_id 
-             * 2. 新表的列名在旧表中不存在，则新版相应列的unique_id设为旧表列的next_unique_id
+             * 1. 新表的列名在旧表中存在，则新表相应列的unique_id复用旧表列的unique_id 
+             * 2. 新表的列名在旧表中不存在，则新表相应列的unique_id设为旧表列的next_unique_id
              *    
             */
             size_t field_num = ref_olap_table->tablet_schema().size();

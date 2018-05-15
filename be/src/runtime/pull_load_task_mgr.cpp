@@ -92,10 +92,6 @@ Status PullLoadTaskCtx::add_sub_task_info(
         _task_info.file_map.emplace(it.first, it.second);
     }
 
-    // TODO(zc): counters
-    for (auto& it : sub_task_info.counters) {
-    }
-
     if (sub_task_info.__isset.tracking_url) {
         _task_info.tracking_urls.push_back(sub_task_info.tracking_url);
     }

@@ -156,23 +156,15 @@ TEST(MemPoolTest, ReturnPartial) {
     p.free_all();
 }
 
-// Utility class to call private functions on MemPool.
-class MemPoolTest {
-    public:
-        static bool check_integrity(MemPool* pool, bool current_chunk_empty) {
-            return pool->check_integrity(current_chunk_empty);
-        }
-};
-
 TEST(MemPoolTest, Limits) {
     MemTracker limit3(320);
     MemTracker limit1(160, "", &limit3);
     MemTracker limit2(240, "", &limit3);
 
-    MemPool* p1 = new MemPool(&limit1, 80);
+    MemPool* p1 = new MemPool(&limit1);
     EXPECT_FALSE(limit1.any_limit_exceeded());
 
-    MemPool* p2 = new MemPool(&limit2, 80);
+    MemPool* p2 = new MemPool(&limit2);
     EXPECT_FALSE(limit2.any_limit_exceeded());
 
     // p1 exceeds a non-shared limit
@@ -213,18 +205,15 @@ TEST(MemPoolTest, Limits) {
     EXPECT_FALSE(limit2.limit_exceeded());
     uint8_t* result = p2->try_allocate(160);
     DCHECK(result != NULL);
-    DCHECK(MemPoolTest::check_integrity(p2, false));
 
     // Try To allocate another 160 bytes, this should fail.
     result = p2->try_allocate(160);
     DCHECK(result == NULL);
-    DCHECK(MemPoolTest::check_integrity(p2, false));
 
     // Try To allocate 20 bytes, this should succeed. try_allocate() should leave the
     // pool in a functional state..
     result = p2->try_allocate(20);
     DCHECK(result != NULL);
-    DCHECK(MemPoolTest::check_integrity(p2, false));
 
     p2->free_all();
     delete p2;
@@ -299,8 +288,8 @@ int main(int argc, char** argv) {
     //     return -1;
     // }
     palo::init_glog("be-test");
+    
     ::testing::InitGoogleTest(&argc, argv);
-
     return RUN_ALL_TESTS();
 }
 

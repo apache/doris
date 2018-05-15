@@ -51,14 +51,6 @@ public:
 
     // Adds a new version to the header. Do not use the proto's
     // add_version() directly.
-    OLAPStatus add_version(Version version,
-            VersionHash version_hash,
-            uint32_t num_segments,
-            time_t max_timestamp,
-            int64_t index_size,
-            int64_t data_size,
-            int64_t num_rows);
-
     OLAPStatus add_version(
         Version version,
         VersionHash version_hash,
@@ -67,7 +59,7 @@ public:
         int64_t index_size,
         int64_t data_size,
         int64_t num_rows,
-        std::vector<std::pair<Field *, Field *> > *column_statistics);
+        const std::vector<std::pair<WrapperField*, WrapperField*>>* column_statistics = nullptr);
 
     // Deletes a version from the header.
     OLAPStatus delete_version(Version version);
@@ -94,7 +86,7 @@ public:
 
     const FileVersionMessage* get_lastest_delta_version() const;
     const FileVersionMessage* get_latest_version() const;
-    const uint32_t get_expansion_nice_estimate() const;
+    const uint32_t get_compaction_nice_estimate() const;
     const OLAPStatus version_creation_time(const Version& version, int64_t* creation_time) const;
 
 private:
