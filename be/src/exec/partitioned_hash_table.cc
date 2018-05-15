@@ -281,9 +281,11 @@ void PartitionedHashTable::close() {
     for (int i = 0; i < _data_pages.size(); ++i) {
         _data_pages[i]->del();
     }
+#if 0
     if (PaloMetrics::hash_table_total_bytes() != NULL) {
         PaloMetrics::hash_table_total_bytes()->increment(-_total_data_page_size);
     }
+#endif
     _data_pages.clear();
     if (_buckets != NULL) {
         free(_buckets);
@@ -372,9 +374,11 @@ bool PartitionedHashTable::grow_node_array() {
     }
     _data_pages.push_back(block);
     _next_node = block->allocate<DuplicateNode>(page_size);
+#if 0
     if (PaloMetrics::hash_table_total_bytes() != NULL) {
         PaloMetrics::hash_table_total_bytes()->increment(page_size);
     }
+#endif
     _node_remaining_current_page = page_size / sizeof(DuplicateNode);
     _total_data_page_size += page_size;
     return true;

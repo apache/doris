@@ -508,9 +508,9 @@ TEST(TestStream, SeekUncompress) {
     index_entry.write_to_buffer(buffer);
     StreamIndexHeader header;
     header.position_format = index_entry.positions_count();
-    header.statistic_format = OLAP_FIELD_TYPE_NONE;
+    header.statistic_format = OLAP_FIELD_TYPE_TINYINT;
     PositionEntryReader entry;
-    entry.init(&header, OLAP_FIELD_TYPE_NONE, false);
+    entry.init(&header, OLAP_FIELD_TYPE_TINYINT, false);
     entry.attach(buffer);
     PositionProvider position(&entry);
 
@@ -602,9 +602,9 @@ TEST(TestStream, SeekCompress) {
     index_entry.write_to_buffer(buffer);
     StreamIndexHeader header;
     header.position_format = index_entry.positions_count();
-    header.statistic_format = OLAP_FIELD_TYPE_NONE;
+    header.statistic_format = OLAP_FIELD_TYPE_TINYINT;
     PositionEntryReader entry;
-    entry.init(&header, OLAP_FIELD_TYPE_NONE, false);
+    entry.init(&header, OLAP_FIELD_TYPE_TINYINT, false);
     entry.attach(buffer);
 
     PositionProvider position(&entry);
@@ -697,7 +697,8 @@ public:
                 0, 
                 helper.length(), 
                 NULL, 
-                OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
+                OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE,
+                &_stats);
         ASSERT_EQ(OLAP_SUCCESS, _stream->init());
 
         _reader = new (std::nothrow) RunLengthByteReader(_stream);
@@ -710,6 +711,7 @@ public:
     FileHandler helper;
     ByteBuffer* _shared_buffer;
     ReadOnlyFileStream* _stream;
+    OlapReaderStatistics _stats;
 };
 
 
@@ -803,9 +805,9 @@ TEST_F(TestRunLengthByte, Seek) {
     index_entry.write_to_buffer(buffer);
     StreamIndexHeader header;
     header.position_format = index_entry.positions_count();
-    header.statistic_format = OLAP_FIELD_TYPE_NONE;
+    header.statistic_format = OLAP_FIELD_TYPE_TINYINT;
     PositionEntryReader entry;
-    entry.init(&header, OLAP_FIELD_TYPE_NONE, false);
+    entry.init(&header, OLAP_FIELD_TYPE_TINYINT, false);
     entry.attach(buffer);
 
     PositionProvider position(&entry);

@@ -46,7 +46,15 @@ static const size_t OLAP_LRU_CACHE_MAX_KEY_LENTH = OLAP_MAX_PATH_LEN * 2;
 
 static const uint64_t OLAP_FIX_HEADER_MAGIC_NUMBER = 0;
 // 执行be/ce时默认的候选集大小
-static constexpr uint32_t OLAP_EXPANSION_DEFAULT_CANDIDATE_SIZE = 10;
+static constexpr uint32_t OLAP_COMPACTION_DEFAULT_CANDIDATE_SIZE = 10;
+
+// the max length supported for string type
+static const uint16_t OLAP_STRING_MAX_LENGTH = 65535;
+
+// the max bytes for stored string length
+using StringOffsetType = uint32_t;
+using StringLengthType = uint16_t;
+static const uint16_t OLAP_STRING_MAX_BYTES = sizeof(StringLengthType);
 
 enum OLAPDataVersion {
     OLAP_V1 = 0,
@@ -190,7 +198,7 @@ enum OLAPStatus {
     OLAP_ERR_READER_ACQUIRE_DATA_ERROR = -702,
     OLAP_ERR_READER_READING_ERROR = -703,
 
-    // BaseExpansion
+    // BaseCompaction
     // [-800, -900)
     OLAP_ERR_BE_VERSION_NOT_MATCH = -800,
     OLAP_ERR_BE_REPLACE_VERSIONS_ERROR = -801,
@@ -298,6 +306,13 @@ enum OLAPStatus {
 static const char* const HINIS_KEY_SEPARATOR = ";";
 static const char* const HINIS_KEY_PAIR_SEPARATOR = "|";
 static const char* const HINIS_KEY_GROUP_SEPARATOR = "&";
+
+#define RETURN_NOT_OK(s) do { \
+    OLAPStatus _s = (s);      \
+    if (_s != OLAP_SUCCESS) { \
+        return _s; \
+    } \
+} while (0);
 
 // Declare copy constructor and equal operator as private
 #ifndef DISALLOW_COPY_AND_ASSIGN

@@ -21,7 +21,6 @@
 #include <algorithm>
 #include <vector>
 
-#include "olap/field.h"
 #include "olap/i_data.h"
 #include "olap/merger.h"
 #include "olap/olap_data.h"
@@ -30,6 +29,7 @@
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
 #include "olap/writer.h"
+#include "olap/wrapper_field.h"
 #include "common/resource_tls.h"
 #include "agent/cgroups_mgr.h"
 
@@ -82,62 +82,30 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
     return &(_schema_mapping[column_index]);
 }
 
-#define TYPE_REINTERPRET_CAST(from_type, to_type) \
+#define TYPE_REINTERPRET_CAST(FromType, ToType) \
 { \
-    char* ref_pos = ref_block._buf + ref_block._grid_items[ref_column].offset; \
-    char* new_pos = mutable_block->_buf + mutable_block->_grid_items[i].offset; \
-    for (size_t row = 0, row_num = ref_block.row_block_info().row_num; \
-            row < row_num; ++row) { \
+    size_t row_num = ref_block.row_block_info().row_num; \
+    for (size_t row = 0, mutable_row = 0; row < row_num; ++row) { \
         if (is_data_left_vec[row] != 0) { \
-            from_type* ref_offset = NULL;\
-            if (OLAP_DATA_FILE == ref_block._data_file_type) {\
-                if (false == ref_block._null_supported) {\
-                    ref_offset = reinterpret_cast<from_type *>( \
-                        ref_pos + row * ref_block._grid_items[ref_column].width); \
-                } else {\
-                    *new_pos = *(ref_pos + row * ref_block._grid_items[ref_column].width); \
-                    ref_offset = reinterpret_cast<from_type *>( \
-                        ref_pos + row * ref_block._grid_items[ref_column].width + 1); \
-                }\
-            } else if (COLUMN_ORIENTED_FILE == ref_block._data_file_type) {\
-                *new_pos = *(ref_pos + row * ref_block._grid_items[ref_column].width); \
-                ref_offset = reinterpret_cast<from_type *>( \
-                    ref_pos + row * ref_block._grid_items[ref_column].width + 1); \
-            }\
-            to_type *new_offset = reinterpret_cast<to_type *>(new_pos + 1);\
-            *(new_offset) = static_cast<to_type>(*ref_offset); \
-            new_pos += mutable_block->_grid_items[i].width;\
+            char* ref_ptr = ref_block.field_ptr(row, ref_column); \
+            char* new_ptr = mutable_block->field_ptr(mutable_row++, i); \
+            *new_ptr = *ref_ptr; \
+            *(ToType*)(new_ptr + 1) = *(FromType*)(ref_ptr + 1); \
         } \
     } \
     break; \
 }
 
-#define LARGEINT_REINTERPRET_CAST(from_type, to_type) \
+#define LARGEINT_REINTERPRET_CAST(FromType, ToType) \
 { \
-    char* ref_pos = ref_block._buf + ref_block._grid_items[ref_column].offset; \
-    char* new_pos = mutable_block->_buf + mutable_block->_grid_items[i].offset; \
-    for (size_t row = 0, row_num = ref_block.row_block_info().row_num; \
-         row < row_num; ++row) { \
+    size_t row_num = ref_block.row_block_info().row_num; \
+    for (size_t row = 0, mutable_row = 0; row < row_num; ++row) { \
         if (is_data_left_vec[row] != 0) { \
-            from_type *ref_offset = NULL;\
-            if (OLAP_DATA_FILE == ref_block._data_file_type) {\
-                if (false == ref_block._null_supported) {\
-                    ref_offset = reinterpret_cast<from_type *>( \
-                        ref_pos + row * ref_block._grid_items[ref_column].width); \
-                } else { \
-                    *new_pos = *(ref_pos + row * ref_block._grid_items[ref_column].width); \
-                    ref_offset = reinterpret_cast<from_type *>( \
-                        ref_pos + row * ref_block._grid_items[ref_column].width + 1); \
-                } \
-            } else if (COLUMN_ORIENTED_FILE == ref_block._data_file_type) {\
-                *new_pos = *(ref_pos + row * ref_block._grid_items[ref_column].width); \
-                ref_offset = reinterpret_cast<from_type *>( \
-                    ref_pos + row * ref_block._grid_items[ref_column].width + 1); \
-            } \
-            to_type *new_offset = reinterpret_cast<to_type *>(new_pos + 1);\
-            to_type temp = static_cast<to_type>(*ref_offset); \
-            *(new_offset) = temp; \
-            new_pos += mutable_block->_grid_items[i].width;\
+            char* ref_ptr = ref_block.field_ptr(row, ref_column); \
+            char* new_ptr = mutable_block->field_ptr(mutable_row++, i); \
+            *new_ptr = *ref_ptr; \
+            ToType new_value = *(FromType*)(ref_ptr + 1); \
+            memcpy(new_ptr + 1, &new_value, sizeof(ToType)); \
         } \
     } \
     break; \
@@ -179,7 +147,7 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
 #define ASSIGN_DEFAULT_VALUE(length) \
     case length: { \
         for (size_t row = 0; row < ref_block.row_block_info().row_num; ++row) { \
-            memcpy(buf, _schema_mapping[i].default_value->buf(), length); \
+            memcpy(buf, _schema_mapping[i].default_value->ptr(), length); \
             buf += length; \
         } \
         break; \
@@ -191,11 +159,8 @@ bool RowBlockChanger::change_row_block(
         int32_t data_version,
         RowBlock* mutable_block,
         uint64_t* filted_rows) const {
-    if (mutable_block == NULL || !mutable_block->_is_inited) {
+    if (mutable_block == NULL) {
         OLAP_LOG_FATAL("mutable block is uninitialized.");
-        return false;
-    } else if (!ref_block._is_inited) {
-        OLAP_LOG_WARNING("the row block referenced is uninited.");
         return false;
     } else if (mutable_block->_tablet_schema.size() != _schema_mapping.size()) {
         OLAP_LOG_WARNING("mutable block does not match with schema mapping rules. "
@@ -205,16 +170,11 @@ bool RowBlockChanger::change_row_block(
         return false;
     }
 
-    if (mutable_block->allocated_row_num() < ref_block.row_block_info().row_num) {
+    if (mutable_block->capacity() < ref_block.row_block_info().row_num) {
         OLAP_LOG_WARNING("mutable block is not large enough for storing the changed block. "
                          "[mutable_block_size=%ld, ref_block_size=%u]",
-                         mutable_block->allocated_row_num(),
+                         mutable_block->capacity(),
                          ref_block.row_block_info().row_num);
-        return false;
-    }
-
-    if (!ref_block._is_inited) {
-        OLAP_LOG_WARNING("the row block referenced is uninited.");
         return false;
     }
 
@@ -240,17 +200,12 @@ bool RowBlockChanger::change_row_block(
 
     // 一行一行地进行比较
     for (size_t row_index = 0; row_index < row_num; ++row_index) {
-        if (ref_block.get_row_to_read(row_index, &read_helper) != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to get row to read");
-            return false;
-        }
+        ref_block.get_row(row_index, &read_helper);
 
         // filter data according to delete conditions specified in DeleteData command
-        if (df_type == OLAP_DATA_FILE) {
-            if (is_data_left_vec[row_index] == 1) {
-                if (_delete_handler.is_filter_data(data_version, read_helper)) {
-                    is_data_left_vec[row_index] = 0;
-                }
+        if (is_data_left_vec[row_index] == 1) {
+            if (_delete_handler.is_filter_data(data_version, read_helper)) {
+                is_data_left_vec[row_index] = 0;
             }
         }
     }
@@ -267,6 +222,7 @@ bool RowBlockChanger::change_row_block(
     const bool need_filter_data = (new_row_num != row_num);
     const bool filter_all = (new_row_num == 0);
 
+    MemPool* mem_pool = mutable_block->mem_pool();
     // b. 根据前面的过滤信息，只对还标记为1的处理
     for (size_t i = 0, len = mutable_block->tablet_schema().size(); !filter_all && i < len; ++i) {
         int32_t ref_column = _schema_mapping[i].ref_column;
@@ -285,32 +241,21 @@ bool RowBlockChanger::change_row_block(
                     }
 
                     // 指定新的要写入的row index（不同于读的row_index）
-                    if (mutable_block->get_row_to_write(new_row_index++, &write_helper)
-                            != OLAP_SUCCESS) {
-                        OLAP_LOG_WARNING("fail to get row to write");
-                        return false;
-                    }
-
-                    if (ref_block.get_row_to_read(row_index, &read_helper) != OLAP_SUCCESS) {
-                        OLAP_LOG_WARNING("fail to get row to read");
-                        return false;
-                    }
+                    mutable_block->get_row(new_row_index++, &write_helper);
+                    ref_block.get_row(row_index, &read_helper);
 
                     if (true == read_helper.is_null(ref_column)) {
                         write_helper.set_null(i);
                     } else {
-                        // 要写入的
                         const Field* field_to_read = read_helper.get_field_by_index(ref_column);
                         if (NULL == field_to_read) {
                             OLAP_LOG_WARNING("faile to get ref field.[index=%d]", ref_column);
                             return false;
                         }
-
+                        
                         write_helper.set_not_null(i);
-                        if (write_helper.read_by_index(i, field_to_read->buf()) != OLAP_SUCCESS) {
-                            OLAP_LOG_WARNING("faile to read field");
-                            return false;
-                        }
+                        char* buf = field_to_read->get_ptr(read_helper.get_buf());
+                        write_helper.set_field_content(i, buf, mem_pool);
                     }
                 }
 
@@ -326,16 +271,9 @@ bool RowBlockChanger::change_row_block(
                     }
 
                     // 指定新的要写入的row index（不同于读的row_index）
-                    if (mutable_block->get_row_to_write(new_row_index++, &write_helper)
-                            != OLAP_SUCCESS) {
-                        OLAP_LOG_WARNING("fail to get row to write");
-                        return false;
-                    }
+                    mutable_block->get_row(new_row_index++, &write_helper);
 
-                    if (ref_block.get_row_to_read(row_index, &read_helper) != OLAP_SUCCESS) {
-                        OLAP_LOG_WARNING("fail to get row to read");
-                        return false;
-                    }
+                    ref_block.get_row(row_index, &read_helper);
 
                     if (true == read_helper.is_null(ref_column)) {
                         write_helper.set_null(i);
@@ -349,15 +287,13 @@ bool RowBlockChanger::change_row_block(
 
                         write_helper.set_not_null(i);
                         int p = ref_block.tablet_schema()[ref_column].length - 1;
-                        char* buf = field_to_read->buf();
+                        StringSlice* slice = reinterpret_cast<StringSlice*>(field_to_read->get_ptr(read_helper.get_buf()));
+                        char* buf = slice->data;
                         while (p >= 0 && buf[p] == '\0') {
                             p--;
                         }
-                        if (write_helper.read_by_index(
-                                i, field_to_read->buf(), p + 1) != OLAP_SUCCESS) {
-                            OLAP_LOG_WARNING("faile to read field");
-                            return false;
-                        }
+                        slice->size = p + 1;
+                        write_helper.set_field_content(i, buf, mem_pool);
                     }
                 }
 
@@ -407,17 +343,14 @@ bool RowBlockChanger::change_row_block(
                     continue;
                 }
 
-                if (mutable_block->get_row_to_write(new_row_index++, &write_helper)
-                        != OLAP_SUCCESS) {
-                    OLAP_LOG_WARNING("fail to get row to write");
-                    return false;
-                }
+                mutable_block->get_row(new_row_index++, &write_helper);
 
                 if (_schema_mapping[i].default_value->is_null()) {
                     write_helper.set_null(i);
                 } else {
                     write_helper.set_not_null(i);
-                    write_helper.read_by_index(i, _schema_mapping[i].default_value->buf());
+                    write_helper.set_field_content(
+                        i, _schema_mapping[i].default_value->ptr(), mem_pool);
                 }
             }
         }
@@ -451,7 +384,7 @@ bool RowBlockSorter::sort(RowBlock** row_block) {
     DataFileType data_file_type = (*row_block)->row_block_info().data_file_type;
     bool null_supported = (*row_block)->row_block_info().null_supported;
 
-    if (_swap_row_block == NULL || _swap_row_block->allocated_row_num() < row_num) {
+    if (_swap_row_block == NULL || _swap_row_block->capacity() < row_num) {
         if (_swap_row_block != NULL) {
             _row_block_allocator->release(_swap_row_block);
             _swap_row_block = NULL;
@@ -463,6 +396,13 @@ bool RowBlockSorter::sort(RowBlock** row_block) {
             OLAP_LOG_WARNING("fail to allocate memory.");
             return false;
         }
+    }
+
+    RowCursor helper_row;
+    auto res = helper_row.init(_swap_row_block->tablet_schema());
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "row cursor init failed.res:" << res;
+        return false;
     }
 
     RowBlock* temp = NULL;
@@ -479,9 +419,7 @@ bool RowBlockSorter::sort(RowBlock** row_block) {
             goto SORT_ERR_EXIT;
         }
 
-        if ((*row_block)->get_row_to_read(i, row_cursor_list[i]) != OLAP_SUCCESS) {
-            goto SORT_ERR_EXIT;
-        }
+        (*row_block)->get_row(i, row_cursor_list[i]);
     }
 
     // Must use 'std::' because this class has a function whose name is sort too
@@ -489,9 +427,9 @@ bool RowBlockSorter::sort(RowBlock** row_block) {
 
     // copy the results sorted to temp row block.
     _swap_row_block->clear();
-
     for (size_t i = 0; i < row_cursor_list.size(); ++i) {
-        if (_swap_row_block->set_row(i, (*row_cursor_list[i])) != OLAP_SUCCESS) {
+        _swap_row_block->get_row(i, &helper_row);
+        if (helper_row.copy(*row_cursor_list[i], _swap_row_block->mem_pool()) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("failed to set row for row block. [row=%ld]", i);
             goto SORT_ERR_EXIT;
         }
@@ -588,12 +526,12 @@ void RowBlockAllocator::release(RowBlock* row_block) {
         return;
     }
 
-    _memory_allocated -= row_block->allocated_row_num() * _row_len;
+    _memory_allocated -= row_block->capacity() * _row_len;
 
     OLAP_LOG_DEBUG("RowBlockAllocator::release() "
                    "[this=%p num_rows=%ld m_memory_allocated=%ld p=%p]",
                    this,
-                   row_block->allocated_row_num(),
+                   row_block->capacity(),
                    _memory_allocated,
                    row_block);
     delete row_block;
@@ -609,6 +547,8 @@ bool RowBlockMerger::merge(
         uint64_t* merged_rows) {
     uint64_t tmp_merged_rows = 0;
     RowCursor row_cursor;
+    MemPool* mem_pool = writer->mem_pool();
+
     if (row_cursor.init(_olap_table->tablet_schema()) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init row cursor.");
         goto MERGE_ERR;
@@ -616,13 +556,19 @@ bool RowBlockMerger::merge(
 
     _make_heap(row_block_arr);
 
+    // TODO: for now, string type in rowblock is not allocated
+    // memory during init procedure. So, copying content
+    // in row_cursor to rowblock is necessary
+    // That's not very memory-efficient!
+
     while (_heap.size() > 0) {
         if (writer->attached_by(&row_cursor) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("writer error.");
             goto MERGE_ERR;
         }
+        row_cursor.allocate_memory_for_string_type(_olap_table->tablet_schema(), mem_pool);
 
-        row_cursor.copy(*(_heap.top().row_cursor));
+        row_cursor.agg_init(*(_heap.top().row_cursor));
 
         if (!_pop_heap()) {
             goto MERGE_ERR;
@@ -680,13 +626,7 @@ bool RowBlockMerger::_make_heap(const vector<RowBlock*>& row_block_arr) {
             return false;
         }
 
-        if (OLAP_SUCCESS != element.row_block->get_row_to_read(element.row_block_index,
-                                                               element.row_cursor)) {
-            OLAP_LOG_WARNING("failed to get row from row block. [row_block_index=%d]",
-                             element.row_block_index);
-            SAFE_DELETE(element.row_cursor);
-            return false;
-        }
+        element.row_block->get_row(element.row_block_index, element.row_cursor);
 
         _heap.push(element);
     }
@@ -703,12 +643,7 @@ bool RowBlockMerger::_pop_heap() {
         return true;
     }
 
-    if (OLAP_SUCCESS != element.row_block->get_row_to_read(element.row_block_index,
-                                                           element.row_cursor)) {
-        OLAP_LOG_WARNING("failed to get row from row block. [row_block_index=%d]",
-                         element.row_block_index);
-        return false;
-    }
+    element.row_block->get_row(element.row_block_index, element.row_cursor);
 
     _heap.push(element);
     return true;
@@ -736,18 +671,16 @@ SchemaChangeDirectly::~SchemaChangeDirectly() {
 }
 
 bool SchemaChangeDirectly::_write_row_block(IWriter* writer, RowBlock* row_block) {
+    MemPool* mem_pool = writer->mem_pool();
     for (uint32_t i = 0; i < row_block->row_block_info().row_num; i++) {
         if (OLAP_SUCCESS != writer->attached_by(_dst_cursor)) {
             OLAP_LOG_WARNING("fail to attach writer");
             return false;
         }
 
-        if (OLAP_SUCCESS != row_block->get_row_to_read(i, _src_cursor)) {
-            OLAP_LOG_WARNING("fail to get row from row block.");
-            return false;
-        }
+        row_block->get_row(i, _src_cursor);
 
-        _dst_cursor->copy(*_src_cursor);
+        _dst_cursor->copy(*_src_cursor, mem_pool);
         writer->next(*_dst_cursor);
     }
 
@@ -885,7 +818,7 @@ bool SchemaChangeDirectly::process(IData* olap_data, OLAPIndex* new_olap_index) 
     while (NULL != ref_row_block) {
         // 注意这里强制分配和旧块等大的块(小了可能会存不下)
         if (NULL == new_row_block
-                || new_row_block->allocated_row_num() < ref_row_block->row_block_info().row_num) {
+                || new_row_block->capacity() < ref_row_block->row_block_info().row_num) {
             if (NULL != new_row_block) {
                 _row_block_allocator->release(new_row_block);
                 new_row_block = NULL;
@@ -940,10 +873,7 @@ bool SchemaChangeDirectly::process(IData* olap_data, OLAPIndex* new_olap_index) 
         goto DIRECTLY_PROCESS_ERR;
     }
 
-    if (olap_data->data_file_type() == COLUMN_ORIENTED_FILE) {
-        reset_filted_rows();
-        add_filted_rows(olap_data->get_filted_rows());
-    }
+    add_filted_rows(olap_data->get_filted_rows());
 
     // Check row num changes
     if (config::row_nums_check) {
@@ -1146,10 +1076,7 @@ bool SchemaChangeWithSorting::process(IData* olap_data, OLAPIndex* new_olap_inde
         goto SORTING_PROCESS_ERR;
     }
 
-    if (olap_data->data_file_type() == COLUMN_ORIENTED_FILE) {
-        reset_filted_rows();
-        add_filted_rows(olap_data->get_filted_rows());
-    }
+    add_filted_rows(olap_data->get_filted_rows());
 
     // Check row num changes
     if (config::row_nums_check) {
@@ -2342,15 +2269,10 @@ OLAPStatus SchemaChangeHandler::_parse_request(SmartOLAPTable ref_olap_table,
 OLAPStatus SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mapping,
                                                      const FieldInfo& column_schema,
                                                      const std::string& value) {
-    column_mapping->default_value = Field::create(column_schema);
+    column_mapping->default_value = WrapperField::create(column_schema);
 
     if (column_mapping->default_value == NULL) {
         return OLAP_ERR_MALLOC_ERROR;
-    }
-
-    if (!column_mapping->default_value->allocate()) {
-        OLAP_LOG_WARNING("failed to init Field. [column='%s']", column_schema.name.c_str());
-        return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
 
     if (true == column_schema.is_allow_null && value.length() == 0) {

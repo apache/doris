@@ -35,8 +35,8 @@ public:
 private:
     // Thread functions
 
-    // base expansion thread process function
-    static void* _be_thread_callback(void* arg);
+    // base compaction thread process function
+    static void* _base_compaction_thread_callback(void* arg);
 
     // garbage sweep thread process function. clear snapshot and trash folder
     static void* _garbage_sweeper_thread_callback(void* arg);
@@ -48,7 +48,7 @@ private:
     static void* _unused_index_thread_callback(void* arg);
 
     // cumulative process function
-    static void* _cumulative_thread_callback(void* arg);
+    static void* _cumulative_compaction_thread_callback(void* arg);
 
     // clean file descriptors cache
     static void* _fd_cache_clean_callback(void* arg);
@@ -78,11 +78,11 @@ private:
     static MutexLock _s_session_timeout_mutex;
     static Condition _s_session_timeout_cond;
 
-    // thread to run base expansion
-    std::vector<pthread_t> _be_threads;
+    // thread to run base compaction
+    std::vector<pthread_t> _base_compaction_threads;
 
     // thread to check cumulative
-    std::vector<pthread_t> _cumulative_threads;
+    std::vector<pthread_t> _cumulative_compaction_threads;
 
     pthread_t _fd_cache_clean_thread;
 

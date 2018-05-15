@@ -42,7 +42,7 @@ public:
     virtual ~MergeNode() { }
 
     // Create const exprs, child exprs and conjuncts from corresponding thrift exprs.
-    virtual Status init(const TPlanNode& tnode);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
     virtual Status prepare(RuntimeState* state);
     virtual Status open(RuntimeState* state);
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);

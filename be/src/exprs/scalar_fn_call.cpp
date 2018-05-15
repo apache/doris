@@ -423,7 +423,7 @@ Status ScalarFnCall::get_udf(RuntimeState* state, Function** udf) {
         _fn.scalar_fn.symbol.find("add_sub") != std::string::npos;
     if (_fn.binary_type == TFunctionBinaryType::NATIVE 
             || (_fn.binary_type == TFunctionBinaryType::BUILTIN 
-                && (!state->codegen_level() > 0 || broken_builtin))) {
+                && (!(state->codegen_level() > 0) || broken_builtin))) {
         // In this path, we are code that has been statically compiled to assembly.
         // This can either be a UDF implemented in a .so or a builtin using the UDF
         // interface with the code in impalad.

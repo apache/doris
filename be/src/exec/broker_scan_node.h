@@ -40,7 +40,7 @@ public:
     virtual ~BrokerScanNode();
 
     // Called after create this scan node
-    virtual Status init(const TPlanNode& tnode) override;
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
     // initialize _mysql_scanner, and create _text_converter.
     virtual Status prepare(RuntimeState* state) override;

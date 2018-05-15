@@ -43,8 +43,8 @@ BlockingJoinNode::BlockingJoinNode(const std::string& node_name,
       _join_op(join_op) {
 }
 
-Status BlockingJoinNode::init(const TPlanNode& tnode) {
-    return ExecNode::init(tnode);
+Status BlockingJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    return ExecNode::init(tnode, state);
 }
 
 BlockingJoinNode::~BlockingJoinNode() {

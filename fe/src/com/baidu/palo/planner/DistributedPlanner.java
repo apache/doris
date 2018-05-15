@@ -527,21 +527,21 @@ public class DistributedPlanner {
         for (int i = 0; i < childFragments.size(); ++i) {
             PlanFragment childFragment = childFragments.get(i);
             /* if (childFragment.isPartitioned() && childFragment.getPlanRoot().getNumInstances() > 1) {
-             *   // absorb the plan trees of all partitioned child fragments into unionNode
-             *   unionNode.addChild(childFragment.getPlanRoot());
-             *   unionFragment.setFragmentInPlanTree(unionNode.getChild(i));
-             *   unionFragment.addChildren(childFragment.getChildren());
-             *   fragments.remove(childFragment);
+             *  // absorb the plan trees of all partitioned child fragments into unionNode
+             *  unionNode.addChild(childFragment.getPlanRoot());
+             *  unionFragment.setFragmentInPlanTree(unionNode.getChild(i));
+             *  unionFragment.addChildren(childFragment.getChildren());
+             *  fragments.remove(childFragment);
              * } else {
-             *   // dummy entry for subsequent addition of the ExchangeNode
-             *   unionNode.addChild(null);
-             *   // Connect the unpartitioned child fragments to unionNode via a random exchange.
-             *   connectChildFragment(unionNode, i, unionFragment, childFragment);
-             *   childFragment.setOutputPartition(DataPartition.RANDOM);
+             *  // dummy entry for subsequent addition of the ExchangeNode
+             *  unionNode.addChild(null);
+             *  // Connect the unpartitioned child fragments to unionNode via a random exchange.
+             *  connectChildFragment(unionNode, i, unionFragment, childFragment);
+             *  childFragment.setOutputPartition(DataPartition.RANDOM);
              * }
              */
 
-            // UnionNode should't be absorbed by childFragment, because it reduce
+            // UnionNode should't be absorbed by childFragment, because it reduce 
             // the degree of concurrency.
             // chenhao16 add
             // dummy entry for subsequent addition of the ExchangeNode
@@ -695,8 +695,8 @@ public class DistributedPlanner {
         // and goes into a parent fragment
         childFragment.addPlanRoot(node);
         node.setIntermediateTuple();
-        // TODO(zc)
-        // node.setIsPreagg(ctx_);
+
+        node.setIsPreagg(ctx_);
 
         // if there is a limit, we need to transfer it from the pre-aggregation
         // node in the child fragment to the merge aggregation node in the parent
@@ -788,8 +788,8 @@ public class DistributedPlanner {
                     partitionExprs == null ? DataPartition.UNPARTITIONED : DataPartition.hashPartitioned(partitionExprs);
             // Convert the existing node to a preaggregation.
             AggregationNode preaggNode = (AggregationNode)node.getChild(0);
-            // TODO(zc)
-            // preaggNode.setIsPreagg(ctx_);
+            
+            preaggNode.setIsPreagg(ctx_);
 
             // place a merge aggregation step for the 1st phase in a new fragment
             mergeFragment = createParentFragment(childFragment, mergePartition);

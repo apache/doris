@@ -75,7 +75,7 @@ public:
     //  - server_type: the type of IO strategy this server should employ
     ThriftServer(const std::string& name,
                  const boost::shared_ptr<apache::thrift::TProcessor>& processor, int port,
-                 MetricGroup* metrics = NULL, int num_worker_threads = DEFAULT_WORKER_THREADS,
+                 MetricRegistry* metrics = NULL, int num_worker_threads = DEFAULT_WORKER_THREADS,
                  ServerType server_type = THREADED);
 
     ~ThriftServer() { }
@@ -147,10 +147,10 @@ private:
     bool _metrics_enabled;
 
     // Number of currently active connections
-    IntGauge* _num_current_connections_metric;
+    std::unique_ptr<IntGauge> _current_connections;
 
     // Total connections made over the lifetime of this server
-    IntCounter* _total_connections_metric;
+    std::unique_ptr<IntCounter> _connections_total;
 
     // Helper class which monitors starting servers. Needs access to internal members, and
     // is not used outside of this class.

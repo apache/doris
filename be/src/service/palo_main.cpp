@@ -42,6 +42,7 @@
 #include "olap/olap_main.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
+#include "service/brpc_service.h"
 #include <gperftools/profiler.h>
 #include "common/resource_tls.h"
 #include "exec/schema_scanner/frontend_helper.h"
@@ -80,17 +81,17 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
-    int lock_res = flock(fd, LOCK_EX | LOCK_NB);
-    if (lock_res < 0) {
-        fprintf(stderr, "fail to lock pid file, maybe another process is locking it.");
-        exit(-1);
-    }
-
     string pid = std::to_string((long)getpid());
     pid += "\n";
     size_t length = write(fd, pid.c_str(), pid.size());
     if (length != pid.size()) {
         fprintf(stderr, "fail to save pid into pid file.");
+        exit(-1);
+    }
+
+    // descriptor will be leaked when failing to close fd
+    if (::close(fd) < 0) {
+        fprintf(stderr, "failed to close fd of pidfile.");
         exit(-1);
     }
 
@@ -100,6 +101,10 @@ int main(int argc, char** argv) {
         return -1;
     }
 
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
+    MallocExtension::instance()->SetNumericProperty(
+        "tcmalloc.aggressive_memory_decommit", 21474836480);
+#endif
     palo::LlvmCodeGen::initialize_llvm();
     palo::init_daemon(argc, argv);
 
@@ -138,6 +143,14 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
+    palo::BRpcService brpc_service(&exec_env);
+    status = brpc_service.start(palo::config::brpc_port);
+    if (!status.ok()) {
+        LOG(ERROR) << "BRPC service did not start correctly, exiting";
+        palo::shutdown_logging();
+        exit(1);
+    }
+
     status = exec_env.start_services();
     if (!status.ok()) {
         LOG(ERROR) << "Palo Be services did not start correctly, exiting";
@@ -160,13 +173,13 @@ int main(int argc, char** argv) {
         palo::shutdown_logging();
         exit(1);
     }
-    heartbeat_thrift_server->start();
-
-    // this blocks until the beeswax and hs2 servers terminate
-    palo::PaloMetrics::palo_be_ready()->update(true);
-    LOG(INFO) << "Palo has started.";
-
-    //be_server->join();
+    
+    status = heartbeat_thrift_server->start();
+    if (!status.ok()) {
+        LOG(ERROR) << "Palo BE HeartBeat Service did not start correctly, exiting";
+        palo::shutdown_logging();
+        exit(1);
+    }
 
     palo::ReactorFactory::join();
 

@@ -81,8 +81,8 @@ AggregationNode::AggregationNode(
 AggregationNode::~AggregationNode() {
 }
 
-Status AggregationNode::init(const TPlanNode& tnode) {
-    RETURN_IF_ERROR(ExecNode::init(tnode));
+Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::init(tnode, state));
     // ignore return status for now , so we need to introduct ExecNode::init()
     RETURN_IF_ERROR(Expr::create_expr_trees(
             _pool, tnode.agg_node.grouping_exprs, &_probe_expr_ctxs));
@@ -130,7 +130,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Expr::prepare(
             _build_expr_ctxs, state, build_row_desc, expr_mem_tracker()));
 
-    _tuple_pool.reset(new MemPool(mem_tracker(), 0));
+    _tuple_pool.reset(new MemPool(mem_tracker()));
 
     _agg_fn_ctxs.resize(_aggregate_evaluators.size());
     int j = _probe_expr_ctxs.size();
@@ -299,10 +299,6 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
             ++_num_rows_returned;
 
             if (reached_limit()) {
-                // avoid calling finalize() duplicately with last tuple
-                // when _output_iterator don't reach end.
-                // chenhao added
-                _output_iterator.next<false>();
                 break;
             }
         }

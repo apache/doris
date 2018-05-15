@@ -65,7 +65,7 @@ public:
     MemTracker* io_mgr_tracker() {
         return _io_mgr_tracker.get();
     }
-    MetricGroup* metrics() {
+    MetricRegistry* metrics() {
         return _metrics.get();
     }
     TmpFileMgr* tmp_file_mgr() {
@@ -81,11 +81,11 @@ private:
     RuntimeState* create_runtime_state(int64_t query_id);
 
     // Global state for test environment.
-    static boost::scoped_ptr<MetricGroup> _s_static_metrics;
+    static boost::scoped_ptr<MetricRegistry> _s_static_metrics;
     boost::scoped_ptr<ExecEnv> _exec_env;
     boost::scoped_ptr<MemTracker> _block_mgr_parent_tracker;
     boost::scoped_ptr<MemTracker> _io_mgr_tracker;
-    boost::scoped_ptr<MetricGroup> _metrics;
+    boost::scoped_ptr<MetricRegistry> _metrics;
     boost::scoped_ptr<TmpFileMgr> _tmp_file_mgr;
 
     // Per-query states with associated block managers.

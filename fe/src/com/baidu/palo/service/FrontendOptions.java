@@ -93,6 +93,10 @@ public class FrontendOptions {
         return localAddr.getHostAddress();
     }
 
+    public static String getHostname() {
+        return localAddr.getHostName();
+    }
+
     private static void analyzePriorityCidrs() {
         String prior_cidrs = Config.priority_networks;
         if (Strings.isNullOrEmpty(prior_cidrs)) {

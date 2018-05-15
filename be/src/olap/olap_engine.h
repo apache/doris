@@ -110,7 +110,7 @@ public:
     OLAPStatus clear();
 
     void start_clean_fd_cache();
-    void start_base_expansion(std::string* last_be_fs, TTabletId* last_be_tablet_id);
+    void start_base_compaction(std::string* last_base_compaction_fs, TTabletId* last_base_compaction_tablet_id);
 
     // 调度ce，优先级调度
     void start_cumulative_priority();
@@ -143,22 +143,22 @@ private:
         std::list<SmartOLAPTable> table_arr;
     };
 
-    struct ExpansionCandidate {
-        ExpansionCandidate(uint32_t nice_, int64_t tablet_id_, uint32_t index_) :
-                nice(nice_), tablet_id(tablet_id_), disk_index(index_) {}
+    struct CompactionCandidate {
+        CompactionCandidate(uint32_t nicumulative_compaction_, int64_t tablet_id_, uint32_t index_) :
+                nice(nicumulative_compaction_), tablet_id(tablet_id_), disk_index(index_) {}
         uint32_t nice; // 优先度
         int64_t tablet_id;
         uint32_t disk_index = -1;
     };
 
-    struct ExpansionCandidateComparator {
-        bool operator()(const ExpansionCandidate& a, const ExpansionCandidate& b) {
+    struct CompactionCandidateComparator {
+        bool operator()(const CompactionCandidate& a, const CompactionCandidate& b) {
             return a.nice > b.nice;
         }
     };
 
-    struct ExpansionDiskStat {
-        ExpansionDiskStat(std::string path, uint32_t index, bool used) :
+    struct CompactionDiskStat {
+        CompactionDiskStat(std::string path, uint32_t index, bool used) :
                 storage_path(path),
                 disk_index(index),
                 task_running(0),
@@ -192,7 +192,7 @@ private:
 
     OLAPStatus _check_existed_or_else_create_dir(const std::string& path);
 
-    bool _can_do_be_ce(SmartOLAPTable table);
+    bool _can_do_compaction(SmartOLAPTable table);
 
     void _select_candidate();
 
@@ -208,13 +208,13 @@ private:
     size_t _global_table_id;
     Cache* _file_descriptor_lru_cache;
     Cache* _index_stream_lru_cache;
-    uint32_t _max_be_task_per_disk;
-    uint32_t _max_ce_task_per_disk;
+    uint32_t _max_base_compaction_task_per_disk;
+    uint32_t _max_cumulative_compaction_task_per_disk;
 
     MutexLock _fs_task_mutex;
-    file_system_task_count_t _fs_be_task_num_map;
-    std::vector<ExpansionCandidate> _ce_candidate;
-    std::vector<ExpansionDiskStat> _ce_disk_stat;
+    file_system_task_count_t _fs_base_compaction_task_num_map;
+    std::vector<CompactionCandidate> _cumulative_compaction_candidate;
+    std::vector<CompactionDiskStat> _cumulative_compaction_disk_stat;
     std::map<std::string, uint32_t> _disk_id_map;
 
     DISALLOW_COPY_AND_ASSIGN(OLAPEngine);

@@ -108,10 +108,11 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc,
             StringParser::string_to_int<int64_t>(data, len, &parse_result);
         break;
 
-    case TYPE_LARGEINT:
-        *reinterpret_cast<__int128*>(slot) =
-            StringParser::string_to_int<__int128>(data, len, &parse_result);
+    case TYPE_LARGEINT: {
+        __int128 tmp = StringParser::string_to_int<__int128>(data, len, &parse_result);
+        memcpy(slot, &tmp, sizeof(tmp));
         break;
+    }
 
     case TYPE_FLOAT:
         *reinterpret_cast<float*>(slot) =

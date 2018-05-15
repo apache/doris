@@ -27,6 +27,7 @@
 #include "runtime/tuple_row.h"
 #include "util/bit_util.h"
 #include "util/debug_util.h"
+#include "util/pretty_printer.h"
 
 using std::stringstream;
 using std::string;

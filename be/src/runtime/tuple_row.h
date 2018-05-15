@@ -23,7 +23,6 @@
 
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
-#include "runtime/row_batch.h"
 #include "runtime/tuple.h"
 
 namespace palo {

@@ -38,7 +38,7 @@ protected:
 
 // Assert size
 TEST_F(DateTimeValueTest, struct_size) {
-    ASSERT_EQ(12, sizeof(DateTimeValue));
+    ASSERT_EQ(16, sizeof(DateTimeValue));
 }
 
 TEST_F(DateTimeValueTest, equal) {
@@ -294,7 +294,7 @@ TEST_F(DateTimeValueTest, from_unixtime) {
 
     value.from_unixtime(570672000);
     value.to_string(str);
-    ASSERT_STREQ("1988-02-01", str);
+    ASSERT_STREQ("1988-02-01 08:00:00", str);
 }
 
 // Calculate format
@@ -306,11 +306,11 @@ TEST_F(DateTimeValueTest, unix_timestamp) {
     value.from_date_int64(19700101);
     ASSERT_EQ(0, value.unix_timestamp());
     value.from_date_int64(19700102);
-    ASSERT_EQ(86400, value.unix_timestamp());
+    ASSERT_EQ(86400 - 28800, value.unix_timestamp());
     value.from_date_int64(19880201000000);
-    ASSERT_EQ(570672000, value.unix_timestamp());
+    ASSERT_EQ(570672000 - 28800, value.unix_timestamp());
     value.from_date_int64(20380119);
-    ASSERT_EQ(2147472000, value.unix_timestamp());
+    ASSERT_EQ(2147472000 - 28800, value.unix_timestamp());
     value.from_date_int64(20380120);
     ASSERT_EQ(0, value.unix_timestamp());
 }

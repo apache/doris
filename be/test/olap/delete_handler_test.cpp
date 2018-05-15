@@ -810,6 +810,7 @@ protected:
         _header_file_name = _olap_table->header_file_name();
 
         _data_row_cursor.init(_olap_table->tablet_schema());
+        _data_row_cursor.allocate_memory_for_string_type(_olap_table->tablet_schema());
     }
 
     OLAPStatus push_empty_delta(int32_t version) {

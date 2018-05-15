@@ -45,7 +45,7 @@ public:
 
     // Subclasses should call BlockingJoinNode::init() and then perform any other init()
     // work, e.g. creating expr trees.
-    virtual Status init(const TPlanNode& tnode);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
 
     // Subclasses should call BlockingJoinNode::prepare() and then perform any other
     // prepare() work, e.g. codegen.

@@ -32,6 +32,8 @@
 #include "util/url_coding.h"
 #include "util/logging.h"
 #include "util/debug_util.h"
+#include "util/palo_metrics.h"
+#include "util/runtime_profile.h"
 #include "http/http_response.h"
 
 namespace palo {
@@ -212,6 +214,7 @@ void* Webserver::mongoose_callback_static(
     return nullptr;
 }
 
+class PaloMetrics;
 void* Webserver::mongoose_callback(struct mg_connection* mg_conn) {
     HttpRequest request(mg_conn);
     HttpChannel channel(request, mg_conn);
@@ -229,8 +232,14 @@ void* Webserver::mongoose_callback(struct mg_connection* mg_conn) {
         return PROCESSING_COMPLETE;
     }
 
-    // process
-    handler->handle(&request, &channel);
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        handler->handle(&request, &channel);
+    }
+    PaloMetrics::http_requests_total.increment(1);
+    PaloMetrics::http_request_duration_us.increment(duration_ns / 1000);
+    PaloMetrics::http_request_send_bytes.increment(channel.send_bytes());
 
     // return code to mongoose
     return PROCESSING_COMPLETE;

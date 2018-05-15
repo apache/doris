@@ -23,11 +23,13 @@
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"  // for TUniqueId
-//#include "util/non_primitive_metrics.hpp"
-#include "util/collection_metrics.h"
+// #include "util/collection_metrics.h"
 #include "util/spinlock.h"
+#include "util/metrics.h"
 
 namespace palo {
+
+class MetricRegistry;
 
 // TmpFileMgr creates and manages temporary files and directories on the local
 // filesystem. It can manage multiple temporary directories across multiple devices.
@@ -122,7 +124,7 @@ public:
 
     // Creates the configured tmp directories. If multiple directories are specified per
     // disk, only one is created and used. Must be called after DiskInfo::Init().
-    Status init(MetricGroup* metrics);
+    Status init(MetricRegistry* metrics);
 
     // Custom initialization - initializes with the provided list of directories.
     // If one_dir_per_device is true, only use one temporary directory per device.
@@ -130,7 +132,7 @@ public:
     Status init_custom(
             const std::vector<std::string>& tmp_dirs,
             bool one_dir_per_device,
-            MetricGroup* metrics);
+            MetricRegistry* metrics);
 
     // Return a new File handle with a unique path for a query instance. The file path
     // is within the (single) tmp directory on the specified device id. The caller owns
@@ -193,9 +195,9 @@ private:
     // The created tmp directories.
     std::vector<Dir> _tmp_dirs;
 
-    // MetricGroup to track active scratch directories.
-    IntGauge* _num_active_scratch_dirs_metric;
-    SetMetric<std::string>* _active_scratch_dirs_metric;
+    // MetricRegistry to track active scratch directories.
+    std::unique_ptr<IntGauge> _num_active_scratch_dirs_metric;
+    // SetMetric<std::string>* _active_scratch_dirs_metric;
 };
 
 } // end namespace palo

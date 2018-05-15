@@ -406,6 +406,7 @@ OLAPStatus PushHandler::_convert(
             break;
         }
 
+        MemPool* mem_pool = writer->mem_pool();
         // 4. Init RowCursor
         if (OLAP_SUCCESS != (res = row.init(curr_olap_table->tablet_schema()))) {
             OLAP_LOG_WARNING("fail to init rowcursor. [res=%d]", res);
@@ -425,7 +426,7 @@ OLAPStatus PushHandler::_convert(
                     break;
                 }
 
-                res = reader->next(&row);
+                res = reader->next(&row, mem_pool);
                 if (OLAP_SUCCESS != res) {
                     OLAP_LOG_WARNING("read next row failed. [res=%d read_rows=%u]",
                                      res, num_rows);
@@ -457,6 +458,8 @@ OLAPStatus PushHandler::_convert(
                              res, curr_olap_table->full_name().c_str(), _request.version);
             break;
         }
+        _write_bytes += delta_index->data_size();
+        _write_rows += delta_index->num_rows();
 
         // 7. Convert data for schema change tables
         OLAP_LOG_TRACE("load to related tables of schema_change if possible. ");
@@ -769,7 +772,7 @@ OLAPStatus BinaryReader::finalize() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BinaryReader::next(RowCursor* row) {
+OLAPStatus BinaryReader::next(RowCursor* row, MemPool* mem_pool) {
     OLAPStatus res = OLAP_SUCCESS;
 
     if (!_ready || NULL == row) {
@@ -789,10 +792,11 @@ OLAPStatus BinaryReader::next(RowCursor* row) {
 
     size_t p  = 0;
     for (size_t i = 0; i < schema.size(); ++i) {
-        if (true == schema[i].is_allow_null) {
+        row->set_not_null(i);
+        if (schema[i].is_allow_null) {
             bool is_null = false;
             is_null = (_row_buf[p/8] >> ((num_null_bytes * 8 - p - 1) % 8)) & 1;
-            if (true == is_null) {
+            if (is_null) {
                 row->set_null(i);
             }
             p++;
@@ -807,19 +811,17 @@ OLAPStatus BinaryReader::next(RowCursor* row) {
         if (schema[i].type == OLAP_FIELD_TYPE_VARCHAR || schema[i].type == OLAP_FIELD_TYPE_HLL) {
             // Read varchar length buffer first
             if (OLAP_SUCCESS != (res = _file->read(_row_buf + offset,
-                        sizeof(VarCharField::LengthValueType)))) {
+                        sizeof(StringLengthType)))) {
                 OLAP_LOG_WARNING("read file for one row fail. [res=%d]", res);
                 return res;
             }
 
-            // Get varchar field size 
-            VarCharField::LengthValueType* size_ptr =
-                reinterpret_cast<VarCharField::LengthValueType*>(_row_buf + offset);
-            offset += sizeof(VarCharField::LengthValueType);
-            field_size = *size_ptr;
-            if (field_size > schema[i].length - sizeof(VarCharField::LengthValueType)) {
+            // Get varchar field size
+            field_size = *reinterpret_cast<StringLengthType*>(_row_buf + offset);
+            offset += sizeof(StringLengthType);
+            if (field_size > schema[i].length - sizeof(StringLengthType)) {
                 OLAP_LOG_WARNING("invalid data length for VARCHAR! [max_len=%d real_len=%d]",
-                                 schema[i].length - sizeof(VarCharField::LengthValueType),
+                                 schema[i].length - sizeof(StringLengthType),
                                  field_size);
                 return OLAP_ERR_PUSH_INPUT_DATA_ERROR;
             }
@@ -833,10 +835,13 @@ OLAPStatus BinaryReader::next(RowCursor* row) {
             return res;
         }
 
-        if (schema[i].type == OLAP_FIELD_TYPE_VARCHAR || schema[i].type == OLAP_FIELD_TYPE_HLL) {
-            row->read_field(_row_buf + offset - sizeof(VarCharField::LengthValueType), i, sizeof(VarCharField::LengthValueType) + field_size);
+        if (schema[i].type == OLAP_FIELD_TYPE_CHAR
+                || schema[i].type == OLAP_FIELD_TYPE_VARCHAR
+                || schema[i].type == OLAP_FIELD_TYPE_HLL) {
+            StringSlice slice(_row_buf + offset, field_size);
+            row->set_field_content(i, reinterpret_cast<char*>(&slice), mem_pool);
         } else {
-            row->read_field(_row_buf + offset, i, field_size);
+            row->set_field_content(i, _row_buf + offset, mem_pool);
         }
         offset += field_size;
     }
@@ -899,7 +904,7 @@ OLAPStatus LzoBinaryReader::finalize() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus LzoBinaryReader::next(RowCursor* row) {
+OLAPStatus LzoBinaryReader::next(RowCursor* row, MemPool* mem_pool) {
     OLAPStatus res = OLAP_SUCCESS;
 
     if (!_ready || NULL == row) {
@@ -920,12 +925,12 @@ OLAPStatus LzoBinaryReader::next(RowCursor* row) {
     size_t num_null_bytes = (_table->num_null_fields() + 7) / 8;
 
     size_t p = 0;
-    row->reset_buf();
     for (size_t i = 0; i < schema.size(); ++i) {
-        if (true == schema[i].is_allow_null) {
+        row->set_not_null(i);
+        if (schema[i].is_allow_null) {
             bool is_null = false;
             is_null = (_row_buf[_next_row_start + p/8] >> ((num_null_bytes * 8 - p - 1) % 8)) & 1;
-            if (true == is_null) {
+            if (is_null) {
                 row->set_null(i);
             }
             p++;
@@ -940,14 +945,12 @@ OLAPStatus LzoBinaryReader::next(RowCursor* row) {
 
         if (schema[i].type == OLAP_FIELD_TYPE_VARCHAR || schema[i].type == OLAP_FIELD_TYPE_HLL) {
             // Get varchar field size
-            VarCharField::LengthValueType* size_ptr =
-                reinterpret_cast<VarCharField::LengthValueType*>(_row_buf + _next_row_start + offset);
-            offset += sizeof(VarCharField::LengthValueType);
-            field_size = *size_ptr;
+            field_size = *reinterpret_cast<StringLengthType*>(_row_buf + _next_row_start + offset);
+            offset += sizeof(StringLengthType);
 
-            if (field_size > schema[i].length - sizeof(VarCharField::LengthValueType)) {
+            if (field_size > schema[i].length - sizeof(StringLengthType)) {
                 OLAP_LOG_WARNING("invalid data length for VARCHAR! [max_len=%d real_len=%d]",
-                                 schema[i].length - sizeof(VarCharField::LengthValueType),
+                                 schema[i].length - sizeof(StringLengthType),
                                  field_size);
                 return OLAP_ERR_PUSH_INPUT_DATA_ERROR;
             }
@@ -955,10 +958,13 @@ OLAPStatus LzoBinaryReader::next(RowCursor* row) {
             field_size = schema[i].length;
         }
 
-        if (schema[i].type == OLAP_FIELD_TYPE_VARCHAR || schema[i].type == OLAP_FIELD_TYPE_HLL) {
-            row->read_field(_row_buf + _next_row_start + offset - sizeof(VarCharField::LengthValueType), i, sizeof(VarCharField::LengthValueType) + field_size);
+        if (schema[i].type == OLAP_FIELD_TYPE_CHAR
+                || schema[i].type == OLAP_FIELD_TYPE_VARCHAR
+                || schema[i].type == OLAP_FIELD_TYPE_HLL) {
+            StringSlice slice(_row_buf + _next_row_start + offset, field_size);
+            row->set_field_content(i, reinterpret_cast<char*>(&slice), mem_pool);
         } else {
-            row->read_field(_row_buf + _next_row_start + offset, i, field_size);
+            row->set_field_content(i, _row_buf + _next_row_start + offset, mem_pool);
         }
 
         offset += field_size;

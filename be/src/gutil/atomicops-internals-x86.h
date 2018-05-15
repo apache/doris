@@ -42,11 +42,12 @@
 // use it.
 // Features of this x86.  Values may not be correct before InitGoogle() is run,
 // but are set conservatively.
-struct AtomicOps_x86CPUFeatureStruct {
+// Modify AtomicOps_x86CPUFeatureStruct to GutilAtomicOps_x86CPUFeatureStruct for brpc
+struct GutilAtomicOps_x86CPUFeatureStruct {
   bool has_sse2;             // Processor has SSE2.
   bool has_cmpxchg16b;       // Processor supports cmpxchg16b instruction.
 };
-extern struct AtomicOps_x86CPUFeatureStruct AtomicOps_Internalx86CPUFeatures;
+extern struct GutilAtomicOps_x86CPUFeatureStruct GutilAtomicOps_Internalx86CPUFeatures;
 
 
 #define ATOMICOPS_COMPILER_BARRIER() __asm__ __volatile__("" : : : "memory")
@@ -179,7 +180,7 @@ inline void Acquire_Store(volatile Atomic32* ptr, Atomic32 value) {
 #else
 
 inline void MemoryBarrier() {
-  if (AtomicOps_Internalx86CPUFeatures.has_sse2) {
+  if (GutilAtomicOps_Internalx86CPUFeatures.has_sse2) {
     __asm__ __volatile__("mfence" : : : "memory");
   } else {  // mfence is faster but not present on PIII
     Atomic32 x = 0;
@@ -188,7 +189,7 @@ inline void MemoryBarrier() {
 }
 
 inline void Acquire_Store(volatile Atomic32* ptr, Atomic32 value) {
-  if (AtomicOps_Internalx86CPUFeatures.has_sse2) {
+  if (GutilAtomicOps_Internalx86CPUFeatures.has_sse2) {
     CheckNaturalAlignment(ptr);
     *ptr = value;
     __asm__ __volatile__("mfence" : : : "memory");

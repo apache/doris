@@ -181,8 +181,7 @@ void OLAPSnapshot::_update_header_file_info(
                     shortest_versions[i].index_size,
                     shortest_versions[i].data_size,
                     shortest_versions[i].num_rows,
-                    const_cast<std::vector<std::pair<Field *, Field *> >*> \
-                    (&shortest_versions[i].column_statistics));
+                    &shortest_versions[i].column_statistics);
         }
     }
 }

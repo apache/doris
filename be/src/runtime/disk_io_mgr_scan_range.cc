@@ -316,9 +316,11 @@ Status DiskIoMgr::ScanRange::open() {
         return Status(ss.str());
     }
     // }
+#if 0
     if (PaloMetrics::io_mgr_num_open_files() != NULL) {
         PaloMetrics::io_mgr_num_open_files()->increment(1L);
     }
+#endif
     return Status::OK;
 }
 
@@ -364,9 +366,11 @@ void DiskIoMgr::ScanRange::close() {
         fclose(_local_file);
         _local_file = NULL;
     }
+#if 0
     if (PaloMetrics::io_mgr_num_open_files() != NULL) {
         PaloMetrics::io_mgr_num_open_files()->increment(-1L);
     }
+#endif
 }
 
 /*

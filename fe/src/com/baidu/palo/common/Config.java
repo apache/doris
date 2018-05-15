@@ -55,8 +55,7 @@ public class Config extends ConfigBase {
      */
     @ConfField public static String[] audit_log_modules = {"slow_query", "query"};
     @ConfField public static String audit_log_roll_mode = "TIME-DAY"; // TIME-DAY， TIME-HOUR， SIZE-MB-nnn
-    @ConfField
-    public static int audit_log_roll_num = 10; // Doesn't work if roll mode is TIME-*
+    @ConfField public static int audit_log_roll_num = 10; // Doesn't work if roll mode is TIME-*
 
     /*
      * Labels of finished or cancelled load jobs will be removed after *label_keep_max_second*
@@ -485,7 +484,7 @@ public class Config extends ConfigBase {
     // for forward compatibility, will be removed later.
     // check token when download image file.
     @ConfField public static boolean enable_token_check = true;
-    
+
     /*
      * Set to true if you deploy Palo using thirdparty deploy manager
      * Valid options are:

@@ -28,6 +28,7 @@
 #include "olap/column_file/stream_index_reader.h"
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
+#include "util/runtime_profile.h"
 
 namespace palo {
 namespace column_file {
@@ -53,14 +54,16 @@ public:
     ReadOnlyFileStream(FileHandler* handler,
             ByteBuffer** shared_buffer,
             Decompressor decompressor,
-            uint32_t compress_buffer_size);
+            uint32_t compress_buffer_size,
+            OlapReaderStatistics* stats);
 
     ReadOnlyFileStream(FileHandler* handler,
             ByteBuffer** shared_buffer,
             uint64_t offset,
             uint64_t length,
             Decompressor decompressor,
-            uint32_t compress_buffer_size);
+            uint32_t compress_buffer_size,
+            OlapReaderStatistics* stats);
 
     ~ReadOnlyFileStream() {
         SAFE_DELETE(_compressed_helper);
@@ -117,6 +120,31 @@ public:
 
     size_t get_buffer_size() {
         return _compress_buffer_size;
+    }
+
+    inline void get_buf(char** buf, uint32_t* remaining_bytes) {
+        if (UNLIKELY(_uncompressed == NULL)) {
+            *buf = NULL;
+            *remaining_bytes = 0;
+        } else {
+            *buf = _uncompressed->array();
+            *remaining_bytes = _uncompressed->remaining();
+        }
+    }
+
+    inline void get_position(uint32_t* position) {
+        *position = _uncompressed->position();
+    }
+
+    inline void set_position(uint32_t pos) {
+        _uncompressed->set_position(pos);
+    }
+
+    inline int remaining() {
+        if (_uncompressed == NULL) {
+            return 0;
+        }
+        return _uncompressed->remaining();
     }
 
 private:
@@ -189,6 +217,11 @@ private:
             _used = offset;
             return OLAP_SUCCESS;
         }
+
+        const std::string& file_name() const { return _file_handler->file_name(); }
+
+        size_t offset() const { return _offset; }
+
     private:
         FileHandler* _file_handler;
         size_t _offset; // start from where
@@ -207,6 +240,8 @@ private:
     Decompressor _decompressor;
     size_t _compress_buffer_size;
     size_t _current_compress_position;
+
+    OlapReaderStatistics* _stats;
 
     DISALLOW_COPY_AND_ASSIGN(ReadOnlyFileStream);
 };

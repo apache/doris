@@ -130,7 +130,7 @@ public:
             TCondition high;
             if (_type_max != _high_value || FILTER_LESS_OR_EQUAL != _high_op) {
                 high.__set_column_name(_column_name);
-                high.__set_condition_op((FILTER_LESS_OR_EQUAL ? "<=" : "<<"));
+                high.__set_condition_op((_high_op == FILTER_LESS_OR_EQUAL ? "<=" : "<<"));
                 high.condition_values.push_back(cast_to_string(_high_value));
             }
 

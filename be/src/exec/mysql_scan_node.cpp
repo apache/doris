@@ -35,7 +35,10 @@ MysqlScanNode::MysqlScanNode(ObjectPool* pool, const TPlanNode& tnode,
       _tuple_id(tnode.mysql_scan_node.tuple_id),
       _columns(tnode.mysql_scan_node.columns),
       _filters(tnode.mysql_scan_node.filters),
-      _tuple_desc(nullptr) {
+      _tuple_desc(NULL) {
+      //_tuple_pool(NULL),
+      //_mysql_scanner(NULL) {
+      //_text_converter(NULL) {
 }
 
 MysqlScanNode::~MysqlScanNode() {

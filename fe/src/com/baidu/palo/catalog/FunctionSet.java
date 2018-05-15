@@ -127,7 +127,122 @@ public class FunctionSet {
                     "3maxIN8palo_udf10DecimalValEEEvPNS2_15FunctionContextERKT_PS6_")
                 .put(Type.LARGEINT,
                     "3maxIN8palo_udf11LargeIntValEEEvPNS2_15FunctionContextERKT_PS6_")
-                .build();
+               .build();
+
+    private static final Map<Type, Type> MULTI_DISTINCT_SUM_RETURN_TYPE = 
+             ImmutableMap.<Type, Type>builder()
+                    .put(Type.TINYINT, Type.BIGINT)
+                    .put(Type.SMALLINT, Type.BIGINT)
+                    .put(Type.INT, Type.BIGINT)
+                    .put(Type.BIGINT, Type.BIGINT)
+                    .put(Type.FLOAT, Type.DOUBLE)
+                    .put(Type.DOUBLE, Type.DOUBLE)
+                    .put(Type.LARGEINT, Type.LARGEINT)
+                    .put(Type.DECIMAL, Type.DECIMAL)
+                    .build(); 
+
+    private static final Map<Type, String> MULTI_DISTINCT_INIT_SYMBOL =
+            ImmutableMap.<Type, String>builder()
+                    .put(Type.TINYINT,
+                            "34count_or_sum_distinct_numeric_initIN8palo_udf10TinyIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .put(Type.SMALLINT,
+                            "34count_or_sum_distinct_numeric_initIN8palo_udf11SmallIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .put(Type.INT,
+                            "34count_or_sum_distinct_numeric_initIN8palo_udf6IntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .put(Type.BIGINT,
+                            "34count_or_sum_distinct_numeric_initIN8palo_udf9BigIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .put(Type.FLOAT,
+                            "34count_or_sum_distinct_numeric_initIN8palo_udf8FloatValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .put(Type.DOUBLE,
+                            "34count_or_sum_distinct_numeric_initIN8palo_udf9DoubleValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .put(Type.LARGEINT,
+                            "34count_or_sum_distinct_numeric_initIN8palo_udf11LargeIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                    .build();
+
+    private static final Map<Type, String> MULTI_DISTINCT_UPDATE_SYMBOL =
+            ImmutableMap.<Type, String>builder()
+                    .put(Type.TINYINT,
+                            "36count_or_sum_distinct_numeric_updateIN8palo_udf10TinyIntValEEEvPNS2_15FunctionContextERT_PNS2_9StringValE")
+                    .put(Type.SMALLINT,
+                            "36count_or_sum_distinct_numeric_updateIN8palo_udf11SmallIntValEEEvPNS2_15FunctionContextERT_PNS2_9StringValE")
+                    .put(Type.INT,
+                            "36count_or_sum_distinct_numeric_updateIN8palo_udf6IntValEEEvPNS2_15FunctionContextERT_PNS2_9StringValE")
+                    .put(Type.BIGINT,
+                            "36count_or_sum_distinct_numeric_updateIN8palo_udf9BigIntValEEEvPNS2_15FunctionContextERT_PNS2_9StringValE")
+                    .put(Type.FLOAT,
+                            "36count_or_sum_distinct_numeric_updateIN8palo_udf8FloatValEEEvPNS2_15FunctionContextERT_PNS2_9StringValE")
+                    .put(Type.DOUBLE,
+                            "36count_or_sum_distinct_numeric_updateIN8palo_udf9DoubleValEEEvPNS2_15FunctionContextERT_PNS2_9StringValE")
+                    .put(Type.LARGEINT,
+                            "36count_or_sum_distinct_numeric_updateIN8palo_udf11LargeIntValEEEvPNS2_15FunctionContextERT_PNS2_9StringValE")
+                    .build();
+
+    private static final Map<Type, String> MULTI_DISTINCT_MERGE_SYMBOL =
+            ImmutableMap.<Type, String>builder()
+                    .put(Type.TINYINT,
+                            "35count_or_sum_distinct_numeric_mergeIN8palo_udf10TinyIntValEEEvPNS2_15FunctionContextERNS2_9StringValEPS6_")
+                    .put(Type.SMALLINT,
+                            "35count_or_sum_distinct_numeric_mergeIN8palo_udf11SmallIntValEEEvPNS2_15FunctionContextERNS2_9StringValEPS6_")
+                    .put(Type.INT,
+                            "35count_or_sum_distinct_numeric_mergeIN8palo_udf6IntValEEEvPNS2_15FunctionContextERNS2_9StringValEPS6_")
+                    .put(Type.BIGINT,
+                            "35count_or_sum_distinct_numeric_mergeIN8palo_udf9BigIntValEEEvPNS2_15FunctionContextERNS2_9StringValEPS6_")
+                    .put(Type.FLOAT,
+                            "35count_or_sum_distinct_numeric_mergeIN8palo_udf8FloatValEEEvPNS2_15FunctionContextERNS2_9StringValEPS6_")
+                    .put(Type.DOUBLE,
+                            "35count_or_sum_distinct_numeric_mergeIN8palo_udf9DoubleValEEEvPNS2_15FunctionContextERNS2_9StringValEPS6_")
+                    .put(Type.LARGEINT,
+                            "35count_or_sum_distinct_numeric_mergeIN8palo_udf11LargeIntValEEEvPNS2_15FunctionContextERNS2_9StringValEPS6_")
+                    .build();
+
+    private static final Map<Type, String> MULTI_DISTINCT_SERIALIZE_SYMBOL =
+            ImmutableMap.<Type, String>builder()
+                    .put(Type.TINYINT,
+                            "39count_or_sum_distinct_numeric_serializeIN8palo_udf10TinyIntValEEENS2_9StringValEPNS2_15FunctionContextERKS4_")
+                    .put(Type.SMALLINT,
+                            "39count_or_sum_distinct_numeric_serializeIN8palo_udf11SmallIntValEEENS2_9StringValEPNS2_15FunctionContextERKS4_")
+                    .put(Type.INT,
+                            "39count_or_sum_distinct_numeric_serializeIN8palo_udf6IntValEEENS2_9StringValEPNS2_15FunctionContextERKS4_")
+                    .put(Type.BIGINT,
+                            "39count_or_sum_distinct_numeric_serializeIN8palo_udf9BigIntValEEENS2_9StringValEPNS2_15FunctionContextERKS4_")
+                    .put(Type.FLOAT,
+                            "39count_or_sum_distinct_numeric_serializeIN8palo_udf8FloatValEEENS2_9StringValEPNS2_15FunctionContextERKS4_")
+                    .put(Type.DOUBLE,
+                            "39count_or_sum_distinct_numeric_serializeIN8palo_udf9DoubleValEEENS2_9StringValEPNS2_15FunctionContextERKS4_")
+                    .put(Type.LARGEINT,
+                            "39count_or_sum_distinct_numeric_serializeIN8palo_udf11LargeIntValEEENS2_9StringValEPNS2_15FunctionContextERKS4_")
+                    .build();
+
+    private static final Map<Type, String> MULTI_DISTINCT_COUNT_FINALIZE_SYMBOL =
+            ImmutableMap.<Type, String>builder()
+                    .put(Type.TINYINT,
+                            "38count_or_sum_distinct_numeric_finalizeIN8palo_udf10TinyIntValEEENS2_9BigIntValEPNS2_15FunctionContextERKNS2_9StringValE")
+                    .put(Type.SMALLINT,
+                            "38count_or_sum_distinct_numeric_finalizeIN8palo_udf11SmallIntValEEENS2_9BigIntValEPNS2_15FunctionContextERKNS2_9StringValE")
+                    .put(Type.INT,
+                            "38count_or_sum_distinct_numeric_finalizeIN8palo_udf8FloatValEEENS2_9BigIntValEPNS2_15FunctionContextERKNS2_9StringValE")
+                    .put(Type.BIGINT,
+                            "38count_or_sum_distinct_numeric_finalizeIN8palo_udf9BigIntValEEES3_PNS2_15FunctionContextERKNS2_9StringValE")
+                    .put(Type.FLOAT,
+                            "38count_or_sum_distinct_numeric_finalizeIN8palo_udf8FloatValEEENS2_9BigIntValEPNS2_15FunctionContextERKNS2_9StringValE")
+                    .put(Type.DOUBLE,
+                            "38count_or_sum_distinct_numeric_finalizeIN8palo_udf9DoubleValEEENS2_9BigIntValEPNS2_15FunctionContextERKNS2_9StringValE")
+                    .put(Type.LARGEINT,
+                            "38count_or_sum_distinct_numeric_finalizeIN8palo_udf11LargeIntValEEENS2_9BigIntValEPNS2_15FunctionContextERKNS2_9StringValE")
+                    .build();
+   
+    
+    private static final Map<Type, String> MULTI_DISTINCT_SUM_FINALIZE_SYMBOL =
+             ImmutableMap.<Type, String>builder()
+                    .put(Type.BIGINT,
+                            "28sum_distinct_bigint_finalizeIN8palo_udf9BigIntValEEES3_PNS2_15FunctionContextERKNS2_9StringValE")
+                    .put(Type.FLOAT,
+                            "28sum_distinct_double_finalizeIN8palo_udf9DoubleValEEES3_PNS2_15FunctionContextERKNS2_9StringValE")
+                    .put(Type.DOUBLE,
+                            "28sum_distinct_double_finalizeIN8palo_udf9DoubleValEEES3_PNS2_15FunctionContextERKNS2_9StringValE")
+                    .put(Type.LARGEINT,
+                            "30sum_distinct_largeint_finalizeIN8palo_udf11LargeIntValEEES3_PNS2_15FunctionContextERKNS2_9StringValE")
+                    .build();
 
     private static final Map<Type, String> STDDEV_UPDATE_SYMBOL =
         ImmutableMap.<Type, String>builder()
@@ -536,6 +651,86 @@ public class FunctionSet {
                     prefix + "12count_removeEPN8palo_udf15FunctionContextERKNS1_6AnyValEPNS1_9BigIntValE",
                     null, false, true, true));
 
+           
+            // count in multi distinct
+            if (t == Type.CHAR || t == Type.VARCHAR) {
+               addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t), 
+                    Type.BIGINT,
+                    Type.VARCHAR, 
+                    prefix + "26count_distinct_string_initEPN8palo_udf15FunctionContextEPNS1_9StringValE",
+                    prefix + "28count_distinct_string_updateEPN8palo_udf15FunctionContextERNS1_9StringValEPS4_",
+                    prefix + "27count_distinct_string_mergeEPN8palo_udf15FunctionContextERNS1_9StringValEPS4_", 
+                    prefix + "31count_distinct_string_serializeEPN8palo_udf15FunctionContextERKNS1_9StringValE",  
+                    null,      
+                    null, 
+                    prefix + "30count_distinct_string_finalizeEPN8palo_udf15FunctionContextERKNS1_9StringValE",
+                    false, true, true));
+
+            } else if (t == Type.TINYINT || t == Type.SMALLINT || t == Type.INT 
+                || t == Type.BIGINT || t == Type.LARGEINT || t == Type.DOUBLE) {
+               addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t), 
+                    Type.BIGINT,
+                    Type.VARCHAR, 
+                    prefix + MULTI_DISTINCT_INIT_SYMBOL.get(t),
+                    prefix + MULTI_DISTINCT_UPDATE_SYMBOL.get(t),
+                    prefix + MULTI_DISTINCT_MERGE_SYMBOL.get(t), 
+                    prefix + MULTI_DISTINCT_SERIALIZE_SYMBOL.get(t),  
+                    null,                      
+                    null, 
+                    prefix + MULTI_DISTINCT_COUNT_FINALIZE_SYMBOL.get(t),
+                    false, true, true));
+            } else if (t == Type.DATE || t == Type.DATETIME) {
+               addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t), 
+                    Type.BIGINT,
+                    Type.VARCHAR, 
+                    prefix + "24count_distinct_date_initEPN8palo_udf15FunctionContextEPNS1_9StringValE",
+                    prefix + "26count_distinct_date_updateEPN8palo_udf15FunctionContextERNS1_11DateTimeValEPNS1_9StringValE",
+                    prefix + "25count_distinct_date_mergeEPN8palo_udf15FunctionContextERNS1_9StringValEPS4_",
+                    prefix + "29count_distinct_date_serializeEPN8palo_udf15FunctionContextERKNS1_9StringValE",  
+                    null,    
+                    null, 
+                    prefix + "28count_distinct_date_finalizeEPN8palo_udf15FunctionContextERKNS1_9StringValE",
+                    false, true, true)); 
+            } else if (t == Type.DECIMAL) {
+               addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t),
+                    Type.BIGINT,
+                    Type.VARCHAR,
+                    prefix + "34count_or_sum_distinct_decimal_initEPN8palo_udf15FunctionContextEPNS1_9StringValE",
+                    prefix + "36count_or_sum_distinct_decimal_updateEPN8palo_udf15FunctionContextERNS1_10DecimalValEPNS1_9StringValE",
+                    prefix + "35count_or_sum_distinct_decimal_mergeEPN8palo_udf15FunctionContextERNS1_9StringValEPS4_",
+                    prefix + "39count_or_sum_distinct_decimal_serializeEPN8palo_udf15FunctionContextERKNS1_9StringValE",
+                    null,
+                    null,
+                    prefix + "31count_distinct_decimal_finalizeEPN8palo_udf15FunctionContextERKNS1_9StringValE",
+                    false, true, true)); 
+            }
+
+            // sum in multi distinct
+            if (t == Type.BIGINT || t == Type.LARGEINT || t == Type.DOUBLE) {
+                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum", Lists.newArrayList(t), 
+                    t,
+                    Type.VARCHAR, 
+                    prefix + MULTI_DISTINCT_INIT_SYMBOL.get(t),
+                    prefix + MULTI_DISTINCT_UPDATE_SYMBOL.get(t),
+                    prefix + MULTI_DISTINCT_MERGE_SYMBOL.get(t), 
+                    prefix + MULTI_DISTINCT_SERIALIZE_SYMBOL.get(t),  
+                    null,                      
+                    null, 
+                    prefix + MULTI_DISTINCT_SUM_FINALIZE_SYMBOL.get(t),
+                    false, true, true));
+            }  else if (t == Type.DECIMAL) {
+               addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum", Lists.newArrayList(t),
+                    MULTI_DISTINCT_SUM_RETURN_TYPE.get(t),
+                    Type.VARCHAR,
+                    prefix + "34count_or_sum_distinct_decimal_initEPN8palo_udf15FunctionContextEPNS1_9StringValE",
+                    prefix + "36count_or_sum_distinct_decimal_updateEPN8palo_udf15FunctionContextERNS1_10DecimalValEPNS1_9StringValE",
+                    prefix + "35count_or_sum_distinct_decimal_mergeEPN8palo_udf15FunctionContextERNS1_9StringValEPS4_",
+                    prefix + "39count_or_sum_distinct_decimal_serializeEPN8palo_udf15FunctionContextERKNS1_9StringValE",
+                    null,
+                    null,
+                    prefix + "29sum_distinct_decimal_finalizeEPN8palo_udf15FunctionContextERKNS1_9StringValE",
+                    false, true, true));
+            }
             // Min
             String minMaxInit = t.isStringType() ? initNullString : initNull;
             String minMaxSerializeOrFinalize = t.isStringType() ? stringValSerializeOrFinalize : null;

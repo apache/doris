@@ -280,10 +280,6 @@ public class RollupHandler extends AlterHandler {
             throw new DdlException(e.getMessage());
         }
 
-        if (rollupStorageType == TStorageType.ROW) {
-            throw new DdlException("Can not add rollup with ROW storage type");
-        }
-
         // check storage type if has null column
         boolean hasNullColumn = false;
         for (Column column : rollupSchema) {

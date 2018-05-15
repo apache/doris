@@ -178,12 +178,12 @@ public:
     // @return OLAP_SUCCESS if cancel success
     virtual OLAPStatus cancel_delete(const TCancelDeleteDataReq& request);
 
-    // Start base expansion to expand base delta to version manually.
+    // Start base compaction to expand base delta to version manually.
     //
     // @param [in] tablet_id & schema_hash specify tablet
-    // @param [in] version specify base expansion range
+    // @param [in] version specify base compaction range
     // @return OLAP_SUCCESS if start be success
-    virtual OLAPStatus base_expansion(TTabletId tablet_id,
+    virtual OLAPStatus base_compaction(TTabletId tablet_id,
             TSchemaHash schema_hash,
             TVersion version);
 

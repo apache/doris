@@ -15,15 +15,6 @@
 
 package com.baidu.palo.qe;
 
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.baidu.palo.analysis.DescribeStmt;
 import com.baidu.palo.analysis.HelpStmt;
 import com.baidu.palo.analysis.ShowAlterStmt;
@@ -87,10 +78,20 @@ import com.baidu.palo.load.LoadErrorHub;
 import com.baidu.palo.load.LoadErrorHub.HubType;
 import com.baidu.palo.load.LoadJob;
 import com.baidu.palo.load.LoadJob.JobState;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 // Execute one show statement.
 public class ShowExecutor {
@@ -802,10 +803,12 @@ public class ShowExecutor {
                 }
             } while (false);
 
+            String detailCmd = String.format("SHOW PROC '/dbs/%d/%d/partitions/%d/%d/%d/';",
+                                             dbId, tableId, partitionId, indexId, tabletId);
             rows.add(Lists.newArrayList(dbName, tableName, partitionName, indexName,
                                         dbId.toString(), tableId.toString(),
                                         partitionId.toString(), indexId.toString(),
-                                        isSync.toString()));
+                                        isSync.toString(), detailCmd));
         } else {
             Database db = catalog.getDb(showStmt.getDbName());
             if (db == null) {

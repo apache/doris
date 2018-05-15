@@ -455,9 +455,8 @@ OLAPStatus OLAPTable::release_data_sources(vector<IData*>* data_sources) const {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    for (vector<IData*>::iterator it = data_sources->begin(); it != data_sources->end(); ++it) {
-        delete(*it);
-        *it = NULL;
+    for (auto data : *data_sources) {
+        delete data;
     }
 
     // clear data_sources vector
@@ -685,7 +684,7 @@ OLAPStatus OLAPTable::compute_all_versions_hash(const vector<Version>& versions,
 }
 
 OLAPStatus OLAPTable::get_selectivities(vector<uint32_t>* selectivities) {
-    // num_rows and selectivities are calculated when loading and base expansioning.
+    // num_rows and selectivities are calculated when loading and base compactioning.
     if (selectivities == NULL) {
         OLAP_LOG_WARNING("parameter num_rows or selectivity is null.");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
@@ -733,7 +732,7 @@ OLAPStatus OLAPTable::split_range(
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    Slice entry;
+    EntrySlice entry;
     RowCursor start_key;
     RowCursor end_key;
     RowCursor helper_cursor;
@@ -749,7 +748,7 @@ OLAPStatus OLAPTable::split_range(
 
     // 如果有startkey，用startkey初始化；反之则用minkey初始化
     if (start_key_strings.size() > 0) {
-        if (start_key.init_keys(_tablet_schema, start_key_strings) != OLAP_SUCCESS) {
+        if (start_key.init_scan_key(_tablet_schema, start_key_strings) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to initial key strings with RowCursor type.");
             return OLAP_ERR_INIT_FAILED;
         }
@@ -764,12 +763,13 @@ OLAPStatus OLAPTable::split_range(
             return OLAP_ERR_INIT_FAILED;
         }
 
+        start_key.allocate_memory_for_string_type(_tablet_schema);
         start_key.build_min_key();
     }
 
     // 和startkey一样处理，没有则用maxkey初始化
     if (end_key_strings.size() > 0) {
-        if (OLAP_SUCCESS != end_key.init_keys(_tablet_schema, end_key_strings)) {
+        if (OLAP_SUCCESS != end_key.init_scan_key(_tablet_schema, end_key_strings)) {
             OLAP_LOG_WARNING("fail to parse strings to key with RowCursor type.");
             return OLAP_ERR_INVALID_SCHEMA;
         }
@@ -784,6 +784,7 @@ OLAPStatus OLAPTable::split_range(
             return OLAP_ERR_INIT_FAILED;
         }
 
+        end_key.allocate_memory_for_string_type(_tablet_schema);
         end_key.build_max_key();
     }
 
@@ -844,8 +845,9 @@ OLAPStatus OLAPTable::split_range(
         return OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION;
     }
 
-    cur_start_key.attach(entry.data, entry.length);
-    last_start_key.copy(cur_start_key);
+    cur_start_key.attach(entry.data);
+    last_start_key.allocate_memory_for_string_type(_tablet_schema);
+    last_start_key.copy_without_pool(cur_start_key);
     // start_key是last start_key, 但返回的实际上是查询层给出的key
     ranges->push_back(start_key.to_string_vector());
 
@@ -862,12 +864,12 @@ OLAPStatus OLAPTable::split_range(
             OLAP_LOG_WARNING("get block entry failed.");
             return OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION;
         }
-        cur_start_key.attach(entry.data, entry.length);
+        cur_start_key.attach(entry.data);
 
         if (cur_start_key.cmp(last_start_key) != 0) {
             ranges->push_back(cur_start_key.to_string_vector()); // end of last section
             ranges->push_back(cur_start_key.to_string_vector()); // start a new section
-            last_start_key.copy(cur_start_key);
+            last_start_key.copy_without_pool(cur_start_key);
         }
     }
 

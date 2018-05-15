@@ -2587,7 +2587,7 @@ public class Load {
     }
 
     private void checkHasRunningSyncDeleteJob(long partitionId, String partitionName) throws DdlException {
-        // check if there are syncronized delete job under going
+        // check if there are synchronized delete job under going
         readLock();
         try {
             if (partitionUnderDelete.contains(partitionId)) {

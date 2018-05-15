@@ -16,7 +16,6 @@
 #include <gtest/gtest.h>
 #include <sstream>
 
-#include "olap/field.h"
 #include "olap/olap_cond.h"
 #include "olap/olap_define.h"
 #include "olap/olap_engine.h"
@@ -24,6 +23,7 @@
 #include "olap/olap_table.h"
 #include "olap/olap_common.h"
 #include "olap/row_cursor.h"
+#include "olap/wrapper_field.h"
 #include "olap/column_file/stream_index_common.h"
 #include "olap/column_file/stream_index_writer.h"
 #include "olap/column_file/stream_index_reader.h"
@@ -51,19 +51,27 @@ public:
 TEST_F(TestStreamIndex, index_write) {
     StreamIndexWriter writer(OLAP_FIELD_TYPE_INT);
     PositionEntryWriter entry;
+    ColumnStatistics stat;
+    stat.init(OLAP_FIELD_TYPE_INT, true);
+
+    ASSERT_EQ(OLAP_SUCCESS, stat.init(OLAP_FIELD_TYPE_INT, true));
 
     static const uint32_t loop = 10;
     uint32_t i = 0;
     for (; i < loop; i++) {
         entry.add_position(i);
-        entry.add_position(i*2);
-        entry.add_position(i*3);
+        entry.add_position(i * 2);
+        entry.add_position(i * 3);
 
+        entry.set_statistic(&stat);
         writer.add_index_entry(entry);
         entry.reset_write_offset();
     }
 
     size_t output_size = sizeof(StreamIndexHeader) + i * sizeof(uint32_t) * 3;
+    // for statistics
+    output_size += (sizeof(int) + 1) * 2 * loop;
+
     ASSERT_EQ(output_size, writer.output_size());
 
     char* buffer = new char[output_size];
@@ -71,7 +79,7 @@ TEST_F(TestStreamIndex, index_write) {
     ASSERT_EQ(OLAP_SUCCESS, writer.write_to_buffer(buffer, output_size));
 
     StreamIndexReader reader;
-    ASSERT_EQ(OLAP_SUCCESS, reader.init(buffer, output_size, OLAP_FIELD_TYPE_NONE, true, false));
+    ASSERT_EQ(OLAP_SUCCESS, reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
 
     ASSERT_EQ(loop, reader.entry_count());
 
@@ -86,6 +94,8 @@ TEST_F(TestStreamIndex, index_write) {
 TEST_F(TestStreamIndex, remove_written_position) {
     StreamIndexWriter writer(OLAP_FIELD_TYPE_INT);
     PositionEntryWriter entry;
+    ColumnStatistics stat;
+    stat.init(OLAP_FIELD_TYPE_INT, true);
 
     static const uint32_t loop = 10;
     //test 1
@@ -100,6 +110,7 @@ TEST_F(TestStreamIndex, remove_written_position) {
             entry.add_position(i*6);
             entry.add_position(i*7);
 
+            entry.set_statistic(&stat);
             writer.add_index_entry(entry);
             entry.reset_write_offset();
         }
@@ -110,14 +121,13 @@ TEST_F(TestStreamIndex, remove_written_position) {
         }
 
         size_t output_size = writer.output_size();
-
         char* buffer = new char[output_size];
 
         ASSERT_EQ(OLAP_SUCCESS, writer.write_to_buffer(buffer, output_size));
 
         StreamIndexReader reader;
         ASSERT_EQ(OLAP_SUCCESS, 
-            reader.init(buffer, output_size, OLAP_FIELD_TYPE_NONE, true, false));
+            reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
 
         ASSERT_EQ(loop, reader.entry_count());
 
@@ -142,6 +152,7 @@ TEST_F(TestStreamIndex, remove_written_position) {
             entry.add_position(i*6);
             entry.add_position(i*7);
 
+            entry.set_statistic(&stat);
             writer.add_index_entry(entry);
             entry.reset_write_offset();
         }
@@ -152,14 +163,13 @@ TEST_F(TestStreamIndex, remove_written_position) {
         }
 
         size_t output_size = writer.output_size();
-
         char* buffer = new char[output_size];
 
         ASSERT_EQ(OLAP_SUCCESS, writer.write_to_buffer(buffer, output_size));
 
         StreamIndexReader reader;
         ASSERT_EQ(OLAP_SUCCESS, 
-            reader.init(buffer, output_size, OLAP_FIELD_TYPE_NONE, true, false));
+            reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
 
         ASSERT_EQ(loop, reader.entry_count());
 
@@ -185,6 +195,7 @@ TEST_F(TestStreamIndex, remove_written_position) {
             entry.add_position(i*6);
             entry.add_position(i*7);
 
+            entry.set_statistic(&stat);
             writer.add_index_entry(entry);
             entry.reset_write_offset();
         }
@@ -195,14 +206,13 @@ TEST_F(TestStreamIndex, remove_written_position) {
         }
 
         size_t output_size = writer.output_size();
-
         char* buffer = new char[output_size];
 
         ASSERT_EQ(OLAP_SUCCESS, writer.write_to_buffer(buffer, output_size));
 
         StreamIndexReader reader;
         ASSERT_EQ(OLAP_SUCCESS, 
-            reader.init(buffer, output_size, OLAP_FIELD_TYPE_NONE, true, false));
+            reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
 
         ASSERT_EQ(loop, reader.entry_count());
 
@@ -228,6 +238,7 @@ TEST_F(TestStreamIndex, remove_written_position) {
             entry.add_position(i*6);
             entry.add_position(i*7);
 
+            entry.set_statistic(&stat);
             writer.add_index_entry(entry);
             entry.reset_write_offset();
         }
@@ -240,12 +251,11 @@ TEST_F(TestStreamIndex, remove_written_position) {
         size_t output_size = writer.output_size();
 
         char* buffer = new char[output_size];
-
         ASSERT_EQ(OLAP_SUCCESS, writer.write_to_buffer(buffer, output_size));
 
         StreamIndexReader reader;
         ASSERT_EQ(OLAP_SUCCESS, 
-            reader.init(buffer, output_size, OLAP_FIELD_TYPE_NONE, true, false));
+            reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
 
         ASSERT_EQ(loop, reader.entry_count());
 
@@ -264,8 +274,7 @@ TEST_F(TestStreamIndex, test_statistic) {
     ColumnStatistics stat;
     ASSERT_EQ(OLAP_SUCCESS, stat.init(OLAP_FIELD_TYPE_INT, true));
 
-    Field* field = Field::create_by_type(OLAP_FIELD_TYPE_INT);
-    ASSERT_TRUE(field->allocate());
+    WrapperField* field = WrapperField::create_by_type(OLAP_FIELD_TYPE_INT);
 
     // start
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "2147483647");
@@ -273,25 +282,25 @@ TEST_F(TestStreamIndex, test_statistic) {
 
     // 1 
     field->from_string("3");
-    stat.add(field);
+    stat.add(field->field_ptr());
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "3");
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "3");
 
     // 2
     field->from_string("5");
-    stat.add(field);
+    stat.add(field->field_ptr());
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "3");
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "5");
 
     // 3
     field->from_string("899");
-    stat.add(field);
+    stat.add(field->field_ptr());
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "3");
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "899");
 
     // 4
     field->from_string("-111");
-    stat.add(field);
+    stat.add(field->field_ptr());
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "-111");
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "899");
 
@@ -301,9 +310,9 @@ TEST_F(TestStreamIndex, test_statistic) {
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "-2147483648");
 
     field->from_string("3");
-    stat.add(field);
+    stat.add(field->field_ptr());
     field->from_string("6");
-    stat.add(field);
+    stat.add(field->field_ptr());
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "3");
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "6");
 
@@ -325,9 +334,8 @@ TEST_F(TestStreamIndex, statistic) {
 
     ASSERT_EQ(OLAP_SUCCESS, stat.init(OLAP_FIELD_TYPE_INT, true));
 
-    Field* field = Field::create_by_type(OLAP_FIELD_TYPE_INT);
+    WrapperField* field = WrapperField::create_by_type(OLAP_FIELD_TYPE_INT);
     ASSERT_TRUE(NULL != field);
-    ASSERT_TRUE(field->allocate());
     char string_buffer[256];
 
     static const uint32_t loop = 10;
@@ -339,18 +347,13 @@ TEST_F(TestStreamIndex, statistic) {
 
         snprintf(string_buffer, sizeof(string_buffer), "%d", i * 9);
         field->from_string(string_buffer);
-        stat.add(field);
+        stat.add(field->field_ptr());
 
         snprintf(string_buffer, sizeof(string_buffer), "%d", i * 2);
         field->from_string(string_buffer);
-        stat.add(field);
+        stat.add(field->field_ptr());
 
-        printf("%d. max %s\n", i, stat.maximum()->to_string().c_str());
-        printf("%d. min %s\n", i, stat.minimum()->to_string().c_str());
         entry.set_statistic(&stat);
-
-        printf("%d. min -> %d\n", i, entry._statistics_buffer[0]);
-        printf("%d. max -> %d\n", i, entry._statistics_buffer[1]);
 
         writer.add_index_entry(entry);
         entry.reset_write_offset();
@@ -375,11 +378,6 @@ TEST_F(TestStreamIndex, statistic) {
         ASSERT_EQ(e.positions(0), i);
         ASSERT_EQ(e.positions(1), i * 2);
         ASSERT_EQ(e.positions(2), i * 3);
-
-        if (!e.column_statistic().ignored()) {
-            printf("%d. max %s\n", i, e.column_statistic().maximum()->to_string().c_str());
-            printf("%d. min %s\n", i, e.column_statistic().minimum()->to_string().c_str());
-        }
     }
 }
 

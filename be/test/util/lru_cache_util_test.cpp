@@ -13,10 +13,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/lru_cache.hpp"
-
 #include <memory>
 #include <gtest/gtest.h>
+
+#include "common/config.h"
+#include "util/logging.h"
+#include "util/lru_cache.hpp"
 
 namespace palo {
 
@@ -89,6 +91,12 @@ TEST_F(LruCacheTest, OverSize) {
 }
 
 int main(int argc, char** argv) {
+    std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
+    if (!palo::config::init(conffile.c_str(), false)) {
+        fprintf(stderr, "error read config file. \n");
+        return -1;
+    }
+    palo::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

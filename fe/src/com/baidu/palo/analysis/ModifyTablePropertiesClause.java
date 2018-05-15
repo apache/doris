@@ -21,16 +21,17 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.ErrorCode;
+import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.util.PrintableMap;
-
-import com.google.common.base.Joiner;
-import com.google.common.base.Joiner.MapJoiner;
-import com.google.common.collect.Maps;
 
 import java.util.Map;
 
 // clause which is used to modify table properties
 public class ModifyTablePropertiesClause extends AlterClause {
+
+    private static final String KEY_STORAGE_TYPE = "storage_type";
+
     private Map<String, String> properties;
 
     public ModifyTablePropertiesClause(Map<String, String> properties) {
@@ -39,8 +40,19 @@ public class ModifyTablePropertiesClause extends AlterClause {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
+        if (!analyzer.getCatalog().getUserMgr().isAdmin(analyzer.getUser())) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                                                "Modify table property");
+        }
+
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Properties is not set");
+        }
+
+        if (properties.containsKey(KEY_STORAGE_TYPE)) {
+            if (!properties.get(KEY_STORAGE_TYPE).equals("column")) {
+                throw new AnalysisException("Can only change storage type to COLUMN");
+            }
         }
     }
 

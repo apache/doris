@@ -18,300 +18,282 @@
 // specific language governing permissions and limitations
 // under the License.
 
+
 #ifndef BDG_PALO_BE_RUNTIME_MEM_POOL_H
 #define BDG_PALO_BE_RUNTIME_MEM_POOL_H
 
 #include <stdio.h>
-#include <stdint.h>
 
-#include <cstddef>
 #include <algorithm>
-#include <vector>
+#include <cstddef>
 #include <string>
+#include <vector>
 
-#include "common/compiler_util.h"
 #include "common/logging.h"
+#include "gutil/dynamic_annotations.h"
 #include "util/bit_util.h"
-#include "util/debug_util.h"
 
 namespace palo {
 
 class MemTracker;
 
-// A MemPool maintains a list of memory chunks from which it allocates memory in
-// response to allocate() calls;
-// Chunks stay around for the lifetime of the mempool or until they are passed on to
-// another mempool.
+/// A MemPool maintains a list of memory chunks from which it allocates memory in
+/// response to Allocate() calls;
+/// Chunks stay around for the lifetime of the mempool or until they are passed on to
+/// another mempool.
 //
-// The caller registers a MemTrackers with the pool; chunk allocations are counted
-// against that tracker and all of its ancestors. If chunks get moved between pools
-// during AcquireData() calls, the respective MemTrackers are updated accordingly.
-// Chunks freed up in the d'tor are subtracted from the registered limits.
+/// The caller registers a MemTracker with the pool; chunk allocations are counted
+/// against that tracker and all of its ancestors. If chunks get moved between pools
+/// during AcquireData() calls, the respective MemTrackers are updated accordingly.
+/// Chunks freed up in the d'tor are subtracted from the registered trackers.
 //
-// An allocate() call will attempt to allocate memory from the chunk that was most
-// recently added; if that chunk doesn't have enough memory to
-// satisfy the allocation request, the free chunks are searched for one that is
-// big enough otherwise a new chunk is added to the list.
-// The _current_chunk_idx always points to the last chunk with allocated memory.
-// In order to keep allocation overhead low, chunk sizes double with each new one
-// added, until they hit a maximum size.
+/// An Allocate() call will attempt to allocate memory from the chunk that was most
+/// recently added; if that chunk doesn't have enough memory to
+/// satisfy the allocation request, the free chunks are searched for one that is
+/// big enough otherwise a new chunk is added to the list.
+/// In order to keep allocation overhead low, chunk sizes double with each new one
+/// added, until they hit a maximum size.
+///
+/// Allocated chunks can be reused for new allocations if Clear() is called to free
+/// all allocations or ReturnPartialAllocation() is called to return part of the last
+/// allocation.
+///
+/// All chunks before 'current_chunk_idx_' have allocated memory, while all chunks
+/// after 'current_chunk_idx_' are free. The chunk at 'current_chunk_idx_' may or may
+/// not have allocated memory.
+///
+///     Example:
+///     MemPool* p = new MemPool();
+///     for (int i = 0; i < 1024; ++i) {
+/// returns 8-byte aligned memory (effectively 24 bytes):
+///       .. = p->Allocate(17);
+///     }
+/// at this point, 17K have been handed out in response to Allocate() calls and
+/// 28K of chunks have been allocated (chunk sizes: 4K, 8K, 16K)
+/// We track total and peak allocated bytes. At this point they would be the same:
+/// 28k bytes.  A call to Clear will return the allocated memory so
+/// total_allocated_bytes_ becomes 0.
+///     p->Clear();
+/// the entire 1st chunk is returned:
+///     .. = p->Allocate(4 * 1024);
+/// 4K of the 2nd chunk are returned:
+///     .. = p->Allocate(4 * 1024);
+/// a new 20K chunk is created
+///     .. = p->Allocate(20 * 1024);
 //
-//     Example:
-//     MemPool* p = new MemPool();
-//     for (int i = 0; i < 1024; ++i) {
-// returns 8-byte aligned memory (effectively 24 bytes):
-//       .. = p->allocate(17);
-//     }
-// at this point, 17K have been handed out in response to allocate() calls and
-// 28K of chunks have been allocated (chunk sizes: 4K, 8K, 16K)
-// We track total and peak allocated bytes. At this point they would be the same:
-// 28k bytes.  A call to Clear will return the allocated memory so
-// _total_allocate_bytes
-// becomes 0 while _peak_allocate_bytes remains at 28k.
-//     p->Clear();
-// the entire 1st chunk is returned:
-//     .. = p->allocate(4 * 1024);
-// 4K of the 2nd chunk are returned:
-//     .. = p->allocate(4 * 1024);
-// a new 20K chunk is created
-//     .. = p->allocate(20 * 1024);
-//
-//      MemPool* p2 = new MemPool();
-// the new mempool receives all chunks containing data from p
-//      p2->AcquireData(p, false);
-// At this point p._total_allocated_bytes would be 0 while p._peak_allocated_bytes
-// remains unchanged.
-// The one remaining (empty) chunk is released:
-//    delete p;
+///      MemPool* p2 = new MemPool();
+/// the new mempool receives all chunks containing data from p
+///      p2->AcquireData(p, false);
+/// At this point p.total_allocated_bytes_ would be 0.
+/// The one remaining (empty) chunk is released:
+///    delete p;
 
 class MemPool {
-public:
-    // Allocates mempool with fixed-size chunks of size 'chunk_size'.
-    // Chunk_size must be >= 0; 0 requests automatic doubling of chunk sizes,
-    // up to a limit.
-    // 'tracker' tracks the amount of memory allocated by this pool. Must not be NULL.
-    MemPool(MemTracker* mem_tracker, int chunk_size);
-    MemPool(MemTracker* mem_tracker) : MemPool::MemPool(mem_tracker, 0) {}
+ public:
 
-    // Frees all chunks of memory and subtracts the total allocated bytes
-    // from the registered limits.
-    ~MemPool();
+  /// 'tracker' tracks the amount of memory allocated by this pool. Must not be NULL.
+  MemPool(MemTracker* mem_tracker);
 
-    // Allocates 8-byte aligned section of memory of 'size' bytes at the end
-    // of the the current chunk. Creates a new chunk if there aren't any chunks
-    // with enough capacity.
-    uint8_t* allocate(int size) {
-        return allocate<false>(size);
-    }
+  /// Frees all chunks of memory and subtracts the total allocated bytes
+  /// from the registered limits.
+  ~MemPool();
 
-    // Same as Allocate() except the mem limit is checked before the allocation and
-    // this call will fail (returns NULL) if it does.
-    // The caller must handle the NULL case. This should be used for allocations
-    // where the size can be very big to bound the amount by which we exceed mem limits.
-    uint8_t* try_allocate(int size) {
-        return allocate<true>(size);
-    }
+  /// Allocates a section of memory of 'size' bytes with DEFAULT_ALIGNMENT at the end
+  /// of the the current chunk. Creates a new chunk if there aren't any chunks
+  /// with enough capacity.
+  uint8_t* allocate(int64_t size) {
+    return allocate<false>(size, DEFAULT_ALIGNMENT);
+  }
 
-    // Returns 'byte_size' to the current chunk back to the mem pool. This can
-    // only be used to return either all or part of the previous allocation returned
-    // by Allocate().
-    void return_partial_allocation(int byte_size) {
-        DCHECK_GE(byte_size, 0);
-        DCHECK(_current_chunk_idx != -1);
-        ChunkInfo& info = _chunks[_current_chunk_idx];
-        DCHECK_GE(info.allocated_bytes, byte_size);
-        info.allocated_bytes -= byte_size;
-        _total_allocated_bytes -= byte_size;
-    }
+  /// Same as Allocate() except the mem limit is checked before the allocation and
+  /// this call will fail (returns NULL) if it does.
+  /// The caller must handle the NULL case. This should be used for allocations
+  /// where the size can be very big to bound the amount by which we exceed mem limits.
+  uint8_t* try_allocate(int64_t size) {
+    return allocate<true>(size, DEFAULT_ALIGNMENT);
+  }
 
-    // Makes all allocated chunks available for re-use, but doesn't delete any chunks.
-    void clear() {
-        _current_chunk_idx = -1;
-        for (std::vector<ChunkInfo>::iterator chunk = _chunks.begin();
-                chunk != _chunks.end(); ++chunk) {
-            chunk->cumulative_allocated_bytes = 0;
-            chunk->allocated_bytes = 0;
-        }
-        _total_allocated_bytes = 0;
-        DCHECK(check_integrity(false));
-    }
+  /// Same as TryAllocate() except a non-default alignment can be specified. It
+  /// should be a power-of-two in [1, alignof(std::max_align_t)].
+  uint8_t* try_allocate_aligned(int64_t size, int alignment) {
+    DCHECK_GE(alignment, 1);
+    DCHECK_LE(alignment, config::FLAGS_MEMORY_MAX_ALIGNMENT);
+    //DCHECK_LE(alignment, config::FLAGS_MEMORY_MAX_ALIGNMENT);
+    DCHECK_EQ(BitUtil::RoundUpToPowerOfTwo(alignment), alignment);
+    return allocate<true>(size, alignment);
+  }
 
-    // Deletes all allocated chunks. FreeAll() or AcquireData() must be called for
-    // each mem pool
-    void free_all();
+  /// Same as TryAllocate() except returned memory is not aligned at all.
+  uint8_t* try_allocate_unaligned(int64_t size) {
+    // Call templated implementation directly so that it is inlined here and the
+    // alignment logic can be optimised out.
+    return allocate<true>(size, 1);
+  }
 
-    // Absorb all chunks that hold data from src. If keep_current is true, let src hold on
-    // to its last allocated chunk that contains data.
-    // All offsets handed out by calls to get_offset()/get_current_offset() for 'src'
-    // become invalid.
-    // All offsets handed out by calls to GetCurrentOffset() for 'src' become invalid.
-    void acquire_data(MemPool* src, bool keep_current);
+  /// Returns 'byte_size' to the current chunk back to the mem pool. This can
+  /// only be used to return either all or part of the previous allocation returned
+  /// by Allocate().
+  void return_partial_allocation(int64_t byte_size) {
+    DCHECK_GE(byte_size, 0);
+    DCHECK(current_chunk_idx_ != -1);
+    ChunkInfo& info = chunks_[current_chunk_idx_];
+    DCHECK_GE(info.allocated_bytes, byte_size);
+    info.allocated_bytes -= byte_size;
+    ASAN_POISON_MEMORY_REGION(info.data + info.allocated_bytes, byte_size);
+    total_allocated_bytes_ -= byte_size;
+  }
 
-    // Diagnostic to check if memory is allocated from this mempool.
-    // Inputs:
-    //   ptr: start of memory block.
-    //   size: size of memory block.
-    // Returns true if memory block is in one of the chunks in this mempool.
-    bool contains(uint8_t* ptr, int size);
+  /// Return a dummy pointer for zero-length allocations.
+  static uint8_t* empty_alloc_ptr() {
+    return reinterpret_cast<uint8_t*>(&zero_length_region_);
+  }
 
-    std::string debug_string();
+  /// Makes all allocated chunks available for re-use, but doesn't delete any chunks.
+  void clear();
 
-    int64_t total_allocated_bytes() const {
-        return _total_allocated_bytes;
-    }
-    // int64_t total_chunk_bytes() const {
-    //     return _total_chunk_bytes;
-    // }
-    int64_t peak_allocated_bytes() const {
-        return _peak_allocated_bytes;
-    }
-    int64_t total_reserved_bytes() const {
-        return _total_reserved_bytes;
-    }
-    MemTracker* mem_tracker() {
-        return _mem_tracker;
-    }
+  /// Deletes all allocated chunks. FreeAll() or AcquireData() must be called for
+  /// each mem pool
+  void free_all();
 
-    // Return sum of _chunk_sizes.
-    int64_t get_total_chunk_sizes() const;
+  /// Absorb all chunks that hold data from src. If keep_current is true, let src hold on
+  /// to its last allocated chunk that contains data.
+  /// All offsets handed out by calls to GetCurrentOffset() for 'src' become invalid.
+  void acquire_data(MemPool* src, bool keep_current);
 
-    // Return logical offset of memory returned by next call to allocate()
-    // into allocated data.
-    int get_current_offset() const {
-        return _total_allocated_bytes;
-    }
+  std::string DebugString();
 
-    // Return (data ptr, allocated bytes) pairs for all chunks owned by this mempool.
-    void get_chunk_info(std::vector<std::pair<uint8_t*, int> >* chunk_info);
+  int64_t total_allocated_bytes() const { return total_allocated_bytes_; }
+  int64_t total_reserved_bytes() const { return total_reserved_bytes_; }
+  int64_t peak_allocated_bytes() const { return peak_allocated_bytes_;}
 
-    // Print allocated bytes from all chunks.
-    std::string debug_print();
+  MemTracker* mem_tracker() { return mem_tracker_; }
 
-    // TODO: make a macro for doing this
-    // For C++/IR interop, we need to be able to look up types by name.
-    static const char* _s_llvm_class_name;
+  /// Return sum of chunk_sizes_.
+  int64_t get_total_chunk_sizes() const;
 
-private:
-    static const int DEFAULT_INITIAL_CHUNK_SIZE = 4 * 1024;
-    static const int64_t MAX_CHUNK_SIZE = 512 * 1024;
+  /// TODO: make a macro for doing this
+  /// For C++/IR interop, we need to be able to look up types by name.
+  static const char* LLVM_CLASS_NAME;
 
-    struct ChunkInfo {
-        bool owns_data;  // true if we eventually need to dealloc data
-        uint8_t* data;
-        int64_t size;  // in bytes
+  static const int DEFAULT_ALIGNMENT = 8;
 
-        // number of bytes allocated via allocate() up to but excluding this chunk;
-        // *not* valid for chunks > _current_chunk_idx (because that would create too
-        // much maintenance work if we have trailing unoccupied chunks)
-        int64_t cumulative_allocated_bytes;
+ private:
+  friend class MemPoolTest;
+  static const int INITIAL_CHUNK_SIZE = 4 * 1024;
 
-        // bytes allocated via allocate() in this chunk
-        int64_t allocated_bytes;
+  /// The maximum size of chunk that should be allocated. Allocations larger than this
+  /// size will get their own individual chunk.
+  static const int MAX_CHUNK_SIZE = 1024 * 1024;
 
-        // explicit ChunkInfo(int size);
-        explicit ChunkInfo(int64_t size, uint8_t* buf);
+  struct ChunkInfo {
+    uint8_t* data; // Owned by the ChunkInfo.
+    int64_t size;  // in bytes
 
-        ChunkInfo()
-            : owns_data(true),
-              data(NULL),
-              size(0),
-              cumulative_allocated_bytes(0),
-              allocated_bytes(0) {}
-    };
+    /// bytes allocated via Allocate() in this chunk
+    int64_t allocated_bytes;
 
-    // static uint32_t _s_zero_length_region alignas(max_align_t);
-    static uint32_t _s_zero_length_region;
+    explicit ChunkInfo(int64_t size, uint8_t* buf);
 
-    // chunk from which we served the last allocate() call;
-    // always points to the last chunk that contains allocated data;
-    // chunks 0.._current_chunk_idx are guaranteed to contain data
-    // (_chunks[i].allocated_bytes > 0 for i: 0.._current_chunk_idx);
-    // -1 if no chunks present
-    int _current_chunk_idx;
+    ChunkInfo()
+      : data(NULL),
+        size(0),
+        allocated_bytes(0) {}
+  };
 
-    // chunk where last offset conversion (get_offset() or get_data_ptr()) took place;
-    // -1 if those functions have never been called
-    int _last_offset_conversion_chunk_idx;
+  /// A static field used as non-NULL pointer for zero length allocations. NULL is
+  /// reserved for allocation failures. It must be as aligned as max_align_t for
+  /// TryAllocateAligned().
+  static uint32_t zero_length_region_;
 
-    int _chunk_size;  // if != 0, use this size for new chunks
+  /// chunk from which we served the last Allocate() call;
+  /// always points to the last chunk that contains allocated data;
+  /// chunks 0..current_chunk_idx_ - 1 are guaranteed to contain data
+  /// (chunks_[i].allocated_bytes > 0 for i: 0..current_chunk_idx_ - 1);
+  /// chunks after 'current_chunk_idx_' are "free chunks" that contain no data.
+  /// -1 if no chunks present
+  int current_chunk_idx_;
 
-    // sum of _allocated_bytes
-    int64_t _total_allocated_bytes;
+  /// The size of the next chunk to allocate.
+  int next_chunk_size_;
 
-    // sum of _total_chunk_bytes
-    // int64_t _total_chunk_bytes;
+  /// sum of allocated_bytes_
+  int64_t total_allocated_bytes_;
 
-    // Maximum number of bytes allocated from this pool at one time.
-    int64_t _peak_allocated_bytes;
+  /// sum of all bytes allocated in chunks_
+  int64_t total_reserved_bytes_;
 
-    // sum of all bytes allocated in _chunks
-    int64_t _total_reserved_bytes;
+  /// Maximum number of bytes allocated from this pool at one time.
+  int64_t peak_allocated_bytes_;
 
-    std::vector<ChunkInfo> _chunks;
+  std::vector<ChunkInfo> chunks_;
 
-    // std::vector<MemTracker*> _limits;
+  /// The current and peak memory footprint of this pool. This is different from
+  /// total allocated_bytes_ since it includes bytes in chunks that are not used.
+  MemTracker* mem_tracker_;
 
-    // // true if one of the registered limits was exceeded during an allocate()
-    // // call
-    // bool _exceeded_limit;
+  /// Find or allocated a chunk with at least min_size spare capacity and update
+  /// current_chunk_idx_. Also updates chunks_, chunk_sizes_ and allocated_bytes_
+  /// if a new chunk needs to be created.
+  /// If check_limits is true, this call can fail (returns false) if adding a
+  /// new chunk exceeds the mem limits.
+  bool FindChunk(size_t min_size, bool check_limits);
 
-    // The current and peak memory footprint of this pool. This is different from
-    // total _allocated_bytes since it includes bytes in chunks that are not used.
-    MemTracker* _mem_tracker;
+  /// Check integrity of the supporting data structures; always returns true but DCHECKs
+  /// all invariants.
+  /// If 'check_current_chunk_empty' is true, checks that the current chunk contains no
+  /// data. Otherwise the current chunk can be either empty or full.
+  bool CheckIntegrity(bool check_current_chunk_empty);
 
-    // Find or allocated a chunk with at least min_size spare capacity and update
-    // _current_chunk_idx. Also updates _chunks, _chunk_sizes and _allocated_bytes
-    // if a new chunk needs to be created.
-    // If check_limits is true, this call can fail (returns false) if adding a
-    // new chunk exceeds the mem limits.
-    // bool find_chunk(int min_size);
-    bool find_chunk(int64_t min_size, bool check_limits);
+  /// Return offset to unoccupied space in current chunk.
+  int64_t GetFreeOffset() const {
+    if (current_chunk_idx_ == -1) return 0;
+    return chunks_[current_chunk_idx_].allocated_bytes;
+  }
 
-    // Check integrity of the supporting data structures; always returns true but DCHECKs
-    // all invariants.
-    // If 'current_chunk_empty' is false, checks that the current chunk contains data.
-    bool check_integrity(bool current_chunk_empty);
+  template <bool CHECK_LIMIT_FIRST>
+  uint8_t* ALWAYS_INLINE allocate(int64_t size, int alignment) {
+    DCHECK_GE(size, 0);
+    if (UNLIKELY(size == 0)) return reinterpret_cast<uint8_t*>(&zero_length_region_);
 
-    int get_offset_helper(uint8_t* data);
-    uint8_t* get_data_ptr_helper(int offset);
-
-    // Return offset to unoccpied space in current chunk.
-    int get_free_offset() const {
-        if (_current_chunk_idx == -1) {
-            return 0;
-        }
-        return _chunks[_current_chunk_idx].allocated_bytes;
-    }
-
-    template <bool CHECK_LIMIT_FIRST>
-    uint8_t* allocate(int size) {
-        if (size == 0) {
-            return (uint8_t*)&_s_zero_length_region;
-        }
-
-        // round up to nearest 8 bytes
-        // e.g. if size between 1 and 7, num_bytes will be 8
-        // int64_t num_bytes = (size + 8LL - 1) / 8 * 8;
-        int64_t num_bytes = BitUtil::round_up(size, 8);
-        if (_current_chunk_idx == -1
-                || (num_bytes + _chunks[_current_chunk_idx].allocated_bytes)
-                    > _chunks[_current_chunk_idx].size) {
-            // If we couldn't allocate a new chunk, return NULL.
-            if (UNLIKELY(!find_chunk(num_bytes, CHECK_LIMIT_FIRST))) {
-                return NULL;
-            }
-        }
-        ChunkInfo& info = _chunks[_current_chunk_idx];
-        uint8_t* result = info.data + info.allocated_bytes;
-        DCHECK_LE(info.allocated_bytes + num_bytes, info.size);
-        info.allocated_bytes += num_bytes;
-        _total_allocated_bytes += num_bytes;
-        DCHECK_LE(_current_chunk_idx, _chunks.size() - 1);
-        _peak_allocated_bytes = std::max(_total_allocated_bytes, _peak_allocated_bytes);
+    if (current_chunk_idx_ != -1) {
+      ChunkInfo& info = chunks_[current_chunk_idx_];
+      int64_t aligned_allocated_bytes = BitUtil::RoundUpToPowerOf2(
+          info.allocated_bytes, alignment);
+      if (aligned_allocated_bytes + size <= info.size) {
+        // Ensure the requested alignment is respected.
+        int64_t padding = aligned_allocated_bytes - info.allocated_bytes;
+        uint8_t* result = info.data + aligned_allocated_bytes;
+        ASAN_UNPOISON_MEMORY_REGION(result, size);
+        DCHECK_LE(info.allocated_bytes + size, info.size);
+        info.allocated_bytes += padding + size;
+        total_allocated_bytes_ += padding + size;
+        DCHECK_LE(current_chunk_idx_, chunks_.size() - 1);
         return result;
+      }
     }
+
+    // If we couldn't allocate a new chunk, return NULL. malloc() guarantees alignment
+    // of alignof(std::max_align_t), so we do not need to do anything additional to
+    // guarantee alignment.
+    //static_assert(
+        //INITIAL_CHUNK_SIZE >= config::FLAGS_MEMORY_MAX_ALIGNMENT, "Min chunk size too low");
+    if (UNLIKELY(!FindChunk(size, CHECK_LIMIT_FIRST))) return NULL;
+
+    ChunkInfo& info = chunks_[current_chunk_idx_];
+    uint8_t* result = info.data + info.allocated_bytes;
+    ASAN_UNPOISON_MEMORY_REGION(result, size);
+    DCHECK_LE(info.allocated_bytes + size, info.size);
+    info.allocated_bytes += size;
+    total_allocated_bytes_ += size;
+    DCHECK_LE(current_chunk_idx_, chunks_.size() - 1);
+    peak_allocated_bytes_ = std::max(total_allocated_bytes_, peak_allocated_bytes_);
+    return result;
+  }
 };
 
-} // end namespace palo
+// Stamp out templated implementations here so they're included in IR module
+template uint8_t* MemPool::allocate<false>(int64_t size, int alignment);
+template uint8_t* MemPool::allocate<true>(int64_t size, int alignment);
+}
 
 #endif

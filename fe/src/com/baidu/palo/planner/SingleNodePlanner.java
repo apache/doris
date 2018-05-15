@@ -34,6 +34,7 @@ import com.baidu.palo.analysis.FunctionCallExpr;
 import com.baidu.palo.analysis.InPredicate;
 import com.baidu.palo.analysis.InlineViewRef;
 import com.baidu.palo.analysis.IsNullPredicate;
+import com.baidu.palo.analysis.JoinOperator;
 import com.baidu.palo.analysis.LiteralExpr;
 import com.baidu.palo.analysis.NullLiteral;
 import com.baidu.palo.analysis.QueryStmt;
@@ -52,6 +53,7 @@ import com.baidu.palo.catalog.MysqlTable;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.NotImplementedException;
 import com.baidu.palo.common.Pair;
 import com.baidu.palo.common.Reference;
 
@@ -147,6 +149,31 @@ public class SingleNodePlanner {
                 ctx_.getQueryOptions().getDefault_order_by_limit());
         Preconditions.checkNotNull(singleNodePlan);
         return singleNodePlan;
+    }
+
+    /**
+     * Checks that the given single-node plan is executable:
+     * - It may not contain right or full outer joins with no equi-join conjuncts that
+     *   are not inside the right child of a SubplanNode.
+     * - MT_DOP > 0 is not supported for plans with base table joins or table sinks.
+     * Throws a NotImplementedException if plan validation fails.
+     */
+    public void validatePlan(PlanNode planNode) throws NotImplementedException {
+      if (ctx_.getQueryOptions().isSetMt_dop() && ctx_.getQueryOptions().mt_dop > 0
+          && (planNode instanceof HashJoinNode || planNode instanceof CrossJoinNode)) {
+          throw new NotImplementedException(
+              "MT_DOP not supported for plans with base table joins or table sinks.");
+      }
+
+      // As long as MT_DOP is unset or 0 any join can run in a single-node plan.
+      if (ctx_.isSingleNodeExec() &&
+          (!ctx_.getQueryOptions().isSetMt_dop() || ctx_.getQueryOptions().mt_dop == 0)) {
+          return;
+      }
+
+      for (PlanNode child : planNode.getChildren()) {
+          validatePlan(child);
+      }
     }
 
     /**
@@ -330,11 +357,14 @@ public class SingleNodePlanner {
             boolean aggTableValidate = true;
             if (selectStmt.getTableRefs().size() > 1) {
                 for (int i = 1; i < selectStmt.getTableRefs().size(); ++i) {
-                    if (selectStmt.getTableRefs().get(i).getJoinOp().isOuterJoin()) {
-                        LOG.info(logStr + selectStmt.getTableRefs().get(i) + " joinOp is outer-join");
+                    final JoinOperator joinOperator = selectStmt.getTableRefs().get(i).getJoinOp();
+                    // TODO chenhao16 , right out join ?
+                    if (joinOperator.isRightOuterJoin() || joinOperator.isFullOuterJoin()) {
+                        LOG.info(logStr + selectStmt.getTableRefs().get(i) 
+                            + " joinOp is full outer join or right outer join.");
                         aggTableValidate = false;
                         break;
-                    }
+                    }  
                 }
                 if (!aggTableValidate) {
                     break;

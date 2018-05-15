@@ -19,8 +19,10 @@
 
 #include <boost/utility.hpp>
 #include <gtest/gtest.h>
+#include "common/config.h"
 #include "util/bit_util.h"
 #include "util/cpu_info.h"
+#include "util/logging.h"
 
 namespace palo {
 
@@ -53,7 +55,7 @@ int main(int argc, char** argv) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    init_glog("be-test");
+    palo::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     palo::CpuInfo::init();
     return RUN_ALL_TESTS();

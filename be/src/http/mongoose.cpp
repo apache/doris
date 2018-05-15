@@ -25,7 +25,9 @@
 #define _XOPEN_SOURCE 600     // For flockfile() on Linux
 #endif
 #define _LARGEFILE_SOURCE     // Enable 64-bit file offsets
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS  // <inttypes.h> wants this for C++
+#endif
 #define __STDC_LIMIT_MACROS   // C++ wants that for INT64_MAX
 #endif
 
@@ -1386,14 +1388,6 @@ static pid_t spawn_process(struct mg_connection *conn, const char *prog,
 }
 #endif // !NO_CGI
 
-static int set_non_blocking_mode(SOCKET sock) {
-  int flags;
-
-  flags = fcntl(sock, F_GETFL, 0);
-  (void) fcntl(sock, F_SETFL, flags | O_NONBLOCK);
-
-  return 0;
-}
 #endif // _WIN32
 
 // Write data to the IO channel - opened file descriptor, socket or SSL
@@ -3185,6 +3179,7 @@ static void handle_cgi_request(struct mg_connection *conn, const char *prog) {
   const char *status, *status_text;
   char buf[16384], *pbuf, dir[PATH_MAX], *p;
   struct mg_request_info ri;
+  ri.num_headers = 0;
   struct cgi_env_block blk;
   FILE *in, *out;
   pid_t pid;
@@ -4329,9 +4324,8 @@ static void reset_per_request_attributes(struct mg_connection *conn) {
 }
 
 static void close_socket_gracefully(struct mg_connection *conn) {
-  char buf[MG_BUF_LEN];
   struct linger linger;
-  int n, sock = conn->client.sock;
+  int sock = conn->client.sock;
 
   // Set linger option to avoid socket hanging out after close. This prevent
   // ephemeral port exhaust problem under high QPS.
@@ -4344,6 +4338,8 @@ static void close_socket_gracefully(struct mg_connection *conn) {
 // mongoose bug in Linux
 // only used in windows 
 #if defined(_WIN32)
+  char buf[MG_BUF_LEN];
+  int n = 0;
   set_non_blocking_mode(sock);
 
   // Read and discard pending incoming data. If we do not do that and close the

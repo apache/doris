@@ -38,17 +38,17 @@ import java.util.List;
  */
 public class TupleIsNullPredicate extends Predicate {
 
-    private final List<TupleId> tupleIds;
+    private final List<TupleId> tupleIds = Lists.newArrayList();
 
     public TupleIsNullPredicate(List<TupleId> tupleIds) {
         Preconditions.checkState(tupleIds != null && !tupleIds.isEmpty());
-        this.tupleIds = tupleIds;
+        this.tupleIds.addAll(tupleIds);
     }
 
     protected TupleIsNullPredicate(TupleIsNullPredicate other) {
         super(other);
-        tupleIds = other.tupleIds;
-    }
+        tupleIds.addAll(other.tupleIds);
+   }
 
     @Override
     protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {

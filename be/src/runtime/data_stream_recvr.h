@@ -32,6 +32,12 @@
 #include "util/tuple_row_compare.h"
 #include "rpc/inet_addr.h"
 
+namespace google {
+namespace protobuf {
+class Closure;
+}
+}
+
 namespace palo {
 
 class DataStreamMgr;
@@ -39,6 +45,7 @@ class SortedRunMerger;
 class MemTracker;
 class RowBatch;
 class RuntimeProfile;
+class PRowBatch;
 
 class Comm;
 class CommBuf;
@@ -114,6 +121,11 @@ private:
     // full. Called from DataStreamMgr.
     void add_batch(const TRowBatch& thrift_batch, int sender_id,
                    bool* is_buf_overflow, std::pair<InetAddr, CommBufPtr> response);
+
+    // If receive queue is full, done is enqueue pending, and return with *done is nullptr
+    void add_batch(const PRowBatch& batch, int sender_id,
+                   int be_number, int64_t packet_seq,
+                   ::google::protobuf::Closure** done);
 
     // Indicate that a particular sender is done. Delegated to the appropriate
     // sender queue. Called from DataStreamMgr.

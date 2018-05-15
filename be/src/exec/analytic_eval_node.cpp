@@ -111,8 +111,8 @@ AnalyticEvalNode::AnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
     VLOG_ROW << "tnode=" <<  apache::thrift::ThriftDebugString(tnode);
 }
 
-Status AnalyticEvalNode::init(const TPlanNode& tnode) {
-    RETURN_IF_ERROR(ExecNode::init(tnode));
+Status AnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::init(tnode, state));
     const TAnalyticNode& analytic_node = tnode.analytic_node;
     bool has_lead_fn = false;
 
@@ -153,7 +153,7 @@ Status AnalyticEvalNode::prepare(RuntimeState* state) {
     _child_tuple_desc = child(0)->row_desc().tuple_descriptors()[0];
     _curr_tuple_pool.reset(new MemPool(mem_tracker()));
     _prev_tuple_pool.reset(new MemPool(mem_tracker()));
-    _mem_pool.reset(new MemPool(mem_tracker(), 0));
+    _mem_pool.reset(new MemPool(mem_tracker()));
 
     _evaluation_timer = ADD_TIMER(runtime_profile(), "EvaluationTime");
 

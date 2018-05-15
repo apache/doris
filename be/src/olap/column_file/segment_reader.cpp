@@ -22,6 +22,8 @@
 #include "olap/column_file/file_stream.h"
 #include "olap/column_file/in_stream.h"
 #include "olap/column_file/out_stream.h"
+#include "olap/olap_cond.h"
+#include "olap/row_block.h"
 
 namespace palo {
 namespace column_file {
@@ -33,12 +35,14 @@ SegmentReader::SegmentReader(
         OLAPTable* table,
         OLAPIndex* index,
         uint32_t segment_id,
-        const std::vector<uint32_t>& return_columns,
+        const std::vector<uint32_t>& used_columns,
         const std::set<uint32_t>& load_bf_columns,
         const Conditions* conditions,
+        const std::vector<ColumnPredicate*>* col_predicates,
         const DeleteHandler& delete_handler,
         const DelCondSatisfied delete_status,
-        RuntimeState* runtime_state) :
+        RuntimeState* runtime_state,
+        OlapReaderStatistics* stats) :
         _file_name(file),
         _table(table),
         _olap_index(index),
@@ -47,66 +51,58 @@ SegmentReader::SegmentReader(
         _delete_handler(delete_handler),
         _delete_status(delete_status),
         _eof(false),
-        _is_init(false),
         _end_block(-1),
         // 确保第一次调用_move_to_next_row，会执行seek_to_block
-        _current_block(-2),
         _block_count(0),
         _num_rows_in_block(0),
         _null_supported(false),
-        _return_columns(return_columns),
+        _used_columns(used_columns),
         _load_bf_columns(load_bf_columns),
         _mmap_buffer(NULL),
         _include_blocks(NULL),
-        _filted_rows(0),
         _is_using_mmap(false),
         _is_data_loaded(false),
         _buffer_size(0),
         _lru_cache(NULL),
-        _cache_handle(NULL),
-        _vectorized_info_inited(false),
         _runtime_state(runtime_state),
-        _shared_buffer(NULL) {
+        _shared_buffer(NULL),
+        _stats(stats) {
     _lru_cache = OLAPEngine::get_instance()->index_stream_lru_cache();
+    _tracker.reset(new MemTracker(-1));
+    _mem_pool.reset(new MemPool(_tracker.get()));
 }
 
 SegmentReader::~SegmentReader() {
     SAFE_DELETE(_shared_buffer);
     SAFE_DELETE_ARRAY(_include_blocks);
 
-    std::map<ColumnId, StreamIndexReader*>::iterator index_it = _indices.begin();
-    for (; index_it != _indices.end(); ++index_it) {
-        SAFE_DELETE((*index_it).second);
+    for (auto& index_it : _indices) {
+        SAFE_DELETE(index_it.second);
     }
 
-    std::map<ColumnId, BloomFilterIndexReader*>::iterator bf_it = _bloom_filters.begin();
-    for (; bf_it != _bloom_filters.end(); ++bf_it) {
-        SAFE_DELETE(bf_it->second);
+    for (auto& bf_it : _bloom_filters) {
+        SAFE_DELETE(bf_it.second);
     }
 
-    for (int32_t i = 0; i < _get_included_row_index_stream_num(); i++) {
-        if (NULL != _cache_handle[i]) {
-            _lru_cache->release(_cache_handle[i]);
+    for (auto handle : _cache_handle) {
+        if (handle != nullptr) {
+            _lru_cache->release(handle);
         }
     }
 
-    SAFE_DELETE_ARRAY(_cache_handle);
-    _cache_handle = NULL;
     _lru_cache = NULL;
     _file_handler.close();
 
-    if (_runtime_state != NULL) {
+    if (_is_data_loaded && _runtime_state != NULL) {
         MemTracker::update_limits(_buffer_size * -1, _runtime_state->mem_trackers()); 
     }
 
-    std::map<StreamName, ReadOnlyFileStream*>::iterator stream_it = _streams.begin();
-    for (; stream_it != _streams.end(); ++stream_it) {
-        delete(*stream_it).second;
+    for (auto& it : _streams) {
+        delete it.second;
     }
 
-    std::vector<ColumnReader*>::iterator reader_it = _column_readers.begin();
-    for (; reader_it != _column_readers.end(); ++reader_it) {
-        delete(*reader_it);
+    for (auto reader : _column_readers) {
+        delete reader;
     }
 
     if (_is_using_mmap) {
@@ -170,87 +166,39 @@ OLAPStatus SegmentReader::_set_decompressor() {
         _decompressor = NULL;
         break;
     }
-
     case COMPRESS_LZO: {
         _decompressor = lzo_decompress;
         break;
     }
-
     case COMPRESS_LZ4: {
         _decompressor = lz4_decompress;
         break;
     }
-
     default: {
         OLAP_LOG_WARNING("unknown decompressor");
         return OLAP_ERR_PARSE_PROTOBUF_ERROR;
     }
     }
-
     return OLAP_SUCCESS;
 }
 
 OLAPStatus SegmentReader::_set_segment_info() {
     _num_rows_in_block = _header_message().num_rows_per_block();
-
     if (_num_rows_in_block == 0) {
         _num_rows_in_block = _table->num_rows_per_row_block();
     }
 
     _set_column_map();
     OLAPStatus res = _set_decompressor();
-
     if (OLAP_SUCCESS != res) {
         OLAP_LOG_WARNING("fail to get decompressor.");
         return res;
     }
-
     return OLAP_SUCCESS;
 }
 
-void SegmentReader::_init_vectorized_info(std::vector<uint32_t>& return_columns) {
-    if (_vectorized_info_inited) {
-        return;
-    }
-
-    uint32_t offset = 0;
-    uint32_t width = 0;
-
-    for (size_t i = 0; i < return_columns.size(); ++i) {
-        if (_table->tablet_schema()[return_columns[i]].type == OLAP_FIELD_TYPE_VARCHAR
-                || _table->tablet_schema()[return_columns[i]].type == OLAP_FIELD_TYPE_HLL) {
-            width = sizeof(VarCharField::OffsetValueType);
-        } else {
-            width = _table->tablet_schema()[return_columns[i]].length;
-        }
-
-        VectorizedPositionInfo pos;
-        pos.column_id = return_columns[i];
-        pos.column_position = offset;
-        _vectorized_position.push_back(pos);
-        offset += width * _num_rows_in_block;
-    }
-
-    for (size_t i = 0; i < _vectorized_position.size(); i++) {
-        if (_table->tablet_schema()[_vectorized_position[i].column_id].type ==
-            OLAP_FIELD_TYPE_VARCHAR 
-            || _table->tablet_schema()[_vectorized_position[i].column_id].type ==
-            OLAP_FIELD_TYPE_HLL) {
-            _vectorized_position[i].offset_position = offset;
-            offset += _num_rows_in_block *
-                      _table->tablet_schema()[_vectorized_position[i].column_id].length;
-        }
-    }
-
-    _vectorized_info_inited = true;
-}
-
 OLAPStatus SegmentReader::init(bool is_using_cache) {
-    if (_is_init) {
-        return OLAP_SUCCESS;
-    }
-
-    OlapStopWatch timer;
+    SCOPED_RAW_TIMER(&_stats->index_load_ns);
 
     OLAPStatus res = OLAP_SUCCESS;
     res = _load_segment_file();
@@ -258,8 +206,6 @@ OLAPStatus SegmentReader::init(bool is_using_cache) {
         OLAP_LOG_WARNING("fail to load sgment file. ");
         return res;
     }
-
-    uint64_t load_segment_time_us = timer.get_elapse_time_us();
     // 文件头
     res = _set_segment_info();
     if (OLAP_SUCCESS != res) {
@@ -267,14 +213,8 @@ OLAPStatus SegmentReader::init(bool is_using_cache) {
         return res;
     }
 
-    res = _cursor.init(_table->tablet_schema());
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to init row_cursor");
-        return res;
-    }
-
     _shared_buffer = ByteBuffer::create(
-            _header_message().stream_buffer_size() + sizeof(StreamHead));
+        _header_message().stream_buffer_size() + sizeof(StreamHead));
     if (_shared_buffer == NULL) {
         OLAP_LOG_WARNING("fail to create shared buffer. [size=%lu]", sizeof(ByteBuffer));
         return OLAP_ERR_MALLOC_ERROR;
@@ -286,39 +226,31 @@ OLAPStatus SegmentReader::init(bool is_using_cache) {
         return res;
     }
 
-    timer.reset();
     res = _load_index(is_using_cache);
     if (OLAP_SUCCESS != res) {
         OLAP_LOG_WARNING("fail to load index stream");
         return res;
     }
 
-    uint64_t load_index_stream_time_us = timer.get_elapse_time_us();
-    // record segment init step time when more than 100ms
-    if (load_segment_time_us > 100000 || load_index_stream_time_us > 100000) {
-        OLAP_LOG_WARNING("segment init cost too much time. "
-                         "[load_segment_time_us=%lu load_index_stream_time_us=%lu]",
-                         load_segment_time_us, load_index_stream_time_us);
-    }
-
     return OLAP_SUCCESS;
 }
 
 OLAPStatus SegmentReader::seek_to_block(
-        uint32_t first_block, uint32_t last_block, bool without_filter) {
+        uint32_t first_block, uint32_t last_block,
+        bool without_filter, uint32_t* next_block_id,
+        bool* eof) {
     OLAPStatus res = OLAP_SUCCESS;
 
     if (!_is_data_loaded) {
-
         _reset_readers();
         res = _read_all_data_streams(&_buffer_size);
-        if (OLAP_SUCCESS != res) {
+        if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to read data stream");
             return res;
         }
     
         OLAPStatus res = _create_reader(&_buffer_size);
-        if (OLAP_SUCCESS != res) {
+        if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to create reader");
             return res;
         }
@@ -331,12 +263,20 @@ OLAPStatus SegmentReader::seek_to_block(
         }
 
         _is_data_loaded = true;
-    } else {
-        _eof = false;
     }
 
+    // If seek to block position, all stat will reset to initial
+    _eof = false;
     _end_block = last_block >= _block_count ? _block_count - 1 : last_block;
-    if (!without_filter) {
+    _without_filter = without_filter;
+    delete[] _include_blocks;
+    _include_blocks = nullptr;
+    if (!_without_filter) {
+        /*
+         * row batch may be not empty before next read,
+         * should be clear here, otherwise dirty records
+         * will be read.
+         */
         _remain_block = last_block - first_block + 1;
         res = _pick_row_groups(first_block, last_block);
         if (OLAP_SUCCESS != res) {
@@ -344,55 +284,48 @@ OLAPStatus SegmentReader::seek_to_block(
             return res;
         }
     }
-
-    _current_row = first_block * _num_rows_in_block;
-    OLAP_LOG_DEBUG("first %u end %u; tol %u",
-        first_block, last_block,
-        _block_count);
-    res = _read_block(without_filter);
-
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to read block");
-        return res;
-    }
+    _seek_to_block(first_block, without_filter);
+    *next_block_id = _next_block_id;
+    *eof = _eof;
 
     return OLAP_SUCCESS;
 }
 
-const RowCursor* SegmentReader::get_next_row(bool without_filter) {
-    RowCursor* ret = NULL;
-    while (true) {
-        OLAPStatus res = _move_to_next_row(without_filter);
-        if (OLAP_SUCCESS != res) {
-            ret = NULL;
-            break;
-        }
-
-        _cursor.reset_buf();
-        res = _read_next_and_attach();
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("cur %lu to %lu",
-                    _current_row, _header_message().number_of_rows());
-            ret = NULL;
-            break;
-        }
-
-        if (true == without_filter || NULL == _include_blocks
-            || DEL_NOT_SATISFIED == _include_blocks[_current_block]) {
-            ret = &_cursor;
-            break;
-        }
-
-        bool row_del_filter = _delete_handler.is_filter_data(
-                                    _olap_index->version().second, _cursor);
-        if (false == row_del_filter) {
-            ret = &_cursor;
-            break;
-        }
-
-        ++_filted_rows;
+OLAPStatus SegmentReader::get_block(
+        VectorizedRowBatch* batch, uint32_t* next_block_id, bool* eof) {
+    if (_eof) {
+        *eof = true;
+        return OLAP_SUCCESS;
     }
-    return ret;
+
+    // lazy seek
+    _seek_to_block_directly(_next_block_id, batch->columns());
+
+    int64_t num_rows_load = batch->limit();
+    if (OLAP_UNLIKELY(_current_block_id == _block_count - 1)) {
+        int64_t num_rows_left =
+            _header_message().number_of_rows() - _num_rows_in_block * _current_block_id;
+        num_rows_load = std::min(num_rows_load, num_rows_left);
+    }
+
+    auto res = _load_to_vectorized_row_batch(batch, num_rows_load);
+    if (res != OLAP_SUCCESS) {
+        OLAP_LOG_WARNING("fail to load block to vectorized_row_batch. [res=%d]", res);
+        return res;
+    }
+
+    DCHECK(num_rows_load == _num_rows_in_block || _next_block_id == _end_block)
+        << "num_rows_load must equal with _num_rows_in_block"
+        << ", num_rows_load:" << num_rows_load
+        << ", _num_rows_in_block:" << _num_rows_in_block
+        << ", _next_block_id" << _next_block_id
+        << ", _end_block" << _end_block;
+
+    _seek_to_block(_next_block_id + 1, _without_filter);
+
+    *next_block_id = _next_block_id;
+    *eof = _eof;
+    return OLAP_SUCCESS;
 }
 
 void SegmentReader::_set_column_map() {
@@ -415,7 +348,6 @@ void SegmentReader::_set_column_map() {
         ColumnId unique_column_id = _header_message().column(segment_column_id).unique_id();
         if (_unique_id_to_table_id_map.find(unique_column_id) != _unique_id_to_table_id_map.end()) {
             _unique_id_to_segment_id_map[unique_column_id] = segment_column_id;
-            _segment_id_to_unique_id_map[segment_column_id] = unique_column_id;
             // encoding 应该和segment schema序一致。
             _encodings_map[unique_column_id] =
                 _header_message().column_encoding(segment_column_id);
@@ -424,24 +356,7 @@ void SegmentReader::_set_column_map() {
 }
 
 OLAPStatus SegmentReader::_pick_columns() {
-    // _return_columns 使用table的schema序
-    // 而return的时候则根据return columns顺序排列
-    //
-    // _include_columns    set，顺序无关, 使用uid
-    // _indices            map，顺序无关，使用uid
-    // _table_id_to_unique_id_map 是一个从table id转为uid的映射表
-
-    // 如果发现没给出return columns，就用全集
-    if (0 == _return_columns.size()) {
-        for (size_t i = 0; i < _table->tablet_schema().size(); ++i) {
-            _return_columns.push_back(i);
-        }
-    }
-
-    _include_columns.clear();
-    _include_bf_columns.clear();
-
-    for (uint32_t i : _return_columns) {
+    for (uint32_t i : _used_columns) {
         ColumnId unique_column_id = _table_id_to_unique_id_map[i];
         _include_columns.insert(unique_column_id);
     }
@@ -457,7 +372,7 @@ OLAPStatus SegmentReader::_pick_columns() {
 OLAPStatus SegmentReader::_pick_delete_row_groups(uint32_t first_block, uint32_t last_block) {
     OLAP_LOG_DEBUG("pick for %u to %u for delete_condition", first_block, last_block);
 
-    if (true == _delete_handler.empty()) {
+    if (_delete_handler.empty()) {
         return OLAP_SUCCESS;
     }
 
@@ -486,7 +401,8 @@ OLAPStatus SegmentReader::_pick_delete_row_groups(uint32_t first_block, uint32_t
                     continue;
                 }
                 StreamIndexReader* index_reader = _indices[unique_column_id];
-                int del_ret = i.second.del_eval(index_reader->entry(j).column_statistic());
+                int del_ret = i.second->del_eval(
+                    index_reader->entry(j).column_statistic().pair());
                 if (DEL_SATISFIED == del_ret) {
                     continue;
                 } else if (DEL_PARTIAL_SATISFIED == del_ret) {
@@ -513,9 +429,10 @@ OLAPStatus SegmentReader::_pick_delete_row_groups(uint32_t first_block, uint32_t
                 --_remain_block;
                 OLAP_LOG_DEBUG("filter block: %d", j);
                 if (j < _block_count - 1) {
-                    _filted_rows += _num_rows_in_block; 
+                    _stats->rows_del_filtered += _num_rows_in_block;
                 } else {
-                    _filted_rows += _header_message().number_of_rows() - j * _num_rows_in_block;
+                    _stats->rows_del_filtered +=
+                        _header_message().number_of_rows() - j * _num_rows_in_block;
                 }
             }
 
@@ -584,14 +501,16 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
                 continue;
             }
 
-            if (!i.second.eval(index_reader->entry(j).column_statistic())) {
+            if (!i.second->eval(index_reader->entry(j).column_statistic().pair())) {
                 _include_blocks[j] = DEL_SATISFIED;
                 --_remain_block;
-            }
-            if (j < _block_count - 1) {
-                _filted_rows += _num_rows_in_block; 
-            } else {
-                _filted_rows += _header_message().number_of_rows() - j * _num_rows_in_block;
+
+                if (j < _block_count - 1) {
+                    _stats->rows_stats_filtered += _num_rows_in_block; 
+                } else {
+                    _stats->rows_stats_filtered +=
+                        _header_message().number_of_rows() - j * _num_rows_in_block;
+                }
             }
         }
     }
@@ -623,13 +542,14 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
                 continue;
             }
 
-            if (!_conditions->columns().at(i).eval(bf_reader->entry(j))) {
+            if (!_conditions->columns().at(i)->eval(bf_reader->entry(j))) {
                 _include_blocks[j] = DEL_SATISFIED;
                 --_remain_block;
                 if (j < _block_count - 1) {
-                    _filted_rows += _num_rows_in_block; 
+                    _stats->rows_stats_filtered += _num_rows_in_block; 
                 } else {
-                    _filted_rows += _header_message().number_of_rows() - j * _num_rows_in_block;
+                    _stats->rows_stats_filtered +=
+                        _header_message().number_of_rows() - j * _num_rows_in_block;
                 }
             }
         }
@@ -665,16 +585,11 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
     OLAPStatus res = OLAP_SUCCESS;
 
     int32_t handle_num = _get_included_row_index_stream_num();
-    _cache_handle = new(std::nothrow) Cache::Handle*[handle_num];
-    if (NULL == _cache_handle) {
-        OLAP_LOG_WARNING("fail to malloc index stream cache handle.");
-        return OLAP_ERR_MALLOC_ERROR;
-    }
-    memset(reinterpret_cast<char*>(_cache_handle), 0, sizeof(Cache::Handle*) * handle_num);
+    _cache_handle.resize(handle_num, nullptr);
 
     ReadOnlyFileStream stream(
             &_file_handler, &_shared_buffer, _decompressor,
-            _header_message().stream_buffer_size());
+            _header_message().stream_buffer_size(), _stats);
     res = stream.init();
     if (OLAP_SUCCESS != res) {
         OLAP_LOG_WARNING("fail to init stream. [res=%d]", res);
@@ -830,37 +745,6 @@ int32_t SegmentReader::_get_index_position(ColumnEncodingMessage::Kind encoding_
     return base;
 }
 
-bool SegmentReader::_is_dictionary(StreamInfoMessage::Kind kind,
-        ColumnEncodingMessage encoding) {
-    return kind == StreamInfoMessage::DICTIONARY_DATA ||
-           (kind == StreamInfoMessage::LENGTH &&
-                   (encoding.kind() == ColumnEncodingMessage::DICTIONARY));
-}
-
-bool SegmentReader::_is_overlap(size_t left_a, size_t right_a,
-        size_t left_b, size_t right_b) {
-    if (left_a <= left_b) {
-        return right_a >= left_b;
-    }
-
-    return  left_a <= right_b;
-}
-
-void SegmentReader::_fill_has_null(std::map<ColumnId, bool>* has_null) {
-    for (int32_t stream_index = 0; stream_index < _header_message().stream_info_size();
-            ++stream_index) {
-        const StreamInfoMessage& message = _header_message().stream_info(stream_index);
-        if (message.kind() == StreamInfoMessage::PRESENT) {
-            ColumnId unique_column_id = message.column_unique_id();
-            if (0 == _unique_id_to_segment_id_map.count(unique_column_id)) {
-                continue;
-            }
-
-            (*has_null)[unique_column_id] = true;
-        }
-    }
-}
-
 OLAPStatus SegmentReader::_read_all_data_streams(size_t* buffer_size) {
     int64_t stream_offset = _header_length;
     uint64_t stream_length = 0;
@@ -871,175 +755,104 @@ OLAPStatus SegmentReader::_read_all_data_streams(size_t* buffer_size) {
         const StreamInfoMessage& message = _header_message().stream_info(stream_index);
         stream_length = message.length();
         ColumnId unique_column_id = message.column_unique_id();
-        if (0 == _unique_id_to_segment_id_map.count(unique_column_id)) {
+
+        if (_unique_id_to_segment_id_map.count(unique_column_id) == 0) {
             continue;
         }
 
-        if ((_is_column_included(unique_column_id)
-                && message.kind() == StreamInfoMessage::ROW_INDEX)
-                || (_is_bf_column_included(unique_column_id)
-                && message.kind() == StreamInfoMessage::BLOOM_FILTER)) {
+        if (message.kind() == StreamInfoMessage::ROW_INDEX ||
+                message.kind() == StreamInfoMessage::BLOOM_FILTER) {
             continue;
-        } else {
-            StreamName name(unique_column_id, message.kind());
-            ReadOnlyFileStream* stream = new(std::nothrow) ReadOnlyFileStream(
-                    &_file_handler,
-                    &_shared_buffer,
-                    stream_offset,
-                    stream_length,
-                    _decompressor,
-                    _header_message().stream_buffer_size());
-            if (NULL == stream) {
-                OLAP_LOG_WARNING("fail to create stream");
-                return OLAP_ERR_MALLOC_ERROR;
-            }
-
-            OLAPStatus res = stream->init();
-            if (OLAP_SUCCESS != res) {
-                OLAP_LOG_WARNING("fail to init stream");
-                return res;
-            }
-
-            _streams[name] = stream;
-            *buffer_size += stream->get_buffer_size();
         }
+
+        StreamName name(unique_column_id, message.kind());
+        std::unique_ptr<ReadOnlyFileStream> stream(new(std::nothrow) ReadOnlyFileStream(
+            &_file_handler,
+            &_shared_buffer,
+            stream_offset,
+            stream_length,
+            _decompressor,
+            _header_message().stream_buffer_size(), _stats));
+        if (stream == nullptr) {
+            OLAP_LOG_WARNING("fail to create stream");
+            return OLAP_ERR_MALLOC_ERROR;
+        }
+
+        OLAPStatus res = stream->init();
+        if (OLAP_SUCCESS != res) {
+            OLAP_LOG_WARNING("fail to init stream");
+            return res;
+        }
+
+        *buffer_size += stream->get_buffer_size();
+        _streams[name] = stream.release();
     }
 
     return OLAP_SUCCESS;
-}
-
-OLAPStatus SegmentReader::_reader_skip(uint64_t skip_rows) {
-    OLAPStatus res = OLAP_SUCCESS;
-
-    for (size_t i = 0; i < _column_readers.size(); ++i) {
-        res = _column_readers[i]->skip(skip_rows);
-
-        if (OLAP_SUCCESS != res && OLAP_ERR_COLUMN_STREAM_EOF != res) {
-            OLAP_LOG_WARNING("fail to skip reader");
-            break;
-        }
-    }
-
-    return res;
 }
 
 OLAPStatus SegmentReader::_create_reader(size_t* buffer_size) {
-    OLAPStatus res = OLAP_SUCCESS;
-
-    for (size_t i = 0; i < _return_columns.size(); ++i) {
-        // 根据returncolumn顺序排列
-        ColumnId table_column_id = _return_columns[i];
+    _column_readers.resize(_table->tablet_schema().size(), nullptr);
+    _column_indices.resize(_table->tablet_schema().size(), nullptr);
+    for (auto table_column_id : _used_columns) {
         ColumnId unique_column_id = _table_id_to_unique_id_map[table_column_id];
         // 当前是不会出现table和segment的schema不一致的情况的
-        ColumnReader* reader = ColumnReader::create(table_column_id,
+        std::unique_ptr<ColumnReader> reader(ColumnReader::create(table_column_id,
                                _table->tablet_schema(),
                                _unique_id_to_table_id_map,
                                _unique_id_to_segment_id_map,
-                               _encodings_map);
-        if (NULL == reader) {
+                               _encodings_map));
+        if (reader == nullptr) {
             OLAP_LOG_WARNING("fail to create reader");
-            return res;
+            return OLAP_ERR_MALLOC_ERROR;
         }
 
-        std::map<StreamName, ReadOnlyFileStream*>::iterator it = _streams.begin();
-        res = reader->init(&_streams);
-        if (OLAP_SUCCESS != res) {
+        auto res = reader->init(&_streams, _num_rows_in_block, _mem_pool.get(), _stats);
+        if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init reader");
-            delete reader;
             return res;
         }
 
-        // _column_indices 的顺序和reader一致
-        _column_readers.push_back(reader);
-        if (0 == _unique_id_to_segment_id_map.count(unique_column_id)) {
-            _column_indices.push_back(NULL);
-        } else {
-            _column_indices.push_back(_indices[unique_column_id]);
-        }
         *buffer_size += reader->get_buffer_size();
+        _column_readers[table_column_id] = reader.release();
+        if (_indices.count(unique_column_id) != 0) {
+            _column_indices[table_column_id] = _indices[unique_column_id];
+        }
     }
 
     return OLAP_SUCCESS;
 }
 
-OLAPStatus SegmentReader::_move_to_next_row(bool without_filter) {
-    if (_current_row >= _header_message().number_of_rows()) {
-        _eof = true;
-        return OLAP_ERR_DATA_EOF;
-    }
-
-    if (_current_row % _num_rows_in_block != 0) {
-        ++_current_row;
+OLAPStatus SegmentReader::_seek_to_block_directly(
+        int64_t block_id, const std::vector<uint32_t>& cids) {
+    if (_at_block_start && block_id == _current_block_id) {
+        // no need to execute seek
         return OLAP_SUCCESS;
     }
-
-    int64_t next_block = int64_t(_current_row / _num_rows_in_block);
-    if (!without_filter && NULL != _include_blocks && DEL_SATISFIED == _include_blocks[next_block]) {
-        while (next_block < _block_count && DEL_SATISFIED == _include_blocks[next_block]) {
-            ++next_block;
+    for (auto cid : cids) {
+        // If column is added through schema change, column index may not exist because of
+        // linked schema change. So we need to ignore this column's seek
+        if (_column_indices[cid] == nullptr) {
+            continue;
         }
-
-        if (next_block >= _block_count) {
-            _eof = true;
-            return OLAP_ERR_DATA_EOF;
-        }
-
-        _current_row = next_block * _num_rows_in_block;
-    } else if (next_block > _end_block) {
-        _eof = true;
-        return OLAP_ERR_DATA_EOF;
-    }
-
-    if (OLAP_UNLIKELY(next_block != _current_block || 0 == _current_row)) {
-        if (next_block > _current_block) {
-            OLAPStatus res = _seek_to_row_entry(next_block);
-            if (res == OLAP_SUCCESS) {
-                // seek to next_block will be successful in most case
-            } else if (res == OLAP_ERR_DATA_EOF) {
-                _eof = true;
-                return res;
-            } else {
-                OLAP_LOG_WARNING("fail to seek to next block. [res=%d]", res);
-                return res;
-            }
-        }
-
-        _current_block = next_block;
-    }
-
-    _current_row++;
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus SegmentReader::_seek_to_row_entry(int64_t block_id) {
-
-    for (size_t i = 0; i < _column_readers.size(); ++i) {
-        if (block_id >= _block_count) {
-            return OLAP_ERR_DATA_EOF;
-        }
-
-        OLAPStatus res = OLAP_SUCCESS;
         
-        ColumnId table_column_id = _return_columns[i];
-        ColumnId unique_column_id = _table_id_to_unique_id_map[table_column_id];
-        if (0 == _unique_id_to_segment_id_map.count(unique_column_id)) {
-            continue;    
-        }
-        PositionProvider position(&_column_indices[i]->entry(block_id));
-        if (OLAP_SUCCESS != (res = _column_readers[i]->seek(&position))) {
+        OLAPStatus res = OLAP_SUCCESS;
+        PositionProvider position(&_column_indices[cid]->entry(block_id));
+        if (OLAP_SUCCESS != (res = _column_readers[cid]->seek(&position))) {
             if (OLAP_ERR_COLUMN_STREAM_EOF == res) {
                 OLAP_LOG_DEBUG("Stream EOF. [tablet_id=%ld column_id=%u block_id=%lu]",
-                        _table->tablet_id(), _column_readers[i]->column_unique_id(), block_id);
+                        _table->tablet_id(), _column_readers[cid]->column_unique_id(), block_id);
                 return OLAP_ERR_DATA_EOF;
             } else {
                 OLAP_LOG_WARNING("fail to seek to block. "
                         "[tablet_id=%ld column_id=%u block_id=%lu]",
-                        _table->tablet_id(), _column_readers[i]->column_unique_id(), block_id);
+                        _table->tablet_id(), _column_readers[cid]->column_unique_id(), block_id);
                 return OLAP_ERR_COLUMN_SEEK_ERROR;
             }
         }
     }
-
+    _current_block_id = block_id;
+    _at_block_start = true;
     return OLAP_SUCCESS;
 }
 
@@ -1059,6 +872,9 @@ OLAPStatus SegmentReader::_reset_readers() {
 
     for (std::vector<ColumnReader*>::iterator it = _column_readers.begin();
             it != _column_readers.end(); ++it) {
+        if ((*it) == nullptr) {
+            continue;
+        }
         if (_runtime_state != NULL) {
             MemTracker::update_limits(
                     -1 * (*it)->get_buffer_size(), _runtime_state->mem_trackers());
@@ -1071,86 +887,50 @@ OLAPStatus SegmentReader::_reset_readers() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus SegmentReader::_read_block(bool without_filter) {
-    if (NULL != _include_blocks && !without_filter) {
-        // 如果当前row小于总row, 并探测当前row所在的block是不是应该被过滤
-        // 如果需要过滤就跳过，目的是找到第一个需要读取的block
-        while (_current_row < _header_message().number_of_rows() &&
-                DEL_SATISFIED == _include_blocks[(int)(_current_row / _num_rows_in_block)]) {
-            _current_row = _current_row + _num_rows_in_block;
+void SegmentReader::_seek_to_block(int64_t block_id, bool without_filter) {
+    if (_include_blocks != nullptr && !without_filter) {
+        while (block_id <= _end_block && _include_blocks[block_id] == DEL_SATISFIED) {
+            block_id++;
         }
     }
-
-    OLAP_LOG_DEBUG("--> entry %d cur %lu tol %lu",
-            (int)(_current_row / _num_rows_in_block),
-            _current_row, _header_message().number_of_rows());
-
-    if (_current_row < _header_message().number_of_rows()) {
-        // seek到起始位置
-        return _seek_to_row_entry((int)(_current_row / _num_rows_in_block));
+    if (block_id > _end_block) {
+        _eof = true;
     }
-
-    return OLAP_SUCCESS;
+    _next_block_id = block_id;
 }
 
-OLAPStatus SegmentReader::get_row_batch(
-        uint8_t* batch_buf,
-        uint32_t batch_buf_len,
-        uint32_t* start_row_index,
-        uint32_t* batch_row_num,
-        uint32_t* block_row_num,
-        std::vector<uint32_t>& return_columns) {
-    OLAPStatus res = OLAP_SUCCESS;
-
-    _init_vectorized_info(return_columns);
-
-    res = _seek_to_row_entry(_current_block);
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to seek to row entry.[res=%d block_id=%d]", res, _current_block);
-        return res;
-    }
-
-    uint64_t start_row_in_block = (_current_row - 1) % _num_rows_in_block;
-
-    for (size_t i = 0; i < _column_readers.size(); ++i) {
-        if (return_columns.end() == std::find(return_columns.begin(),
-                return_columns.end(), _column_readers[i]->column_id())) {
-            continue;
-        }
-
-        uint32_t batch_size = _num_rows_in_block - start_row_in_block;
-        std::vector<uint32_t> offset;
-
-        for (size_t j = 0; j < _vectorized_position.size(); ++j) {
-            if (_vectorized_position[j].column_id == _column_readers[i]->column_id()) {
-                offset.push_back(_vectorized_position[j].column_position);
-                offset.push_back(_vectorized_position[j].offset_position);
-                break;
-            }
-        }
-
-        if (offset.begin() == offset.end()) {
-            OLAP_LOG_WARNING("Fail to get offset![column_id=%d]",
-                    _column_readers[i]->column_id());
-            return OLAP_ERR_OTHER_ERROR;
-        }
-
-        res = _column_readers[i]->next_vector(
-                batch_buf, batch_buf_len, start_row_in_block, batch_size, offset);
-
-        if (OLAP_SUCCESS != res && OLAP_ERR_DATA_EOF != res) {
-            OLAP_LOG_WARNING("Fail to next vector.[res=%d column_unique_id=%d]",
-                    res, _column_readers[i]->column_unique_id());
+OLAPStatus SegmentReader::_load_to_vectorized_row_batch(
+        VectorizedRowBatch* batch, size_t size) {
+    SCOPED_RAW_TIMER(&_stats->block_load_ns);
+    MemPool* mem_pool = batch->mem_pool();
+    for (auto cid : batch->columns()) {
+        auto reader = _column_readers[cid];
+        auto res = reader->next_vector(batch->column(cid), size, mem_pool);
+        if (res != OLAP_SUCCESS) {
+            OLAP_LOG_WARNING("fail to read next, res = %d, column = %u",
+                    res, reader->column_unique_id());
             return res;
         }
     }
+    batch->set_size(size);
+    if (_include_blocks != nullptr) {
+        batch->set_block_status(_include_blocks[_current_block_id]);
+    } else {
+        batch->set_block_status(DEL_PARTIAL_SATISFIED);
+    }
+    // If size is just _num_rows_in_block, after read, we point to next block start,
+    // so we increase _current_block_id
+    if (size == _num_rows_in_block) {
+        _current_block_id++;
+    } else {
+        _at_block_start = false;
+    }
 
-    *start_row_index = start_row_in_block;
-    *batch_row_num = _num_rows_in_block - start_row_in_block;
-    *block_row_num = _num_rows_in_block;
+    _stats->blocks_load++;
+    _stats->raw_rows_read += size;
 
     return OLAP_SUCCESS;
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  //unamespace palo

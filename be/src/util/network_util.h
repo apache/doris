@@ -56,6 +56,8 @@ Status get_hosts_v4(std::vector<InetAddress>* hosts);
 // Utility method because Thrift does not supply useful constructors
 TNetworkAddress make_network_address(const std::string& hostname, int port);
 
+Status get_inet_interfaces(std::vector<std::string>* interfaces, bool include_ipv6 = false);
+
 }
 
 #endif

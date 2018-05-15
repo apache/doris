@@ -28,7 +28,7 @@
 #include "runtime/primitive_type.h"
 #include "thrift/protocol/TDebugProtocol.h"
 #include "common/config.h"
-#include "olap/field.h"
+#include "olap/hll.h"
 
 namespace llvm {
 class ConstantStruct;

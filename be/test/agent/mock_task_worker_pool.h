@@ -22,7 +22,7 @@
 namespace palo {
 
 const uint32_t TASK_FINISH_MAX_RETRY = 3;
-const uint32_t PUSH_MAX_RETRY = 3;
+const uint32_t PUSH_MAX_RETRY = 1;
 const uint32_t REPORT_TASK_WORKER_COUNT = 1;
 const uint32_t REPORT_DISK_STATE_WORKER_COUNT = 1;
 const uint32_t REPORT_OLAP_TABLE_WORKER_COUNT = 1;

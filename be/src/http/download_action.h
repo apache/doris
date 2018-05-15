@@ -19,6 +19,7 @@
 #include "exec/csv_scanner.h"
 #include "exec/scan_node.h"
 #include "runtime/descriptors.h"
+#include "http/http_handler.h"
 
 namespace palo {
 

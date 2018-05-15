@@ -52,10 +52,12 @@ public:
     // Helper maybe used everywhere
     void send_basic_challenge(const std::string& realm);
 
+    int64_t send_bytes() const { return _send_bytes; }
 private:
     const HttpRequest& _request;
     // save mongoose connection here
     mg_connection* _mg_conn;
+    int64_t _send_bytes = 0;
 };
 
 }

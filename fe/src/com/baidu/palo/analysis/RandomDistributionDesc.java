@@ -20,11 +20,11 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.DistributionInfo;
-import com.baidu.palo.catalog.RandomDistributionInfo;
 import com.baidu.palo.catalog.DistributionInfo.DistributionInfoType;
+import com.baidu.palo.catalog.RandomDistributionInfo;
+import com.baidu.palo.common.AnalysisException;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -32,6 +32,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Set;
 
+@Deprecated
 public class RandomDistributionDesc extends DistributionDesc {
     int numBucket;
 
@@ -46,7 +47,7 @@ public class RandomDistributionDesc extends DistributionDesc {
 
     @Override
     public void analyze(Set<String> colSet) throws AnalysisException {
-        throw new AnalysisException("Random distribution is deprecated now. Use hash distribution instead.");
+        throw new AnalysisException("Random distribution is deprecated now, use Hash distribution instead");
     }
 
     @Override
@@ -66,7 +67,6 @@ public class RandomDistributionDesc extends DistributionDesc {
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
-
         out.writeInt(numBucket);
     }
 

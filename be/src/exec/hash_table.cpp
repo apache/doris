@@ -80,9 +80,11 @@ HashTable::HashTable(const vector<ExprContext*>& build_expr_ctxs,
     _nodes = reinterpret_cast<uint8_t*>(malloc(_nodes_capacity * _node_byte_size));
     memset(_nodes, 0, _nodes_capacity * _node_byte_size);
 
+#if 0
     if (PaloMetrics::hash_table_total_bytes() != NULL) {
         PaloMetrics::hash_table_total_bytes()->increment(_nodes_capacity * _node_byte_size);
     }
+#endif
 
     _mem_tracker->consume(_nodes_capacity * _node_byte_size);
     if (_mem_tracker->limit_exceeded()) {
@@ -98,10 +100,11 @@ void HashTable::close() {
     delete[] _expr_values_buffer;
     delete[] _expr_value_null_bits;
     free(_nodes);
-
+#if 0
     if (PaloMetrics::hash_table_total_bytes() != NULL) {
         PaloMetrics::hash_table_total_bytes()->increment(-_nodes_capacity * _node_byte_size);
     }
+#endif
     _mem_tracker->release(_nodes_capacity * _node_byte_size);
     _mem_tracker->release(_buckets.size() * sizeof(Bucket));
 }
@@ -269,9 +272,11 @@ void HashTable::grow_node_array() {
     free(_nodes);
     _nodes = new_nodes; 
 
+#if 0
     if (PaloMetrics::hash_table_total_bytes() != NULL) {
         PaloMetrics::hash_table_total_bytes()->increment(new_size - old_size);
     }
+#endif
 
     _mem_tracker->consume(new_size - old_size);
     if (_mem_tracker->limit_exceeded()) {

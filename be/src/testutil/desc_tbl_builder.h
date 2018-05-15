@@ -23,6 +23,8 @@
 
 #include "runtime/runtime_state.h"
 
+#include "runtime/types.h"
+
 namespace palo {
 
 class ObjectPool;

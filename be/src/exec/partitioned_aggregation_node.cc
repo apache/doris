@@ -80,8 +80,8 @@ PartitionedAggregationNode::PartitionedAggregationNode(
     DCHECK_EQ(PARTITION_FANOUT, 1 << NUM_PARTITIONING_BITS);
 }
 
-Status PartitionedAggregationNode::init(const TPlanNode& tnode) {
-    RETURN_IF_ERROR(ExecNode::init(tnode));
+Status PartitionedAggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::init(tnode, state));
     RETURN_IF_ERROR(
             Expr::create_expr_trees(_pool, tnode.agg_node.grouping_exprs, &_probe_expr_ctxs));
     for (int i = 0; i < tnode.agg_node.aggregate_functions.size(); ++i) {

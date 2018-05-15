@@ -22,11 +22,13 @@
 
 #include <math.h>
 #include <sstream>
+#include <unordered_set>
 
 #include "common/logging.h"
 #include "runtime/string_value.h"
 #include "runtime/datetime_value.h"
 #include "exprs/anyval_util.h"
+#include "exprs/hybird_set.h"
 #include "util/debug_util.h"
 
 // TODO: this file should be cross compiled and then all of the builtin
@@ -1073,6 +1075,647 @@ int64_t AggregateFunctions::hll_algorithm(const palo_udf::StringVal& src) {
     return (int64_t)(estimate + 0.5);
 }
 
+// TODO chenhao , reduce memory copy
+// multi distinct state for numertic
+// serialize order type:value:value:value ...
+template <typename T>
+class MultiDistinctNumericState {
+public:
+
+    static void create(StringVal* dst) {
+        dst->is_null = false;
+        const int state_size = sizeof(MultiDistinctNumericState<T>);
+        MultiDistinctNumericState<T>* state = new MultiDistinctNumericState<T>();
+        if (std::is_same<T, TinyIntVal>::value) {
+            state->_type = FunctionContext::TYPE_TINYINT;
+        } else if (std::is_same<T, SmallIntVal>::value) {
+            state->_type = FunctionContext::TYPE_SMALLINT;
+        } else if (std::is_same<T, IntVal>::value) {
+            state->_type = FunctionContext::TYPE_INT;
+        } else if (std::is_same<T, BigIntVal>::value) {
+            state->_type = FunctionContext::TYPE_BIGINT;
+        } else if (std::is_same<T, LargeIntVal>::value) {
+            state->_type = FunctionContext::TYPE_LARGEINT;
+        } else if (std::is_same<T, DoubleVal>::value) {
+            state->_type = FunctionContext::TYPE_DOUBLE;
+        } else if (std::is_same<T, FloatVal>::value) {
+            state->_type = FunctionContext::TYPE_FLOAT;
+        } else {
+            DCHECK(false);
+        }
+        dst->len = state_size;
+        dst->ptr = (uint8_t*)state;
+    }
+
+    static void destory(const StringVal& dst) {
+        delete (MultiDistinctNumericState<T>*)dst.ptr;
+    }
+
+    void update(T& t) {
+        _set.insert(t);
+    }
+
+    // type:one byte  value:sizeof(T)
+    StringVal serialize(FunctionContext* ctx) {
+        size_t type_size = sizeof(((T*)0)->val);
+        const size_t serialized_set_length = sizeof(uint8_t) + type_size * _set.size();
+        StringVal result(ctx, serialized_set_length);
+        uint8_t* type_writer = result.ptr;
+        // type
+        *type_writer = (uint8_t)_type;
+        type_writer++;
+        // value
+        for (auto& value : _set) {
+            memcpy(type_writer, &value.val, type_size);
+            type_writer += type_size;
+        }
+        return result;
+    }
+
+    void unserialize(StringVal& src) {
+        size_t type_size = sizeof(((T*)0)->val);
+        const uint8_t* type_reader = src.ptr;
+        const uint8_t* end = src.ptr + src.len;
+        // type
+        _type = (FunctionContext::Type)*type_reader;
+        type_reader++;
+        // value
+        while (type_reader < end) {
+            T value;
+            value.is_null = false;
+            memcpy(&value.val, type_reader, type_size);
+            _set.insert(value);
+            type_reader += type_size;
+        }
+    }
+
+    // merge set
+    void merge(MultiDistinctNumericState& state) {
+        _set.insert(state._set.begin(), state._set.end());
+    }
+
+    // count
+    BigIntVal count_finalize() {
+        return BigIntVal(_set.size());
+    }
+  
+    // sum for double, decimal
+    DoubleVal sum_finalize_double() {
+        double sum = 0;
+        for (auto& value : _set) {
+            sum += value.val;
+        }
+        return DoubleVal(sum);
+    }
+
+    // sum for largeint 
+    LargeIntVal sum_finalize_largeint() {
+        __int128 sum = 0;
+        for (auto& value : _set) {
+            sum += value.val;
+        }
+        return LargeIntVal(sum);
+    }
+
+    // sum for tinyint, smallint, int, bigint
+    BigIntVal sum_finalize_bigint() {
+        int64_t sum = 0;
+        for (auto& value : _set) {
+            sum += value.val;
+        }
+        return BigIntVal(sum);
+    }
+
+    FunctionContext::Type set_type() {
+        return _type;
+    }
+
+private:
+
+    class NumericHashHelper {   
+    public:
+        size_t operator()(const T& obj) const {
+            size_t result = AnyValUtil::hash64_murmur(obj, HashUtil::MURMUR_SEED);   
+            return result;
+        }
+    };
+
+    std::unordered_set<T, NumericHashHelper> _set;
+    // Because Anyval does not provide the hash function, in order 
+    // to adopt the type different from the template, the pointer is used
+    // HybirdSetBase* _set;
+    // _type is serialized into buffer by one byte
+    FunctionContext::Type _type;
+};
+
+// multi distinct state for string
+// // serialize order type:len:value:len:value ...
+class MultiDistinctStringCountState {
+public:
+
+    static void create(StringVal* dst) {
+        dst->is_null = false;
+        const int state_size = sizeof(MultiDistinctStringCountState);
+        MultiDistinctStringCountState* state = new MultiDistinctStringCountState();
+        // type length
+        state->_type = FunctionContext::TYPE_STRING;
+        dst->len = state_size;
+        dst->ptr = (uint8_t*)state;
+    }
+
+    static void destory(const StringVal& dst) {
+        delete (MultiDistinctStringCountState*)dst.ptr;
+    }
+
+    inline void update(StringValue* sv) {
+        _set.insert(sv);
+    }
+
+    StringVal serialize(FunctionContext* ctx) {
+        // calculate total serialize buffer length
+        int total_serialized_set_length = 1;
+        HybirdSetBase::IteratorBase* iterator = _set.begin();
+        while (iterator->has_next()) {
+            const StringValue* value = 
+                        reinterpret_cast<const StringValue*>(iterator->get_value());
+            total_serialized_set_length += STRING_LENGTH_RECORD_LENGTH + value->len;
+            iterator->next();
+        }
+        StringVal result(ctx, total_serialized_set_length);
+        uint8_t* writer = result.ptr;
+        // type
+        *writer = _type;
+        writer ++;
+        iterator = _set.begin();
+        while (iterator->has_next()) {
+            const StringValue* value = reinterpret_cast<const StringValue*>
+            (iterator->get_value());
+            // length, it is unnecessary to consider little or big endian for
+            // all running in little-endian.
+            *(int*)writer = value->len;
+            writer += STRING_LENGTH_RECORD_LENGTH;
+            // value
+            memcpy(writer, value->ptr, value->len);
+            writer += value->len;
+            iterator->next();
+        }
+        return result;
+    }
+    
+    void unserialize(StringVal& src) {
+        uint8_t* reader = src.ptr;
+        // skip type ,no used now
+        _type = (FunctionContext::Type)*reader;
+        DCHECK(_type == FunctionContext::TYPE_STRING);
+        reader ++;
+        const uint8_t* end = src.ptr + src.len;
+        while (reader < end) {
+            const int length = *(int*)reader;
+            reader += STRING_LENGTH_RECORD_LENGTH;
+            StringValue value((char*)reader, length);
+            _set.insert(&value);
+            reader += length;
+        }
+        DCHECK(reader == end);
+    }
+   
+    // merge set 
+    void merge(MultiDistinctStringCountState& state) {
+        _set.insert(&(state._set));
+    }
+    
+    BigIntVal finalize() {
+        return BigIntVal(_set.size());
+    }
+
+    FunctionContext::Type set_type() {
+        return _type;
+    }
+  
+    static const int STRING_LENGTH_RECORD_LENGTH = 4; 
+private:
+ 
+    StringValueSet _set;
+    // _type is serialized into buffer by one byte
+    FunctionContext::Type _type;
+};
+
+// multi distinct state for decimal
+// // serialize order type:int_len:frac_len:sign:int_len ... 
+class MultiDistinctDecimalState {
+public:
+
+    static void create(StringVal* dst) {
+        dst->is_null = false;
+        const int state_size = sizeof(MultiDistinctDecimalState);
+        MultiDistinctDecimalState* state = new MultiDistinctDecimalState();
+        state->_type = FunctionContext::TYPE_DECIMAL;
+        dst->len = state_size;
+        dst->ptr = (uint8_t*)state;
+    }
+
+    static void destory(const StringVal& dst) {
+        delete (MultiDistinctDecimalState*)dst.ptr;
+    }
+
+    void update(DecimalVal& t) {
+        _set.insert(DecimalValue::from_decimal_val(t));
+    }
+
+    // type:one byte  value:sizeof(T)
+    StringVal serialize(FunctionContext* ctx) {
+        const int serialized_set_length = sizeof(uint8_t) 
+                   + (DECIMAL_INT_LEN_BYTE_SIZE 
+                     + DECIMAL_FRAC_BYTE_SIZE
+                     + DECIMAL_SIGN_BYTE_SIZE
+                     + DECIMAL_BUFFER_BYTE_SIZE) * _set.size();
+        StringVal result(ctx, serialized_set_length);
+        uint8_t* writer = result.ptr;
+        *writer = (uint8_t)_type;
+        writer++;
+        // for int_length and frac_length, uint8_t will not overflow.
+        for (auto& value : _set) {
+            *writer = value._int_length;
+            writer += DECIMAL_INT_LEN_BYTE_SIZE;
+            *writer = value._frac_length;
+            writer += DECIMAL_FRAC_BYTE_SIZE;
+            *writer = value._sign;
+            writer += DECIMAL_SIGN_BYTE_SIZE;
+            memcpy(writer, value._buffer, DECIMAL_BUFFER_BYTE_SIZE);
+            writer += DECIMAL_BUFFER_BYTE_SIZE;
+        }    
+        return result;
+    }    
+
+    void unserialize(StringVal& src) {
+        const uint8_t* reader = src.ptr;
+        // type
+        _type = (FunctionContext::Type)*reader;
+        reader++;
+        const uint8_t* end = src.ptr + src.len;
+        // value
+        while (reader < end) {
+            DecimalValue value;
+            value._int_length = *reader;
+            reader += DECIMAL_INT_LEN_BYTE_SIZE;
+            value._frac_length = *reader;
+            reader += DECIMAL_FRAC_BYTE_SIZE;
+            value._sign = *reader;
+            reader += DECIMAL_SIGN_BYTE_SIZE;
+            value._buffer_length = DECIMAL_BUFF_LENGTH;
+            memcpy(value._buffer, reader, DECIMAL_BUFFER_BYTE_SIZE);
+            reader += DECIMAL_BUFFER_BYTE_SIZE;
+            _set.insert(value);
+        }    
+    }    
+ 
+    FunctionContext::Type set_type() {
+        return _type;
+    }
+
+    // merge set
+    void merge(MultiDistinctDecimalState& state) {
+        _set.insert(state._set.begin(), state._set.end());
+    }    
+
+    // count
+    BigIntVal count_finalize() {
+        return BigIntVal(_set.size());
+    }   
+
+    DecimalVal sum_finalize() {
+        DecimalValue sum;
+        for (auto& value : _set) {
+             sum += value;
+        }
+        DecimalVal result;
+        sum.to_decimal_val(&result); 
+        return result;
+    }
+
+private:
+
+    const int DECIMAL_INT_LEN_BYTE_SIZE = 1; 
+    const int DECIMAL_FRAC_BYTE_SIZE = 1; 
+    const int DECIMAL_SIGN_BYTE_SIZE = 1; 
+    const int DECIMAL_BUFFER_BYTE_SIZE = 36;
+
+    std::unordered_set<DecimalValue> _set;
+    FunctionContext::Type _type;
+};
+
+// multi distinct state for date
+// // serialize order type:packed_time:type:packed_time:type ...
+class MultiDistinctCountDateState {
+public:
+    
+    static void create(StringVal* dst) {
+        dst->is_null = false;
+        const int state_size = sizeof(MultiDistinctCountDateState);
+        MultiDistinctCountDateState* state = new MultiDistinctCountDateState();
+        state->_type = FunctionContext::TYPE_DATETIME;
+        dst->len = state_size;
+        dst->ptr = (uint8_t*)state;
+    }
+    
+    static void destory(const StringVal& dst) {
+        delete (MultiDistinctCountDateState*)dst.ptr;
+    }
+    
+    void update(DateTimeVal& t) {
+        _set.insert(t);
+    }
+    
+    // type:one byte  value:sizeof(T)
+    StringVal serialize(FunctionContext* ctx) {
+        const int serialized_set_length = sizeof(uint8_t) + 
+                   (DATETIME_PACKED_TIME_BYTE_SIZE + DATETIME_TYPE_BYTE_SIZE) * _set.size();
+        StringVal result(ctx, serialized_set_length);
+        uint8_t* writer = result.ptr;
+        // type
+        *writer = (uint8_t)_type;
+        writer++;
+        // value
+        for (auto& value : _set) {
+            int64_t* packed_time_writer = (int64_t*)writer;
+            *packed_time_writer = value.packed_time;
+            writer += DATETIME_PACKED_TIME_BYTE_SIZE;
+            int* type_writer = (int*)writer;
+            *type_writer = value.type;
+            writer += DATETIME_TYPE_BYTE_SIZE;
+        }
+        return result;
+    }
+    
+    void unserialize(StringVal& src) {
+        const uint8_t* reader = src.ptr;
+        // type
+        _type = (FunctionContext::Type)*reader;
+        reader++;
+        const uint8_t* end = src.ptr + src.len;
+        // value
+        while (reader < end) {
+            DateTimeVal value;
+            value.is_null = false;
+            int64_t* packed_time_reader = (int64_t*)reader;
+            value.packed_time = *packed_time_reader;
+            reader += DATETIME_PACKED_TIME_BYTE_SIZE;
+            int* type_reader = (int*)reader;
+            value.type = *type_reader;
+            reader += DATETIME_TYPE_BYTE_SIZE;
+            _set.insert(value);
+        }
+    }
+    
+    // merge set
+    void merge(MultiDistinctCountDateState& state) {
+        _set.insert(state._set.begin(), state._set.end());
+    }
+    
+    // count
+    BigIntVal count_finalize() {
+        return BigIntVal(_set.size());
+    }
+   
+    FunctionContext::Type set_type() {
+        return _type;
+    }
+ 
+private:
+   
+    class DateTimeHashHelper {    
+    public:
+        size_t operator()(const DateTimeVal& obj) const {
+            size_t result = AnyValUtil::hash64_murmur(obj, HashUtil::MURMUR_SEED);   
+            return result;
+        }
+    }; 
+ 
+    const int DATETIME_PACKED_TIME_BYTE_SIZE = 8;
+    const int DATETIME_TYPE_BYTE_SIZE = 4;
+
+    std::unordered_set<DateTimeVal, DateTimeHashHelper> _set;
+    FunctionContext::Type _type;
+};
+    
+template <typename T>
+void AggregateFunctions::count_or_sum_distinct_numeric_init(FunctionContext* ctx, StringVal* dst) {
+    MultiDistinctNumericState<T>::create(dst);
+}
+    
+void AggregateFunctions::count_distinct_string_init(FunctionContext* ctx, StringVal* dst) {
+    MultiDistinctStringCountState::create(dst);
+}
+    
+void AggregateFunctions::count_or_sum_distinct_decimal_init(FunctionContext* ctx, StringVal* dst) {
+    MultiDistinctDecimalState::create(dst);
+}
+    
+void AggregateFunctions::count_distinct_date_init(FunctionContext* ctx, StringVal* dst) {
+    MultiDistinctCountDateState::create(dst);
+}
+
+template <typename T>
+void AggregateFunctions::count_or_sum_distinct_numeric_update(FunctionContext* ctx, T& src,
+                         StringVal* dst) {
+    DCHECK(!dst->is_null);
+    if (src.is_null) return;
+    MultiDistinctNumericState<T>* state = reinterpret_cast<MultiDistinctNumericState<T>*>(dst->ptr);
+    state->update(src);
+}
+    
+void AggregateFunctions::count_distinct_string_update(FunctionContext* ctx, StringVal& src,
+                           StringVal* dst) {
+    DCHECK(!dst->is_null);
+    if (src.is_null) return;
+    MultiDistinctStringCountState* state = reinterpret_cast<MultiDistinctStringCountState*>(dst->ptr);
+    StringValue sv = StringValue::from_string_val(src);
+    state->update(&sv);
+}
+    
+void AggregateFunctions::count_or_sum_distinct_decimal_update(FunctionContext* ctx, DecimalVal& src,
+                                                              StringVal* dst) {
+    DCHECK(!dst->is_null);
+    if (src.is_null) return;
+    MultiDistinctDecimalState* state = reinterpret_cast<MultiDistinctDecimalState*>(dst->ptr);
+    state->update(src);
+}
+    
+void AggregateFunctions::count_distinct_date_update(FunctionContext* ctx, DateTimeVal& src,
+                                                              StringVal* dst) {
+    DCHECK(!dst->is_null);
+    if (src.is_null) return;
+    MultiDistinctCountDateState* state = reinterpret_cast<MultiDistinctCountDateState*>(dst->ptr);
+    state->update(src);
+}
+
+template <typename T>
+void AggregateFunctions::count_or_sum_distinct_numeric_merge(FunctionContext* ctx, StringVal& src,
+                         StringVal* dst) {
+   DCHECK(!dst->is_null);
+   DCHECK(!src.is_null);
+   MultiDistinctNumericState<T>* dst_state = reinterpret_cast<MultiDistinctNumericState<T>*>(dst->ptr);
+   // unserialize src
+   StringVal src_state_val;
+   MultiDistinctNumericState<T>::create(&src_state_val); 
+   MultiDistinctNumericState<T>* src_state = reinterpret_cast<MultiDistinctNumericState<T>*>(src_state_val.ptr);
+   src_state->unserialize(src);
+   DCHECK(dst_state->set_type() == src_state->set_type());
+   dst_state->merge(*src_state);
+   MultiDistinctNumericState<T>::destory(src_state_val);
+}
+    
+void AggregateFunctions::count_distinct_string_merge(FunctionContext* ctx, StringVal& src,
+                          StringVal* dst) {
+    DCHECK(!dst->is_null);
+    DCHECK(!src.is_null);
+    MultiDistinctStringCountState* dst_state = reinterpret_cast<MultiDistinctStringCountState*>(dst->ptr);
+    // unserialize src
+    StringVal src_state_val;
+    MultiDistinctStringCountState::create(&src_state_val);
+    MultiDistinctStringCountState* src_state = reinterpret_cast<MultiDistinctStringCountState*>(src_state_val.ptr);
+    src_state->unserialize(src);
+    DCHECK(dst_state->set_type() == src_state->set_type());
+    dst_state->merge(*src_state);
+    MultiDistinctStringCountState::destory(src_state_val); 
+}
+
+
+void AggregateFunctions::count_or_sum_distinct_decimal_merge(FunctionContext* ctx, StringVal& src,
+                                                             StringVal* dst) {
+    DCHECK(!dst->is_null);
+    DCHECK(!src.is_null);
+    MultiDistinctDecimalState* dst_state = reinterpret_cast<MultiDistinctDecimalState*>(dst->ptr);
+    // unserialize src
+    StringVal src_state_val;
+    MultiDistinctDecimalState::create(&src_state_val);
+    MultiDistinctDecimalState* src_state = reinterpret_cast<MultiDistinctDecimalState*>(src_state_val.ptr);
+    src_state->unserialize(src);
+    DCHECK(dst_state->set_type() == src_state->set_type());
+    dst_state->merge(*src_state);
+    MultiDistinctDecimalState::destory(src_state_val);
+}
+    
+void AggregateFunctions::count_distinct_date_merge(FunctionContext* ctx, StringVal& src,
+                                                             StringVal* dst) {
+    DCHECK(!dst->is_null);
+    DCHECK(!src.is_null);
+    MultiDistinctCountDateState* dst_state = reinterpret_cast<MultiDistinctCountDateState*>(dst->ptr);
+    // unserialize src
+    StringVal src_state_val;
+    MultiDistinctCountDateState::create(&src_state_val);
+    MultiDistinctCountDateState* src_state = reinterpret_cast<MultiDistinctCountDateState*>(src_state_val.ptr);
+    src_state->unserialize(src);
+    DCHECK(dst_state->set_type() == src_state->set_type());
+    dst_state->merge(*src_state);
+    MultiDistinctCountDateState::destory(src_state_val);
+}
+    
+template <typename T>
+StringVal AggregateFunctions::count_or_sum_distinct_numeric_serialize(FunctionContext* ctx, const StringVal& state_sv) {
+    DCHECK(!state_sv.is_null);
+    MultiDistinctNumericState<T>* state = reinterpret_cast<MultiDistinctNumericState<T>*>(state_sv.ptr);
+    StringVal result = state->serialize(ctx);
+    // release original object
+    MultiDistinctNumericState<T>::destory(state_sv);
+    return result;
+}
+    
+StringVal AggregateFunctions::count_distinct_string_serialize(FunctionContext* ctx, const StringVal& state_sv) {
+    DCHECK(!state_sv.is_null);
+    MultiDistinctStringCountState* state = reinterpret_cast<MultiDistinctStringCountState*>(state_sv.ptr);
+    StringVal result = state->serialize(ctx);
+    // release original object
+    MultiDistinctStringCountState::destory(state_sv);
+    return result;
+}
+
+StringVal AggregateFunctions::count_or_sum_distinct_decimal_serialize(FunctionContext* ctx, const StringVal& state_sv) {
+    DCHECK(!state_sv.is_null);
+    MultiDistinctDecimalState* state = reinterpret_cast<MultiDistinctDecimalState*>(state_sv.ptr);
+    StringVal result = state->serialize(ctx);
+    // release original object
+    MultiDistinctDecimalState::destory(state_sv);
+    return result;
+}
+    
+StringVal AggregateFunctions::count_distinct_date_serialize(FunctionContext* ctx, const StringVal& state_sv) {
+    DCHECK(!state_sv.is_null);
+    MultiDistinctCountDateState* state = reinterpret_cast<MultiDistinctCountDateState*>(state_sv.ptr);
+    StringVal result = state->serialize(ctx);
+    // release original object
+    MultiDistinctCountDateState::destory(state_sv);
+    return result;
+}
+    
+template <typename T>
+BigIntVal AggregateFunctions::count_or_sum_distinct_numeric_finalize(FunctionContext* ctx, const StringVal& state_sv) {
+    DCHECK(!state_sv.is_null);
+    MultiDistinctNumericState<T>* state = reinterpret_cast<MultiDistinctNumericState<T>*>(state_sv.ptr);
+    BigIntVal result = state->count_finalize();
+    MultiDistinctNumericState<T>::destory(state_sv);
+    return result;
+}
+    
+BigIntVal AggregateFunctions::count_distinct_string_finalize(FunctionContext* ctx, const StringVal& state_sv) {
+    DCHECK(!state_sv.is_null);
+    MultiDistinctStringCountState* state = reinterpret_cast<MultiDistinctStringCountState*>(state_sv.ptr);
+    BigIntVal result = state->finalize();
+    MultiDistinctStringCountState::destory(state_sv);
+    return result;
+}
+
+template <typename T>
+DoubleVal AggregateFunctions::sum_distinct_double_finalize(FunctionContext* ctx, const StringVal& state_sv) {
+    DCHECK(!state_sv.is_null);
+    MultiDistinctNumericState<T>* state = reinterpret_cast<MultiDistinctNumericState<T>*>(state_sv.ptr);
+    DoubleVal result = state->sum_finalize_double();
+    MultiDistinctNumericState<T>::destory(state_sv);
+    return result;
+}
+
+template <typename T>
+LargeIntVal AggregateFunctions::sum_distinct_largeint_finalize(FunctionContext* ctx, const StringVal& state_sv) {
+    DCHECK(!state_sv.is_null);
+    MultiDistinctNumericState<T>* state = reinterpret_cast<MultiDistinctNumericState<T>*>(state_sv.ptr);
+    LargeIntVal result = state->sum_finalize_largeint();
+    MultiDistinctNumericState<T>::destory(state_sv);
+    return result;
+}
+
+template <typename T>
+BigIntVal AggregateFunctions::sum_distinct_bigint_finalize(FunctionContext* ctx, const StringVal& state_sv) {
+    DCHECK(!state_sv.is_null);
+    MultiDistinctNumericState<T>* state = reinterpret_cast<MultiDistinctNumericState<T>*>(state_sv.ptr);
+    BigIntVal result = state->sum_finalize_bigint();
+    MultiDistinctNumericState<T>::destory(state_sv);
+    return result;
+}
+
+BigIntVal AggregateFunctions::count_distinct_decimal_finalize(FunctionContext* ctx, const StringVal& state_sv) {
+    DCHECK(!state_sv.is_null);
+    MultiDistinctDecimalState* state = reinterpret_cast<MultiDistinctDecimalState*>(state_sv.ptr);
+    BigIntVal result = state->count_finalize();
+    MultiDistinctDecimalState::destory(state_sv);
+    return result;
+}
+    
+DecimalVal AggregateFunctions::sum_distinct_decimal_finalize(FunctionContext* ctx, const StringVal& state_sv) {
+    DCHECK(!state_sv.is_null);
+    MultiDistinctDecimalState* state = reinterpret_cast<MultiDistinctDecimalState*>(state_sv.ptr);
+    DecimalVal result = state->sum_finalize();
+    MultiDistinctDecimalState::destory(state_sv);
+    return result;
+}
+    
+BigIntVal AggregateFunctions::count_distinct_date_finalize(FunctionContext* ctx, const StringVal& state_sv) {
+    DCHECK(!state_sv.is_null);
+    MultiDistinctCountDateState* state = reinterpret_cast<MultiDistinctCountDateState*>(state_sv.ptr);
+    BigIntVal result = state->count_finalize();
+    MultiDistinctCountDateState::destory(state_sv);
+    return result;
+}
+    
 // An implementation of a simple single pass variance algorithm. A standard UDA must
 // be single pass (i.e. does not scan the table more than once), so the most canonical
 // two pass approach is not practical.
@@ -1139,6 +1782,7 @@ DoubleVal AggregateFunctions::knuth_var_finalize(FunctionContext* ctx, const Str
     KnuthVarianceState* state = reinterpret_cast<KnuthVarianceState*>(state_sv.ptr);
     if (state->count == 0 || state->count == 1) return DoubleVal::null();
     double variance = compute_knuth_variance(*state, false);
+    ctx->free(state_sv.ptr);
     return DoubleVal(variance);
 }
 
@@ -1148,7 +1792,9 @@ DoubleVal AggregateFunctions::knuth_var_pop_finalize(FunctionContext* ctx,
     DCHECK_EQ(state_sv.len, sizeof(KnuthVarianceState));
     KnuthVarianceState* state = reinterpret_cast<KnuthVarianceState*>(state_sv.ptr);
     if (state->count == 0) return DoubleVal::null();
-    return compute_knuth_variance(*state, true);
+    double variance = compute_knuth_variance(*state, true);
+    ctx->free(state_sv.ptr);
+    return DoubleVal(variance);
 }
 
 DoubleVal AggregateFunctions::knuth_stddev_finalize(FunctionContext* ctx, 
@@ -1157,7 +1803,9 @@ DoubleVal AggregateFunctions::knuth_stddev_finalize(FunctionContext* ctx,
     DCHECK_EQ(state_sv.len, sizeof(KnuthVarianceState));
     KnuthVarianceState* state = reinterpret_cast<KnuthVarianceState*>(state_sv.ptr);
     if (state->count == 0 || state->count == 1) return DoubleVal::null();
-    return sqrt(compute_knuth_variance(*state, false));
+    double variance = sqrt(compute_knuth_variance(*state, false));
+    ctx->free(state_sv.ptr);
+    return DoubleVal(variance);
 }
 
 DoubleVal AggregateFunctions::knuth_stddev_pop_finalize(FunctionContext* ctx,
@@ -1166,7 +1814,9 @@ DoubleVal AggregateFunctions::knuth_stddev_pop_finalize(FunctionContext* ctx,
     DCHECK_EQ(state_sv.len, sizeof(KnuthVarianceState));
     KnuthVarianceState* state = reinterpret_cast<KnuthVarianceState*>(state_sv.ptr);
     if (state->count == 0) return DoubleVal::null();
-    return sqrt(compute_knuth_variance(*state, true));
+    double variance = sqrt(compute_knuth_variance(*state, true));
+    ctx->free(state_sv.ptr);
+    return DoubleVal(variance);
 }
 
 struct RankState {
@@ -1519,6 +2169,97 @@ template void AggregateFunctions::hll_update(
     FunctionContext*, const LargeIntVal&, StringVal*);
 template void AggregateFunctions::hll_update(
     FunctionContext*, const DecimalVal&, StringVal*);
+
+template void AggregateFunctions::count_or_sum_distinct_numeric_init<TinyIntVal>(
+    FunctionContext* ctx, StringVal* dst);
+template void AggregateFunctions::count_or_sum_distinct_numeric_init<SmallIntVal>(
+    FunctionContext* ctx, StringVal* dst);
+template void AggregateFunctions::count_or_sum_distinct_numeric_init<IntVal>(
+    FunctionContext* ctx, StringVal* dst);
+template void AggregateFunctions::count_or_sum_distinct_numeric_init<BigIntVal>(
+      FunctionContext* ctx, StringVal* dst);
+template void AggregateFunctions::count_or_sum_distinct_numeric_init<FloatVal>(
+    FunctionContext* ctx, StringVal* dst);
+template void AggregateFunctions::count_or_sum_distinct_numeric_init<DoubleVal>(
+    FunctionContext* ctx, StringVal* dst);
+template void AggregateFunctions::count_or_sum_distinct_numeric_init<LargeIntVal>(
+    FunctionContext* ctx, StringVal* dst);
+
+
+template void AggregateFunctions::count_or_sum_distinct_numeric_update<TinyIntVal>(
+    FunctionContext* ctx, TinyIntVal& src, StringVal* dst);
+template void AggregateFunctions::count_or_sum_distinct_numeric_update<SmallIntVal>(
+    FunctionContext* ctx, SmallIntVal& src, StringVal* dst);
+template void AggregateFunctions::count_or_sum_distinct_numeric_update<IntVal>(
+    FunctionContext* ctx, IntVal& src, StringVal* dst);
+template void AggregateFunctions::count_or_sum_distinct_numeric_update<BigIntVal>(
+    FunctionContext* ctx, BigIntVal& src, StringVal* dst);
+template void AggregateFunctions::count_or_sum_distinct_numeric_update<FloatVal>(
+    FunctionContext* ctx, FloatVal& src, StringVal* dst);
+template void AggregateFunctions::count_or_sum_distinct_numeric_update<DoubleVal>(
+    FunctionContext* ctx, DoubleVal& src, StringVal* dst);
+template void AggregateFunctions::count_or_sum_distinct_numeric_update<LargeIntVal>(
+    FunctionContext* ctx, LargeIntVal& src, StringVal* dst);
+
+template void AggregateFunctions::count_or_sum_distinct_numeric_merge<TinyIntVal>(
+    FunctionContext* ctx, StringVal& src, StringVal* dst);
+template void AggregateFunctions::count_or_sum_distinct_numeric_merge<SmallIntVal>(
+    FunctionContext* ctx, StringVal& src, StringVal* dst);
+template void AggregateFunctions::count_or_sum_distinct_numeric_merge<IntVal>(
+    FunctionContext* ctx, StringVal& src, StringVal* dst);
+template void AggregateFunctions::count_or_sum_distinct_numeric_merge<BigIntVal>(
+    FunctionContext* ctx, StringVal& src, StringVal* dst);
+template void AggregateFunctions::count_or_sum_distinct_numeric_merge<FloatVal>(
+    FunctionContext* ctx, StringVal& src, StringVal* dst);
+template void AggregateFunctions::count_or_sum_distinct_numeric_merge<DoubleVal>(
+    FunctionContext* ctx, StringVal& src, StringVal* dst);
+template void AggregateFunctions::count_or_sum_distinct_numeric_merge<LargeIntVal>(
+    FunctionContext* ctx, StringVal& src, StringVal* dst);
+
+template StringVal AggregateFunctions::count_or_sum_distinct_numeric_serialize<TinyIntVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+template StringVal AggregateFunctions::count_or_sum_distinct_numeric_serialize<SmallIntVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+template StringVal AggregateFunctions::count_or_sum_distinct_numeric_serialize<IntVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+template StringVal AggregateFunctions::count_or_sum_distinct_numeric_serialize<BigIntVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+template StringVal AggregateFunctions::count_or_sum_distinct_numeric_serialize<FloatVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+template StringVal AggregateFunctions::count_or_sum_distinct_numeric_serialize<DoubleVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+template StringVal AggregateFunctions::count_or_sum_distinct_numeric_serialize<LargeIntVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+
+template BigIntVal AggregateFunctions::count_or_sum_distinct_numeric_finalize<TinyIntVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+template BigIntVal AggregateFunctions::count_or_sum_distinct_numeric_finalize<SmallIntVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+template BigIntVal AggregateFunctions::count_or_sum_distinct_numeric_finalize<IntVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+template BigIntVal AggregateFunctions::count_or_sum_distinct_numeric_finalize<BigIntVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+template BigIntVal AggregateFunctions::count_or_sum_distinct_numeric_finalize<FloatVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+template BigIntVal AggregateFunctions::count_or_sum_distinct_numeric_finalize<DoubleVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+template BigIntVal AggregateFunctions::count_or_sum_distinct_numeric_finalize<LargeIntVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+
+template BigIntVal AggregateFunctions::sum_distinct_bigint_finalize<TinyIntVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+template BigIntVal AggregateFunctions::sum_distinct_bigint_finalize<SmallIntVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+template BigIntVal AggregateFunctions::sum_distinct_bigint_finalize<IntVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+template BigIntVal AggregateFunctions::sum_distinct_bigint_finalize<BigIntVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+
+template DoubleVal AggregateFunctions::sum_distinct_double_finalize<DoubleVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
+
+template LargeIntVal AggregateFunctions::sum_distinct_largeint_finalize<LargeIntVal>(
+    FunctionContext* ctx, const StringVal& state_sv);
 
 template void AggregateFunctions::knuth_var_update(
         FunctionContext*, const TinyIntVal&, StringVal*);

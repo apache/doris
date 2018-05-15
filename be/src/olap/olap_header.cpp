@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "olap/field.h"
+#include "olap/wrapper_field.h"
 #include "olap/file_helper.h"
 #include "olap/utils.h"
 
@@ -148,7 +149,7 @@ OLAPStatus OLAPHeader::add_version(
         int64_t index_size,
         int64_t data_size,
         int64_t num_rows,
-        std::vector<std::pair<Field *, Field *> > *column_statistics) {
+        const std::vector<std::pair<WrapperField*, WrapperField*>>* column_statistics) {
     // Check whether version is valid.
     if (version.first > version.second) {
         OLAP_LOG_WARNING("the version is not valid. [version='%d,%d']",
@@ -204,18 +205,6 @@ OLAPStatus OLAPHeader::add_version(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPHeader::add_version(
-        Version version,
-        VersionHash version_hash,
-        uint32_t num_segments,
-        time_t max_timestamp,
-        int64_t index_size,
-        int64_t data_size,
-        int64_t num_rows) {
-    return add_version(version, version_hash, num_segments, 
-            max_timestamp, index_size, data_size, num_rows, NULL);
-}
-
 OLAPStatus OLAPHeader::delete_version(Version version) {
     // Find the version that need to be deleted.
     int index = -1;
@@ -265,7 +254,7 @@ OLAPStatus OLAPHeader::delete_all_versions() {
     return OLAP_SUCCESS;
 }
 
-// This function is called when base-expansion, cumulative-expansion, quering.
+// This function is called when base-compaction, cumulative-compaction, quering.
 // we use BFS algorithm to get the shortest version path.
 OLAPStatus OLAPHeader::select_versions_to_span(const Version& target_version,
                                            vector<Version>* span_versions) {
@@ -438,7 +427,7 @@ const FileVersionMessage* OLAPHeader::get_latest_version() const {
     return max_version;
 }
 
-const uint32_t OLAPHeader::get_expansion_nice_estimate() const{
+const uint32_t OLAPHeader::get_compaction_nice_estimate() const{
     uint32_t nice = 0;
     bool base_version_exists = false;
     const int32_t point = cumulative_layer_point();
@@ -450,7 +439,7 @@ const uint32_t OLAPHeader::get_expansion_nice_estimate() const{
             base_version_exists = true;
         }
     }
-    nice = nice < config::ce_policy_delta_files_number ? 0 : nice;
+    nice = nice < config::cumulative_compaction_num_singleton_deltas ? 0 : nice;
 
     // base不存在可能是tablet正在做alter table，先不选它，设nice=0
     return base_version_exists ? nice : 0;

@@ -21,8 +21,10 @@
 #include "runtime/mysql_table_sink.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/tuple_row.h"
+#include "runtime/row_batch.h"
 #include "util/runtime_profile.h"
 #include "util/debug_util.h"
+#include "util/types.h"
 #include "exec/local_file_writer.h"
 #include "exec/broker_writer.h"
 #include <thrift/protocol/TDebugProtocol.h>
@@ -136,7 +138,7 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
             (*ss) << *static_cast<int64_t*>(item);
             break;
         case TYPE_LARGEINT:
-            (*ss) << *static_cast<__int128*>(item);
+            (*ss) << reinterpret_cast<PackedInt128*>(item)->value;
             break;
         case TYPE_FLOAT:
             (*ss) << *static_cast<float*>(item);

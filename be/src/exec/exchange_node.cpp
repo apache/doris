@@ -24,6 +24,7 @@
 
 #include "runtime/data_stream_mgr.h"
 #include "runtime/data_stream_recvr.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/row_batch.h"
 #include "util/debug_util.h"
@@ -51,8 +52,8 @@ ExchangeNode::ExchangeNode(
     DCHECK(_is_merging || (_offset == 0));
 }
 
-Status ExchangeNode::init(const TPlanNode& tnode) {
-    RETURN_IF_ERROR(ExecNode::init(tnode));
+Status ExchangeNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::init(tnode, state));
     if (!_is_merging) {
         return Status::OK;
     }

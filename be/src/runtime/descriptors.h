@@ -27,6 +27,9 @@
 #include <boost/scoped_ptr.hpp>
 #include <ostream>
 
+#include <google/protobuf/repeated_field.h>
+#include <google/protobuf/stubs/common.h>
+
 #include "common/status.h"
 #include "common/global_types.h"
 #include "gen_cpp/Descriptors_types.h"  // for TTupleId
@@ -463,6 +466,8 @@ public:
 
     // Populate row_tuple_ids with our ids.
     void to_thrift(std::vector<TTupleId>* row_tuple_ids);
+    void to_protobuf(
+        google::protobuf::RepeatedField<google::protobuf::int32 >* row_tuple_ids);
 
     // Return true if the tuple ids of this descriptor are a prefix
     // of the tuple ids of other_desc.

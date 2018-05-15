@@ -45,25 +45,36 @@ bool CIDR::reset(const std::string& cidr_str) {
     std::vector<std::string> cidr_items;
     boost::split(cidr_items, cidr_format_str, boost::is_any_of("/"));
     if (cidr_items.size() != 2) {
-        LOG(ERROR) << "wrong CIDR format. network=" << cidr_str;
+        LOG(WARNING) << "wrong CIDR format. network=" << cidr_str;
         return false;
     }
 
     if (cidr_items[1].empty()) {
-        LOG(ERROR) << "wrong CIDR mask format. network=" << cidr_str;
+        LOG(WARNING) << "wrong CIDR mask format. network=" << cidr_str;
         return false;
     }
 
     char* endptr = nullptr;
     int32_t mask_length = strtol(cidr_items[1].c_str(), &endptr, 10);
-    if (errno != 0 || mask_length <= 0 || mask_length > 32) {
-        LOG(ERROR) << "wrong CIDR mask format. network=" << cidr_str;
+    if ((errno == ERANGE && (mask_length == LONG_MAX || mask_length == LONG_MIN)) ||
+        (errno != 0 && mask_length == 0)) {
+        char errmsg[64];
+        strerror_r(errno, errmsg, 64);
+        LOG(WARNING) << "wrong CIDR mask format. network=" << cidr_str
+            << ", mask_length=" << mask_length
+            << ", errno=" << errno
+            << ", errmsg=" << errmsg;
+        return false;
+    }
+    if (mask_length <= 0 || mask_length > 32) {
+        LOG(WARNING) << "wrong CIDR mask format. network=" << cidr_str
+            << ", mask_length=" << mask_length;
         return false;
     }
 
     uint32_t address = 0;
     if (!ip_to_int(cidr_items[0], &address)) {
-        LOG(ERROR) << "wrong CIDR IP value. network=" << cidr_str;
+        LOG(WARNING) << "wrong CIDR IP value. network=" << cidr_str;
         return false;
     }
     _address = address;

@@ -26,6 +26,7 @@
 #include "codegen/llvm_codegen.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/runtime_state.h"
+#include "util/types.h"
 
 using llvm::BasicBlock;
 using llvm::Constant;
@@ -467,7 +468,7 @@ LargeIntVal SlotRef::get_large_int_val(ExprContext* context, TupleRow* row) {
     if (t == NULL || t->is_null(_null_indicator_offset)) {
         return LargeIntVal::null();
     }
-    return LargeIntVal(*reinterpret_cast<__int128*>(t->get_slot(_slot_offset)));
+    return LargeIntVal(reinterpret_cast<PackedInt128*>(t->get_slot(_slot_offset))->value);
 }
 
 FloatVal SlotRef::get_float_val(ExprContext* context, TupleRow* row) {

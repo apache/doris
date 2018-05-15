@@ -73,7 +73,7 @@ add_library(Runtime STATIC
   tmp_file_mgr.cc
   disk_io_mgr.cc
   disk_io_mgr_reader_context.cc
-  disk_io_mgr_scan_range.cc
+  disk_io_mgr_scan_range.cc 
   buffered_block_mgr2.cc
   test_env.cc
   mem_tracker.cpp
@@ -82,8 +82,16 @@ add_library(Runtime STATIC
   data_stream_recvr.cc
   buffered_tuple_stream2.cc
   buffered_tuple_stream2_ir.cc
+  buffered_tuple_stream3.cc
   #  export_task_mgr.cpp
   export_sink.cpp
+  bufferpool/buffer_allocator.cc
+  bufferpool/buffer_pool.cc
+  bufferpool/reservation_tracker.cc
+  bufferpool/reservation_util.cc
+  bufferpool/suballocator.cc
+  bufferpool/system_allocator.cc
+  initial_reservations.cc
 )
 
 # This test runs forever so should not be part of 'make test'

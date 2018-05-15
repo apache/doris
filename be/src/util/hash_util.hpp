@@ -299,12 +299,15 @@ struct hash<palo::TNetworkAddress> {
     }
 };
 
+#if !defined(IR_COMPILE) && __GNUC__ < 6
+// Cause this is builtin function
 template<>
 struct hash<__int128> {
     std::size_t operator()(const __int128& val) const {
         return palo::HashUtil::hash(&val, sizeof(val), 0);
     }
 };
+#endif
 
 }
 

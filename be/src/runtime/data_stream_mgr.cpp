@@ -34,6 +34,7 @@
 #include "rpc/comm.h"
 #include "rpc/comm_buf.h"
 
+#include "gen_cpp/types.pb.h" // PUniqueId
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/PaloInternalService_types.h"
 
@@ -117,6 +118,31 @@ Status DataStreamMgr::add_data(
         return Status::OK;
     }
     recvr->add_batch(thrift_batch, sender_id, buffer_overflow, response);
+    return Status::OK;
+}
+
+Status DataStreamMgr::add_data(
+        const PUniqueId& finst_id, int32_t node_id,
+        const PRowBatch& pb_batch, int32_t sender_id,
+        int be_number, int64_t packet_seq,
+        ::google::protobuf::Closure** done) {
+    VLOG_ROW << "add_data(): finst_id=" << print_id(finst_id)
+            << " node=" << node_id;
+    TUniqueId t_finst_id;
+    t_finst_id.hi = finst_id.hi();
+    t_finst_id.lo = finst_id.lo();
+    shared_ptr<DataStreamRecvr> recvr = find_recvr(t_finst_id, node_id);
+    if (recvr == NULL) {
+        // The receiver may remove itself from the receiver map via deregister_recvr()
+        // at any time without considering the remaining number of senders.
+        // As a consequence, find_recvr() may return an innocuous NULL if a thread
+        // calling deregister_recvr() beat the thread calling find_recvr()
+        // in acquiring _lock.
+        // TODO: Rethink the lifecycle of DataStreamRecvr to distinguish
+        // errors from receiver-initiated teardowns.
+        return Status::OK;
+    }
+    recvr->add_batch(pb_batch, sender_id, be_number, packet_seq, done);
     return Status::OK;
 }
 

@@ -68,9 +68,6 @@ public:
     //   * column_statistics
     virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
     virtual void save_encoding(ColumnEncodingMessage* encoding);
-    // 子类返回统计信息的接口
-    virtual ColumnStatistics* segment_statistics() = 0;
-    virtual ColumnStatistics* block_statistics() = 0;
     uint32_t column_id() const {
         return _column_id;
     }
@@ -82,6 +79,14 @@ public:
     virtual void get_bloom_filter_info(bool* has_bf_column,
                                        uint32_t* bf_hash_function_num,
                                        uint32_t* bf_bit_num);
+
+    ColumnStatistics* segment_statistics() {
+        return &_segment_statistics;
+    }
+
+    ColumnStatistics* block_statistics() {
+        return &_block_statistics;
+    }
 protected:
     ColumnWriter(uint32_t column_id,
             OutStreamFactory* stream_factory,
@@ -141,8 +146,6 @@ public:
     virtual OLAPStatus write(RowCursor* row_cursor);
     virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
     virtual void record_position();
-    virtual ColumnStatistics* segment_statistics();
-    virtual ColumnStatistics* block_statistics();
     virtual OLAPStatus flush() {
         return OLAP_SUCCESS;
     }
@@ -220,12 +223,11 @@ public:
 
         bool is_null = row_cursor->is_null(column_id());
         const Field* field = row_cursor->get_field_by_index(column_id());
-        if (false == is_null) {
-            _block_statistics.add(field);
-            T value = *reinterpret_cast<T*>(field->buf());
+        char* buf = field->get_field_ptr(row_cursor->get_buf());
+        _block_statistics.add(buf);
+        if (!is_null) {
+            T value = *reinterpret_cast<T*>(buf + 1);
             return _writer.write(static_cast<int64_t>(value));
-        } else {
-            _block_statistics.add(field);
         }
 
         return OLAP_SUCCESS;
@@ -263,14 +265,6 @@ public:
     virtual void record_position() {
         ColumnWriter::record_position();
         _writer.record_position(index_entry());
-    }
-
-    virtual ColumnStatistics* segment_statistics() {
-        return &_segment_statistics;
-    }
-
-    virtual ColumnStatistics* block_statistics() {
-        return &_block_statistics;
     }
 private:
     IntegerColumnWriter _writer;
@@ -327,9 +321,10 @@ public:
 
         bool is_null = row_cursor->is_null(column_id());
         const Field* field = row_cursor->get_field_by_index(column_id());
-        if (false == is_null) {
-            T* value = reinterpret_cast<T*>(field->buf());
-            _block_statistics.add(field);
+        char* buf = field->get_field_ptr(row_cursor->get_buf());
+        _block_statistics.add(buf);
+        if (!is_null) {
+            T* value = reinterpret_cast<T*>(buf + 1);
             return _stream->write(reinterpret_cast<char*>(value), sizeof(T));
         }
 
@@ -359,13 +354,6 @@ public:
         _stream->get_position(index_entry());
     }
 
-    virtual ColumnStatistics* segment_statistics() {
-        return &_segment_statistics;
-    }
-
-    virtual ColumnStatistics* block_statistics() {
-        return &_block_statistics;
-    }
 private:
     OutStream* _stream;
 
@@ -387,8 +375,6 @@ public:
     virtual OLAPStatus write(RowCursor* row_cursor);
     virtual uint64_t estimate_buffered_memory();
     virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
-    virtual ColumnStatistics* segment_statistics();
-    virtual ColumnStatistics* block_statistics();
     virtual void save_encoding(ColumnEncodingMessage* encoding);
     virtual void record_position();
     virtual OLAPStatus flush() {
@@ -468,8 +454,6 @@ public:
     virtual OLAPStatus write(RowCursor* row_cursor);
     virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
     virtual void record_position();
-    virtual ColumnStatistics* segment_statistics();
-    virtual ColumnStatistics* block_statistics();
     virtual OLAPStatus flush() {
         return OLAP_SUCCESS;
     }
@@ -490,8 +474,6 @@ public:
     virtual OLAPStatus write(RowCursor* row_cursor);
     virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
     virtual void record_position();
-    virtual ColumnStatistics* segment_statistics();
-    virtual ColumnStatistics* block_statistics();
     virtual OLAPStatus flush() {
         return OLAP_SUCCESS;
     }

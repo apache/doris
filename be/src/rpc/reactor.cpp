@@ -124,9 +124,9 @@ void Reactor::handle_timeouts(PollTimeout &next_timeout) {
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             IOHandler *handler = 0;
-            DispatchHandler *dh = 0;
+            DispatchHandlerPtr dhp;
             now = ClockT::now();
-            while (m_request_cache.get_next_timeout(now, handler, dh,
+            while (m_request_cache.get_next_timeout(now, handler, dhp,
                                                     &next_req_timeout, &header_id)) {
                 event = std::make_shared<Event>(
                             Event::ERROR,
@@ -134,7 +134,7 @@ void Reactor::handle_timeouts(PollTimeout &next_timeout) {
                             error::REQUEST_TIMEOUT);
                 event->set_proxy(((IOHandlerData *)handler)->get_proxy());
                 event->header.id = header_id;
-                handler->deliver_event(event, dh);
+                handler->deliver_event(event, dhp.get());
             }
             if (next_req_timeout != ClockT::time_point()) {
                 next_timeout.set(now, next_req_timeout);

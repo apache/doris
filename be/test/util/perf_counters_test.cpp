@@ -17,10 +17,10 @@
 #include <stdio.h>
 #include <iostream>
 #include <gtest/gtest.h>
-#include "util/cpu-info.h"
-#include "util/disk-info.h"
-#include "util/mem-info.h"
-#include "util/perf-counters.h"
+#include "util/cpu_info.h"
+#include "util/disk_info.h"
+#include "util/mem_info.h"
+#include "util/perf_counters.h"
 
 using namespace std;
 

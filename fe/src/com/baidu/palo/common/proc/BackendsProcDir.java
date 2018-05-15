@@ -44,7 +44,7 @@ import java.util.List;
 public class BackendsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("BackendId").add("Cluster").add("IP").add("HostName").add("HeartbeatPort")
-            .add("BePort").add("HttpPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
+            .add("BePort").add("HttpPort").add("brpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum").add("FreeSpace")
             .build();
 
@@ -131,6 +131,7 @@ public class BackendsProcDir implements ProcDirInterface {
                 backendInfo.add(String.valueOf(backend.getHeartbeatPort()));
                 backendInfo.add(String.valueOf(backend.getBePort()));
                 backendInfo.add(String.valueOf(backend.getHttpPort()));
+                backendInfo.add(String.valueOf(backend.getBrpcPort()));
             }
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastStartTime()));
             backendInfo.add(TimeUtils.longToTimeString(backend.getLastUpdateMs()));
