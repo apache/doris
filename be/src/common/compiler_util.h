@@ -26,6 +26,8 @@
 // about memory" paper.
 // example: if (LIKELY(size > 0)) { ... }
 // example: if (UNLIKELY(!status.ok())) { ... }
+#define CACHE_LINE_SIZE 64
+
 #ifdef LIKELY
 #undef LIKELY
 #endif
@@ -44,6 +46,8 @@
 /// needs to be inlined for a specific reason or the compiler's heuristics make a bad
 /// decision, e.g. not inlining a small function on a hot path.
 #define ALWAYS_INLINE __attribute__((always_inline))
+
+#define ALIGN_CACHE_LINE __attribute__ ((aligned (CACHE_LINE_SIZE)))
 
 #endif
 

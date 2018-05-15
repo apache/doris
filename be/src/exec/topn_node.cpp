@@ -52,8 +52,8 @@ TopNNode::TopNNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
 TopNNode::~TopNNode() {
 }
 
-Status TopNNode::init(const TPlanNode& tnode) {
-    RETURN_IF_ERROR(ExecNode::init(tnode));
+Status TopNNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::init(tnode, state));
     RETURN_IF_ERROR(_sort_exec_exprs.init(tnode.sort_node.sort_info, _pool));
     _is_asc_order = tnode.sort_node.sort_info.is_asc_order;
     _nulls_first = tnode.sort_node.sort_info.nulls_first;
@@ -112,7 +112,7 @@ Status TopNNode::open(RuntimeState* state) {
     // Limit of 0, no need to fetch anything from children.
     if (_limit != 0) {
         RowBatch batch(child(0)->row_desc(), state->batch_size(), mem_tracker());
-        bool eos = true;
+        bool eos = false;
 
         do {
             batch.reset();

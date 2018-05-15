@@ -25,14 +25,16 @@ ReadOnlyFileStream::ReadOnlyFileStream(
         FileHandler* handler,
         ByteBuffer** shared_buffer,
         Decompressor decompressor,
-        uint32_t compress_buffer_size) :
-        _file_cursor(handler, 0, 0),
-        _compressed_helper(NULL),
-        _uncompressed(NULL),
-        _shared_buffer(shared_buffer),
-        _decompressor(decompressor),
-        _compress_buffer_size(compress_buffer_size + sizeof(StreamHead)),
-        _current_compress_position(std::numeric_limits<uint64_t>::max()) {
+        uint32_t compress_buffer_size,
+        OlapReaderStatistics* stats)
+            : _file_cursor(handler, 0, 0),
+            _compressed_helper(NULL),
+            _uncompressed(NULL),
+            _shared_buffer(shared_buffer),
+            _decompressor(decompressor),
+            _compress_buffer_size(compress_buffer_size + sizeof(StreamHead)),
+            _current_compress_position(std::numeric_limits<uint64_t>::max()),
+            _stats(stats) {
 }
 
 ReadOnlyFileStream::ReadOnlyFileStream(
@@ -41,14 +43,16 @@ ReadOnlyFileStream::ReadOnlyFileStream(
         uint64_t offset,
         uint64_t length,
         Decompressor decompressor,
-        uint32_t compress_buffer_size) : 
-        _file_cursor(handler, offset, length),
-        _compressed_helper(NULL),
-        _uncompressed(NULL),
-        _shared_buffer(shared_buffer),
-        _decompressor(decompressor),
-        _compress_buffer_size(compress_buffer_size + sizeof(StreamHead)),
-        _current_compress_position(std::numeric_limits<uint64_t>::max()) {
+        uint32_t compress_buffer_size,
+        OlapReaderStatistics* stats)
+            : _file_cursor(handler, offset, length),
+            _compressed_helper(NULL),
+            _uncompressed(NULL),
+            _shared_buffer(shared_buffer),
+            _decompressor(decompressor),
+            _compress_buffer_size(compress_buffer_size + sizeof(StreamHead)),
+            _current_compress_position(std::numeric_limits<uint64_t>::max()),
+            _stats(stats) {
 }
 
 OLAPStatus ReadOnlyFileStream::_assure_data() {
@@ -63,18 +67,20 @@ OLAPStatus ReadOnlyFileStream::_assure_data() {
 
     StreamHead header;
     size_t file_cursor_used = _file_cursor.position();
-    OLAPStatus res = _file_cursor.read(reinterpret_cast<char*>(&header), sizeof(header));
-
-    if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
-        OLAP_LOG_WARNING("read header fail");
-        return res;
-    }
-
-    res = _fill_compressed(header.length);
-
-    if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
-        OLAP_LOG_WARNING("read header fail");
-        return res;
+    OLAPStatus res = OLAP_SUCCESS;
+    {
+        SCOPED_RAW_TIMER(&_stats->io_ns);
+        res = _file_cursor.read(reinterpret_cast<char*>(&header), sizeof(header));
+        if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
+            OLAP_LOG_WARNING("read header fail");
+            return res;
+        }
+        res = _fill_compressed(header.length);
+        if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
+            OLAP_LOG_WARNING("read header fail");
+            return res;
+        }
+        _stats->compressed_bytes_read += sizeof(header) + header.length;
     }
 
     if (header.type == StreamHead::UNCOMPRESSED) {
@@ -84,12 +90,14 @@ OLAPStatus ReadOnlyFileStream::_assure_data() {
     } else {
         _compressed_helper->set_position(0);
         _compressed_helper->set_limit(_compress_buffer_size);
-
-        res = _decompressor(*_shared_buffer, _compressed_helper);
-
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to decompress err=%d", res);
-            return res;
+        {
+            SCOPED_RAW_TIMER(&_stats->decompress_ns);
+            res = _decompressor(*_shared_buffer, _compressed_helper);
+            if (OLAP_SUCCESS != res) {
+                OLAP_LOG_WARNING("fail to decompress err=%d", res);
+                return res;
+            }
+            _stats->uncompressed_bytes_read += _compressed_helper->limit();
         }
     }
 
@@ -173,7 +181,6 @@ OLAPStatus ReadOnlyFileStream::_fill_compressed(size_t length) {
     }
 
     OLAPStatus res = _file_cursor.read((*_shared_buffer)->array(), length);
-
     if (OLAP_SUCCESS != res) {
         OLAP_LOG_WARNING("fail to fill compressed buffer.");
         return res;

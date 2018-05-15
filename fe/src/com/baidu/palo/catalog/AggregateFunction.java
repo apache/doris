@@ -217,6 +217,7 @@ public class AggregateFunction extends Function {
     public TFunction toThrift() {
         TFunction fn = super.toThrift();
         TAggregateFunction aggFn = new TAggregateFunction();
+        aggFn.setIs_analytic_only_fn(isAnalyticFn && !isAggregateFn);
         aggFn.setUpdate_fn_symbol(updateFnSymbol);
         aggFn.setInit_fn_symbol(initFnSymbol);
         if (serializeFnSymbol != null) {

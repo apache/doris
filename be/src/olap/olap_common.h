@@ -95,6 +95,7 @@ enum FieldType {
     OLAP_FIELD_TYPE_DATETIME = 15,      // MySQL_TYPE_DATETIME
     OLAP_FIELD_TYPE_DECIMAL = 16,       // DECIMAL, using different store format against MySQL
     OLAP_FIELD_TYPE_VARCHAR = 17,
+
     OLAP_FIELD_TYPE_STRUCT = 18,        // Struct
     OLAP_FIELD_TYPE_LIST = 19,          // LIST
     OLAP_FIELD_TYPE_MAP = 20,           // Map
@@ -154,8 +155,8 @@ enum PushType {
 enum ReaderType {
     READER_FETCH = 0,
     READER_ALTER_TABLE = 1,
-    READER_BASE_EXPANSION = 2,
-    READER_CUMULATIVE_EXPANSION = 3,
+    READER_BASE_COMPACTION = 2,
+    READER_CUMULATIVE_COMPACTION = 3,
     READER_CHECKSUM = 4,
 };
 
@@ -170,6 +171,7 @@ struct Vertex {
 };
 
 class Field;
+class WrapperField;
 // 包含Version，对应的version_hash和num_segments，一般指代OLAP中存在的实体Version
 struct VersionEntity {
     VersionEntity(Version v,
@@ -198,7 +200,7 @@ struct VersionEntity {
                   size_t data_size,
                   size_t index_size,
                   bool empty,
-                  std::vector<std::pair<Field *, Field *> > &column_statistics) :
+                  const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistics) :
             version(v),
             version_hash(hash),
             num_segments(num_seg),
@@ -217,7 +219,32 @@ struct VersionEntity {
     size_t data_size;
     size_t index_size;
     bool empty;
-    std::vector<std::pair<Field *, Field *> > column_statistics;
+    std::vector<std::pair<WrapperField*, WrapperField*>> column_statistics;
+};
+
+// ReaderStatistics used to collect statistics when scan data from storage
+struct OlapReaderStatistics {
+    int64_t io_ns = 0;
+    int64_t compressed_bytes_read = 0;
+
+    int64_t decompress_ns = 0;
+    int64_t uncompressed_bytes_read = 0;
+
+    int64_t bytes_read = 0;
+
+    int64_t block_load_ns = 0;
+    int64_t blocks_load = 0;
+    int64_t block_fetch_ns = 0;
+
+    int64_t raw_rows_read = 0;
+
+    int64_t rows_vec_cond_filtered = 0;
+    int64_t vec_cond_ns = 0;
+
+    int64_t rows_stats_filtered = 0;
+    int64_t rows_del_filtered = 0;
+
+    int64_t index_load_ns = 0;
 };
 
 typedef uint32_t ColumnId;

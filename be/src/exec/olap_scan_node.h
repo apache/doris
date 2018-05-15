@@ -51,7 +51,7 @@ class OlapScanNode : public ScanNode {
 public:
     OlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~OlapScanNode();
-    virtual Status init(const TPlanNode& tnode);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
     virtual Status prepare(RuntimeState* state);
     virtual Status open(RuntimeState* state);
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
@@ -138,12 +138,6 @@ protected:
     Status split_scan_range();
     Status start_scan_thread(RuntimeState* state);
 
-    Status create_conjunct_ctxs(
-            RuntimeState* state,
-            std::vector<ExprContext*>* row_expr,
-            std::vector<ExprContext*>* vec_expr,
-            bool disable_codegen);
-
     template<class T>
     Status normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot);
 
@@ -162,23 +156,18 @@ protected:
     void scanner_thread(OlapScanner* scanner);
 
     Status add_one_batch(RowBatchInterface* row_batch);
-    Status transfer_open_scanners(RuntimeState* state);
-
-    TransferStatus init_merge_heap(Heap& heap);
-    TransferStatus read_row_batch(RuntimeState* state);
-    TransferStatus build_row_batch(RuntimeState* state);
-    TransferStatus sorted_merge(Heap& heap);
-
-    void merge_transfer_thread(RuntimeState* state);
 
     // Write debug string of this into out.
     virtual void debug_string(int indentation_level, std::stringstream* out) const;
 
 private:
+    void _init_counter(RuntimeState* state);
+
     void construct_is_null_pred_in_where_pred(Expr* expr, SlotDescriptor* slot, std::string is_null_str);
 
+    friend class OlapScanner;
+
     std::vector<TCondition> _is_null_vector;
-    boost::scoped_ptr<TPlanNode> _thrift_plan_node;
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
     // palo scan node used to scan palo
@@ -206,8 +195,6 @@ private:
 
     // Order Result Flag
     bool _is_result_order;
-    // Result RowBatch order by this column
-    std::string _sort_column;
 
     // Pool for storing allocated scanner objects.  We don't want to use the
     // runtime pool to ensure that the scanner objects are deleted before this
@@ -239,45 +226,14 @@ private:
 
     std::list<OlapScanner*> _all_olap_scanners;
     std::list<OlapScanner*> _olap_scanners;
-    std::vector<OlapScanner*> _fin_olap_scanners;
-
-    // indicate which scanner need to read
-    // -1 means all
-    int _merge_scanner_id;
-
-    // each scanner's RowBatch array, index with scanner id
-    std::vector<std::list<RowBatch*> > _merge_rowbatches;
-
-    // each scanner's lastest RowBatch removed from _merge_rowbatches
-    // store here because it's lastest TupleRow still in heap
-    // it will delete at ScanNode's destruct
-    std::vector<RowBatch*> _backup_rowbatches;
-
-    // first Rowbatch's row_idx of each _merge_rowbatches
-    // >0 means row index
-    // -1 means scanner has finished
-    std::vector<int> _merge_row_idxs;
-
-    // finish flag of each scanner
-    std::vector<bool> _scanner_fin_flags;
-
-    // present RowBatch MergeTransferThread processing
-    RowBatch* _merge_rowbatch;
-
-    // present TupleRow MergeTransferThread processing
-    Tuple* _merge_tuple;
 
     int _max_materialized_row_batches;
     bool _start;
     bool _scanner_done;
     bool _transfer_done;
-    bool _use_pushdown_conjuncts;
     size_t _direct_conjunct_size;
-    size_t _direct_row_conjunct_size;
-    size_t _direct_vec_conjunct_size;
 
     boost::posix_time::time_duration _wait_duration;
-    bool _delete;
     int _total_assign_num;
     int _nice;
 
@@ -285,20 +241,34 @@ private:
     boost::mutex _status_mutex;
     Status _status;
     RuntimeState* _runtime_state;
-    RuntimeProfile::Counter* _olap_thread_scan_timer;
-    RuntimeProfile::Counter* _eval_timer;
-    RuntimeProfile::Counter* _merge_timer;
-    RuntimeProfile::Counter* _pushdown_return_counter;
-    RuntimeProfile::Counter* _direct_return_counter;
+    RuntimeProfile::Counter* _scan_timer;
     RuntimeProfile::Counter* _tablet_counter;
-
-    RuntimeProfile* _scanner_profile;
+    RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
 
     TResourceInfo* _resource_info;
 
     int64_t _buffered_bytes;
     int64_t _running_thread;
     EvalConjunctsFn _eval_conjuncts_fn;
+
+    // Counters
+    RuntimeProfile::Counter* _io_timer = nullptr;
+    RuntimeProfile::Counter* _read_compressed_counter = nullptr;
+    RuntimeProfile::Counter* _decompressor_timer = nullptr;
+    RuntimeProfile::Counter* _read_uncompressed_counter = nullptr;
+    RuntimeProfile::Counter* _raw_rows_counter = nullptr;
+
+    RuntimeProfile::Counter* _rows_vec_cond_counter = nullptr;
+    RuntimeProfile::Counter* _vec_cond_timer = nullptr;
+
+    RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _del_filtered_counter = nullptr;
+
+    RuntimeProfile::Counter* _block_load_timer = nullptr;
+    RuntimeProfile::Counter* _block_load_counter = nullptr;
+    RuntimeProfile::Counter* _block_fetch_timer = nullptr;
+
+    RuntimeProfile::Counter* _index_load_timer = nullptr;
 };
 
 } // namespace palo

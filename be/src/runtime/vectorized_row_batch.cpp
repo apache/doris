@@ -14,216 +14,125 @@
 // under the License.
 
 #include "runtime/vectorized_row_batch.h"
+
 #include "common/logging.h"
+#include "olap/row_block.h"
 
 namespace palo {
 
-//VectorizedRowBatch::VectorizedRowBatch(const TupleDescriptor& tuple_desc, int capacity)
 VectorizedRowBatch::VectorizedRowBatch(
-        const std::vector<FieldInfo>& schema, int capacity)
-    : _schema(schema), _capacity(capacity), _num_cols(schema.size()) {
+        const std::vector<FieldInfo>& schema,
+        const std::vector<uint32_t>& cols,
+        int capacity)
+            : _schema(schema), _cols(cols), _capacity(capacity), _limit(capacity) {
     _selected_in_use = false;
     _size = 0;
 
-    _mem_tracker.reset(new MemTracker(-1));
-    _mem_pool.reset(new MemPool(_mem_tracker.get()));
+    _tracker.reset(new MemTracker(-1));
+    _mem_pool.reset(new MemPool(_tracker.get()));
 
-    _row_iter = 0;
-    _has_backup = false;
-    _selected = reinterpret_cast<int*>(_mem_pool->allocate(sizeof(int) * _capacity));
-
-    for (int i = 0; i < _num_cols; ++i) {
-        boost::shared_ptr<ColumnVector> col_vec(new ColumnVector(_capacity));
-        _columns.push_back(col_vec);
+    _selected = reinterpret_cast<uint16_t*>(new char[sizeof(uint16_t) * _capacity]);
+    for (int i = 0; i < schema.size(); ++i) {
+        _vectors.push_back(new ColumnVector());
     }
 }
 
-bool VectorizedRowBatch::get_next_tuple(Tuple* tuple, const TupleDescriptor& tuple_desc) {
-    if (_row_iter < _size) {
-        std::vector<SlotDescriptor*> slots = tuple_desc.slots();
-        if (_selected_in_use) {
-            for (int i = 0; i < slots.size(); ++i) {
-                void* slot = tuple->get_slot(slots[i]->tuple_offset());
-                memory_copy(slot,
-                        reinterpret_cast<uint8_t*>(_columns[i]->col_data())
-                        + get_slot_size(slots[i]->type().type) * _selected[_row_iter],
-                        get_slot_size(slots[i]->type().type));
-            }
-        } else {
-            for (int i = 0; i < slots.size(); ++i) {
-                void* slot = tuple->get_slot(slots[i]->tuple_offset());
-                memory_copy(slot,
-                        reinterpret_cast<uint8_t*>(_columns[i]->col_data())
-                        + get_slot_size(slots[i]->type().type) * _row_iter,
-                        get_slot_size(slots[i]->type().type));
-            }
-        }
-        ++_row_iter;
-        return true;
-    } else {
-        return false;
-    }
-}
-
-void VectorizedRowBatch::to_row_batch(RowBatch* row_batch, const TupleDescriptor& tuple_desc) {
-    const std::vector<SlotDescriptor*> slots = tuple_desc.slots();
-    int row_remain = row_batch->capacity() - row_batch->num_rows();
-    int size = std::min(row_remain, _size - _row_iter);
-
-    if (size <= 0) {
-        return;
-    }
-
-    int row_index = row_batch->add_rows(size);
-    DCHECK(row_index != RowBatch::INVALID_ROW_INDEX);
-    uint8_t* tuple_buf = row_batch->tuple_data_pool()->allocate(
-                             size * tuple_desc.byte_size());
-    bzero(tuple_buf, size * tuple_desc.byte_size());
-    Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
-
+void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
     if (_selected_in_use) {
-        for (int i = _row_iter; i < _row_iter + size; ++i) {
-            for (int j = 0; j < slots.size(); ++j) {
-                // TODO(hujie01) bad code need optimize
-                if (slots[j]->type().is_string_type()) {
-                    StringValue* src = reinterpret_cast<StringValue*>(
-                                           reinterpret_cast<uint8_t*>(_columns[j]->col_data())
-                                           + slots[j]->type().get_slot_size() * _selected[i]);
-                    uint8_t* v = row_batch->tuple_data_pool()->allocate(src->len);
-                    memory_copy(v, src->ptr, src->len);
-                    // if src->len == 0 then dst->ptr = NULL
-                    StringValue* slot = tuple->get_string_slot(slots[j]->tuple_offset());
-                    slot->ptr = reinterpret_cast<char*>(v);
-                    slot->len = src->len;
-                } else {
-                    void* slot = tuple->get_slot(slots[j]->tuple_offset());
-                    memory_copy(slot,
-                                reinterpret_cast<uint8_t*>(_columns[j]->col_data())
-                                + slots[j]->type().get_slot_size() * _selected[i],
-                                slots[j]->type().get_slot_size());
+        for (auto column_id : _cols) {
+            bool no_nulls = _vectors[column_id]->no_nulls();
+            // pointer of this field's vector
+            char* vec_field_ptr = (char*)_vectors[column_id]->col_data();
+            // pointer of this field in row block
+            char* row_field_ptr =
+                row_block->_mem_buf + row_block->_field_offset_in_memory[column_id];
+            const FieldInfo& field_info = _schema[column_id];
+            size_t field_size = 0;
+            if (field_info.type == OLAP_FIELD_TYPE_CHAR ||
+                field_info.type == OLAP_FIELD_TYPE_VARCHAR ||
+                field_info.type == OLAP_FIELD_TYPE_HLL) {
+                field_size = sizeof(StringSlice);
+            } else {
+                field_size = field_info.length;
+            }
+            if (no_nulls) {
+                for (int row = 0; row < _size; ++row) {
+                    char* vec_field =
+                        vec_field_ptr + _selected[row] * field_size;
+                    // Set not null
+                    *row_field_ptr = 0;
+                    memory_copy(row_field_ptr + 1, vec_field, field_size);
+
+                    // point to next row
+                    row_field_ptr += row_block->_mem_row_bytes;
+                }
+            } else {
+                bool* is_null = _vectors[column_id]->is_null();
+                for (int row = 0; row < _size; ++row) {
+                    if (is_null[_selected[row]]) {
+                        *row_field_ptr = 1;
+                    } else {
+                        char* vec_field =
+                            vec_field_ptr + _selected[row] * field_size;
+                        // Set not null
+                        *row_field_ptr = 0;
+                        memory_copy(row_field_ptr + 1, vec_field, field_size);
+                    }
+                    row_field_ptr += row_block->_mem_row_bytes;
                 }
             }
-
-            TupleRow* row = row_batch->get_row(row_index++);
-            row->set_tuple(0, tuple);
-            tuple = reinterpret_cast<Tuple*>(reinterpret_cast<uint8_t*>(tuple) +
-                                             tuple_desc.byte_size());
         }
     } else {
-        for (int i = _row_iter; i < _row_iter + size; ++i) {
-            for (int j = 0; j < slots.size(); ++j) {
-                // TODO(hujie01) bad code need optimize
-                if (slots[j]->type().is_string_type()) {
-                    StringValue* slot = tuple->get_string_slot(slots[j]->tuple_offset());
-                    StringValue* src = reinterpret_cast<StringValue*>(
-                                           reinterpret_cast<uint8_t*>(_columns[j]->col_data())
-                                           + slots[j]->type().get_slot_size() * i);
-                    uint8_t* v = row_batch->tuple_data_pool()->allocate(src->len);
-                    memory_copy(v, src->ptr, src->len);
-                    // if src->len == 0 then dst->ptr = NULL
-                    slot->ptr = reinterpret_cast<char*>(v);
-                    slot->len = src->len;
-                } else {
-                    void* slot = tuple->get_slot(slots[j]->tuple_offset());
-                    memory_copy(slot,
-                                reinterpret_cast<uint8_t*>(_columns[j]->col_data())
-                                + slots[j]->type().get_slot_size() * i,
-                                slots[j]->type().get_slot_size());
+        for (auto column_id : _cols) {
+            bool no_nulls = _vectors[column_id]->no_nulls();
+
+            char* vec_field_ptr = (char*)_vectors[column_id]->col_data();
+            char* row_field_ptr =
+                row_block->_mem_buf + row_block->_field_offset_in_memory[column_id];
+            const FieldInfo& field_info = _schema[column_id];
+
+            size_t field_size = 0;
+            if (field_info.type == OLAP_FIELD_TYPE_CHAR ||
+                field_info.type == OLAP_FIELD_TYPE_VARCHAR ||
+                field_info.type == OLAP_FIELD_TYPE_HLL) {
+                field_size = sizeof(StringSlice);
+            } else {
+                field_size = field_info.length;
+            }
+
+            if (no_nulls) {
+                for (int row = 0; row < _size; ++row) {
+                    char* vec_field = vec_field_ptr;
+                    // Set not null
+                    *row_field_ptr = 0;
+                    memory_copy(row_field_ptr + 1, vec_field, field_size);
+                    row_field_ptr += row_block->_mem_row_bytes;
+                    vec_field_ptr += field_size;
+                }
+            } else {
+                bool* is_null = _vectors[column_id]->is_null();
+                for (int row = 0; row < _size; ++row) {
+                    if (is_null[row]) {
+                        *row_field_ptr = 1;
+                    } else {
+                        char* vec_field = vec_field_ptr;
+                        // Set not null
+                        *row_field_ptr = 0;
+                        memory_copy(row_field_ptr + 1, vec_field, field_size);
+                    }
+                    row_field_ptr += row_block->_mem_row_bytes;
+                    vec_field_ptr += field_size;
                 }
             }
-
-            TupleRow* row = row_batch->get_row(row_index++);
-            row->set_tuple(0, tuple);
-            tuple = reinterpret_cast<Tuple*>(reinterpret_cast<uint8_t*>(tuple) +
-                                             tuple_desc.byte_size());
         }
     }
 
-    _row_iter += size;
-    row_batch->commit_rows(size);
+    row_block->_pos = 0;
+    row_block->_limit = _size;
+    row_block->_info.row_num = _size;
+    row_block->_block_status = _block_status;
+    row_block->mem_pool()->free_all();
+    row_block->mem_pool()->acquire_data(_mem_pool.get(), false);
 }
 
-#if 0
-void VectorizedRowBatch::reorganized_from_pax(
-        RowBlock
-        const std::vector<FieldInfo>& schema) {
-    for (int i = 0, j = 0; i < _num_cols && j < schema.size(); ++i) {
-        if (_schema[i].unique_id != schema[j].unique_id
-                || column(i)->col_data() != NULL) {
-            continue;
-        }
-        ++j;
-
-        switch (_schema[i].type) {
-        case OLAP_FIELD_TYPE_STRING: {
-            StringValue* value = reinterpret_cast<StringValue*>(
-                                     _mem_pool.allocate(get_slot_size(TYPE_VARCHAR) * _size));
-            int len = column(i)->byte_size() / _size;
-            char* raw = reinterpret_cast<char*>(column(i)->col_data());
-
-            for (int j = 0; j < _size; ++j) {
-                value[j].ptr = raw + len * j;
-                value[j].len = strnlen(value[j].ptr, len);
-            }
-
-            column(i)->set_col_data(value);
-            break;
-        }
-        case OLAP_FIELD_TYPE_VARCHAR:
-             OLAP_FIELD_TYPE_HLL :{
-            typedef uint32_t OffsetValueType;
-            typedef uint16_t LengthValueType;
-            DCHECK_EQ(sizeof(OffsetValueType) * _size, column(i)->byte_size());
-            StringValue* value = reinterpret_cast<StringValue*>(
-                                     _mem_pool.allocate(get_slot_size(TYPE_VARCHAR) * _size));
-            OffsetValueType* offsets = reinterpret_cast<OffsetValueType*>(
-                                           column(i)->col_data());
-            char* raw = reinterpret_cast<char*>(column(i)->col_string_data());
-
-            for (int j = 0; j < _size; ++j) {
-                value[j].len = *reinterpret_cast<LengthValueType*>(raw + offsets[j]);
-                value[j].ptr = raw + offsets[j] + sizeof(LengthValueType);
-            }
-
-            column(i)->set_col_data(value);
-            break;
-        }
-        case OLAP_FIELD_TYPE_DATE: {
-            uint8_t* value = reinterpret_cast<uint8_t*>(
-                                 _mem_pool.allocate(get_slot_size(TYPE_DATE) * _size));
-            uint8_t* raw = reinterpret_cast<uint8_t*>(column(i)->col_data());
-
-            for (int j = 0; j < _size; ++j) {
-                new(value + j * get_slot_size(TYPE_DATE))
-                TimestampValue(raw + j * 3, OLAP_DATETIME);
-            }
-
-            column(i)->set_col_data(value);
-            break;
-        }
-        case OLAP_FIELD_TYPE_DATETIME: {
-            uint8_t* value = reinterpret_cast<uint8_t*>(
-                                 _mem_pool.allocate(get_slot_size(TYPE_DATETIME) * _size));
-            uint8_t* raw = reinterpret_cast<uint8_t*>(column(i)->col_data());
-
-            for (int j = 0; j < _size; ++j) {
-                new(value + j * get_slot_size(TYPE_DATETIME))
-                TimestampValue(raw + j * 8, OLAP_DATE);
-            }
-
-            column(i)->set_col_data(value);
-            break;
-        }
-        default:
-            break;
-        }
-    }
-}
-#endif
-
-//void VectorizedRowBatch::reorganized_from_dsm() {
-
-//}
-}
-
-/* vim: set expandtab ts=4 sw=4 sts=4 tw=100: */
+} // namespace palo

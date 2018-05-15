@@ -105,6 +105,11 @@ public class SchemaChangeJob extends AlterJob {
     private Set<String> bfColumns;
     private double bfFpp;
 
+    // Init as null, to be compatible with former schema change job.
+    // If this is set to null, storage type will remain what it was.
+    // This can only set to COLUMN
+    private TStorageType newStorageType = null;
+
     private SchemaChangeJob() {
         this(-1, -1, null, null);
     }
@@ -151,7 +156,7 @@ public class SchemaChangeJob extends AlterJob {
 
     // schema info
     public void setNewSchemaInfo(long indexId, int newSchemaVersion, int newSchemaHash,
-                                 short newShortKeyColumnCount) {
+            short newShortKeyColumnCount) {
         this.changedIndexIdToSchemaVersion.put(indexId, newSchemaVersion);
         this.changedIndexIdToSchemaHash.put(indexId, newSchemaHash);
         this.changedIndexIdToShortKeyColumnCount.put(indexId, newShortKeyColumnCount);
@@ -186,6 +191,11 @@ public class SchemaChangeJob extends AlterJob {
         this.hasBfChange = hasBfChange;
         this.bfColumns = bfColumns;
         this.bfFpp = bfFpp;
+    }
+
+    public void setNewStorageType(TStorageType newStorageType) {
+        Preconditions.checkState(newStorageType == TStorageType.COLUMN);
+        this.newStorageType = newStorageType;
     }
 
     public boolean isSchemaHashRelated(int schemaHash) {
@@ -328,7 +338,6 @@ public class SchemaChangeJob extends AlterJob {
                         int baseSchemaHash = olapTable.getSchemaHashByIndexId(indexId);
                         short newShortKeyColumnCount = this.changedIndexIdToShortKeyColumnCount.get(indexId);
                         Preconditions.checkState(newShortKeyColumnCount != (short) -1);
-                        TStorageType storageType = olapTable.getStorageTypeByIndexId(indexId);
                         KeysType keysType = olapTable.getKeysType();
                         TKeysType schemaChangeKeysType;
                         if (keysType == KeysType.DUP_KEYS) {
@@ -339,6 +348,8 @@ public class SchemaChangeJob extends AlterJob {
                             schemaChangeKeysType = TKeysType.AGG_KEYS;
                         }
 
+                        TStorageType storageType = newStorageType == null ? olapTable.getStorageTypeByIndexId(indexId)
+                                : newStorageType;
                         for (Tablet tablet : alterIndex.getTablets()) {
                             long tabletId = tablet.getId();
                             short replicaSendNum = 0;
@@ -357,7 +368,8 @@ public class SchemaChangeJob extends AlterJob {
                                                              partitionId, indexId, tabletId, replicaId,
                                                              alterSchema, newSchemaHash,
                                                              baseSchemaHash, newShortKeyColumnCount,
-                                                             storageType, bfColumns, bfFpp, schemaChangeKeysType);
+                                                             storageType,
+                                                             bfColumns, bfFpp, schemaChangeKeysType);
                                 addReplicaId(indexId, replicaId, backendId);
                                 tasks.add(schemaChangeTask);
                                 replicaSendNum++;
@@ -703,6 +715,10 @@ public class SchemaChangeJob extends AlterJob {
                     short shortKeyColumnCount = changedIndexIdToShortKeyColumnCount.get(indexId);
                     olapTable.setIndexSchemaInfo(indexId, null, entry.getValue(), schemaVersion, schemaHash,
                                                  shortKeyColumnCount);
+
+                    if (newStorageType != null) {
+                        olapTable.setIndexStorageType(indexId, newStorageType);
+                    }
                 }
 
                 // 3. update base schema if changed
@@ -820,6 +836,10 @@ public class SchemaChangeJob extends AlterJob {
             olapTable.setIndexSchemaInfo(indexId, null, entry.getValue(), schemaVersion, schemaHash,
                                          shortKeyColumnCount);
 
+            if (newStorageType != null) {
+                olapTable.setIndexStorageType(indexId, newStorageType);
+            }
+
             if (indexId == olapTable.getId()) {
                 olapTable.setNewBaseSchema(entry.getValue());
             }
@@ -932,6 +952,13 @@ public class SchemaChangeJob extends AlterJob {
         } else {
             out.writeBoolean(false);
         }
+
+        // storage type
+        if (newStorageType == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+        }
     }
 
     @Override
@@ -988,6 +1015,12 @@ public class SchemaChangeJob extends AlterJob {
                 }
 
                 bfFpp = in.readDouble();
+            }
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_39) {
+            if (in.readBoolean()) {
+                newStorageType = TStorageType.COLUMN;
             }
         }
     }

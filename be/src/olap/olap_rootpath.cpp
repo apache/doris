@@ -127,7 +127,7 @@ OLAPStatus OLAPRootPath::init() {
         _remove_all_unused_flag_file();
     }
 
-    res = _parse_root_paths_from_string(root_paths.c_str(), &root_path_vec, &capacity_vec);
+    res = parse_root_paths_from_string(root_paths.c_str(), &root_path_vec, &capacity_vec);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("get root path failed. [res=%d root_paths='%s']",
                          res, root_paths.c_str());
@@ -305,7 +305,7 @@ OLAPStatus OLAPRootPath::reload_root_paths(const char* root_paths) {
 
     RootPathVec root_path_vec;
     CapacityVec capacity_vec;
-    res = _parse_root_paths_from_string(root_paths, &root_path_vec, &capacity_vec);
+    res = parse_root_paths_from_string(root_paths, &root_path_vec, &capacity_vec);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("get root path failed when reload root path. [root_paths=%s]", root_paths);
         return res;
@@ -654,7 +654,7 @@ OLAPStatus OLAPRootPath::_create_unused_flag_file(string& unused_flag_file) {
     return res;
 }
 
-OLAPStatus OLAPRootPath::_parse_root_paths_from_string(
+OLAPStatus OLAPRootPath::parse_root_paths_from_string(
         const char* root_paths,
         RootPathVec* root_path_vec,
         CapacityVec* capacity_vec) {

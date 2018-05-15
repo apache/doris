@@ -325,6 +325,7 @@ struct TAggregationNode {
   // Set to true if this aggregation function requires finalization to complete after all
   // rows have been aggregated, and this node is not an intermediate node.
   5: required bool need_finalize
+  6: optional bool use_streaming_preaggregation
 }
 
 struct TPreAggregationNode {
@@ -493,6 +494,25 @@ struct TKuduScanNode {
   1: required Types.TTupleId tuple_id
 }
 
+// This contains all of the information computed by the plan as part of the resource
+// profile that is needed by the backend to execute.
+struct TBackendResourceProfile {
+// The minimum reservation for this plan node in bytes.
+1: required i64 min_reservation = 0; // no support reservation
+
+// The maximum reservation for this plan node in bytes. MAX_INT64 means effectively
+// unlimited.
+2: required i64 max_reservation = 12188490189880;  // no max reservation limit 
+
+// The spillable buffer size in bytes to use for this node, chosen by the planner.
+// Set iff the node uses spillable buffers.
+3: optional i64 spillable_buffer_size = 2097152
+
+// The buffer size in bytes that is large enough to fit the largest row to be processed.
+// Set if the node allocates buffers for rows from the buffer pool.
+4: optional i64 max_row_buffer_size = 4194304  //TODO chenhao
+}
+
 // This is essentially a union of all messages corresponding to subclasses
 // of PlanNode.
 struct TPlanNode {
@@ -528,6 +548,7 @@ struct TPlanNode {
   26: optional TOlapRewriteNode olap_rewrite_node
   27: optional TKuduScanNode kudu_scan_node
   28: optional TUnionNode union_node
+  29: optional TBackendResourceProfile resource_profile
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

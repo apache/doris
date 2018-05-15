@@ -46,10 +46,11 @@ public:
     explicit StaticBuffer(size_t len, size_t alignment=0)
         : alignment(alignment), size(len), own(true) {
             if (alignment > 0) {
-                void *vptr = 0;
+                void *vptr = nullptr;
                 size_t aligned_len = (len % alignment) == 0 ? len :
                     ((len / alignment)+1)*alignment;
-                assert(posix_memalign(&vptr, alignment, aligned_len) == 0);
+                posix_memalign(&vptr, alignment, aligned_len);
+                assert(vptr != nullptr);
                 base = (uint8_t *)vptr;
             }
             else

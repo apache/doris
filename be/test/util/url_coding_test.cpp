@@ -17,7 +17,7 @@
 #include <stdio.h>
 #include <iostream>
 #include <gtest/gtest.h>
-#include "util/url-coding.h"
+#include "util/url_coding.h"
 #include "util/logging.h"
 
 namespace palo {

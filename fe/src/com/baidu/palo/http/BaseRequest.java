@@ -18,17 +18,17 @@ package com.baidu.palo.http;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
+import java.net.InetSocketAddress;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.http.Cookie;
 import io.netty.handler.codec.http.CookieDecoder;
 import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.QueryStringDecoder;
-
-import java.net.InetSocketAddress;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 public class BaseRequest {
     protected ChannelHandlerContext context;
@@ -140,7 +140,7 @@ public class BaseRequest {
     }
     
     public String getHostString() {
-     // get client host
+        // get client host
         InetSocketAddress clientSocket = (InetSocketAddress) context.channel().remoteAddress();
         String clientIp = clientSocket.getHostString();
         return clientIp;

@@ -22,6 +22,7 @@ package com.baidu.palo.common.util;
 
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.PrimitiveType;
+import com.baidu.palo.common.Config;
 
 import com.google.common.collect.Lists;
 

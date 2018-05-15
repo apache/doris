@@ -25,7 +25,7 @@
 #include <gperftools/profiler.h>
 
 #include "olap/command_executor.h"
-#include "olap/cumulative_handler.h"
+#include "olap/cumulative_compaction.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_engine.h"
@@ -86,24 +86,24 @@ OLAPStatus OLAPServer::init(const char* config_path, const char* config_file) {
     }
 
     // start be and ce threads for merge data
-    int32_t be_thread_num = config::base_expansion_thread_num;
-    _be_threads.resize(be_thread_num, -1);
-    for (uint32_t i = 0; i < be_thread_num; ++i) {
-        if (0 != pthread_create(&_be_threads[i],
+    int32_t base_compaction_num_threads = config::base_compaction_num_threads;
+    _base_compaction_threads.resize(base_compaction_num_threads, -1);
+    for (uint32_t i = 0; i < base_compaction_num_threads; ++i) {
+        if (0 != pthread_create(&_base_compaction_threads[i],
                                 NULL,
-                                _be_thread_callback,
+                                _base_compaction_thread_callback,
                                 NULL)) {
-            OLAP_LOG_FATAL("failed to start base expansion thread. [id=%u]", i); 
+            OLAP_LOG_FATAL("failed to start base compaction thread. [id=%u]", i); 
             return OLAP_ERR_INIT_FAILED;
         }
     }
 
-    int32_t ce_thread_num = config::cumulative_thread_num;
-    _cumulative_threads.resize(ce_thread_num, -1);
-    for (uint32_t i = 0; i < ce_thread_num; ++i) {
-        if (0 != pthread_create(&_cumulative_threads[i], 
+    int32_t cumulative_compaction_num_threads = config::cumulative_compaction_num_threads;
+    _cumulative_compaction_threads.resize(cumulative_compaction_num_threads, -1);
+    for (uint32_t i = 0; i < cumulative_compaction_num_threads; ++i) {
+        if (0 != pthread_create(&(_cumulative_compaction_threads[i]), 
                                 NULL, 
-                                _cumulative_thread_callback, 
+                                _cumulative_compaction_thread_callback, 
                                 NULL)) {
             OLAP_LOG_FATAL("failed to start cumulative thread. [id=%u]", i); 
             return OLAP_ERR_INIT_FAILED;
@@ -125,7 +125,7 @@ void* OLAPServer::_fd_cache_clean_callback(void* arg) {
 #endif
     uint32_t interval = config::file_descriptor_cache_clean_interval;
     if (interval <= 0) {
-        OLAP_LOG_WARNING("base expansion triggler interval config is illegal: [%d], "
+        OLAP_LOG_WARNING("config of file descriptor clean interval is illegal: [%d], "
                          "force set to 3600", interval);
         interval = 3600;
     }
@@ -137,25 +137,25 @@ void* OLAPServer::_fd_cache_clean_callback(void* arg) {
     return NULL;
 }
 
-void* OLAPServer::_be_thread_callback(void* arg) {
+void* OLAPServer::_base_compaction_thread_callback(void* arg) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
-    uint32_t interval = config::base_expansion_trigger_interval;
+    uint32_t interval = config::base_compaction_check_interval_seconds;
     if (interval <= 0) {
-        OLAP_LOG_WARNING("base expansion triggler interval config is illegal: [%d], "
+        OLAP_LOG_WARNING("base compaction check interval config is illegal: [%d], "
                          "force set to 1", interval);
         interval = 1;
     }
 
-    string last_be_fs;
-    TTabletId last_be_tablet_id = -1;
+    string last_base_compaction_fs;
+    TTabletId last_base_compaction_tablet_id = -1;
     while (true) {
         // must be here, because this thread is start on start and
         // cgroup is not initialized at this time
         // add tid to cgroup
         CgroupsMgr::apply_system_cgroup();
-        OLAPEngine::get_instance()->start_base_expansion(&last_be_fs, &last_be_tablet_id);
+        OLAPEngine::get_instance()->start_base_compaction(&last_base_compaction_fs, &last_base_compaction_tablet_id);
 
         usleep(interval * 1000000);
     }
@@ -253,14 +253,14 @@ void* OLAPServer::_unused_index_thread_callback(void* arg) {
     return NULL;
 }
 
-void* OLAPServer::_cumulative_thread_callback(void* arg) {
+void* OLAPServer::_cumulative_compaction_thread_callback(void* arg) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
-    OLAP_LOG_INFO("try to start cumulative process!");
-    uint32_t interval = config::cumulative_check_interval;
+    OLAP_LOG_INFO("try to start cumulative compaction process!");
+    uint32_t interval = config::cumulative_compaction_check_interval_seconds;
     if (interval <= 0) {
-        OLAP_LOG_WARNING("cumulative expansion check interval config is illegal: [%d], "
+        OLAP_LOG_WARNING("cumulative compaction check interval config is illegal: [%d], "
                          "force set to 1", interval);
         interval = 1;
     }

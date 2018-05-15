@@ -17,12 +17,16 @@ package com.baidu.palo.catalog;
 
 import java.util.List;
 
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.powermock.modules.junit4.PowerMockRunner;
 
 import com.google.common.collect.Lists;
 
+@RunWith(PowerMockRunner.class)
 public class DomainResolverServerTest {
     private DomainResolverServer server;
     private String user = "test";
@@ -140,4 +144,12 @@ public class DomainResolverServerTest {
         // no exist domain
         Assert.assertFalse(server.isAvaliableDomain("www.sina.com.cn11sdfqweg"));
     }
+
+    @After
+    public void tearDown() throws Exception {
+        server = null;
+        user = null;
+        domainNameList.clear();
+    }
+
 }

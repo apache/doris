@@ -94,6 +94,8 @@ public class Alter {
         boolean hasPartition = false;
         // rename ops, if has, should appear one and only one entry
         boolean hasRename = false;
+        // modify properties ops, if has, should appear one and only one entry
+        boolean hasModifyProp = false;
 
         // check conflict alter ops first
         List<AlterClause> alterClauses = stmt.getOps();
@@ -122,24 +124,28 @@ public class Alter {
                     && !hasRollup && !hasPartition && !hasRename) {
                 hasSchemaChange = true;
             } else if (alterClause instanceof AddRollupClause && !hasSchemaChange && !hasRollup && !hasPartition
-                    && !hasRename) {
+                    && !hasRename && !hasModifyProp) {
                 hasRollup = true;
             } else if (alterClause instanceof DropRollupClause && !hasSchemaChange && !hasRollup && !hasPartition
-                    && !hasRename) {
+                    && !hasRename && !hasModifyProp) {
                 hasRollup = true;
             } else if (alterClause instanceof AddPartitionClause && !hasSchemaChange && !hasRollup && !hasPartition
-                    && !hasRename) {
+                    && !hasRename && !hasModifyProp) {
                 hasPartition = true;
             } else if (alterClause instanceof DropPartitionClause && !hasSchemaChange && !hasRollup && !hasPartition
-                    && !hasRename) {
+                    && !hasRename && !hasModifyProp) {
                 hasPartition = true;
             } else if (alterClause instanceof ModifyPartitionClause && !hasSchemaChange && !hasRollup
-                    && !hasPartition && !hasRename) {
+                    && !hasPartition && !hasRename && !hasModifyProp) {
                 hasPartition = true;
             } else if ((alterClause instanceof TableRenameClause || alterClause instanceof RollupRenameClause
                     || alterClause instanceof PartitionRenameClause || alterClause instanceof ColumnRenameClause)
-                    && !hasSchemaChange && !hasRollup && !hasPartition && !hasRename) {
+                    && !hasSchemaChange && !hasRollup && !hasPartition && !hasRename && !hasModifyProp) {
                 hasRename = true;
+            } else if (alterClause instanceof ModifyTablePropertiesClause && !hasSchemaChange && !hasRollup
+                    && !hasPartition
+                    && !hasRename && !hasModifyProp) {
+                hasModifyProp = true;
             } else {
                 throw new DdlException("Conflicting alter clauses. see help for more information");
             }
@@ -183,7 +189,7 @@ public class Alter {
                 }
             }
 
-            if (hasSchemaChange) {
+            if (hasSchemaChange || hasModifyProp) {
                 schemaChangeHandler.process(alterClauses, clusterName, db, olapTable);
             } else if (hasRollup) {
                 rollupHandler.process(alterClauses, clusterName, db, olapTable);

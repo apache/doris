@@ -67,9 +67,8 @@ bool InetAddr::initialize(sockaddr_in *addr, const char *host, uint16_t port) {
         struct hostent *he = 0;
         char hbuf[2048];
         int err = 0;
-        if (gethostbyname_r(host, &hent, hbuf, sizeof(hbuf), &he, &err) != 0
-                || he == 0) {
-            LOG(ERROR) << "gethostbyname '%s': error: %d" << host << err;
+        if (gethostbyname_r(host, &hent, hbuf, sizeof(hbuf), &he, &err) != 0 || he == 0) {
+            LOG(ERROR) << "gethostbyname host=" << host << ", error: " << err;
             return false;
         }
         memcpy(&addr->sin_addr.s_addr, he->h_addr_list[0], sizeof(uint32_t));

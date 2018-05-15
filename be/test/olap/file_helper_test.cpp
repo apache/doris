@@ -37,14 +37,14 @@ namespace palo {
 class FileHandlerTest : public testing::Test {
 public:
     // create a mock cgroup folder 
-    static void SetUpTestCase() {
+    virtual void SetUp() {
         ASSERT_FALSE(boost::filesystem::exists(_s_test_data_path));
         // create a mock cgroup path
         ASSERT_TRUE(boost::filesystem::create_directory(_s_test_data_path));
     }
 
     // delete the mock cgroup folder
-    static void TearDownTestCase() {
+    virtual void TearDown() {
         ASSERT_TRUE(boost::filesystem::remove_all(_s_test_data_path));
     }
     
@@ -52,7 +52,7 @@ public:
     static std::string _s_test_data_path;
 };
 
-std::string FileHandlerTest::_s_test_data_path = "./file_handler_testxxxx123";
+std::string FileHandlerTest::_s_test_data_path = "./log/file_handler_testxxxx123";
 
 TEST_F(FileHandlerTest, TestWrite) {
     FileHandler file_handler;
@@ -101,6 +101,11 @@ TEST_F(FileHandlerTest, TestWrite) {
 }  // namespace palo
 
 int main(int argc, char **argv) {
+    std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
+    if (!palo::config::init(conffile.c_str(), false)) {
+        fprintf(stderr, "error read config file. \n");
+        return -1;
+    }
     palo::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

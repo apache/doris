@@ -22,6 +22,8 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/service")
 add_library(Service
     backend_options.cpp
     backend_service.cpp
+    brpc_service.cpp
+    internal_service.cpp
 )
 
 add_executable(palo_be
@@ -29,7 +31,7 @@ add_executable(palo_be
 )
 
 # This permits libraries loaded by dlopen to link to the symbols in the program.
-set_target_properties(palo_be PROPERTIES LINK_FLAGS -rdynamic)
+# set_target_properties(palo_be PROPERTIES LINK_FLAGS -pthread)
 
 target_link_libraries(palo_be
     ${PALO_LINK_LIBS}

@@ -327,9 +327,22 @@ void RuntimeProfile::compute_time_in_profile(int64_t total) {
     }
 }
 
-void RuntimeProfile::add_child(RuntimeProfile* child, bool indent, RuntimeProfile* loc) {
-    DCHECK(child != NULL);
-    boost::lock_guard<boost::mutex> l(_children_lock);
+RuntimeProfile* RuntimeProfile::create_child(const std::string& name, bool indent,
+    bool prepend) {
+  boost::lock_guard<boost::mutex> l(_children_lock);
+  DCHECK(_child_map.find(name) == _child_map.end());
+  RuntimeProfile* child = _pool->add(new RuntimeProfile(_pool.get(), name));
+  if (_children.empty()) {
+      add_child_unlock(child, indent, NULL);
+  } else {
+      ChildVector::iterator pos = prepend ? _children.begin() : _children.end();
+      add_child_unlock(child, indent, (*pos).first);
+  }
+  return child;
+}
+
+void RuntimeProfile::add_child_unlock(RuntimeProfile* child, bool indent, RuntimeProfile* loc) {
+    DCHECK(child != NULL); 
     _child_map[child->_name] = child;
 
     if (loc == NULL) {
@@ -339,11 +352,15 @@ void RuntimeProfile::add_child(RuntimeProfile* child, bool indent, RuntimeProfil
             if (it->first == loc) {
                 _children.insert(++it, std::make_pair(child, indent));
                 return;
-            }
-        }
-
+            }   
+        }   
         DCHECK(false) << "Invalid loc";
     }
+}
+
+void RuntimeProfile::add_child(RuntimeProfile* child, bool indent, RuntimeProfile* loc) {
+    boost::lock_guard<boost::mutex> l(_children_lock);
+    add_child_unlock(child, indent, loc);
 }
 
 void RuntimeProfile::get_children(std::vector<RuntimeProfile*>* children) {

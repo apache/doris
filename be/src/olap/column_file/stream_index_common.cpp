@@ -17,6 +17,7 @@
 
 #include "olap/column_file/stream_index_common.h"
 #include "olap/field.h"
+#include "olap/wrapper_field.h"
 
 namespace palo {
 namespace column_file {
@@ -37,17 +38,14 @@ OLAPStatus ColumnStatistics::init(const FieldType& type, bool null_supported) {
     SAFE_DELETE(_minimum);
     SAFE_DELETE(_maximum);
     // 当数据类型为 String和varchar或是未知类型时，实际上不会有统计信息。
-    _minimum = Field::create_by_type(type);
-    _maximum = Field::create_by_type(type);
+    _minimum = WrapperField::create_by_type(type);
+    _maximum = WrapperField::create_by_type(type);
 
     _null_supported = null_supported;
     if (NULL == _minimum || NULL == _maximum) {
         _ignored = true;
     } else {
         _ignored = false;
-        memset(_buf, 0, MAX_STATISTIC_LENGTH);
-        _minimum->attach_field(_buf);
-        _maximum->attach_field(_buf + _minimum->field_size());
         reset();
     }
 
@@ -64,17 +62,17 @@ void ColumnStatistics::reset() {
     }
 }
 
-void ColumnStatistics::add(const Field* field) {
+void ColumnStatistics::add(char* buf) {
     if (_ignored) {
         return;
     }
 
-    if (field->cmp(_maximum) > 0) {
-        _maximum->copy(field);
+    if (_maximum->cmp(buf) < 0) {
+        _maximum->copy(buf);
     }
 
-    if (field->cmp(_minimum) < 0) {
-        _minimum->copy(field);
+    if (_minimum->cmp(buf) > 0) {
+        _minimum->copy(buf);
     }
 }
 
@@ -127,7 +125,17 @@ OLAPStatus ColumnStatistics::write_to_buffer(char* buffer, size_t size) {
         return OLAP_ERR_BUFFER_OVERFLOW;
     }
 
-    memcpy(buffer, _buf, this->size());
+    // TODO(zc): too ugly
+    if (_null_supported) {
+        size_t cpy_size = _minimum->field_size();
+        memcpy(buffer, _minimum->get_null(), cpy_size);
+        memcpy(buffer + cpy_size, _maximum->get_null(), cpy_size);
+    } else {
+        size_t cpy_size = _minimum->size();
+        memcpy(buffer, _minimum->ptr(), cpy_size);
+        memcpy(buffer + cpy_size, _maximum->ptr(), cpy_size);
+    }
+
     return OLAP_SUCCESS;
 }
 

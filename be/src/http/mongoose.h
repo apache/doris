@@ -29,19 +29,19 @@ struct mg_connection;  // Handle for the individual connection
 
 // This structure contains information about the HTTP request.
 struct mg_request_info {
-  char *request_method;  // "GET", "POST", etc
-  char *uri;             // URL-decoded URI
-  char *http_version;    // E.g. "1.0", "1.1"
-  char *query_string;    // URL part after '?' (not including '?') or NULL
-  char *remote_user;     // Authenticated user, or NULL if no auth used
-  long remote_ip;        // Client's IP address
-  int remote_port;       // Client's port
-  int is_ssl;            // 1 if SSL-ed, 0 if not
-  int num_headers;       // Number of headers
+  char *request_method = nullptr;  // "GET", "POST", etc
+  char *uri = nullptr;             // URL-decoded URI
+  char *http_version = nullptr;    // E.g. "1.0", "1.1"
+  char *query_string = nullptr;    // URL part after '?' (not including '?') or NULL
+  char *remote_user = nullptr;     // Authenticated user, or NULL if no auth used
+  long remote_ip;                  // Client's IP address
+  int remote_port;                 // Client's port
+  int is_ssl;                      // 1 if SSL-ed, 0 if not
+  int num_headers;                 // Number of headers
   struct mg_header {
-    char *name;          // HTTP header name
-    char *value;         // HTTP header value
-  } http_headers[64];    // Maximum 64 headers
+    char *name = nullptr;          // HTTP header name
+    char *value = nullptr;         // HTTP header value
+  } http_headers[64];              // Maximum 64 headers
 };
 
 

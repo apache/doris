@@ -55,7 +55,7 @@ SchemaScanNode::~SchemaScanNode() {
     _src_tuple = NULL;
 }
 
-Status SchemaScanNode::init(const TPlanNode& tnode) {
+Status SchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode));
     if (tnode.schema_scan_node.__isset.db) {
         _scanner_param.db = _pool->add(new std::string(tnode.schema_scan_node.db));

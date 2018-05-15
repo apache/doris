@@ -188,6 +188,11 @@ public class OlapTable extends Table {
         indexIdToShortKeyColumnCount.put(indexId, shortKeyColumnCount);
     }
 
+    public void setIndexStorageType(Long indexId, TStorageType newStorageType) {
+        Preconditions.checkState(newStorageType == TStorageType.COLUMN);
+        indexIdToStorageType.put(indexId, newStorageType);
+    }
+
     public void deleteIndexInfo(String indexName) {
         long indexId = this.indexNameToId.remove(indexName);
 
@@ -375,14 +380,6 @@ public class OlapTable extends Table {
     }
 
     public Partition getPartition(String partitionName) {
-        if (!nameToPartition.containsKey(partitionName)) {
-            LOG.info("partition size: {}", nameToPartition.size());
-            for (Map.Entry<String, Partition> entry : nameToPartition.entrySet()) {
-                LOG.info("print partition id: {}, key name: {}, partition name: {}",
-                         entry.getValue().getId(), entry.getKey(), entry.getValue().getName());
-
-            }
-        }
         return nameToPartition.get(partitionName);
     }
 

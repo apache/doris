@@ -722,20 +722,24 @@ char* DiskIoMgr::get_free_buffer(int64_t* buffer_size) {
     char* buffer = NULL;
     if (_free_buffers[idx].empty()) {
         ++_num_allocated_buffers;
+#if 0
         if (PaloMetrics::io_mgr_num_buffers() != NULL) {
             PaloMetrics::io_mgr_num_buffers()->increment(1L);
         }
         if (PaloMetrics::io_mgr_total_bytes() != NULL) {
             PaloMetrics::io_mgr_total_bytes()->increment(*buffer_size);
         }
+#endif
         // Update the process mem usage.  This is checked the next time we start
         // a read for the next reader (DiskIoMgr::GetNextScanRange)
         _process_mem_tracker->consume(*buffer_size);
         buffer = new char[*buffer_size];
     } else {
+#if 0
         if (PaloMetrics::io_mgr_num_unused_buffers() != NULL) {
             PaloMetrics::io_mgr_num_unused_buffers()->increment(-1L);
         }
+#endif
         buffer = _free_buffers[idx].front();
         _free_buffers[idx].pop_front();
     }
@@ -760,7 +764,7 @@ void DiskIoMgr::gc_io_buffers() {
         }
         _free_buffers[idx].clear();
     }
-
+#if 0
     if (PaloMetrics::io_mgr_num_buffers() != NULL) {
         PaloMetrics::io_mgr_num_buffers()->increment(-buffers_freed);
     }
@@ -770,6 +774,7 @@ void DiskIoMgr::gc_io_buffers() {
     if (PaloMetrics::io_mgr_num_unused_buffers() != NULL) {
         PaloMetrics::io_mgr_num_unused_buffers()->update(0);
     }
+#endif
 }
 
 void DiskIoMgr::return_free_buffer(BufferDescriptor* desc) {
@@ -787,19 +792,23 @@ void DiskIoMgr::return_free_buffer(char* buffer, int64_t buffer_size) {
     unique_lock<mutex> lock(_free_buffers_lock);
     if (!config::disable_mem_pools && _free_buffers[idx].size() < config::max_free_io_buffers) {
         _free_buffers[idx].push_back(buffer);
+#if 0
         if (PaloMetrics::io_mgr_num_unused_buffers() != NULL) {
             PaloMetrics::io_mgr_num_unused_buffers()->increment(1L);
         }
+#endif
     } else {
         _process_mem_tracker->release(buffer_size);
         --_num_allocated_buffers;
         delete[] buffer;
+#if 0
         if (PaloMetrics::io_mgr_num_buffers() != NULL) {
             PaloMetrics::io_mgr_num_buffers()->increment(-1L);
         }
         if (PaloMetrics::io_mgr_total_bytes() != NULL) {
             PaloMetrics::io_mgr_total_bytes()->increment(-buffer_size);
         }
+#endif
     }
 }
 
@@ -1173,9 +1182,11 @@ Status DiskIoMgr::write_range_helper(FILE* file_handle, WriteRange* write_range)
                 << errno << " description=" << get_str_err_msg();
         return Status(error_msg.str());
     }
+#if 0
     if (PaloMetrics::io_mgr_bytes_written() != NULL) {
         PaloMetrics::io_mgr_bytes_written()->increment(write_range->_len);
     }
+#endif
 
     return Status::OK;
 }

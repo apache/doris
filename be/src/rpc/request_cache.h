@@ -38,7 +38,11 @@ class RequestCache {
     class CacheNode {
     public:
         CacheNode(uint32_t id, IOHandler *handler, DispatchHandler *dh)
-            : id(id), handler(handler), dh(dh) {}
+                : id(id), handler(handler) {
+            if (dh != nullptr) {
+                dhp = dh->shared_from_this();
+            }
+        }
         ~CacheNode() {}
         CacheNode* prev;            //!< Doubly-linked list prev pointers
         CacheNode* next;            //!< Doubly-linked list next pointers
@@ -47,7 +51,7 @@ class RequestCache {
         IOHandler         *handler; //!< IOHandler associated with this request
         /// Callback handler to which MESSAGE, TIMEOUT, ERROR, and DISCONNECT
         /// events are delivered
-        DispatchHandler *dh;
+        DispatchHandlerPtr dhp;
     };
 
     /// RequestID-to-CacheNode map
@@ -73,7 +77,7 @@ public:
      * @param handler Removed dispatch handler
      * @return <i>true</i> if removed, <i>false</i> if not found
      */
-    bool remove(uint32_t id, DispatchHandler *&handler);
+    bool remove(uint32_t id, DispatchHandlerPtr &handler);
 
     /** Removes next request that has timed out.  This method finds the first
      * request starting from the head of the list and removes it and returns
@@ -90,7 +94,7 @@ public:
      * <i>false</i> otherwise
      */
     bool get_next_timeout(ClockT::time_point &now, IOHandler *&handlerp,
-                          DispatchHandler *&dh,
+                          DispatchHandlerPtr& dhp,
                           ClockT::time_point *next_timeout, uint32_t* header_id);
 
     /** Purges all requests assocated with <code>handler</code>.  This

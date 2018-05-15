@@ -43,7 +43,7 @@ public:
     TopNNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     virtual ~TopNNode();
 
-    virtual Status init(const TPlanNode& tnode);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
 
     virtual Status prepare(RuntimeState* state);
     virtual Status open(RuntimeState* state);

@@ -25,6 +25,7 @@
 
 #include "common/compiler_util.h"
 #include "util/cpu_info.h"
+#include "gutil/bits.h"
 
 namespace palo {
 
@@ -208,6 +209,138 @@ public:
     }
 #endif
 
+  /// Returns the smallest power of two that contains v. If v is a power of two, v is
+  /// returned. Taken from
+  /// http://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
+  static inline int64_t RoundUpToPowerOfTwo(int64_t v) {
+    --v;
+    v |= v >> 1;
+    v |= v >> 2;
+    v |= v >> 4;
+    v |= v >> 8;
+    v |= v >> 16; 
+    v |= v >> 32; 
+    ++v;
+    return v;
+  }
+
+  // Wrap the gutil/ version for convenience.
+  static inline int Log2FloorNonZero64(uint64_t n) {
+    return Bits::Log2FloorNonZero64(n);
+  }
+
+  // Wrap the gutil/ version for convenience.
+  static inline int Log2Floor64(uint64_t n) {
+    return Bits::Log2Floor64(n);
+  }
+
+  static inline int Log2Ceiling64(uint64_t n) {
+    int floor = Log2Floor64(n);
+    // Check if zero or a power of two. This pattern is recognised by gcc and optimised
+    // into branch-free code.
+    if (0 == (n & (n - 1))) {
+      return floor;
+    } else {
+      return floor + 1;
+    }
+  }
+
+  static inline int Log2CeilingNonZero64(uint64_t n) {
+    int floor = Log2FloorNonZero64(n);
+    // Check if zero or a power of two. This pattern is recognised by gcc and optimised
+    // into branch-free code.
+    if (0 == (n & (n - 1))) {
+      return floor;
+    } else {
+      return floor + 1;
+    }
+  }
+  
+  // Returns the rounded up to 64 multiple. Used for conversions of bits to i64. 
+  static inline uint32_t round_up_numi_64(uint32_t bits) {
+    return (bits + 63) >> 6;
+  }
+
+  constexpr static inline int64_t Ceil(int64_t value, int64_t divisor) {
+    return value / divisor + (value % divisor != 0); 
+  }
+
+  constexpr static inline bool IsPowerOf2(int64_t value) {
+    return (value & (value - 1)) == 0;
+  }
+
+  constexpr static inline int64_t RoundDown(int64_t value, int64_t factor) {
+    return (value / factor) * factor;
+  }
+
+  /// Specialized round up and down functions for frequently used factors,
+  /// like 8 (bits->bytes), 32 (bits->i32), and 64 (bits->i64)
+  /// Returns the rounded up number of bytes that fit the number of bits.
+  constexpr static inline uint32_t RoundUpNumBytes(uint32_t bits) {
+    return (bits + 7) >> 3;
+  }
+
+  /// Non hw accelerated pop count.
+  /// TODO: we don't use this in any perf sensitive code paths currently.  There
+  /// might be a much faster way to implement this.
+  static inline int PopcountNoHw(uint64_t x) {
+    int count = 0;
+    for (; x != 0; ++count) x &= x-1;
+    return count;
+  }
+
+  /// Returns the number of set bits in x
+  static inline int Popcount(uint64_t x) {
+    //if (LIKELY(CpuInfo::is_supported(CpuInfo::POPCNT))) {
+    //  return POPCNT_popcnt_u64(x);
+    //} else {
+    return PopcountNoHw(x);
+   // }
+  }
+
+  // Compute correct population count for various-width signed integers
+  template<typename T>
+  static inline int PopcountSigned(T v) {
+    // Converting to same-width unsigned then extending preserves the bit pattern.
+    return BitUtil::Popcount(static_cast<typename std::make_unsigned<T>::type>(v));
+  }
+
+  /// Logical right shift for signed integer types
+  /// This is needed because the C >> operator does arithmetic right shift
+  /// Negative shift amounts lead to undefined behavior
+  template <typename T>
+  constexpr static T ShiftRightLogical(T v, int shift) {
+    // Conversion to unsigned ensures most significant bits always filled with 0's
+    return static_cast<typename std::make_unsigned<T>::type>(v) >> shift;
+  } 
+
+  /// Get an specific bit of a numeric type
+  template<typename T>
+  static inline int8_t GetBit(T v, int bitpos) {
+    T masked = v & (static_cast<T>(0x1) << bitpos);
+    return static_cast<int8_t>(ShiftRightLogical(masked, bitpos));
+  }
+
+  /// Set a specific bit to 1
+  /// Behavior when bitpos is negative is undefined
+  template <typename T>
+  constexpr static T SetBit(T v, int bitpos) {
+    return v | (static_cast<T>(0x1) << bitpos);
+  }
+
+  /// Set a specific bit to 0
+  /// Behavior when bitpos is negative is undefined
+  template <typename T>
+  constexpr static T UnsetBit(T v, int bitpos) {
+    return v & ~(static_cast<T>(0x1) << bitpos);
+  }
+
+  /// Returns 'value' rounded up to the nearest multiple of 'factor' when factor is
+  /// a power of two
+  static inline int64_t RoundUpToPowerOf2(int64_t value, int64_t factor) {
+    DCHECK((factor > 0) && ((factor & (factor - 1)) == 0));
+    return (value + (factor - 1)) & ~(factor - 1);
+  }
 };
 
 }

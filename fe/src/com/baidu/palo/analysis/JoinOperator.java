@@ -87,6 +87,18 @@ public enum JoinOperator {
     public boolean isCrossJoin() {
         return this == CROSS_JOIN;
     }
+
+    public boolean isFullOuterJoin() {
+        return this == FULL_OUTER_JOIN;
+    }
+
+    public boolean isLeftOuterJoin() {
+        return this == LEFT_OUTER_JOIN; 
+    }
+
+    public boolean isRightOuterJoin() {
+        return this == RIGHT_OUTER_JOIN;
+    }
 }
 
 

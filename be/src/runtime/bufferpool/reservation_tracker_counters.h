@@ -18,8 +18,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef IMPALA_RUNTIME_RESERVATION_TRACKER_COUNTERS_H
-#define IMPALA_RUNTIME_RESERVATION_TRACKER_COUNTERS_H
+#ifndef BDG_PALO_BE_RUNTIME_RESERVATION_TRACKER_COUNTERS_H
+#define BDG_PALO_BE_RUNTIME_RESERVATION_TRACKER_COUNTERS_H
 
 #include "util/runtime_profile.h"
 

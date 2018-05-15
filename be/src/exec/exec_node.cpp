@@ -31,6 +31,7 @@
 #include "exprs/expr_context.h"
 #include "exec/aggregation_node.h"
 #include "exec/partitioned_aggregation_node.h"
+#include "exec/new_partitioned_aggregation_node.h"
 #include "exec/csv_scan_node.h"
 #include "exec/pre_aggregation_node.h"
 #include "exec/hash_join_node.h"
@@ -50,7 +51,9 @@
 #include "exec/analytic_eval_node.h"
 #include "exec/select_node.h"
 #include "exec/union_node.h"
+#include "runtime/exec_env.h"
 #include "runtime/descriptors.h"
+#include "runtime/initial_reservations.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/row_batch.h"
@@ -125,6 +128,7 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
         _pool(pool),
         _tuple_ids(tnode.row_tuples),
         _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
+        _resource_profile(tnode.resource_profile),
         _debug_phase(TExecNodePhase::INVALID),
         _debug_action(TDebugAction::WAIT),
         _limit(tnode.limit),
@@ -163,7 +167,7 @@ void ExecNode::push_down_predicate(
     }
 }
 
-Status ExecNode::init(const TPlanNode& tnode) {
+Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(
         Expr::create_expr_trees(_pool, tnode.conjuncts, &_conjunct_ctxs));
     return Status::OK;
@@ -184,7 +188,9 @@ Status ExecNode::prepare(RuntimeState* state) {
                               "");
     _mem_tracker.reset(new MemTracker(-1, _runtime_profile->name(), state->instance_mem_tracker()));
     _expr_mem_tracker.reset(new MemTracker(-1, "Exprs", _mem_tracker.get()));
+    _expr_mem_pool.reset(new MemPool(_expr_mem_tracker.get()));
 
+    // TODO chenhao
     RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, row_desc(), expr_mem_tracker()));
     // TODO(zc):
     // AddExprCtxsToFree(_conjunct_ctxs);
@@ -199,6 +205,15 @@ Status ExecNode::prepare(RuntimeState* state) {
 Status ExecNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     return Expr::open(_conjunct_ctxs, state);
+}
+
+
+Status ExecNode::reset(RuntimeState* state) {
+    _num_rows_returned = 0;
+    for (int i = 0; i < _children.size(); ++i) {
+        RETURN_IF_ERROR(_children[i]->reset(state));
+    }   
+    return Status::OK;
 }
 
 Status ExecNode::close(RuntimeState* state) {
@@ -219,6 +234,25 @@ Status ExecNode::close(RuntimeState* state) {
     }
     Expr::close(_conjunct_ctxs, state);
 
+    if (expr_mem_pool() != nullptr) {
+        _expr_mem_pool->free_all();
+    }
+
+    if (_buffer_pool_client.is_registered()) {
+        VLOG_FILE << _id << " returning reservation " << _resource_profile.min_reservation;
+        state->initial_reservations()->Return(
+            &_buffer_pool_client, _resource_profile.min_reservation);
+        state->exec_env()->buffer_pool()->DeregisterClient(&_buffer_pool_client);
+    }
+
+    if (_expr_mem_tracker != nullptr) { 
+        _expr_mem_tracker->close();
+    }
+  
+    if (_mem_tracker != nullptr) {
+        _mem_tracker->close();
+    }
+
     return result;
 }
 
@@ -235,7 +269,7 @@ void ExecNode::add_runtime_exec_option(const std::string& str) {
     runtime_profile()->add_info_string("ExecOption", _runtime_exec_options);
 }
 
-Status ExecNode::create_tree(ObjectPool* pool, const TPlan& plan,
+Status ExecNode::create_tree(RuntimeState* state, ObjectPool* pool, const TPlan& plan,
                             const DescriptorTbl& descs, ExecNode** root) {
     if (plan.nodes.size() == 0) {
         *root = NULL;
@@ -243,7 +277,7 @@ Status ExecNode::create_tree(ObjectPool* pool, const TPlan& plan,
     }
 
     int node_idx = 0;
-    RETURN_IF_ERROR(create_tree_helper(pool, plan.nodes, descs, NULL, &node_idx, root));
+    RETURN_IF_ERROR(create_tree_helper(state, pool, plan.nodes, descs, NULL, &node_idx, root));
 
     if (node_idx + 1 != plan.nodes.size()) {
         // TODO: print thrift msg for diagnostic purposes.
@@ -255,6 +289,7 @@ Status ExecNode::create_tree(ObjectPool* pool, const TPlan& plan,
 }
 
 Status ExecNode::create_tree_helper(
+    RuntimeState* state,
     ObjectPool* pool,
     const vector<TPlanNode>& tnodes,
     const DescriptorTbl& descs,
@@ -270,7 +305,7 @@ Status ExecNode::create_tree_helper(
 
     int num_children = tnodes[*node_idx].num_children;
     ExecNode* node = NULL;
-    RETURN_IF_ERROR(create_node(pool, tnodes[*node_idx], descs, &node));
+    RETURN_IF_ERROR(create_node(state, pool, tnodes[*node_idx], descs, &node));
 
     // assert(parent != NULL || (node_idx == 0 && root_expr != NULL));
     if (parent != NULL) {
@@ -281,7 +316,7 @@ Status ExecNode::create_tree_helper(
 
     for (int i = 0; i < num_children; i++) {
         ++*node_idx;
-        RETURN_IF_ERROR(create_tree_helper(pool, tnodes, descs, node, node_idx, NULL));
+        RETURN_IF_ERROR(create_tree_helper(state, pool, tnodes, descs, node, node_idx, NULL));
 
         // we are expecting a child, but have used all nodes
         // this means we have been given a bad tree and must fail
@@ -291,7 +326,7 @@ Status ExecNode::create_tree_helper(
         }
     }
 
-    RETURN_IF_ERROR(node->init(tnode));
+    RETURN_IF_ERROR(node->init(tnode, state));
 
     // build up tree of profiles; add children >0 first, so that when we print
     // the profile, child 0 is printed last (makes the output more readable)
@@ -306,13 +341,12 @@ Status ExecNode::create_tree_helper(
     return Status::OK;
 }
 
-Status ExecNode::create_node(ObjectPool* pool, const TPlanNode& tnode,
+Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanNode& tnode,
                             const DescriptorTbl& descs, ExecNode** node) {
     std::stringstream error_msg;
 
+    VLOG(2) << "tnode:\n" << apache::thrift::ThriftDebugString(tnode);
     switch (tnode.node_type) {
-        VLOG(2) << "tnode:\n" << apache::thrift::ThriftDebugString(tnode);
-
     case TPlanNodeType::CSV_SCAN_NODE:
         *node = pool->add(new CsvScanNode(pool, tnode, descs));
         return Status::OK;
@@ -332,6 +366,8 @@ Status ExecNode::create_node(ObjectPool* pool, const TPlanNode& tnode,
     case TPlanNodeType::AGGREGATION_NODE:
         if (config::enable_partitioned_aggregation) {
             *node = pool->add(new PartitionedAggregationNode(pool, tnode, descs));
+        } else if (config::enable_new_partitioned_aggregation) {
+            *node = pool->add(new NewPartitionedAggregationNode(pool, tnode, descs));
         } else {
             *node = pool->add(new AggregationNode(pool, tnode, descs));
         }
@@ -606,6 +642,67 @@ Function* ExecNode::codegen_eval_conjuncts(
     }
 
     return codegen->finalize_function(fn);
+}
+
+Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
+    DCHECK(!_buffer_pool_client.is_registered());
+    BufferPool* buffer_pool = ExecEnv::GetInstance()->buffer_pool();
+    // Check the minimum buffer size in case the minimum buffer size used by the planner
+    // doesn't match this backend's.
+        std::stringstream ss; 
+    if (_resource_profile.__isset.spillable_buffer_size &&
+        _resource_profile.spillable_buffer_size < buffer_pool->min_buffer_len()) {
+        ss << "Spillable buffer size for node " << _id << " of " << _resource_profile.spillable_buffer_size
+           << "bytes is less than the minimum buffer pool buffer size of "
+           <<  buffer_pool->min_buffer_len() << "bytes";
+        return Status(ss.str());
+    }   
+ 
+    ss << print_plan_node_type(_type) << " id=" << _id << " ptr=" << this;
+    RETURN_IF_ERROR(buffer_pool->RegisterClient(ss.str(),
+                                                state->instance_buffer_reservation(),
+                                                mem_tracker(), _resource_profile.max_reservation, 
+                                                runtime_profile(),
+                                                &_buffer_pool_client));
+    
+    state->initial_reservations()->Claim(&_buffer_pool_client, _resource_profile.min_reservation);
+/*
+    if (debug_action_ == TDebugAction::SET_DENY_RESERVATION_PROBABILITY &&
+        (debug_phase_ == TExecNodePhase::PREPARE || debug_phase_ == TExecNodePhase::OPEN)) {
+       // We may not have been able to enable the debug action at the start of Prepare() or
+       // Open() because the client is not registered then. Do it now to be sure that it is
+       // effective.
+               RETURN_IF_ERROR(EnableDenyReservationDebugAction());
+    } 
+*/  
+    return Status::OK;
+}
+
+Status ExecNode::release_unused_reservation() {
+  return _buffer_pool_client.DecreaseReservationTo(_resource_profile.min_reservation);
+}
+/*
+Status ExecNode::enable_deny_reservation_debug_action() {
+  DCHECK_EQ(debug_action_, TDebugAction::SET_DENY_RESERVATION_PROBABILITY);
+  DCHECK(_buffer_pool_client.is_registered());
+  // Parse [0.0, 1.0] probability.
+  StringParser::ParseResult parse_result;
+  double probability = StringParser::StringToFloat<double>(
+      debug_action_param_.c_str(), debug_action_param_.size(), &parse_result);
+  if (parse_result != StringParser::PARSE_SUCCESS || probability < 0.0
+      || probability > 1.0) {
+    return Status(Substitute(
+        "Invalid SET_DENY_RESERVATION_PROBABILITY param: '$0'", debug_action_param_));
+  }
+  _buffer_pool_client.SetDebugDenyIncreaseReservation(probability);
+  return Status::OK();
+}
+*/
+
+Status ExecNode::QueryMaintenance(RuntimeState* state) {
+  // TODO chenhao , when introduce latest AnalyticEvalNode open it
+  // ScalarExprEvaluator::FreeLocalAllocations(evals_to_free_);
+  return state->check_query_state();
 }
 
 }

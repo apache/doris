@@ -447,9 +447,9 @@ public class FunctionCallExpr extends Expr {
 
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{compatibleType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        } else {
+        } else {     
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), collectChildReturnTypes(),
-                Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         }
 
         if (fn == null) {
@@ -463,14 +463,21 @@ public class FunctionCallExpr extends Expr {
         }
 
         if (isAggregateFunction()) {
+            final String functionName = fnName.getFunction();
             // subexprs must not contain aggregates
             if (Expr.containsAggregate(children)) {
                 throw new AnalysisException(
                         "aggregate function cannot contain aggregate parameters: " + this.toSql());
             }
-            if (STDDEV_FUNCTION_SET.contains(fnName.getFunction()) && argTypes[0].isDateType()) {
+
+            if (STDDEV_FUNCTION_SET.contains(functionName) && argTypes[0].isDateType()) {
                 throw new AnalysisException("Stddev/variance function do not support Date/Datetime type");
             }
+
+            if (functionName.equalsIgnoreCase("multi_distinct_sum") && argTypes[0].isDateType()) {
+                throw new AnalysisException("Sum in multi distinct functions do not support Date/Datetime type");
+            }
+
         } else {
             if (fnParams.isStar()) {
                 throw new AnalysisException("Cannot pass '*' to scalar function.");

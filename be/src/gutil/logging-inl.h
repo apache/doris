@@ -41,10 +41,13 @@
 //     foo.CheckThatFoo();
 //   #endif
 //
+// Modify this to macro to undefine this
 #ifdef NDEBUG
-const bool DEBUG_MODE = false;
+// const bool DEBUG_MODE = false;
+#define DEBUG_MODE (false)
 #else
-const bool DEBUG_MODE = true;
+// const bool DEBUG_MODE = true;
+#define DEBUG_MODE (true)
 #endif
 
 #endif  // _LOGGING_IN_H_

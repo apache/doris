@@ -58,6 +58,17 @@ Comm::Comm() {
     m_handler_map = ReactorRunner::handler_map;
 }
 
+Comm::Comm(const char* host) {
+    if (ReactorFactory::ms_reactors.size() == 0) {
+        LOG(ERROR) << "reactor_factory::initialize must be called before creating "
+                   << "rpc::comm object";
+        abort();
+    }
+    InetAddr::initialize(&m_local_addr, host, 0);
+    ReactorFactory::get_timer_reactor(m_timer_reactor);
+    m_handler_map = ReactorRunner::handler_map;
+}
+
 Comm::~Comm() {
     m_handler_map->decomission_all();
     // wait for all decomissioned handlers to get purged by Reactor
@@ -235,8 +246,7 @@ Comm::listen(const CommAddress &addr, ConnectionHandlerFactoryPtr &chf,
     return error;
 }
 
-int
-Comm::send_request(const CommAddress &addr, uint32_t timeout_ms,
+int Comm::send_request(const CommAddress &addr, uint32_t timeout_ms,
                    CommBufPtr &cbuf, DispatchHandler *resp_handler) {
     IOHandlerData *data_handler = 0;
     int error = 0;

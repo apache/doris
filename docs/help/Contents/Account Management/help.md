@@ -114,17 +114,22 @@
    Syntax:
    SET PROPERTY [FOR 'user'] 'key' = 'value' [, 'key' = 'value']
 
-   设置用户的属性，包括分配给用户的资源等。
+   设置用户的属性，包括分配给用户的资源、导入cluster等。
 
    key:
     超级用户权限:
         max_user_connections: 最大连接数。
         resource.cpu_share: cpu资源分配。
+        load_cluster.{cluster_name}.priority: 为指定的cluster分配优先级，可以为 HIGH 或 NORMAL
 
     普通用户权限：
         quota.normal: normal级别的资源分配。
         quota.high: high级别的资源分配。
         quota.low: low级别的资源分配。
+        load_cluster.{cluster_name}.hadoop_palo_path: palo使用的hadoop目录，需要存放etl程序及etl生成的中间数据供palo导入。导入完成后会自动清理中间数据，etl程序自动保留下次使用。    
+        load_cluster.{cluster_name}.hadoop_configs: hadoop的配置，其中fs.default.name、mapred.job.tracker、hadoop.job.ugi必须填写。
+        load_cluster.{cluster_name}.hadoop_http_port: hadoop hdfs name node http端口，默认为8070。
+        default_load_cluster: 默认的导入cluster。
 
 ## example
     1. 修改用户 jack 最大连接数为1000
@@ -135,6 +140,20 @@
 
     3. 修改 jack 用户的normal组的权重
     SET PROPERTY FOR 'jack' 'quota.normal' = '400';
+
+    4. 为用户 jack 添加导入cluster 
+    SET PROPERTY FOR 'jack' 
+        'load_cluster.{cluster_name}.hadoop_palo_path' = '/user/palo/palo_path', 
+        'load_cluster.{cluster_name}.hadoop_configs' = 'fs.default.name=hdfs://dpp.cluster.com:port;mapred.job.tracker=dpp.cluster.com:port;hadoop.job.ugi=user,password;mapred.job.queue.name=job_queue_name_in_hadoop;mapred.job.priority=HIGH;';
+
+    5. 删除用户 jack 下的导入cluster。
+    SET PROPERTY FOR 'jack' 'load_cluster.{cluster_name}' = NULL;
+
+    6. 修改用户 jack 默认的导入cluster
+    SET PROPERTY FOR 'jack' 'default_load_cluster' = '{cluster_name}';
+    
+    7. 修改用户 jack 的集群优先级为 HIGH
+    SET PROPERTY FOR 'jack' 'load_cluster.{cluster_name}.priority' = 'HIGH';
 
 ## keyword
     SET, PROPERTY

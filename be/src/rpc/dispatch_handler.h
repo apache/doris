@@ -28,17 +28,17 @@ class IOHandler;
  * is notified of communication events.
  */
 class DispatchHandler : public std::enable_shared_from_this<DispatchHandler> {
-    public:
-        /** Destructor
-        */
-        virtual ~DispatchHandler() { return; }
-        /** Callback method.  When the Comm layer needs to deliver an event to the
-         * application, this method is called to do so.  The set of event types
-         * include, CONNECTION_ESTABLISHED, DISCONNECT, MESSAGE, ERROR, and TIMER.
-         *
-         * @param event_ptr smart pointer to Event object
-         */
-        virtual void handle(EventPtr &event_ptr) = 0;
+public:
+    /** Destructor
+    */
+    virtual ~DispatchHandler() { }
+    /** Callback method.  When the Comm layer needs to deliver an event to the
+     * application, this method is called to do so.  The set of event types
+     * include, CONNECTION_ESTABLISHED, DISCONNECT, MESSAGE, ERROR, and TIMER.
+     *
+     * @param event_ptr smart pointer to Event object
+     */
+    virtual void handle(EventPtr& event_ptr) = 0;
 };
 
 /// Smart pointer to DispatchHandler

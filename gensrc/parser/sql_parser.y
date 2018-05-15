@@ -643,7 +643,7 @@ alter_table_clause ::=
     {:
         RESULT = new ReorderColumnsClause(cols, rollup, properties);
     :}
-    | opt_properties:properties
+    | KW_SET LPAREN key_value_map:properties RPAREN
     {:
         RESULT = new ModifyTablePropertiesClause(properties);
     :}

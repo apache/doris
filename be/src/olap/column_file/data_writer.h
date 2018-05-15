@@ -34,6 +34,7 @@ public:
     virtual OLAPStatus finalize();
     virtual OLAPStatus write_row_block(RowBlock* row_block);
     virtual uint64_t written_bytes();
+    virtual MemPool* mem_pool();
 private:
     OLAPStatus _add_segment();
     OLAPStatus _finalize_segment();

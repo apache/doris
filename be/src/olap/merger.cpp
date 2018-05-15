@@ -162,7 +162,7 @@ OLAPStatus Merger::_merge(
     reader_params.reader_type = _reader_type;
     reader_params.olap_data_arr = olap_data_arr;
 
-    if (_reader_type == READER_BASE_EXPANSION) {
+    if (_reader_type == READER_BASE_COMPACTION) {
         reader_params.version = _index->version();
     }
 
@@ -187,7 +187,7 @@ OLAPStatus Merger::_merge(
     }
 
     bool has_error = false;
-    // We calculate selectivities only when base expansioning.
+    // We calculate selectivities only when base compactioning.
     bool need_calculate_selectivities = (_index->version().first == 0);
     RowCursor row_cursor;
 
@@ -204,7 +204,7 @@ OLAPStatus Merger::_merge(
     }
 
     bool eof = false;
-    int64_t raw_rows_read = 0;
+    MemPool* mem_pool = writer->mem_pool();
 
     // The following procedure would last for long time, half of one day, etc.
     while (!has_error) {
@@ -216,10 +216,10 @@ OLAPStatus Merger::_merge(
             has_error = true;
             break;
         }
+        row_cursor.allocate_memory_for_string_type(_table->tablet_schema(), mem_pool);
 
         // Read one row into row_cursor
-        OLAPStatus res = reader.next_row_with_aggregation(&row_cursor, &raw_rows_read, &eof);
-
+        OLAPStatus res = reader.next_row_with_aggregation(&row_cursor, &eof);
         if (OLAP_SUCCESS == res && eof) {
             OLAP_LOG_DEBUG("reader read to the end.");
             break;
@@ -233,7 +233,7 @@ OLAPStatus Merger::_merge(
         writer->next(row_cursor);
 
         if (need_calculate_selectivities) {
-            // Calculate statistics while base expansion
+            // Calculate statistics while base compaction
             if (0 != _row_count) {
                 size_t first_diff_id = 0;
 
@@ -250,7 +250,7 @@ OLAPStatus Merger::_merge(
             }
 
             // set last row for next comapration.
-            if (OLAP_SUCCESS != last_row.copy(row_cursor)) {
+            if (OLAP_SUCCESS != last_row.copy(row_cursor, mem_pool)) {
                 OLAP_LOG_WARNING("fail to copy last row.");
                 has_error = true;
                 break;

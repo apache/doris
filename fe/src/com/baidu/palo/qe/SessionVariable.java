@@ -15,18 +15,19 @@
 
 package com.baidu.palo.qe;
 
-import com.baidu.palo.thrift.TQueryOptions;
-import com.baidu.palo.common.io.Writable;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.FeMetaVersion;
 import com.baidu.palo.common.io.Text;
+import com.baidu.palo.common.io.Writable;
+import com.baidu.palo.thrift.TQueryOptions;
 
-import java.io.Serializable;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import java.io.Serializable;
 
 // System variable
 public class SessionVariable implements Serializable, Writable {
@@ -59,7 +60,12 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SQL_SAFE_UPDATES = "sql_safe_updates";
     public static final String NET_BUFFER_LENGTH = "net_buffer_length";
     public static final String CODEGEN_LEVEL = "codegen_level";
-    
+    // mem limit can't smaller than bufferpool's default page size
+    public static final int MIN_EXEC_MEM_LIMIT = 2097152;   
+    public static final String BATCH_SIZE = "batch_size";
+    public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
+    public static final String MT_DOP = "mt_dop";
+
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
     public long maxExecMemByte = 2147483648L;
@@ -154,7 +160,17 @@ public class SessionVariable implements Serializable, Writable {
 
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = CODEGEN_LEVEL)
-    private int codegenLevel = 0;    
+    private int codegenLevel = 0;   
+    
+    // multithreaded degree of intra-node parallelism
+    @VariableMgr.VarAttr(name = MT_DOP)
+    private int mtDop = 0;   
+
+    @VariableMgr.VarAttr(name = BATCH_SIZE)
+    private int batchSize = 1024;
+
+    @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS)
+    private boolean disableStreamPreaggregations = false; 
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -357,7 +373,11 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setMaxExecMemByte(long maxExecMemByte) {
-        this.maxExecMemByte = maxExecMemByte;
+        if (maxExecMemByte < MIN_EXEC_MEM_LIMIT) {
+            this.maxExecMemByte = MIN_EXEC_MEM_LIMIT;
+        } else {
+            this.maxExecMemByte = maxExecMemByte;
+        }
     }
 
     public void setQueryTimeoutS(int queryTimeoutS) {
@@ -376,13 +396,32 @@ public class SessionVariable implements Serializable, Writable {
         this.resourceGroup = resourceGroup;
     }
 
+    public int getMtDop() {
+        return this.mtDop;
+    }
+    
+    public void setMtDop(int mtDop) {
+        this.mtDop = mtDop;
+    }
+    
    // Serialize to thrift object 
     TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMem_limit(maxExecMemByte);
+        
+        // TODO chenhao, reservation will be calculated by cost
+        tResult.setMin_reservation(0);
+        tResult.setMax_reservation(maxExecMemByte);
+        tResult.setInitial_reservation_total_claims(maxExecMemByte); 
+        tResult.setBuffer_pool_limit(maxExecMemByte);
+ 
         tResult.setQuery_timeout(queryTimeoutS);
         tResult.setIs_report_success(isReportSucc);
         tResult.setCodegen_level(codegenLevel);
+
+        tResult.setBatch_size(batchSize);
+        tResult.setDisable_stream_preaggregations(disableStreamPreaggregations);
+        tResult.setMt_dop(mtDop);
         return tResult;
     }
 
@@ -415,6 +454,9 @@ public class SessionVariable implements Serializable, Writable {
         out.writeInt(queryTimeoutS);
         out.writeLong(maxExecMemByte);
         Text.writeString(out, collationServer);
+        out.writeInt(batchSize);
+        out.writeBoolean(disableStreamPreaggregations); 
+        out.writeInt(mtDop);
     }
 
     @Override
@@ -446,7 +488,12 @@ public class SessionVariable implements Serializable, Writable {
         queryTimeoutS = in.readInt();
         maxExecMemByte = in.readLong();
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_37) {
-          collationServer = Text.readString(in);
+            collationServer = Text.readString(in);
+        }
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_38) {
+            batchSize = in.readInt();
+            disableStreamPreaggregations = in.readBoolean();
+            mtDop = in.readInt();
         }
     }
 }

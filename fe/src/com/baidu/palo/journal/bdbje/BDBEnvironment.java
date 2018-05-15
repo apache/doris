@@ -28,7 +28,6 @@ import com.sleepycat.je.DatabaseNotFoundException;
 import com.sleepycat.je.Durability;
 import com.sleepycat.je.Durability.ReplicaAckPolicy;
 import com.sleepycat.je.Durability.SyncPolicy;
-import com.sleepycat.je.Environment;
 import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.EnvironmentFailureException;
 import com.sleepycat.je.rep.InsufficientLogException;
@@ -210,7 +209,7 @@ public class BDBEnvironment {
     }
 
     // Return a handle to the environment
-    public Environment getReplicatedEnvironment() {
+    public ReplicatedEnvironment getReplicatedEnvironment() {
         return replicatedEnvironment;
     }
     
@@ -405,3 +404,4 @@ public class BDBEnvironment {
     }
     
 }
+

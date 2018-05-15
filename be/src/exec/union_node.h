@@ -46,7 +46,7 @@ class UnionNode : public ExecNode {
 public:
     UnionNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
-    virtual Status init(const TPlanNode& tnode);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
     virtual Status prepare(RuntimeState* state);
     virtual void codegen(RuntimeState* state);
     virtual Status open(RuntimeState* state);

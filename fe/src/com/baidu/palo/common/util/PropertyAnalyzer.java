@@ -190,7 +190,7 @@ public class PropertyAnalyzer {
     }
 
     public static TStorageType analyzeStorageType(Map<String, String> properties) throws AnalysisException {
-        // only COLUMN is allowed now
+        // default is COLUMN
         TStorageType tStorageType = TStorageType.COLUMN;
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_TYPE)) {
             String storageType = properties.get(PROPERTIES_STORAGE_TYPE);

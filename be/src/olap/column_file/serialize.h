@@ -17,6 +17,7 @@
 #define BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_SERIALIZE_H
 
 #include "olap/olap_define.h"
+#include "olap/column_file/byte_buffer.h"
 
 namespace palo {
 namespace column_file {

@@ -22,9 +22,9 @@
 #define BDG_PALO_BE_SERVICE_BACKEND_SERVICE_H
 
 #include <memory>
+#include "agent/agent_server.h"
 #include "common/status.h"
 #include "gen_cpp/BackendService.h"
-#include "agent/agent_server.h"
 #include <thrift/protocol/TDebugProtocol.h>
 
 namespace palo {

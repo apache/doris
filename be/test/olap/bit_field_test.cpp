@@ -70,7 +70,8 @@ public:
                 0, 
                 _helper.length(), 
                 NULL, 
-                OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
+                OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE,
+                &_stats);
         ASSERT_EQ(OLAP_SUCCESS, _stream->init());
 
         _reader = new (std::nothrow) BitFieldReader(_stream);
@@ -84,6 +85,7 @@ public:
     FileHandler _helper;
     ByteBuffer* _shared_buffer;
     ReadOnlyFileStream* _stream;
+    OlapReaderStatistics _stats;
 };
 
 TEST_F(TestBitField, ReadWriteOneBit) {
@@ -147,7 +149,7 @@ TEST_F(TestBitField, Seek) {
     PositionEntryReader entry;
     entry._positions = index_entry._positions;
     entry._positions_count = index_entry._positions_count;
-    entry._statistics.init(OLAP_FIELD_TYPE_NONE, false);
+    entry._statistics.init(OLAP_FIELD_TYPE_TINYINT, false);
 
     PositionProvider position(&entry);
     _reader->seek(&position);

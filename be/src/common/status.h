@@ -164,6 +164,11 @@ public:
         return _error_detail == NULL ? TStatusCode::OK : _error_detail->error_code;
     }
 
+    /// Does nothing if status.ok().
+    /// Otherwise: if 'this' is an error status, adds the error msg from 'status';
+    /// otherwise assigns 'status'.
+    void MergeStatus(const Status& status);
+
 private:
     struct ErrorDetail {
         TStatusCode::type error_code;  // anything other than OK

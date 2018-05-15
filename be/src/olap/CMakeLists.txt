@@ -20,12 +20,19 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/olap")
   
 add_library(Olap STATIC
+    comparison_predicate.cpp
+    in_list_predicate.cpp
+    null_predicate.cpp
     olap_reader.cpp
-    base_expansion_handler.cpp
+    base_compaction.cpp
     command_executor.cpp
-    cumulative_handler.cpp
+    cumulative_compaction.cpp
     delete_handler.cpp
+    aggregate_func.cpp
+    types.cpp 
     field.cpp
+    field_info.cpp
+    hll.cpp
     file_helper.cpp
     i_data.cpp
     lru_cache.cpp
@@ -46,6 +53,7 @@ add_library(Olap STATIC
     row_cursor.cpp
     schema_change.cpp
     utils.cpp
+    wrapper_field.cpp
     writer.cpp
     column_file/bit_field_reader.cpp
     column_file/bit_field_writer.cpp

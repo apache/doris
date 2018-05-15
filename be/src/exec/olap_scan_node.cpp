@@ -49,7 +49,6 @@ namespace palo {
 
 OlapScanNode::OlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs):
         ScanNode(pool, tnode, descs),
-        _thrift_plan_node(new TPlanNode(tnode)),
         _tuple_id(tnode.olap_scan_node.tuple_id),
         _olap_scan_node(tnode.olap_scan_node),
         _tuple_desc(NULL),
@@ -60,7 +59,6 @@ OlapScanNode::OlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
         _start(false),
         _scanner_done(false),
         _transfer_done(false),
-        _use_pushdown_conjuncts(true),
         _wait_duration(0, 0, 1, 0),
         _status(Status::OK),
         _resource_info(nullptr),
@@ -72,37 +70,81 @@ OlapScanNode::OlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
 OlapScanNode::~OlapScanNode() {
 }
 
-Status OlapScanNode::init(const TPlanNode& tnode) {
-    RETURN_IF_ERROR(ExecNode::init(tnode));
+Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::init(tnode, state));
     _direct_conjunct_size = _conjunct_ctxs.size();
 
     if (tnode.olap_scan_node.__isset.sort_column) {
-        _sort_column = tnode.olap_scan_node.sort_column;
         _is_result_order = true;
-        LOG(INFO) << "SortColumn: " << _sort_column;
     } else {
         _is_result_order = false;
     }
+
+    // Before, we support scan data ordered, but is not used in production
+    // Now, we drop this functional
+    DCHECK(!_is_result_order) << "ordered result don't support any more";
+
     return Status::OK;
+}
+
+void OlapScanNode::_init_counter(RuntimeState* state) {
+#if 0
+    ADD_TIMER(profile, "GetTabletTime");
+    ADD_TIMER(profile, "InitReaderTime");
+    ADD_TIMER(profile, "ShowHintsTime");
+    ADD_TIMER(profile, "BlockLoadTime");
+    ADD_TIMER(profile, "IndexLoadTime");
+    ADD_TIMER(profile, "VectorPredicateEvalTime");
+    ADD_TIMER(profile, "ScannerTimer");
+    ADD_TIMER(profile, "IOTimer");
+    ADD_TIMER(profile, "DecompressorTimer");
+    ADD_TIMER(profile, "RLETimer");
+
+    ADD_COUNTER(profile, "RawRowsRead", TUnit::UNIT);
+    ADD_COUNTER(profile, "IndexStreamCacheMiss", TUnit::UNIT);
+    ADD_COUNTER(profile, "IndexStreamCacheHit", TUnit::UNIT);
+    ADD_COUNTER(profile, "BlockLoadCount", TUnit::UNIT);
+#endif
+    ADD_TIMER(_runtime_profile, "ShowHintsTime");
+
+    _read_compressed_counter =
+        ADD_COUNTER(_runtime_profile, "CompressedBytesRead", TUnit::BYTES);
+    _read_uncompressed_counter =
+        ADD_COUNTER(_runtime_profile, "UncompressedBytesRead", TUnit::BYTES);
+    _block_load_timer = ADD_TIMER(_runtime_profile, "BlockLoadTime");
+    _block_load_counter =
+        ADD_COUNTER(_runtime_profile, "BlocksLoad", TUnit::UNIT);
+    _block_fetch_timer =
+        ADD_TIMER(_runtime_profile, "BlockFetchTime");
+    _raw_rows_counter =
+        ADD_COUNTER(_runtime_profile, "RawRowsRead", TUnit::UNIT);
+
+    _rows_vec_cond_counter =
+        ADD_COUNTER(_runtime_profile, "RowsVectorPredFiltered", TUnit::UNIT);
+    _vec_cond_timer =
+        ADD_TIMER(_runtime_profile, "VectorPredEvalTime");
+
+    _stats_filtered_counter =
+        ADD_COUNTER(_runtime_profile, "RowsStatsFiltered", TUnit::UNIT);
+    _del_filtered_counter =
+        ADD_COUNTER(_runtime_profile, "RowsDelFiltered", TUnit::UNIT);
+
+    _io_timer = ADD_TIMER(_runtime_profile, "IOTimer");
+    _decompressor_timer = ADD_TIMER(_runtime_profile, "DecompressorTimer");
+    _index_load_timer = ADD_TIMER(_runtime_profile, "IndexLoadTime");
+
+    _scan_timer = ADD_TIMER(_runtime_profile, "ScanTime");
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ScanNode::prepare(state));
     // create scanner profile
-    _scanner_profile = state->obj_pool()->add(
-        new RuntimeProfile(state->obj_pool(), "OlapScanner"));
-    _runtime_profile->add_child(_scanner_profile, true, nullptr);
-    OLAPReader::init_profile(_scanner_profile);
     // create timer
-    _olap_thread_scan_timer = ADD_TIMER(_runtime_profile, "OlapScanTime");
-    _eval_timer = ADD_TIMER(_runtime_profile, "EvalTime");
-    _merge_timer = ADD_TIMER(_runtime_profile, "SortMergeTime");
-    _pushdown_return_counter =
-        ADD_COUNTER(runtime_profile(), "PushDownFilterReturnCount ", TUnit::UNIT);
-    _direct_return_counter =
-        ADD_COUNTER(runtime_profile(), "DirectFilterReturnCount ", TUnit::UNIT);
     _tablet_counter =
         ADD_COUNTER(runtime_profile(), "TabletCount ", TUnit::UNIT);
+    _rows_pushed_cond_filtered_counter =
+        ADD_COUNTER(_runtime_profile, "RowsPushedCondFiltered", TUnit::UNIT);
+    _init_counter(state);
 
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == NULL) {
@@ -169,7 +211,9 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
         boost::unique_lock<boost::mutex> l(_row_batches_lock);
         _transfer_done = true;
         boost::lock_guard<boost::mutex> guard(_status_mutex);
-        _status = Status::CANCELLED;
+        if (LIKELY(_status.ok())) {
+            _status = Status::CANCELLED;
+        }
         return _status;
     }
 
@@ -291,23 +335,6 @@ Status OlapScanNode::close(RuntimeState* state) {
 
     _scan_row_batches.clear();
 
-    if (_is_result_order) {
-        for (int i = 0; i < _merge_rowbatches.size(); ++i) {
-            for (std::list<RowBatch*>::iterator it = _merge_rowbatches[i].begin();
-                    it != _merge_rowbatches[i].end(); ++it) {
-                delete *it;
-            }
-        }
-
-        _merge_rowbatches.clear();
-
-        for (int i = 0; i < _backup_rowbatches.size(); ++i) {
-            if (_backup_rowbatches[i] != NULL) {
-                delete _backup_rowbatches[i];
-            }
-        }
-    }
-
     // OlapScanNode terminate by exception
     // so that initiative close the Scanner
     for (auto scanner : _all_olap_scanners) {
@@ -315,11 +342,11 @@ Status OlapScanNode::close(RuntimeState* state) {
     }
 
     VLOG(1) << "OlapScanNode::close()";
-    return ExecNode::close(state);
+    return ScanNode::close(state);
 }
 
 Status OlapScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
-    BOOST_FOREACH(const TScanRangeParams & scan_range, scan_ranges) {
+    for (auto& scan_range : scan_ranges) {
         DCHECK(scan_range.scan_range.__isset.palo_scan_range);
         boost::shared_ptr<PaloScanRange> palo_scan_range(
             new PaloScanRange(scan_range.scan_range.palo_scan_range));
@@ -515,15 +542,10 @@ Status OlapScanNode::build_scan_key() {
     DCHECK(column_types.size() == column_names.size());
 
     // 1. construct scan key except last olap engine short key
-    int order_column_index = -1;
     int column_index = 0;
     _scan_keys.set_is_convertible(limit() == -1);
 
     for (; column_index < column_names.size() && !_scan_keys.has_range_value(); ++column_index) {
-        if (_is_result_order && _sort_column == column_names[column_index]) {
-            order_column_index = column_index;
-        }
-
         std::map<std::string, ColumnValueRangeType>::iterator column_range_iter
             = _column_value_ranges.find(column_names[column_index]);
 
@@ -533,11 +555,6 @@ Status OlapScanNode::build_scan_key() {
 
         ExtendScanKeyVisitor visitor(_scan_keys);
         RETURN_IF_ERROR(boost::apply_visitor(visitor, column_range_iter->second));
-    }
-
-    // 3. check order column
-    if (_is_result_order && order_column_index == -1) {
-        return Status("OlapScanNode unsupport order by " + _sort_column);
     }
 
     _scan_keys.debug();
@@ -591,26 +608,18 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
         key_ranges.push_back(_query_key_ranges[i]);
         ++i;
 
-        if (!_is_result_order) {
-            for (int j = 1;
-                    j < key_range_num_per_scanner
-                    && i < key_range_size
-                    && _query_scan_ranges[i] == _query_scan_ranges[i - 1]
-                    && _query_key_ranges[i].end_include == _query_key_ranges[i - 1].end_include;
-                    j++, i++) {
-                key_ranges.push_back(_query_key_ranges[i]);
-            }
+        for (int j = 1;
+             j < key_range_num_per_scanner
+             && i < key_range_size
+             && _query_scan_ranges[i] == _query_scan_ranges[i - 1]
+             && _query_key_ranges[i].end_include == _query_key_ranges[i - 1].end_include;
+             j++, i++) {
+            key_ranges.push_back(_query_key_ranges[i]);
         }
 
         OlapScanner* scanner = new OlapScanner(
-            state,
-            scan_range,
-            key_ranges,
-            _olap_filter,
-            *_tuple_desc,
-            _scanner_profile,
-            _is_null_vector);
-        scanner->set_aggregation(_olap_scan_node.is_preaggregation);
+            state, this, _olap_scan_node.is_preaggregation,
+            scan_range.get(), key_ranges);
 
         _scanner_pool->add(scanner);
         _olap_scanners.push_back(scanner);
@@ -623,69 +632,9 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
     _progress = ProgressUpdater(ss.str(), _olap_scanners.size(), 1);
     _progress.set_logging_level(1);
 
-    if (_is_result_order) {
-        _transfer_thread.add_thread(
-            new boost::thread(
-                &OlapScanNode::merge_transfer_thread, this, state));
-    } else {
-        _transfer_thread.add_thread(
-            new boost::thread(
-                &OlapScanNode::transfer_thread, this, state));
-    }
-
-    return Status::OK;
-}
-
-Status OlapScanNode::create_conjunct_ctxs(
-        RuntimeState* state,
-        std::vector<ExprContext*>* row_ctxs,
-        std::vector<ExprContext*>* vec_ctxs,
-        bool disable_codegen) {
-    _direct_row_conjunct_size = -1;
-    _direct_vec_conjunct_size = -1;
-#if 0
-    for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
-        if (/* _conjunct_ctxs[i]->is_vectorized() */false) {
-            vec_expr->emplace_back();
-            RETURN_IF_ERROR(Expr::copy_expr(_runtime_state->obj_pool(),
-                                           _conjunct_ctxs[i],
-                                           &vec_expr->back()));
-            RETURN_IF_ERROR(Expr::prepare(vec_expr->back(),
-                                          _runtime_state,
-                                          row_desc(),
-                                          disable_codegen));
-            if (i >= _direct_conjunct_size) {
-                vec_expr->back()->prepare_r();
-                if (-1 == _direct_vec_conjunct_size) {
-                    _direct_vec_conjunct_size = vec_expr->size() - 1;
-                }
-            }
-        } else {
-            row_expr->emplace_back();
-            RETURN_IF_ERROR(Expr::copy_expr(_runtime_state->obj_pool(),
-                                           _conjunct_ctxs[i],
-                                           &row_expr->back()));
-            RETURN_IF_ERROR(Expr::prepare(row_expr->back(),
-                                          _runtime_state,
-                                          row_desc(),
-                                          disable_codegen));
-            if (i >= _direct_conjunct_size) {
-                row_expr->back()->prepare_r();
-                if (-1 == _direct_row_conjunct_size) {
-                    _direct_row_conjunct_size = row_expr->size() - 1;
-                }
-            }
-        }
-    }
-#endif
-    RETURN_IF_ERROR(Expr::clone_if_not_exists(_conjunct_ctxs, state, row_ctxs));
-
-    if (-1 == _direct_vec_conjunct_size) {
-        _direct_vec_conjunct_size = vec_ctxs->size();
-    }
-    if (-1 == _direct_row_conjunct_size) {
-        _direct_row_conjunct_size = row_ctxs->size();
-    }
+    _transfer_thread.add_thread(
+        new boost::thread(
+            &OlapScanNode::transfer_thread, this, state));
 
     return Status::OK;
 }
@@ -1012,9 +961,8 @@ Status OlapScanNode::get_sub_scan_range(
     std::vector<OlapScanRange> scan_key_range;
     RETURN_IF_ERROR(_scan_keys.get_key_range(&scan_key_range));
 
-    if (_is_result_order ||
-            limit() != -1 ||
-            scan_key_range.size() > 64) {
+    if (limit() != -1 ||
+        scan_key_range.size() > 64) {
         if (scan_key_range.size() != 0) {
             *sub_range = scan_key_range;
         } else { // [-oo, +oo]
@@ -1030,7 +978,7 @@ Status OlapScanNode::get_sub_scan_range(
                     _scan_keys.end_include(),
                     scan_key_range,
                     sub_range,
-                    _scanner_profile).ok()) {
+                    _runtime_profile.get()).ok()) {
             if (scan_key_range.size() != 0) {
                 *sub_range = scan_key_range;
             } else { // [-oo, +oo]
@@ -1044,324 +992,11 @@ Status OlapScanNode::get_sub_scan_range(
     return Status::OK;
 }
 
-Status OlapScanNode::transfer_open_scanners(RuntimeState* state) {
-    Status status = Status::OK;
-    std::list<OlapScanner*>::iterator iter = _olap_scanners.begin();
-
-    for (int i = 0; iter != _olap_scanners.end(); ++iter, ++i) {
-        // 1.1 open each scanner
-        status = (*iter)->open();
-
-        if (!status.ok()) {
-            return status;
-        }
-
-        status = create_conjunct_ctxs(
-            state, (*iter)->row_conjunct_ctxs(), (*iter)->vec_conjunct_ctxs(), true);
-        if (!status.ok()) {
-            return status;
-        }
-
-        // 1.2 init result array
-        (*iter)->set_id(i);
-    }
-
-    return status;
-}
-
-TransferStatus OlapScanNode::read_row_batch(RuntimeState* state) {
-    // Get a RowBatch from the scanner which need to be read
-    RowBatch* scan_batch = NULL;
-    int cur_id = 0;
-
-    while (true) {
-        boost::unique_lock<boost::mutex> l(_scan_batches_lock);
-
-        if (UNLIKELY(_transfer_done)) {
-            while (!_scanner_done) {
-                _scan_batch_added_cv.wait(l);
-            }
-
-            return FININSH;
-        }
-
-        while (LIKELY(!_scan_row_batches.empty())) {
-            scan_batch = dynamic_cast<RowBatch*>(_scan_row_batches.front());
-            _scan_row_batches.pop_front();
-            DCHECK(scan_batch != NULL);
-
-            // push RowBatch into scanner result array
-            VLOG(1) << "Push RowBatch " << scan_batch->scanner_id();
-            _merge_rowbatches[scan_batch->scanner_id()].push_back(scan_batch);
-        }
-
-        if (-1 == _merge_scanner_id) {
-            for (; cur_id < _merge_rowbatches.size(); ++cur_id) {
-                if (_merge_rowbatches[cur_id].empty()) {
-                    // this scanner has finished
-                    if (_fin_olap_scanners[cur_id] == NULL) {
-                        break;
-                    }
-                }
-            }
-
-            if (cur_id == _merge_rowbatches.size()) {
-                return INIT_HEAP;
-            }
-        } else {
-            if (_merge_rowbatches[_merge_scanner_id].empty()
-                    && _fin_olap_scanners[_merge_scanner_id] != NULL) {
-                _scanner_fin_flags[_merge_scanner_id] = true;
-                return MERGE;
-            } else if (!_merge_rowbatches[_merge_scanner_id].empty()) {
-                return MERGE;
-            }
-        }
-
-        if (!_olap_scanners.empty()) {
-            std::list<OlapScanner*>::iterator iter = _olap_scanners.begin();
-
-            while (iter != _olap_scanners.end()) {
-                if (-1 == _merge_scanner_id || _merge_scanner_id == (*iter)->id()) {
-                    PriorityThreadPool::Task task;
-                    task.work_function = boost::bind(&OlapScanNode::scanner_thread, this, *iter);
-                    task.priority = _nice;
-                    if (state->exec_env()->thread_pool()->offer(task)) {
-                        _olap_scanners.erase(iter++);
-                    } else {
-                        LOG(FATAL) << "Failed to assign scanner task to thread pool!";
-                    }
-                } else {
-                    ++iter;
-                }
-                ++_total_assign_num;
-            }
-            // scanner_row_num = 16k
-            // 16k * 10 * 12 * 8 = 15M(>2s)  --> nice=10
-            // 16k * 20 * 22 * 8 = 55M(>6s)  --> nice=0
-            while (_nice > 0
-                       && _total_assign_num > (22 - _nice) * (20 - _nice) * 6) {
-                --_nice;
-            }
-        }
-
-        // 2.2 wait when all scanner are running & no result in queue
-        int completed = _progress.num_complete();
-        while (completed == _progress.num_complete()
-                && _scan_row_batches.empty()
-                && !_scanner_done) {
-            _scan_batch_added_cv.wait(l);
-        }
-    }
-}
-
-TransferStatus OlapScanNode::init_merge_heap(Heap& heap) {
-    for (int i = 0; i < _merge_rowbatches.size(); ++i) {
-        if (!_merge_rowbatches[i].empty()) {
-            Tuple* tuple = _merge_rowbatches[i].front()->get_row(
-                               _merge_row_idxs[i])->get_tuple(_tuple_idx);
-
-            if (VLOG_ROW_IS_ON) {
-                VLOG_ROW << "SortMerge input row: " << print_tuple(tuple, *_tuple_desc);
-            }
-
-            ++_merge_row_idxs[i];
-            HeapType v;
-            v.tuple = tuple;
-            v.id = i;
-            heap.push(v);
-        }
-    }
-
-    return BUILD_ROWBATCH;
-}
-
-TransferStatus OlapScanNode::build_row_batch(RuntimeState* state) {
-    // _merge_rowbatch = new RowBatch(this->row_desc(), state->batch_size(), mem_tracker());
-    _merge_rowbatch = new RowBatch(
-            this->row_desc(), state->batch_size(), state->fragment_mem_tracker());
-    uint8_t* tuple_buf = _merge_rowbatch->tuple_data_pool()->allocate(
-                             state->batch_size() * _tuple_desc->byte_size());
-    DCHECK(tuple_buf != NULL);
-    //bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
-    _merge_tuple = reinterpret_cast<Tuple*>(tuple_buf);
-    return MERGE;
-}
-
-TransferStatus OlapScanNode::sorted_merge(Heap& heap) {
-    ScopedTimer<MonotonicStopWatch> merge_timer(_merge_timer);
-
-    while (true) {
-        if (heap.empty()) {
-            return FININSH;
-        }
-
-        // 1. Break if RowBatch is Full, Try to read new RowBatch
-        if (_merge_rowbatch->is_full()) {
-            return ADD_ROWBATCH;
-        }
-
-        // 2. Check top tuple's scanner has rowbatch in result vec
-        HeapType v = heap.top();
-        Tuple* pop_tuple = v.tuple;
-        _merge_scanner_id = v.id;
-
-        if (!_scanner_fin_flags[_merge_scanner_id]) {
-            if (_merge_row_idxs[_merge_scanner_id]
-                    >= _merge_rowbatches[_merge_scanner_id].front()->num_rows()) {
-                if (_backup_rowbatches[_merge_scanner_id] != NULL) {
-                    delete _backup_rowbatches[_merge_scanner_id];
-                }
-
-                _backup_rowbatches[_merge_scanner_id]
-                    = _merge_rowbatches[_merge_scanner_id].front();
-
-                VLOG(1) << "Pop RowBatch " << _merge_scanner_id;
-                _merge_rowbatches[_merge_scanner_id].pop_front();
-                _merge_row_idxs[_merge_scanner_id] = 0;
-            }
-
-            if (_merge_rowbatches[_merge_scanner_id].empty()) {
-                return READ_ROWBATCH;
-            }
-        }
-
-        pop_tuple->deep_copy(_merge_tuple, *_tuple_desc, _merge_rowbatch->tuple_data_pool(), false);
-        // 3. Get top tuple of heap and push into new rowbatch
-        heap.pop();
-
-        if (VLOG_ROW_IS_ON) {
-            VLOG_ROW << "SortMerge output row: " << print_tuple(_merge_tuple, *_tuple_desc);
-        }
-
-        int row_idx = _merge_rowbatch->add_row();
-        TupleRow* row = _merge_rowbatch->get_row(row_idx);
-        row->set_tuple(_tuple_idx, _merge_tuple);
-        _merge_rowbatch->commit_last_row();
-
-        char* new_tuple = reinterpret_cast<char*>(_merge_tuple);
-        new_tuple += _tuple_desc->byte_size();
-        _merge_tuple = reinterpret_cast<Tuple*>(new_tuple);
-
-        // 4. push scanner's next tuple into heap
-        if (!_scanner_fin_flags[_merge_scanner_id]) {
-            Tuple* push_tuple = _merge_rowbatches[_merge_scanner_id].front()->get_row(
-                                    _merge_row_idxs[_merge_scanner_id])->get_tuple(_tuple_idx);
-            ++_merge_row_idxs[_merge_scanner_id];
-
-            v.tuple = push_tuple;
-
-            if (VLOG_ROW_IS_ON) {
-                VLOG_ROW << "SortMerge input row: " << print_tuple(v.tuple, *_tuple_desc);
-            }
-
-            heap.push(v);
-        }
-    }
-}
-
-void OlapScanNode::merge_transfer_thread(RuntimeState* state) {
-    // 1. Prepare to Start MergeTransferThread
-    VLOG(1) << "MergeTransferThread Start.";
-    Status status = Status::OK;
-
-    // 1.1 scanner open
-    status = transfer_open_scanners(state);
-
-    // 1.2 find sort column
-    const std::vector<SlotDescriptor*>& slots = _tuple_desc->slots();
-    int i = 0;
-
-    while (i < slots.size()) {
-        if (slots[i]->col_name() == _sort_column) {
-            VLOG(1) << "Sort Slot: " << slots[i]->debug_string();
-            break;
-        }
-
-        ++i;
-    }
-
-    if (i >= slots.size()) {
-        status = Status("Counldn't find sort column");
-    }
-
-    // 2. Merge ScannerThread' result
-    if (status.ok()) {
-        // 2.1 init data structure
-        _merge_scanner_id = -1;
-        Heap heap(MergeComparison(get_compare_func(slots[i]->type().type), slots[i]->tuple_offset()));
-
-        _merge_rowbatches.resize(_olap_scanners.size());
-        _merge_row_idxs.resize(_olap_scanners.size(), 0);
-        _fin_olap_scanners.resize(_olap_scanners.size(), NULL);
-        _scanner_fin_flags.resize(_olap_scanners.size(), false);
-        _backup_rowbatches.resize(_olap_scanners.size(), NULL);
-        _total_assign_num = 0;
-        _nice = 20;
-
-        // 2.2 read from scanner and order by _sort_column
-        TransferStatus transfer_status = READ_ROWBATCH;
-        bool flag = true;
-
-        // 1. read one row_batch from each scanner
-        // 2. use each row_batch' first tuple_row to build heap
-        // 3. pop one tuple_row & push one tuple_row from same row_batch
-        //  3.1 if row_batch is empty, read one row_batch from corresponding scanner
-        //  3.2 if scanner is finish, just pop the tuple_row without push
-        // 4. finish when heap is empty
-        while (flag) {
-            switch (transfer_status) {
-            case INIT_HEAP:
-                transfer_status = init_merge_heap(heap);
-                break;
-
-            case READ_ROWBATCH:
-                transfer_status = read_row_batch(state);
-                break;
-
-            case BUILD_ROWBATCH:
-                transfer_status = build_row_batch(state);
-                break;
-
-            case MERGE:
-                transfer_status = sorted_merge(heap);
-                break;
-
-            case ADD_ROWBATCH:
-                add_one_batch(_merge_rowbatch);
-                transfer_status = BUILD_ROWBATCH;
-                break;
-
-            case FININSH:
-                add_one_batch(_merge_rowbatch);
-                flag = false;
-                break;
-
-            default:
-                DCHECK(false);
-                break;
-            }
-        }
-    } else {
-        boost::lock_guard<boost::mutex> guard(_status_mutex);
-        _status = status;
-    }
-
-    VLOG(1) << "MergeTransferThread finish.";
-    boost::unique_lock<boost::mutex> l(_row_batches_lock);
-    _transfer_done = true;
-    _row_batch_added_cv.notify_all();
-}
-
 void OlapScanNode::transfer_thread(RuntimeState* state) {
-    Status status = Status::OK;
-
     // scanner open pushdown to scanThread
-    std::list<OlapScanner*>::iterator iter = _olap_scanners.begin();
-
-    for (; iter != _olap_scanners.end(); ++iter) {
-        status = create_conjunct_ctxs(
-            state, (*iter)->row_conjunct_ctxs(), (*iter)->vec_conjunct_ctxs(), true);
+    Status status = Status::OK;
+    for (auto scanner : _olap_scanners) {
+        status = Expr::clone_if_not_exists(_conjunct_ctxs, state, scanner->conjunct_ctxs());
         if (!status.ok()) {
             boost::lock_guard<boost::mutex> guard(_status_mutex);
             _status = status;
@@ -1436,7 +1071,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
             }
         }
 
-        iter = olap_scanners.begin();
+        auto iter = olap_scanners.begin();
         while (iter != olap_scanners.end()) {
             PriorityThreadPool::Task task;
             task.work_function = boost::bind(&OlapScanNode::scanner_thread, this, *iter);
@@ -1519,164 +1154,42 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     }
 
     std::vector<RowBatch*> row_batchs;
-    std::vector<ExprContext*>* row_conjunct_ctxs = scanner->row_conjunct_ctxs();
-    //std::vector<ExprContext*>* vec_conjunct_ctxs = scanner->vec_conjunct_ctxs();
 
-    bool _use_pushdown_conjuncts = true;
-    int64_t total_rows_reader_counter = 0;
-    while (!eos && total_rows_reader_counter < config::palo_scanner_row_num) {
-        // 1. Allocate one row batch
-        // RowBatch *row_batch = new RowBatch(this->row_desc(), state->batch_size(), mem_tracker());
+    // Because we use thread pool to scan data from storage. One scanner can't
+    // use this thread too long, this can starve other query's scanner. So, we
+    // need yield this thread when we do enough work. However, OlapStorage read
+    // data in pre-aggregate mode, then we can't use storage returned data to
+    // judge if we need to yield. So we record all raw data read in this round
+    // scan, if this exceed threshold, we yield this thread.
+    int64_t raw_rows_read = scanner->raw_rows_read();
+    int64_t raw_rows_threshold = raw_rows_read + config::palo_scanner_row_num;
+    while (!eos && raw_rows_read < raw_rows_threshold) {
+        if (UNLIKELY(_transfer_done)) {
+            eos = true;
+            status = Status::CANCELLED;
+            LOG(INFO) << "Scan thread cancelled, cause query done, maybe reach limit.";
+            break;
+        }
         RowBatch *row_batch = new RowBatch(
                 this->row_desc(), state->batch_size(), _runtime_state->fragment_mem_tracker());
         row_batch->set_scanner_id(scanner->id());
-        // 2. Allocate Row's Tuple buf
-        uint8_t *tuple_buf = row_batch->tuple_data_pool()->allocate(
-                state->batch_size() * _tuple_desc->byte_size());
-        bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
-        Tuple *tuple = reinterpret_cast<Tuple*>(tuple_buf);
-
-        int direct_return_counter = 0;
-        int pushdown_return_counter = 0;
-        int rows_read_counter = 0;
-        // 3. Read data to each tuple
-        while (true) {
-            // 3.1 Break if RowBatch is Full, Try to read new RowBatch
-            if (row_batch->is_full()) {
-                break;
-            }
-            // 3.2 Stoped if Scanner has been cancelled
-            if (UNLIKELY(_transfer_done)) {
-                eos = true;
-                status = Status::CANCELLED;
-                LOG(INFO) << "Scan thread cancelled, "
-                    "cause query done, maybe reach limit.";
-                break;
-            }
-            // 3.3 Read tuple from OlapEngine
-            status = scanner->get_next(tuple, &total_rows_reader_counter, &eos);
-            if (UNLIKELY(!status.ok())) {
-                LOG(ERROR) << "Scan thread read OlapScanner failed!";
-                eos = true;
-                break;
-            }
-            if (UNLIKELY(eos)) {
-                // this scanner read all data, break;
-                break;
-            }
-
-            if (VLOG_ROW_IS_ON) {
-                VLOG_ROW << "OlapScanner input row: " << print_tuple(tuple, *_tuple_desc);
-            }
-            // 3.4 Set tuple to RowBatch(not commited)
-            int row_idx = row_batch->add_row();
-            TupleRow* row = row_batch->get_row(row_idx);
-            row->set_tuple(_tuple_idx, tuple);
-
-            do {
-                // SCOPED_TIMER(_eval_timer);
-
-                // 3.5.1 Using direct conjuncts to filter data
-                if (_eval_conjuncts_fn != NULL) {
-                    if (!_eval_conjuncts_fn(&((*row_conjunct_ctxs)[0]), _direct_row_conjunct_size, row)) {
-                        // check direct conjuncts fail then clear tuple for reuse
-                        // make sure to reset null indicators since we're overwriting
-                        // the tuple assembled for the previous row
-                        tuple->init(_tuple_desc->byte_size());
-                        break;
-                    }
-                } else {
-                    if (!eval_conjuncts(&((*row_conjunct_ctxs)[0]), _direct_row_conjunct_size, row)) {
-                        // check direct conjuncts fail then clear tuple for reuse
-                        // make sure to reset null indicators since we're overwriting
-                        // the tuple assembled for the previous row
-                        tuple->init(_tuple_desc->byte_size());
-                        break;
-                    }
-                }
-
-
-                ++direct_return_counter;
-
-                // 3.5.2 Using pushdown conjuncts to filter data
-                if (_use_pushdown_conjuncts
-                        && row_conjunct_ctxs->size() > _direct_conjunct_size) {
-                    if (!eval_conjuncts(&((*row_conjunct_ctxs)[_direct_conjunct_size]),
-                                        row_conjunct_ctxs->size() - _direct_conjunct_size, row)) {
-                        // check pushdown conjuncts fail then clear tuple for reuse
-                        // make sure to reset null indicators since we're overwriting
-                        // the tuple assembled for the previous row
-                        tuple->init(_tuple_desc->byte_size());
-
-                        break;
-                    }
-                }
-
-                int string_slots_size = _string_slots.size();
-                for (int i = 0; i < string_slots_size; ++i) {
-                    StringValue* slot = tuple->get_string_slot(_string_slots[i]->tuple_offset());
-                    if (0 != slot->len) {
-                        uint8_t* v = row_batch->tuple_data_pool()->allocate(slot->len);
-                        memory_copy(v, slot->ptr, slot->len);
-                        slot->ptr = reinterpret_cast<char*>(v);
-                    }
-                }
-
-                if (VLOG_ROW_IS_ON) {
-                    VLOG_ROW << "OlapScanner output row: " << print_tuple(tuple, *_tuple_desc);
-                }
-
-                // check direct && pushdown conjuncts success then commit tuple
-                row_batch->commit_last_row();
-                char* new_tuple = reinterpret_cast<char*>(tuple);
-                new_tuple += _tuple_desc->byte_size();
-                tuple = reinterpret_cast<Tuple*>(new_tuple);
-
-                ++pushdown_return_counter;
-            } while (0);
-
-            ++rows_read_counter;
-            if (total_rows_reader_counter >= config::palo_scanner_row_num) {
-                break;
-            }
+        status = scanner->get_batch(_runtime_state, row_batch, &eos);
+        if (!status.ok()) {
+            LOG(WARNING) << "Scan thread read OlapScanner failed!";
+            eos = true;
+            break;
         }
-
-
-        COUNTER_UPDATE(_pushdown_return_counter, pushdown_return_counter);
-        COUNTER_UPDATE(_direct_return_counter, direct_return_counter);
-        COUNTER_UPDATE(this->rows_read_counter(), rows_read_counter);
-
         // 4. if status not ok, change status_.
-        if (UNLIKELY(0 == row_batch->num_rows())) {
+        if (UNLIKELY(row_batch->num_rows() == 0)) {
             // may be failed, push already, scan node delete this batch.
             delete row_batch;
             row_batch = NULL;
         } else {
-            // compute pushdown conjuncts filter rate
-            if (_use_pushdown_conjuncts) {
-                int32_t pushdown_return_rate
-                    = _pushdown_return_counter->value() * 100 / _direct_return_counter->value();
-                if (pushdown_return_rate > config::palo_max_pushdown_conjuncts_return_rate) {
-                    _use_pushdown_conjuncts = false;
-                    VLOG(2) << "Stop Using PushDown Conjuncts. "
-                        << "PushDownReturnRate: " << pushdown_return_rate << "%"
-                        << " MaxPushDownReturnRate: "
-                        << config::palo_max_pushdown_conjuncts_return_rate << "%";
-                } else {
-                    //VLOG(1) << "PushDownReturnRate: " << pushdown_return_rate << "%";
-                }
-            }
             row_batchs.push_back(row_batch);
             __sync_fetch_and_add(&_buffered_bytes,
                                  row_batch->tuple_data_pool()->total_reserved_bytes());
         }
-    }
-
-
-    // update raw rows number readed from tablet
-    RuntimeProfile::Counter* raw_rows_counter = _scanner_profile->get_counter("RawRowsRead");
-    if (raw_rows_counter != NULL) {
-        COUNTER_UPDATE(raw_rows_counter, total_rows_reader_counter);
+        raw_rows_read = scanner->raw_rows_read();
     }
 
     boost::unique_lock<boost::mutex> l(_scan_batches_lock);
@@ -1684,7 +1197,9 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     if (UNLIKELY(!status.ok())) {
         _transfer_done = true;
         boost::lock_guard<boost::mutex> guard(_status_mutex);
-        _status = status;
+        if (LIKELY(_status.ok())) {
+            _status = status;
+        }
     }
 
     bool global_status_ok = false;
@@ -1694,11 +1209,11 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     }
     if (UNLIKELY(!global_status_ok)) {
         eos = true;
-        BOOST_FOREACH(RowBatch* rb, row_batchs) {
+        for (auto rb : row_batchs) {
             delete rb;
         }
     } else {
-        BOOST_FOREACH(RowBatch* rb, row_batchs) {
+        for (auto rb : row_batchs) {
             _scan_row_batches.push_back(rb);
         }
     }
@@ -1709,233 +1224,13 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
             // this is the right out
             _scanner_done = true;
         }
-        if (_is_result_order) {
-            _fin_olap_scanners[scanner->id()] = scanner;
-        }
+        scanner->close(_runtime_state);
     } else {
         _olap_scanners.push_front(scanner);
     }
     _running_thread--;
     _scan_batch_added_cv.notify_one();
 }
-
-#if 0
-void OlapScanNode::vectorized_scanner_thread(OlapScanner* scanner) {
-    Status status = Status::OK;
-    std::vector<RowBatch*> row_batchs;
-    std::vector<ExprContext*>* row_conjunct_ctxs = scanner->row_conjunct_ctxs();
-    std::vector<ExprContext*>* vec_conjunct_ctxs = scanner->vec_conjunct_ctxs();
-    RuntimeState* state = scanner->runtime_state();
-    DCHECK(NULL != state);
-
-    // read from scanner
-    int total_rows_reader_counter = 0;
-    bool eos = false;
-    bool _use_pushdown_conjuncts = true;
-    DCHECK_GE(row_desc().tuple_descriptors().size(), 1);
-    std::shared_ptr<VectorizedRowBatch> vectorized_row_batch(
-        new VectorizedRowBatch(*(row_desc().tuple_descriptors()[0]), 1024));
-    //vectorized_row_batch->mem_pool()->set_limits(*state->mem_trackers());
-
-    do {
-        // 1. Allocate one row batch
-        RowBatch* row_batch = new RowBatch(row_desc(), state->batch_size());
-        row_batch->tuple_data_pool()->set_limits(*state->mem_trackers());
-        row_batch->set_scanner_id(scanner->id());
-
-        // 3. Read data to each tuple
-        while (true) {
-            // 3.1 Break if RowBatch is Full, Try to read new RowBatch
-            if (row_batch->is_full()) {
-                break;
-            }
-
-            // 3.2 Stoped if Scanner has been cancelled
-            if (UNLIKELY(_transfer_done)) {
-                eos = true;
-                status = Status::CANCELLED;
-                LOG(INFO) << "Scan thread cancelled, "
-                          "cause query done, maybe reach limit.";
-                break;
-            }
-
-            // 3.3 Read vectorized_row_batch from OlapEngine
-            if (vectorized_row_batch->is_iterator_end()) {
-                if (total_rows_reader_counter >= config::palo_scanner_row_num) {
-                    break;
-                }
-                status = scanner->get_next(vectorized_row_batch.get(), &eos);
-                if (UNLIKELY(!status.ok())) {
-                    LOG(ERROR) << "Scan thread read OlapScanner failed!";
-                    eos = true;
-                    break;
-                }
-                if (UNLIKELY(eos)) {
-                    // this scanner read all data, break;
-                    LOG(INFO) << "Scan thread read OlapScanner finish.";
-                    break;
-                }
-                COUNTER_UPDATE(rows_read_counter(), vectorized_row_batch->num_rows());
-                total_rows_reader_counter += vectorized_row_batch->num_rows();
-
-                eval_vectorized_conjuncts(vectorized_row_batch, vec_conjunct_ctxs);
-            }
-
-            if (row_conjunct_ctxs->size() > 0) {
-                eval_row_based_conjuncts(vectorized_row_batch, row_batch, row_conjunct_ctxs);
-            } else {
-                vectorized_row_batch->to_row_batch(row_batch);
-            }
-
-            if (VLOG_ROW_IS_ON) {
-                for (int i = 0; i < row_batch->num_rows(); ++i) {
-                    TupleRow* row = row_batch->get_row(i);
-                    VLOG_ROW << "VectorizedScannerThread ouput row: " << print_row(row, row_desc());
-                }
-            }
-        }
-
-        // 4. if status not ok, change _status.
-        if (UNLIKELY(0 == row_batch->num_rows())) {
-            // may be failed, push already, scan node delete this batch.
-            delete row_batch;
-            row_batch = NULL;
-        } else {
-            // compute pushdown conjuncts filter rate
-            if (_use_pushdown_conjuncts) {
-                int32_t pushdown_return_rate
-                    = _pushdown_return_counter->value() * 100 / _direct_return_counter->value();
-                if (pushdown_return_rate > config::palo_max_pushdown_conjuncts_return_rate) {
-                    _use_pushdown_conjuncts = false;
-                    VLOG(2) << "Stop Using PushDown Conjuncts. "
-                            << "PushDownReturnRate: " << pushdown_return_rate << "%"
-                            << " MaxPushDownReturnRate: "
-                            << config::palo_max_pushdown_conjuncts_return_rate << "%";
-                } else {
-                    VLOG(2) << "PushDownReturnRate: " << pushdown_return_rate << "%";
-                }
-            }
-            row_batchs.push_back(row_batch);
-        }
-    } while ((total_rows_reader_counter < config::palo_scanner_row_num
-                 || !vectorized_row_batch->is_iterator_end())
-                 && !eos);
-
-    boost::unique_lock<boost::mutex> l(_scan_batches_lock);
-    // if we failed, check status.
-    if (UNLIKELY(!status.ok())) {
-        _transfer_done = true;
-        _status = status;
-    }
-    if (UNLIKELY(!_status.ok())) {
-        eos = true;
-        BOOST_FOREACH(RowBatch* rb, row_batchs) {
-            delete rb;
-        }
-    } else {
-        BOOST_FOREACH(RowBatch* rb, row_batchs) {
-            _scan_row_batches.push_back(rb);
-        }
-    }
-    // Scanner thread completed. Take a look and update the status
-    if (UNLIKELY(eos)) {
-        _progress.update(1);
-        if (_progress.done()) {
-            // this is the right out
-            _scanner_done = true;
-        }
-        if (_is_result_order) {
-            _fin_olap_scanners[scanner->id()] = scanner;
-        }
-    } else {
-        _olap_scanners.push_front(scanner);
-    }
-    _scan_batch_added_cv.notify_one();
-}
-
-void OlapScanNode::eval_vectorized_conjuncts(
-        std::shared_ptr<VectorizedRowBatch> vectorized_row_batch,
-        std::vector<ExprContext*>* vec_conjunct_ctxs) {
-    for (int i = 0; i < _direct_vec_conjunct_size; ++i) {
-        (*vec_conjunct_ctxs)[i]->evaluate(vectorized_row_batch.get());
-    }
-    COUNTER_UPDATE(_direct_return_counter, vectorized_row_batch->num_rows());
-
-    if (_use_pushdown_conjuncts) {
-        for (int i = _direct_vec_conjunct_size; i < vec_conjunct_ctxs->size(); ++i) {
-            (*vec_conjunct_ctxs)[i]->evaluate(vectorized_row_batch.get());
-        }
-    }
-    COUNTER_UPDATE(_pushdown_return_counter, vectorized_row_batch->num_rows());
-}
-
-
-void OlapScanNode::eval_row_based_conjuncts(
-        std::shared_ptr<VectorizedRowBatch> vectorized_row_batch,
-        RowBatch* row_batch,
-        std::vector<ExprContext*>* row_conjunct_ctxs) {
-    int row_remain = row_batch->capacity() - row_batch->num_rows();
-    uint8_t* tuple_buf = row_batch->tuple_data_pool()->allocate(
-            row_remain * _tuple_desc->byte_size());
-    bzero(tuple_buf, row_remain * _tuple_desc->byte_size());
-    Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
-
-    while (vectorized_row_batch->get_next_tuple(tuple)) {
-        int row_idx = row_batch->add_row();
-        TupleRow* row = row_batch->get_row(row_idx);
-        row->set_tuple(_tuple_idx, tuple);
-
-        do {
-            // 3.5.1 Using direct conjuncts to filter data
-            if (!eval_conjuncts(&((*row_conjunct_ctxs)[0]),
-                               _direct_row_conjunct_size,
-                               row)) {
-                // check direct conjuncts fail then clear tuple for reuse
-                // make sure to reset null indicators since we're overwriting
-                // the tuple assembled for the previous row
-                tuple->init(_tuple_desc->byte_size());
-                break;
-            }
-
-            COUNTER_UPDATE(_direct_return_counter, 1);
-
-            // 3.5.2 Using pushdown conjuncts to filter data
-            if (_use_pushdown_conjuncts
-                    && row_conjunct_ctxs->size() > _direct_conjunct_size) {
-                if (!eval_conjuncts(&((*row_conjunct_ctxs)[_direct_conjunct_size]),
-                                   row_conjunct_ctxs->size() - _direct_conjunct_size, row)) {
-                    // check pushdown conjuncts fail then clear tuple for reuse
-                    // make sure to reset null indicators since we're overwriting
-                    // the tuple assembled for the previous row
-                    tuple->init(_tuple_desc->byte_size());
-                    break;
-                }
-            }
-
-            int string_slots_size = _string_slots.size();
-            for (int i = 0; i < string_slots_size; ++i) {
-                StringValue* slot
-                    = tuple->get_string_slot(_string_slots[i]->tuple_offset());
-                uint8_t* v = row_batch->tuple_data_pool()->allocate(slot->len);
-                memcpy(v, slot->ptr, slot->len);
-                slot->ptr = reinterpret_cast<char*>(v);
-            }
-
-            // check direct && pushdown conjuncts success then commit tuple
-            row_batch->commit_last_row();
-            char* new_tuple = reinterpret_cast<char*>(tuple);
-            new_tuple += _tuple_desc->byte_size();
-            tuple = reinterpret_cast<Tuple*>(new_tuple);
-
-            COUNTER_UPDATE(_pushdown_return_counter, 1);
-        } while (0);
-
-        if (row_batch->is_full()) {
-            break;
-        }
-    }
-}
-#endif
 
 Status OlapScanNode::add_one_batch(RowBatchInterface* row_batch) {
     {

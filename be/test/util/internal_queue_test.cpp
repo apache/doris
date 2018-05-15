@@ -314,11 +314,11 @@ TEST(InternalQueue, TestMultiProducerMultiConsumer) {
 } // end namespace palo
 
 int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
-    // if (!palo::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
+    std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
+    if (!palo::config::init(conffile.c_str(), false)) {
+        fprintf(stderr, "error read config file. \n");
+        return -1;
+    }
     palo::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

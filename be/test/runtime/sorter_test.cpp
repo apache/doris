@@ -22,7 +22,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "runtime/runtime_state.h"
-#include "gen_cpp/ImpalaInternalService_types.h"
+#include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/Exprs_types.h"
 #include "exec/sort_exec_exprs.h"

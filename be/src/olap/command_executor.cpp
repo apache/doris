@@ -30,7 +30,7 @@
 #include <boost/scoped_array.hpp>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include "olap/base_expansion_handler.h"
+#include "olap/base_compaction.h"
 #include "olap/delete_handler.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
@@ -43,6 +43,7 @@
 #include "olap/schema_change.h"
 #include "olap/utils.h"
 #include "util/palo_metrics.h"
+#include "util/pretty_printer.h"
 
 using apache::thrift::ThriftDebugString;
 using std::map;
@@ -126,19 +127,12 @@ OLAPStatus CommandExecutor::compute_checksum(
         OLAP_LOG_WARNING("failed to init row cursor. [res=%d]", res);
         return res;
     }
+    row.allocate_memory_for_string_type(tablet->tablet_schema());
 
-    RowCursor tmp_row;
-    res = tmp_row.init(tablet->tablet_schema(), reader_params.return_columns);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("failed to init row cursor. [res=%d]", res);
-        return res;
-    }
-    
     bool eof = false;
-    int64_t raw_rows_read = 0;
-    uint32_t tmp_checksum = CRC32_INIT;
+    uint32_t row_checksum = 0;
     while (true) {
-        OLAPStatus res = reader.next_row_with_aggregation(&tmp_row, &raw_rows_read, &eof);
+        OLAPStatus res = reader.next_row_with_aggregation(&row, &eof);
         if (res == OLAP_SUCCESS && eof) {
             OLAP_LOG_DEBUG("reader reads to the end.");
             break;
@@ -147,14 +141,11 @@ OLAPStatus CommandExecutor::compute_checksum(
             return res;
         }
 
-        // reset buffer and copy from tmp_row to avoid invalid content in varchar buffer
-        row.reset_buf();
-        row.copy(tmp_row);
-        tmp_checksum = olap_crc32(tmp_checksum, row.get_buf(), row.get_buf_len());
+        row_checksum = row.hash_code(row_checksum);
     }
-    
-    OLAP_LOG_INFO("success to finish compute checksum. [checksum=%u]", tmp_checksum);
-    *checksum = tmp_checksum;
+
+    OLAP_LOG_INFO("success to finish compute checksum. [checksum=%u]", row_checksum);
+    *checksum = row_checksum;
     return OLAP_SUCCESS;
 }
 
@@ -165,13 +156,9 @@ OLAPStatus CommandExecutor::push(
     OLAP_LOG_INFO("begin to process push. [tablet_id=%ld version=%ld]",
                   request.tablet_id, request.version);
 
-    time_t start = time(NULL);
-    if (PaloMetrics::palo_push_count() != NULL) {
-        PaloMetrics::palo_push_count()->increment(1);
-    }
-
     if (tablet_info_vec == NULL) {
         OLAP_LOG_WARNING("invalid output parameter which is null pointer.");
+        PaloMetrics::push_requests_fail_total.increment(1);
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
 
@@ -180,6 +167,7 @@ OLAPStatus CommandExecutor::push(
     if (NULL == olap_table.get()) {
         OLAP_LOG_WARNING("false to find table. [table=%ld schema_hash=%d]",
                          request.tablet_id, request.schema_hash);
+        PaloMetrics::push_requests_fail_total.increment(1);
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
@@ -188,26 +176,32 @@ OLAPStatus CommandExecutor::push(
         type = PUSH_FOR_LOAD_DELETE;
     }
 
+    int64_t duration_ns = 0;
     PushHandler push_handler;
-    res = push_handler.process(olap_table, request, type, tablet_info_vec);
-
-    time_t cost = time(NULL) - start;
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to process push. cost: %ld [res=%d table=%s]",
-                         cost, res, olap_table->full_name().c_str());
-        return res;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        res = push_handler.process(olap_table, request, type, tablet_info_vec);
     }
-
-    OLAP_LOG_INFO("success to finish push. cost: %ld. [table=%s]",
-            cost, olap_table->full_name().c_str());
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to push delta, table=" << olap_table->full_name().c_str()
+            << ",cost=" << PrettyPrinter::print(duration_ns, TUnit::TIME_NS);
+        PaloMetrics::push_requests_fail_total.increment(1);
+    } else {
+        LOG(INFO) << "success to push delta, table=" << olap_table->full_name().c_str()
+            << ",cost=" << PrettyPrinter::print(duration_ns, TUnit::TIME_NS);
+        PaloMetrics::push_requests_success_total.increment(1);
+        PaloMetrics::push_request_duration_us.increment(duration_ns / 1000);
+        PaloMetrics::push_request_write_bytes.increment(push_handler.write_bytes());
+        PaloMetrics::push_request_write_rows.increment(push_handler.write_rows());
+    }
     return res;
 }
 
-OLAPStatus CommandExecutor::base_expansion(
+OLAPStatus CommandExecutor::base_compaction(
         TTabletId tablet_id,
         TSchemaHash schema_hash,
         TVersion version) {
-    OLAP_LOG_INFO("begin to process base expansion. "
+    OLAP_LOG_INFO("begin to process base compaction. "
                   "[tablet_id=%ld schema_hash=%d version=%ld]",
                   tablet_id, schema_hash, version);
     OLAPStatus res = OLAP_SUCCESS;
@@ -220,19 +214,19 @@ OLAPStatus CommandExecutor::base_expansion(
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
-    BaseExpansionHandler base_expansion_handler;
-    res = base_expansion_handler.init(table, true);
+    BaseCompaction base_compaction;
+    res = base_compaction.init(table, true);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to init BaseExpansionHandler. [res=%d]", res);
+        OLAP_LOG_WARNING("fail to init BaseCompactionHandler. [res=%d]", res);
         return res;
     }
 
-    res = base_expansion_handler.run();
+    res = base_compaction.run();
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to process base_expansion. [res=%d]", res);
+        OLAP_LOG_WARNING("fail to process base_compaction. [res=%d]", res);
     }
 
-    OLAP_LOG_INFO("success to finish base expansion.");
+    OLAP_LOG_INFO("success to finish base compaction.");
     return res;
 }
 
@@ -244,9 +238,7 @@ OLAPStatus CommandExecutor::create_table(const TCreateTabletReq& request) {
     OLAP_LOG_INFO("begin to process create table. [tablet=%ld, schema_hash=%d]",
                   request.tablet_id, request.tablet_schema.schema_hash);
 
-    if (PaloMetrics::palo_request_count() != NULL) {
-        PaloMetrics::palo_request_count()->increment(1);
-    }
+    PaloMetrics::create_tablet_requests_total.increment(1);
 
     // 1. Make sure create_table operation is idempotent:
     //    return success if table with same tablet_id and schema_hash exist,
@@ -340,9 +332,7 @@ OLAPStatus CommandExecutor::drop_table(const TDropTabletReq& request) {
     OLAP_LOG_INFO("begin to process drop table. [table=%ld schema_hash=%d]",
                   request.tablet_id, request.schema_hash);
 
-    if (PaloMetrics::palo_request_count() != NULL) {
-        PaloMetrics::palo_request_count()->increment(1);
-    }
+    PaloMetrics::drop_tablet_requests_total.increment(1);
 
     OLAPStatus res = OLAPEngine::get_instance()->drop_table(
             request.tablet_id, request.schema_hash);
@@ -359,9 +349,7 @@ OLAPStatus CommandExecutor::report_all_tablets_info(
         map<TTabletId, TTablet>* tablets_info) {
     OLAP_LOG_INFO("begin to process report all tablets info.");
 
-    if (PaloMetrics::palo_request_count() != NULL) {
-        PaloMetrics::palo_request_count()->increment(1);
-    }
+    PaloMetrics::report_all_tablets_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -382,9 +370,7 @@ OLAPStatus CommandExecutor::report_tablet_info(TTabletInfo* tablet_info) {
                   "[table=%ld schema_hash=%d]",
                   tablet_info->tablet_id, tablet_info->schema_hash);
 
-    if (PaloMetrics::palo_request_count() != NULL) {
-        PaloMetrics::palo_request_count()->increment(1);
-    }
+    PaloMetrics::report_tablet_requests_total.increment(1);
 
     res = OLAPEngine::get_instance()->report_tablet_info(tablet_info);
     if (res != OLAP_SUCCESS) {
@@ -400,9 +386,7 @@ OLAPStatus CommandExecutor::schema_change(const TAlterTabletReq& request) {
     OLAP_LOG_INFO("begin to schema change. [base_table=%ld new_table=%ld]",
                   request.base_tablet_id, request.new_tablet_req.tablet_id);
 
-    if (PaloMetrics::palo_request_count() != NULL) {
-        PaloMetrics::palo_request_count()->increment(1);
-    }
+    PaloMetrics::schema_change_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -427,9 +411,7 @@ OLAPStatus CommandExecutor::create_rollup_table(const TAlterTabletReq& request) 
                   "[base_table=%ld new_table=%ld]",
                   request.base_tablet_id, request.new_tablet_req.tablet_id);
 
-    if (PaloMetrics::palo_request_count() != NULL) {
-        PaloMetrics::palo_request_count()->increment(1);
-    }
+    PaloMetrics::create_rollup_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -455,10 +437,6 @@ AlterTableStatus CommandExecutor::show_alter_table_status(
     OLAP_LOG_INFO("begin to process show alter table status. "
                   "[table=%ld schema_hash=%d]",
                   tablet_id, schema_hash);
-
-    if (PaloMetrics::palo_request_count() != NULL) {
-        PaloMetrics::palo_request_count()->increment(1);
-    }
 
     AlterTableStatus status = ALTER_TABLE_DONE;
 
@@ -605,9 +583,7 @@ OLAPStatus CommandExecutor::storage_medium_migrate(const TStorageMediumMigrateRe
                   "[tablet_id=%ld schema_hash=%d dest_storage_medium=%d]",
                   request.tablet_id, request.schema_hash, request.storage_medium);
 
-    if (PaloMetrics::palo_request_count() != NULL) {
-        PaloMetrics::palo_request_count()->increment(1);
-    }
+    PaloMetrics::storage_migrate_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
     res = OLAPSnapshot::get_instance()->storage_medium_migrate(
@@ -640,10 +616,7 @@ OLAPStatus CommandExecutor::delete_data(
         vector<TTabletInfo>* tablet_info_vec) {
     OLAP_LOG_INFO("begin to process delete data. [request='%s']",
                   ThriftDebugString(request).c_str());
-
-    if (PaloMetrics::palo_request_count() != NULL) {
-        PaloMetrics::palo_request_count()->increment(1);
-    }
+    PaloMetrics::delete_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -680,9 +653,7 @@ OLAPStatus CommandExecutor::cancel_delete(const TCancelDeleteDataReq& request) {
     OLAP_LOG_INFO("begin to process cancel delete. [table=%ld version=%ld]",
                   request.tablet_id, request.version);
 
-    if (PaloMetrics::palo_request_count() != NULL) {
-        PaloMetrics::palo_request_count()->increment(1);
-    }
+    PaloMetrics::cancel_delete_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
 

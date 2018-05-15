@@ -18,16 +18,18 @@
 
 #include "runtime/free_list.hpp"
 #include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 
 namespace palo {
 
 TEST(FreeListTest, Basic) {
-    MemPool pool;
+    MemTracker tracker;
+    MemPool pool(&tracker);
     FreeList list;
 
     int allocated_size;
     uint8_t* free_list_mem = list.allocate(FreeList::min_size(), &allocated_size);
-    EXPECT_EQ(NULL, free_list_mem);
+    EXPECT_EQ(nullptr, free_list_mem);
     EXPECT_EQ(allocated_size, 0);
 
     uint8_t* mem = pool.allocate(FreeList::min_size());
@@ -39,7 +41,7 @@ TEST(FreeListTest, Basic) {
     EXPECT_EQ(allocated_size, FreeList::min_size());
 
     free_list_mem = list.allocate(FreeList::min_size(), &allocated_size);
-    EXPECT_EQ(NULL, free_list_mem);
+    EXPECT_EQ(nullptr, free_list_mem);
     EXPECT_EQ(allocated_size, 0);
 
     // Make 3 allocations and add them to the free list.
@@ -48,9 +50,9 @@ TEST(FreeListTest, Basic) {
     // Attempt a 4th allocation from the free list and make sure
     // we get NULL.
     // Repeat with the same memory blocks.
-    uint8_t* free_list_mem1 = NULL;
-    uint8_t* free_list_mem2 = null;
-    uint8_t* free_list_mem3 = null;
+    uint8_t* free_list_mem1 = nullptr;
+    uint8_t* free_list_mem2 = nullptr;
+    uint8_t* free_list_mem3 = nullptr;
 
     mem = pool.allocate(FreeList::min_size());
     list.add(mem, FreeList::min_size());
@@ -147,12 +149,14 @@ TEST(FreeListTest, Basic) {
 }
 
 int main(int argc, char** argv) {
+#if 0
     std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
     if (!palo::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
     init_glog("be-test");
+#endif
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

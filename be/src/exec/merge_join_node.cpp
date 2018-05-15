@@ -57,9 +57,9 @@ MergeJoinNode::MergeJoinNode(
 MergeJoinNode::~MergeJoinNode() {
 }
 
-Status MergeJoinNode::init(const TPlanNode& tnode) {
+Status MergeJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     DCHECK(tnode.__isset.merge_join_node);
-    RETURN_IF_ERROR(ExecNode::init(tnode));
+    RETURN_IF_ERROR(ExecNode::init(tnode, state));
     const vector<TEqJoinCondition>& cmp_conjuncts =
         tnode.merge_join_node.cmp_conjuncts;
 

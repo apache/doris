@@ -31,6 +31,7 @@
 #include "udf/udf_internal.h"
 #include "util/debug_util.h"
 #include "runtime/datetime_value.h"
+#include "runtime/mem_tracker.h"
 #include "thrift/protocol/TDebugProtocol.h"
 #include "runtime/raw_value.h"
 
@@ -340,7 +341,7 @@ inline void AggFnEvaluator::set_any_val(
         return;
 
     case TYPE_LARGEINT:
-        reinterpret_cast<LargeIntVal*>(dst)->val = *reinterpret_cast<const __int128*>(slot);
+        memcpy(&reinterpret_cast<LargeIntVal*>(dst)->val, slot, sizeof(__int128));
         return;
 
     default:
@@ -409,7 +410,7 @@ inline void AggFnEvaluator::set_output_slot(const AnyVal* src,
         return;
 
     case TYPE_LARGEINT: {
-        *reinterpret_cast<__int128*>(slot) = reinterpret_cast<const LargeIntVal*>(src)->val;
+        memcpy(slot, &reinterpret_cast<const LargeIntVal*>(src)->val, sizeof(__int128));
         return;
     }
 

@@ -153,7 +153,7 @@ void TaskWorkerPool::start() {
         _callback_function = _report_disk_state_worker_thread_callback;
         break;
     case TaskWorkerType::REPORT_OLAP_TABLE:
-        _wait_duration = boost::posix_time::time_duration(0, 0, config::report_olap_table_interval_seconds, 0);
+        _wait_duration = boost::posix_time::time_duration(0, 0, config::report_disk_state_interval_seconds, 0);
         _worker_count = REPORT_OLAP_TABLE_WORKER_COUNT;
         _callback_function = _report_olap_table_worker_thread_callback;
         break;
@@ -268,7 +268,9 @@ void TaskWorkerPool::_spawn_callback_worker_thread(CALLBACK_FUNCTION callback_fu
         err = pthread_create(&thread, NULL, callback_func, this);
         if (err != 0) {
             OLAP_LOG_WARNING("failed to spawn a thread. error: %d", err);
+#ifndef BE_TEST
             sleep(config::sleep_one_second);
+#endif
         } else {
             pthread_detach(thread);
             break;
@@ -742,7 +744,7 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
             OLAPStatus delete_data_status =
                      worker_pool_this->_command_executor->delete_data(push_req, &tablet_infos);
             if (delete_data_status != OLAPStatus::OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("delet data failed. statusta: %d, signature: %ld",
+                OLAP_LOG_WARNING("delete data failed. status: %d, signature: %ld",
                                  delete_data_status, agent_task_req.signature);
                 status = PALO_ERROR;
             }
@@ -1114,7 +1116,9 @@ AgentStatus TaskWorkerPool::_clone_copy(
                                  downloader_param.remote_file_path.c_str(),
                                  signature);
                 ++download_retry_time;
+#ifndef BE_TEST
                 sleep(download_retry_time);
+#endif
             } else {
                 break;
             }
@@ -1200,7 +1204,9 @@ AgentStatus TaskWorkerPool::_clone_copy(
                                      downloader_param.remote_file_path.c_str(),
                                      signature);
                     ++download_retry_time;
+#ifndef BE_TEST
                     sleep(download_retry_time);
+#endif
                 } else {
                     break;
                 }
@@ -1268,7 +1274,9 @@ AgentStatus TaskWorkerPool::_clone_copy(
                     }
                 }
                 ++download_retry_time;
+#ifndef BE_TEST
                 sleep(download_retry_time);
+#endif
             } // Try to download a file from remote backend
 
 #ifndef BE_TEST
@@ -1524,7 +1532,6 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
 
 #ifndef BE_TEST
     while (true) {
-#endif
         if (worker_pool_this->_master_info.network_address.port == 0) {
             // port == 0 means not received heartbeat yet
             // sleep a short time and try again
@@ -1532,6 +1539,7 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
             sleep(config::sleep_one_second);
             continue;
         }
+#endif
 
         vector<OLAPRootPathStat> root_paths_stat;
 
@@ -1585,7 +1593,6 @@ void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) 
 
 #ifndef BE_TEST
     while (true) {
-#endif
         if (worker_pool_this->_master_info.network_address.port == 0) {
             // port == 0 means not received heartbeat yet
             // sleep a short time and try again
@@ -1593,6 +1600,7 @@ void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) 
             sleep(config::sleep_one_second);
             continue;
         }
+#endif
 
         request.tablets.clear();
 

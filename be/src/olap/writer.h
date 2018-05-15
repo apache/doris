@@ -17,6 +17,7 @@
 #define BDG_PALO_BE_SRC_OLAP_WRITER_H
 
 #include "olap/olap_table.h"
+#include "olap/wrapper_field.h"
 
 namespace palo {
 class OLAPData;
@@ -33,7 +34,8 @@ public:
     IWriter(bool is_push_write, SmartOLAPTable table) : 
             _is_push_write(is_push_write), 
             _table(table),
-            _column_statistics(_table->num_key_fields(), std::pair<Field *, Field *>(NULL, NULL)),
+            _column_statistics(
+                _table->num_key_fields(), std::pair<WrapperField*, WrapperField*>(NULL, NULL)),
             _row_index(0) {}
     virtual ~IWriter() {
         for (size_t i = 0; i < _column_statistics.size(); ++i) {
@@ -44,24 +46,16 @@ public:
     virtual OLAPStatus init() {
         OLAPStatus res = OLAP_SUCCESS;
         for (size_t i = 0; i < _column_statistics.size(); ++i) {
-            _column_statistics[i].first = Field::create(_table->tablet_schema()[i]);
+            _column_statistics[i].first = WrapperField::create(_table->tablet_schema()[i]);
             if (_column_statistics[i].first == NULL) {
                 OLAP_LOG_FATAL("fail to create column statistics field. [field_id=%lu]", i);
                 return OLAP_ERR_MALLOC_ERROR;
             }
-            if (!_column_statistics[i].first->allocate()) {
-                OLAP_LOG_FATAL("fail to allocate column statistics field. [field_id=%lu]", i);
-                return OLAP_ERR_MALLOC_ERROR;
-            }
             _column_statistics[i].first->set_to_max();
 
-            _column_statistics[i].second = Field::create(_table->tablet_schema()[i]);
+            _column_statistics[i].second = WrapperField::create(_table->tablet_schema()[i]);
             if (_column_statistics[i].second == NULL) {
                 OLAP_LOG_FATAL("fail to create column statistics field. [field_id=%lu]", i);
-                return OLAP_ERR_MALLOC_ERROR;
-            }
-            if (!_column_statistics[i].second->allocate()) {
-                OLAP_LOG_FATAL("fail to allocate column statistics field. [field_id=%lu]", i);
                 return OLAP_ERR_MALLOC_ERROR;
             }
             _column_statistics[i].second->set_null();
@@ -72,18 +66,13 @@ public:
     virtual OLAPStatus attached_by(RowCursor* row_cursor) = 0;
     void next(const RowCursor& row_cursor) {
         for (size_t i = 0; i < _table->num_key_fields(); ++i) {
-            /*
-            if (NULL == row_cursor.get_field_by_index(i)) {
-                _column_statistics[i].first->set_null();
-                continue;
-            }
-            */
-            if (_column_statistics[i].first->cmp(row_cursor.get_field_by_index(i)) > 0) {
-                _column_statistics[i].first->copy(row_cursor.get_field_by_index(i));
+            char* right = row_cursor.get_field_by_index(i)->get_field_ptr(row_cursor.get_buf());
+            if (_column_statistics[i].first->cmp(right) > 0) {
+                _column_statistics[i].first->copy(right);
             }
 
-            if (_column_statistics[i].second->cmp(row_cursor.get_field_by_index(i)) < 0) {
-                _column_statistics[i].second->copy(row_cursor.get_field_by_index(i));
+            if (_column_statistics[i].second->cmp(right) < 0) {
+                _column_statistics[i].second->copy(right);
             }
         }
 
@@ -92,6 +81,7 @@ public:
     virtual OLAPStatus finalize() = 0;
     virtual OLAPStatus write_row_block(RowBlock* row_block) = 0;
     virtual uint64_t written_bytes() = 0;
+    virtual MemPool* mem_pool() = 0;
     // Factory function
     // 调用者获得新建的对象, 并负责delete释放
     static IWriter* create(SmartOLAPTable table, OLAPIndex* index, bool is_push_write);
@@ -99,7 +89,8 @@ public:
 protected:
     bool _is_push_write;
     SmartOLAPTable _table;
-    std::vector<std::pair<Field *, Field *> > _column_statistics; // first is min, second is max
+    // first is min, second is max
+    std::vector<std::pair<WrapperField*, WrapperField*>> _column_statistics;
     uint32_t _row_index;
 };
 
@@ -158,6 +149,7 @@ public:
     virtual OLAPStatus finalize();
 
     virtual uint64_t written_bytes();
+    virtual MemPool* mem_pool();
 
 private:
     OLAPIndex* _index;

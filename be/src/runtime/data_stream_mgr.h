@@ -38,6 +38,12 @@
 
 #include "rpc/inet_addr.h"
 
+namespace google {
+namespace protobuf {
+class Closure;
+}
+}
+
 namespace palo {
 
 class DescriptorTbl;
@@ -47,7 +53,9 @@ class RuntimeState;
 class TRowBatch;
 class Comm;
 class CommBuf;
+class PRowBatch;
 typedef std::shared_ptr<CommBuf> CommBufPtr;
+class PUniqueId;
 
 // Singleton class which manages all incoming data streams at a backend node. It
 // provides both producer and consumer functionality for each data stream.
@@ -91,9 +99,11 @@ public:
     Status add_data(const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
             const TRowBatch& thrift_batch, int sender_id, bool* buffer_overflow,
                     std::pair<InetAddr, CommBufPtr> response);
-    // Status add_data(const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-    //                 const TRowBatch& thrift_batch, bool* buffer_overflow,
-    //                 std::pair<InetAddr, CommBufPtr> response);
+
+    Status add_data(const PUniqueId& fragment_instance_id, int32_t node_id,
+                    const PRowBatch& pb_batch, int32_t sender_id,
+                    int32_t be_number, int64_t packet_seq,
+                    ::google::protobuf::Closure** done);
 
     // Notifies the recvr associated with the fragment/node id that the specified
     // sender has closed.

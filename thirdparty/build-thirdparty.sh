@@ -436,6 +436,31 @@ build_mysql() {
     echo "mysql client lib is installed."
 }
 
+#leveldb
+build_leveldb() {
+    check_if_source_exist $LEVELDB_SOURCE
+
+    cd $TP_SOURCE_DIR/$LEVELDB_SOURCE
+    CXXFLAGS="-fPIC" make -j$PARALLEL
+    cp out-static/libleveldb.a ../../installed/lib/libleveldb.a
+    cp -r include/leveldb ../../installed/include/
+}
+
+# brpc
+build_brpc() {
+    check_if_source_exist $BRPC_SOURCE
+    if [ ! -f $CMAKE_CMD ]; then
+        echo "cmake executable does not exit"
+        exit 1
+    fi
+
+    cd $TP_SOURCE_DIR/$BRPC_SOURCE
+    mkdir build -p && cd build
+    rm -rf CMakeCache.txt CMakeFiles/
+    $CMAKE_CMD -v -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DBRPC_WITH_GLOG=ON -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib;$TP_INSTALL_DIR/lib64" ..
+    make -j$PARALLEL && make install
+}
+
 build_libevent
 build_openssl
 build_zlib
@@ -451,11 +476,12 @@ build_glog
 build_gtest
 build_rapidjson
 build_snappy
-# build_libunwind // deprecated
 build_gperftools
 build_curl
 build_re2
 build_mysql
 build_thrift
+build_leveldb
+build_brpc
 
 echo "Finihsed to build all thirdparties"

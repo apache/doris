@@ -321,6 +321,14 @@ void RowDescriptor::to_thrift(std::vector<TTupleId>* row_tuple_ids) {
     }
 }
 
+void RowDescriptor::to_protobuf(
+        google::protobuf::RepeatedField<google::protobuf::int32 >* row_tuple_ids) {
+    row_tuple_ids->Clear();
+    for (auto desc : _tuple_desc_map) {
+        row_tuple_ids->Add(desc->id());
+    }
+}
+
 bool RowDescriptor::is_prefix_of(const RowDescriptor& other_desc) const {
     if (_tuple_desc_map.size() > other_desc._tuple_desc_map.size()) {
         return false;

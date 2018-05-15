@@ -138,14 +138,9 @@ Status PartitionedAggregationNode::append_spilled_row(Partition* partition, Tupl
     return append_spilled_row(stream, row);
 }
 
-Status PartitionedAggregationNode::process_batch_false(
-        RowBatch* batch, PartitionedHashTableCtx* ht_ctx) {
-    return process_batch<false>(batch, ht_ctx);
-}
-
-Status PartitionedAggregationNode::process_batch_true(
-        RowBatch* batch, PartitionedHashTableCtx* ht_ctx) {
-    return process_batch<true>(batch, ht_ctx);
-}
+template Status PartitionedAggregationNode::process_batch<false>(
+    RowBatch*, PartitionedHashTableCtx*);
+template Status PartitionedAggregationNode::process_batch<true>(
+    RowBatch*, PartitionedHashTableCtx*);
 
 } // end namespace palo

@@ -47,7 +47,7 @@ struct ColumnMapping {
     // >=0: use origin column
     int32_t ref_column;
     // normally for default value. stores values for filters
-    Field* default_value;
+    WrapperField* default_value;
 };
 
 class RowBlockChanger {

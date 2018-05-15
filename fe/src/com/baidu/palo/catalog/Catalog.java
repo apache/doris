@@ -272,6 +272,8 @@ public class Catalog {
     private Checkpoint checkpointer;
     private Pair<String, Integer> helperNode = null;
     private Pair<String, Integer> selfNode = null;
+    private Pair<String, Integer> selfHostname = null;
+
     private List<Frontend> frontends;
     private List<Frontend> removedFrontends;
 
@@ -407,7 +409,7 @@ public class Catalog {
         return CHECKPOINT;
     }
 
-    private static Catalog getCurrentCatalog() {
+    public static Catalog getCurrentCatalog() {
         if (isCheckpointThread()) {
             return CHECKPOINT;
         } else {
@@ -691,6 +693,8 @@ public class Catalog {
 
     private void getSelfHostPort() {
         selfNode = new Pair<String, Integer>(FrontendOptions.getLocalHostAddress(), Config.edit_log_port);
+        selfHostname = new Pair<String, Integer>(FrontendOptions.getHostname(), Config.edit_log_port);
+        LOG.debug("get self node: {}, self hostname: {}", selfNode, selfHostname);
     }
 
     private void getHelperNode(String[] args) throws AnalysisException {
@@ -803,6 +807,16 @@ public class Catalog {
         System.out.println(msg);
         LOG.info(msg);
 
+        // MUST set master ip before starting checkpoint thread.
+        // because checkpoint thread need this info to select non-master FE to push image
+        this.masterIp = FrontendOptions.getLocalHostAddress();
+        this.masterRpcPort = Config.rpc_port;
+        this.masterHttpPort = Config.http_port;
+
+        MasterInfo info = new MasterInfo(this.masterIp, this.masterHttpPort, this.masterRpcPort);
+        editLog.logMasterInfo(info);
+
+        // start checkpoint thread
         checkpointer = new Checkpoint(editLog);
         checkpointer.setName("leaderCheckpointer");
         checkpointer.setInterval(FeConstants.checkpoint_interval_second * 1000L);
@@ -841,16 +855,6 @@ public class Catalog {
 
         // catalog recycle bin
         getRecycleBin().start();
-
-        this.masterIp = FrontendOptions.getLocalHostAddress();
-        this.masterRpcPort = Config.rpc_port;
-        this.masterHttpPort = Config.http_port;
-
-        MasterInfo info = new MasterInfo();
-        info.setIp(masterIp);
-        info.setRpcPort(masterRpcPort);
-        info.setHttpPort(masterHttpPort);
-        editLog.logMasterInfo(info);
 
         createTimePrinter();
         timePrinter.setName("timePrinter");
@@ -1861,6 +1865,7 @@ public class Catalog {
                     switch (feType) {
                     case UNKNOWN: {
                         transferToNonMaster();
+                            break;
                     }
                     default:
                     }
@@ -3023,18 +3028,6 @@ public class Catalog {
             throw new DdlException(e.getMessage());
         }
 
-        // check storage type if has null column
-        boolean hasNullColumn = false;
-        for (Column column : baseSchema) {
-            if (column.isAllowNull()) {
-                hasNullColumn = true;
-                break;
-            }
-        }
-        if (hasNullColumn && baseIndexStorageType != TStorageType.COLUMN) {
-            throw new DdlException("Only column table support null columns");
-        }
-
         Preconditions.checkNotNull(baseIndexStorageType);
         long baseIndexId = olapTable.getId();
         olapTable.setStorageTypeToIndex(baseIndexId, baseIndexStorageType);
@@ -3044,9 +3037,6 @@ public class Catalog {
         double bfFpp = 0;
         try {
             bfColumns = PropertyAnalyzer.analyzeBloomFilterColumns(properties, baseSchema);
-            if (bfColumns != null && baseIndexStorageType == TStorageType.ROW) {
-                throw new DdlException("Only column table support bloom filter index");
-            }
             if (bfColumns != null && bfColumns.isEmpty()) {
                 bfColumns = null;
             }
@@ -4076,6 +4066,10 @@ public class Catalog {
 
     public Pair<String, Integer> getSelfNode() {
         return this.selfNode;
+    }
+
+    public Pair<String, Integer> getSelfHostname() {
+        return this.selfHostname;
     }
 
     public FrontendNodeType getFeType() {

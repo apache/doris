@@ -27,6 +27,7 @@
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/buffer_control_block.h"
 #include "util/mysql_row_buffer.h"
+#include "util/types.h"
 
 #include "gen_cpp/PaloInternalService_types.h"
 
@@ -90,10 +91,10 @@ Status ResultWriter::add_one_row(TupleRow* row) {
             break;
 
         case TYPE_LARGEINT: {
-            const __int128* large_int_val = reinterpret_cast<const __int128*>(item);
             char buf[48];
             int len = 48;
-            char* v = LargeIntValue::to_string(*large_int_val, buf, &len);
+            char* v = LargeIntValue::to_string(
+                reinterpret_cast<const PackedInt128*>(item)->value, buf, &len);
             buf_ret = _row_buffer->push_string(v, len);
             break;
         }

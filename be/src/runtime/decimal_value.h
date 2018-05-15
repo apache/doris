@@ -443,6 +443,9 @@ public:
     static const char* _s_llvm_class_name;
 
 private:
+
+    friend class MultiDistinctDecimalState;
+
     bool is_zero() const {
         const int32_t* buff = _buffer;
         const int32_t* end = buff + round_up(_int_length)
@@ -568,6 +571,8 @@ inline const int32_t* DecimalValue::get_first_no_zero_index(
         ++buff;
     }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
     // When the value of a "big digit" is "000099999", its 'intg' may be 5/6/7/8/9,
     // we get accurate 'intg' here and the first no zero index of buff
     if (temp_intg > 0) {
@@ -578,6 +583,7 @@ inline const int32_t* DecimalValue::get_first_no_zero_index(
     } else {
         temp_intg = 0;
     }
+#pragma GCC diagnostic pop
     *int_digit_num = temp_intg;
     return buff;
 }
