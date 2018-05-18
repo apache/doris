@@ -71,10 +71,10 @@ public class EditLog {
 
     private Journal journal;
 
-    public EditLog() {
+    public EditLog(String nodeName) {
         String journalType = Config.edit_log_type;
         if (journalType.equalsIgnoreCase("bdb")) {
-            journal = new BDBJEJournal();
+            journal = new BDBJEJournal(nodeName);
         } else if (journalType.equalsIgnoreCase("local")) {
             journal = new LocalJournal(Catalog.IMAGE_DIR);
             Catalog.getInstance().setIsMaster(true);
@@ -409,9 +409,8 @@ public class EditLog {
                 case OperationType.OP_REMOVE_FRONTEND: {
                     Frontend fe = (Frontend) journal.getData();
                     catalog.replayDropFrontend(fe);
-                    if (fe.getHost().equals(Catalog.getInstance().getSelfNode().first)
-                            && fe.getPort() == Catalog.getInstance().getSelfNode().second
-                            && fe.getRole().equals(Catalog.getInstance().getRole())) {
+                    if (fe.getNodeName().equals(Catalog.getCurrentCatalog().getNodeName())) {
+                        System.out.println("current fe " + fe + " is removed. will exit");
                         LOG.info("current fe " + fe + " is removed. will exit");
                         System.exit(-1);
                     }

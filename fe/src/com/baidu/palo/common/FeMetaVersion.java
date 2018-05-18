@@ -88,4 +88,7 @@ public final class FeMetaVersion {
 
     // persistent brpc port in Backend
     public static final int VERSION_40 = 40;
+
+    // change the way to name Frontend
+    public static final int VERSION_41 = 41;
 }

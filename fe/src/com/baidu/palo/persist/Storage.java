@@ -35,12 +35,18 @@ import java.util.Properties;
 import java.util.Random;
 import java.util.UUID;
 
+// VERSION file contains clusterId. eg:
+//      clusterId=123456
+// ROLE file contains FrontendNodeType and NodeName. eg:
+//      role=OBSERVER
+//      name=172.0.0.1_1234_DNwid284dasdwd
 public class Storage {
     private static final Logger LOG = LogManager.getLogger(Storage.class);
 
     public static final String CLUSTER_ID = "clusterId";
     public static final String TOKEN = "token";
     public static final String FRONTEND_ROLE = "role";
+    public static final String NODE_NAME = "name";
     public static final String EDITS = "edits";
     public static final String IMAGE = "image";
     public static final String IMAGE_NEW = "image.ckpt";
@@ -50,6 +56,7 @@ public class Storage {
     private int clusterID = 0;
     private String token;
     private FrontendNodeType role = FrontendNodeType.UNKNOWN;
+    private String nodeName;
     private long editsSeq;
     private long imageSeq;
     private String metaDir;
@@ -101,6 +108,8 @@ public class Storage {
             prop.load(in);
             in.close();
             role = FrontendNodeType.valueOf(prop.getProperty(FRONTEND_ROLE));
+            // For compatibility, NODE_NAME may not exist in ROLE file, set nodeName to null
+            nodeName = prop.getProperty(NODE_NAME, null);
         }
 
         // Find the latest image
@@ -148,6 +157,10 @@ public class Storage {
 
     public FrontendNodeType getRole() {
         return role;
+    }
+
+    public String getNodeName() {
+        return nodeName;
     }
 
     public String getMetaDir() {
@@ -218,9 +231,11 @@ public class Storage {
         }
     }
 
-    public void writeFrontendRole(FrontendNodeType role) throws IOException {
+    public void writeFrontendRoleAndNodeName(FrontendNodeType role, String nameNode) throws IOException {
+        Preconditions.checkState(!Strings.isNullOrEmpty(nameNode));
         Properties properties = new Properties();
         properties.setProperty(FRONTEND_ROLE, role.name());
+        properties.setProperty(NODE_NAME, nameNode);
 
         RandomAccessFile file = new RandomAccessFile(new File(metaDir, ROLE_FILE), "rws");
         FileOutputStream out = null;
@@ -305,3 +320,4 @@ public class Storage {
     }
 
 }
+
