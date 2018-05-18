@@ -17,15 +17,16 @@ package com.baidu.palo.master;
 
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
-import com.baidu.palo.catalog.Replica;
 import com.baidu.palo.catalog.MaterializedIndex;
 import com.baidu.palo.catalog.OlapTable;
-import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.catalog.Partition;
-import com.baidu.palo.catalog.TabletInvertedIndex;
+import com.baidu.palo.catalog.Replica;
 import com.baidu.palo.catalog.Replica.ReplicaState;
+import com.baidu.palo.catalog.Tablet;
+import com.baidu.palo.catalog.TabletInvertedIndex;
 import com.baidu.palo.clone.CloneChecker;
 import com.baidu.palo.common.MetaNotFoundException;
+import com.baidu.palo.common.util.Daemon;
 import com.baidu.palo.persist.ReplicaPersistInfo;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.task.AgentBatchTask;
@@ -33,6 +34,7 @@ import com.baidu.palo.task.AgentTask;
 import com.baidu.palo.task.AgentTaskExecutor;
 import com.baidu.palo.task.AgentTaskQueue;
 import com.baidu.palo.task.DropReplicaTask;
+import com.baidu.palo.task.MasterTask;
 import com.baidu.palo.task.PushTask;
 import com.baidu.palo.task.StorageMediaMigrationTask;
 import com.baidu.palo.thrift.TBackend;
@@ -49,23 +51,30 @@ import com.baidu.palo.thrift.TTaskType;
 
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Queues;
 
 import org.apache.commons.lang.StringUtils;
-import org.apache.thrift.TException;
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.BlockingQueue;
 
-public class ReportHandler {
+public class ReportHandler extends Daemon {
     private static final Logger LOG = LogManager.getLogger(ReportHandler.class);
 
-    public static TMasterResult handleReport(TReportRequest request) throws TException {
+    private BlockingQueue<ReportTask> reportQueue = Queues.newLinkedBlockingQueue();
+
+    public ReportHandler() {
+    }
+
+    public TMasterResult handleReport(TReportRequest request) throws TException {
         TMasterResult result = new TMasterResult();
         TStatus tStatus = new TStatus(TStatusCode.OK);
         result.setStatus(tStatus);
@@ -76,51 +85,142 @@ public class ReportHandler {
         int bePort = tBackend.getBe_port();
         Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(host, bePort);
         if (backend == null) {
-            tStatus.setStatus_code(TStatusCode.CANCELLED);
-            List<String> errorMsgs = new ArrayList<String>();
+            tStatus.setStatus_code(TStatusCode.INTERNAL_ERROR);
+            List<String> errorMsgs = Lists.newArrayList();
             errorMsgs.add("backend[" + host + ":" + bePort + "] does not exist.");
             tStatus.setError_msgs(errorMsgs);
             return result;
         }
 
-        long backendId = backend.getId();
+        long beId = backend.getId();
+        Map<TTaskType, Set<Long>> tasks = null;
+        Map<String, TDisk> disks = null;
+        Map<Long, TTablet> tablets = null;
+        long reportVersion = -1;
 
-        // diff tasks
         if (request.isSetTasks()) {
-            LOG.debug("REPORTING[TASK] begin. backend[{}-{}-{}]", backendId, host, bePort);
-            ReportHandler.taskReport(backendId, request.getTasks());
-            LOG.debug("REPORTING[TASK] end. backend[{}-{}-{}]", backendId, host, bePort);
+            tasks = request.getTasks();
         }
-
-        // diff tablets
-        if (request.isSetTablets()) {
-            long backendReportVersion = Catalog.getCurrentSystemInfo().getBackendReportVersion(backendId);
-            if (request.getReport_version() >= backendReportVersion) {
-                LOG.debug("REPORTING[TABLET] begin. backend[{}-{}-{}]", backendId, host, bePort);
-                long start = System.currentTimeMillis();
-                ReportHandler.tabletReport(backendId, request.getTablets(), request.getReport_version());
-                long end = System.currentTimeMillis();
-                LOG.debug("REPORTING[TABLET] end. backend[{}-{}-{}]. cost: {}", backendId, host, bePort, (end - start));
-            } else {
-                LOG.warn("out of date report[{}] from backend[{}]. current report version[{}]",
-                         request.getReport_version(), backendId, backendReportVersion);
-            }
-        }
-
-        // disks
         if (request.isSetDisks()) {
-            LOG.debug("REPORTING[DISK] begin. backend[{}-{}-{}]", backendId, host, bePort);
-            ReportHandler.diskReport(backendId, request.getDisks());
-            LOG.debug("REPORTING[DISK] end. backend[{}-{}-{}]", backendId, host, bePort);
+            disks = request.getDisks();
+        }
+        if (request.isSetTablets()) {
+            tablets = request.getTablets();
+            reportVersion = request.getReport_version();
         }
 
+        ReportTask reportTask = new ReportTask(beId, tasks, disks, tablets, reportVersion);
+
+        try {
+            reportQueue.put(reportTask);
+        } catch (InterruptedException e) {
+            tStatus.setStatus_code(TStatusCode.INTERNAL_ERROR);
+            List<String> errorMsgs = Lists.newArrayList();
+            errorMsgs.add("failed to put report task to queue. queue size: " + reportQueue.size());
+            errorMsgs.add("err: " + e.getMessage());
+            tStatus.setError_msgs(errorMsgs);
+            return result;
+        }
+        LOG.info("receive report from be {}. current queue size: {}", backend.getId(), reportQueue.size());
         return result;
     }
 
-    private static void tabletReport(long backendId, Map<Long, TTablet> backendTablets, long backendReportVersion) {
+    private class ReportTask extends MasterTask {
+        private long beId;
+        private Map<TTaskType, Set<Long>> tasks;
+        private Map<String, TDisk> disks;
+        private Map<Long, TTablet> tablets;
+        private long reportVersion;
+
+        public ReportTask(long beId, Map<TTaskType, Set<Long>> tasks,
+                Map<String, TDisk> disks,
+                Map<Long, TTablet> tablets, long reportVersion) {
+            this.beId = beId;
+            this.tasks = tasks;
+            this.disks = disks;
+            this.tablets = tablets;
+            this.reportVersion = reportVersion;
+        }
+
+        @Override
+        protected void exec() {
+            if (tasks != null) {
+                ReportHandler.taskReport(beId, tasks);
+            }
+
+            if (disks != null) {
+                ReportHandler.diskReport(beId, disks);
+            }
+
+            if (tablets != null) {
+                long backendReportVersion = Catalog.getCurrentSystemInfo().getBackendReportVersion(beId);
+                if (reportVersion < backendReportVersion) {
+                    LOG.warn("out of date report version {} from backend[{}]. current report version[{}]",
+                             reportVersion, beId, backendReportVersion);
+                } else {
+                    ReportHandler.tabletReport(beId, tablets, reportVersion);
+                }
+            }
+        }
+    }
+
+    private static void taskReport(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
+        LOG.info("begin to handle task report from backend {}", backendId);
         long start = System.currentTimeMillis();
-        LOG.info("backend[{}] reports {} tablet(s). report version: {}",
+
+        for (TTaskType type : runningTasks.keySet()) {
+            Set<Long> taskSet = runningTasks.get(type);
+            if (!taskSet.isEmpty()) {
+                String signatures = StringUtils.join(taskSet, ", ");
+                LOG.debug("backend task[{}]: {}", type.name(), signatures);
+            }
+        }
+
+        List<AgentTask> diffTasks = AgentTaskQueue.getDiffTasks(backendId, runningTasks);
+
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (AgentTask task : diffTasks) {
+            // these tasks donot need to do diff
+            // 1. CREATE
+            // 2. SYNC DELETE
+            // 3. CHECK_CONSISTENCY
+            if (task.getTaskType() == TTaskType.CREATE
+                    || (task.getTaskType() == TTaskType.PUSH && ((PushTask) task).getPushType() == TPushType.DELETE
+                    && ((PushTask) task).isSyncDelete())
+                    || task.getTaskType() == TTaskType.CHECK_CONSISTENCY) {
+                continue;
+            }
+            batchTask.addTask(task);
+        }
+
+        LOG.debug("get {} diff task(s) to resend", batchTask.getTaskNum());
+        if (batchTask.getTaskNum() > 0) {
+            AgentTaskExecutor.submit(batchTask);
+        }
+
+        LOG.info("finished to handle task report from backend {}, diff task num: {}. cost: {} ms",
+                 backendId, batchTask.getTaskNum(), (System.currentTimeMillis() - start));
+    }
+
+    private static void diskReport(long backendId, Map<String, TDisk> backendDisks) {
+        LOG.info("begin to handle disk report from backend {}", backendId);
+        long start = System.currentTimeMillis();
+
+        Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendId);
+        if (backend == null) {
+            LOG.warn("backend doesn't exist. id: " + backendId);
+            return;
+        }
+        
+        backend.updateDisks(backendDisks);
+        LOG.info("finished to handle disk report from backend {}, cost: {} ms",
+                 backendId, (System.currentTimeMillis() - start));
+    }
+
+    private static void tabletReport(long backendId, Map<Long, TTablet> backendTablets, long backendReportVersion) {
+        LOG.info("begin to handle tablet report from backend {}, tablet num: {}, report version: {}",
                  backendId, backendTablets.size(), backendReportVersion);
+        long start = System.currentTimeMillis();
 
         // storage medium map
         HashMap<Long, TStorageMedium> storageMediumMap = Catalog.getInstance().getPartitionIdToStorageMediumMap();
@@ -157,51 +257,8 @@ public class ReportHandler {
         // 5. migration (ssd <-> hdd)
         handleMigration(tabletMigrationMap, backendId);
 
-        long end = System.currentTimeMillis();
-        LOG.info("tablet report from backend[{}] cost: {}", backendId, (end - start));
-    }
-
-    private static void taskReport(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
-
-        for (TTaskType type : runningTasks.keySet()) {
-            Set<Long> taskSet = runningTasks.get(type);
-            if (!taskSet.isEmpty()) {
-                String signatures = StringUtils.join(taskSet, ", ");
-                LOG.debug("backend task[{}]: {}", type.name(), signatures);
-            }
-        }
-
-        List<AgentTask> diffTasks = AgentTaskQueue.getDiffTasks(backendId, runningTasks);
-
-        AgentBatchTask batchTask = new AgentBatchTask();
-        for (AgentTask task : diffTasks) {
-            // these tasks donot need to do diff
-            // 1. CREATE
-            // 2. SYNC DELETE
-            // 3. CHECK_CONSISTENCY
-            if (task.getTaskType() == TTaskType.CREATE
-                    || (task.getTaskType() == TTaskType.PUSH && ((PushTask) task).getPushType() == TPushType.DELETE
-                    && ((PushTask) task).isSyncDelete())
-                    || task.getTaskType() == TTaskType.CHECK_CONSISTENCY) {
-                continue;
-            }
-            batchTask.addTask(task);
-        }
-
-        LOG.debug("get {} diff task(s) to resend", batchTask.getTaskNum());
-        if (batchTask.getTaskNum() > 0) {
-            AgentTaskExecutor.submit(batchTask);
-        }
-    }
-
-    private static void diskReport(long backendId, Map<String, TDisk> backendDisks) {
-        Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendId);
-        if (backend == null) {
-            LOG.warn("backend doesn't exist. id: " + backendId);
-            return;
-        }
-        
-        backend.updateDisks(backendDisks);
+        LOG.info("finished to handle tablet report from backend {}, cost: {} ms",
+                 backendId, (System.currentTimeMillis() - start));
     }
 
     private static void sync(Map<Long, TTablet> backendTablets, ListMultimap<Long, Long> tabletSyncMap,
@@ -555,4 +612,19 @@ public class ReportHandler {
             db.writeUnlock();
         }
     }
+
+    @Override
+    protected void runOneCycle() {
+        while (true) {
+            ReportTask task = null;
+            try {
+                task = reportQueue.take();
+                task.exec();
+            } catch (InterruptedException e) {
+                LOG.warn("got interupted exception when executing report", e);
+                continue;
+            }
+        }
+    }
 }
+

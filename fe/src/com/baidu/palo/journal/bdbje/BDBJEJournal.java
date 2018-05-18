@@ -23,6 +23,7 @@ import com.baidu.palo.journal.Journal;
 import com.baidu.palo.journal.JournalCursor;
 import com.baidu.palo.journal.JournalEntity;
 import com.baidu.palo.persist.OperationType;
+
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
@@ -66,15 +67,15 @@ public class BDBJEJournal implements Journal {
     private Database currentJournalDB;
     private AtomicLong journalId = new AtomicLong(1);
     
-    public BDBJEJournal() {
-        initBDBEnv();
+    public BDBJEJournal(String nodeName) {
+        initBDBEnv(nodeName);
     }
     
     /* 
      * Initialize bdb environment.
      * node name is ip_port (the port is edit_log_port)
      */
-    private void initBDBEnv() {
+    private void initBDBEnv(String nodeName) {
         environmentPath = Catalog.BDB_DIR;
         try {
             Pair<String, Integer> selfNode = Catalog.getInstance().getSelfNode();
@@ -82,7 +83,7 @@ public class BDBJEJournal implements Journal {
                 LOG.error("edit_log_port {} is already in use. will exit.", selfNode.second);
                 System.exit(-1);
             }
-            selfNodeName = selfNode.first + "_" + selfNode.second;
+            selfNodeName = nodeName;
             selfNodeHostPort = selfNode.first + ":" + selfNode.second;
         } catch (IOException e) {
             LOG.error(e);
@@ -153,7 +154,7 @@ public class BDBJEJournal implements Journal {
                 if (currentJournalDB.put(null, theKey, theData) == OperationStatus.SUCCESS) {
                     writeSuccessed = true;
                     LOG.debug("master write journal {} finished. db name {}, current time {}",
-                            id, currentJournalDB.getDatabaseName(), System.currentTimeMillis());
+                              id, currentJournalDB.getDatabaseName(), System.currentTimeMillis());
                     break;
                 }
             } catch (DatabaseException e) {
@@ -179,7 +180,7 @@ public class BDBJEJournal implements Journal {
                 return;
             }
             LOG.error("write bdb failed. will exit. journalId:{}, bdb database Name:{}",
-                    id, currentJournalDB.getDatabaseName());
+                      id, currentJournalDB.getDatabaseName());
             System.exit(-1);
         }
     }
@@ -347,7 +348,7 @@ public class BDBJEJournal implements Journal {
                 restore.execute(insufficientLogEx, config);
                 bdbEnvironment.close();
                 bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort, 
-                        helperNode.first + ":" + helperNode.second, Catalog.getInstance().isElectable());
+                                     helperNode.first + ":" + helperNode.second, Catalog.getInstance().isElectable());
                 continue;
             }
         }

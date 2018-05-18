@@ -22,13 +22,13 @@ import com.baidu.palo.alter.SchemaChangeHandler;
 import com.baidu.palo.alter.SchemaChangeJob;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
-import com.baidu.palo.catalog.Replica;
-import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.catalog.MaterializedIndex;
-import com.baidu.palo.catalog.Tablet;
+import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.catalog.Partition;
-import com.baidu.palo.catalog.TabletInvertedIndex;
 import com.baidu.palo.catalog.Partition.PartitionState;
+import com.baidu.palo.catalog.Replica;
+import com.baidu.palo.catalog.Tablet;
+import com.baidu.palo.catalog.TabletInvertedIndex;
 import com.baidu.palo.common.MetaNotFoundException;
 import com.baidu.palo.load.AsyncDeleteJob;
 import com.baidu.palo.load.LoadJob;
@@ -58,9 +58,9 @@ import com.baidu.palo.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
 
-import org.apache.thrift.TException;
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
 import java.util.ArrayList;
 import java.util.LinkedList;
@@ -69,8 +69,10 @@ import java.util.List;
 public class MasterImpl {
     private static final Logger LOG = LogManager.getLogger(MasterImpl.class);
 
-    public MasterImpl() {
+    ReportHandler reportHandler = new ReportHandler();
 
+    public MasterImpl() {
+        reportHandler.start();
     }
     
     public TMasterResult finishTask(TFinishTaskRequest request) throws TException {
@@ -498,7 +500,7 @@ public class MasterImpl {
     }
 
     public TMasterResult report(TReportRequest request) throws TException {
-        TMasterResult result = ReportHandler.handleReport(request);
+        TMasterResult result = reportHandler.handleReport(request);
         return result;
     }
 

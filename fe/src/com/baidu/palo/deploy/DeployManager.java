@@ -592,7 +592,7 @@ public class DeployManager extends Daemon {
     private List<Pair<String, Integer>> convertToHostPortPair(List<Frontend> frontends) {
         List<Pair<String, Integer>> hostPortPair = Lists.newArrayList();
         for (Frontend fe : frontends) {
-            hostPortPair.add(Pair.create(fe.getHost(), fe.getPort()));
+            hostPortPair.add(Pair.create(fe.getHost(), fe.getEditLogPort()));
         }
         return hostPortPair;
     }

@@ -251,6 +251,7 @@ public class MetaService {
                     response.updateHeader("role", FrontendNodeType.UNKNOWN.name());
                 } else {
                     response.updateHeader("role", fe.getRole().name());
+                    response.updateHeader("name", fe.getNodeName());
                 }
                 writeResponse(request, response);
             } else {

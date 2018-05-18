@@ -37,16 +37,15 @@ import java.util.List;
  */
 public class FrontendsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Host").add("Port").add("Role").add("IsMaster").add("ClusterId").add("Join")
+            .add("name").add("Host").add("Port").add("Role").add("IsMaster").add("ClusterId").add("Join")
             .build();
-
     
     private Catalog catalog;
-
+    
     public FrontendsProcNode(Catalog catalog) {
         this.catalog = catalog;
     }
-
+    
     @Override
     public ProcResult fetchResult() {
         BaseProcResult result = new BaseProcResult();
@@ -60,39 +59,40 @@ public class FrontendsProcNode implements ProcNodeInterface {
         List<InetSocketAddress> allFe = catalog.getHaProtocol().getElectableNodes(true /* include leader */);
         allFe.addAll(catalog.getHaProtocol().getObserverNodes());
         List<Pair<String, Integer>> allFeHosts = convertToHostPortPair(allFe);
-
+        
         for (Frontend fe : catalog.getFrontends(null /* all */)) {
             List<String> info = new ArrayList<String>();
+            info.add(fe.getNodeName());
             info.add(fe.getHost());
-            info.add(Integer.toString(fe.getPort()));
+            info.add(Integer.toString(fe.getEditLogPort()));
             info.add(fe.getRole().name());
-            if (fe.getHost().equals(masterIp) && fe.getPort() == masterPort) {
+            if (fe.getHost().equals(masterIp) && fe.getEditLogPort() == masterPort) {
                 info.add("true");
             } else {
                 info.add("false");
             }
             info.add(Integer.toString(catalog.getClusterId()));
-
+            
             if (!isJoin(allFeHosts, fe)) {
                 info.add("false");
             } else {
                 info.add("true");
             }
-
+            
             result.addRow(info);
         }
         return result;
     }
-
+    
     private boolean isJoin(List<Pair<String, Integer>> allFeHosts, Frontend fe) {
         for (Pair<String, Integer> pair : allFeHosts) {
-            if (fe.getHost().equals(pair.first) && fe.getPort() == pair.second) {
+            if (fe.getHost().equals(pair.first) && fe.getEditLogPort() == pair.second) {
                 return true;
             }
         }
         return false;
     }
-
+    
     private List<Pair<String, Integer>> convertToHostPortPair(List<InetSocketAddress> addrs) {
         List<Pair<String, Integer>> hostPortPair = Lists.newArrayList();
         for (InetSocketAddress addr : addrs) {

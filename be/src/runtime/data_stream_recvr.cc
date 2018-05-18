@@ -404,7 +404,21 @@ void DataStreamRecvr::SenderQueue::close() {
         // is clear will be memory leak
         boost::lock_guard<boost::mutex> l(_lock);
         _is_cancelled = true;
+
+        // make all pending RPC done
+        Comm* comm = Comm::instance();
+        while (!_response_queue.empty()) {
+            std::pair<InetAddr, CommBufPtr> response = _response_queue.front();
+            comm->send_response(response.first, response.second);
+            _response_queue.pop_front();
+        }
+
+        for (auto done : _pending_closures) {
+            done->Run();
+        }
+        _pending_closures.clear();
     }
+
     // Delete any batches queued in _batch_queue
     for (RowBatchQueue::iterator it = _batch_queue.begin();
             it != _batch_queue.end(); ++it) {
