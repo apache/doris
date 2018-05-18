@@ -49,7 +49,11 @@ public:
 
     // attach到一段buf
     void attach_buf(char* buf) {
-        _buf = buf;
+        _field_buf = _owned_buf;
+        _buf = _field_buf + 1;
+        _is_null = _owned_buf;
+        *_is_null = 0;
+        memcpy(_field_buf + 1, buf, size());
     }
 
     void attach_field(char* field) {

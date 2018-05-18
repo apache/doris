@@ -33,19 +33,19 @@ import java.util.List;
 import io.netty.handler.codec.http.HttpMethod;
 
 public class HaAction extends WebBaseAction {
-
+    
     public HaAction(ActionController controller) {
         super(controller);
     }
-
+    
     public static void registerAction(ActionController controller) throws IllegalArgException {
         controller.registerHandler(HttpMethod.GET, "/ha", new HaAction(controller));
     }
-
+    
     @Override
     public void executeGet(BaseRequest request, BaseResponse response) {
         getPageHeader(request, response.getContent());
-
+        
         appendRoleInfo(response.getContent());
         appendJournalInfo(response.getContent());
         appendCanReadInfo(response.getContent());
@@ -54,18 +54,18 @@ public class HaAction extends WebBaseAction {
         appendDbNames(response.getContent());
         appendFe(response.getContent());
         appendRemovedFe(response.getContent());
-
+        
         getPageFooter(response.getContent());
         writeResponse(request, response);
     }
-
+    
     private void appendRoleInfo(StringBuilder buffer) {
         buffer.append("<h2>Frontend Role</h2>");
         buffer.append("<pre>");
         buffer.append("<p>" + Catalog.getInstance().getFeType() + "</p>");
         buffer.append("</pre>");
     }
-
+    
     private void appendJournalInfo(StringBuilder buffer) {
         buffer.append("<h2>Current Journal Id</h2>");
         buffer.append("<pre>");
@@ -76,7 +76,7 @@ public class HaAction extends WebBaseAction {
         }
         buffer.append("</pre>");
     }
-
+    
     private void appendNodesInfo(StringBuilder buffer) {
         HAProtocol haProtocol = Catalog.getInstance().getHaProtocol();
         if (haProtocol == null) {
@@ -90,10 +90,10 @@ public class HaAction extends WebBaseAction {
         buffer.append("<pre>");
         for (InetSocketAddress node : electableNodes) {
             buffer.append("<p>" + node.getAddress() + "</p>");
-
+            
         }
         buffer.append("</pre>");
-
+        
         List<InetSocketAddress> observerNodes = haProtocol.getObserverNodes();
         if (observerNodes == null) {
             return;
@@ -105,15 +105,15 @@ public class HaAction extends WebBaseAction {
         }
         buffer.append("</pre>");
     }
-
+    
     private void appendCanReadInfo(StringBuilder buffer) {
         buffer.append("<h2>Can Read</h2>");
         buffer.append("<pre>");
         buffer.append("<p>" + Catalog.getInstance().canRead() + "</p>");
-
+        
         buffer.append("</pre>");
     }
-
+    
     private void appendImageInfo(StringBuilder buffer) {
         try {
             Storage storage = new Storage(Config.meta_dir + "/image");
@@ -160,17 +160,13 @@ public class HaAction extends WebBaseAction {
     }
     
     private void appendRemovedFe(StringBuilder buffer) {
-        List<Frontend> fes = Catalog.getInstance().getRemovedFrontends();
-        if (fes == null) {
-            return;
-        }
-        
+        List<String> feNames = Catalog.getInstance().getRemovedFrontendNames();
         buffer.append("<h2>Removed Frontends</h2>");
         buffer.append("<pre>");
-        for (Frontend fe : fes) {
-            buffer.append("<p>" + fe.toString() + "</p>");
+        for (String feName : feNames) {
+            buffer.append("<p>" + feName + "</p>");
         }
         buffer.append("</pre>");
     }
-
+    
 }

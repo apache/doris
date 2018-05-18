@@ -353,7 +353,7 @@ public class CloneChecker extends Daemon {
                                     if (backendInfosInCluster.containsKey(backendId)) {
                                         ++onlineReplicaNumInCluster;
                                     }
-                                } 
+                                }
                             }
 
                             TabletInfo tabletInfo = new TabletInfo(dbId, tableId, partitionId, indexId, tabletId,
@@ -397,7 +397,6 @@ public class CloneChecker extends Daemon {
                     // init backend tablet distribution
                     for (Map.Entry<Long, Set<TabletInfo>> mapEntry : backendToTablets.entrySet()) {
                         long backendId = mapEntry.getKey();
-
                         if (backendInfosInCluster.containsKey(backendId)) {
                             final BackendInfo backendInfo = backendInfosInCluster.get(backendId);
                             backendInfo.setTableReplicaNum(mapEntry.getValue().size());
@@ -430,7 +429,6 @@ public class CloneChecker extends Daemon {
                     } else {
                         LOG.warn("init backend distribution infos error");
                     }
-
                 } // end for partition -> index
             } // end for tables
 
@@ -696,7 +694,7 @@ public class CloneChecker extends Daemon {
                 Collections.shuffle(list);
                 candidateBackendIds.add(list.get(0));
             }
-            // here we choose candidate backends which are bost in Low capacity and low distribution.
+            // here we choose candidate backends which are both in Low capacity and low distribution.
             Set<Long> candidateBackendIdsByCapacitySet = Sets.newHashSet();
             for (List<Long> list : candidateBackendIdsByCapacity) {
                 candidateBackendIdsByCapacitySet.addAll(list);

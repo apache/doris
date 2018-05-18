@@ -803,7 +803,7 @@ public class ShowExecutor {
                 }
             } while (false);
 
-            String detailCmd = String.format("SHOW PROC '/dbs/%d/%d/partitions/%d/%d/%d/';",
+            String detailCmd = String.format("SHOW PROC '/dbs/%d/%d/partitions/%d/%d/%d';",
                                              dbId, tableId, partitionId, indexId, tabletId);
             rows.add(Lists.newArrayList(dbName, tableName, partitionName, indexName,
                                         dbId.toString(), tableId.toString(),
