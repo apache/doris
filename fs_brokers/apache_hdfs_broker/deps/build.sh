@@ -23,7 +23,7 @@ DEPSDIR=`dirname "$0"`
 DEPSDIR=`cd ${DEPSDIR}; pwd`
 
 CURDIR=`pwd`
-if [ ! -f ${DEPSDIR}/lib/jar/apache_hdfs_broker.jar ]
+if [ ! -f ${DEPSDIR}/lib/jar/commons-cli-1.2.jar ]
 then
     echo "Unpacking dependency libraries..."
     cd ${DEPSDIR}

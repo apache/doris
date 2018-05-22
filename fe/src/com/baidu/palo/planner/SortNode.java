@@ -82,6 +82,7 @@ public class SortNode extends PlanNode {
         this.useTopN = useTopN;
         this.isDefaultLimit = isDefaultLimit;
         this.tupleIds.addAll(Lists.newArrayList(info.getSortTupleDescriptor().getId()));
+        this.tblRefIds.addAll(Lists.newArrayList(info.getSortTupleDescriptor().getId()));
         this.nullableTupleIds.addAll(input.getNullableTupleIds());
         this.children.add(input);
         this.offset = offset;
@@ -198,7 +199,6 @@ public class SortNode extends PlanNode {
     }
 
     public void init(Analyzer analyzer) throws InternalException {
-        assignConjuncts(analyzer);
         // Compute the memory layout for the generated tuple.
         computeStats(analyzer);
         // createDefaultSmap(analyzer);
@@ -232,10 +232,6 @@ public class SortNode extends PlanNode {
         // Parent nodes have have to do the same so set the composition as the outputSmap_.
         outputSmap = ExprSubstitutionMap.compose(childSmap, outputSmap, analyzer);
         info.substituteOrderingExprs(outputSmap, analyzer);
-
-        if (info.getSortTupleDescriptor() != null) {
-            // info.checkConsistency();
-        }
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("sort id " + tupleIds.get(0).toString() + " smap: "

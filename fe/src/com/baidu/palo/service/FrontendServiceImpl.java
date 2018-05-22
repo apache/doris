@@ -342,12 +342,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private void logMiniLoadStmt(TMiniLoadRequest request) throws UnknownHostException {
         String stmt = getMiniLoadStmt(request);
         AuditBuilder auditBuilder = new AuditBuilder();
-        auditBuilder.put("client", request.getBackend().toString());
+        auditBuilder.put("client", request.getBackend().getHostname() + ":" + request.getBackend().getPort());
         auditBuilder.put("user", request.user);
         auditBuilder.put("db", request.db);
-        auditBuilder.put("query", stmt);
         auditBuilder.put("state", TStatusCode.OK);
         auditBuilder.put("time", "0");
+        auditBuilder.put("stmt", stmt);
 
         AuditLog.getQueryAudit().log(auditBuilder.toString());
     }

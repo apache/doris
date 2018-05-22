@@ -29,9 +29,10 @@ public class AuditBuilder {
     }
 
     public void put(String key, Object value) {
-        sb.append('[').append(key).append('=').append(value.toString()).append(']');
+        sb.append("|").append(key).append("=").append(value.toString());
     }
 
+    @Override
     public String toString() {
         return sb.toString();
     }

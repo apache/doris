@@ -40,6 +40,7 @@ public class QueryState {
     private ErrorCode errorCode;
     private String infoMessage;
     private ErrType errType = ErrType.OTHER_ERR;
+    private boolean isQuery = false;
 
     public QueryState() {
     }
@@ -83,6 +84,14 @@ public class QueryState {
 
     public ErrType getErrType() {
         return errType;
+    }
+
+    public void setQuery(boolean isQuery) {
+        this.isQuery = isQuery;
+    }
+
+    public boolean isQuery() {
+        return isQuery;
     }
 
     public String getInfoMessage() {
