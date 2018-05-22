@@ -60,7 +60,6 @@ import com.baidu.palo.thrift.TQueryOptions;
 import com.baidu.palo.thrift.TResultBatch;
 import com.baidu.palo.thrift.TUniqueId;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -165,6 +164,13 @@ public class StmtExecutor {
         } else {
             return masterOpExecutor.getProxyResultSet();
         }
+    }
+
+    public boolean isQueryStmt() {
+        if (parsedStmt != null && parsedStmt instanceof QueryStmt) {
+            return true;
+        }
+        return false;
     }
 
     // Execute one statement.
