@@ -287,6 +287,9 @@ public class SingleNodePlanner {
             }
             Preconditions.checkState(root.hasValidStats());
             root.init(analyzer);
+            // TODO chenhao16, before merge ValueTransferGraph, force evaluate conjuncts
+            // from SelectStmt outside
+            root = addUnassignedConjuncts(analyzer, root);
         } else {
             root.setLimit(stmt.getLimit());
             root.computeStats(analyzer);
