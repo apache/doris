@@ -400,7 +400,7 @@ public class Load {
         writeLock();
         try {
             unprotectAddLoadJob(job);
-            MetricRepo.METER_LOAD_ADD.mark();
+            MetricRepo.COUNTER_LOAD_ADD.increase(1L);
             Catalog.getInstance().getEditLog().logLoadStart(job);
         } finally {
             writeUnlock();
@@ -1991,7 +1991,7 @@ public class Load {
                             }
                             break;
                         case FINISHED:
-                            MetricRepo.METER_LOAD_FINISHED.mark();
+                            MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
                             idToQuorumFinishedLoadJob.remove(jobId);
                             job.setState(destState);
 
@@ -3018,7 +3018,7 @@ public class Load {
         readLock();
         try {
             Map<Long, LoadJob> jobMap = null;
-            if (state == null || state == JobState.CANCELLED) {
+            if (state == null || state == JobState.CANCELLED || state == JobState.FINISHED) {
                 jobMap = idToLoadJob;
             } else {
                 switch (state) {

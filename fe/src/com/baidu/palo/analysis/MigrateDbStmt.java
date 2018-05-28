@@ -58,7 +58,6 @@ public class MigrateDbStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
-
         src.analyze(analyzer);
         dest.analyze(analyzer);
 

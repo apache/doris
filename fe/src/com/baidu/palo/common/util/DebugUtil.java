@@ -38,9 +38,10 @@ public class DebugUtil {
     public static int MINUTE = 60 * SECOND;
     public static int HOUR = 60 * MINUTE;
     
-    public static int KILOBYTE = 1024;
-    public static int MEGABYTE = 1024 * KILOBYTE;
-    public static int GIGABYTE = 1024 * MEGABYTE;
+    public static long KILOBYTE = 1024;
+    public static long MEGABYTE = 1024 * KILOBYTE;
+    public static long GIGABYTE = 1024 * MEGABYTE;
+    public static long TERABYTE = 1024 * GIGABYTE;
 
     public static Pair<Double, String> getUint(long value) {
         Double doubleValue = Double.valueOf(value);
@@ -100,6 +101,9 @@ public class DebugUtil {
         if (value == 0) {
             // nothing
             unit = "";
+        } else if (value > TERABYTE) {
+            unit = "TB";
+            doubleValue /= TERABYTE;
         } else if (value > GIGABYTE) {
             unit = "GB";
             doubleValue /= GIGABYTE;

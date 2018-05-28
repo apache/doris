@@ -15,7 +15,6 @@
 
 package com.baidu.palo.qe;
 
-import com.baidu.palo.metric.MetricRepo;
 import com.baidu.palo.mysql.MysqlProto;
 
 import com.google.common.collect.Lists;
@@ -101,14 +100,12 @@ public class ConnectScheduler {
         numberConnection++;
         connByUser.get(ctx.getUser()).incrementAndGet();
         connectionMap.put((long) ctx.getConnectionId(), ctx);
-        MetricRepo.COUNTER_CONNECTIONS.inc();
         return true;
     }
 
     public synchronized void unregisterConnection(ConnectContext ctx) {
         if (connectionMap.remove((long) ctx.getConnectionId()) != null) {
             numberConnection--;
-            MetricRepo.COUNTER_CONNECTIONS.dec();
             AtomicInteger conns = connByUser.get(ctx.getUser());
             if (conns != null) {
                 conns.decrementAndGet();
@@ -118,6 +115,10 @@ public class ConnectScheduler {
 
     public synchronized ConnectContext getContext(long connectionId) {
         return connectionMap.get(connectionId);
+    }
+
+    public synchronized int getConnectionNum() {
+        return numberConnection;
     }
 
     public synchronized List<ConnectContext.ThreadInfo> listConnection(String user) {

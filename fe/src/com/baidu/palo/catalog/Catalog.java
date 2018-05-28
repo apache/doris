@@ -853,6 +853,7 @@ public class Catalog {
             // if isFirstTimeStartUp is true, frontends must contains this Node.
             Frontend self = frontends.get(nodeName);
             Preconditions.checkNotNull(self);
+            // OP_ADD_FIRST_FRONTEND is emitted, so it can write to BDBJE even if canWrite is false
             editLog.logAddFirstFrontend(self);
         }
 
