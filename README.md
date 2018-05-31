@@ -207,7 +207,8 @@ See the [Palo Wiki](https://github.com/baidu/palo/wiki) for more information.
 # Contact us
 palo-rd@baidu.com
 
-需要加入Palo微信技术讨论群的，请加微信号：myh13161636186，然后备注一下：加入Palo技术讨论群
+需要加入Palo微信技术讨论群的，请加微信号：morningman-cmy，然后备注一下：加入Palo技术讨论群
+（Palo开源一群已满）
 
 # Blogs
 1. [浅谈从Google Mesa到百度PALO](http://neoremind.com/2017/09/%E6%B5%85%E8%B0%88%E4%BB%8Egoogle-mesa%E5%88%B0%E7%99%BE%E5%BA%A6palo/comment-page-1/)
