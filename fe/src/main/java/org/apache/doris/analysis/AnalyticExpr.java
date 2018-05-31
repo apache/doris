@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Joiner;
 import org.apache.doris.analysis.AnalyticWindow.Boundary;
 import org.apache.doris.analysis.AnalyticWindow.BoundaryType;
 import org.apache.doris.catalog.AggregateFunction;
@@ -170,33 +171,6 @@ public class AnalyticExpr extends Expr {
     public Expr clone() {
         return new AnalyticExpr(this);
     }
-
-    //  @Override
-    //  public String toSqlImpl() {
-    //    if (sqlString_ != null) return sqlString_;
-    //    StringBuilder sb = new StringBuilder();
-    //    sb.append(fnCall.toSql()).append(" OVER (");
-    //    boolean needsSpace = false;
-    //    if (!partitionExprs.isEmpty()) {
-    //      sb.append("PARTITION BY ").append(Expr.toSql(partitionExprs));
-    //      needsSpace = true;
-    //    }
-    //    if (!orderByElements_.isEmpty()) {
-    //      List<String> orderByStrings = Lists.newArrayList();
-    //      for (OrderByElement e: orderByElements) {
-    //        orderByStrings.add(e.toSql());
-    //      }
-    //      if (needsSpace) sb.append(" ");
-    //      sb.append("ORDER BY ").append(Joiner.on(", ").join(orderByStrings));
-    //      needsSpace = true;
-    //    }
-    //    if (window != null) {
-    //      if (needsSpace) sb.append(" ");
-    //      sb.append(window.toSql());
-    //    }
-    //    sb.append(")");
-    //    return sb.toString();
-    //  }
 
     @Override
     public String debugString() {
@@ -812,6 +786,44 @@ public class AnalyticExpr extends Expr {
 
     @Override
     public String toSql() {
-        return "";
+        if (sqlString != null) {
+            return sqlString;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(fnCall.toSql()).append(" OVER (");
+        boolean needsSpace = false;
+        if (!partitionExprs.isEmpty()) {
+            sb.append("PARTITION BY ").append(exprListToSql(partitionExprs));
+            needsSpace = true;
+        }
+        if (!orderByElements.isEmpty()) {
+            List<String> orderByStrings = Lists.newArrayList();
+            for (OrderByElement e : orderByElements) {
+                orderByStrings.add(e.toSql());
+            }
+            if (needsSpace) {
+                sb.append(" ");
+            }
+            sb.append("ORDER BY ").append(Joiner.on(", ").join(orderByStrings));
+            needsSpace = true;
+        }
+        if (window != null) {
+            if (needsSpace) {
+                sb.append(" ");
+            }
+            sb.append(window.toSql());
+        }
+        sb.append(")");
+        return sb.toString();
+    }
+
+    private String exprListToSql(List<? extends Expr> exprs) {
+        if (exprs == null || exprs.isEmpty())
+            return "";
+        List<String> strings = Lists.newArrayList();
+        for (Expr expr : exprs) {
+            strings.add(expr.toSql());
+        }
+        return Joiner.on(", ").join(strings);
     }
 }
