@@ -1,83 +1,157 @@
 package com.baidu.palo.deploy.impl;
 
 import com.baidu.palo.catalog.Catalog;
+import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.Pair;
 import com.baidu.palo.deploy.DeployManager;
 import com.baidu.palo.system.SystemInfoService;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.util.List;
+import java.util.Map;
 
 /*
- * This for test only.
- * The LocalEnvDeployManager will watch the change of the Local environment variables
- *  'ELECTABLE_FE_SERVICE_GROUP', 'OBSERVER_FE_SERVICE_GROUP' and 'BACKEND_SERVICE_GROUP'
- *  which are 3 local files: fe_host.list, ob_host.list, be_host.list
- *  
- *  eg:
- *  
- *      export ELECTABLE_FE_SERVICE_GROUP=fe_host.list
- *      export OBSERVER_FE_SERVICE_GROUP=ob_host.list
- *      export BACKEND_SERVICE_GROUP=be_host.list
+ * This for Boxer2 Baidu BCC agent
+ * It will watch the change of file cluster.info, which contains:
+ *  FE=ip:port,ip:port,...
+ *  BE=ip:port,ip:port,...
+ *  BROKER=ip:port,ip:port,...
  */
 public class LocalFileDeployManager extends DeployManager {
     private static final Logger LOG = LogManager.getLogger(LocalFileDeployManager.class);
 
-    public static final String ENV_ELECTABLE_FE_SERVICE_GROUP = "ELECTABLE_FE_SERVICE_GROUP";
-    public static final String ENV_OBSERVER_FE_SERVICE_GROUP = "OBSERVER_FE_SERVICE_GROUP";
-    public static final String ENV_BACKEND_SERVICE_GROUP = "BACKEND_SERVICE_GROUP";
+    public static final String ENV_APP_NAMESPACE = "APP_NAMESPACE";
+    public static final String ENV_FE_SERVICE = "FE_SERVICE";
+    public static final String ENV_FE_OBSERVER_SERVICE = "FE_OBSERVER_SERVICE";
+    public static final String ENV_BE_SERVICE = "BE_SERVICE";
+    public static final String ENV_BROKER_SERVICE = "BROKER_SERVICE";
+
+    public static final String ENV_BROKER_NAME = "BROKER_NAME";
+
+    private String clusterInfoFile;
 
     public LocalFileDeployManager(Catalog catalog, long intervalMs) {
         super(catalog, intervalMs);
-        initEnvVariables(ENV_ELECTABLE_FE_SERVICE_GROUP, ENV_OBSERVER_FE_SERVICE_GROUP, ENV_BACKEND_SERVICE_GROUP, "");
+        initEnvVariables(ENV_FE_SERVICE, ENV_FE_OBSERVER_SERVICE, ENV_BE_SERVICE, ENV_BROKER_SERVICE);
+    }
+
+    @Override
+    protected void initEnvVariables(String envElectableFeServiceGroup, String envObserverFeServiceGroup,
+            String envBackendServiceGroup, String envBrokerServiceGroup) {
+        super.initEnvVariables(envElectableFeServiceGroup, envObserverFeServiceGroup, envBackendServiceGroup,
+                               envBrokerServiceGroup);
+
+        // namespace
+        clusterInfoFile = Strings.nullToEmpty(System.getenv(ENV_APP_NAMESPACE));
+
+        if (Strings.isNullOrEmpty(clusterInfoFile)) {
+            LOG.error("failed get cluster info file name: " + ENV_APP_NAMESPACE);
+            System.exit(-1);
+        }
+
+        LOG.info("get cluster info file name: {}", clusterInfoFile);
     }
 
     @Override
     public List<Pair<String, Integer>> getGroupHostPorts(String groupName) {
         List<Pair<String, Integer>> result = Lists.newArrayList();
-        LOG.debug("begin to get group: {}", groupName);
-        File file = new File(groupName);
-        if (!file.exists()) {
-            LOG.warn("failed to get file from ");
-            return null;
-        }
+        LOG.debug("begin to get group: {} from file: {}", groupName, clusterInfoFile);
 
-        BufferedReader reader = null;
+        FileChannel channel = null;
+        FileLock lock = null;
+        BufferedReader bufferedReader = null;
         try {
-            reader = new BufferedReader(new FileReader(file));
-            String line = null;
-            while ((line = reader.readLine()) != null) {
-                try {
-                    Pair<String, Integer> hostPorts = SystemInfoService.validateHostAndPort(line);
-                    result.add(hostPorts);
-                } catch (Exception e) {
-                    LOG.warn("failed to read host port from {}", groupName, e);
-                    return null;
+            FileInputStream stream = new FileInputStream(clusterInfoFile);
+            channel = stream.getChannel();
+            lock = channel.lock(0, Long.MAX_VALUE, true);
+
+            bufferedReader = new BufferedReader(new InputStreamReader(stream));
+            String str = null;
+            while ((str = bufferedReader.readLine()) != null) {
+                if (!str.startsWith(groupName)) {
+                    continue;
                 }
+                LOG.debug("read line: {}", str);
+                String[] parts = str.split("=");
+                if (parts.length != 2 || Strings.isNullOrEmpty(parts[1])) {
+                    return result;
+                }
+                String endpointList = parts[1];
+                String[] endpoints = endpointList.split(",");
+
+                for (String endpoint : endpoints) {
+                    Pair<String, Integer> hostPorts = SystemInfoService.validateHostAndPort(endpoint);
+                    result.add(hostPorts);
+                }
+
+                // only need one line
+                break;
             }
+        } catch (FileNotFoundException e) {
+            LOG.warn("file not found", e);
+            return null;
         } catch (IOException e) {
-            LOG.warn("failed to read from file.", e);
+            LOG.warn("failed to read file", e);
+            return null;
+        } catch (AnalysisException e) {
+            LOG.warn("failed to parse endpoint", e);
             return null;
         } finally {
-            if (reader != null) {
+            if (bufferedReader != null) {
                 try {
-                    reader.close();
-                } catch (IOException e2) {
-                    e2.printStackTrace();
-                    return null;
+                    bufferedReader.close();
+                } catch (IOException e) {
+                    LOG.warn("failed to close buffered reader after reading file: {}", clusterInfoFile, e);
+                }
+            }
+            if (lock != null && channel.isOpen()) {
+                try {
+                    lock.release();
+                } catch (IOException e) {
+                    LOG.warn("failed to release lock after reading file: {}", clusterInfoFile, e);
+                }
+            }
+            if (channel != null && channel.isOpen()) {
+                try {
+                    channel.close();
+                } catch (IOException e) {
+                    LOG.warn("failed to close channel after reading file: {}", clusterInfoFile, e);
                 }
             }
         }
 
         LOG.info("get hosts from {}: {}", groupName, result);
         return result;
+    }
+
+    @Override
+    protected Map<String, List<Pair<String, Integer>>> getBrokerGroupHostPorts() {
+        List<Pair<String, Integer>> hostPorts = getGroupHostPorts(brokerServiceGroup);
+        if (hostPorts == null) {
+            return null;
+        }
+        final String brokerName = System.getenv(ENV_BROKER_NAME);
+        if (Strings.isNullOrEmpty(brokerName)) {
+            LOG.error("failed to get broker name from env: {}", ENV_BROKER_NAME);
+            System.exit(-1);
+        }
+
+        Map<String, List<Pair<String, Integer>>> brokers = Maps.newHashMap();
+        brokers.put(brokerName, hostPorts);
+        LOG.info("get brokers from file: {}", brokers);
+        return brokers;
     }
 }

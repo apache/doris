@@ -28,25 +28,24 @@ import io.fabric8.kubernetes.client.KubernetesClientException;
 public class K8sDeployManager extends DeployManager {
     private static final Logger LOG = LogManager.getLogger(K8sDeployManager.class);
     
-    public static final String ENV_FE_SERVICE_NAME = "FE_SERVICE_NAME";
-    public static final String ENV_FE_NAMESPACE = "FE_NAMESPACE";
-    public static final String ENV_FE_OBSERVER_SERVICE_NAME = "FE_OBSERVER_SERVICE_NAME";
-    public static final String ENV_FE_OBSERVER_NAMESPACE = "FE_OBSERVER_NAMESPACE";
-    public static final String ENV_BE_SERVICE_NAME = "BE_SERVICE_NAME";
-    public static final String ENV_BE_NAMESPACE = "BE_NAMESPACE";
-    public static final String ENV_BROKER_SERVICE_NAME = "BROKER_SERVICE_NAME";
-    public static final String ENV_BROKER_NAMESPACE = "BROKER_NAMESPACE";
+    public static final String ENV_APP_NAMESPACE = "APP_NAMESPACE";
+    // each SERVICE (FE/BE/OBSERVER/BROKER) represents a module of Palo, such as Frontends, Backends, ...
+    // and each service has a name in k8s.
+    public static final String ENV_FE_SERVICE = "FE_SERVICE";
+    public static final String ENV_FE_OBSERVER_SERVICE = "FE_OBSERVER_SERVICE";
+    public static final String ENV_BE_SERVICE = "BE_SERVICE";
+    public static final String ENV_BROKER_SERVICE = "BROKER_SERVICE";
     
+    // we arbitrarily set all broker name as what ENV_BROKER_NAME specified.
     public static final String ENV_BROKER_NAME = "BROKER_NAME";
 
     public static final String FE_PORT = "edit-log-port"; // k8s only support -, not _
     public static final String BE_PORT = "heartbeat-port";
     public static final String BROKER_PORT = "broker-port";
 
-    private String feNamespace;
-    private String observerNamespace;
-    private String beNamespace;
-    private String brokerNamespace;
+    // corresponding to the environment variable ENV_APP_NAMESPACE.
+    // App represents a Palo cluster in K8s, and has a namespace, and default namespace is 'default'
+    private String appNamespace;
     private KubernetesClient client = null;
 
     // =======for test only==========
@@ -61,8 +60,7 @@ public class K8sDeployManager extends DeployManager {
 
     public K8sDeployManager(Catalog catalog, long intervalMs) {
         super(catalog, intervalMs);
-        initEnvVariables(ENV_FE_SERVICE_NAME, ENV_FE_OBSERVER_SERVICE_NAME, ENV_BE_SERVICE_NAME,
-                         ENV_BROKER_SERVICE_NAME);
+        initEnvVariables(ENV_FE_SERVICE, ENV_FE_OBSERVER_SERVICE, ENV_BE_SERVICE, ENV_BROKER_SERVICE);
     }
 
     @Override
@@ -71,70 +69,48 @@ public class K8sDeployManager extends DeployManager {
         super.initEnvVariables(envElectableFeServiceGroup, envObserverFeServiceGroup, envBackendServiceGroup,
                    envBrokerServiceGroup);
 
-        // namespaces
-        feNamespace = Strings.nullToEmpty(System.getenv(ENV_FE_NAMESPACE));
-        beNamespace = Strings.nullToEmpty(System.getenv(ENV_BE_NAMESPACE));
+        // namespace
+        appNamespace = Strings.nullToEmpty(System.getenv(ENV_APP_NAMESPACE));
 
-        // FE and BE namespace must exist
-        if (Strings.isNullOrEmpty(feNamespace) || Strings.isNullOrEmpty(beNamespace)) {
-            LOG.error("failed to init namespace. feNamespace: {}, beNamespace: {}",
-                     feNamespace, observerNamespace, beNamespace);
+        if (Strings.isNullOrEmpty(appNamespace)) {
+            LOG.error("failed to init namespace: " + ENV_APP_NAMESPACE);
             System.exit(-1);
         }
 
-        // observer namespace
-        observerNamespace = Strings.nullToEmpty(System.getenv(ENV_FE_OBSERVER_NAMESPACE));
-        if (Strings.isNullOrEmpty(observerNamespace)) {
-            LOG.warn("failed to init observer namespace.");
-            hasObserverService = false;
-        }
-
-        brokerNamespace = Strings.nullToEmpty(System.getenv(ENV_BROKER_NAMESPACE));
-        if (Strings.isNullOrEmpty(brokerNamespace)) {
-            LOG.warn("failed to init broker namespace.");
-            hasBrokerService = false;
-        }
-
-        LOG.info("get namespace. feNamespace: {}, observerNamespace: {}, beNamespace: {}, brokerNamespace: {}",
-                 feNamespace, observerNamespace, beNamespace, brokerNamespace);
+        LOG.info("get namespace: {}", appNamespace);
     }
 
     @Override
     protected List<Pair<String, Integer>> getGroupHostPorts(String groupName) {
         // 1. get namespace and port name
-        String namespace = null;
         String portName = null;
         if (groupName.equals(electableFeServiceGroup)) {
-            namespace = feNamespace;
             portName = FE_PORT;
         } else if (groupName.equals(observerFeServiceGroup)) {
-            namespace = observerNamespace;
             portName = FE_PORT;
         } else if (groupName.equals(backendServiceGroup)) {
-            namespace = beNamespace;
             portName = BE_PORT;
         } else if (groupName.equals(brokerServiceGroup)) {
-            namespace = brokerNamespace;
             portName = BROKER_PORT;
         } else {
             LOG.warn("unknown service group name: {}", groupName);
             return null;
         }
-        Preconditions.checkNotNull(namespace);
+        Preconditions.checkNotNull(appNamespace);
         Preconditions.checkNotNull(portName);
 
         // 2. get endpoint
         Endpoints endpoints = null;
         try {
-            endpoints = endpoints(namespace, groupName);
+            endpoints = endpoints(appNamespace, groupName);
         } catch (Exception e) {
             LOG.warn("encounter exception when get endpoint from namespace {}, service: {}",
-                     namespace, groupName, e);
+                     appNamespace, groupName, e);
             return null;
         }
         if (endpoints == null) {
             // endpoints may be null if service does not exist;
-            LOG.warn("get null endpoints of namespace {} in service: {}", namespace, groupName);
+            LOG.warn("get null endpoints of namespace {} in service: {}", appNamespace, groupName);
             return null;
         }
 

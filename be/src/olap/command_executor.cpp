@@ -696,18 +696,18 @@ OLAPStatus CommandExecutor::cancel_delete(const TCancelDeleteDataReq& request) {
     return res;
 }
 
-OLAPStatus CommandExecutor::get_all_root_path_stat(
-        std::vector<OLAPRootPathStat>* root_paths_stat) {
-    OLAP_LOG_INFO("begin to process get all root path stat.");
+OLAPStatus CommandExecutor::get_all_root_path_info(
+        std::vector<RootPathInfo>* root_paths_info) {
+    OLAP_LOG_INFO("begin to process get all root path info.");
     OLAPStatus res = OLAP_SUCCESS;
     
-    res = OLAPRootPath::get_instance()->get_all_root_path_stat(root_paths_stat);
+    res = OLAPRootPath::get_instance()->get_all_root_path_info(root_paths_info);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to process get all root path stat. [res=%d]", res);
+        OLAP_LOG_WARNING("fail to process get all root path info. [res=%d]", res);
         return res;
     }
 
-    OLAP_LOG_INFO("success to process get all root path stat.");
+    OLAP_LOG_INFO("success to process get all root path info.");
     return res;
 }
 

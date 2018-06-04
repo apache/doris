@@ -98,7 +98,7 @@ public final class MetricRepo {
                     if (!Catalog.getInstance().isMaster()) {
                         return 0;
                     }
-                    if (jobType != JobType.SCHEMA_CHANGE) {
+                    if (jobType == JobType.SCHEMA_CHANGE) {
                         return alter.getSchemaChangeHandler().getAlterJobNumByState(com.baidu.palo.alter.AlterJob.JobState.RUNNING);
                     } else {
                         return alter.getRollupHandler().getAlterJobNumByState(com.baidu.palo.alter.AlterJob.JobState.RUNNING);

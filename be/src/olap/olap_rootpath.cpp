@@ -155,6 +155,7 @@ OLAPStatus OLAPRootPath::init() {
 
     for (size_t i = 0; i < root_path_vec.size(); ++i) {
         RootPathInfo root_path_info;
+        root_path_info.path = root_path_vec[i];
         root_path_info.is_used = true;
         root_path_info.capacity = capacity_vec[i];
         res = _update_root_path_info(root_path_vec[i], &root_path_info);
@@ -244,56 +245,27 @@ void OLAPRootPath::get_all_available_root_path(RootPathVec* all_available_root_p
     _mutex.unlock();
 }
 
-OLAPStatus OLAPRootPath::get_all_disk_stat(vector<OLAPRootPathStat>* disks_stat) {
+OLAPStatus OLAPRootPath::get_all_root_path_info(vector<RootPathInfo>* root_paths_info) {
     OLAPStatus res = OLAP_SUCCESS;
-    disks_stat->clear();
+    root_paths_info->clear();
 
     _mutex.lock();
     for (RootPathMap::iterator it = _root_paths.begin(); it != _root_paths.end(); ++it) {
-        OLAPRootPathStat stat;
-        stat.root_path = it->first;
-        stat.is_used = it->second.is_used;
-
-        disks_stat->push_back(stat);
+        RootPathInfo info;
+        info.path = it->first;
+        info.is_used = it->second.is_used;
+        info.capacity = it->second.capacity;
+        root_paths_info->push_back(info);
     }
     _mutex.unlock();
 
-    for (auto& stat : *disks_stat) {
-        if (stat.is_used) {
-            _get_disk_capacity(stat.root_path, &stat.disk_total_capacity, &stat.disk_available_capacity);
+    for (auto& info: *root_paths_info) {
+        if (info.is_used) {
+            _get_root_path_capacity(info.path, &info.data_used_capacity, &info.available);
         } else {
-            stat.disk_total_capacity = 0;
-            stat.disk_available_capacity = 0;
-            stat.data_used_capacity = 0;
-        }
-    }
-
-    return res;
-}
-
-OLAPStatus OLAPRootPath::get_all_root_path_stat(vector<OLAPRootPathStat>* root_paths_stat) {
-    OLAPStatus res = OLAP_SUCCESS;
-    root_paths_stat->clear();
-
-    _mutex.lock();
-    for (RootPathMap::iterator it = _root_paths.begin(); it != _root_paths.end(); ++it) {
-        OLAPRootPathStat stat;
-        stat.root_path = it->first;
-        stat.is_used = it->second.is_used;
-        stat.disk_total_capacity = it->second.capacity;
-
-        root_paths_stat->push_back(stat);
-    }
-    _mutex.unlock();
-
-    for (auto& stat : *root_paths_stat) {
-        if (stat.is_used) {
-            _get_disk_capacity(stat.root_path, &stat.disk_total_capacity, &stat.disk_available_capacity);
-            _get_root_path_capacity(stat.root_path, &stat.data_used_capacity);
-        } else {
-            stat.disk_total_capacity = 0;
-            stat.data_used_capacity = 0;
-            stat.disk_available_capacity = 0;
+            info.capacity = 1;
+            info.data_used_capacity = 0;
+            info.available = 0;
         }
     }
 
@@ -340,6 +312,7 @@ OLAPStatus OLAPRootPath::reload_root_paths(const char* root_paths) {
         RootPathMap::iterator iter_root_path = _root_paths.find(root_path_vec[i]);
         if (iter_root_path == _root_paths.end()) {
             RootPathInfo root_path_info;
+            root_path_info.path = root_path_vec[i];
             root_path_info.is_used = true;
             root_path_info.capacity = capacity_vec[i];
             root_path_to_be_loaded.push_back(root_path_vec[i]);
@@ -716,7 +689,8 @@ OLAPStatus OLAPRootPath::parse_root_paths_from_string(
 
 OLAPStatus OLAPRootPath::_get_root_path_capacity(
         const string& root_path,
-        int64_t* data_used) {
+        int64_t* data_used,
+        int64_t* disk_available) {
     OLAPStatus res = OLAP_SUCCESS;
     int64_t used = 0;
 
@@ -729,28 +703,10 @@ OLAPStatus OLAPRootPath::_get_root_path_capacity(
             }
         }
         *data_used = used;
-    } catch (boost::filesystem::filesystem_error& e) {
-        OLAP_LOG_WARNING("get space info failed. [path: %s, erro:%s]", root_path.c_str(), e.what());
-        return OLAP_ERR_STL_ERROR;
-    }
 
-    return res;
-}
-
-OLAPStatus OLAPRootPath::_get_disk_capacity(
-        const string& root_path,
-        int64_t* capacity,
-        int64_t* available) {
-    OLAPStatus res = OLAP_SUCCESS;
-
-    *capacity = 0;
-    *available = 0;
-
-    try {
         boost::filesystem::path path_name(root_path);
         boost::filesystem::space_info path_info = boost::filesystem::space(path_name);
-        *capacity = path_info.capacity;
-        *available = path_info.available;
+        *disk_available = path_info.available;
     } catch (boost::filesystem::filesystem_error& e) {
         OLAP_LOG_WARNING("get space info failed. [path: %s, erro:%s]", root_path.c_str(), e.what());
         return OLAP_ERR_STL_ERROR;
@@ -1137,16 +1093,16 @@ OLAPStatus OLAPRootPath::_get_cluster_id_path_vec(
         vector<string>* cluster_id_path_vec) {
     OLAPStatus res = OLAP_SUCCESS;
 
-    vector<OLAPRootPathStat> root_path_stat_vec;
-    res = get_all_root_path_stat(&root_path_stat_vec);
+    vector<RootPathInfo> root_path_info_vec;
+    res = get_all_root_path_info(&root_path_info_vec);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to get root path stat info. [res=%d]", res);
+        OLAP_LOG_WARNING("fail to get root path info. [res=%d]", res);
         return res;
     }
 
-    for (const auto& stat : root_path_stat_vec) {
-        if (stat.is_used) {
-            cluster_id_path_vec->push_back(stat.root_path + CLUSTER_ID_PREFIX);
+    for (const auto& info: root_path_info_vec) {
+        if (info.is_used) {
+            cluster_id_path_vec->push_back(info.path + CLUSTER_ID_PREFIX);
         }
     }
 

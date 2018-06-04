@@ -86,11 +86,17 @@ import java.util.Map;
 public class DeployManager extends Daemon {
     private static final Logger LOG = LogManager.getLogger(DeployManager.class);
     
+    // We misspelled the environment value ENV_FE_EXIST_ENT(D)POINT. But for forward compatibility,
+    // we have to keep this misspelling for a while.
+    // TODO(cmy): remove it later
+    @Deprecated
     public static final String ENV_FE_EXIST_ENTPOINT = "FE_EXIST_ENTPOINT";
+
+    public static final String ENV_FE_EXIST_ENDPOINT = "FE_EXIST_ENDPOINT";
     public static final String ENV_FE_INIT_NUMBER = "FE_INIT_NUMBER";
 
     public enum NodeType {
-        ELECTABLE, OBSERVER, BACKEND
+        ELECTABLE, OBSERVER, BACKEND, BROKER
     }
 
     protected Catalog catalog;
@@ -196,7 +202,10 @@ public class DeployManager extends Daemon {
     }
 
     public Pair<String, Integer> getHelperNode() {
-        final String existFeHosts = System.getenv(ENV_FE_EXIST_ENTPOINT);
+        String existFeHosts = System.getenv(ENV_FE_EXIST_ENTPOINT);
+        if (Strings.isNullOrEmpty(existFeHosts)) {
+            existFeHosts = System.getenv(ENV_FE_EXIST_ENDPOINT);
+        }
         if (!Strings.isNullOrEmpty(existFeHosts)) {
             // Some Frontends already exist in service group.
             // Arbitrarily choose the first one as helper node to start up
@@ -510,7 +519,7 @@ public class DeployManager extends Daemon {
                 }
 
                 if (true) {
-                    // TODO(cmy): For now, Deploy Manager dose not handle shrinking operations
+                    LOG.info("For now, Deploy Manager dose not handle shrinking operations");
                     continue;
                 }
 

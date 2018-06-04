@@ -231,7 +231,6 @@ public class FileSystemManager {
     public ByteBuffer pread(TBrokerFD fd, long offset, long length) {
         FSDataInputStream fsDataInputStream = clientContextManager.getFsDataInputStream(fd);
         synchronized (fsDataInputStream) {
-
             long currentStreamOffset;
             try {
                 currentStreamOffset = fsDataInputStream.getPos();

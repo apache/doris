@@ -24,18 +24,19 @@ import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.MaterializedIndex;
 import com.baidu.palo.catalog.OlapTable;
+import com.baidu.palo.catalog.Partition;
 import com.baidu.palo.catalog.Replica;
 import com.baidu.palo.catalog.Replica.ReplicaState;
-import com.baidu.palo.catalog.Tablet;
-import com.baidu.palo.catalog.Partition;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.catalog.Table.TableType;
+import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.util.ListComparator;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 
@@ -218,5 +219,97 @@ public class StatisticProcDir implements ProcDirInterface {
         }
 
         return new IncompleteTabletsProcNode(incompleteTabletIds.get(dbId), inconsistentTabletIds.get(dbId));
+    }
+
+    // used to metrics
+    public static List<Integer> getStatistic() {
+        int totalDbNum = 0;
+        int totalTableNum = 0;
+        int totalPartitionNum = 0;
+        int totalIndexNum = 0;
+        int totalTabletNum = 0;
+        int totalReplicaNum = 0;
+        int totalIncompleteTabletNum = 0;
+        int totalInconsistentTabletNum = 0;
+
+        List<Integer> result = Lists.newArrayList(0, 0, 0, 0, 0, 0, 0, 0);
+
+        List<Long> dbIds = Catalog.getInstance().getDbIds();
+        if (dbIds == null || dbIds.isEmpty()) {
+            // empty
+            return result;
+        }
+
+        // get alive backends
+        Set<Long> aliveBackendIds = Sets.newHashSet(Catalog.getCurrentSystemInfo().getBackendIds(true));
+        for (Long dbId : dbIds) {
+            if (dbId == 0) {
+                // skip information_schema database
+                continue;
+            }
+            Database db = Catalog.getInstance().getDb(dbId);
+            if (db == null) {
+                continue;
+            }
+
+            ++totalDbNum;
+            db.readLock();
+            try {
+                for (Table table : db.getTables()) {
+                    if (table.getType() != TableType.OLAP) {
+                        continue;
+                    }
+
+                    ++totalTableNum;
+                    OlapTable olapTable = (OlapTable) table;
+
+                    for (Partition partition : olapTable.getPartitions()) {
+                        short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                        ++totalPartitionNum;
+                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
+                            ++totalIndexNum;
+                            for (Tablet tablet : materializedIndex.getTablets()) {
+                                int onlineReplicaNum = 0;
+                                ++totalTabletNum;
+                                List<Replica> replicas = tablet.getReplicas();
+                                totalReplicaNum += replicas.size();
+
+                                for (Replica replica : tablet.getReplicas()) {
+                                    ReplicaState state = replica.getState();
+                                    if (state != ReplicaState.NORMAL && state != ReplicaState.SCHEMA_CHANGE) {
+                                        continue;
+                                    }
+                                    if (!aliveBackendIds.contains(replica.getBackendId())) {
+                                        continue;
+                                    }
+                                    ++onlineReplicaNum;
+                                }
+
+                                if (onlineReplicaNum < replicationNum) {
+                                    ++totalIncompleteTabletNum;
+                                }
+
+                                if (!tablet.isConsistent()) {
+                                    ++totalInconsistentTabletNum;
+                                }
+                            } // end for tablets
+                        } // end for indices
+                    } // end for partitions
+                } // end for tables
+            } finally {
+                db.readUnlock();
+            }
+        } // end for dbs
+
+        result.add(totalDbNum);
+        result.add(totalTableNum);
+        result.add(totalPartitionNum);
+        result.add(totalIndexNum);
+        result.add(totalTabletNum);
+        result.add(totalReplicaNum);
+        result.add(totalIncompleteTabletNum);
+        result.add(totalInconsistentTabletNum);
+
+        return result;
     }
 }

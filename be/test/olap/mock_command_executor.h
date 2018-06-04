@@ -84,8 +84,8 @@ public:
     MOCK_METHOD1(reload_root_path, OLAPStatus(const std::string& root_paths));
     MOCK_METHOD2(check_table_exist, bool(TTabletId tablet_id, TSchemaHash schema_hash));
     MOCK_METHOD1(
-            get_all_root_path_stat,
-            OLAPStatus(std::vector<OLAPRootPathStat>* root_paths_stat));
+            get_all_root_path_info,
+            OLAPStatus(std::vector<RootPathInfo>* root_paths_info));
 };
 
 }  // namespace palo

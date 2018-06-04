@@ -30,6 +30,7 @@
 // #include <gutil/strings/substitute.h>
 // #include <gutil/strings/join.h>
 
+#include "olap/olap_rootpath.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/filesystem_util.h"
@@ -61,12 +62,9 @@ TmpFileMgr::TmpFileMgr() :
 Status TmpFileMgr::init(MetricRegistry* metrics) {
     std::string tmp_dirs_spec = config::storage_root_path;
     vector<string> all_tmp_dirs;
-    // Empty string should be interpreted as no scratch
-    if (!tmp_dirs_spec.empty()) {
-        boost::split(
-                all_tmp_dirs, tmp_dirs_spec,
-                is_any_of(";"), boost::algorithm::token_compress_on);
-    }
+
+    // we already paser the config::storage_root_path in OLAPRootPath, use it.
+    OLAPRootPath::get_instance()->get_all_available_root_path(&all_tmp_dirs);
     return init_custom(all_tmp_dirs, true, metrics);
 }
 
