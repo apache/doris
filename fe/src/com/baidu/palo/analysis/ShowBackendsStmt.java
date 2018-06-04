@@ -29,8 +29,7 @@ public class ShowBackendsStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
          ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
          for (String title : BackendsProcDir.TITLE_NAMES) {
-             if (title.equals("HostName") || title.equals("HeartbeatPort") 
-                     || title.equals("BePort") || title.equals("HttpPort")) {
+            if (title.equals("HostName") || title.contains("Port")) {
                  continue;
              }
             builder.addColumn(new Column(title, ColumnType.createVarchar(30)));

@@ -305,7 +305,7 @@ Status HashJoinNode::open(RuntimeState* state) {
             return Status::OK;
         }
 
-        if (_hash_tbl->size() > 500 * 1024) {
+        if (_hash_tbl->size() > 1024) {
             _is_push_down = false;
         }
 

@@ -59,11 +59,6 @@ public class ShowTableStatusStmt extends ShowStmt {
     private Expr where;
     private SelectStmt selectStmt;
 
-    public ShowTableStatusStmt(String db, String wild) {
-        this.db = db;
-        this.wild = wild;
-    }
-
     public ShowTableStatusStmt(String db, String wild, Expr where) {
         this.db = db;
         this.wild = wild;
@@ -86,7 +81,7 @@ public class ShowTableStatusStmt extends ShowStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
         } else {
-            db = ClusterNamespace.getFullName(getClusterName(), db);
+            db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         }
         if (!analyzer.getCatalog().getUserMgr()
                 .checkAccess(analyzer.getUser(), db, AccessPrivilege.READ_ONLY)) {
@@ -102,7 +97,9 @@ public class ShowTableStatusStmt extends ShowStmt {
         if (selectStmt != null) {
             return selectStmt;
         }
+
         analyze(analyzer);
+
         // Columns
         SelectList selectList = new SelectList();
         ExprSubstitutionMap aliasMap = new ExprSubstitutionMap(false);

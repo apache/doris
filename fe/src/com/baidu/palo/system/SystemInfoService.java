@@ -25,6 +25,7 @@ import com.baidu.palo.common.FeConstants;
 import com.baidu.palo.common.FeMetaVersion;
 import com.baidu.palo.common.Pair;
 import com.baidu.palo.common.util.Daemon;
+import com.baidu.palo.metric.MetricRepo;
 import com.baidu.palo.system.Backend.BackendState;
 import com.baidu.palo.system.BackendEvent.BackendEventType;
 import com.baidu.palo.thrift.HeartbeatService;
@@ -66,8 +67,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class SystemInfoService extends Daemon {
-    public static final String DEFAULT_CLUSTER = "default_cluster";
     private static final Logger LOG = LogManager.getLogger(SystemInfoService.class);
+
+    public static final String DEFAULT_CLUSTER = "default_cluster";
 
     private volatile AtomicReference<ImmutableMap<Long, Backend>> idToBackendRef;
     private volatile AtomicReference<ImmutableMap<Long, HeartbeatHandler>> idToHeartbeatHandlerRef;
@@ -131,12 +133,12 @@ public class SystemInfoService extends Daemon {
         masterInfo.set(tMasterInfo);
     }
 
+    // for deploy manager
     public void addBackends(List<Pair<String, Integer>> hostPortPairs, boolean isFree) throws DdlException {
         addBackends(hostPortPairs, isFree, "");
     }
     
     /**
-     * 
      * @param hostPortPairs : backend's host and port
      * @param isFree : if true the backend is not owned by any cluster
      * @param destCluster : if not null or empty backend will be added to destCluster 
@@ -172,6 +174,7 @@ public class SystemInfoService extends Daemon {
         backend.setBackendState(BackendState.using);
     }
 
+    // Final entry of adding backend
     private void addBackend(String host, int heartbeatPort, boolean isFree, String destCluster) throws DdlException {
         Backend newBackend = new Backend(Catalog.getInstance().getNextId(), host, heartbeatPort);
         // update idToBackend
@@ -206,8 +209,9 @@ public class SystemInfoService extends Daemon {
 
         // log
         Catalog.getInstance().getEditLog().logAddBackend(newBackend);
-        LOG.info("add backend[" + newBackend.getId() + ". " + newBackend.getHost() + ":" + newBackend.getHeartbeatPort()
-                + ":" + newBackend.getBePort() + ":" + newBackend.getBePort() + ":" + newBackend.getHttpPort() + "]");
+        LOG.info("finished to add {} ", newBackend);
+
+        // We update capacity metrics when disk report, not here
     }
 
     public void checkBackendsExist(List<Pair<String, Integer>> hostPortPairs) throws DdlException {
@@ -232,6 +236,7 @@ public class SystemInfoService extends Daemon {
         }
     }
 
+    // for decommission
     public void dropBackend(long backendId) throws DdlException {
         Backend backend = getBackend(backendId);
         if (backend == null) {
@@ -241,6 +246,7 @@ public class SystemInfoService extends Daemon {
         dropBackend(backend.getHost(), backend.getHeartbeatPort());
     }
 
+    // final entry of dropping backend
     public void dropBackend(String host, int heartbeatPort) throws DdlException {
         if (getBackendWithHeartbeatPort(host, heartbeatPort) == null) {
             throw new DdlException("backend does not exists[" + host + ":" + heartbeatPort + "]");
@@ -279,7 +285,10 @@ public class SystemInfoService extends Daemon {
         }
         // log
         Catalog.getInstance().getEditLog().logDropBackend(droppedBackend);
-        LOG.info("drop {}", droppedBackend);
+        LOG.info("finished to drop {}", droppedBackend);
+
+        // backends is changed, regenerated capacity metrics
+        MetricRepo.generateCapacityMetrics();
     }
 
     // only for test

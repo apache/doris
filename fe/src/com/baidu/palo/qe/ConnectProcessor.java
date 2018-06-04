@@ -90,8 +90,6 @@ public class ConnectProcessor {
     }
 
     private void auditAfterExec(String origStmt) {
-        MetricRepo.COUNTER_REQUEST_ALL.inc();
-
         // slow query
         long elapseMs = System.currentTimeMillis() - ctx.getStartTime();
         // query state log
@@ -100,14 +98,13 @@ public class ConnectProcessor {
         ctx.getAuditBuilder().put("returnRows", ctx.getReturnRows());
 
         if (ctx.getState().isQuery()) {
-            MetricRepo.COUNTER_QUERY_ALL.inc();
+            MetricRepo.COUNTER_QUERY_ALL.increase(1L);
             if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR
                     && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
                 // err query
-                MetricRepo.COUNTER_QUERY_ERR.inc();
+                MetricRepo.COUNTER_QUERY_ERR.increase(1L);
             } else {
                 // ok query
-                MetricRepo.METER_QUERY.mark();
                 MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
             }
             ctx.getAuditBuilder().put("is_query", 1);
@@ -128,7 +125,7 @@ public class ConnectProcessor {
     // process COM_QUERY statement,
     // 只有在与请求客户端交互出现问题时候才抛出异常
     private void handleQuery() {
-        MetricRepo.METER_REQUEST.mark();
+        MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
         // convert statement to Java string
         String stmt = null;
         try {

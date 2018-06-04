@@ -15,9 +15,6 @@
 
 package com.baidu.palo.analysis;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
@@ -27,8 +24,12 @@ import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.qe.ShowResultSetMetaData;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 // SHOW TABLES
 public class ShowTableStmt extends ShowStmt {

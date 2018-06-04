@@ -451,7 +451,7 @@ Status OlapScanNode::normalize_conjuncts() {
             static char max_char = 0xff;
             ColumnValueRange<StringValue> range(slots[slot_idx]->col_name(),
                                                 slots[slot_idx]->type().type,
-                                                StringValue(&min_char, 1),
+                                                StringValue(&min_char, 0),
                                                 StringValue(&max_char, 1));
             normalize_predicate(range, slots[slot_idx]);
             break;

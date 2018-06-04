@@ -20,6 +20,7 @@ import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
 import com.baidu.palo.metric.MetricRepo;
+import com.baidu.palo.metric.PrometheusMetricVisitor;
 
 import io.netty.handler.codec.http.HttpMethod;
 
@@ -36,7 +37,7 @@ public class MetricsAction extends RestBaseAction {
     @Override
     public void execute(BaseRequest request, BaseResponse response) {
         response.setContentType("text/plain");
-        response.getContent().append(MetricRepo.getPlainText());
+        response.getContent().append(MetricRepo.getMetric(new PrometheusMetricVisitor("palo_fe")));
         sendResult(request, response);
     }
 }

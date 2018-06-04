@@ -306,6 +306,18 @@ public class TabletInvertedIndex {
         }
     }
 
+    public List<Replica> getReplicasByTabletId(long tabletId) {
+        readLock();
+        try {
+            if (replicaMetaTable.containsRow(tabletId)) {
+                return Lists.newArrayList(replicaMetaTable.row(tabletId).values());
+            }
+            return null;
+        } finally {
+            readUnlock();
+        }
+    }
+
     public void setNewSchemaHash(long partitionId, long indexId, int newSchemaHash) {
         if (Catalog.isCheckpointThread()) {
             return;
