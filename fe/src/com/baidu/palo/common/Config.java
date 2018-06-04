@@ -481,7 +481,7 @@ public class Config extends ConfigBase {
             + "'}"
             + "}";
 
-    // for forward compatibility, will be removed later.
+    // For forward compatibility, will be removed later.
     // check token when download image file.
     @ConfField public static boolean enable_token_check = true;
 
@@ -495,12 +495,21 @@ public class Config extends ConfigBase {
      */
     @ConfField public static String enable_deploy_manager = "disable";
     
-    // if use k8s deploy manager locally, set this to true and prepare the certs files
+    // If use k8s deploy manager locally, set this to true and prepare the certs files
     @ConfField public static boolean with_k8s_certs = false;
     
     // white list limit
     @ConfField public static int per_user_white_list_limit = 1024;
     
-    // set runtime locale when exec some cmds
+    // Set runtime locale when exec some cmds
     @ConfField public static String locale = "zh_CN.UTF-8";
+    
+    /*
+     * storage_high_watermark_usage_percent limit the max capacity usage percent of a Backend storage path.
+     * storage_min_left_capacity_bytes limit the minimum left capacity of a Backend storage path.
+     * If both limitations are reached, this storage path can not be chose as tablet balance destination.
+     * But for tablet recovery, we may exceed these limit for keeping data integrity as much as possible.
+     */
+    @ConfField public static double storage_high_watermark_usage_percent = 0.85;
+    @ConfField public static double storage_min_left_capacity_bytes = 1000 * 1024 * 1024; // 1G
 }
