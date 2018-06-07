@@ -272,7 +272,7 @@ public class Catalog {
     private static Catalog CHECKPOINT = null;
     private static long checkpointThreadId = -1;
     private Checkpoint checkpointer;
-    private Pair<String, Integer> helperNode = null;
+    private List<Pair<String, Integer>> helperNodes = Lists.newArrayList();
     private Pair<String, Integer> selfNode = null;
     private Pair<String, Integer> selfHostname = null;
 
@@ -476,7 +476,7 @@ public class Catalog {
     public void initialize(String[] args) throws Exception {
         // 0. get local node and helper node info
         getSelfHostPort();
-        getHelperNode(args);
+        getHelperNodes(args);
 
         // 1. check and create dirs and files
         File meta = new File(metaDir);
@@ -607,8 +607,9 @@ public class Catalog {
             // try to get role and node name from helper node,
             // this loop will not end until we get certain role type and name
             while(true) {
-                if (!getFeNodeTypeAndNameFromHelper()) {
-                    LOG.warn("current node is not added to the group. please add it first.");
+                if (!getFeNodeTypeAndNameFromHelpers()) {
+                    LOG.warn("current node is not added to the group. please add it first. "
+                            + "sleep 5 seconds and retry, current helper nodes: {}", helperNodes);
                     try {
                         Thread.sleep(5000);
                         continue;
@@ -617,6 +618,7 @@ public class Catalog {
                         System.exit(-1);
                     }
                 }
+
                 if (role == FrontendNodeType.REPLICA) {
                     // for compatibility
                     role = FrontendNodeType.FOLLOWER;
@@ -624,8 +626,11 @@ public class Catalog {
                 break;
             }
 
+            Preconditions.checkState(helperNodes.size() == 1);
             Preconditions.checkNotNull(role);
             Preconditions.checkNotNull(nodeName);
+
+            Pair<String, Integer> rightHelperNode = helperNodes.get(0);
 
             Storage storage = new Storage(IMAGE_DIR);
             if (roleFile.exists() && (role != storage.getRole() || !nodeName.equals(storage.getNodeName())) 
@@ -634,8 +639,8 @@ public class Catalog {
             }
             if (!versionFile.exists()) {
                 // If the version file doesn't exist, download it from helper node
-                if (!getVersionFileFromHelper()) {
-                    LOG.error("fail to download version file from " + helperNode.first + " will exit.");
+                if (!getVersionFileFromHelper(rightHelperNode)) {
+                    LOG.error("fail to download version file from " + rightHelperNode.first + " will exit.");
                     System.exit(-1);
                 }
 
@@ -653,7 +658,7 @@ public class Catalog {
                 clusterId = storage.getClusterID();
                 token = storage.getToken();
                 try {
-                    URL idURL = new URL("http://" + helperNode.first + ":" + Config.http_port + "/check");
+                    URL idURL = new URL("http://" + rightHelperNode.first + ":" + Config.http_port + "/check");
                     HttpURLConnection conn = null;
                     conn = (HttpURLConnection) idURL.openConnection();
                     conn.setConnectTimeout(2 * 1000);
@@ -661,7 +666,7 @@ public class Catalog {
                     String clusterIdString = conn.getHeaderField(MetaBaseAction.CLUSTER_ID);
                     int remoteClusterId = Integer.parseInt(clusterIdString);
                     if (remoteClusterId != clusterId) {
-                        LOG.error("cluster id is not equal with helper node {}. will exit.", helperNode.first);
+                        LOG.error("cluster id is not equal with helper node {}. will exit.", rightHelperNode.first);
                         System.exit(-1);
                     }
                     String remoteToken = conn.getHeaderField(MetaBaseAction.TOKEN);
@@ -675,7 +680,7 @@ public class Catalog {
                         Preconditions.checkNotNull(token);
                         Preconditions.checkNotNull(remoteToken);
                         if (!token.equals(remoteToken)) {
-                            LOG.error("token is not equal with helper node {}. will exit.", helperNode.first);
+                            LOG.error("token is not equal with helper node {}. will exit.", rightHelperNode.first);
                             System.exit(-1);
                         }
                     }
@@ -685,7 +690,7 @@ public class Catalog {
                 }
             }
 
-            getNewImage();
+            getNewImage(rightHelperNode);
         }
 
         if (Config.cluster_id != -1 && clusterId != Config.cluster_id) {
@@ -699,6 +704,7 @@ public class Catalog {
             isElectable = false;
         }
 
+        Preconditions.checkState(helperNodes.size() == 1);
         LOG.info("finished to get cluster id: {}, role: {} and node name: {}",
                  clusterId, role.name(), nodeName);
     }
@@ -714,34 +720,52 @@ public class Catalog {
 
     // Get the role info and node name from helper node.
     // return false if failed.
-    private boolean getFeNodeTypeAndNameFromHelper() {
-        try {
-            URL url = new URL("http://" + helperNode.first + ":" + Config.http_port
-                    + "/role?host=" + selfNode.first + "&port=" + selfNode.second);
-            HttpURLConnection conn = null;
-            conn = (HttpURLConnection) url.openConnection();
-            String type = conn.getHeaderField("role");
-            if (type == null) {
-                LOG.warn("failed to get fe node type from helper node: {}.",helperNode);
-                return false;
-            }
-            role = FrontendNodeType.valueOf(type);
-            if (role == FrontendNodeType.UNKNOWN) {
-                LOG.warn("frontend {} is not added to cluster yet. role UNKNOWN", selfNode);
-                return false;
+    private boolean getFeNodeTypeAndNameFromHelpers() {
+        // we try to get info from helper nodes, once we get the right helper node,
+        // other helper nodes will be ignored and removed.
+        Pair<String, Integer> rightHelperNode = null;
+        for (Pair<String, Integer> helperNode : helperNodes) {
+            try {
+                URL url = new URL("http://" + helperNode.first + ":" + Config.http_port
+                        + "/role?host=" + selfNode.first + "&port=" + selfNode.second);
+                HttpURLConnection conn = null;
+                conn = (HttpURLConnection) url.openConnection();
+                String type = conn.getHeaderField("role");
+                if (type == null) {
+                    LOG.warn("failed to get fe node type from helper node: {}.", helperNode);
+                    continue;
+                }
+                role = FrontendNodeType.valueOf(type);
+                nodeName = conn.getHeaderField("name");
+
+                // get role and node name before checking them, because we want to throw any exception
+                // as early as we encounter.
+
+                if (role == FrontendNodeType.UNKNOWN) {
+                    LOG.warn("frontend {} is not added to cluster yet. role UNKNOWN", selfNode);
+                    return false;
+                }
+
+                if (Strings.isNullOrEmpty(nodeName)) {
+                    // For forward compatibility, we use old-style name: "ip_port"
+                    nodeName = genFeNodeName(selfNode.first, selfNode.second, true /* old style */);
+                }
+            } catch (Exception e) {
+                LOG.warn("failed to get fe node type from helper node: {}.", helperNode, e);
+                continue;
             }
 
-            nodeName = conn.getHeaderField("name");
-            if (Strings.isNullOrEmpty(nodeName)) {
-                // For forward compatibility, we use old-style name: "ip_port"
-                nodeName = genFeNodeName(selfNode.first, selfNode.second, true /* old style */);
-            }
-        } catch (Exception e) {
-            LOG.warn("failed to get fe node type from helper node: {}.", helperNode, e);
+            LOG.info("get fe node type {}, name {} from {}:{}", role, nodeName, helperNode.first, Config.http_port);
+            rightHelperNode = helperNode;
+            break;
+        }
+
+        if (rightHelperNode == null) {
             return false;
         }
 
-        LOG.info("get fe node type {}, name {} from {}:{}", role, nodeName, helperNode.first, Config.http_port);
+        helperNodes.clear();
+        helperNodes.add(rightHelperNode);
         return true;
     }
 
@@ -751,15 +775,15 @@ public class Catalog {
         LOG.debug("get self node: {}, self hostname: {}", selfNode, selfHostname);
     }
 
-    private void getHelperNode(String[] args) throws AnalysisException {
-        String helper = null;
+    private void getHelperNodes(String[] args) throws AnalysisException {
+        String helpers = null;
         for (int i = 0; i < args.length; i++) {
             if (args[i].equalsIgnoreCase("-helper")) {
                 if (i + 1 >= args.length) {
-                    System.out.println("-helper need parameter host:port");
+                    System.out.println("-helper need parameter host:port,host:port");
                     System.exit(-1);
                 }
-                helper = args[i + 1];
+                helpers = args[i + 1];
                 break;
             }
         }
@@ -779,15 +803,21 @@ public class Catalog {
             getHelperNodeFromDeployManager();
 
         } else {
-            // If helper node is not designated, use local node as helper node.
-            if (helper != null) {
-                helperNode = SystemInfoService.validateHostAndPort(helper);
+            if (helpers != null) {
+                String[] splittedHelpers = helpers.split(",");
+                for (String helper : splittedHelpers) {
+                    helperNodes.add(SystemInfoService.validateHostAndPort(helper));
+                }
             } else {
-                helperNode = new Pair<String, Integer>(selfNode.first, Config.edit_log_port);
+                // If helper node is not designated, use local node as helper node.
+                helperNodes.add(Pair.create(selfNode.first, Config.edit_log_port));
             }
         }
+
+        LOG.info("get helper nodes: {}", helperNodes);
     }
 
+    @SuppressWarnings("unchecked")
     private void getHelperNodeFromDeployManager() {
         Preconditions.checkNotNull(deployManager);
 
@@ -805,14 +835,14 @@ public class Catalog {
             // This is not the first time this node start up.
             // It should already added to FE group, just set helper node as it self.
             LOG.info("role file exist. this is not the first time to start up");
-            helperNode = new Pair<String, Integer>(selfNode.first, Config.edit_log_port);
+            helperNodes = Lists.newArrayList(Pair.create(selfNode.first, Config.edit_log_port));
             return;
         }
 
         // This is the first time this node start up.
         // Get helper node from deploy manager.
-        helperNode = deployManager.getHelperNode();
-        if (helperNode == null) {
+        helperNodes = deployManager.getHelperNodes();
+        if (helperNodes == null || helperNodes.isEmpty()) {
             LOG.error("failed to get helper node from deploy manager. exit");
             System.exit(-1);
         }
@@ -987,7 +1017,7 @@ public class Catalog {
         }
     }
 
-    private boolean getVersionFileFromHelper() throws IOException {
+    private boolean getVersionFileFromHelper(Pair<String, Integer> helperNode) throws IOException {
         try {
             String url = "http://" + helperNode.first + ":" + Config.http_port + "/version";
             File dir = new File(IMAGE_DIR);
@@ -1002,7 +1032,7 @@ public class Catalog {
         return false;
     }
 
-    private void getNewImage() throws IOException {
+    private void getNewImage(Pair<String, Integer> helperNode) throws IOException {
         long localImageVersion = 0;
         Storage storage = new Storage(IMAGE_DIR);
         localImageVersion = storage.getImageSeq();
@@ -1024,12 +1054,23 @@ public class Catalog {
         }
     }
 
-    public boolean isMyself() {
+    private boolean isMyself() {
         Preconditions.checkNotNull(selfNode);
-        Preconditions.checkNotNull(helperNode);
-        LOG.debug("self ip-port: {}:{}. helper ip-port: {}:{}", selfNode.first, selfNode.second, helperNode.first,
-                helperNode.second);
-        return selfNode.equals(helperNode);
+        Preconditions.checkNotNull(helperNodes);
+        LOG.debug("self: {}. helpers: {}", selfNode, helperNodes);
+        // if helper nodes contain it self, remove other helpers
+        boolean containSelf = false;
+        for (Pair<String, Integer> helperNode : helperNodes) {
+            if (selfNode.equals(helperNode)) {
+                containSelf = true;
+            }
+        }
+        if (containSelf) {
+            helperNodes.clear();
+            helperNodes.add(selfNode);
+        }
+
+        return containSelf;
     }
 
     private StorageInfo getStorageInfo(URL url) throws IOException {
@@ -4109,7 +4150,8 @@ public class Catalog {
     }
 
     public Pair<String, Integer> getHelperNode() {
-        return this.helperNode;
+        Preconditions.checkState(helperNodes.size() == 1);
+        return this.helperNodes.get(0);
     }
 
     public Pair<String, Integer> getSelfNode() {

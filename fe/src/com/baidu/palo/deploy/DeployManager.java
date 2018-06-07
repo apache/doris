@@ -201,28 +201,34 @@ public class DeployManager extends Daemon {
         throw new NotImplementedException();
     }
 
-    public Pair<String, Integer> getHelperNode() {
+    public List<Pair<String, Integer>> getHelperNodes() {
         String existFeHosts = System.getenv(ENV_FE_EXIST_ENTPOINT);
         if (Strings.isNullOrEmpty(existFeHosts)) {
             existFeHosts = System.getenv(ENV_FE_EXIST_ENDPOINT);
         }
         if (!Strings.isNullOrEmpty(existFeHosts)) {
             // Some Frontends already exist in service group.
-            // Arbitrarily choose the first one as helper node to start up
+            // We consider them as helper node
+            List<Pair<String, Integer>> helperNodes = Lists.newArrayList();
             String[] splittedHosts = existFeHosts.split(",");
-            String[] splittedHostPort = splittedHosts[0].split(":");
-            if (splittedHostPort.length != 2) {
-                LOG.error("Invalid exist fe hosts: {}. will exit", existFeHosts);
-                System.exit(-1);
+            for (String host : splittedHosts) {
+                String[] splittedHostPort = host.split(":");
+                if (splittedHostPort.length != 2) {
+                    LOG.error("Invalid exist fe hosts: {}. will exit", existFeHosts);
+                    System.exit(-1);
+                }
+                Integer port = -1;
+                try {
+                    port = Integer.valueOf(splittedHostPort[1]);
+                } catch (NumberFormatException e) {
+                    LOG.error("Invalid exist fe hosts: {}. will exit", existFeHosts);
+                    System.exit(-1);
+                }
+
+                helperNodes.add(Pair.create(splittedHostPort[0], port));
             }
-            Integer port = -1;
-            try {
-                port = Integer.valueOf(splittedHostPort[1]);
-            } catch (NumberFormatException e) {
-                LOG.error("Invalid exist fe hosts: {}. will exit", existFeHosts);
-                System.exit(-1);
-            }
-            return Pair.create(splittedHostPort[0], port);
+
+            return helperNodes;
         }
 
         // No Frontend exist before.
@@ -289,7 +295,7 @@ public class DeployManager extends Daemon {
         LOG.info("sorted fe host list: {}", feHostPorts);
 
         // 4. return the first one as helper
-        return feHostPorts.get(0);
+        return feHostPorts.subList(0, 1);
     }
 
     @Override
