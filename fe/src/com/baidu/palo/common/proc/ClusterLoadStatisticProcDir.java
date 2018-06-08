@@ -38,8 +38,8 @@ public class ClusterLoadStatisticProcDir implements ProcDirInterface {
         result.setNames(TITLE_NAMES);
 
         statistic = new ClusterLoadStatistic(Catalog.getCurrentCatalog(),
-                                                                  Catalog.getCurrentSystemInfo(),
-                                                                  Catalog.getCurrentInvertedIndex());
+                Catalog.getCurrentSystemInfo(),
+                Catalog.getCurrentInvertedIndex());
         statistic.init(SystemInfoService.DEFAULT_CLUSTER);
         List<List<String>> statistics = statistic.getCLusterStatistic();
         result.setRows(statistics);

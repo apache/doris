@@ -133,6 +133,15 @@ public class ClusterLoadStatistic {
         return statistics;
     }
 
+    public synchronized BackendLoadStatistic getBackendLoadStatistic(long beId) {
+        for (BackendLoadStatistic backendLoadStatistic : beLoadStatistics) {
+            if (backendLoadStatistic.getBeId() == beId) {
+                return backendLoadStatistic;
+            }
+        }
+        return null;
+    }
+
     /*
      * Try to choose 2 backend root paths as source and destination for the specified tablet to recovery.
      */

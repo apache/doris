@@ -32,19 +32,28 @@
 
 namespace palo {
 
-struct OLAPRootPathStat {
-    OLAPRootPathStat(): 
-          disk_total_capacity(0),
-          data_used_capacity(0),
-          disk_available_capacity(0),
-          is_used(false) {}
+struct RootPathInfo {
+    RootPathInfo():
+            capacity(1),
+            available(0),
+            data_used_capacity(0),
+            current_shard(0),
+            is_used(false),
+            to_be_deleted(false) {}
 
-    std::string root_path;
-    int64_t disk_total_capacity;
+    std::string path;
+    std::string file_system;            // 目录对应的磁盘分区
+    std::string unused_flag_file;       // 不可用标识对应的文件名
+    int64_t capacity;                  // 总空间，单位字节
+    int64_t available;                 // 可用空间，单位字节
     int64_t data_used_capacity;
-    int64_t disk_available_capacity;
-    bool is_used;
+    uint64_t current_shard;             // shard按0,1...方式编号，最大的shard号
+    bool is_used;                       // 是否可用标识
+    bool to_be_deleted;                 // 删除标识，如在reload时删除某一目录
+    TStorageMedium::type storage_medium;  // 存储介质类型：SSD|HDD
+    std::set<TableInfo> table_set;
 };
+
 
 /*
  * 目前所谓的RootPath指的是storage_root_path，其目录组织结构如下:
@@ -84,8 +93,7 @@ public:
     void get_all_available_root_path(RootPathVec* all_available_root_path);
     
     // @brief 获取所有root_path信息
-    OLAPStatus get_all_disk_stat(std::vector<OLAPRootPathStat>* disks_stat);
-    OLAPStatus get_all_root_path_stat(std::vector<OLAPRootPathStat>* root_paths_stat);
+    OLAPStatus get_all_root_path_info(std::vector<RootPathInfo>* root_paths_info);
 
     // @brief 重新加载root_paths信息，全量操作。
     // 对于新增的root_path，同init操作
@@ -142,25 +150,6 @@ public:
     std::atomic_bool is_report_olap_table_already;
 
 private:
-    struct RootPathInfo {
-        RootPathInfo():
-                capacity(0),
-                available(0),
-                current_shard(0),
-                is_used(false),
-                to_be_deleted(false) {}
-
-        std::string file_system;            // 目录对应的磁盘分区
-        std::string unused_flag_file;       // 不可用标识对应的文件名
-        int64_t capacity;                  // 总空间，单位字节
-        int64_t available;                 // 可用空间，单位字节
-        uint64_t current_shard;             // shard按0,1...方式编号，最大的shard号
-        bool is_used;                       // 是否可用标识
-        bool to_be_deleted;                 // 删除标识，如在reload时删除某一目录
-        TStorageMedium::type storage_medium;  // 存储介质类型：SSD|HDD
-        std::set<TableInfo> table_set;
-    };
-
     typedef std::map<std::string, RootPathInfo> RootPathMap;
 
     // 检测磁盘。主要通过周期地读写4K的测试数据
@@ -177,12 +166,8 @@ private:
 
     OLAPStatus _get_root_path_capacity(
             const std::string& root_path,
-            int64_t* data_used);
-
-    OLAPStatus _get_disk_capacity(
-            const std::string& root_path,
-            int64_t* capacity,
-            int64_t* available);
+            int64_t* data_used,
+            int64_t* disk_available);
 
     OLAPStatus _get_root_path_file_system(const std::string& root_path, std::string* file_system);
 

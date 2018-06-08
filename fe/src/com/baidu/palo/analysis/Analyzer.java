@@ -218,6 +218,9 @@ public class Analyzer {
         // by its right-hand side table ref)
         public final Map<ExprId, TableRef> ijClauseByConjunct = Maps.newHashMap();
 
+        // TODO chenhao16, to save conjuncts, which children are constant
+        public final Map<TupleId, Expr> constantConjunct = Maps.newHashMap();
+
         // map from slot id to the analyzer/block in which it was registered
         public final Map<SlotId, Analyzer> blockBySlot = Maps.newHashMap();
 
@@ -703,8 +706,13 @@ public class Analyzer {
      * Register all conjuncts in a list of predicates as Where clause conjuncts.
      */
     public void registerConjuncts(List<Expr> l) throws AnalysisException {
+        registerConjuncts(l, null);
+    }
+
+    // register all conjuncts and handle constant conjuncts with ids
+    public void registerConjuncts(List<Expr> l, List<TupleId> ids) throws AnalysisException {
         for (Expr e : l) {
-            registerConjuncts(e, true);
+            registerConjuncts(e, true, ids);
         }
     }
 
@@ -713,9 +721,25 @@ public class Analyzer {
      * is assumed to originate from a WHERE or ON clause.
      */
     public void registerConjuncts(Expr e, boolean fromHavingClause) throws AnalysisException {
+        registerConjuncts(e, fromHavingClause, null);
+    }
+
+    // Register all conjuncts and handle constant conjuncts with ids
+    public void registerConjuncts(Expr e, boolean fromHavingClause, List<TupleId> ids) throws AnalysisException {
         for (Expr conjunct: e.getConjuncts()) {
             registerConjunct(conjunct);
-            markConstantConjunct(conjunct, fromHavingClause);
+            if (ids != null) {
+                for (TupleId id : ids) {
+                    registerConstantConjunct(id, conjunct);
+                }
+            }
+            //markConstantConjunct(conjunct, fromHavingClause);
+        }
+    }
+
+    private void registerConstantConjunct(TupleId id, Expr e) {
+        if (id != null && e.isConstant()) {
+            globalState.constantConjunct.put(id, e);
         }
     }
 
@@ -838,6 +862,19 @@ public class Analyzer {
             List<TupleId> tupleIds, boolean inclOjConjuncts) {
         List<Expr> result = Lists.newArrayList();
         for (Expr e: globalState.conjuncts.values()) {
+            // handle constant conjuncts
+            if (e.isConstant()) {
+                boolean isBoundByTuple = false;
+                for (TupleId id : tupleIds) {
+                    if (globalState.constantConjunct.containsKey(id)) {
+                        isBoundByTuple = true;
+                        break;
+                    }
+                }
+                if (!isBoundByTuple) {
+                    continue;
+                }
+            }
             if (e.isBoundByTupleIds(tupleIds)
                     && !e.isAuxExpr()
                     && !globalState.assignedConjuncts.contains(e.getId())

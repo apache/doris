@@ -32,9 +32,13 @@ import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -42,8 +46,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 public class BackendsProcDir implements ProcDirInterface {
+    private static final Logger LOG = LogManager.getLogger(BackendsProcDir.class);
+
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("BackendId").add("Cluster").add("IP").add("HostName").add("HeartbeatPort")
             .add("BePort").add("HttpPort").add("brpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
@@ -108,6 +115,9 @@ public class BackendsProcDir implements ProcDirInterface {
                 return backendInfos;
             }
         }
+
+        long start = System.currentTimeMillis();
+        Stopwatch watch = Stopwatch.createUnstarted();
         List<List<Comparable>> comparableBackendInfos = new LinkedList<List<Comparable>>();
         for (long backendId : backendIds) {
             Backend backend = clusterInfoService.getBackend(backendId);
@@ -115,7 +125,6 @@ public class BackendsProcDir implements ProcDirInterface {
                 continue;
             }
 
-            String ip = "N/A";
             String hostName = "N/A";
             try {
                 InetAddress address = InetAddress.getByName(backend.getHost());
@@ -124,7 +133,9 @@ public class BackendsProcDir implements ProcDirInterface {
                 continue;
             }
 
+            watch.start();
             Integer tabletNum = Catalog.getCurrentInvertedIndex().getTabletNumByBackendId(backendId);
+            watch.stop();
             List<Comparable> backendInfo = Lists.newArrayList();
             backendInfo.add(String.valueOf(backendId));
             backendInfo.add(backend.getOwnerClusterName());
@@ -163,12 +174,15 @@ public class BackendsProcDir implements ProcDirInterface {
             if (backend.getTotalCapacityB() <= 0) {
                 free = 0.0;
             } else {
-                free = (double) backend.getAvailableCapacityB() * 100 / backend.getTotalCapacityB();
+                free = (double) backend.getDataUsedCapacityB() * 100 / backend.getTotalCapacityB();
             }
             backendInfo.add(String.format("%.2f", free) + " %");
 
             comparableBackendInfos.add(backendInfo);
         }
+        // backends proc node get result too slow, add log to observer.
+        LOG.info("backends proc get tablet num cost: {}, total cost: {}",
+                 watch.elapsed(TimeUnit.MILLISECONDS), (System.currentTimeMillis() - start));
          
         // sort by cluster name, host name
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(1, 3);

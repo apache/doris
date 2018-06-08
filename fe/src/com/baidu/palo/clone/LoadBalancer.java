@@ -17,10 +17,13 @@ package com.baidu.palo.clone;
 
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.util.Daemon;
+import com.baidu.palo.system.SystemInfoService;
+
+import java.util.List;
 
 public class LoadBalancer extends Daemon {
 
-    ClusterLoadStatistic clusterLoadStatistic;
+    private ClusterLoadStatistic clusterLoadStatistic;
 
     public LoadBalancer() {
         super("load balancer", 60 * 1000);
@@ -31,6 +34,18 @@ public class LoadBalancer extends Daemon {
 
     @Override
     protected void runOneCycle() {
+        clusterLoadStatistic.init(SystemInfoService.DEFAULT_CLUSTER);
+    }
 
+    public BackendLoadStatistic getBackendStatistic(long beId) {
+        return clusterLoadStatistic.getBackendLoadStatistic(beId);
+    }
+
+    public List<List<String>> getClusterStatisticInfo() {
+        return clusterLoadStatistic.getCLusterStatistic();
+    }
+
+    public List<List<String>> getBackendStatisticInfo(long beId) {
+        return clusterLoadStatistic.getBackendStatistic(beId);
     }
 }

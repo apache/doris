@@ -1112,7 +1112,7 @@ public class SingleNodePlanner {
         // Unset the On-clause flag of the migrated conjuncts because the migrated conjuncts
         // apply to the post-join/agg/analytic result of the inline view.
         for (Expr e: viewPredicates) e.setIsOnClauseConjunct(false);
-        inlineViewRef.getAnalyzer().registerConjuncts(viewPredicates);
+        inlineViewRef.getAnalyzer().registerConjuncts(viewPredicates, inlineViewRef.getAllTupleIds());
 
         // mark (fully resolve) slots referenced by remaining unassigned conjuncts as
         // materialized
@@ -1424,7 +1424,15 @@ public class SingleNodePlanner {
             for (UnionStmt.UnionOperand op: unionStmt.getOperands()) {
                 List<Expr> opConjuncts =
                         Expr.substituteList(conjuncts, op.getSmap(), analyzer, false);
-                op.getAnalyzer().registerConjuncts(opConjuncts);
+                if (op.getQueryStmt() instanceof SelectStmt) {
+                    final SelectStmt select = (SelectStmt) op.getQueryStmt();
+                    op.getAnalyzer().registerConjuncts(opConjuncts, select.getTableRefIds());
+                } else if (op.getQueryStmt() instanceof UnionStmt) {
+                    final UnionStmt union = (UnionStmt) op.getQueryStmt();
+                    op.getAnalyzer().registerConjuncts(opConjuncts, union.getTupleId().asList());
+                } else {
+                    Preconditions.checkArgument(false);
+                }
             }
             analyzer.markConjunctsAssigned(conjuncts);
         } else {

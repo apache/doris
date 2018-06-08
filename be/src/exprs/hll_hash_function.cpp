@@ -34,26 +34,31 @@ namespace palo {
 
 using palo_udf::BigIntVal;
 using palo_udf::StringVal;
- 
+
+const int HllHashFunctions::HLL_INIT_EXPLICT_SET_SIZE = 10;
+const int HllHashFunctions::HLL_EMPTY_SET_SIZE = 1;
+
 void HllHashFunctions::init() {
 }
 
 StringVal HllHashFunctions::create_string_result(palo_udf::FunctionContext* ctx, 
                                                      const StringVal& val, const bool is_null) {
-    std::string result;
+    StringVal result;
     if (is_null) {
         // HLL_DATA_EMPTY
-        result = "0";
+        char buf[HLL_EMPTY_SET_SIZE];
+        buf[0] = HLL_DATA_EMPTY;
+        result = AnyValUtil::from_buffer_temp(ctx, buf, sizeof(buf));
     } else {
         // HLL_DATA_EXPLHLL_DATA_EXPLICIT
         uint64_t hash = HashUtil::murmur_hash64A(val.ptr, val.len, HashUtil::MURMUR_SEED);
-        char buf[10];
+        char buf[HLL_INIT_EXPLICT_SET_SIZE];
         buf[0] = HLL_DATA_EXPLICIT;
         buf[1] = 1;
         *((uint64_t*)(buf + 2)) = hash;
-        result = std::string(buf, 10);
-    }
-    return AnyValUtil::from_buffer_temp(ctx, result.c_str(), result.length());
+        result = AnyValUtil::from_buffer_temp(ctx, buf, sizeof(buf));
+    }   
+    return result;
 }
 
 StringVal HllHashFunctions::hll_hash(palo_udf::FunctionContext* ctx, 
