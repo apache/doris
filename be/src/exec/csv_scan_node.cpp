@@ -25,6 +25,7 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include "exec/text_converter.hpp"
+#include "exprs/hll_hash_function.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
 #include "runtime/row_batch.h"
@@ -652,19 +653,17 @@ void CsvScanNode::hll_hash(const char* src, int len, std::string* result) {
     std::string str(src, len);
     if (str != "\\N") {
         uint64_t hash = HashUtil::murmur_hash64A(src, len, HashUtil::MURMUR_SEED);
-        char buf[11];
-        memset(buf, 0, 11);
+        char buf[HllHashFunctions::HLL_INIT_EXPLICT_SET_SIZE];
         // expliclit set
         buf[0] = HLL_DATA_EXPLICIT;
         buf[1] = 1;
         *((uint64_t*)(buf + 2)) = hash;
-        *result = std::string(buf, 11);
+        *result = std::string(buf, sizeof(buf));
     } else {
-        char buf[2];
-        memset(buf, 0, 2);
+        char buf[HllHashFunctions::HLL_EMPTY_SET_SIZE];
         // empty set
         buf[0] = HLL_DATA_EMPTY;
-        *result = std::string(buf, 2);
+        *result = std::string(buf, sizeof(buf));
     }
 }
 

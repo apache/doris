@@ -622,10 +622,10 @@ TEST_F(TestReloadRootPath, reload_root_path) {
     ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(root_path));   
 }
 
-class TestGetRootPathStat : public ::testing::Test {
+class TestGetRootPathInfo : public ::testing::Test {
 public:
-    TestGetRootPathStat() : _command_executor(NULL) {}
-    ~TestGetRootPathStat() {
+    TestGetRootPathInfo() : _command_executor(NULL) {}
+    ~TestGetRootPathInfo() {
         SAFE_DELETE(_command_executor);
     }
 
@@ -652,14 +652,14 @@ public:
     CommandExecutor* _command_executor;
 };
 
-TEST_F(TestGetRootPathStat, get_all_root_path_stat) {
+TEST_F(TestGetRootPathInfo, get_all_root_path_info) {
     OLAPStatus res = OLAP_SUCCESS;
-    std::vector<OLAPRootPathStat> root_paths_stat;
+    std::vector<RootPathInfo> root_paths_info;
 
-    res = _command_executor->get_all_root_path_stat(&root_paths_stat);
+    res = _command_executor->get_all_root_path_info(&root_paths_info);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    ASSERT_EQ(1, root_paths_stat.size());
-    EXPECT_STREQ(config::storage_root_path.c_str(), root_paths_stat[0].root_path.c_str());
+    ASSERT_EQ(1, root_paths_info.size());
+    EXPECT_STREQ(config::storage_root_path.c_str(), root_paths_info[0].path.c_str());
 }
 
 class TestPush : public ::testing::Test {

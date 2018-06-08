@@ -491,7 +491,7 @@ public class Config extends ConfigBase {
      *      disable:    no deploy manager
      *      k8s:        Kubernetes
      *      ambari:     Ambari
-     *      local:      Local File (test only)
+     *      local:      Local File (for test or Boxer2 BCC version)
      */
     @ConfField public static String enable_deploy_manager = "disable";
     

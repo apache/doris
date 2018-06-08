@@ -86,11 +86,17 @@ import java.util.Map;
 public class DeployManager extends Daemon {
     private static final Logger LOG = LogManager.getLogger(DeployManager.class);
     
+    // We misspelled the environment value ENV_FE_EXIST_ENT(D)POINT. But for forward compatibility,
+    // we have to keep this misspelling for a while.
+    // TODO(cmy): remove it later
+    @Deprecated
     public static final String ENV_FE_EXIST_ENTPOINT = "FE_EXIST_ENTPOINT";
+
+    public static final String ENV_FE_EXIST_ENDPOINT = "FE_EXIST_ENDPOINT";
     public static final String ENV_FE_INIT_NUMBER = "FE_INIT_NUMBER";
 
     public enum NodeType {
-        ELECTABLE, OBSERVER, BACKEND
+        ELECTABLE, OBSERVER, BACKEND, BROKER
     }
 
     protected Catalog catalog;
@@ -195,25 +201,34 @@ public class DeployManager extends Daemon {
         throw new NotImplementedException();
     }
 
-    public Pair<String, Integer> getHelperNode() {
-        final String existFeHosts = System.getenv(ENV_FE_EXIST_ENTPOINT);
+    public List<Pair<String, Integer>> getHelperNodes() {
+        String existFeHosts = System.getenv(ENV_FE_EXIST_ENTPOINT);
+        if (Strings.isNullOrEmpty(existFeHosts)) {
+            existFeHosts = System.getenv(ENV_FE_EXIST_ENDPOINT);
+        }
         if (!Strings.isNullOrEmpty(existFeHosts)) {
             // Some Frontends already exist in service group.
-            // Arbitrarily choose the first one as helper node to start up
+            // We consider them as helper node
+            List<Pair<String, Integer>> helperNodes = Lists.newArrayList();
             String[] splittedHosts = existFeHosts.split(",");
-            String[] splittedHostPort = splittedHosts[0].split(":");
-            if (splittedHostPort.length != 2) {
-                LOG.error("Invalid exist fe hosts: {}. will exit", existFeHosts);
-                System.exit(-1);
+            for (String host : splittedHosts) {
+                String[] splittedHostPort = host.split(":");
+                if (splittedHostPort.length != 2) {
+                    LOG.error("Invalid exist fe hosts: {}. will exit", existFeHosts);
+                    System.exit(-1);
+                }
+                Integer port = -1;
+                try {
+                    port = Integer.valueOf(splittedHostPort[1]);
+                } catch (NumberFormatException e) {
+                    LOG.error("Invalid exist fe hosts: {}. will exit", existFeHosts);
+                    System.exit(-1);
+                }
+
+                helperNodes.add(Pair.create(splittedHostPort[0], port));
             }
-            Integer port = -1;
-            try {
-                port = Integer.valueOf(splittedHostPort[1]);
-            } catch (NumberFormatException e) {
-                LOG.error("Invalid exist fe hosts: {}. will exit", existFeHosts);
-                System.exit(-1);
-            }
-            return Pair.create(splittedHostPort[0], port);
+
+            return helperNodes;
         }
 
         // No Frontend exist before.
@@ -280,7 +295,7 @@ public class DeployManager extends Daemon {
         LOG.info("sorted fe host list: {}", feHostPorts);
 
         // 4. return the first one as helper
-        return feHostPorts.get(0);
+        return feHostPorts.subList(0, 1);
     }
 
     @Override
@@ -510,7 +525,7 @@ public class DeployManager extends Daemon {
                 }
 
                 if (true) {
-                    // TODO(cmy): For now, Deploy Manager dose not handle shrinking operations
+                    LOG.info("For now, Deploy Manager dose not handle shrinking operations");
                     continue;
                 }
 

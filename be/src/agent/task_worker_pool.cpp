@@ -1541,19 +1541,19 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
         }
 #endif
 
-        vector<OLAPRootPathStat> root_paths_stat;
+        vector<RootPathInfo> root_paths_info;
 
-        worker_pool_this->_command_executor->get_all_root_path_stat(&root_paths_stat);
+        worker_pool_this->_command_executor->get_all_root_path_info(&root_paths_info);
 
         map<string, TDisk> disks;
-        for (auto root_path_state : root_paths_stat) {
+        for (auto root_path_info : root_paths_info) {
             TDisk disk;
-            disk.__set_root_path(root_path_state.root_path);
-            disk.__set_disk_total_capacity(static_cast<double>(root_path_state.disk_total_capacity));
-            disk.__set_data_used_capacity(static_cast<double>(root_path_state.data_used_capacity));
-            disk.__set_disk_available_capacity(static_cast<double>(root_path_state.disk_available_capacity));
-            disk.__set_used(root_path_state.is_used);
-            disks[root_path_state.root_path] = disk;
+            disk.__set_root_path(root_path_info.path);
+            disk.__set_disk_total_capacity(static_cast<double>(root_path_info.capacity));
+            disk.__set_data_used_capacity(static_cast<double>(root_path_info.data_used_capacity));
+            disk.__set_disk_available_capacity(static_cast<double>(root_path_info.available));
+            disk.__set_used(root_path_info.is_used);
+            disks[root_path_info.path] = disk;
         }
         request.__set_disks(disks);
 

@@ -21,7 +21,6 @@
 package com.baidu.palo.catalog;
 
 import com.baidu.palo.analysis.CreateTableStmt;
-import com.baidu.palo.analysis.TableName;
 import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.io.Writable;

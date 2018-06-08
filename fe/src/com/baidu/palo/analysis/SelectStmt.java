@@ -336,7 +336,7 @@ public class SelectStmt extends QueryStmt {
                 throw new AnalysisException(
                         "WHERE clause must not contain analytic expressions: " + e.toSql());
             }
-            analyzer.registerConjuncts(whereClause, false);
+            analyzer.registerConjuncts(whereClause, false, getTableRefIds());
         }
 
         createSortInfo(analyzer);
@@ -881,7 +881,7 @@ public class SelectStmt extends QueryStmt {
             Preconditions.checkState(!havingPred.contains(
                     Predicates.instanceOf(Subquery.class)));
             havingPred = havingPred.substitute(combinedSmap, analyzer, false);
-            analyzer.registerConjuncts(havingPred, true);
+            analyzer.registerConjuncts(havingPred, true, finalAggInfo.getOutputTupleId().asList());
             if (LOG.isDebugEnabled()) {
                 LOG.debug("post-agg havingPred: " + havingPred.debugString());
             }
