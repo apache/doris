@@ -26,7 +26,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exprs")
 
 add_library(Exprs
   base64.cpp
-  encryption_functions.cpp
   aggregate_functions.cpp
   agg_fn_evaluator.cpp
   anyval_util.cpp

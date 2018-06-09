@@ -44,7 +44,6 @@
 #include "exprs/string_functions.h"
 #include "exprs/cast_functions.h"
 #include "exprs/math_functions.h"
-#include "exprs/encryption_functions.h"
 #include "exprs/timestamp_functions.h"
 #include "exprs/decimal_operators.h"
 #include "exprs/utility_functions.h"
@@ -154,7 +153,6 @@ void init_daemon(int argc, char** argv) {
     CastFunctions::init();
     InPredicate::init();
     MathFunctions::init();
-    EncryptionFunctions::init();
     TimestampFunctions::init();
     DecimalOperators::init();
     UtilityFunctions::init();
