@@ -447,6 +447,9 @@ bool MUST_USE_RESULT SimpleAtoi(const string& s, int_type* out) {
 string SimpleDtoa(double value);
 string SimpleFtoa(float value);
 
+int DoubleToBuffer(double i, int width, char *buffer);
+int FloatToBuffer(float i, int width, char *buffer);
+
 char* DoubleToBuffer(double i, char* buffer);
 char* FloatToBuffer(float i, char* buffer);
 

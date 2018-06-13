@@ -28,7 +28,7 @@
 #include "common/logging.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
-#include "util/mysql_dtoa.h"
+#include "gutil/strings/numbers.h"
 #include "util/mysql_global.h"
 
 namespace palo {
@@ -163,7 +163,7 @@ public:
         // buffer is short, sign and '\0' is the 2.
         char buffer[MAX_FLOAT_STR_LENGTH + 2];
         buffer[0] = '\0';
-        int length = my_gcvt(float_value, MY_GCVT_ARG_FLOAT, MAX_FLOAT_STR_LENGTH, buffer, NULL);
+        int length = FloatToBuffer(float_value, MAX_FLOAT_STR_LENGTH, buffer);
         DCHECK(length >= 0) << "gcvt float failed, float value=" << float_value;
         parse_from_str(buffer, length);
         return *this;
@@ -172,7 +172,7 @@ public:
     DecimalValue& assign_from_double(const double double_value) {
         char buffer[MAX_DOUBLE_STR_LENGTH + 2];
         buffer[0] = '\0';
-        int length = my_gcvt(double_value, MY_GCVT_ARG_DOUBLE, MAX_DOUBLE_STR_LENGTH, buffer, NULL);
+        int length = DoubleToBuffer(double_value, MAX_DOUBLE_STR_LENGTH, buffer);
         DCHECK(length >= 0) << "gcvt double failed, double value=" << double_value;
         parse_from_str(buffer, length);
         return *this;
