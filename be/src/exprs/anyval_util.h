@@ -289,6 +289,13 @@ public:
         return val;
     }
 
+    static void TruncateIfNecessary(const FunctionContext::TypeDesc& type, StringVal *val) {
+        if (type.type == FunctionContext::TYPE_VARCHAR) {
+            DCHECK(type.len >= 0); 
+            val->len = std::min(val->len, type.len);
+        }   
+    } 
+
     static StringVal from_buffer(FunctionContext* ctx, const char* ptr, int len) {
         StringVal result(ctx, len);
         memcpy(result.ptr, ptr, len);
