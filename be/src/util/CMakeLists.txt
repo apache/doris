@@ -56,7 +56,6 @@ add_library(Util STATIC
   url_parser.cpp
   url_coding.cpp
   file_utils.cpp
-  mysql_dtoa.cpp
   mysql_row_buffer.cpp
   tuple_row_compare.cpp
   error_util.cc

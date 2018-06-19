@@ -350,11 +350,6 @@ public class InsertStmt extends DdlStmt {
             dataPartition = dataSink.getOutputPartition();
         } else if (targetTable instanceof BrokerTable) {
             BrokerTable table = (BrokerTable) targetTable;
-            // TODO(lingbin): think use which one if have more than one path
-            // Map<String, String> brokerProperties = Maps.newHashMap();
-            // brokerProperties.put("username", "palo");
-            // brokerProperties.put("password", "3trqDWfl");
-            // BrokerDesc brokerDesc = new BrokerDesc("test_broker", brokerProperties);
             BrokerDesc brokerDesc = new BrokerDesc(table.getBrokerName(), table.getBrokerProperties());
             dataSink = new ExportSink(
                     table.getWritablePath(),

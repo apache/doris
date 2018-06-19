@@ -17,17 +17,32 @@
  *
  ***************************************************************/
 
-#ifndef BDG_PALO_BE_SRC_QUERY_MYSQL_MYSQL_DTOA_H
-#define BDG_PALO_BE_SRC_QUERY_MYSQL_MYSQL_DTOA_H
+#ifndef BDG_PALO_BE_SRC_QUERY_EXPRS_ENCRYPTION_FUNCTIONS_H
+#define BDG_PALO_BE_SRC_QUERY_EXPRS_ENCRYPTION_FUNCTIONS_H
 
-#include <stddef.h>
+#include <stdint.h>
+#include "udf/udf.h"
+#include "udf/udf_internal.h"
+
 namespace palo {
-/* Conversion routines */
-typedef enum {
-    MY_GCVT_ARG_FLOAT,
-    MY_GCVT_ARG_DOUBLE
-} my_gcvt_arg_type;
 
-size_t my_gcvt(double x, my_gcvt_arg_type type, int width, char *to, bool *error);
+class Expr;
+struct ExprValue;
+class TupleRow;
+
+class EncryptionFunctions {
+public:
+    static void init();
+    static palo_udf::StringVal from_base64(palo_udf::FunctionContext* context,
+            const palo_udf::StringVal& val1);
+    static palo_udf::StringVal to_base64(palo_udf::FunctionContext* context,
+            const palo_udf::StringVal& val1);
+    static palo_udf::StringVal md5sum(palo_udf::FunctionContext* ctx, 
+                                      int num_args, const palo_udf::StringVal* args);
+    static palo_udf::StringVal md5(palo_udf::FunctionContext* ctx, 
+                                   const palo_udf::StringVal& src);
+};
+
 }
+
 #endif

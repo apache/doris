@@ -1283,6 +1283,57 @@ char* FloatToBuffer(float value, char* buffer) {
   return buffer;
 }
 
+int DoubleToBuffer(double value, int width, char *buffer) {
+  // DBL_DIG is 15 for IEEE-754 doubles, which are used on almost all
+  // platforms these days.  Just in case some system exists where DBL_DIG
+  // is significantly larger -- and risks overflowing our buffer -- we have
+  // this assert.
+  COMPILE_ASSERT(DBL_DIG < 20, DBL_DIG_is_too_big);
+
+  int snprintf_result =
+    snprintf(buffer, width, "%.*g", DBL_DIG, value);
+
+  // The snprintf should never overflow because the buffer is significantly
+  // larger than the precision we asked for.
+  DCHECK(snprintf_result > 0 && snprintf_result < width);
+
+  if (strtod(buffer, nullptr) != value) {
+    snprintf_result =
+      snprintf(buffer, width, "%.*g", DBL_DIG+2, value);
+
+    // Should never overflow; see above.
+    DCHECK(snprintf_result > 0 && snprintf_result < width);
+  }
+
+  return snprintf_result;
+}
+
+int FloatToBuffer(float value, int width, char *buffer) {
+  // FLT_DIG is 6 for IEEE-754 floats, which are used on almost all
+  // platforms these days.  Just in case some system exists where FLT_DIG
+  // is significantly larger -- and risks overflowing our buffer -- we have
+  // this assert.
+  COMPILE_ASSERT(FLT_DIG < 10, FLT_DIG_is_too_big);
+
+  int snprintf_result =
+    snprintf(buffer, width, "%.*g", FLT_DIG, value);
+
+  // The snprintf should never overflow because the buffer is significantly
+  // larger than the precision we asked for.
+  DCHECK(snprintf_result > 0 && snprintf_result < width);
+
+  float parsed_value;
+  if (!safe_strtof(buffer, &parsed_value) || parsed_value != value) {
+    snprintf_result =
+      snprintf(buffer, width, "%.*g", FLT_DIG+2, value);
+
+    // Should never overflow; see above.
+    DCHECK(snprintf_result > 0 && snprintf_result < width);
+  }
+
+  return snprintf_result;
+}
+
 // ----------------------------------------------------------------------
 // SimpleItoaWithCommas()
 //    Description: converts an integer to a string.
