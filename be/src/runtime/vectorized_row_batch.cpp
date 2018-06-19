@@ -32,17 +32,18 @@ VectorizedRowBatch::VectorizedRowBatch(
     _mem_pool.reset(new MemPool(_tracker.get()));
 
     _selected = reinterpret_cast<uint16_t*>(new char[sizeof(uint16_t) * _capacity]);
-    for (int i = 0; i < schema.size(); ++i) {
-        _vectors.push_back(new ColumnVector());
+    for (ColumnId column_id : cols) {
+        ColumnVector* col_vec = new ColumnVector();
+        _col_map[column_id] = col_vec;
     }
 }
 
 void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
     if (_selected_in_use) {
         for (auto column_id : _cols) {
-            bool no_nulls = _vectors[column_id]->no_nulls();
+            bool no_nulls = _col_map[column_id]->no_nulls();
             // pointer of this field's vector
-            char* vec_field_ptr = (char*)_vectors[column_id]->col_data();
+            char* vec_field_ptr = (char*)_col_map[column_id]->col_data();
             // pointer of this field in row block
             char* row_field_ptr =
                 row_block->_mem_buf + row_block->_field_offset_in_memory[column_id];
@@ -67,7 +68,7 @@ void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
                     row_field_ptr += row_block->_mem_row_bytes;
                 }
             } else {
-                bool* is_null = _vectors[column_id]->is_null();
+                bool* is_null = _col_map[column_id]->is_null();
                 for (int row = 0; row < _size; ++row) {
                     if (is_null[_selected[row]]) {
                         *row_field_ptr = 1;
@@ -84,9 +85,9 @@ void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
         }
     } else {
         for (auto column_id : _cols) {
-            bool no_nulls = _vectors[column_id]->no_nulls();
+            bool no_nulls = _col_map[column_id]->no_nulls();
 
-            char* vec_field_ptr = (char*)_vectors[column_id]->col_data();
+            char* vec_field_ptr = (char*)_col_map[column_id]->col_data();
             char* row_field_ptr =
                 row_block->_mem_buf + row_block->_field_offset_in_memory[column_id];
             const FieldInfo& field_info = _schema[column_id];
@@ -110,7 +111,7 @@ void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
                     vec_field_ptr += field_size;
                 }
             } else {
-                bool* is_null = _vectors[column_id]->is_null();
+                bool* is_null = _col_map[column_id]->is_null();
                 for (int row = 0; row < _size; ++row) {
                     if (is_null[row]) {
                         *row_field_ptr = 1;

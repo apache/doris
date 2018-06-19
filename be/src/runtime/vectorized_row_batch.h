@@ -74,9 +74,10 @@ public:
         const std::vector<FieldInfo>& schema,
         const std::vector<uint32_t>& cols,
         int capacity);
+
     ~VectorizedRowBatch() {
-        for (auto col_vec : _vectors) {
-            delete col_vec;
+        for (auto& item: _col_map) {
+            delete item.second;
         }
         delete[] _selected;
     }
@@ -86,7 +87,7 @@ public:
     }
 
     ColumnVector* column(int column_index) {
-        return _vectors[column_index];
+        return _col_map[column_index];
     }
 
     const std::vector<uint32_t>& columns() const { return _cols; }
@@ -141,7 +142,7 @@ private:
     const uint16_t _capacity;
     uint16_t _size = 0;
     uint16_t* _selected = nullptr;
-    std::vector<ColumnVector*> _vectors;
+    std::map<ColumnId, ColumnVector*> _col_map;
 
     bool _selected_in_use = false;
     uint8_t _block_status;
