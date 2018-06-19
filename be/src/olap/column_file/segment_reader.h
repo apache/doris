@@ -233,7 +233,7 @@ private:
     }
 
     inline const ColumnDataHeaderMessage& _header_message() {
-        return _file_header.message();
+        return _file_header->message();
     }
 
     OLAPStatus _init_include_blocks(uint32_t first_block, uint32_t last_block);
@@ -344,7 +344,7 @@ private:
 
     Cache* _lru_cache;
     std::vector<Cache::Handle*> _cache_handle;
-    FileHeader<ColumnDataHeaderMessage> _file_header;
+    const FileHeader<ColumnDataHeaderMessage>* _file_header;
 
     std::unique_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _mem_pool;

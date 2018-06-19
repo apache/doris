@@ -608,8 +608,8 @@ public:
         return _index.get_row_block_position(pos, rbp);
     }
     
-    inline const FileHeader<column_file::ColumnDataHeaderMessage>& get_seg_pb(uint32_t seg_id) const {
-        return _seg_pb_map.at(seg_id);
+    inline const FileHeader<column_file::ColumnDataHeaderMessage>* get_seg_pb(uint32_t seg_id) const {
+        return &(_seg_pb_map.at(seg_id));
     }
 
     inline bool get_null_supported(uint32_t seg_id) {
