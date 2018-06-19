@@ -139,7 +139,7 @@ OLAPStatus SegmentReader::_load_segment_file() {
     // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
     _file_header = _olap_index->get_seg_pb(_segment_id);
     _null_supported = _olap_index->get_null_supported(_segment_id);
-    _header_length = _file_header.size();
+    _header_length = _file_header->size();
 
     res = _check_file_version();
     if (OLAP_SUCCESS != res) {
@@ -334,8 +334,13 @@ void SegmentReader::_set_column_map() {
     _unique_id_to_table_id_map.clear();
     _unique_id_to_segment_id_map.clear();
 
-    for (ColumnId table_column_id = 0; table_column_id < tablet_schema().size();
-            ++table_column_id) {
+    for (ColumnId table_column_id : _used_columns) {
+        ColumnId unique_column_id = tablet_schema()[table_column_id].unique_id;
+        _table_id_to_unique_id_map[table_column_id] = unique_column_id;
+        _unique_id_to_table_id_map[unique_column_id] = table_column_id;
+    }
+
+    for (ColumnId table_column_id : _load_bf_columns) {
         ColumnId unique_column_id = tablet_schema()[table_column_id].unique_id;
         _table_id_to_unique_id_map[table_column_id] = unique_column_id;
         _unique_id_to_table_id_map[unique_column_id] = table_column_id;
