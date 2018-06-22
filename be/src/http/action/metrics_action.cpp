@@ -21,7 +21,6 @@
 #include "http/http_response.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
-#include "http/webserver.h"
 #include "runtime/exec_env.h"
 #include "util/metrics.h"
 
@@ -84,12 +83,13 @@ void PrometheusMetricsVisitor::_visit_simple_metric(
     _ss << " " << metric->to_string() << "\n";
 }
 
-void MetricsAction::handle(HttpRequest* req, HttpChannel* channel) {
+void MetricsAction::handle(HttpRequest* req) {
     PrometheusMetricsVisitor visitor;
     _metrics->collect(&visitor);
     std::string str = visitor.to_string();
-    HttpResponse response(HttpStatus::OK, "text/plain; version=0.0.4", &str);
-    channel->send_response(response);
+
+    req->add_output_header(HttpHeaders::CONTENT_TYPE, "text/plain; version=0.0.4");
+    HttpChannel::send_reply(req, str);
 }
 
 }

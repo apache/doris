@@ -24,6 +24,8 @@
 #include <boost/thread/thread.hpp>
 #include <gperftools/malloc_extension.h>
 
+#include <sanitizer/lsan_interface.h>
+
 #include "common/logging.h"
 #include "common/daemon.h"
 #include "common/config.h"
@@ -180,6 +182,14 @@ int main(int argc, char** argv) {
         palo::shutdown_logging();
         exit(1);
     }
+
+#if defined(LEAK_SANITIZER)
+    // __lsan_enable();
+    while (true) {
+        __lsan_do_leak_check();
+        sleep(10);
+    }
+#endif
 
     palo::ReactorFactory::join();
 

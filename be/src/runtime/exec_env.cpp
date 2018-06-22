@@ -39,12 +39,12 @@
 #include "runtime/bufferpool/reservation_tracker.h"
 #include "util/metrics.h"
 #include "util/network_util.h"
-#include "http/webserver.h"
 #include "http/web_page_handler.h"
 #include "http/default_path_handlers.h"
 #include "util/parse_util.h"
 #include "util/mem_info.h"
 #include "util/debug_util.h"
+#include "http/ev_http_server.h"
 #include "http/action/mini_load.h"
 #include "http/action/checksum_action.h"
 #include "http/action/health_action.h"
@@ -79,8 +79,8 @@ ExecEnv::ExecEnv() :
         _client_cache(new BackendServiceClientCache()),
         _frontend_client_cache(new FrontendServiceClientCache()),
         _broker_client_cache(new BrokerServiceClientCache()),
-        _webserver(new Webserver()),
-        _web_page_handler(new WebPageHandler(_webserver.get())),
+        _ev_http_server(new EvHttpServer(config::webserver_port, config::webserver_num_workers)),
+        _web_page_handler(new WebPageHandler(_ev_http_server.get())),
         _mem_tracker(NULL),
         _pool_mem_trackers(new PoolMemTrackerRegistry),
         _thread_mgr(new ThreadResourceMgr),
@@ -202,7 +202,7 @@ Status ExecEnv::start_services() {
 
 Status ExecEnv::start_webserver() {
     add_default_path_handlers(_web_page_handler.get(), _mem_tracker.get());
-    _webserver->register_handler(HttpMethod::PUT,
+    _ev_http_server->register_handler(HttpMethod::PUT,
                                  "/api/{db}/{table}/_load",
                                  new MiniLoadAction(this));
 
@@ -210,57 +210,57 @@ Status ExecEnv::start_webserver() {
     OLAPRootPath::get_instance()->get_all_available_root_path(&allow_paths);
     DownloadAction* download_action = new DownloadAction(this, allow_paths);
     // = new DownloadAction(this, config::mini_load_download_path);
-    _webserver->register_handler(HttpMethod::GET, "/api/_download_load", download_action);
-    _webserver->register_handler(HttpMethod::HEAD, "/api/_download_load", download_action);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/_download_load", download_action);
+    _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_download_load", download_action);
 
     DownloadAction* tablet_download_action = new DownloadAction(this, allow_paths);
-    _webserver->register_handler(HttpMethod::HEAD,
+    _ev_http_server->register_handler(HttpMethod::HEAD,
                                  "/api/_tablet/_download",
                                  tablet_download_action);
-    _webserver->register_handler(HttpMethod::GET,
+    _ev_http_server->register_handler(HttpMethod::GET,
                                  "/api/_tablet/_download",
                                  tablet_download_action);
 
     DownloadAction* error_log_download_action = new DownloadAction(
             this, _load_path_mgr->get_load_error_file_dir());
-    _webserver->register_handler(
+    _ev_http_server->register_handler(
             HttpMethod::GET, "/api/_load_error_log", error_log_download_action);
-    _webserver->register_handler(
+    _ev_http_server->register_handler(
             HttpMethod::HEAD, "/api/_load_error_log", error_log_download_action);
 
     // Register monitor
     MonitorAction* monitor_action = new MonitorAction();
     monitor_action->register_module("etl_mgr", etl_job_mgr());
     monitor_action->register_module("fragment_mgr", fragment_mgr());
-    _webserver->register_handler(HttpMethod::GET, "/_monitor/{module}", monitor_action);
+    _ev_http_server->register_handler(HttpMethod::GET, "/_monitor/{module}", monitor_action);
 
     // Register BE health action
     HealthAction* health_action = new HealthAction(this);
-    _webserver->register_handler(HttpMethod::GET, "/api/health", health_action);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
 
     // register pprof actions
-    PprofActions::setup(this, _webserver.get());
+    PprofActions::setup(this, _ev_http_server.get());
 
     {
         auto action = _object_pool.add(new MetricsAction(PaloMetrics::metrics()));
-        _webserver->register_handler(HttpMethod::GET, "/metrics", action);
+        _ev_http_server->register_handler(HttpMethod::GET, "/metrics", action);
     }
 
 #ifndef BE_TEST
     // Register BE checksum action
     ChecksumAction* checksum_action = new ChecksumAction(this);
-    _webserver->register_handler(HttpMethod::GET, "/api/checksum", checksum_action);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/checksum", checksum_action);
 
     // Register BE reload tablet action
     ReloadTabletAction* reload_tablet_action = new ReloadTabletAction(this);
-    _webserver->register_handler(HttpMethod::GET, "/api/reload_tablet", reload_tablet_action);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/reload_tablet", reload_tablet_action);
 
     // Register BE snapshot action
     SnapshotAction* snapshot_action = new SnapshotAction(this);
-    _webserver->register_handler(HttpMethod::GET, "/api/snapshot", snapshot_action);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/snapshot", snapshot_action);
 #endif
 
-    RETURN_IF_ERROR(_webserver->start());
+    RETURN_IF_ERROR(_ev_http_server->start());
     return Status::OK;
 }
 

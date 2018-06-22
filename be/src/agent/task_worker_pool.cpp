@@ -60,7 +60,7 @@ const uint32_t REPORT_DISK_STATE_WORKER_COUNT = 1;
 const uint32_t REPORT_OLAP_TABLE_WORKER_COUNT = 1;
 const uint32_t LIST_REMOTE_FILE_TIMEOUT = 15;
 const std::string HTTP_REQUEST_PREFIX = "/api/_tablet/_download?";
-const std::string HTTP_REQUEST_TOKEN_PARAM = "&token=";
+const std::string HTTP_REQUEST_TOKEN_PARAM = "token=";
 const std::string HTTP_REQUEST_FILE_PARAM = "&file=";
 
 std::atomic_ulong TaskWorkerPool::_s_report_version(time(NULL) * 10000);

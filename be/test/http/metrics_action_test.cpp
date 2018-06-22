@@ -27,16 +27,9 @@ namespace palo {
 // Mock part
 const char* s_expect_response = nullptr;
 
-HttpChannel::HttpChannel(const HttpRequest& request, mg_connection* mg_conn) :
-        _request(request),
-        _mg_conn(mg_conn) {
-}
-
-void HttpChannel::send_response(const HttpResponse& response) {
-    ASSERT_STREQ(s_expect_response, response.content()->c_str());
-}
-
-HttpRequest::HttpRequest(mg_connection* conn) {
+void HttpChannel::send_reply(
+        HttpRequest* request, HttpStatus status, const std::string& content) {
+    ASSERT_STREQ(s_expect_response, content.c_str());
 }
 
 class MetricsActionTest : public testing::Test {
@@ -62,9 +55,8 @@ TEST_F(MetricsActionTest, prometheus_output) {
         "# TYPE test_requests_total COUNTER\n"
         "test_requests_total{path=\"/sports\",type=\"put\"} 2345\n";
     HttpRequest request(nullptr);
-    HttpChannel channel(request, nullptr);
     MetricsAction action(&registry);
-    action.handle(&request, &channel);
+    action.handle(&request);
 }
 
 TEST_F(MetricsActionTest, prometheus_no_prefix) {
@@ -76,9 +68,8 @@ TEST_F(MetricsActionTest, prometheus_no_prefix) {
         "# TYPE cpu_idle GAUGE\n"
         "cpu_idle 50\n";
     HttpRequest request(nullptr);
-    HttpChannel channel(request, nullptr);
     MetricsAction action(&registry);
-    action.handle(&request, &channel);
+    action.handle(&request);
 }
 
 TEST_F(MetricsActionTest, prometheus_no_name) {
@@ -88,9 +79,8 @@ TEST_F(MetricsActionTest, prometheus_no_name) {
     registry.register_metric("", &cpu_idle);
     s_expect_response = "";
     HttpRequest request(nullptr);
-    HttpChannel channel(request, nullptr);
     MetricsAction action(&registry);
-    action.handle(&request, &channel);
+    action.handle(&request);
 }
 
 }

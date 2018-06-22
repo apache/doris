@@ -34,7 +34,7 @@ public:
 
     void register_module(const std::string& name, RestMonitorIface* module);
 
-    virtual void handle(HttpRequest *req, HttpChannel* channel);
+    void handle(HttpRequest *req) override;
 private:
     std::map<std::string, RestMonitorIface*> _module_by_name;
 };

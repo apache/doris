@@ -40,7 +40,7 @@ namespace palo {
 class DataStreamMgr;
 class ResultBufferMgr;
 class TestExecEnv;
-class Webserver;
+class EvHttpServer;
 class WebPageHandler;
 class MemTracker;
 class PoolMemTrackerRegistry;
@@ -97,9 +97,6 @@ public:
     }
     BrokerServiceClientCache* broker_client_cache() {
         return _broker_client_cache.get();
-    }
-    Webserver* webserver() {
-        return _webserver.get();
     }
     WebPageHandler* web_page_handler() {
         return _web_page_handler.get();
@@ -187,7 +184,7 @@ private:
     boost::scoped_ptr<BackendServiceClientCache> _client_cache;
     boost::scoped_ptr<FrontendServiceClientCache> _frontend_client_cache;
     std::unique_ptr<BrokerServiceClientCache>_broker_client_cache;
-    boost::scoped_ptr<Webserver> _webserver;
+    boost::scoped_ptr<EvHttpServer> _ev_http_server;
     boost::scoped_ptr<WebPageHandler> _web_page_handler;
     boost::scoped_ptr<MemTracker> _mem_tracker;
     boost::scoped_ptr<PoolMemTrackerRegistry> _pool_mem_trackers;

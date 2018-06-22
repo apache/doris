@@ -22,7 +22,8 @@
 #include "http/http_request.h"
 #include "http/http_response.h"
 #include "http/http_channel.h"
-#include "http/webserver.h"
+#include "http/http_headers.h"
+#include "http/ev_http_server.h"
 #include "util/debug_util.h"
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
@@ -32,8 +33,8 @@ namespace palo {
 
 static std::string s_html_content_type = "text/html";
 
-WebPageHandler::WebPageHandler(Webserver* web) :
-        _web_server(web) {
+WebPageHandler::WebPageHandler(EvHttpServer* server) :
+        _http_server(server) {
     PageHandlerCallback default_callback =
             boost::bind<void>(boost::mem_fn(&WebPageHandler::root_handler), this, _1, _2);
     register_page("/", default_callback);
@@ -49,12 +50,12 @@ void WebPageHandler::register_page(
     auto map_iter = _page_map.find(path);
     if (map_iter == _page_map.end()) {
         // first time, register this to web server
-        _web_server->register_handler(HttpMethod::GET, path, this);
+        _http_server->register_handler(HttpMethod::GET, path, this);
     }
     _page_map[path].add_callback(callback);
 }
 
-void WebPageHandler::handle(HttpRequest *req, HttpChannel *channel) {
+void WebPageHandler::handle(HttpRequest *req) {
     // Should we render with css styles?
     bool use_style = true;
     std::map<std::string, std::string>& params = *req->params();
@@ -87,8 +88,13 @@ void WebPageHandler::handle(HttpRequest *req, HttpChannel *channel) {
         bootstrap_page_footer(&output);
     }
     std::string str = output.str();
+
+    req->add_output_header(HttpHeaders::CONTENT_TYPE, s_html_content_type.c_str());
+    HttpChannel::send_reply(req, HttpStatus::OK, str);
+#if 0
     HttpResponse response(HttpStatus::OK, s_html_content_type, &str);
     channel->send_response(response);
+#endif
 }
 
 static const std::string PAGE_HEADER = 

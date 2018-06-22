@@ -49,6 +49,7 @@
 #include <butil/containers/flat_map_inl.h>
 #include <brpc/channel.h>
 #include <butil/endpoint.h>
+#include <butil/fd_utility.h>
 #include <butil/macros.h>
 #include <brpc/controller.h>
 #include <brpc/server.h>

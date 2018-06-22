@@ -22,16 +22,19 @@
 #include "http/http_method.h"
 
 struct mg_connection;
+struct evhttp_request;
 
 namespace palo {
 
+class HttpHandler;
+
 class HttpRequest {
 public:
-    // Now we only construct http request from mongoose
-    HttpRequest(mg_connection* conn);
+    HttpRequest(evhttp_request* ev_req);
 
-    ~HttpRequest() {
-    }
+    ~HttpRequest();
+
+    int init_from_evhttp();
 
     HttpMethod method() const {
         return _method;
@@ -65,14 +68,21 @@ public:
         return _query_params;
     }
 
+    std::string get_request_body();
+
+    void add_output_header(const char* key, const char* value);
+
     std::string debug_string() const;
 
+    void set_handler(HttpHandler* handler) { _handler = handler; }
+    HttpHandler* handler() const { return _handler; }
+
+    struct evhttp_request* get_evhttp_request() const { return _ev_req; }
+
+    void* handler_ctx() const { return _handler_ctx; }
+    void set_handler_ctx(void* ctx) { _handler_ctx = ctx; }
+
 private:
-    // construct from mg_connection
-    bool init();
-
-    void parse_params(const char* query);
-
     HttpMethod _method;
     std::string _uri;
     std::string _raw_path;
@@ -80,8 +90,11 @@ private:
     std::map<std::string, std::string> _params;
     std::map<std::string, std::string> _query_params;
 
-    // save mongoose connection here
-    mg_connection* _conn;
+    struct evhttp_request* _ev_req = nullptr; 
+    HttpHandler* _handler = nullptr;
+
+    void* _handler_ctx = nullptr;
+    std::string _request_body;
 };
 
 }

@@ -247,6 +247,7 @@ namespace config {
     // Interface to start debug webserver on. If blank, webserver binds to 0.0.0.0
     CONF_String(webserver_interface, "");
     CONF_String(webserver_doc_root, "${PALO_HOME}");
+    CONF_Int32(webserver_num_workers, "5");
     // If true, webserver may serve static files from the webserver_doc_root
     CONF_Bool(enable_webserver_doc_root, "true");
     // The number of times to retry connecting to an RPC server. If zero or less,

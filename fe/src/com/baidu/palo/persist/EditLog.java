@@ -44,6 +44,7 @@ import com.baidu.palo.load.ExportMgr;
 import com.baidu.palo.load.Load;
 import com.baidu.palo.load.LoadErrorHub;
 import com.baidu.palo.load.LoadJob;
+import com.baidu.palo.metric.MetricRepo;
 import com.baidu.palo.qe.SessionVariable;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.Frontend;
@@ -582,6 +583,10 @@ public class EditLog {
             LOG.info("txId is equal to edit_log_roll_num {}, will roll edit.", txId);
             rollEditLog();
             txId = 0;
+        }
+
+        if (MetricRepo.isInit.get()) {
+            MetricRepo.COUNTER_EDIT_LOG_WRITE.increase(1L);
         }
     }
 
