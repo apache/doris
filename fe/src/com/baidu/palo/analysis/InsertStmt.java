@@ -371,4 +371,14 @@ public class InsertStmt extends DdlStmt {
     public DataPartition getDataPartition() {
         return dataPartition;
     }
+
+    @Override
+    public void reset() {
+        super.reset();
+        queryStmt.reset();
+        resultExprs.clear();
+        exprByName.clear();
+        dataSink = null;
+        dataPartition = null;
+    }
 }

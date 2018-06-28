@@ -396,9 +396,16 @@ public class StmtExecutor {
 
                         // Re-analyze the stmt with a new analyzer.
                         analyzer = new Analyzer(context.getCatalog(), context);
-                        parsedStmt.reset();
-                        parsedStmt.analyze(analyzer);
-
+                        // TODO chenhao16 , merge Impala
+                        // insert re-analyze
+                        if (originStmt != null) {
+                            originStmt.reset();
+                            originStmt.analyze(analyzer);
+                        } else {
+                            // query re-analyze
+                            parsedStmt.reset();
+                            parsedStmt.analyze(analyzer);
+                        }
                         // Restore the original result types and column labels.
                         queryStmt1.castResultExprs(origResultTypes);
                         queryStmt1.setColLabels(origColLabels);
