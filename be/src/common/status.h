@@ -27,6 +27,7 @@
 #include "common/logging.h"
 #include "common/compiler_util.h"
 #include "gen_cpp/Status_types.h"  // for TStatus
+#include "gen_cpp/status.pb.h" // for PStatus
 
 namespace palo {
 
@@ -107,6 +108,9 @@ public:
     // same as previous c'tor
     Status& operator=(const TStatus& status);
 
+    Status(const PStatus& pstatus);
+    Status& operator=(const PStatus& pstatus);
+
     // assign from stringstream
     Status& operator=(const std::stringstream& stream);
 
@@ -154,6 +158,7 @@ public:
 
     // Convert into TStatus.
     void to_thrift(TStatus* status) const;
+    void to_protobuf(PStatus* status) const;
 
     // Return all accumulated error msgs in a single string.
     void get_error_msg(std::string* msg) const;
@@ -175,6 +180,7 @@ private:
         std::vector<std::string> error_msgs;
 
         ErrorDetail(const TStatus& status);
+        ErrorDetail(const PStatus& status);
         ErrorDetail(TStatusCode::type code)
             : error_code(code) {}
         ErrorDetail(TStatusCode::type code, const std::string& msg)
@@ -190,6 +196,14 @@ private:
         Status _status_ = (stmt); \
         if (UNLIKELY(!_status_.ok())) { \
             return _status_; \
+        } \
+    } while (false)
+
+#define RETURN_IF_STATUS_ERROR(status, stmt) \
+    do { \
+        status = (stmt); \
+        if (UNLIKELY(!status.ok())) { \
+            return; \
         } \
     } while (false)
 

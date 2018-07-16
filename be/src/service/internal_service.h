@@ -15,7 +15,12 @@
 
 #pragma once
 
+#include "common/status.h"
 #include "gen_cpp/internal_service.pb.h"
+
+namespace brpc {
+class Controller;
+}
 
 namespace palo {
 
@@ -30,6 +35,26 @@ public:
                        const ::palo::PTransmitDataParams* request,
                        ::palo::PTransmitDataResult* response,
                        ::google::protobuf::Closure* done) override;
+    void exec_plan_fragment(
+        google::protobuf::RpcController* controller,
+        const PExecPlanFragmentRequest* request,
+        PExecPlanFragmentResult* result,
+        google::protobuf::Closure* done) override;
+
+    void cancel_plan_fragment(
+        google::protobuf::RpcController* controller,
+        const PCancelPlanFragmentRequest* request,
+        PCancelPlanFragmentResult* result,
+        google::protobuf::Closure* done) override;
+
+    void fetch_data(
+        google::protobuf::RpcController* controller,
+        const PFetchDataRequest* request,
+        PFetchDataResult* result,
+        google::protobuf::Closure* done) override;
+private:
+    Status _exec_plan_fragment(brpc::Controller* cntl);
+
 private:
     ExecEnv* _exec_env;
 };

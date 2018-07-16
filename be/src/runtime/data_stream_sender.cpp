@@ -148,7 +148,7 @@ private:
         if (cntl->Failed()) {
             LOG(WARNING) << "failed to send brpc batch, error=" << berror(cntl->ErrorCode())
                 << ", error_text=" << cntl->ErrorText();
-            return Status("failed to send batch");
+            return Status(TStatusCode::THRIFT_RPC_ERROR, "failed to send batch");
         }
         return Status::OK;
     }

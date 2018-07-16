@@ -129,6 +129,9 @@ public class SimpleScheduler {
     }
     
     public static void updateBlacklistBackends(Long backendID) {
+        if (backendID == null) {
+            return;
+        }
         lock.lock();
         try {
             int tryTime = FeConstants.heartbeat_interval_second + 1;
