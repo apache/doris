@@ -229,13 +229,14 @@ Status NewPartitionedAggregationNode::prepare(RuntimeState* state) {
   const RowDescriptor& row_desc = child(0)->row_desc();
   RETURN_IF_ERROR(NewAggFnEvaluator::Create(agg_fns_, state, _pool, agg_fn_pool_.get(),
       &agg_fn_evals_, expr_mem_tracker(), row_desc));
-  
+ 
+  expr_results_pool_.reset(new MemPool(_expr_mem_tracker.get()));
   if (!grouping_exprs_.empty()) {
     RowDescriptor build_row_desc(intermediate_tuple_desc_, false);
     RETURN_IF_ERROR(NewPartitionedHashTableCtx::Create(_pool, state, build_exprs_,
         grouping_exprs_, true, vector<bool>(build_exprs_.size(), true),
         state->fragment_hash_seed(), MAX_PARTITION_DEPTH, 1, expr_mem_pool(),
-        expr_mem_tracker(), build_row_desc, row_desc, &ht_ctx_));
+        expr_results_pool_.get(), expr_mem_tracker(), build_row_desc, row_desc, &ht_ctx_));
   }
   // AddCodegenDisabledMessage(state);
   return Status::OK;
@@ -413,6 +414,8 @@ Status NewPartitionedAggregationNode::GetNextInternal(RuntimeState* state,
   RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
   RETURN_IF_CANCELLED(state);
   RETURN_IF_ERROR(state->check_query_state());
+  // clear tmp expr result alocations
+  expr_results_pool_->clear();
 
   if (reached_limit()) {
     *eos = true;
@@ -688,12 +691,14 @@ Status NewPartitionedAggregationNode::close(RuntimeState* state) {
   }
 
   ClosePartitions();
-
   child_batch_.reset();
 
   // Close all the agg-fn-evaluators
   NewAggFnEvaluator::Close(agg_fn_evals_, state);
-
+  
+  if (expr_results_pool_.get() != nullptr) {
+      expr_results_pool_->free_all();
+  }
   if (agg_fn_pool_.get() != nullptr) agg_fn_pool_->free_all();
   if (mem_pool_.get() != nullptr) mem_pool_->free_all();
   if (ht_ctx_.get() != nullptr) ht_ctx_->Close(state);
