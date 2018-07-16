@@ -538,7 +538,6 @@ add_subdirectory(${SRC_DIR}/exprs)
 add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/testutil)
-add_subdirectory(${SRC_DIR}/rpc)
 
 # Utility CMake function to make specifying tests and benchmarks less verbose
 FUNCTION(ADD_BE_TEST TEST_NAME)
