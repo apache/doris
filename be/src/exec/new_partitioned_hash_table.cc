@@ -236,12 +236,15 @@ bool NewPartitionedHashTableCtx::EvalRow(TupleRow* row, const vector<ExprContext
       expr_values_null[i] = true;
       val = reinterpret_cast<void*>(&NULL_VALUE);
       has_null = true;
+      DCHECK_LE(build_exprs_[i]->type().get_slot_size(),
+          sizeof(NULL_VALUE));
+      RawValue::write(val, loc, build_exprs_[i]->type(), NULL);
     } else {
       expr_values_null[i] = false;
+      DCHECK_LE(build_exprs_[i]->type().get_slot_size(),
+          sizeof(NULL_VALUE));
+      RawValue::write(val, loc, build_exprs_[i]->type(), expr_results_pool_);
     }
-    DCHECK_LE(build_exprs_[i]->type().get_slot_size(),
-        sizeof(NULL_VALUE));
-    RawValue::write(val, loc, build_exprs_[i]->type(), expr_results_pool_);
   }
   return has_null;
 }
