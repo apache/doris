@@ -51,7 +51,7 @@ set(OUTPUT_DIR "${BASE_DIR}/output")
 if (DEFINED ENV{PALO_LLVM_HOME})
     set(LLVM_HOME "$ENV{PALO_LLVM_HOME}")
 else()
-    set(LLVM_HOME "${THIRDPARTY_DIR}")
+    set(LLVM_HOME "${THIRDPARTY_DIR}/llvm")
 endif()
 set(LLVM_BIN "${LLVM_HOME}/bin")
 
@@ -102,7 +102,7 @@ find_package(Boost 1.55.0 REQUIRED COMPONENTS thread regex filesystem system dat
 include_directories(${Boost_INCLUDE_DIRS})
 message(STATUS ${Boost_LIBRARIES})
 
-set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}")
+set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
 # Set all libraries
 add_library(gflags STATIC IMPORTED)
@@ -252,7 +252,7 @@ execute_process(
 #  -fno-omit-frame-pointers: Keep frame pointer for functions in register
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wall -Wno-sign-compare -Wno-unknown-pragmas -pthread")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fno-strict-aliasing -fno-omit-frame-pointer")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++14")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++11")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-deprecated -Wno-vla")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")

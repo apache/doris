@@ -36,7 +36,6 @@ if [ ! -f $curdir/vars.sh ]; then
 fi
 
 export PALO_HOME=$curdir/../
-export GCC_HOME=$curdir/../palo-toolchain/gcc730
 export TP_DIR=$curdir
 
 source $curdir/vars.sh
@@ -50,6 +49,10 @@ fi
 mkdir -p $TP_DIR/src
 mkdir -p $TP_DIR/installed
 export LD_LIBRARY_PATH=$TP_DIR/installed/lib:$LD_LIBRARY_PATH
+
+if [ -f $PALO_HOME/palo-toolchain/gcc730/bin/gcc ]; then
+    export GCC_HOME=$curdir/../palo-toolchain/gcc730
+fi
 export CC=${GCC_HOME}/bin/gcc
 export CPP=${GCC_HOME}/bin/cpp
 export CXX=${GCC_HOME}/bin/g++
@@ -163,15 +166,14 @@ build_python() {
     make -j2 && make install
 }
 
-# openssl
 build_openssl() {
     check_if_source_exist $OPENSSL_SOURCE
     cd $TP_SOURCE_DIR/$OPENSSL_SOURCE
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
+    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
-    ./config --prefix=$TP_INSTALL_DIR -no-shared 
+    ./Configure --prefix=$TP_INSTALL_DIR shared linux-x86_64
     make -j2 && make install
 }
 
@@ -185,12 +187,7 @@ build_thrift() {
     fi
 
     echo ${TP_LIB_DIR}
-    ./configure CPPFLAGS="-I${TP_INCLUDE_DIR}" LDFLAGS="-L${TP_LIB_DIR} -static -static-libstdc++ -static-libgcc" LIBS="-lcrypto -ldl -lssl" CFLAGS="-fPIC" \
-    --prefix=$TP_INSTALL_DIR --docdir=$TP_INSTALL_DIR/doc --enable-static --disable-shared --disable-tests \
-    --disable-tutorial --without-qt4 --without-qt5 --without-csharp --without-erlang --without-nodejs \
-    --without-lua --without-perl --without-php --without-php_extension --without-dart --without-ruby \
-    --without-haskell --without-go --without-haxe --without-d --without-python -without-java --with-cpp \
-    --with-libevent=$TP_INSTALL_DIR --with-boost=$TP_INSTALL_DIR --with-openssl=$TP_INSTALL_DIR
+    ./configure CPPFLAGS="-I${TP_INCLUDE_DIR}" LDFLAGS="-L${TP_LIB_DIR}" LIBS="-lcrypto" CFLAGS="-fPIC" --prefix=$TP_INSTALL_DIR --docdir=$TP_INSTALL_DIR/doc --enable-static --disable-tests --disable-tutorial --without-qt4 --without-qt5 --without-csharp --without-erlang --without-nodejs --without-lua --without-perl --without-php --without-php_extension --without-dart --without-ruby --without-haskell --without-go --without-haxe --without-d --without-python -without-java --with-cpp --with-libevent=$TP_INSTALL_DIR --with-boost=$TP_INSTALL_DIR --with-openssl=$TP_INSTALL_DIR
 
     if [ -f compiler/cpp/thrifty.hh ];then
         mv compiler/cpp/thrifty.hh compiler/cpp/thrifty.h
@@ -238,9 +235,9 @@ build_protobuf() {
     ./configure --prefix=${TP_INSTALL_DIR} --disable-shared --enable-static
     cd src
     sed -i 's/^AM_LDFLAGS\(.*\)$/AM_LDFLAGS\1 -all-static/' Makefile
-    make -j
+    make -j$PARALLEL
     cd -
-    make -j && make install
+    make -j$PARALLEL && make install
 }
 
 # gflags
@@ -362,6 +359,18 @@ build_lzo2() {
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
     ./configure --prefix=$TP_INSTALL_DIR --disable-shared --enable-static
+    make -j$PARALLEL && make install
+}
+
+# ncurses
+build_ncurses() {
+    check_if_source_exist $NCURSES_SOURCE
+    cd $TP_SOURCE_DIR/$NCURSES_SOURCE
+    
+    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
+    LDFLAGS="-L${TP_LIB_DIR}" \
+    CFLAGS="-fPIC" \
+    ./configure --prefix=$TP_INSTALL_DIR
     make -j$PARALLEL && make install
 }
 
@@ -487,7 +496,7 @@ build_ant() {
     export ANT_HOME=$TP_INSTALL_DIR/ant
 }
 
-#build_llvm 
+build_llvm 
 build_libevent
 build_openssl
 build_zlib
@@ -495,6 +504,8 @@ build_lz4
 build_bzip
 build_lzo2
 build_boost # must before thrift
+build_ncurses
+build_llvm
 build_protobuf
 build_gflags
 build_glog

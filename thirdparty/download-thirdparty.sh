@@ -232,27 +232,14 @@ cd -
 echo "Finished patching $LZ4_SOURCE"
 
 #####################################
-# Download and unpack java libraries
+# Copy java libraries
 #####################################
 
-if test "x$REPOSITORY_URL" != x; then
-    echo "===== Downloading java libraries..."
-    cd $TP_DIR
-    DOWNLOAD_URL="${REPOSITORY_URL}/java-libraries.tar.gz"
-    wget --no-check-certificate $DOWNLOAD_URL
-    cd -
-    echo "===== Finish downloading java libraries"
-fi
-
-echo "Begin to unpack java libraries"
-if [ ! -f $TP_DIR/java-libraries.tar.gz ];then
-    echo "java-libraries.tar.gz is mising"
-    exit 1
-fi
+echo "Begin to copy java libraries"
 
 rm -rf $TP_JAR_DIR/*
 mkdir -p $TP_JAR_DIR/
+cp -R $TP_DIR/java-libraries/* $TP_JAR_DIR/
 
-tar xzf $TP_DIR/java-libraries.tar.gz -C $TP_JAR_DIR/
-echo "Finish to unpack java libraries"
+echo "Finish to copy java libraries"
 
