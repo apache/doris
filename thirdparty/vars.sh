@@ -52,9 +52,11 @@ export TP_JAR_DIR=$TP_INSTALL_DIR/lib/jar
 #####################################################
 
 # libevent
-LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.0.21-stable.tar.gz"
-LIBEVENT_NAME=libevent-2.0.21-stable.tar.gz
-LIBEVENT_SOURCE=libevent-2.0.21-stable
+# the last release version of libevent is 2.1.8, which was released on 26 Jan 2017, that is too old.
+# so we use the master version of libevent, which is downloaded on 22 Jun 2018, with commit 24236aed01798303745470e6c498bf606e88724a
+LIBEVENT_DOWNLOAD="http://palo-opensource.gz.bcebos.com/libevent-20180622-24236aed01798303745470e6c498bf606e88724a.zip?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2018-06-22T02%3A37%3A48Z%2F-1%2Fhost%2F031b0cc42ab83ca4e0ec3608cba963e95c1ddc46fc70a14457323e2d7960e6ef"
+LIBEVENT_NAME=libevent-20180622-24236aed01798303745470e6c498bf606e88724a.zip
+LIBEVENT_SOURCE=libevent-master
 
 # openssl
 OPENSSL_DOWNLOAD="https://www.openssl.org/source/openssl-1.0.2k.tar.gz"

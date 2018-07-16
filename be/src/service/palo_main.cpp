@@ -24,7 +24,9 @@
 #include <boost/thread/thread.hpp>
 #include <gperftools/malloc_extension.h>
 
+#if defined(LEAK_SANITIZER)
 #include <sanitizer/lsan_interface.h>
+#endif
 
 #include "common/logging.h"
 #include "common/daemon.h"
