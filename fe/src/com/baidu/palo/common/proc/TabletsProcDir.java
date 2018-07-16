@@ -93,7 +93,7 @@ public class TabletsProcDir implements ProcDirInterface {
                         long backendId = replica.getBackendId();
                         tabletInfo.add(replica.getBackendId());
                         Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendId);
-                        // Maybe get backend dropped when Tablet's replica is not enough
+                        // backend may be dropped concurrently, ignore it.
                         if (backend == null) {
                             continue;
                         }
