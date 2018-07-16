@@ -1293,11 +1293,6 @@ public class SingleNodePlanner {
                     + " is not supported");
             }
 
-            if (innerRef instanceof InlineViewRef) {
-                InlineViewRef inlineView = (InlineViewRef) innerRef;
-                inlineView.getAnalyzer().materializeSlots(inlineView.getViewStmt().getBaseTblResultExprs());
-            } 
-
             // construct cross join node
             LOG.info("Join between " + outerRef.getAliasAsName() + " and " + innerRef.getAliasAsName()
                     + "requires at least one conjunctive equality predicate between the two tables");
