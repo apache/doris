@@ -1676,7 +1676,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     // b. 生成历史数据转换器
     SchemaChange* sc_procedure = NULL;
     if (true == sc_sorting) {
-        size_t memory_limitation = config::memory_limiation_per_thread_for_schema_change;
+        size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
         OLAP_LOG_INFO("doing schema change with sorting.");
         sc_procedure = new(nothrow) SchemaChangeWithSorting(
                                 dest_olap_table,
@@ -1899,7 +1899,7 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
 
     // b. 生成历史数据转换器
     if (true == sc_sorting) {
-        size_t memory_limitation = config::memory_limiation_per_thread_for_schema_change;
+        size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
         OLAP_LOG_INFO("doing schema change with sorting.");
         sc_procedure = new(nothrow) SchemaChangeWithSorting(
                                sc_params->new_olap_table,

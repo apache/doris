@@ -196,8 +196,8 @@ namespace config {
     CONF_Bool(dump_ir, "false");
     // if set, saves the generated IR to the output file.
     CONF_String(module_output, "");
-    // memory_limiation_per_thread_for_schema_change unit GB
-    CONF_Int32(memory_limiation_per_thread_for_schema_change, "2");
+    // memory_limitation_per_thread_for_schema_change unit GB
+    CONF_Int32(memory_limitation_per_thread_for_schema_change, "2");
 
     CONF_Int64(max_unpacked_row_block_size, "104857600");
 
