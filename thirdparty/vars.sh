@@ -28,9 +28,6 @@ PARALLEL=4
 # what you are doing.
 ###################################################
 
-# thirdparty root dir. default is where this script is.
-export TP_DIR=$PALO_HOME/thirdparty
-
 # thirdparties will be downloaded and unpacked here
 export TP_SOURCE_DIR=$TP_DIR/src
 
@@ -55,9 +52,9 @@ export TP_JAR_DIR=$TP_INSTALL_DIR/lib/jar
 #####################################################
 
 # libevent
-LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/releases/download/release-2.1.8-stable/libevent-2.1.8-stable.tar.gz"
-LIBEVENT_NAME=libevent-2.1.8-stable.tar.gz 
-LIBEVENT_SOURCE=libevent-2.1.8-stable
+LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.0.21-stable.tar.gz"
+LIBEVENT_NAME=libevent-2.0.21-stable.tar.gz
+LIBEVENT_SOURCE=libevent-2.0.21-stable
 
 # openssl
 OPENSSL_DOWNLOAD="https://www.openssl.org/source/openssl-1.0.2k.tar.gz"
@@ -85,9 +82,9 @@ COMPILER_RT_NAME=compiler-rt-3.4.src.tar.gz
 COMPILER_RT_SOURCE=compiler-rt-3.4
 
 # protobuf
-PROTOBUF_DOWNLOAD="https://github.com/google/protobuf/releases/download/v2.6.1/protobuf-2.6.1.tar.gz"
-PROTOBUF_NAME=protobuf-2.6.1.tar.gz
-PROTOBUF_SOURCE=protobuf-2.6.1
+PROTOBUF_DOWNLOAD="https://github.com/google/protobuf/archive/v3.5.1.tar.gz"
+PROTOBUF_NAME=protobuf-3.5.1.tar.gz
+PROTOBUF_SOURCE=protobuf-3.5.1
 
 # gflags
 GFLAGS_DOWNLOAD="https://github.com/gflags/gflags/archive/v2.2.0.tar.gz"
@@ -110,9 +107,9 @@ SNAPPY_NAME=snappy-1.1.4.tar.gz
 SNAPPY_SOURCE=snappy-1.1.4
 
 # gperftools
-GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/releases/download/gperftools-2.5.93/gperftools-2.5.93.tar.gz"
-GPERFTOOLS_NAME=gperftools-2.5.93.tar.gz
-GPERFTOOLS_SOURCE=gperftools-2.5.93
+GPERFTOOLS_DOWNLOAD="https://github.com/gperftools/gperftools/archive/gperftools-2.7.tar.gz"
+GPERFTOOLS_NAME=gperftools-2.7.tar.gz
+GPERFTOOLS_SOURCE=gperftools-gperftools-2.7
 
 # zlib
 ZLIB_DOWNLOAD="https://sourceforge.net/projects/libpng/files/zlib/1.2.11/zlib-1.2.11.tar.gz"
@@ -138,11 +135,6 @@ LZO2_SOURCE=lzo2-master
 RAPIDJSON_DOWNLOAD="https://github.com/miloyip/rapidjson/archive/v1.1.0.tar.gz"
 RAPIDJSON_NAME=rapidjson-1.1.0.tar.gz
 RAPIDJSON_SOURCE=rapidjson-1.1.0
-
-# ncurses
-NCURSES_DOWNLOAD="https://ftp.gnu.org/gnu/ncurses/ncurses-6.0.tar.gz"
-NCURSES_NAME=ncurses-6.0.tar.gz
-NCURSES_SOURCE=ncurses-6.0
 
 # curl
 CURL_DOWNLOAD="https://curl.haxx.se/download/curl-7.54.0.tar.gz"
@@ -179,5 +171,15 @@ BRPC_DOWNLOAD="https://github.com/brpc/brpc/archive/v0.9.0.tar.gz"
 BRPC_NAME=brpc-0.9.0.tar.gz
 BRPC_SOURCE=brpc-0.9.0
 
+# JDK
+JDK_DOWNLOAD="http://mirror.cnop.net/jdk/linux/jdk-8u131-linux-x64.tar.gz"
+JDK_NAME=jdk-8u131-linux-x64.tar.gz
+JDK_SOURCE=jdk1.8.0_131
+
+# ant
+ANT_DOWNLOAD="https://archive.apache.org/dist/ant/binaries/apache-ant-1.7.0-bin.tar.gz"
+ANT_NAME=apache-ant-1.7.0-bin.tar.gz
+ANT_SOURCE=apache-ant-1.7.0
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
-export TP_ARCHIVES=(LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 NCURSES CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL LEVELDB BRPC)
+export TP_ARCHIVES="LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL LEVELDB BRPC JDK ANT"

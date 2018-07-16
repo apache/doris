@@ -14,7 +14,6 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-
 set -e
 
 ################################################################
@@ -26,13 +25,13 @@ set -e
 
 curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
+REPOSITORY_URL=$1
 
 export PALO_HOME=$curdir/../
 source $curdir/vars.sh
 
 mkdir -p $TP_DIR/src
 mkdir -p $TP_DIR/installed
-mkdir -p $TP_DIR/installed/jar/
 
 download() {
     local FILENAME=$1
@@ -82,9 +81,14 @@ download() {
 echo "===== Downloading thirdparty archives..."
 for TP_ARCH in ${TP_ARCHIVES[*]}
 do
-    URL=$TP_ARCH"_DOWNLOAD"
     NAME=$TP_ARCH"_NAME"
-    download ${!NAME} ${!URL} $TP_SOURCE_DIR
+    if test "x$REPOSITORY_URL" = x; then
+        URL=$TP_ARCH"_DOWNLOAD"
+        download ${!NAME} ${!URL} $TP_SOURCE_DIR
+    else
+        URL="${REPOSITORY_URL}/${!NAME}"
+        download ${!NAME} ${URL} $TP_SOURCE_DIR
+    fi
 done
 echo "===== Downloading thirdparty archives...done"
 
@@ -104,6 +108,9 @@ echo "===== Checking all thirdpart archives...done"
 echo "===== Unpacking all thirdparty archives..."
 TAR_CMD="tar"
 UNZIP_CMD="unzip"
+SUFFIX_TGZ="\.(tar\.gz|tgz)$"
+SUFFIX_XZ="\.tar\.xz$"
+SUFFIX_ZIP="\.zip$"
 for TP_ARCH in ${TP_ARCHIVES[*]}
 do
     NAME=$TP_ARCH"_NAME"
@@ -114,14 +121,21 @@ do
     fi
 
     if [ ! -d $TP_SOURCE_DIR/${!SOURCE} ]; then
-        if [[ "${!NAME}" =~ \.(tar\.gz|tgz)$  ]]; then
+        if [[ "${!NAME}" =~ $SUFFIX_TGZ  ]]; then
             echo "$TP_SOURCE_DIR/${!NAME}"
             echo "$TP_SOURCE_DIR/${!SOURCE}"
             if ! $TAR_CMD xzf "$TP_SOURCE_DIR/${!NAME}" -C "$TP_SOURCE_DIR/"; then
                 echo "Failed to untar ${!NAME}"
                 exit 1
             fi
-        elif [[ "${!NAME}" =~ \.zip$ ]]; then
+        elif [[ "${!NAME}" =~ $SUFFIX_XZ ]]; then
+            echo "$TP_SOURCE_DIR/${!NAME}"
+            echo "$TP_SOURCE_DIR/${!SOURCE}"
+            if ! $TAR_CMD xJf "$TP_SOURCE_DIR/${!NAME}" -C "$TP_SOURCE_DIR/"; then
+                echo "Failed to untar ${!NAME}"
+                exit 1
+            fi
+        elif [[ "${!NAME}" =~ $SUFFIX_ZIP ]]; then
             if ! $UNZIP_CMD "$TP_SOURCE_DIR/${!NAME}" -d "$TP_SOURCE_DIR/"; then
                 echo "Failed to unzip ${!NAME}"
                 exit 1
@@ -153,15 +167,6 @@ fi
 cd -
 echo "Finished patching $GLOG_SOURCE"
 
-# ncurses patch
-cd $TP_SOURCE_DIR/$NCURSES_SOURCE
-if [ ! -f $PATCHED_MARK ]; then
-    patch -p0 < $TP_PATCH_DIR/ncurses-6.0.patch 
-    touch $PATCHED_MARK
-fi
-cd -
-echo "Finished patching $NCURSES_SOURCE"
-
 # re2 patch
 cd $TP_SOURCE_DIR/$RE2_SOURCE
 if [ ! -f $PATCHED_MARK ]; then
@@ -180,36 +185,74 @@ fi
 cd -
 echo "Finished patching $MYSQL_SOURCE"
 
-##########################
-# Download java libraries
-##########################
+# libevent patch
+cd $TP_SOURCE_DIR/$LIBEVENT_SOURCE
+if [ ! -f $PATCHED_MARK ]; then
+    patch -p1 < $TP_PATCH_DIR/libevent_on_free_cb.patch
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $LIBEVENT_SOURCE"
 
-# create download dir first
-mkdir -p $TP_JAR_DIR
+# thrift patch
+cd $TP_SOURCE_DIR/$THRIFT_SOURCE
+if [ ! -f $PATCHED_MARK ]; then
+    patch -p0 < $TP_PATCH_DIR/thrift-0.9.3-aclocal.patch
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $THRIFT_SOURCE"
 
-echo "===== Downloading java libraries..."
-for TP_JAR in ${TP_JARS[*]}
-do
-    URL=$TP_JAR"_DOWNLOAD"
-    NAME=$TP_JAR"_NAME"
-    download ${!NAME} ${!URL} $TP_JAR_DIR
-
-    if [ "$TP_JAR"x == "KUDU"x ];then
-        # unzip kudu
-        tar xzf $TP_JAR_DIR/$KUDU_NAME -C $TP_JAR_DIR/
+if test "x$REPOSITORY_URL" != x; then
+    cd $TP_SOURCE_DIR/$COMPILER_RT_SOURCE
+    if [ ! -f $PATCHED_MARK ]; then
+        patch -p0 < $TP_PATCH_DIR/compiler-rt.patch
+        touch $PATCHED_MARK
     fi
-done
-echo "===== Downloading java libraries...done"
+    cd -
+    echo "Finished patching $COMPILER_RT_SOURCE"
+fi
 
-# check if all java libraries exist
-echo "===== Checking all java libraries..."
-for TP_JAR in ${TP_JARS[*]}
-do
-    NAME=$TP_JAR"_NAME"
-    if [ ! -r $TP_JAR_DIR/${!NAME} ]; then
-        echo "Failed to fetch ${!NAME}"
-        exit 1
-    fi
-done
-echo "===== Checking all java libraries...done"
-echo "===== Finish downloading all thirdparties"
+# lz4 patch to disable shared library
+cd $TP_SOURCE_DIR/$LZ4_SOURCE
+if [ ! -f $PATCHED_MARK ]; then
+    patch -p0 < $TP_PATCH_DIR/lz4-1.7.5.patch
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $LZ4_SOURCE"
+
+# brpc patch to disable shared library
+cd $TP_SOURCE_DIR/$BRPC_SOURCE
+if [ ! -f $PATCHED_MARK ]; then
+    patch -p0 < $TP_PATCH_DIR/brpc-0.9.0.patch
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $LZ4_SOURCE"
+
+#####################################
+# Download and unpack java libraries
+#####################################
+
+if test "x$REPOSITORY_URL" != x; then
+    echo "===== Downloading java libraries..."
+    cd $TP_DIR
+    DOWNLOAD_URL="${REPOSITORY_URL}/java-libraries.tar.gz"
+    wget --no-check-certificate $DOWNLOAD_URL
+    cd -
+    echo "===== Finish downloading java libraries"
+fi
+
+echo "Begin to unpack java libraries"
+if [ ! -f $TP_DIR/java-libraries.tar.gz ];then
+    echo "java-libraries.tar.gz is mising"
+    exit 1
+fi
+
+rm -rf $TP_JAR_DIR/*
+mkdir -p $TP_JAR_DIR/
+
+tar xzf $TP_DIR/java-libraries.tar.gz -C $TP_JAR_DIR/
+echo "Finish to unpack java libraries"
+
