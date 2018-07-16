@@ -416,6 +416,9 @@ Status DataStreamSender::prepare(RuntimeState* state) {
         profile()->add_derived_counter("OverallThroughput", TUnit::BYTES_PER_SECOND,
         boost::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
                                              profile()->total_time_counter()), "");
+    for (int i = 0; i < _channels.size(); ++i) {
+        RETURN_IF_ERROR(_channels[i]->init(state));
+    }
 
     return Status::OK;
 }
