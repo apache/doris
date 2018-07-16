@@ -45,4 +45,8 @@ Status BRpcService::start(int port) {
     return Status::OK;
 }
 
+void BRpcService::join() {
+    _server->Join();
+}
+
 }

@@ -29,7 +29,6 @@ namespace config {
     CONF_Int32(cluster_id, "-1");
     // port on which ImpalaInternalService is exported
     CONF_Int32(be_port, "9060");
-    CONF_Int32(be_rpc_port, "10060");
 
     // port for brpc
     CONF_Int32(brpc_port, "8060");
@@ -250,13 +249,6 @@ namespace config {
     CONF_Int32(webserver_num_workers, "5");
     // If true, webserver may serve static files from the webserver_doc_root
     CONF_Bool(enable_webserver_doc_root, "true");
-    // The number of times to retry connecting to an RPC server. If zero or less,
-    // connections will be retried until successful
-    CONF_Int32(rpc_retry_times, "10");
-    // The interval, in ms, between retrying connections to an RPC server
-    CONF_Int32(rpc_retry_interval_ms, "30000");
-    //reactor number
-    CONF_Int32(rpc_reactor_threads, "10")
     // Period to update rate counters and sampling counters in ms.
     CONF_Int32(periodic_counter_update_period_ms, "500");
 

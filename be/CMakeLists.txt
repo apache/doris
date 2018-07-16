@@ -443,7 +443,6 @@ set(PALO_LINK_LIBS
     Gutil
     Olap
     Runtime
-    RPC
     Service
     Udf
     Util

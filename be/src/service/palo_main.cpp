@@ -49,8 +49,6 @@
 #include "common/resource_tls.h"
 #include "exec/schema_scanner/frontend_helper.h"
 
-#include "rpc/reactor_factory.h"
-
 static void help(const char*);
 
 #include <dlfcn.h>
@@ -138,13 +136,6 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    status = palo::BackendService::create_rpc_service(&exec_env);
-    if (!status.ok()) {
-        LOG(ERROR) << "Palo Be services did not start correctly, exiting";
-        palo::shutdown_logging();
-        exit(1);
-    }
-
     palo::BRpcService brpc_service(&exec_env);
     status = brpc_service.start(palo::config::brpc_port);
     if (!status.ok()) {
@@ -190,8 +181,7 @@ int main(int argc, char** argv) {
         sleep(10);
     }
 #endif
-
-    palo::ReactorFactory::join();
+    brpc_service.join();
 
     delete be_server;
     return 0;

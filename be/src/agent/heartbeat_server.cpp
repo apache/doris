@@ -118,7 +118,7 @@ void HeartbeatServer::heartbeat(
     if (status == PALO_SUCCESS) {
         backend_info.__set_be_port(config::be_port);
         backend_info.__set_http_port(config::webserver_port);
-        backend_info.__set_be_rpc_port(config::be_rpc_port);
+        backend_info.__set_be_rpc_port(-1);
         backend_info.__set_brpc_port(config::brpc_port);
     } else {
         status_code = TStatusCode::RUNTIME_ERROR;

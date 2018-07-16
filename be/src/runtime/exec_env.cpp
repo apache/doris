@@ -25,7 +25,6 @@
 #include <boost/algorithm/string.hpp>
 
 #include "common/logging.h"
-#include "rpc/connection_manager.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/client_cache.h"
@@ -132,9 +131,6 @@ Status ExecEnv::init_for_tests() {
 
 Status ExecEnv::start_services() {
     LOG(INFO) << "Starting global services";
-
-    //create connection manger
-    _conn_mgr = std::make_shared<ConnectionManager>();
 
     // Initialize global memory limit.
     int64_t bytes_limit = 0;

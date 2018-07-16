@@ -57,7 +57,6 @@ class BrokerMgr;
 class MetricRegistry;
 class BufferPool;
 class ReservationTracker;
-class ConnectionManager;
 class BrpcStubCache;
 
 // Execution environment for queries/plan fragments.
@@ -154,10 +153,6 @@ public:
         return _brpc_stub_cache.get();
     }
 
-    std::shared_ptr<ConnectionManager> get_conn_manager() {
-        return _conn_mgr;
-    }
-
     void set_enable_webserver(bool enable) {
         _enable_webserver = enable;
     }
@@ -207,13 +202,6 @@ private:
 
     boost::scoped_ptr<ReservationTracker> _buffer_reservation;
     boost::scoped_ptr<BufferPool> _buffer_pool;
-
-    /*
-    Comm* comm;
-    DispatchHandlerPtr dhp;
-    ApplicationQueue *app_queue;
-    */
-    std::shared_ptr<ConnectionManager> _conn_mgr;
 
     ObjectPool _object_pool;
 private:
