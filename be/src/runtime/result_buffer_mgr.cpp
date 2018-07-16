@@ -101,6 +101,7 @@ void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* c
     if (cb == nullptr) {
         LOG(WARNING) << "no result for this query, id=" << tid;
         ctx->on_failure(Status("no result for this query"));
+        return;
     }
     cb->get_batch(ctx);
 }
