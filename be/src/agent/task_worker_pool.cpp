@@ -39,6 +39,7 @@
 #include "common/resource_tls.h"
 #include "agent/cgroups_mgr.h"
 #include "service/backend_options.h"
+#include "util/palo_metrics.h"
 
 using std::deque;
 using std::list;
@@ -284,12 +285,14 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
     int32_t try_time = 0;
 
     while (try_time < TASK_FINISH_MAX_RETRY) {
+        PaloMetrics::finish_task_requests_total.increment(1);
         AgentStatus client_status = _master_client->finish_task(finish_task_request, &result);
 
         if (client_status == PALO_SUCCESS) {
             OLAP_LOG_INFO("finish task success.result: %d", result.status.status_code);
             break;
         } else {
+            PaloMetrics::finish_task_requests_failed.increment(1);
             OLAP_LOG_WARNING("finish task failed.result: %d", result.status.status_code);
             try_time += 1;
         }
@@ -818,6 +821,8 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
             clone_req = agent_task_req.clone_req;
             worker_pool_this->_tasks.pop_front();
         }
+
+        PaloMetrics::clone_requests_total.increment(1);
         // Try to register to cgroups_mgr
         CgroupsMgr::apply_system_cgroup();
         OLAP_LOG_INFO("get clone task. signature: %ld", agent_task_req.signature);
@@ -971,6 +976,7 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
 
         TStatusCode::type status_code = TStatusCode::OK;
         if (status != PALO_SUCCESS && status != PALO_CREATE_TABLE_EXIST) {
+            PaloMetrics::clone_requests_failed.increment(1);
             status_code = TStatusCode::RUNTIME_ERROR;
             OLAP_LOG_WARNING("clone failed. signature: %ld",
                              agent_task_req.signature);
@@ -1506,6 +1512,8 @@ void* TaskWorkerPool::_report_task_worker_thread_callback(void* arg_this) {
         OLAP_LOG_INFO("master host: %s, port: %d",
                       worker_pool_this->_master_info.network_address.hostname.c_str(),
                       worker_pool_this->_master_info.network_address.port);
+
+        PaloMetrics::report_task_requests_total.increment(1);
         TMasterResult result;
         AgentStatus status = worker_pool_this->_master_client->report(request, &result);
 
@@ -1513,6 +1521,7 @@ void* TaskWorkerPool::_report_task_worker_thread_callback(void* arg_this) {
             OLAP_LOG_INFO("finish report task success. return code: %d",
                           result.status.status_code);
         } else {
+            PaloMetrics::report_task_requests_failed.increment(1);
             OLAP_LOG_WARNING("finish report task failed. status: %d", status);
         }
 
@@ -1557,6 +1566,7 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
         }
         request.__set_disks(disks);
 
+        PaloMetrics::report_disk_requests_total.increment(1);
         TMasterResult result;
         AgentStatus status = worker_pool_this->_master_client->report(request, &result);
 
@@ -1564,6 +1574,7 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
             OLAP_LOG_INFO("finish report disk state success. return code: %d",
                           result.status.status_code);
         } else {
+            PaloMetrics::report_disk_requests_failed.increment(1);
             OLAP_LOG_WARNING("finish report disk state failed. status: %d", status);
         }
 
@@ -1631,6 +1642,7 @@ void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) 
             OLAP_LOG_INFO("finish report olap table success. return code: %d",
                           result.status.status_code);
         } else {
+            PaloMetrics::report_all_tablets_requests_failed.increment(1);
             OLAP_LOG_WARNING("finish report olap table failed. status: %d", status);
         }
 
