@@ -180,6 +180,7 @@ void DownloadAction::do_file_response(const std::string& file_path, HttpRequest 
     req->add_output_header(HttpHeaders::CONTENT_TYPE, get_content_type(file_path).c_str());
 
     if (req->method() == HttpMethod::HEAD) {
+        close(fd);
         req->add_output_header(HttpHeaders::CONTENT_LENGTH,
                                boost::lexical_cast<std::string>(file_size).c_str());
         HttpChannel::send_reply(req);
