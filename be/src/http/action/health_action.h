@@ -29,7 +29,7 @@ public:
 
     virtual ~HealthAction() {};
 
-    virtual void handle(HttpRequest *req, HttpChannel *channel);
+    void handle(HttpRequest *req) override;
 
 private:
     ExecEnv* _exec_env;

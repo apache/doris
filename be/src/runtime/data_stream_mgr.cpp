@@ -31,9 +31,6 @@
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 
-#include "rpc/comm.h"
-#include "rpc/comm_buf.h"
-
 #include "gen_cpp/types.pb.h" // PUniqueId
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/PaloInternalService_types.h"
@@ -97,28 +94,6 @@ shared_ptr<DataStreamRecvr> DataStreamMgr::find_recvr(
         _lock.unlock();
     }
     return shared_ptr<DataStreamRecvr>();
-}
-
-Status DataStreamMgr::add_data(
-        const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-        const TRowBatch& thrift_batch, int sender_id, bool* buffer_overflow,
-        std::pair<InetAddr, CommBufPtr> response) {
-    VLOG_ROW << "add_data(): fragment_instance_id=" << fragment_instance_id
-            << " node=" << dest_node_id
-            << " size=" << RowBatch::get_batch_size(thrift_batch);
-    shared_ptr<DataStreamRecvr> recvr = find_recvr(fragment_instance_id, dest_node_id);
-    if (recvr == NULL) {
-        // The receiver may remove itself from the receiver map via deregister_recvr()
-        // at any time without considering the remaining number of senders.
-        // As a consequence, find_recvr() may return an innocuous NULL if a thread
-        // calling deregister_recvr() beat the thread calling find_recvr()
-        // in acquiring _lock.
-        // TODO: Rethink the lifecycle of DataStreamRecvr to distinguish
-        // errors from receiver-initiated teardowns.
-        return Status::OK;
-    }
-    recvr->add_batch(thrift_batch, sender_id, buffer_overflow, response);
-    return Status::OK;
 }
 
 Status DataStreamMgr::add_data(

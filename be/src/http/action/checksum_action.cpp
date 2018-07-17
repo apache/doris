@@ -41,7 +41,7 @@ ChecksumAction::ChecksumAction(ExecEnv* exec_env) :
     _command_executor = new CommandExecutor();
 }
 
-void ChecksumAction::handle(HttpRequest *req, HttpChannel *channel) {
+void ChecksumAction::handle(HttpRequest *req) {
     LOG(INFO) << "accept one request " << req->debug_string();
 
     // add tid to cgroup in order to limit read bandwidth
@@ -51,8 +51,8 @@ void ChecksumAction::handle(HttpRequest *req, HttpChannel *channel) {
     if (tablet_id_str.empty()) {
         std::string error_msg = std::string(
                 "parameter " + TABLET_ID + " not specified in url.");
-        HttpResponse response(HttpStatus::BAD_REQUEST, &error_msg);
-        channel->send_response(response);
+
+        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error_msg);
         return;
     }
 
@@ -61,8 +61,7 @@ void ChecksumAction::handle(HttpRequest *req, HttpChannel *channel) {
     if (version_str.empty()) {
         std::string error_msg = std::string(
                 "parameter " + TABLET_VERSION + " not specified in url.");
-        HttpResponse response(HttpStatus::BAD_REQUEST, &error_msg);
-        channel->send_response(response);
+        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error_msg);
         return;
     }
 
@@ -71,8 +70,7 @@ void ChecksumAction::handle(HttpRequest *req, HttpChannel *channel) {
     if (version_hash_str.empty()) {
         std::string error_msg = std::string(
                 "parameter " + VERSION_HASH + " not specified in url.");
-        HttpResponse response(HttpStatus::BAD_REQUEST, &error_msg);
-        channel->send_response(response);
+        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error_msg);
         return;
     }
 
@@ -81,8 +79,7 @@ void ChecksumAction::handle(HttpRequest *req, HttpChannel *channel) {
     if (schema_hash_str.empty()) {
         std::string error_msg = std::string(
                 "parameter " + SCHEMA_HASH + " not specified in url.");
-        HttpResponse response(HttpStatus::BAD_REQUEST, &error_msg);
-        channel->send_response(response);
+        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error_msg);
         return;
     }
 
@@ -98,33 +95,30 @@ void ChecksumAction::handle(HttpRequest *req, HttpChannel *channel) {
         schema_hash = boost::lexical_cast<int64_t>(schema_hash_str);
     } catch (boost::bad_lexical_cast& e) {
         std::string error_msg = std::string("param format is invalid: ") + std::string(e.what());
-        HttpResponse response(HttpStatus::BAD_REQUEST, &error_msg);
-        channel->send_response(response);
+        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error_msg);
         return;
     }
 
     VLOG_ROW << "get checksum tablet info: " << tablet_id << "-"
              << version << "-" << version_hash << "-" << schema_hash;
 
-    int64_t checksum = do_checksum(tablet_id, version, version_hash, schema_hash, req, channel);
+    int64_t checksum = do_checksum(tablet_id, version, version_hash, schema_hash, req);
     if (checksum == -1L) {
         std::string error_msg = std::string("checksum failed");
-        HttpResponse response(HttpStatus::INTERNAL_SERVER_ERROR, &error_msg);
-        channel->send_response(response);
+        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, error_msg);
         return;
     } else {
         std::stringstream result;
         result << checksum;
         std::string result_str = result.str();
-        HttpResponse response(HttpStatus::OK, &result_str);
-        channel->send_response(response);
+        HttpChannel::send_reply(req, result_str);
     }
 
     LOG(INFO) << "deal with checksum request finished! tablet id: " << tablet_id;
 }
 
 int64_t ChecksumAction::do_checksum(int64_t tablet_id, int64_t version, int64_t version_hash,
-        int32_t schema_hash, HttpRequest *req, HttpChannel *channel) {
+        int32_t schema_hash, HttpRequest *req) {
 
     OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
     uint32_t checksum;

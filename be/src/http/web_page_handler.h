@@ -28,7 +28,7 @@
 
 namespace palo {
 
-class Webserver;
+class EvHttpServer;
 
 // This a handler for webpage request
 // and this handler manage all the page handler
@@ -37,12 +37,12 @@ public:
     typedef std::map<std::string, std::string> ArgumentMap;
     typedef boost::function<void (const ArgumentMap& args, std::stringstream* output)> 
             PageHandlerCallback;
-    WebPageHandler(Webserver* webserver);
+    WebPageHandler(EvHttpServer* http_server);
 
     virtual ~WebPageHandler() {
     }
 
-    virtual void handle(HttpRequest *req, HttpChannel *channel);
+    void handle(HttpRequest *req) override;
 
     // Just use old code
     void register_page(const std::string& path, const PageHandlerCallback& callback);
@@ -65,7 +65,7 @@ private:
         std::vector<PageHandlerCallback> _callbacks;
     };
 
-    Webserver* _web_server;
+    EvHttpServer* _http_server;
     // Lock guarding the _path_handlers map
     boost::mutex _map_lock;
     // Map of path to a PathHandler containing a list of handlers for that

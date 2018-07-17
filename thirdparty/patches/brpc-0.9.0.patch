@@ -1,0 +1,16 @@
+--- src/CMakeLists.txt
++++ src/CMakeLists.txt
+@@ -46,11 +46,13 @@ endif()
+ 
+ #install directory
+ # cmake -DCMAKE_INSTALL_PREFIX=/usr
++if(BUILD_SHARED_LIBS)
+ install(TARGETS brpc-shared
+         RUNTIME DESTINATION bin
+         LIBRARY DESTINATION lib${LIBSUFFIX}
+         ARCHIVE DESTINATION lib${LIBSUFFIX}
+         )
++endif()
+ 
+ install(TARGETS brpc-static
+         RUNTIME DESTINATION bin

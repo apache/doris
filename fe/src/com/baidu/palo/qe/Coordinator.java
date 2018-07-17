@@ -18,9 +18,9 @@ package com.baidu.palo.qe;
 import com.baidu.palo.analysis.Analyzer;
 import com.baidu.palo.analysis.DescriptorTable;
 import com.baidu.palo.catalog.Catalog;
-import com.baidu.palo.common.ClientPool;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.Pair;
 import com.baidu.palo.common.Reference;
 import com.baidu.palo.common.Status;
 import com.baidu.palo.common.util.DebugUtil;
@@ -39,25 +39,20 @@ import com.baidu.palo.planner.Planner;
 import com.baidu.palo.planner.ResultSink;
 import com.baidu.palo.planner.ScanNode;
 import com.baidu.palo.planner.UnionNode;
+import com.baidu.palo.rpc.BackendServiceProxy;
+import com.baidu.palo.rpc.PExecPlanFragmentResult;
+import com.baidu.palo.rpc.RpcException;
 import com.baidu.palo.service.FrontendOptions;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.task.LoadEtlTask;
-import com.baidu.palo.thrift.BackendService;
-import com.baidu.palo.thrift.PaloInternalServiceConstants;
 import com.baidu.palo.thrift.PaloInternalServiceVersion;
-import com.baidu.palo.thrift.TCancelPlanFragmentParams;
-import com.baidu.palo.thrift.TCancelPlanFragmentResult;
 import com.baidu.palo.thrift.TDescriptorTable;
 import com.baidu.palo.thrift.TExecPlanFragmentParams;
-import com.baidu.palo.thrift.TExecPlanFragmentResult;
 import com.baidu.palo.thrift.TNetworkAddress;
 import com.baidu.palo.thrift.TPaloScanRange;
 import com.baidu.palo.thrift.TPartitionType;
-import com.baidu.palo.thrift.TPlan;
 import com.baidu.palo.thrift.TPlanFragmentDestination;
 import com.baidu.palo.thrift.TPlanFragmentExecParams;
-import com.baidu.palo.thrift.TPlanNode;
-import com.baidu.palo.thrift.TPlanNodeType;
 import com.baidu.palo.thrift.TQueryGlobals;
 import com.baidu.palo.thrift.TQueryOptions;
 import com.baidu.palo.thrift.TQueryType;
@@ -77,17 +72,14 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
-import org.apache.thrift.transport.TTransportException;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -96,9 +88,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -335,32 +328,6 @@ public class Coordinator {
         LOG.info(sb.toString());
     }
 
-    private class ExecStatus {
-        private TStatusCode errCode;
-        private TNetworkAddress errAddress;
-
-        public synchronized TStatusCode getErrCode() {
-            return errCode;
-        }
-
-        public synchronized void setErrCode(TStatusCode errCode) {
-            this.errCode = errCode;
-        }
-
-        public synchronized TNetworkAddress getErrAddress() {
-            return errAddress;
-        }
-
-        public synchronized void setErrAddress(TNetworkAddress errAddress) {
-            this.errAddress = errAddress;
-        }
-
-        public ExecStatus() {
-            this.errCode = TStatusCode.OK;
-            this.errAddress = new TNetworkAddress();
-        }
-    }
-
     // Initiate asynchronous execution of query. Returns as soon as all plan fragments
     // have started executing at their respective backends.
     // 'Request' must contain at least a coordinator plan fragment (ie, can't
@@ -394,10 +361,10 @@ public class Coordinator {
         PlanFragmentId topId = fragments.get(0).getFragmentId();
         FragmentExecParams topParams = fragmentExecParamsMap.get(topId);
         if (topParams.fragment.getSink() instanceof ResultSink) {
-            TPlanFragmentDestination rootSource = new TPlanFragmentDestination();
-            rootSource.fragment_instance_id = topParams.instanceExecParams.get(0).instanceId;
-            rootSource.server = topParams.instanceExecParams.get(0).host;
-            receiver = new ResultReceiver(rootSource, addressToBackendID.get(rootSource.server),
+            receiver = new ResultReceiver(
+                    topParams.instanceExecParams.get(0).instanceId,
+                    addressToBackendID.get(topParams.instanceExecParams.get(0).host),
+                    toBrpcHost(topParams.instanceExecParams.get(0).host),
                     queryOptions.query_timeout * 1000);
         } else {
             // This is a insert statement.
@@ -422,6 +389,7 @@ public class Coordinator {
                 int instanceNum = params.instanceExecParams.size();
                 Preconditions.checkState(instanceNum > 0);
                 List<TExecPlanFragmentParams> tParams = params.toThrift(backendId);
+                List<Pair<BackendExecState, Future<PExecPlanFragmentResult>>> futures = Lists.newArrayList();
                 int instanceId = 0;
                 for (TExecPlanFragmentParams tParam : tParams) {
                     // TODO: pool of pre-formatted BackendExecStates?
@@ -430,23 +398,50 @@ public class Coordinator {
                                     profileFragmentId, tParam, this.addressToBackendID);
                     backendExecStates.add(execState);
                     backendExecStateMap.put(tParam.params.getFragment_instance_id(), execState);
+
+                    futures.add(Pair.create(execState, execState.execRemoteFragmentAsync()));
+
                     backendId++;
                 }
-                // Issue all rpcs in parallel
-                ExecStatus status = new ExecStatus();
-                ParallelExecutor.exec(backendExecStates, backendId - instanceNum, instanceNum, status);
-                if (status.getErrCode() != TStatusCode.OK) {
-                    String errMsg = "exec rpc error";
-                    queryStatus.setStatus(errMsg);
-                    LOG.warn("ParallelExecutor exec rpc error, fragmentId={} errBackend={}",
-                            fragment.getFragmentId(), status.getErrAddress());
-                    cancelInternal(); // err msg: rpc exec error
-                    if (status.getErrCode() == TStatusCode.TIMEOUT) {
-                        throw new InternalException(errMsg + " TIMEOUT");
-                    } else if (status.getErrCode() == TStatusCode.THRIFT_RPC_ERROR) {
-                        throw new TTransportException(errMsg + " THRIFT_RPC_ERROR");
-                    } else {
-                        throw new InternalException(errMsg + "UNKONWN");
+
+                for (Pair<BackendExecState, Future<PExecPlanFragmentResult>> pair : futures) {
+                    TStatusCode code = TStatusCode.INTERNAL_ERROR;
+                    String errMsg = null;
+                    try {
+                        PExecPlanFragmentResult result = pair.second.get(5, TimeUnit.SECONDS);
+                        code = TStatusCode.findByValue(result.status.code);
+                        if (result.status.msgs != null && !result.status.msgs.isEmpty()) {
+                            errMsg = result.status.msgs.get(0);
+                        }
+                    } catch (ExecutionException e) {
+                        LOG.warn("catch a execute exception", e);
+                        code = TStatusCode.THRIFT_RPC_ERROR;
+                    } catch (InterruptedException e) {
+                        LOG.warn("catch a interrupt exception", e);
+                        code = TStatusCode.INTERNAL_ERROR;
+                    } catch (TimeoutException e) {
+                        LOG.warn("catch a timeout exception", e);
+                        code = TStatusCode.TIMEOUT;
+                    }
+
+                    if (code != TStatusCode.OK) {
+                        if (errMsg == null) {
+                            errMsg = "exec rpc error";
+                        }
+                        queryStatus.setStatus(errMsg);
+                        LOG.warn("exec plan fragment failed, errmsg={}, fragmentId={}, backend={}:{}",
+                                errMsg, fragment.getFragmentId(),
+                                pair.first.address.hostname, pair.first.address.port);
+                        cancelInternal();
+                        switch (code) {
+                            case TIMEOUT:
+                                throw new InternalException("query timeout");
+                            case THRIFT_RPC_ERROR:
+                                SimpleScheduler.updateBlacklistBackends(pair.first.systemBackendId);
+                                throw new RpcException("rpc failed");
+                            default:
+                                throw new InternalException(errMsg);
+                        }
                     }
                 }
                 profileFragmentId += 1;
@@ -562,7 +557,7 @@ public class Coordinator {
                 copyStatus.rewriteErrorMsg();
             }
             if (copyStatus.isRpcError()) {
-                throw new TTransportException(copyStatus.getErrorMsg());
+                throw new RpcException(copyStatus.getErrorMsg());
             } else {
 
                 String errMsg = copyStatus.getErrorMsg();
@@ -617,19 +612,15 @@ public class Coordinator {
         if (null != receiver) {
             receiver.cancel();
         }
-        cancelRemoteFragments();
+        cancelRemoteFragmentsAsync();
     }
 
-    private void cancelRemoteFragments() {
+    private void cancelRemoteFragmentsAsync() {
         for (BackendExecState backendExecState : backendExecStates) {
             LOG.warn("cancelRemoteFragments initiated={} done={} hasCanceled={}",
-                backendExecState.initiated, backendExecState.done, backendExecState.hasCanceled);
-            BackendService.Client client = null;
-            TNetworkAddress address = null;
-            boolean isReturnToPool = false;
+                    backendExecState.initiated, backendExecState.done, backendExecState.hasCanceled);
+            backendExecState.lock();
             try {
-                backendExecState.lock();
-
                 if (!backendExecState.initiated) {
                     continue;
                 }
@@ -640,66 +631,31 @@ public class Coordinator {
                 if (backendExecState.hasCanceled) {
                     continue;
                 }
-                TCancelPlanFragmentResult thriftResult = null;
-                TCancelPlanFragmentParams rpcParams = new TCancelPlanFragmentParams();
-                rpcParams.setProtocol_version(PaloInternalServiceVersion.V1);
-                rpcParams.setFragment_instance_id(backendExecState.getFragmentInstanceId());
-                int cancelTimeoutMs = 5 * 1000;
+                TNetworkAddress address = backendExecState.getBackendAddress();
+                TNetworkAddress brcAddress = toBrpcHost(address);
+
+                LOG.info("cancelRemoteFragments ip={} port={} rpcParams={}", address.hostname, address.port,
+                        DebugUtil.printId(backendExecState.getFragmentInstanceId()));
+
                 try {
-                    address = backendExecState.getBackendAddress();
-                    client = ClientPool.backendPool.borrowObject(address,
-                            cancelTimeoutMs);
-                    LOG.info("cancelRemoteFragments ip={} port={} rpcParams={}", address.hostname, address.port,
-                            DebugUtil.printId(rpcParams.fragment_instance_id));
-                    thriftResult = client.cancel_plan_fragment(rpcParams);
-                    if (thriftResult.status.status_code == TStatusCode.OK) {
-                        backendExecState.hasCanceled = true;
-                    }
-                    isReturnToPool = true;
-                } catch (TTransportException e) {
-                    LOG.warn("cancelRemoteFragments ip={} port={}", address.hostname, address.port);
-                    LOG.warn("", e);
-                    // retry
-                    boolean ok = false;
-                    if (client == null) {
-                        client = ClientPool.backendPool.borrowObject(address, cancelTimeoutMs);
-                        ok = true;
-                    } else {
-                        ok = ClientPool.backendPool.reopen(client,
-                                cancelTimeoutMs);
-                    }
-                    if (!ok) {
-                        LOG.warn("reopen rpc error" + address.hostname + " exception", e);
-                        if (address != null) {
-                            SimpleScheduler.updateBlacklistBackends(
-                                    this.addressToBackendID.get(address));
-                        }
-                        continue;
-                    }
-                    if (e.getType() == TTransportException.TIMED_OUT) {
-                        LOG.warn("reopen rpc error" + address.hostname + " exception", e);
-                        continue;
-                    } else {
-                        thriftResult = client.cancel_plan_fragment(rpcParams);
-                        isReturnToPool = true;
-                    }
+                    BackendServiceProxy.getInstance().cancelPlanFragmentAsync(
+                            brcAddress, backendExecState.getFragmentInstanceId());
+                } catch (RpcException e) {
+                    LOG.warn("cancel plan fragment get a exception, address={}:{}",
+                            brcAddress.getHostname(), brcAddress.getPort());
+                    SimpleScheduler.updateBlacklistBackends(addressToBackendID.get(brcAddress));
                 }
+
+                backendExecState.hasCanceled = true;
             } catch (Exception e) {
-                LOG.warn("cancelRemoteFragments fail ip={} port={}", address.hostname, address.port);
-                LOG.warn("", e);
+                LOG.warn("catch a exception", e);
             } finally {
-                if (isReturnToPool) {
-                    ClientPool.backendPool.returnObject(address, client);
-                } else {
-                    ClientPool.backendPool.invalidateObject(address, client);
-                }
                 backendExecState.unlock();
             }
         }
     }
 
-
-   private void computeFragmentExecParams() throws Exception {
+    private void computeFragmentExecParams() throws Exception {
         // fill hosts field in fragmentExecParams
         computeFragmentHosts();
 
@@ -874,8 +830,7 @@ public class Coordinator {
             }
         }
     }
-    
- 
+
     private void computeFragmentExecParamsForParallelExec() throws Exception {
         // create exec params and set instance_id, host, per_node_scan_ranges
         computeFragmentInstances(fragmentExecParamsMap.get(fragments.get(0).getFragmentId()));
@@ -1166,7 +1121,6 @@ public class Coordinator {
         }
     }
     
-
     // Returns the id of the leftmost node of any of the gives types in 'plan_root',
     // or INVALID_PLAN_NODE_ID if no such node present.
     private PlanNode findLeftmostNode(PlanNode plan) {
@@ -1389,7 +1343,8 @@ public class Coordinator {
         private Lock lock = new ReentrantLock();
         private int profileFragmentId;
         RuntimeProfile profile;
-        Map<TNetworkAddress, Long> addressToBackendID;
+        TNetworkAddress address;
+        Long systemBackendId;
 
         public int profileFragmentId() {
             return profileFragmentId;
@@ -1419,89 +1374,37 @@ public class Coordinator {
             this.rpcParams = rpcParams;
             this.initiated = false;
             this.done = false;
+            this.address = fragmentExecParamsMap.get(fragmentId).instanceExecParams.get(instanceId).host;
+            this.systemBackendId = addressToBackendID.get(address);
+
             String name = "Instance " + DebugUtil.printId(fragmentExecParamsMap.get(fragmentId)
-                    .instanceExecParams.get(instanceId).instanceId) + " (host=" + getBackendAddress() + ")";
+                    .instanceExecParams.get(instanceId).instanceId) + " (host=" + address + ")";
             this.profile = new RuntimeProfile(name);
             this.hasCanceled = false;
-            this.addressToBackendID = addressToBackendID;
         }
 
         public TNetworkAddress getBackendAddress() {
-            return fragmentExecParamsMap.get(fragmentId).instanceExecParams.get(instanceId).host;
+            return address;
         }
 
         public TUniqueId getFragmentInstanceId() {
             return this.rpcParams.params.getFragment_instance_id();
         }
 
-        public void execRemoteFragment() throws Exception {
-            TExecPlanFragmentResult thriftResult = null;
-            BackendService.Client client = null;
-            TNetworkAddress address = null;
-            int execRemoteTimeoutMs = 5 * 1000;
-            boolean isReturnToPool = false;
+        public Future<PExecPlanFragmentResult> execRemoteFragmentAsync() throws TException, RpcException {
+            TNetworkAddress brpcAddress = null;
             try {
-                try {
-                    address = getBackendAddress();
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("exec address={} fragmentInstanceId={} rpcParams={}", address,
-                                DebugUtil.printId(rpcParams.params.fragment_instance_id), rpcParams);
-                    }
-                    client = ClientPool.backendPool.borrowObject(address, execRemoteTimeoutMs);
-                    thriftResult = client.exec_plan_fragment(rpcParams);
-                    isReturnToPool = true;
-                } catch (TTransportException e) {
-                    LOG.warn("execRemoteFragment TTransporxception address={}", address, e);
-                    // retry
-                    if (client == null) {
-                        LOG.warn("may be connection refuse, try to retry from top");
-                        if (address != null) {
-                            SimpleScheduler.updateBlacklistBackends(
-                                    this.addressToBackendID.get(address));
-                        }
-                        throw e; // may be connection refuse, we may retry from top 3 retry.
-                    }
-                    boolean ok = ClientPool.backendPool.reopen(client,
-                            execRemoteTimeoutMs);
-                    if (!ok) {
-                        if (address != null) {
-                            SimpleScheduler.updateBlacklistBackends(
-                                    this.addressToBackendID.get(address));
-                        }
-                        LOG.warn("reopen rpc error address=" + address);
-                        throw e;
-                    }
-
-                    if (e.getType() == TTransportException.TIMED_OUT) {
-                        throw e;
-                    } else {
-                        thriftResult = client.exec_plan_fragment(rpcParams);
-                        isReturnToPool = true;
-                    }
-                }
-            } catch (org.apache.thrift.TApplicationException e) {
-                SimpleScheduler.updateBlacklistBackends(this.addressToBackendID.get(address));
-                LOG.warn("execRemoteFragment Exception ", e);
-                throw e;
+                brpcAddress = toBrpcHost(address);
             } catch (Exception e) {
-                LOG.warn("execRemoteFragment Exception " + DebugUtil.getStackTrace(e));
-                throw e;
-            } finally {
-                if (isReturnToPool) {
-                    ClientPool.backendPool.returnObject(address, client);
-                } else {
-                    ClientPool.backendPool.invalidateObject(address, client);
-                }
+                throw new TException(e.getMessage());
             }
-            if (thriftResult != null) {
-                if (!thriftResult.getStatus().getStatus_code().equals(TStatusCode.OK)) {
-                    String errMsg = thriftResult.getStatus().getError_msgs().get(0);
-                    LOG.warn("exec_plan_fragment get wrong result, err_msg =" + errMsg);
-                    throw new Exception(errMsg);
-                }
-            }
-
             initiated = true;
+            try {
+                return BackendServiceProxy.getInstance().execPlanFragmentAsync(brpcAddress, rpcParams);
+            } catch (RpcException e) {
+                SimpleScheduler.updateBlacklistBackends(systemBackendId);
+                throw e;
+            }
         }
     }
 
@@ -1633,64 +1536,6 @@ public class Coordinator {
      
         public PlanFragment fragment() {
             return fragmentExecParams.fragment;
-        }
-    }
-
-    private static class ParallelExecutor {
-        private static final ExecutorService EXECUTOR = Executors.newCachedThreadPool();
-
-        public static void exec(List<Coordinator.BackendExecState> args,
-                int beginPos,
-                int numArgs,
-                ExecStatus status)
-                throws InterruptedException, TException {
-            CountDownLatch latch = new CountDownLatch(numArgs);
-            for (int i = 0; i < numArgs; ++i) {
-                Runnable r = new RpcThread(args.get(beginPos + i), latch, status);
-                EXECUTOR.submit(r);
-            }
-            // timeOut cancel, no need to lock
-            // for after do exec, we can cancel and update
-            // thrift rpc default timeout is 5 secs.
-            // we make latch wait 10 secs(> 5 sec) to avoid false timeout
-            if (!latch.await(10, TimeUnit.SECONDS)) {
-                status.setErrCode(TStatusCode.TIMEOUT);
-            }
-        }
-
-        private static class RpcThread implements Runnable {
-            private Coordinator.BackendExecState parameter;
-            private CountDownLatch               latch;
-            private ExecStatus status;
-
-            public RpcThread(Coordinator.BackendExecState parameter, CountDownLatch latch,
-                    ExecStatus status) {
-                // store parameter for later user
-                this.parameter = parameter;
-                this.latch = latch;
-                // there is no need to lock needCanceled, because we only set needCanceled true
-                this.status = status;
-            }
-
-            public void run() {
-                try {
-                    parameter.execRemoteFragment();
-                } catch (TTransportException e) {
-                    if (e.getType() == TTransportException.TIMED_OUT) {
-                        status.setErrCode(TStatusCode.TIMEOUT);
-                        status.setErrAddress(parameter.getBackendAddress());
-                    } else {
-                        status.setErrCode(TStatusCode.THRIFT_RPC_ERROR);
-                        status.setErrAddress(parameter.getBackendAddress());
-                    }
-                    LOG.warn("ParallelExecutor get exception: {}", parameter.getBackendAddress(), e);
-                } catch (Exception e) {
-                    status.setErrCode(TStatusCode.INTERNAL_ERROR);
-                    status.setErrAddress(parameter.getBackendAddress());
-                    LOG.warn("ParallelExecutor get exception: {}", parameter.getBackendAddress(), e);
-                }
-                latch.countDown();
-            }
         }
     }
 

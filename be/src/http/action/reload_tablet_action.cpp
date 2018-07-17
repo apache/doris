@@ -38,7 +38,7 @@ ReloadTabletAction::ReloadTabletAction(ExecEnv* exec_env) :
     _command_executor = new CommandExecutor();
 }
 
-void ReloadTabletAction::handle(HttpRequest *req, HttpChannel *channel) {
+void ReloadTabletAction::handle(HttpRequest *req) {
     LOG(INFO) << "accept one request " << req->debug_string();
 
     // add tid to cgroup in order to limit read bandwidth
@@ -49,8 +49,7 @@ void ReloadTabletAction::handle(HttpRequest *req, HttpChannel *channel) {
     if (path.empty()) {
         std::string error_msg = std::string(
                 "parameter " + PATH + " not specified in url.");
-        HttpResponse response(HttpStatus::BAD_REQUEST, &error_msg);
-        channel->send_response(response);
+        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error_msg);
         return;
     }
 
@@ -59,8 +58,7 @@ void ReloadTabletAction::handle(HttpRequest *req, HttpChannel *channel) {
     if (tablet_id_str.empty()) {
         std::string error_msg = std::string(
                 "parameter " + TABLET_ID + " not specified in url.");
-        HttpResponse response(HttpStatus::BAD_REQUEST, &error_msg);
-        channel->send_response(response);
+        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error_msg);
         return;
     }
 
@@ -69,8 +67,7 @@ void ReloadTabletAction::handle(HttpRequest *req, HttpChannel *channel) {
     if (schema_hash_str.empty()) {
         std::string error_msg = std::string(
                 "parameter " + SCHEMA_HASH + " not specified in url.");
-        HttpResponse response(HttpStatus::BAD_REQUEST, &error_msg);
-        channel->send_response(response);
+        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error_msg);
         return;
     }
 
@@ -82,20 +79,19 @@ void ReloadTabletAction::handle(HttpRequest *req, HttpChannel *channel) {
         schema_hash = boost::lexical_cast<int64_t>(schema_hash_str);
     } catch (boost::bad_lexical_cast& e) {
         std::string error_msg = std::string("param format is invalid: ") + std::string(e.what());
-        HttpResponse response(HttpStatus::BAD_REQUEST, &error_msg);
-        channel->send_response(response);
+        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, error_msg);
         return;
     }
 
     VLOG_ROW << "get reload tablet request: " << tablet_id << "-" << schema_hash;
 
-    reload(path, tablet_id, schema_hash, req, channel);
+    reload(path, tablet_id, schema_hash, req);
 
     LOG(INFO) << "deal with reload tablet request finished! tablet id: " << tablet_id;
 }
 
-void ReloadTabletAction::reload(const std::string& path, int64_t tablet_id, int32_t schema_hash,
-        HttpRequest *req, HttpChannel *channel) {
+void ReloadTabletAction::reload(
+        const std::string& path, int64_t tablet_id, int32_t schema_hash, HttpRequest *req) {
 
     TCloneReq clone_req;
     clone_req.__set_tablet_id(tablet_id);
@@ -107,15 +103,13 @@ void ReloadTabletAction::reload(const std::string& path, int64_t tablet_id, int3
         LOG(WARNING) << "load header failed. status: " << res
                      << ", signature: " << tablet_id;
         std::string error_msg = std::string("load header failed");
-        HttpResponse response(HttpStatus::INTERNAL_SERVER_ERROR, &error_msg);
-        channel->send_response(response);
+        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, error_msg);
         return;
     } else {
         LOG(INFO) << "load header success. status: " << res
                   << ", signature: " << tablet_id;
         std::string result_msg = std::string("load header succeed");
-        HttpResponse response(HttpStatus::OK, &result_msg);
-        channel->send_response(response);
+        HttpChannel::send_reply(req, result_msg);
         return;
     }
 } 

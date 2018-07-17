@@ -22,7 +22,6 @@ namespace palo {
 class Webserver;
 class ExecEnv;
 class HttpRequest;
-class HttpChannel;
 class MetricRegistry;
 
 class MetricsAction : public HttpHandler {
@@ -30,7 +29,7 @@ public:
     MetricsAction(MetricRegistry* metrics) :_metrics(metrics) { }
     virtual ~MetricsAction() { }
 
-    void handle(HttpRequest *req, HttpChannel *channel) override;
+    void handle(HttpRequest *req) override;
 private:
     MetricRegistry* _metrics;
 };

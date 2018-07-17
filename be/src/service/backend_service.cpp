@@ -36,7 +36,6 @@
 #include "runtime/pull_load_task_mgr.h"
 #include "runtime/export_task_mgr.h"
 #include "runtime/result_buffer_mgr.h"
-#include "service/receiver_dispatcher.h"
 
 namespace palo {
 
@@ -78,25 +77,6 @@ Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer*
     LOG(INFO) << "PaloInternalService listening on " << port;
 
     return Status::OK;
-}
-
-Status BackendService::create_rpc_service(ExecEnv* exec_env) {
-    ReactorFactory::initialize(config::rpc_reactor_threads);
-
-    struct sockaddr_in addr;
-    InetAddr::initialize(&addr, BackendOptions::get_localhost().c_str(), config::be_rpc_port);
-    Comm* comm = Comm::instance();
-
-    DispatchHandlerPtr dhp = std::make_shared<Dispatcher>(exec_env, comm, nullptr);
-    ConnectionHandlerFactoryPtr handler_factory = std::make_shared<HandlerFactory>(dhp);
-
-    Status status = Status::OK;
-    int error = comm->listen(addr, handler_factory, dhp);
-    if (error != error::OK) {
-        status = Status("create rpc server failed.");
-    }
-
-    return status;
 }
 
 void BackendService::exec_plan_fragment(TExecPlanFragmentResult& return_val,

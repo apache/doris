@@ -15,75 +15,113 @@
 
 package com.baidu.palo.qe;
 
-import com.baidu.palo.common.ClientPool;
-import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.Status;
-import com.baidu.palo.thrift.BackendService;
-import com.baidu.palo.thrift.PaloInternalServiceVersion;
-import com.baidu.palo.thrift.TFetchDataParams;
-import com.baidu.palo.thrift.TFetchDataResult;
+import com.baidu.palo.rpc.BackendServiceProxy;
+import com.baidu.palo.rpc.PFetchDataRequest;
+import com.baidu.palo.rpc.PFetchDataResult;
+import com.baidu.palo.rpc.PUniqueId;
+import com.baidu.palo.rpc.RpcException;
 import com.baidu.palo.thrift.TNetworkAddress;
-import com.baidu.palo.thrift.TPlanFragmentDestination;
 import com.baidu.palo.thrift.TResultBatch;
 import com.baidu.palo.thrift.TStatusCode;
+import com.baidu.palo.thrift.TUniqueId;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TException;
+
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class ResultReceiver {
     private static final Logger LOG = LogManager.getLogger(ResultReceiver.class);
     private boolean isDone    = false;
     private boolean isCancel  = false;
-    private int     packetIdx = 0;
-    private int              timeoutMs;
-    private TNetworkAddress  rootFragmentAddress;
-    private TFetchDataResult thriftResult;
-    private TFetchDataParams thriftParams;
-    private Long backendID;
+    private long packetIdx = 0;
+    private long timeoutTs = 0;
+    private TNetworkAddress address;
+    private PUniqueId finstId;
+    private Long backendId;
+    private Thread currentThread;
 
-    public ResultReceiver(TPlanFragmentDestination resultSource, 
-            Long backendID, int timeoutMs) {
-        this.timeoutMs = timeoutMs;
-        thriftParams = new TFetchDataParams();
-        thriftParams.setProtocol_version(PaloInternalServiceVersion.V1);
-        thriftParams.setFragment_instance_id(resultSource.fragment_instance_id);
-        rootFragmentAddress =
-                new TNetworkAddress(resultSource.server.hostname, resultSource.server.port);
-        this.backendID = backendID;
+    public ResultReceiver(TUniqueId tid, Long backendId, TNetworkAddress address, int timeoutMs) {
+        this.finstId = new PUniqueId(tid);
+        this.backendId = backendId;
+        this.address = address;
+        this.timeoutTs = System.currentTimeMillis() + timeoutMs;
     }
 
-    public TResultBatch getNext(Status status) {
+    public TResultBatch getNext(Status status) throws TException {
         if (isDone) {
             return null;
         }
-        
+
         try {
             while (!isDone && !isCancel) {
-                getNextFromRpc();
-                // check packet num
-                if (packetIdx != thriftResult.packet_num) {
-                    status.setStatus("receive packet failed, expect " + packetIdx 
-                            + " but recept is " + thriftResult.packet_num);
+                PFetchDataRequest request = new PFetchDataRequest(finstId);
+
+                currentThread = Thread.currentThread();
+                Future<PFetchDataResult> future = BackendServiceProxy.getInstance().fetchDataAsync(address, request);
+                PFetchDataResult pResult = null;
+                while (pResult == null) {
+                    long currentTs = System.currentTimeMillis();
+                    if (currentTs >= timeoutTs) {
+                        throw new TimeoutException("query timeout");
+                    }
+                    try {
+                        pResult = future.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
+                    } catch (InterruptedException e) {
+                        // continue to get result
+                        LOG.info("future get interrupted Exception");
+                        if (isCancel) {
+                            status.setStatus(Status.CANCELLED);
+                            return null;
+                        }
+                    }
+                }
+                TStatusCode code = TStatusCode.findByValue(pResult.status.code);
+                if (code != TStatusCode.OK) {
+                    status.setPstatus(pResult.status);
                     return null;
                 }
-    
+
+                if (packetIdx != pResult.packetSeq) {
+                    LOG.warn("receive packet failed, expect={}, receive={}", packetIdx, pResult.packetSeq);
+                    status.setRpcStatus("receive error packet");
+                    return null;
+                }
+
                 packetIdx++;
-                isDone = thriftResult.eos;
-                if (thriftResult.result_batch.rows.size() > 0) {
-                    return thriftResult.result_batch;
+                isDone = pResult.eos;
+
+                byte[] serialResult = request.getSerializedResult();
+                if (serialResult != null && serialResult.length > 0) {
+                    TResultBatch resultBatch = new TResultBatch();
+                    TDeserializer deserializer = new TDeserializer();
+                    deserializer.deserialize(resultBatch, serialResult);
+                    return resultBatch;
                 }
             }
-        } catch (org.apache.thrift.transport.TTransportException e)  {
-            if (e.getType() == org.apache.thrift.transport.TTransportException.TIMED_OUT) {
-                // not set rpcError, for it dosn't retry
-                status.setStatus(e.getMessage());
-            } else {
-                status.setRpcStatus(e.getMessage());
+        } catch (RpcException e) {
+            LOG.warn("fetch result rpc exception, finstId={}", finstId, e);
+            status.setRpcStatus(e.getMessage());
+            SimpleScheduler.updateBlacklistBackends(backendId);
+        } catch (ExecutionException e) {
+            LOG.warn("fetch result execution exception, finstId={}", finstId, e);
+            status.setRpcStatus(e.getMessage());
+            SimpleScheduler.updateBlacklistBackends(backendId);
+        } catch (TimeoutException e) {
+            LOG.warn("fetch result timeout, finstId={}", finstId, e);
+            status.setStatus("query timeout");
+        } finally {
+            synchronized (this) {
+                currentThread = null;
             }
-        } catch (Exception e) {
-            status.setStatus(e.getMessage());
         }
-        
+
         if (isCancel) {
             status.setStatus(Status.CANCELLED);
         }
@@ -92,48 +130,11 @@ public class ResultReceiver {
 
     public void cancel() {
         isCancel = true;
-    }
+        synchronized (this) {
+            if (currentThread != null) {
+                currentThread.interrupt();
+            }
 
-    void getNextFromRpc() throws Exception {
-        BackendService.Client client = null;
-        TNetworkAddress address = null;
-        boolean isReturnToPool = false;
-
-        try {
-            // there is no need to retry for read socket
-            address = new TNetworkAddress(rootFragmentAddress.hostname,
-                    rootFragmentAddress.port);
-            client = ClientPool.backendPool.borrowObject(address, timeoutMs);
-            thriftResult = client.fetch_data(thriftParams);
-            isReturnToPool = true;
-        } catch (org.apache.thrift.transport.TTransportException e) {
-            boolean ok = ClientPool.backendPool.reopen(client, timeoutMs);
-            if (!ok) {
-                String errMsg = "reopen rpc error, address=" + address;
-                LOG.warn(errMsg);
-                SimpleScheduler.updateBlacklistBackends(this.backendID);
-                throw new InternalException(errMsg);
-            }
-            if (e.getType() == org.apache.thrift.transport.TTransportException.TIMED_OUT) {
-                throw e;
-            } else {
-                thriftResult = client.fetch_data(thriftParams);
-                isReturnToPool = true;
-            }
-        } finally {
-            if (isReturnToPool) {
-                ClientPool.backendPool.returnObject(address, client);
-            } else {
-                ClientPool.backendPool.invalidateObject(address, client);
-            }
-        }
-        
-        if (thriftResult != null) {
-            if (!thriftResult.getStatus().getStatus_code().equals(TStatusCode.OK)) {
-                String errMsg = thriftResult.getStatus().getError_msgs().get(0);
-                LOG.warn("root fragment {} return error, errMsg = {}", address, errMsg);
-                throw new InternalException(errMsg);
-            }
         }
     }
 }

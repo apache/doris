@@ -36,10 +36,10 @@ public:
         }
     }
 
-    virtual void handle(HttpRequest *req, HttpChannel *channel);
+    void handle(HttpRequest *req) override;
 private:
     void reload(const std::string& path, int64_t tablet_id, int32_t schema_hash, 
-                HttpRequest *req, HttpChannel *channel);
+                HttpRequest *req);
 
     ExecEnv* _exec_env;
     CommandExecutor* _command_executor;

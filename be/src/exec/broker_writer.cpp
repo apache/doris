@@ -138,8 +138,8 @@ Status BrokerWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_l
     TBrokerOperationStatus response;
     try {
         Status status;
-        // we make timeout to be 5s, to avoid error in Network jitter scenarios.
-        BrokerServiceConnection client(client_cache(_state), broker_addr, 5000, &status);
+        // we make timeout to be 10s, to avoid error in Network jitter scenarios.
+        BrokerServiceConnection client(client_cache(_state), broker_addr, 10000, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker write client failed. "
                     << "broker=" << broker_addr

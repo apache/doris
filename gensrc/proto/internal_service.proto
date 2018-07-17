@@ -27,15 +27,15 @@ message PTransmitDataParams {
     // non-change member
     required PUniqueId finst_id = 1;
     required int32 node_id = 2;
+    // Id of this fragment in its role as a sender.
     required int32 sender_id = 3;
     required int32 be_number = 4;
 
-    // different per packet
-    required bool eos = 5;
-    optional PRowBatch row_batch = 6;
     // if set to true, indicates that no more row batches will be sent
     // for this dest_node_id
-    // Id of this fragment in its role as a sender.
+    required bool eos = 5;
+    optional PRowBatch row_batch = 6;
+    // different per packet
     required int64 packet_seq = 7;
 };
 
@@ -43,7 +43,36 @@ message PTransmitDataResult {
     optional PStatus status = 1;
 };
 
+message PExecPlanFragmentRequest {
+};
+
+message PExecPlanFragmentResult {
+    required PStatus status = 1;
+};
+
+message PCancelPlanFragmentRequest {
+    required PUniqueId finst_id = 1;
+};
+
+message PCancelPlanFragmentResult {
+    required PStatus status = 1;
+};
+
+message PFetchDataRequest {
+    required PUniqueId finst_id = 1;
+};
+
+message PFetchDataResult {
+    required PStatus status = 1;
+    // valid when status is ok
+    optional int64 packet_seq = 2;
+    optional bool eos = 3;
+};
+
 service PInternalService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
+    rpc exec_plan_fragment(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
+    rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
+    rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
 };
 

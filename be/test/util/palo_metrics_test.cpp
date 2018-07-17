@@ -164,63 +164,72 @@ TEST_F(PaloMetricsTest, Normal) {
     {
         PaloMetrics::create_tablet_requests_total.increment(15);
         auto metric = metrics->get_metric("engine_requests_total",
-                                          MetricLabels().add("type", "create_tablet"));
+                                          MetricLabels().add("type", "create_tablet")
+                                          .add("status", "total"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("15", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
         PaloMetrics::drop_tablet_requests_total.increment(16);
         auto metric = metrics->get_metric("engine_requests_total",
-                                          MetricLabels().add("type", "drop_tablet"));
+                                          MetricLabels().add("type", "drop_tablet")
+                                          .add("status", "total"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("16", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
         PaloMetrics::report_all_tablets_requests_total.increment(17);
         auto metric = metrics->get_metric("engine_requests_total",
-                                          MetricLabels().add("type", "report_all_tablets"));
+                                          MetricLabels().add("type", "report_all_tablets")
+                                          .add("status", "total"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("17", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
         PaloMetrics::report_tablet_requests_total.increment(18);
         auto metric = metrics->get_metric("engine_requests_total",
-                                          MetricLabels().add("type", "report_tablet"));
+                                          MetricLabels().add("type", "report_tablet")
+                                          .add("status", "total"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("18", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
         PaloMetrics::schema_change_requests_total.increment(19);
         auto metric = metrics->get_metric("engine_requests_total",
-                                          MetricLabels().add("type", "schema_change"));
+                                          MetricLabels().add("type", "schema_change")
+                                          .add("status", "total"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("19", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
         PaloMetrics::create_rollup_requests_total.increment(20);
         auto metric = metrics->get_metric("engine_requests_total",
-                                          MetricLabels().add("type", "create_rollup"));
+                                          MetricLabels().add("type", "create_rollup")
+                                          .add("status", "total"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("20", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
         PaloMetrics::storage_migrate_requests_total.increment(21);
         auto metric = metrics->get_metric("engine_requests_total",
-                                          MetricLabels().add("type", "storage_migrate"));
+                                          MetricLabels().add("type", "storage_migrate")
+                                          .add("status", "total"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("21", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
         PaloMetrics::delete_requests_total.increment(22);
         auto metric = metrics->get_metric("engine_requests_total",
-                                          MetricLabels().add("type", "delete"));
+                                          MetricLabels().add("type", "delete")
+                                          .add("status", "total"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("22", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
         PaloMetrics::cancel_delete_requests_total.increment(23);
         auto metric = metrics->get_metric("engine_requests_total",
-                                          MetricLabels().add("type", "cancel_delete"));
+                                          MetricLabels().add("type", "cancel_delete")
+                                          .add("status", "total"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("23", ((SimpleMetric*)metric)->to_string().c_str());
     }

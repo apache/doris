@@ -40,7 +40,7 @@ namespace palo {
 class DataStreamMgr;
 class ResultBufferMgr;
 class TestExecEnv;
-class Webserver;
+class EvHttpServer;
 class WebPageHandler;
 class MemTracker;
 class PoolMemTrackerRegistry;
@@ -57,7 +57,6 @@ class BrokerMgr;
 class MetricRegistry;
 class BufferPool;
 class ReservationTracker;
-class ConnectionManager;
 class BrpcStubCache;
 
 // Execution environment for queries/plan fragments.
@@ -97,9 +96,6 @@ public:
     }
     BrokerServiceClientCache* broker_client_cache() {
         return _broker_client_cache.get();
-    }
-    Webserver* webserver() {
-        return _webserver.get();
     }
     WebPageHandler* web_page_handler() {
         return _web_page_handler.get();
@@ -157,10 +153,6 @@ public:
         return _brpc_stub_cache.get();
     }
 
-    std::shared_ptr<ConnectionManager> get_conn_manager() {
-        return _conn_mgr;
-    }
-
     void set_enable_webserver(bool enable) {
         _enable_webserver = enable;
     }
@@ -187,7 +179,7 @@ private:
     boost::scoped_ptr<BackendServiceClientCache> _client_cache;
     boost::scoped_ptr<FrontendServiceClientCache> _frontend_client_cache;
     std::unique_ptr<BrokerServiceClientCache>_broker_client_cache;
-    boost::scoped_ptr<Webserver> _webserver;
+    boost::scoped_ptr<EvHttpServer> _ev_http_server;
     boost::scoped_ptr<WebPageHandler> _web_page_handler;
     boost::scoped_ptr<MemTracker> _mem_tracker;
     boost::scoped_ptr<PoolMemTrackerRegistry> _pool_mem_trackers;
@@ -210,13 +202,6 @@ private:
 
     boost::scoped_ptr<ReservationTracker> _buffer_reservation;
     boost::scoped_ptr<BufferPool> _buffer_pool;
-
-    /*
-    Comm* comm;
-    DispatchHandlerPtr dhp;
-    ApplicationQueue *app_queue;
-    */
-    std::shared_ptr<ConnectionManager> _conn_mgr;
 
     ObjectPool _object_pool;
 private:

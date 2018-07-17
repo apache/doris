@@ -122,7 +122,7 @@ class NewPartitionedHashTableCtx {
       const std::vector<Expr*>& build_exprs,
       const std::vector<Expr*>& probe_exprs, bool stores_nulls,
       const std::vector<bool>& finds_nulls, int32_t initial_seed, int max_levels,
-      int num_build_tuples, MemPool* mem_pool, 
+      int num_build_tuples, MemPool* mem_pool, MemPool* expr_results_pool, 
       MemTracker* tracker, const RowDescriptor& row_desc,
       const RowDescriptor& row_desc_probe,
       boost::scoped_ptr<NewPartitionedHashTableCtx>* ht_ctx);
@@ -416,7 +416,7 @@ class NewPartitionedHashTableCtx {
   NewPartitionedHashTableCtx(const std::vector<Expr*>& build_exprs,
       const std::vector<Expr*>& probe_exprs, bool stores_nulls,
       const std::vector<bool>& finds_nulls, int32_t initial_seed,
-      int max_levels, MemPool* mem_pool);
+      int max_levels, MemPool* mem_pool, MemPool* expr_results_pool);
 
   /// Allocate various buffers for storing expression evaluation results, hash values,
   /// null bits etc. Also allocate evaluators for the build and probe expressions and
@@ -522,6 +522,9 @@ class NewPartitionedHashTableCtx {
   /// MemPool for 'build_expr_evals_' and 'probe_expr_evals_' to allocate expr-managed
   /// memory from. Not owned.
   MemPool* mem_pool_;
+
+  // MemPool for allocations by made EvalRow to copy expr's StringVal result. Not owned
+  MemPool* expr_results_pool_;
 };
 
 /// The hash table consists of a contiguous array of buckets that contain a pointer to the

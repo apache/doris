@@ -83,8 +83,7 @@ Status BrokerReader::open() {
     TBrokerOpenReaderResponse response;
     try {
         Status status;
-        // 500ms is enough
-        BrokerServiceConnection client(client_cache(_state), broker_addr, 500, &status);
+        BrokerServiceConnection client(client_cache(_state), broker_addr, 10000, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << broker_addr
                 << ", status=" << status.get_error_msg();
@@ -133,8 +132,7 @@ Status BrokerReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
     TBrokerReadResponse response;
     try {
         Status status;
-        // 500ms is enough
-        BrokerServiceConnection client(client_cache(_state), broker_addr, 500, &status);
+        BrokerServiceConnection client(client_cache(_state), broker_addr, 10000, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << broker_addr
                 << ", status=" << status.get_error_msg();
@@ -189,7 +187,7 @@ void BrokerReader::close() {
     try {
         Status status;
         // 500ms is enough
-        BrokerServiceConnection client(client_cache(_state), broker_addr, 500, &status);
+        BrokerServiceConnection client(client_cache(_state), broker_addr, 10000, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << broker_addr
                 << ", status=" << status.get_error_msg();

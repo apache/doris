@@ -21,23 +21,24 @@ import com.baidu.palo.catalog.MaterializedIndex;
 import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.catalog.Partition;
 import com.baidu.palo.catalog.Table;
-import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.catalog.Table.TableType;
+import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.util.Daemon;
+import com.baidu.palo.metric.MetricRepo;
 import com.baidu.palo.persist.EditLog;
 import com.baidu.palo.persist.MetaCleaner;
 import com.baidu.palo.persist.Storage;
+import com.baidu.palo.system.Frontend;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.OutputStream;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
 import java.net.HttpURLConnection;
-import java.net.InetSocketAddress;
 import java.net.URL;
 import java.util.List;
 
@@ -114,6 +115,9 @@ public class Checkpoint extends Daemon {
             }
             catalog.saveImage();
             replayedJournalId = catalog.getReplayedJournalId();
+            if (MetricRepo.isInit.get()) {
+                MetricRepo.COUNTER_IMAGE_WRITE.increase(1L);
+            }
             LOG.info("checkpoint finished save image.{}", replayedJournalId);
         } catch (Exception e) {
             e.printStackTrace();
@@ -125,14 +129,19 @@ public class Checkpoint extends Daemon {
             Catalog.destroyCheckpoint(); 
         }
         
-        // push image file to all the other nodes
-        List<InetSocketAddress> otherNodes = Catalog.getInstance().getHaProtocol().getNoneLeaderNodes();
+        // push image file to all the other non master nodes
+        // DO NOT get other nodes from HaProtocol, because node may not in bdbje replication group yet.
+        List<Frontend> allFrontends = Catalog.getInstance().getFrontends(null);
         int successPushed = 0;
         int otherNodesCount = 0;
-        if (otherNodes != null) {
-            otherNodesCount = otherNodes.size();
-            for (InetSocketAddress node : otherNodes) {
-                String host = node.getHostString();
+        if (!allFrontends.isEmpty()) {
+            otherNodesCount = allFrontends.size() - 1; // skip master itself
+            for (Frontend fe : allFrontends) {
+                String host = fe.getHost();
+                if (host.equals(Catalog.getInstance().getMasterIp())) {
+                    // skip master itself
+                    continue;
+                }
                 int port = Config.http_port;
                 
                 String url = "http://" + host + ":" + port + "/put?version=" + replayedJournalId
@@ -156,8 +165,12 @@ public class Checkpoint extends Daemon {
             long minOtherNodesJournalId = Long.MAX_VALUE;
             long deleteVersion = checkPointVersion;
             if (successPushed > 0) {
-                for (InetSocketAddress node : otherNodes) {
-                    String host = node.getHostString();
+                for (Frontend fe : allFrontends) {
+                    String host = fe.getHost();
+                    if (host.equals(Catalog.getInstance().getMasterIp())) {
+                        // skip master itself
+                        continue;
+                    }
                     int port = Config.http_port;
                     URL idURL;
                     HttpURLConnection conn = null;
@@ -192,8 +205,11 @@ public class Checkpoint extends Daemon {
                         ? checkPointVersion : minOtherNodesJournalId;
             }
             editLog.deleteJournals(deleteVersion + 1);
+            if (MetricRepo.isInit.get()) {
+                MetricRepo.COUNTER_IMAGE_PUSH.increase(1L);
+            }
             LOG.info("journals <= {} are deleted. image version {}, other nodes min version {}", 
-                    deleteVersion, checkPointVersion, minOtherNodesJournalId);
+                     deleteVersion, checkPointVersion, minOtherNodesJournalId);
         }
         
         // Delete old image files

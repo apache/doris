@@ -250,6 +250,9 @@ class NewPartitionedAggregationNode : public ExecNode {
   /// memory allocation over a series of Reset()/Open()/GetNext()* calls.
   boost::scoped_ptr<MemPool> mem_pool_;
 
+  // MemPool for allocations made by copying expr results
+  boost::scoped_ptr<MemPool> expr_results_pool_;
+
   /// The current partition and iterator to the next row in its hash table that we need
   /// to return in GetNext()
   Partition* output_partition_;

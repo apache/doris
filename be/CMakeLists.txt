@@ -51,7 +51,7 @@ set(OUTPUT_DIR "${BASE_DIR}/output")
 if (DEFINED ENV{PALO_LLVM_HOME})
     set(LLVM_HOME "$ENV{PALO_LLVM_HOME}")
 else()
-    set(LLVM_HOME "${THIRDPARTY_DIR}")
+    set(LLVM_HOME "${THIRDPARTY_DIR}/llvm")
 endif()
 set(LLVM_BIN "${LLVM_HOME}/bin")
 
@@ -102,7 +102,7 @@ find_package(Boost 1.55.0 REQUIRED COMPONENTS thread regex filesystem system dat
 include_directories(${Boost_INCLUDE_DIRS})
 message(STATUS ${Boost_LIBRARIES})
 
-set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}")
+set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
 # Set all libraries
 add_library(gflags STATIC IMPORTED)
@@ -256,7 +256,7 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++11")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-deprecated -Wno-vla")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2 -D_GLIBCXX_USE_CXX11_ABI=0")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DLLVM_ON_UNIX")
 
 # for bprc
@@ -443,7 +443,6 @@ set(PALO_LINK_LIBS
     Gutil
     Olap
     Runtime
-    RPC
     Service
     Udf
     Util
@@ -539,7 +538,6 @@ add_subdirectory(${SRC_DIR}/exprs)
 add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/testutil)
-add_subdirectory(${SRC_DIR}/rpc)
 
 # Utility CMake function to make specifying tests and benchmarks less verbose
 FUNCTION(ADD_BE_TEST TEST_NAME)

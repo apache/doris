@@ -20,12 +20,12 @@
 
 namespace palo {
 
-class Webserver;
+class EvHttpServer;
 class ExecEnv;
 
 class PprofActions {
 public:
-    static Status setup(ExecEnv* exec_env, Webserver* http_server);
+    static Status setup(ExecEnv* exec_env, EvHttpServer* http_server);
 };
 
 }

@@ -2019,6 +2019,10 @@ public class Catalog {
             if (!isMaster) {
                 journalObservable.notifyObservers(replayedJournalId.get());
             }
+            if (MetricRepo.isInit.get()) {
+                // Metric repo may not init after this replay thread start
+                MetricRepo.COUNTER_EDIT_LOG_READ.increase(1L);
+            }
         }
         long cost = System.currentTimeMillis() - startTime;
         if (cost >= 1000) {

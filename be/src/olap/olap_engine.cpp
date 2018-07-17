@@ -38,6 +38,7 @@
 #include "olap/schema_change.h"
 #include "olap/utils.h"
 #include "olap/writer.h"
+#include "util/palo_metrics.h"
 
 using boost::filesystem::canonical;
 using boost::filesystem::directory_iterator;
@@ -982,10 +983,12 @@ TRY_START_BE_OK:
 
     if (do_base_compaction) {
         OLAP_LOG_NOTICE_PUSH("request", "START_BASE_COMPACTION");
+        PaloMetrics::base_compaction_request_total.increment(1);
         OLAPStatus cmd_res = base_compaction.run();
         if (cmd_res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("failed to do base compaction. [tablet='%s']",
                              tablet->full_name().c_str());
+            PaloMetrics::base_compaction_request_failed.increment(1);
         }
     }
 }
@@ -1095,9 +1098,11 @@ void OLAPEngine::start_cumulative_priority() {
                 _tablet_map_lock.unlock();
 
                 // start cumulative
+                PaloMetrics::cumulative_compaction_request_total.increment(1);
                 if (cumulative_compaction.run() != OLAP_SUCCESS) {
                     OLAP_LOG_WARNING("failed to do cumulative. [tablet='%s']",
                                      j->full_name().c_str());
+                    PaloMetrics::cumulative_compaction_request_failed.increment(1);
                 }
 
                 _fs_task_mutex.lock();

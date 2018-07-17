@@ -69,7 +69,6 @@ add_library(Util STATIC
 #  coding_util.cpp
   cidr.cpp
   core_local.cpp
-  rpc_channel.cpp
 )
 
 #ADD_BE_TEST(integer-array-test)

@@ -49,7 +49,7 @@ std::string EtlJobMgr::to_load_error_http_path(const std::string& file_name) {
     std::stringstream url;
     url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
         << "/api/_load_error_log?"
-        << "&file=" << file_name;
+        << "file=" << file_name;
     return url.str();
 }
 

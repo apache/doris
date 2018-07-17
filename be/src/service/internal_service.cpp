@@ -15,9 +15,14 @@
 
 #include "service/internal_service.h"
 
+#include "gen_cpp/BackendService.h"
 #include "runtime/exec_env.h"
 #include "runtime/data_stream_mgr.h"
+#include "runtime/fragment_mgr.h"
 #include "service/brpc.h"
+#include "util/thrift_util.h"
+#include "runtime/buffer_control_block.h"
+#include "runtime/result_buffer_mgr.h"
 
 namespace palo {
 
@@ -50,6 +55,60 @@ void PInternalServiceImpl::transmit_data(google::protobuf::RpcController* cntl_b
     if (done != nullptr) {
         done->Run();
     }
+}
+
+void PInternalServiceImpl::exec_plan_fragment(
+        google::protobuf::RpcController* cntl_base,
+        const PExecPlanFragmentRequest* request,
+        PExecPlanFragmentResult* response,
+        google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+    auto st = _exec_plan_fragment(cntl);
+    if (!st.ok()) {
+        LOG(WARNING) << "exec plan fragment failed, errmsg=" << st.get_error_msg();
+    }
+    st.to_protobuf(response->mutable_status());
+}
+
+Status PInternalServiceImpl::_exec_plan_fragment(brpc::Controller* cntl) {
+    auto ser_request = cntl->request_attachment().to_string();
+    TExecPlanFragmentParams t_request;
+    {
+        const uint8_t* buf = (const uint8_t*)ser_request.data();
+        uint32_t len = ser_request.size();
+        RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_request));
+    }
+    LOG(INFO) << "exec plan fragment, finst_id=" << t_request.params.fragment_instance_id
+        << ", coord=" << t_request.coord << ", backend=" << t_request.backend_num;
+    return _exec_env->fragment_mgr()->exec_plan_fragment(t_request);
+}
+
+void PInternalServiceImpl::cancel_plan_fragment(
+        google::protobuf::RpcController* cntl_base,
+        const PCancelPlanFragmentRequest* request,
+        PCancelPlanFragmentResult* result,
+        google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    TUniqueId tid;
+    tid.__set_hi(request->finst_id().hi());
+    tid.__set_lo(request->finst_id().lo());
+    LOG(INFO) << "cancel framgent, finst_id=" << tid;
+    auto st = _exec_env->fragment_mgr()->cancel(tid);
+    if (!st.ok()) {
+        LOG(WARNING) << "cancel plan fragment failed, errmsg=" << st.get_error_msg();
+    }
+    st.to_protobuf(result->mutable_status());
+}
+
+void PInternalServiceImpl::fetch_data(
+        google::protobuf::RpcController* cntl_base,
+        const PFetchDataRequest* request,
+        PFetchDataResult* result,
+        google::protobuf::Closure* done) {
+    brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+    GetResultBatchCtx* ctx = new GetResultBatchCtx(cntl, result, done);
+    _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
 }
 
 }

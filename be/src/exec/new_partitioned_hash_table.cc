@@ -88,7 +88,7 @@ static int64_t NULL_VALUE[] = {
 NewPartitionedHashTableCtx::NewPartitionedHashTableCtx(const std::vector<Expr*>& build_exprs,
     const std::vector<Expr*>& probe_exprs, bool stores_nulls,
     const std::vector<bool>& finds_nulls, int32_t initial_seed,
-    int max_levels, MemPool* mem_pool)
+    int max_levels, MemPool* mem_pool, MemPool* expr_results_pool)
     : build_exprs_(build_exprs),
       probe_exprs_(probe_exprs),
       stores_nulls_(stores_nulls),
@@ -97,7 +97,8 @@ NewPartitionedHashTableCtx::NewPartitionedHashTableCtx(const std::vector<Expr*>&
           finds_nulls_.begin(), finds_nulls_.end(), false, std::logical_or<bool>())),
       level_(0),
       scratch_row_(NULL),
-      mem_pool_(mem_pool) {
+      mem_pool_(mem_pool),
+      expr_results_pool_(expr_results_pool) {
   DCHECK(!finds_some_nulls_ || stores_nulls_);
   // Compute the layout and buffer size to store the evaluated expr results
   DCHECK_EQ(build_exprs_.size(), probe_exprs_.size());
@@ -152,12 +153,12 @@ Status NewPartitionedHashTableCtx::Create(ObjectPool* pool, RuntimeState* state,
     const std::vector<Expr*>& build_exprs,
     const std::vector<Expr*>& probe_exprs, bool stores_nulls,
     const std::vector<bool>& finds_nulls, int32_t initial_seed, int max_levels,
-    int num_build_tuples, MemPool* mem_pool, 
+    int num_build_tuples, MemPool* mem_pool, MemPool* expr_results_pool, 
     MemTracker* tracker, const RowDescriptor& row_desc,
     const RowDescriptor& row_desc_probe,
     scoped_ptr<NewPartitionedHashTableCtx>* ht_ctx) {
   ht_ctx->reset(new NewPartitionedHashTableCtx(build_exprs, probe_exprs, stores_nulls,
-      finds_nulls, initial_seed, max_levels, mem_pool));
+      finds_nulls, initial_seed, max_levels, mem_pool, expr_results_pool));
   return (*ht_ctx)->Init(pool, state, num_build_tuples, tracker, row_desc, row_desc_probe);
 }
 
@@ -235,12 +236,15 @@ bool NewPartitionedHashTableCtx::EvalRow(TupleRow* row, const vector<ExprContext
       expr_values_null[i] = true;
       val = reinterpret_cast<void*>(&NULL_VALUE);
       has_null = true;
+      DCHECK_LE(build_exprs_[i]->type().get_slot_size(),
+          sizeof(NULL_VALUE));
+      RawValue::write(val, loc, build_exprs_[i]->type(), NULL);
     } else {
       expr_values_null[i] = false;
+      DCHECK_LE(build_exprs_[i]->type().get_slot_size(),
+          sizeof(NULL_VALUE));
+      RawValue::write(val, loc, build_exprs_[i]->type(), expr_results_pool_);
     }
-    DCHECK_LE(build_exprs_[i]->type().get_slot_size(),
-        sizeof(NULL_VALUE));
-    RawValue::write(val, loc, build_exprs_[i]->type(), NULL);
   }
   return has_null;
 }

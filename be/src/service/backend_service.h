@@ -75,8 +75,6 @@ public:
     static Status create_service(
         ExecEnv* exec_env, int port, ThriftServer** server);
 
-    static Status create_rpc_service(ExecEnv* exec_env);
-
     // Agent service
     virtual void submit_tasks(
             TAgentResult& return_value,

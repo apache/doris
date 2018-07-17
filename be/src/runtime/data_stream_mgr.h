@@ -36,8 +36,6 @@
 #include "util/runtime_profile.h"
 #include "gen_cpp/Types_types.h"  // for TUniqueId
 
-#include "rpc/inet_addr.h"
-
 namespace google {
 namespace protobuf {
 class Closure;
@@ -50,11 +48,7 @@ class DescriptorTbl;
 class DataStreamRecvr;
 class RowBatch;
 class RuntimeState;
-class TRowBatch;
-class Comm;
-class CommBuf;
 class PRowBatch;
-typedef std::shared_ptr<CommBuf> CommBufPtr;
 class PUniqueId;
 
 // Singleton class which manages all incoming data streams at a backend node. It
@@ -96,10 +90,6 @@ public:
     // TODO: enforce per-sender quotas (something like 200% of buffer_size/#senders),
     // so that a single sender can't flood the buffer and stall everybody else.
     // Returns OK if successful, error status otherwise.
-    Status add_data(const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-            const TRowBatch& thrift_batch, int sender_id, bool* buffer_overflow,
-                    std::pair<InetAddr, CommBufPtr> response);
-
     Status add_data(const PUniqueId& fragment_instance_id, int32_t node_id,
                     const PRowBatch& pb_batch, int32_t sender_id,
                     int32_t be_number, int64_t packet_seq,

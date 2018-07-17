@@ -34,6 +34,7 @@ public:
     ~BRpcService();
 
     Status start(int port);
+    void join();
 
 private:
     ExecEnv* _exec_env;

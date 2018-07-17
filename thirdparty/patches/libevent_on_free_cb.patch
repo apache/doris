@@ -1,0 +1,71 @@
+diff --git a/http.c b/http.c
+index b04af9a..5183a11 100644
+--- a/http.c
++++ b/http.c
+@@ -3995,6 +3995,9 @@ evhttp_request_free(struct evhttp_request *req)
+ 		return;
+ 	}
+ 
++	if (req->on_free_cb)
++		(*req->on_free_cb)(req, req->on_free_cb_arg);
++
+ 	if (req->remote_host != NULL)
+ 		mm_free(req->remote_host);
+ 	if (req->uri != NULL)
+@@ -4074,6 +4077,14 @@ evhttp_request_set_on_complete_cb(struct evhttp_request *req,
+ 	req->on_complete_cb_arg = cb_arg;
+ }
+ 
++void
++evhttp_request_set_on_free_cb(struct evhttp_request *req,
++    void (*cb)(struct evhttp_request *, void *), void *cb_arg)
++{
++	req->on_free_cb = cb;
++	req->on_free_cb_arg = cb_arg;
++}
++
+ /*
+  * Allows for inspection of the request URI
+  */
+diff --git a/include/event2/http.h b/include/event2/http.h
+index ed9acf4..3a73c6c 100644
+--- a/include/event2/http.h
++++ b/include/event2/http.h
+@@ -642,6 +642,20 @@ EVENT2_EXPORT_SYMBOL
+ void evhttp_request_set_on_complete_cb(struct evhttp_request *req,
+     void (*cb)(struct evhttp_request *, void *), void *cb_arg);
+ 
++/**
++ * Set a callback to be called on request free.
++ *
++ * The callback function will be called just before the evhttp_request object
++ * is destroyed.
++ *
++ * @param req a request object
++ * @param cb callback function that will be called before request free
++ * @param cb_arg an additional context argument for the callback
++ */
++EVENT2_EXPORT_SYMBOL
++void evhttp_request_set_on_free_cb(struct evhttp_request *req,
++    void (*cb)(struct evhttp_request *, void *), void *cb_arg);
++
+ /** Frees the request object and removes associated events. */
+ EVENT2_EXPORT_SYMBOL
+ void evhttp_request_free(struct evhttp_request *req);
+diff --git a/include/event2/http_struct.h b/include/event2/http_struct.h
+index 4bf5b1f..0762cab 100644
+--- a/include/event2/http_struct.h
++++ b/include/event2/http_struct.h
+@@ -142,6 +142,12 @@ struct {
+ 	 */
+ 	void (*on_complete_cb)(struct evhttp_request *, void *);
+ 	void *on_complete_cb_arg;
++
++	/*
++	 * Free callback - called just before the request is freed.
++	 */
++	void (*on_free_cb)(struct evhttp_request *, void *);
++	void *on_free_cb_arg;
+ };
+ 
+ #ifdef __cplusplus
