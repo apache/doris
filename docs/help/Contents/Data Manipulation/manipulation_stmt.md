@@ -89,7 +89,16 @@
         用于指定导入使用的Broker
         语法：
         WITH BROKER broker_name ("key"="value"[,...])
-        这里需要指定具体的Broker name, 以及所需的Broker属性
+        这里需要指定具体的Broker name, 以及所需的Broker属性.
+        开源hdfs Broker支持的属性如下:
+        -   fs.defaultFS:默认文件系统
+        -   username: 访问hdfs的用户名
+        -   password: 访问hdfs的用户密码
+        -   dfs.nameservices: ha模式的hdfs中必须配置这个，指定hdfs服务的名字.以下参数都是在ha hdfs中需要指定.例子: "dfs.nameservices" = "palo"
+        -   dfs.ha.namenodes.xxx：ha模式中指定namenode的名字,多个名字以逗号分隔,ha模式中必须配置。其中xxx表示dfs.nameservices配置的value.例子: "dfs.ha.namenodes.palo" = "nn1,nn2"
+        -   dfs.namenode.rpc-address.xxx.nn: ha模式中指定namenode的rpc地址信息,ha模式中必须配置。其中nn表示dfs.ha.namenodes.xxx中配置的一个namenode的名字。例子: "dfs.namenode.rpc-address.palo.nn1" = "host:port"
+        -   dfs.client.failover.proxy.provider: ha模式中指定client连接namenode的provider,默认为:org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+
 
     4. opt_properties
         用于指定一些特殊参数。
@@ -227,6 +236,24 @@
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
  
+    8. 从ha模式的hdfs的路径中导入数据
+         LOAD LABEL table1_20170707 (
+             DATA INFILE("hdfs://bdos/palo/table1_data")
+             INTO TABLE table1
+         )
+         WITH BROKER hdfs (
+             "fs.defaultFS"="hdfs://bdos",
+             "username"="hdfs_user",
+             "password"="hdfs_password",
+             "dfs.nameservices"="bdos",
+             "dfs.ha.namenodes.bdos"="nn1,nn2",
+             "dfs.namenode.rpc-address.bdos.nn1"="host1:port1",
+             "dfs.namenode.rpc-address.bdos.nn2"="host2:port2")
+         PROPERTIES (
+             "timeout"="3600",
+             "max_filter_ratio"="0.1"
+         );
+
 ## keyword
     LOAD,TABLE
     

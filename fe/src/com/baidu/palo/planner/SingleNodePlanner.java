@@ -660,27 +660,10 @@ public class SingleNodePlanner {
         
         // create left-deep sequence of binary hash joins; assign node ids as we go along
         TableRef tblRef = selectStmt.getTableRefs().get(0);
+        materializeTableResultForCrossJoinOrCountStar(tblRef, analyzer);
         PlanNode root = createTableRefNode(analyzer, tblRef);
         // to change the inner contains analytic function
         // selectStmt.seondSubstituteInlineViewExprs(analyzer.getChangeResSmap());
-
-        if (root instanceof ScanNode) {
-            if (tblRef.getDesc().getSlots().isEmpty()) {
-                Column minimuColumn = null;
-                for (Column col : tblRef.getTable().getBaseSchema()) {
-                    if (minimuColumn == null || col.getDataType().getSlotSize() < minimuColumn
-                            .getDataType().getSlotSize()) {
-                        minimuColumn = col;
-                    }
-                }
-                if (minimuColumn != null) {
-                    SlotDescriptor slot = analyzer.getDescTbl().addSlotDescriptor(tblRef.getDesc());
-                    slot.setColumn(minimuColumn);
-                    slot.setIsMaterialized(true);
-                }
-            }
-        }
-
 
         // add aggregate node here
         AggregateInfo aggInfo = selectStmt.getAggInfo();
@@ -1250,39 +1233,16 @@ public class SingleNodePlanner {
      */
     private PlanNode createJoinNode(Analyzer analyzer, PlanNode outer, TableRef outerRef, TableRef innerRef)
             throws InternalException, AnalysisException {
+         materializeTableResultForCrossJoinOrCountStar(innerRef, analyzer);
         // the rows coming from the build node only need to have space for the tuple
         // materialized by that node
         PlanNode inner = createTableRefNode(analyzer, innerRef);
-
-        // if (((outerRef instanceof InlineViewRef) || (innerRef instanceof InlineViewRef))
-        //         && (analyzer.getWindowBool())) {
-        //     throw new AnalysisException("can't support it");
-        // }
-
-        if (inner instanceof ScanNode) {
-            if (innerRef.getDesc().getSlots().isEmpty()) {
-                Column minimuColumn = null;
-                for (Column col : innerRef.getTable().getBaseSchema()) {
-                    if (minimuColumn == null || col.getDataType().getSlotSize() < minimuColumn
-                            .getDataType().getSlotSize()) {
-                        minimuColumn = col;
-                    }
-                }
-                if (minimuColumn != null) {
-                    SlotDescriptor slot = analyzer.getDescTbl().addSlotDescriptor(innerRef.getDesc());
-                    slot.setColumn(minimuColumn);
-                    slot.setIsMaterialized(true);
-                }
-            }
-        }
 
         List<Pair<Expr, Expr>> eqJoinConjuncts = Lists.newArrayList();
         List<Expr> eqJoinPredicates = Lists.newArrayList();
         Reference<String> errMsg = new Reference<String>();
         // get eq join predicates for the TableRefs' ids (not the PlanNodes' ids, which
         // are materialized)
-        // getHashLookupJoinConjuncts(analyzer, outer.getTupleIds(), innerRef, eqJoinConjuncts,
-        //                            eqJoinPredicates, errMsg);
         getHashLookupJoinConjuncts(analyzer, outer.getTblRefIds(), innerRef, eqJoinConjuncts,
                 eqJoinPredicates, errMsg);
         if (eqJoinPredicates.isEmpty()) {
@@ -1292,11 +1252,6 @@ public class SingleNodePlanner {
                 throw new AnalysisException("non-equal " +  innerRef.getJoinOp().toString() 
                     + " is not supported");
             }
-
-            if (innerRef instanceof InlineViewRef) {
-                InlineViewRef inlineView = (InlineViewRef) innerRef;
-                inlineView.getAnalyzer().materializeSlots(inlineView.getViewStmt().getBaseTblResultExprs());
-            } 
 
             // construct cross join node
             LOG.info("Join between " + outerRef.getAliasAsName() + " and " + innerRef.getAliasAsName()
@@ -1461,4 +1416,95 @@ public class SingleNodePlanner {
         }
         return result;
     }
+
+    /**
+     * According to the way to materialize slots from top to bottom, Materialization will prune columns
+     * which are not referenced by Statement outside. However, in some cases, in order to ensure The
+     * correct execution, it is necessary to materialize the slots that are not needed by Statement
+     * outside.
+     * @param tblRef
+     * @param analyzer
+     */
+    private void materializeTableResultForCrossJoinOrCountStar(TableRef tblRef, Analyzer analyzer) {
+        if (tblRef instanceof BaseTableRef) {
+            materializeBaseTableRefResultForCrossJoinOrCountStar((BaseTableRef)tblRef, analyzer);
+        } else if (tblRef instanceof InlineViewRef) {
+            materializeInlineViewResultExprForCrossJoinOrCountStar((InlineViewRef)tblRef, analyzer);
+        } else {
+            Preconditions.checkArgument(false);
+        }
+    }
+
+    /**
+     * materialize BaseTableRef result' exprs for Cross Join or Count Star
+     * @param tblRef
+     * @param analyzer
+     */
+    private void materializeBaseTableRefResultForCrossJoinOrCountStar(BaseTableRef tblRef, Analyzer analyzer) {
+        if (tblRef.getDesc().getSlots().isEmpty()) {
+            Column minimuColumn = null;
+            for (Column col : tblRef.getTable().getBaseSchema()) {
+                if (minimuColumn == null || col.getDataType().getSlotSize() < minimuColumn
+                        .getDataType().getSlotSize()) {
+                    minimuColumn = col;
+                }
+            }
+            if (minimuColumn != null) {
+                SlotDescriptor slot = analyzer.getDescTbl().addSlotDescriptor(tblRef.getDesc());
+                slot.setColumn(minimuColumn);
+                slot.setIsMaterialized(true);
+            }
+        }
+    }
+
+    /**
+     * materialize InlineViewRef result'exprs for Cross Join or Count Star
+     * @param inlineView
+     * @param analyzer
+     */
+    private void materializeInlineViewResultExprForCrossJoinOrCountStar(InlineViewRef inlineView, Analyzer analyzer) {
+        final List<Expr> baseResultExprs = inlineView.getViewStmt().getBaseTblResultExprs();
+        if (baseResultExprs.size() <= 0) {
+            return;
+        }
+        Expr resultExprSelected = null;
+        int resultExprSelectedSize = 0;
+        // check whether inlineView contains materialized result expr
+        for (Expr e : baseResultExprs) {
+            final List<SlotId> slotIds = Lists.newArrayList();
+            e.getIds(null, slotIds);
+            boolean exprIsMaterialized = true;
+            int exprSize = 0;
+            for (SlotId id : slotIds) {
+                final SlotDescriptor slot = analyzer.getDescTbl().getSlotDesc(id);
+                if (!slot.isMaterialized()) {
+                    exprIsMaterialized = false;
+                }
+                exprSize += slot.getByteSize();
+            }
+
+            if (exprIsMaterialized && exprSize <= resultExprSelectedSize) {
+                resultExprSelectedSize = exprSize;
+                resultExprSelected = e;
+            }
+            // Result Expr contains materialized expr, return
+            if (exprIsMaterialized) {
+                return;
+            }
+        }
+
+        // materialize slots which expr refer and It's total size is smallest
+        final List<SlotId> slotIds = Lists.newArrayList();
+        final List<TupleId> tupleIds = Lists.newArrayList();
+        resultExprSelected.getIds(tupleIds, slotIds);
+        for (SlotId id : slotIds) {
+            final SlotDescriptor slot = analyzer.getDescTbl().getSlotDesc(id);
+            slot.setIsMaterialized(true);
+        }
+        for (TupleId id : tupleIds) {
+            final TupleDescriptor tuple = analyzer.getDescTbl().getTupleDesc(id);
+            tuple.setIsMaterialized(true);
+        }
+    }
+
 }

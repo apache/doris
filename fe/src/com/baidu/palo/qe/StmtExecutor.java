@@ -55,6 +55,7 @@ import com.baidu.palo.mysql.MysqlEofPacket;
 import com.baidu.palo.mysql.MysqlSerializer;
 import com.baidu.palo.planner.Planner;
 import com.baidu.palo.rewrite.ExprRewriter;
+import com.baidu.palo.rpc.RpcException;
 import com.baidu.palo.thrift.TExplainLevel;
 import com.baidu.palo.thrift.TQueryOptions;
 import com.baidu.palo.thrift.TResultBatch;
@@ -204,7 +205,7 @@ public class StmtExecutor {
                             writeProfile(beginTimeInNanoSecond);
                         }
                         break;
-                    } catch (TTransportException e) {
+                    } catch (RpcException e) {
                         if (i == retryTime - 1) {
                             throw e;
                         }
@@ -396,9 +397,16 @@ public class StmtExecutor {
 
                         // Re-analyze the stmt with a new analyzer.
                         analyzer = new Analyzer(context.getCatalog(), context);
-                        parsedStmt.reset();
-                        parsedStmt.analyze(analyzer);
-
+                        // TODO chenhao16 , merge Impala
+                        // insert re-analyze
+                        if (originStmt != null) {
+                            originStmt.reset();
+                            originStmt.analyze(analyzer);
+                        } else {
+                            // query re-analyze
+                            parsedStmt.reset();
+                            parsedStmt.analyze(analyzer);
+                        }
                         // Restore the original result types and column labels.
                         queryStmt1.castResultExprs(origResultTypes);
                         queryStmt1.setColLabels(origColLabels);

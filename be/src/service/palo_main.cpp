@@ -24,6 +24,10 @@
 #include <boost/thread/thread.hpp>
 #include <gperftools/malloc_extension.h>
 
+#if defined(LEAK_SANITIZER)
+#include <sanitizer/lsan_interface.h>
+#endif
+
 #include "common/logging.h"
 #include "common/daemon.h"
 #include "common/config.h"
@@ -46,8 +50,6 @@
 #include <gperftools/profiler.h>
 #include "common/resource_tls.h"
 #include "exec/schema_scanner/frontend_helper.h"
-
-#include "rpc/reactor_factory.h"
 
 static void help(const char*);
 
@@ -136,13 +138,6 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    status = palo::BackendService::create_rpc_service(&exec_env);
-    if (!status.ok()) {
-        LOG(ERROR) << "Palo Be services did not start correctly, exiting";
-        palo::shutdown_logging();
-        exit(1);
-    }
-
     palo::BRpcService brpc_service(&exec_env);
     status = brpc_service.start(palo::config::brpc_port);
     if (!status.ok()) {
@@ -181,7 +176,14 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    palo::ReactorFactory::join();
+#if defined(LEAK_SANITIZER)
+    // __lsan_enable();
+    while (true) {
+        __lsan_do_leak_check();
+        sleep(10);
+    }
+#endif
+    brpc_service.join();
 
     delete be_server;
     return 0;

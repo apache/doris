@@ -24,6 +24,7 @@
 #include "runtime/raw_value.h"
 #include "util/debug_util.h"
 #include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/types.pb.h"
 
 namespace palo {
 
@@ -92,6 +93,19 @@ Status ResultBufferMgr::fetch_data(
     return cb->get_batch(result);
 }
 
+void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx) {
+    TUniqueId tid;
+    tid.__set_hi(finst_id.hi());
+    tid.__set_lo(finst_id.lo());
+    boost::shared_ptr<BufferControlBlock> cb = find_control_block(tid);
+    if (cb == nullptr) {
+        LOG(WARNING) << "no result for this query, id=" << tid;
+        ctx->on_failure(Status("no result for this query"));
+        return;
+    }
+    cb->get_batch(ctx);
+}
+
 Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
     boost::lock_guard<boost::mutex> l(_lock);
     BufferMap::iterator iter = _buffer_map.find(query_id);
@@ -150,4 +164,3 @@ void ResultBufferMgr::cancel_thread() {
 }
 
 }
-/* vim: set ts=4 sw=4 sts=4 tw=100 noet: */

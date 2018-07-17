@@ -26,6 +26,7 @@ import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.log4j.Logger;
+import com.google.common.base.Strings;
 
 import java.io.IOException;
 import java.net.URI;
@@ -48,6 +49,16 @@ public class FileSystemManager {
     private static final String HDFS_UGI_CONF = "hadoop.job.ugi";
     private static final String USER_NAME_KEY = "username";
     private static final String PASSWORD_KEY = "password";
+
+    // arguments for ha hdfs
+    private static final String DFS_NAMESERVICES_KEY = "dfs.nameservices";
+    private static final String DFS_HA_NAMENODES_PREFIX = "dfs.ha.namenodes.";
+    private static final String DFS_HA_NAMENODE_RPC_ADDRESS_PREFIX = "dfs.namenode.rpc-address.";
+    private static final String DFS_CLIENT_FAILOVER_PROXY_PROVIDER_PREFIX =
+            "dfs.client.failover.proxy.provider.";
+    private static final String DEFAULT_DFS_CLIENT_FAILOVER_PROXY_PROVIDER =
+            "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider";
+    private static final String FS_DEFAULTFS_KEY = "fs.defaultFS";
     
     private ScheduledExecutorService handleManagementPool = Executors.newScheduledThreadPool(2);
     
@@ -85,8 +96,21 @@ public class FileSystemManager {
             throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH, e);
         }
         String host = HDFS_SCHEME + pathUri.getAuthority();
+        if (Strings.isNullOrEmpty(pathUri.getAuthority())) {
+            if (properties.containsKey(FS_DEFAULTFS_KEY)) {
+                host = properties.get(FS_DEFAULTFS_KEY);
+                logger.info("no schema and authority in path. use fs.defaultFs");
+            } else {
+                logger.warn("invalid hdfs path. authority is null,path:" + path);
+                throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                        "invalid hdfs path. authority is null");
+            }
+        }
         String username = properties.containsKey(USER_NAME_KEY) ? properties.get(USER_NAME_KEY) : "";
         String password = properties.containsKey(PASSWORD_KEY) ? properties.get(PASSWORD_KEY) : "";
+        String dfsNameServices =
+                properties.containsKey(DFS_NAMESERVICES_KEY) ? properties.get(DFS_NAMESERVICES_KEY) : "";
+
         String hdfsUgi = username + "," + password;
         FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(host, hdfsUgi);
         BrokerFileSystem fileSystem = null;
@@ -110,6 +134,47 @@ public class FileSystemManager {
                 // TODO get this param from properties
                 // conf.set("dfs.replication", "2");
                 conf.set(HDFS_UGI_CONF, hdfsUgi);
+                if (!Strings.isNullOrEmpty(dfsNameServices)) {
+                    // ha hdfs arguments
+                    final String dfsHaNameNodesKey = DFS_HA_NAMENODES_PREFIX + dfsNameServices;
+                    if (!properties.containsKey(dfsHaNameNodesKey)) {
+                        throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                                "load request missed necessary arguments for ha mode");
+                    }
+                    String dfsHaNameNodes =  properties.get(dfsHaNameNodesKey);
+                    conf.set(DFS_NAMESERVICES_KEY, dfsNameServices);
+                    conf.set(dfsHaNameNodesKey, dfsHaNameNodes);
+                    String[] nameNodes = dfsHaNameNodes.split(",");
+                    if (nameNodes == null) {
+                        throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                                "invalid " + dfsHaNameNodesKey + " configuration");
+                    } else {
+                        for (String nameNode : nameNodes) {
+                            String nameNodeRpcAddress =
+                                    DFS_HA_NAMENODE_RPC_ADDRESS_PREFIX + dfsNameServices + "." + nameNode;
+                            if (!properties.containsKey(nameNodeRpcAddress)) {
+                                throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                                        "missed " + nameNodeRpcAddress + " configuration");
+                            } else {
+                                conf.set(nameNodeRpcAddress, properties.get(nameNodeRpcAddress));
+                            }
+                        }
+                    }
+
+                    final String dfsClientFailoverProxyProviderKey =
+                            DFS_CLIENT_FAILOVER_PROXY_PROVIDER_PREFIX + dfsNameServices;
+                    if (properties.containsKey(dfsClientFailoverProxyProviderKey)) {
+                        conf.set(dfsClientFailoverProxyProviderKey,
+                                properties.get(dfsClientFailoverProxyProviderKey));
+                    } else {
+                        conf.set(dfsClientFailoverProxyProviderKey,
+                                DEFAULT_DFS_CLIENT_FAILOVER_PROXY_PROVIDER);
+                    }
+                    if (properties.containsKey(FS_DEFAULTFS_KEY)) {
+                        conf.set(FS_DEFAULTFS_KEY, properties.get(FS_DEFAULTFS_KEY));
+                    }
+                }
+
                 FileSystem dfsFileSystem = FileSystem.get(URI.create(host), conf);
                 fileSystem.setFileSystem(dfsFileSystem);
             }

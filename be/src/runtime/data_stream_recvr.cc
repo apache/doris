@@ -29,7 +29,6 @@
 #include <google/protobuf/stubs/common.h>
 
 #include "gen_cpp/data.pb.h"
-#include "rpc/comm.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/sorted_run_merger.h"
@@ -74,11 +73,6 @@ public:
     // blocks if this will make the stream exceed its buffer limit.
     // If the total size of the batches in this queue would exceed the allowed buffer size,
     // the queue is considered full and the call blocks until a batch is dequeued.
-    void add_batch(
-            const TRowBatch& batch,
-            bool* is_buf_overflow,
-            std::pair<InetAddr, CommBufPtr> response);
-
     void add_batch(
         const PRowBatch& pb_batch,
         int be_number, int64_t packet_seq,
@@ -137,9 +131,6 @@ private:
     std::unordered_set<int> _sender_eos_set; // sender_id
     std::unordered_map<int, int64_t> _packet_seq_map; // be_number => packet_seq
 
-    typedef std::list<std::pair<InetAddr, CommBufPtr>> ResponseQueue;
-    ResponseQueue _response_queue;
-
     std::deque<google::protobuf::Closure*> _pending_closures;
 };
 
@@ -188,14 +179,6 @@ Status DataStreamRecvr::SenderQueue::get_batch(RowBatch** next_batch) {
     _current_batch.reset(result);
     *next_batch = _current_batch.get();
 
-    {
-        Comm* comm = Comm::instance();
-        if (!_response_queue.empty()) {
-            std::pair<InetAddr, CommBufPtr> response = _response_queue.front();
-            comm->send_response(response.first, response.second);
-            _response_queue.pop_front();
-        }
-    }
     if (!_pending_closures.empty()) {
         auto done = _pending_closures.front();
         done->Run();
@@ -203,77 +186,6 @@ Status DataStreamRecvr::SenderQueue::get_batch(RowBatch** next_batch) {
     }
 
     return Status::OK;
-}
-
-void DataStreamRecvr::SenderQueue::add_batch(const TRowBatch& thrift_batch,
-                                             bool* is_buf_overflow,
-                                             std::pair<InetAddr, CommBufPtr> response) {
-    unique_lock<mutex> l(_lock);
-    if (_is_cancelled) {
-        return;
-    }
-
-    auto iter = _packet_seq_map.find(thrift_batch.be_number);
-    if (iter != _packet_seq_map.end()) {
-        if (iter->second >= thrift_batch.packet_seq) {
-            // already recept
-            LOG(WARNING) << "packet already exist [cur_packet_id= " << iter->second
-                         << " receive_packet_id=" << thrift_batch.packet_seq << "]";
-            // COUNTER_UPDATE(_duplicate_packets_counter, 1);
-            return ;
-        }
-    }
-    _packet_seq_map[thrift_batch.be_number] = thrift_batch.packet_seq;
-
-    int batch_size = RowBatch::get_batch_size(thrift_batch);
-    COUNTER_UPDATE(_recvr->_bytes_received_counter, batch_size);
-
-    // Following situation will match the following condition.
-    // Sender send a packet failed, then close the channel.
-    // but closed packet reach first, then the failed packet.
-    // Then meet the assert
-    // we remove the assert
-    // DCHECK_GT(_num_remaining_senders, 0);
-    if (_num_remaining_senders <= 0) {
-        DCHECK(_sender_eos_set.end() != _sender_eos_set.find(thrift_batch.be_number));
-        return;
-    }
-
-    // We always accept the batch regardless of buffer limit, to avoid rpc pipeline stall.
-    // If exceed buffer limit, we just do not respoinse ACK to client, so the client won't
-    // send data until receive ACK.
-    // Note that if this be needs to receive data from N BEs, the size of buffer
-    // may reach as many as (buffer_size + n * buffer_size)
-    //
-    // Note: It's important that we enqueue thrift_batch regardless of buffer limit if
-    //  the queue is currently empty. In the case of a merging receiver, batches are
-    //  received from a specific queue based on data order, and the pipeline will stall
-    //  if the merger is waiting for data from an empty queue that cannot be filled
-    //  because the limit has been reached.
-
-    if (_is_cancelled) {
-        return;
-    }
-
-    RowBatch* batch = NULL;
-    {
-        SCOPED_TIMER(_recvr->_deserialize_row_batch_timer);
-        // Note: if this function makes a row batch, the batch *must* be added
-        // to _batch_queue. It is not valid to create the row batch and destroy
-        // it in this thread.
-        batch = new RowBatch(_recvr->row_desc(), thrift_batch, _recvr->mem_tracker());
-    }
-    VLOG_ROW << "added #rows=" << batch->num_rows()
-        << " batch_size=" << batch_size << "\n";
-    _batch_queue.push_back(make_pair(batch_size, batch));
-
-    if (_recvr->exceeds_limit(batch_size)) {
-        *is_buf_overflow = true;
-        _response_queue.push_back(response);
-    }
-
-    _recvr->_num_buffered_bytes += batch_size;
-    _data_arrival_cv.notify_one();
 }
 
 void DataStreamRecvr::SenderQueue::add_batch(
@@ -383,13 +295,6 @@ void DataStreamRecvr::SenderQueue::cancel() {
 
     {
         boost::lock_guard<boost::mutex> l(_lock);
-        Comm* comm = Comm::instance();
-        while (!_response_queue.empty()) {
-            std::pair<InetAddr, CommBufPtr> response = _response_queue.front();
-            comm->send_response(response.first, response.second);
-            _response_queue.pop_front();
-        }
-
         for (auto done : _pending_closures) {
             done->Run();
         }
@@ -404,14 +309,6 @@ void DataStreamRecvr::SenderQueue::close() {
         // is clear will be memory leak
         boost::lock_guard<boost::mutex> l(_lock);
         _is_cancelled = true;
-
-        // make all pending RPC done
-        Comm* comm = Comm::instance();
-        while (!_response_queue.empty()) {
-            std::pair<InetAddr, CommBufPtr> response = _response_queue.front();
-            comm->send_response(response.first, response.second);
-            _response_queue.pop_front();
-        }
 
         for (auto done : _pending_closures) {
             done->Run();
@@ -493,14 +390,6 @@ DataStreamRecvr::DataStreamRecvr(
 Status DataStreamRecvr::get_next(RowBatch* output_batch, bool* eos) {
     DCHECK(_merger.get() != NULL);
     return _merger->get_next(output_batch, eos);
-}
-
-void DataStreamRecvr::add_batch(
-        const TRowBatch& thrift_batch, int sender_id,
-        bool* is_buf_overflow, std::pair<InetAddr, CommBufPtr> response) {
-    int use_sender_id = _is_merging ? sender_id : 0;
-    // Add all batches to the same queue if _is_merging is false.
-    _sender_queues[use_sender_id]->add_batch(thrift_batch, is_buf_overflow, response);
 }
 
 void DataStreamRecvr::add_batch(

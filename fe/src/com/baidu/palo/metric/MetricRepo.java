@@ -29,6 +29,7 @@ import com.baidu.palo.load.LoadJob.EtlJobType;
 import com.baidu.palo.load.LoadJob.JobState;
 import com.baidu.palo.monitor.jvm.JvmService;
 import com.baidu.palo.monitor.jvm.JvmStats;
+import com.baidu.palo.persist.EditLog;
 import com.baidu.palo.service.ExecuteEnv;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.SystemInfoService;
@@ -41,6 +42,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.SortedMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class MetricRepo {
     private static final Logger LOG = LogManager.getLogger(MetricRepo.class);
@@ -48,17 +50,21 @@ public final class MetricRepo {
     private static final MetricRegistry METRIC_REGISTER = new MetricRegistry();
     private static final PaloMetricRegistry PALO_METRIC_REGISTER = new PaloMetricRegistry();
     
-    private static boolean isInit = false;
+    public static AtomicBoolean isInit = new AtomicBoolean(false);
 
     public static PaloLongCounterMetric COUNTER_REQUEST_ALL;
     public static PaloLongCounterMetric COUNTER_QUERY_ALL;
     public static PaloLongCounterMetric COUNTER_QUERY_ERR;
     public static PaloLongCounterMetric COUNTER_LOAD_ADD;
     public static PaloLongCounterMetric COUNTER_LOAD_FINISHED;
+    public static PaloLongCounterMetric COUNTER_EDIT_LOG_WRITE;
+    public static PaloLongCounterMetric COUNTER_EDIT_LOG_READ;
+    public static PaloLongCounterMetric COUNTER_IMAGE_WRITE;
+    public static PaloLongCounterMetric COUNTER_IMAGE_PUSH;
     public static Histogram HISTO_QUERY_LATENCY;
 
     public static synchronized void init() {
-        if (isInit) {
+        if (isInit.get()) {
             return;
         }
 
@@ -124,6 +130,20 @@ public final class MetricRepo {
         };
         PALO_METRIC_REGISTER.addPaloMetrics(conections);
 
+        // journal id
+        PaloGaugeMetric<Long> maxJournalId = (PaloGaugeMetric<Long>) new PaloGaugeMetric<Long>(
+                "max_journal_id", "max journal id of this frontends") {
+            @Override
+            public Long getValue() {
+                EditLog editLog = Catalog.getInstance().getEditLog();
+                if (editLog == null) {
+                    return -1L;
+                }
+                return editLog.getMaxJournalId();
+            }
+        };
+        PALO_METRIC_REGISTER.addPaloMetrics(maxJournalId);
+
         // 2. counter
         COUNTER_REQUEST_ALL = new PaloLongCounterMetric("request_total", "total request");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_REQUEST_ALL);
@@ -135,11 +155,21 @@ public final class MetricRepo {
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_LOAD_ADD);
         COUNTER_LOAD_FINISHED = new PaloLongCounterMetric("load_finished", "total laod finished");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_LOAD_FINISHED);
+        COUNTER_EDIT_LOG_WRITE = new PaloLongCounterMetric("edit_log_write", "counter of edit log write into bdbje");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_WRITE);
+        COUNTER_EDIT_LOG_READ = new PaloLongCounterMetric("edit_log_read", "counter of edit log read from bdbje");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_READ);
+        COUNTER_IMAGE_WRITE = new PaloLongCounterMetric("image_write", "counter of image generated");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_WRITE);
+        COUNTER_IMAGE_PUSH = new PaloLongCounterMetric("image_push",
+                "counter of image succeeded in pushing to other frontends");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_PUSH);
 
         // 3. histogram
         HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("query", "latency", "ms"));
 
-        isInit = true;
+        isInit.set(true);
+        ;
     }
 
     // this metric is reentrant, so that we can add or remove metric along with the backend add or remove
@@ -195,7 +225,7 @@ public final class MetricRepo {
     }
 
     public static synchronized String getMetric(PaloMetricVisitor visitor) {
-        if (!isInit) {
+        if (!isInit.get()) {
             return "";
         }
         StringBuilder sb = new StringBuilder();
@@ -223,3 +253,4 @@ public final class MetricRepo {
         return sb.toString();
     }
 }
+

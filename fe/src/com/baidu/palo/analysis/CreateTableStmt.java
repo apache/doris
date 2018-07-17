@@ -248,10 +248,6 @@ public class CreateTableStmt extends DdlStmt implements Writable {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_MUST_HAVE_COLUMNS);
         }
 
-        if (columns.size() > KuduUtil.MAX_COLUMN_NUM) {
-            throw new AnalysisException("Kudu table does not support column num more than 300");
-        }
-
         int rowLengthBytes = 0;
         boolean hasHll = false;
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);

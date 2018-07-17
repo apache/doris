@@ -18,8 +18,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UTIL_PATH_TRIE_H
-#define BDG_PALO_BE_SRC_COMMON_UTIL_PATH_TRIR_H
+#pragma once
 
 #include <map>
 #include <memory>
@@ -289,6 +288,3 @@ private:
 };
 
 }
-
-#endif
-

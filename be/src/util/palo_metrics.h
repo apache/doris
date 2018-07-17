@@ -43,19 +43,44 @@ public:
     static IntCounter push_request_write_bytes;
     static IntCounter push_request_write_rows;
     static IntCounter create_tablet_requests_total;
+    static IntCounter create_tablet_requests_failed;
     static IntCounter drop_tablet_requests_total;
+
     static IntCounter report_all_tablets_requests_total;
+    static IntCounter report_all_tablets_requests_failed;
     static IntCounter report_tablet_requests_total;
+    static IntCounter report_tablet_requests_failed;
+    static IntCounter report_disk_requests_total;
+    static IntCounter report_disk_requests_failed;
+    static IntCounter report_task_requests_total;
+    static IntCounter report_task_requests_failed;
+
     static IntCounter schema_change_requests_total;
+    static IntCounter schema_change_requests_failed;
     static IntCounter create_rollup_requests_total;
+    static IntCounter create_rollup_requests_failed;
     static IntCounter storage_migrate_requests_total;
     static IntCounter delete_requests_total;
+    static IntCounter delete_requests_failed;
     static IntCounter cancel_delete_requests_total;
+    static IntCounter clone_requests_total;
+    static IntCounter clone_requests_failed;
+
+    static IntCounter finish_task_requests_total;
+    static IntCounter finish_task_requests_failed;
+
+    static IntCounter base_compaction_request_total;
+    static IntCounter base_compaction_request_failed;
+    static IntCounter cumulative_compaction_request_total;
+    static IntCounter cumulative_compaction_request_failed;
 
     static IntCounter base_compaction_deltas_total;
     static IntCounter base_compaction_bytes_total;
     static IntCounter cumulative_compaction_deltas_total;
     static IntCounter cumulative_compaction_bytes_total;
+
+    static IntCounter alter_task_success_total;
+    static IntCounter alter_task_failed_total;
 
     // Gauges
     static IntGauge memory_pool_bytes_total;

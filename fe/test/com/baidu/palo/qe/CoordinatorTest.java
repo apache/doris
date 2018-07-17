@@ -418,6 +418,7 @@ public class CoordinatorTest extends Coordinator {
     public void testNoUsedHosts() {
     }
 
+    /*
     public void testNetworkException() throws TException, NoSuchFieldException,
             SecurityException, IllegalArgumentException, IllegalAccessException,
             NoSuchMethodException, InvocationTargetException {
@@ -449,5 +450,6 @@ public class CoordinatorTest extends Coordinator {
         }
         Assert.assertTrue("need get the TTransportException", isException);
     }
+    */
 }
 

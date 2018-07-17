@@ -33,7 +33,7 @@ public:
 
     virtual ~SnapshotAction();
 
-    virtual void handle(HttpRequest *req, HttpChannel *channel);
+    void handle(HttpRequest *req) override;
 private:
     int64_t make_snapshot(int64_t tablet_id, int schema_hash, std::string* snapshot_path);
 

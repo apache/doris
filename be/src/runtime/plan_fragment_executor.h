@@ -39,7 +39,6 @@ class DataSink;
 class DataStreamMgr;
 class RuntimeProfile;
 class RuntimeState;
-class TRowBatch;
 class TPlanExecRequest;
 class TPlanFragment;
 class TPlanFragmentExecParams;
@@ -190,7 +189,6 @@ private:
     boost::scoped_ptr<DataSink> _sink;
     boost::scoped_ptr<RuntimeState> _runtime_state;
     boost::scoped_ptr<RowBatch> _row_batch;
-    boost::scoped_ptr<TRowBatch> _thrift_batch;
 
     // Number of rows returned by this fragment
     RuntimeProfile::Counter* _rows_produced_counter;

@@ -44,6 +44,14 @@ Status::ErrorDetail::ErrorDetail(const TStatus& status) :
     DCHECK_NE(error_code, TStatusCode::OK);
 }
 
+Status::ErrorDetail::ErrorDetail(const PStatus& pstatus)
+        : error_code((TStatusCode::type)pstatus.status_code()) {
+    DCHECK_NE(error_code, TStatusCode::OK);
+    for (auto& msg : pstatus.error_msgs()) {
+        error_msgs.push_back(msg);
+    }
+}
+
 Status::Status(const std::string& error_msg) : 
         _error_detail(new ErrorDetail(TStatusCode::INTERNAL_ERROR, error_msg)) {
     LOG(INFO) << error_msg << std::endl << get_stack_trace();
@@ -73,6 +81,21 @@ Status& Status::operator=(const TStatus& status) {
         _error_detail = new ErrorDetail(status);
     }
 
+    return *this;
+}
+
+Status::Status(const PStatus& pstatus) :
+    _error_detail((TStatusCode::type)pstatus.status_code() == TStatusCode::OK
+                  ? nullptr : new ErrorDetail(pstatus)) {
+}
+
+Status& Status::operator=(const PStatus& status) {
+    delete _error_detail;
+    if (status.status_code() == (TStatusCode::type)TStatusCode::OK) {
+        _error_detail = nullptr;
+    } else {
+        _error_detail = new ErrorDetail(status);
+    }
     return *this;
 }
 
@@ -133,6 +156,19 @@ void Status::to_thrift(TStatus* status) const {
         }
 
         status->__isset.error_msgs = !_error_detail->error_msgs.empty();
+    }
+}
+
+void Status::to_protobuf(PStatus* pstatus) const {
+    pstatus->clear_error_msgs();
+    if (_error_detail == nullptr) {
+        pstatus->set_status_code((int)TStatusCode::OK);
+    } else {
+        pstatus->set_status_code(_error_detail->error_code);
+        pstatus->mutable_error_msgs()->Reserve(_error_detail->error_msgs.size());
+        for (auto& err_msg : _error_detail->error_msgs) {
+            pstatus->add_error_msgs(err_msg);
+        }
     }
 }
 

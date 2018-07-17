@@ -29,12 +29,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "util/runtime_profile.h"
-#include "gen_cpp/Data_types.h"  // for TRowBatch
 #include "gen_cpp/data.pb.h"  // for PRowBatch
-
-#include "rpc/dispatch_handler.h"
-#include "rpc/io_handler.h"
-#include "rpc/poll_event.h"
 
 namespace palo {
 
@@ -138,15 +133,8 @@ private:
     TPartitionType::type _part_type;
     bool _ignore_not_found;
 
-    // use this flag to back-compatible for old data transmit
-    bool _use_brpc = false;
-
     // serialized batches for broadcasting; we need two so we can write
     // one while the other one is still being sent
-    TRowBatch _thrift_batch1;
-    TRowBatch _thrift_batch2;
-    TRowBatch* _current_thrift_batch;  // the next one to fill in send()
-
     PRowBatch _pb_batch1;
     PRowBatch _pb_batch2;
     PRowBatch* _current_pb_batch = nullptr;

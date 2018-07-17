@@ -238,7 +238,8 @@ OLAPStatus RowCursor::allocate_memory_for_string_type(
             StringSlice* slice = reinterpret_cast<StringSlice*>(fixed_ptr + 1);
             HllContext* context = nullptr;
             if (mem_pool != nullptr) {
-                context = reinterpret_cast<HllContext*>(mem_pool->allocate(sizeof(HllContext)));
+                char* mem = reinterpret_cast<char*>(mem_pool->allocate(sizeof(HllContext)));
+                context = new (mem) HllContext;
             } else {
                 // store context addr, which will be freed
                 // in deconstructor if allocated by new function

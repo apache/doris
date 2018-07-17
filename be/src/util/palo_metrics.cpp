@@ -37,18 +37,40 @@ IntCounter PaloMetrics::push_request_duration_us;
 IntCounter PaloMetrics::push_request_write_bytes;
 IntCounter PaloMetrics::push_request_write_rows;
 IntCounter PaloMetrics::create_tablet_requests_total;
+IntCounter PaloMetrics::create_tablet_requests_failed;
 IntCounter PaloMetrics::drop_tablet_requests_total;
+
 IntCounter PaloMetrics::report_all_tablets_requests_total;
+IntCounter PaloMetrics::report_all_tablets_requests_failed;
 IntCounter PaloMetrics::report_tablet_requests_total;
+IntCounter PaloMetrics::report_tablet_requests_failed;
+IntCounter PaloMetrics::report_disk_requests_total;
+IntCounter PaloMetrics::report_disk_requests_failed;
+IntCounter PaloMetrics::report_task_requests_total;
+IntCounter PaloMetrics::report_task_requests_failed;
+
 IntCounter PaloMetrics::schema_change_requests_total;
+IntCounter PaloMetrics::schema_change_requests_failed;
 IntCounter PaloMetrics::create_rollup_requests_total;
+IntCounter PaloMetrics::create_rollup_requests_failed;
 IntCounter PaloMetrics::storage_migrate_requests_total;
 IntCounter PaloMetrics::delete_requests_total;
+IntCounter PaloMetrics::delete_requests_failed;
 IntCounter PaloMetrics::cancel_delete_requests_total;
+IntCounter PaloMetrics::clone_requests_total;
+IntCounter PaloMetrics::clone_requests_failed;
+
+IntCounter PaloMetrics::finish_task_requests_total;
+IntCounter PaloMetrics::finish_task_requests_failed;
+
 IntCounter PaloMetrics::base_compaction_deltas_total;
 IntCounter PaloMetrics::base_compaction_bytes_total;
+IntCounter PaloMetrics::base_compaction_request_total;
+IntCounter PaloMetrics::base_compaction_request_failed;
 IntCounter PaloMetrics::cumulative_compaction_deltas_total;
 IntCounter PaloMetrics::cumulative_compaction_bytes_total;
+IntCounter PaloMetrics::cumulative_compaction_request_total;
+IntCounter PaloMetrics::cumulative_compaction_request_failed;
 
 // gauges
 IntGauge PaloMetrics::memory_pool_bytes_total;
@@ -89,19 +111,41 @@ void PaloMetrics::initialize(const std::string& name,
     REGISTER_PALO_METRIC(push_request_write_bytes);
     REGISTER_PALO_METRIC(push_request_write_rows);
 
-#define REGISTER_ENGINE_REQUEST_METRIC(type, metric) \
+#define REGISTER_ENGINE_REQUEST_METRIC(type, status, metric) \
     _metrics->register_metric( \
-        "engine_requests_total", MetricLabels().add("type", #type), &metric)
+        "engine_requests_total", MetricLabels().add("type", #type).add("status", #status), &metric)
 
-    REGISTER_ENGINE_REQUEST_METRIC(create_tablet, create_tablet_requests_total);
-    REGISTER_ENGINE_REQUEST_METRIC(drop_tablet, drop_tablet_requests_total);
-    REGISTER_ENGINE_REQUEST_METRIC(report_all_tablets, report_all_tablets_requests_total);
-    REGISTER_ENGINE_REQUEST_METRIC(report_tablet, report_tablet_requests_total);
-    REGISTER_ENGINE_REQUEST_METRIC(schema_change, schema_change_requests_total);
-    REGISTER_ENGINE_REQUEST_METRIC(create_rollup, create_rollup_requests_total);
-    REGISTER_ENGINE_REQUEST_METRIC(storage_migrate, storage_migrate_requests_total);
-    REGISTER_ENGINE_REQUEST_METRIC(delete, delete_requests_total);
-    REGISTER_ENGINE_REQUEST_METRIC(cancel_delete, cancel_delete_requests_total);
+    REGISTER_ENGINE_REQUEST_METRIC(create_tablet, total, create_tablet_requests_total);
+    REGISTER_ENGINE_REQUEST_METRIC(create_tablet, failed, create_tablet_requests_failed);
+    REGISTER_ENGINE_REQUEST_METRIC(drop_tablet, total, drop_tablet_requests_total);
+
+    REGISTER_ENGINE_REQUEST_METRIC(report_all_tablets, total, report_all_tablets_requests_total);
+    REGISTER_ENGINE_REQUEST_METRIC(report_all_tablets, failed, report_all_tablets_requests_failed);
+    REGISTER_ENGINE_REQUEST_METRIC(report_tablet, total, report_tablet_requests_total);
+    REGISTER_ENGINE_REQUEST_METRIC(report_tablet, failed, report_tablet_requests_failed);
+    REGISTER_ENGINE_REQUEST_METRIC(report_disk, total, report_disk_requests_total);
+    REGISTER_ENGINE_REQUEST_METRIC(report_disk, failed, report_disk_requests_failed);
+    REGISTER_ENGINE_REQUEST_METRIC(report_task, total, report_task_requests_total);
+    REGISTER_ENGINE_REQUEST_METRIC(report_task, failed, report_task_requests_failed);
+
+    REGISTER_ENGINE_REQUEST_METRIC(schema_change, total, schema_change_requests_total);
+    REGISTER_ENGINE_REQUEST_METRIC(schema_change, failed, schema_change_requests_failed);
+    REGISTER_ENGINE_REQUEST_METRIC(create_rollup, total, create_rollup_requests_total);
+    REGISTER_ENGINE_REQUEST_METRIC(create_rollup, failed, create_rollup_requests_failed);
+    REGISTER_ENGINE_REQUEST_METRIC(storage_migrate, total, storage_migrate_requests_total);
+    REGISTER_ENGINE_REQUEST_METRIC(delete, total, delete_requests_total);
+    REGISTER_ENGINE_REQUEST_METRIC(delete, failed, delete_requests_failed);
+    REGISTER_ENGINE_REQUEST_METRIC(cancel_delete, total, cancel_delete_requests_total);
+    REGISTER_ENGINE_REQUEST_METRIC(clone, total, clone_requests_total);
+    REGISTER_ENGINE_REQUEST_METRIC(clone, failed, clone_requests_failed);
+
+    REGISTER_ENGINE_REQUEST_METRIC(finish_task, total, finish_task_requests_total);
+    REGISTER_ENGINE_REQUEST_METRIC(finish_task, failed, finish_task_requests_failed);
+
+    REGISTER_ENGINE_REQUEST_METRIC(base_compaction, total, base_compaction_request_total);
+    REGISTER_ENGINE_REQUEST_METRIC(base_compaction, failed, base_compaction_request_failed);
+    REGISTER_ENGINE_REQUEST_METRIC(cumulative_compaction, total, cumulative_compaction_request_total);
+    REGISTER_ENGINE_REQUEST_METRIC(cumulative_compaction, failed, cumulative_compaction_request_failed);
 
     _metrics->register_metric(
         "compaction_deltas_total", MetricLabels().add("type", "base"),

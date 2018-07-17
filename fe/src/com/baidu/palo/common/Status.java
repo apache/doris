@@ -20,6 +20,7 @@
 
 package com.baidu.palo.common;
 
+import com.baidu.palo.rpc.PStatus;
 import com.baidu.palo.thrift.TStatus;
 import com.baidu.palo.thrift.TStatusCode;
 
@@ -81,6 +82,13 @@ public class Status {
     public void setStatus(String msg) {
         this.errorCode = TStatusCode.INTERNAL_ERROR;
         this.errorMsg = msg;
+    }
+
+    public void setPstatus(PStatus status) {
+        this.errorCode = TStatusCode.findByValue(status.code);
+        if (status.msgs != null && !status.msgs.isEmpty()) {
+            this.errorMsg = status.msgs.get(0);
+        }
     }
 
     public void setRpcStatus(String msg) {

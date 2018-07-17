@@ -39,7 +39,7 @@ public:
 
     virtual ~DownloadAction() {}
 
-    virtual void handle(HttpRequest *req, HttpChannel *channel);
+    void handle(HttpRequest *req) override;
 
 private:
     enum DOWNLOAD_TYPE {
@@ -51,14 +51,13 @@ private:
     Status check_path_is_allowed(const std::string& path);
     Status check_log_path_is_allowed(const std::string& file_path);
 
-    void handle_normal(HttpRequest *req, HttpChannel *channel, const std::string& file_param);
+    void handle_normal(HttpRequest *req, const std::string& file_param);
     void handle_error_log(
             HttpRequest *req,
-            HttpChannel *channel,
             const std::string& file_param);
 
-    void do_file_response(const std::string& dir_path, HttpRequest *req, HttpChannel *channel);
-    void do_dir_response(const std::string& dir_path, HttpRequest *req, HttpChannel *channel);
+    void do_file_response(const std::string& dir_path, HttpRequest *req);
+    void do_dir_response(const std::string& dir_path, HttpRequest *req);
 
     Status get_file_content(
             FILE* fp, char* buffer, int32_t buffer_size,

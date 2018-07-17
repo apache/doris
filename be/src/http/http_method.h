@@ -18,6 +18,8 @@
 
 #include <string>
 
+#include <event2/http.h>
+
 namespace palo {
 
 // Http method enumerate
@@ -33,6 +35,26 @@ enum HttpMethod {
 
 // Convert string to HttpMethod
 HttpMethod to_http_method(const char* method);
+
+inline HttpMethod to_http_method(evhttp_cmd_type type) {
+    switch (type) {
+    case EVHTTP_REQ_GET:
+        return HttpMethod::GET;
+    case EVHTTP_REQ_POST:
+        return HttpMethod::POST;
+    case EVHTTP_REQ_HEAD:
+        return HttpMethod::HEAD;
+    case EVHTTP_REQ_PUT:
+        return HttpMethod::PUT;
+    case EVHTTP_REQ_DELETE:
+        return HttpMethod::DELETE;
+    case EVHTTP_REQ_OPTIONS:
+        return HttpMethod::OPTIONS;
+    default:
+        return HttpMethod::UNKNOWN;
+    }
+    return HttpMethod::UNKNOWN;
+}
 
 std::string to_method_desc(const HttpMethod& method);
 

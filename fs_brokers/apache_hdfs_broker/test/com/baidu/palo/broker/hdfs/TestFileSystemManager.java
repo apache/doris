@@ -51,6 +51,76 @@ public class TestFileSystemManager extends TestCase {
     }
     
     @Test
+    public void testGetFileSystemForhHA() throws IOException {
+        Map<String, String> properties = new HashMap<String, String>();
+        properties.put("username", "user");
+        properties.put("password", "passwd");
+        properties.put("fs.defaultFS", "hdfs://palo");
+        properties.put("dfs.nameservices", "palo");
+        properties.put("dfs.ha.namenodes.palo", "nn1,nn2");
+        properties.put("dfs.namenode.rpc-address.palo.nn1", "host1:port1");
+        properties.put("dfs.namenode.rpc-address.palo.nn2", "host2:port2");
+        properties.put("dfs.client.failover.proxy.provider.bdos",
+                "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider");
+        BrokerFileSystem fs = fileSystemManager.getFileSystem(testHdfsHost + "/data/abc/logs", properties);
+        assertNotNull(fs);
+        fs.getDFSFileSystem().close();
+    }
+
+    @Test
+    public void testGetFileSystemForHAWithNoNames() throws IOException {
+        Map<String, String> properties = new HashMap<String, String>();
+        properties.put("username", "user");
+        properties.put("password", "passwd");
+        properties.put("fs.defaultFS", "hdfs://palo");
+        properties.put("dfs.nameservices", "palo");
+        properties.put("dfs.client.failover.proxy.provider.bdos",
+                "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider");
+        boolean haveException = false;
+        try {
+            BrokerFileSystem fs = fileSystemManager.getFileSystem(testHdfsHost + "/data/abc/logs", properties);
+        } catch (BrokerException be) {
+            haveException = true;
+        }
+        assertEquals(true, haveException);
+    }
+
+    @Test
+    public void testGetFileSystemForHAWithNoRpcConfig() throws IOException {
+        Map<String, String> properties = new HashMap<String, String>();
+        properties.put("username", "user");
+        properties.put("password", "passwd");
+        properties.put("fs.defaultFS", "hdfs://palo");
+        properties.put("dfs.nameservices", "palo");
+        properties.put("dfs.ha.namenodes.palo", "nn1,nn2");
+        properties.put("dfs.namenode.rpc-address.palo.nn1", "host1:port1");
+        properties.put("dfs.client.failover.proxy.provider.bdos",
+                "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider");
+        boolean haveException = false;
+        try {
+            BrokerFileSystem fs = fileSystemManager.getFileSystem(testHdfsHost + "/data/abc/logs", properties);
+        } catch (BrokerException be) {
+            haveException = true;
+        }
+        assertEquals(true, haveException);
+    }
+
+    @Test
+    public void testGetFileSystemForHAWithNoProviderArguments() throws IOException {
+        Map<String, String> properties = new HashMap<String, String>();
+        properties.put("username", "user");
+        properties.put("password", "passwd");
+        properties.put("fs.defaultFS", "hdfs://palo");
+        properties.put("dfs.nameservices", "palo");
+        properties.put("dfs.ha.namenodes.palo", "nn1,nn2");
+        properties.put("dfs.namenode.rpc-address.palo.nn1", "host1:port1");
+        properties.put("dfs.namenode.rpc-address.palo.nn2", "host2:port2");
+        BrokerFileSystem fs = fileSystemManager.getFileSystem(testHdfsHost + "/data/abc/logs", properties);
+        assertNotNull(fs);
+        fs.getDFSFileSystem().close();
+    }
+    
+    @Test
     public void testGetFileSystemWithoutPassword() throws IOException {
         Map<String, String> properties = new HashMap<String, String>();
         properties.put("username", "user");

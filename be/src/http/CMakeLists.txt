@@ -24,19 +24,17 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/http")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/http")
 
 add_library(Webserver STATIC
-  mongoose.cpp
-  webserver.cpp
   download_action.cpp
   http_headers.cpp
   http_method.cpp
   http_request.cpp
-  http_response.cpp
   http_channel.cpp
   http_status.cpp
   http_parser.cpp
   web_page_handler.cpp
   monitor_action.cpp
   default_path_handlers.cpp
+  ev_http_server.cpp
   action/mini_load.cpp
   action/health_action.cpp
   action/checksum_action.cpp

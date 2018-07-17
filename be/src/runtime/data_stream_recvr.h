@@ -27,10 +27,8 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "gen_cpp/Types_types.h" // for TUniqueId
-#include "gen_cpp/Data_types.h"  // for TRowBatch
 #include "runtime/descriptors.h"
 #include "util/tuple_row_compare.h"
-#include "rpc/inet_addr.h"
 
 namespace google {
 namespace protobuf {
@@ -46,10 +44,6 @@ class MemTracker;
 class RowBatch;
 class RuntimeProfile;
 class PRowBatch;
-
-class Comm;
-class CommBuf;
-typedef std::shared_ptr<CommBuf> CommBufPtr;
 
 // Single receiver of an m:n data stream.
 // DataStreamRecvr maintains one or more queues of row batches received by a
@@ -116,11 +110,6 @@ private:
             const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
             PlanNodeId dest_node_id, int num_senders, bool is_merging, int total_buffer_limit,
             RuntimeProfile* profile);
-
-    // Add a new batch of rows to the appropriate sender queue, blocking if the queue is
-    // full. Called from DataStreamMgr.
-    void add_batch(const TRowBatch& thrift_batch, int sender_id,
-                   bool* is_buf_overflow, std::pair<InetAddr, CommBufPtr> response);
 
     // If receive queue is full, done is enqueue pending, and return with *done is nullptr
     void add_batch(const PRowBatch& batch, int sender_id,
