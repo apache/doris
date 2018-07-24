@@ -37,8 +37,8 @@ if [ -z $JAVA_HOME ]; then
     exit 1
 fi
 JAVA=${JAVA_HOME}/bin/java
-JAVA_VER=$(${JAVA} -version 2>&1 | sed 's/.* version "\(.*\)\.\(.*\)\..*"/\1\2/; 1q')
-if [[ $JAVA_VER < 18 ]]; then
+JAVA_VER=$(${JAVA} -version 2>&1 | sed 's/.* version "\(.*\)\.\(.*\)\..*"/\1\2/; 1q' | cut -f1 -d " ")
+if [ $JAVA_VER -lt 18 ]; then
     echo "Require JAVA with JDK version at least 1.8"
     exit 1
 fi
