@@ -25,9 +25,9 @@ if [ -z $JAVA_HOME ]; then
     exit 1
 fi
 JAVA=${JAVA_HOME}/bin/java
-JAVA_VER=$(${JAVA} -version 2>&1 | sed 's/.* version "\(.*\)\.\(.*\)\..*"/\1\2/; 1q')
-if [[ $JAVA_VER < 18 ]]; then
-    echo "Error: java version is too old" $JAVA_VER " need jdk 1.8."
+JAVA_VER=$(${JAVA} -version 2>&1 | sed 's/.* version "\(.*\)\.\(.*\)\..*"/\1\2/; 1q' | cut -f1 -d " ")
+if [ $JAVA_VER -lt 18 ]; then
+    echo "Error: java version is too old" $JAVA_VER" need jdk 1.8."
     exit 1
 fi
 
