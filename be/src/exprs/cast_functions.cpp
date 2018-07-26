@@ -176,7 +176,6 @@ StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const LargeInt
     sv.len = snprintf(reinterpret_cast<char*>(sv.ptr), sv.len, format, val.val); \
     DCHECK_GT(sv.len, 0); \
     DCHECK_LE(sv.len, MAX_FLOAT_CHARS); \
-    AnyValUtil::TruncateIfNecessary(ctx->get_return_type(), &sv); \
     return sv; \
   }
 

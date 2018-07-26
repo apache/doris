@@ -86,7 +86,7 @@ Status ResultSink::close(RuntimeState* state, Status exec_status) {
     if (_sender) {
         _sender->close(exec_status);
     }
-    state->exec_env()->result_mgr()->cancel_at_time(time(NULL) + 5, state->fragment_instance_id());
+    state->exec_env()->result_mgr()->cancel_at_time(time(NULL) + 32, state->fragment_instance_id());
     Expr::close(_output_expr_ctxs, state);
 
     _closed = true;
