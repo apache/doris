@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-
 # Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -39,10 +38,7 @@ if [ -f $pidfile ]; then
         exit 1
     fi
 
-    if flock -nx $pidfile -c "ls > /dev/null 2>&1"; then
-        echo "Backend already exit, remove pid file. "
-        rm $pidfile
-    else
+    if kill -0 $pid; then
         if kill -9 $pid > /dev/null 2>&1; then
             echo "stop $pidcomm, and remove pid file. "
             rm $pidfile
@@ -50,9 +46,11 @@ if [ -f $pidfile ]; then
         else
             exit 1
         fi
+    else
+        echo "Backend already exit, remove pid file. "
+        rm $pidfile
     fi
 else
     echo "$pidfile does not exist"
     exit 1
 fi
-

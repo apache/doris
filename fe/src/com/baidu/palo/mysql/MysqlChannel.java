@@ -72,8 +72,6 @@ public class MysqlChannel {
             } catch (Exception e) {
                   LOG.warn("get remote host string failed: " + e.toString());
             }
-        } else {
-            LOG.warn("get remote host string failed: " + "channel is null.");
         }
     }
 
