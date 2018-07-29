@@ -171,7 +171,7 @@ class MemTracker;
 // the cached buffer is returned (BufferDescriptor::Return()).
 //
 // Remote filesystem support (e.g. S3):
-// Remote filesystems are modeled as "remote disks". That is, there is a seperate disk
+// Remote filesystems are modeled as "remote disks". That is, there is a separate disk
 // queue for each supported remote filesystem type. In order to maximize throughput,
 // multiple connections are opened in parallel by having multiple threads running per
 // queue. Also note that reading from a remote filesystem service can be more CPU
