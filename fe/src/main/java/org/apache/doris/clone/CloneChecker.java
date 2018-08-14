@@ -136,6 +136,11 @@ public class CloneChecker extends Daemon {
                 return false;
             }
 
+            if (olapTable.getColocateTable() != null) {
+                LOG.debug("{} is colocate table, ColocateTableBalancer will handle. Skip", olapTable.getName());
+                return false;
+            }
+
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {
                 LOG.warn("partition does not exist. id: {}", partitionId);
@@ -424,6 +429,12 @@ public class CloneChecker extends Daemon {
                     }
 
                     OlapTable olapTable = (OlapTable) table;
+
+                    if (olapTable.getColocateTable() != null) {
+                        LOG.debug("{} is colocate table, ColocateTableBalancer will handle. Skip", olapTable.getName());
+                        continue;
+                    }
+
                     tableId = table.getId();
                     for (Partition partition : olapTable.getPartitions()) {
                         long partitionId = partition.getId();
@@ -599,7 +610,7 @@ public class CloneChecker extends Daemon {
         } // end for dbs
     }
 
-    private Map<Long, BackendInfo> initBackendInfos(String clusterName) {
+     Map<Long, BackendInfo> initBackendInfos(String clusterName) {
         Map<Long, BackendInfo> backendInfos = Maps.newHashMap();
         SystemInfoService clusterInfoService = Catalog.getCurrentSystemInfo();
         List<Long> backendIds = null;
@@ -630,7 +641,7 @@ public class CloneChecker extends Daemon {
      * @param backendInfos
      * @return CapLvl to Set of BE List, each BE list represents all BE in one host
      */
-    private Map<CapacityLevel, Set<List<Long>>> initBackendCapacityInfos(Map<Long, BackendInfo> backendInfos) {
+     Map<CapacityLevel, Set<List<Long>>> initBackendCapacityInfos(Map<Long, BackendInfo> backendInfos) {
         Preconditions.checkNotNull(backendInfos);
         if (backendInfos.size() == 0) {
             return null;
@@ -717,7 +728,7 @@ public class CloneChecker extends Daemon {
      * @param backendInfos
      * @return
      */
-    private Map<CapacityLevel, Set<List<Long>>> initBackendDistributionInfos(Map<Long, BackendInfo> backendInfos) {
+     Map<CapacityLevel, Set<List<Long>>> initBackendDistributionInfos(Map<Long, BackendInfo> backendInfos) {
         Preconditions.checkNotNull(backendInfos);
         if (backendInfos.size() == 0) {
             return null;
@@ -801,7 +812,7 @@ public class CloneChecker extends Daemon {
      * 2. if supplement, select from 2.1 low distribution and capacity 2.2 low
      * distribution 2.3 all order by distribution
      */
-    private long selectCloneReplicaBackendId(
+    public long selectCloneReplicaBackendId(
             Map<CapacityLevel, Set<List<Long>>> distributionLevelToBackendIds,
             Map<CapacityLevel, Set<List<Long>>> capacityLevelToBackendIds, 
             Map<Long, BackendInfo> backendInfos, TabletInfo tabletInfo,
@@ -943,6 +954,11 @@ public class CloneChecker extends Daemon {
             if (olapTable == null) {
                 LOG.warn("table does not exist. id: {}", tableId);
                 return;
+            }
+
+            if (olapTable.getColocateTable() != null) {
+                LOG.debug("{} is colocate table, ColocateTableBalancer will handle. Skip", olapTable.getName());
+                return ;
             }
 
             Partition partition = olapTable.getPartition(partitionId);
@@ -1468,162 +1484,6 @@ public class CloneChecker extends Daemon {
     // capacity level or table tablet distribution level of backend
     public enum CapacityLevel {
         HIGH, MID, LOW
-    }
-
-    private class TabletInfo {
-        private long dbId;
-        private long tableId;
-        private long partitionId;
-        private long indexId;
-        private long tabletId;
-        private short replicationNum;
-        private short onlineReplicaNum;
-        private long tabletSizeB;
-        private Set<Long> backendIds;
-        private DbState dbState;
-
-        public TabletInfo(long dbId, long tableId, long partitionId, long indexId, long tabletId, short replicationNum,
-                short onlineReplicaNum, long tabletSizeB, Set<Long> backendIds) {
-            this.dbId = dbId;
-            this.tableId = tableId;
-            this.partitionId = partitionId;
-            this.indexId = indexId;
-            this.tabletId = tabletId;
-            this.replicationNum = replicationNum;
-            this.onlineReplicaNum = onlineReplicaNum;
-            this.tabletSizeB = tabletSizeB;
-            this.backendIds = backendIds;
-            this.dbState = DbState.NORMAL;
-        }
-
-        public long getDbId() {
-            return dbId;
-        }
-
-        public long getTableId() {
-            return tableId;
-        }
-
-        public long getPartitionId() {
-            return partitionId;
-        }
-
-        public long getIndexId() {
-            return indexId;
-        }
-
-        public long getTabletId() {
-            return tabletId;
-        }
-
-        public short getReplicationNum() {
-            return replicationNum;
-        }
-
-        public short getOnlineReplicaNum() {
-            return onlineReplicaNum;
-        }
-
-        public long getTabletSizeB() {
-            return tabletSizeB;
-        }
-
-        public Set<Long> getBackendIds() {
-            return backendIds;
-        }
-
-        @Override
-        public String toString() {
-            return "TabletInfo [dbId=" + dbId + ", tableId=" + tableId + ", partitionId=" + partitionId + ", indexId="
-                    + indexId + ", tabletId=" + tabletId + ", replicationNum=" + replicationNum + ", onlineReplicaNum="
-                    + onlineReplicaNum + ", tabletSizeB=" + tabletSizeB + ", backendIds=" + backendIds + "]";
-        }
-
-        public DbState getDbState() {
-            return dbState;
-        }
-
-        public void setDbState(DbState dbState) {
-            this.dbState = dbState;
-        }
-    }
-
-    private class BackendInfo {
-        private long backendId;
-        private String host;
-        
-        private long totalCapacityB;
-        private long availableCapacityB;
-        // capacity for clone
-        private long cloneCapacityB;
-
-        private int tableReplicaNum;
-        // replica num for clone
-        private int cloneReplicaNum;
-
-        public BackendInfo(String host, long backendId, long totalCapacityB, long availableCapacityB) {
-            this.backendId = backendId;
-            this.totalCapacityB = totalCapacityB;
-            this.availableCapacityB = availableCapacityB;
-            this.host = host;
-            this.cloneCapacityB = 0L;
-            this.tableReplicaNum = 0;
-            this.cloneReplicaNum = 0;
-        }
-
-        public String getHost() {
-            return host;
-        }
-
-        public long getBackendId() {
-            return backendId;
-        }
-
-        public long getTotalCapacityB() {
-            return totalCapacityB;
-        }
-
-        public long getAvailableCapacityB() {
-            return availableCapacityB;
-        }
-
-        public void setCloneCapacityB(long cloneCapacityB) {
-            this.cloneCapacityB = cloneCapacityB;
-        }
-
-        public boolean canCloneByCapacity(long tabletSizeB) {
-            if (cloneCapacityB <= tabletSizeB) {
-                return false;
-            }
-            return true;
-        }
-
-        public void decreaseCloneCapacityB(long tabletSizeB) {
-            cloneCapacityB -= tabletSizeB;
-        }
-
-        public int getTableReplicaNum() {
-            return tableReplicaNum;
-        }
-
-        public void setTableReplicaNum(int tableReplicaNum) {
-            this.tableReplicaNum = tableReplicaNum;
-        }
-
-        public void setCloneReplicaNum(int cloneReplicaNum) {
-            this.cloneReplicaNum = cloneReplicaNum;
-        }
-
-        public boolean canCloneByDistribution() {
-            if (cloneReplicaNum <= 1) {
-                return false;
-            }
-            return true;
-        }
-
-        public void decreaseCloneReplicaNum() {
-            cloneReplicaNum -= 1;
-        }
     }
 
 }

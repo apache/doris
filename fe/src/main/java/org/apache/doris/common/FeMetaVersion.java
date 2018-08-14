@@ -97,4 +97,7 @@ public final class FeMetaVersion {
 
     // streaming load
     public static final int VERSION_45 = 45;
+
+    // colocate join
+    public static final int VERSION_46 = 46;
 }

@@ -196,7 +196,19 @@ public enum ErrorCode {
     ERR_WRONG_NAME_FORMAT(5063, new byte[] { '4', '2', '0', '0', '0' },
             "Incorrect %s name '%s'"),
     ERR_COMMON_ERROR(5064, new byte[] { '4', '2', '0', '0', '0' },
-            "%s");
+            "%s"),
+    ERR_COLOCATE_TABLE_NO_EXIT(5063, new byte[] { '4', '2', '0', '0', '0' },
+            "Colocate table '%s' no exist"),
+    ERR_COLOCATE_TABLE_MUST_OLAP_TABLE(5063, new byte[] { '4', '2', '0', '0', '0' },
+            "Colocate tables '%s' must be OLAP table"),
+    ERR_COLOCATE_TABLE_MUST_SAME_REPLICAT_NUM(5063, new byte[] { '4', '2', '0', '0', '0' },
+            "Colocate tables must have the same replication num: %s"),
+    ERR_COLOCATE_TABLE_MUST_SAME_BUCKNUM(5063, new byte[] { '4', '2', '0', '0', '0' },
+            "Colocate tables must have the same bucket num: %s"),
+    ERR_COLOCATE_TABLE_SAME_DISTRIBUTED_COLUMNS_SIZE(5063, new byte[] { '4', '2', '0', '0', '0' },
+            "Colocate table distribution columns size must be same : %s"),
+    ERR_COLOCATE_TABLE_SAME_DISTRIBUTED_COLUMNS_TYPE(5063, new byte[] { '4', '2', '0', '0', '0' },
+            "Colocate table distribution columns must have the same data type: %s should be %s");
 
 
     ErrorCode(int code, byte[] sqlState, String errorMsg) {
