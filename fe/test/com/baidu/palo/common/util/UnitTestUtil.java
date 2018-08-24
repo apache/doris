@@ -20,14 +20,6 @@
 
 package com.baidu.palo.common.util;
 
-import java.lang.reflect.Method;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import org.junit.Assert;
-
 import com.baidu.palo.catalog.AggregateType;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
@@ -53,7 +45,17 @@ import com.baidu.palo.load.DppConfig;
 import com.baidu.palo.load.Load;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.thrift.TDisk;
+import com.baidu.palo.thrift.TStorageType;
+
 import com.google.common.collect.Maps;
+
+import org.junit.Assert;
+
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 // for unit test
 public class UnitTestUtil {
@@ -114,6 +116,7 @@ public class UnitTestUtil {
                                         KeysType.AGG_KEYS, partitionInfo, distributionInfo);
         table.addPartition(partition);
         table.setIndexSchemaInfo(indexId, TABLE_NAME, columns, 0, SCHEMA_HASH, (short) 1);
+        table.setStorageTypeToIndex(indexId, TStorageType.COLUMN);
 
         // db
         Database db = new Database(dbId, DB_NAME);

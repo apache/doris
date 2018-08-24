@@ -20,11 +20,15 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
+
 import com.google.common.base.Strings;
 
 public class AlterDatabaseQuotaStmt extends DdlStmt {
@@ -47,10 +51,11 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         super.analyze(analyzer);
-        if (!analyzer.getCatalog().getUserMgr().isSuperuser(analyzer.getUser())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(), dbName);
+
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getQualifiedUser(), dbName);
         }
-        
+
         if (Strings.isNullOrEmpty(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }

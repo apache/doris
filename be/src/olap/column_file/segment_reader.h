@@ -311,7 +311,6 @@ private:
     std::vector<ColumnReader*> _column_readers;    // 实际的数据读取器
     std::vector<StreamIndexReader*> _column_indices; // 保存column的index
 
-    UniqueIdSet _segment_columns;
     UniqueIdSet _include_columns;           // 用于判断该列是不是被包含
     UniqueIdSet _load_bf_columns;
     UniqueIdSet _include_bf_columns;

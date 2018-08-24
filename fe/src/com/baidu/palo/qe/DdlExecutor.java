@@ -20,7 +20,6 @@ import com.baidu.palo.analysis.AlterDatabaseQuotaStmt;
 import com.baidu.palo.analysis.AlterDatabaseRename;
 import com.baidu.palo.analysis.AlterSystemStmt;
 import com.baidu.palo.analysis.AlterTableStmt;
-import com.baidu.palo.analysis.AlterUserStmt;
 import com.baidu.palo.analysis.BackupStmt;
 import com.baidu.palo.analysis.CancelAlterSystemStmt;
 import com.baidu.palo.analysis.CancelAlterTableStmt;
@@ -28,6 +27,8 @@ import com.baidu.palo.analysis.CancelBackupStmt;
 import com.baidu.palo.analysis.CancelLoadStmt;
 import com.baidu.palo.analysis.CreateClusterStmt;
 import com.baidu.palo.analysis.CreateDbStmt;
+import com.baidu.palo.analysis.CreateRepositoryStmt;
+import com.baidu.palo.analysis.CreateRoleStmt;
 import com.baidu.palo.analysis.CreateTableStmt;
 import com.baidu.palo.analysis.CreateUserStmt;
 import com.baidu.palo.analysis.CreateViewStmt;
@@ -35,6 +36,8 @@ import com.baidu.palo.analysis.DdlStmt;
 import com.baidu.palo.analysis.DeleteStmt;
 import com.baidu.palo.analysis.DropClusterStmt;
 import com.baidu.palo.analysis.DropDbStmt;
+import com.baidu.palo.analysis.DropRepositoryStmt;
+import com.baidu.palo.analysis.DropRoleStmt;
 import com.baidu.palo.analysis.DropTableStmt;
 import com.baidu.palo.analysis.DropUserStmt;
 import com.baidu.palo.analysis.GrantStmt;
@@ -49,7 +52,6 @@ import com.baidu.palo.analysis.RevokeStmt;
 import com.baidu.palo.analysis.SetUserPropertyStmt;
 import com.baidu.palo.analysis.SyncStmt;
 import com.baidu.palo.catalog.Catalog;
-import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.load.LoadJob.EtlJobType;
 
@@ -61,15 +63,10 @@ public class DdlExecutor {
         if (ddlStmt instanceof CreateClusterStmt) {
             CreateClusterStmt stmt = (CreateClusterStmt) ddlStmt;
             catalog.createCluster(stmt);
-            catalog.getUserMgr().addUser(stmt.getClusterName(),
-                    ClusterNamespace.getFullName(stmt.getClusterName(), CreateClusterStmt.CLUSTER_SUPERUSER_NAME),
-                    stmt.getPassword(), true);
         } else if (ddlStmt instanceof AlterClusterStmt) {
             catalog.processModifyCluster((AlterClusterStmt) ddlStmt);
         } else if (ddlStmt instanceof DropClusterStmt) {
             catalog.dropCluster((DropClusterStmt) ddlStmt);
-            catalog.getUserMgr().dropUser(ClusterNamespace.getFullName(((DropClusterStmt) ddlStmt).getName(),
-                    CreateClusterStmt.CLUSTER_SUPERUSER_NAME));
         } else if (ddlStmt instanceof MigrateDbStmt) {
             catalog.migrateDb((MigrateDbStmt) ddlStmt);
         } else if (ddlStmt instanceof LinkDbStmt) {
@@ -101,23 +98,25 @@ public class DdlExecutor {
             catalog.getLoadInstance().delete((DeleteStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateUserStmt) {
             CreateUserStmt stmt = (CreateUserStmt) ddlStmt;
-            catalog.getUserMgr().addUser(stmt.getClusterName(), stmt.getUser(), stmt.getPassword(), stmt.isSuperuser());
+            catalog.getAuth().createUser(stmt);
         } else if (ddlStmt instanceof DropUserStmt) {
             DropUserStmt stmt = (DropUserStmt) ddlStmt;
-            catalog.getUserMgr().dropUser(stmt.getUser());
+            catalog.getAuth().dropUser(stmt);
         } else if (ddlStmt instanceof GrantStmt) {
             GrantStmt stmt = (GrantStmt) ddlStmt;
-            catalog.getUserMgr().grant(stmt.getUser(), stmt.getDb(), stmt.getPrivilege());
+            catalog.getAuth().grant(stmt);
         } else if (ddlStmt instanceof RevokeStmt) {
             RevokeStmt stmt = (RevokeStmt) ddlStmt;
-            catalog.getUserMgr().revoke(stmt.getUser(), stmt.getDb());
+            catalog.getAuth().revoke(stmt);
+        } else if (ddlStmt instanceof CreateRoleStmt) {
+            catalog.getAuth().createRole((CreateRoleStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropRoleStmt) {
+            catalog.getAuth().dropRole((DropRoleStmt) ddlStmt);
         } else if (ddlStmt instanceof SetUserPropertyStmt) {
-            catalog.getUserMgr().updateUserProperty((SetUserPropertyStmt) ddlStmt);
+            catalog.getAuth().updateUserProperty((SetUserPropertyStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterSystemStmt) {
             AlterSystemStmt stmt = (AlterSystemStmt) ddlStmt;
             catalog.alterCluster(stmt);
-        } else if (ddlStmt instanceof AlterUserStmt) {
-            catalog.alterUser((AlterUserStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelAlterSystemStmt) {
             CancelAlterSystemStmt stmt = (CancelAlterSystemStmt) ddlStmt;
             catalog.cancelAlterCluster(stmt);
@@ -139,6 +138,10 @@ public class DdlExecutor {
             catalog.restore((RestoreStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelBackupStmt) {
             catalog.cancelBackup((CancelBackupStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateRepositoryStmt) {
+            catalog.getBackupHandler().createRepository((CreateRepositoryStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropRepositoryStmt) {
+            catalog.getBackupHandler().dropRepository((DropRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof SyncStmt) {
             return;
         } else {

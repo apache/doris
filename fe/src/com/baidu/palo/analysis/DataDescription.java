@@ -20,17 +20,17 @@
 
 package com.baidu.palo.analysis;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
 import com.baidu.palo.analysis.BinaryPredicate.Operator;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.Pair;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.thrift.TNetworkAddress;
+
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -38,9 +38,12 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 // used to describe data info which is needed to import.
 //
 //      data_desc:
@@ -391,10 +394,19 @@ public class DataDescription {
         }
     }
 
-    public void analyze() throws AnalysisException {
+    public void analyze(String fullDbName) throws AnalysisException {
         if (Strings.isNullOrEmpty(tableName)) {
             throw new AnalysisException("No table name in load statement.");
         }
+
+        // check auth
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tableName,
+                                                                PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                                                ConnectContext.get().getQualifiedUser(),
+                                                ConnectContext.get().getRemoteIP(), tableName);
+        }
+
         if (filePathes == null || filePathes.isEmpty()) {
             throw new AnalysisException("No file path in load statement.");
         }

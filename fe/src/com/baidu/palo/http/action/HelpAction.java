@@ -24,9 +24,9 @@ import com.baidu.palo.qe.HelpTopic;
 
 import com.google.common.base.Strings;
 
-import io.netty.handler.codec.http.HttpMethod;
-
 import java.util.List;
+
+import io.netty.handler.codec.http.HttpMethod;
 
 public class HelpAction extends WebBaseAction {
     private static final String DIV_BACKGROUND_COLOR = "#FCFCFC";

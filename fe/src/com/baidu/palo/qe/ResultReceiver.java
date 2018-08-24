@@ -111,8 +111,13 @@ public class ResultReceiver {
             SimpleScheduler.updateBlacklistBackends(backendId);
         } catch (ExecutionException e) {
             LOG.warn("fetch result execution exception, finstId={}", finstId, e);
-            status.setRpcStatus(e.getMessage());
-            SimpleScheduler.updateBlacklistBackends(backendId);
+            if (e.getMessage().contains("time out")) {
+                // if timeout, we set error code to TIMEOUT, and it will not retry querying.
+                status.setStatus(new Status(TStatusCode.TIMEOUT, e.getMessage()));
+            } else {
+                status.setRpcStatus(e.getMessage());
+                SimpleScheduler.updateBlacklistBackends(backendId);
+            }
         } catch (TimeoutException e) {
             LOG.warn("fetch result timeout, finstId={}", finstId, e);
             status.setStatus("query timeout");
@@ -132,9 +137,12 @@ public class ResultReceiver {
         isCancel = true;
         synchronized (this) {
             if (currentThread != null) {
-                currentThread.interrupt();
+                // TODO(cmy): we cannot interrupt this thread, or we may throw
+                // java.nio.channels.ClosedByInterruptException when we call
+                // MysqlChannel.realNetSend -> SocketChannelImpl.write
+                // And user will lost connection to Palo
+                // currentThread.interrupt();
             }
-
         }
     }
 }

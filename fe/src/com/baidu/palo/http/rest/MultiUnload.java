@@ -21,6 +21,7 @@ import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.service.ExecuteEnv;
 
 import com.google.common.base.Strings;
@@ -62,7 +63,7 @@ public class MultiUnload extends RestBaseAction {
 
         AuthorizationInfo authInfo = getAuthorizationInfo(request);
         String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, db);
-        checkWritePriv(authInfo.fullUserName, fullDbName);
+        checkDbAuth(authInfo, fullDbName, PrivPredicate.LOAD);
 
         if (redirectToMaster(request, response)) {
             return;

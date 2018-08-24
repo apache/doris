@@ -38,11 +38,18 @@ public class OperationType {
     public static final short OP_RECOVER_PARTITION = 18;
     public static final short OP_RENAME_TABLE = 19;
     public static final short OP_RENAME_PARTITION = 110;
+    @Deprecated
     public static final short OP_BACKUP_START = 111;
+    @Deprecated
     public static final short OP_BACKUP_FINISH_SNAPSHOT = 112;
+    @Deprecated
     public static final short OP_BACKUP_FINISH = 113;
+    @Deprecated
     public static final short OP_RESTORE_START = 114;
+    @Deprecated
     public static final short OP_RESTORE_FINISH = 115;
+    public static final short OP_BACKUP_JOB = 116;
+    public static final short OP_RESTORE_JOB = 117;
 
     // 20~29 120~129 220~229 ...
     public static final short OP_START_ROLLUP = 20;
@@ -87,7 +94,15 @@ public class OperationType {
     public static final short OP_SET_LOAD_ERROR_URL = 58;
 
     public static final short OP_ALTER_ACCESS_RESOURCE = 60;
+    @Deprecated
     public static final short OP_DROP_USER = 61;
+    public static final short OP_CREATE_USER = 62;
+    public static final short OP_NEW_DROP_USER = 63;
+    public static final short OP_GRANT_PRIV = 64;
+    public static final short OP_REVOKE_PRIV = 65;
+    public static final short OP_SET_PASSWORD = 66;
+    public static final short OP_CREATE_ROLE = 67;
+    public static final short OP_DROP_ROLE = 68;
 
     public static final short OP_TIMESTAMP = 70;
     public static final short OP_MASTER_INFO_CHANGE = 71;
@@ -112,4 +127,7 @@ public class OperationType {
     public static final short OP_DROP_ALL_BROKER = 87;
 
     public static final short OP_UPDATE_CLUSTER_AND_BACKENDS = 88;
+
+    public static final short OP_CREATE_REPOSITORY = 89;
+    public static final short OP_DROP_REPOSITORY = 90;
 }

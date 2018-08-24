@@ -22,13 +22,14 @@ import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.catalog.Partition;
 import com.baidu.palo.catalog.Replica;
 import com.baidu.palo.catalog.Table;
-import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.catalog.Table.TableType;
+import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -57,6 +58,9 @@ public class RowCountAction extends RestBaseAction {
 
     @Override
     public void execute(BaseRequest request, BaseResponse response) throws DdlException {
+        AuthorizationInfo authInfo = getAuthorizationInfo(request);
+        checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
+
         String dbName = request.getSingleParameter(DB_NAME_PARAM);
         if (Strings.isNullOrEmpty(dbName)) {
             throw new DdlException("No database selected.");
@@ -66,8 +70,6 @@ public class RowCountAction extends RestBaseAction {
         if (Strings.isNullOrEmpty(tableName)) {
             throw new DdlException("No table selected.");
         }
-        
-        checkAdmin(request);
 
         Map<String, Long> indexRowCountMap = Maps.newHashMap();
         Catalog catalog = Catalog.getInstance();

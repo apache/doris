@@ -25,8 +25,8 @@ import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.InternalException;
 
-import org.junit.Assert;
 import org.easymock.EasyMock;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -52,7 +52,7 @@ public class ShowAlterStmtTest {
 
         analyzer = EasyMock.createMock(Analyzer.class);
         EasyMock.expect(analyzer.getDefaultDb()).andReturn("testDb").anyTimes();
-        EasyMock.expect(analyzer.getUser()).andReturn("testUser").anyTimes();
+        EasyMock.expect(analyzer.getQualifiedUser()).andReturn("testUser").anyTimes();
         EasyMock.expect(analyzer.getCatalog()).andReturn(catalog).anyTimes();
         EasyMock.expect(analyzer.getClusterName()).andReturn("testCluster").anyTimes();
         EasyMock.replay(analyzer);
@@ -82,20 +82,6 @@ public class ShowAlterStmtTest {
     public void testNoDb() throws InternalException, AnalysisException {
         analyzer = EasyMock.createMock(Analyzer.class);
         EasyMock.expect(analyzer.getDefaultDb()).andReturn("").anyTimes();
-        EasyMock.expect(analyzer.getClusterName()).andReturn("testCluster").anyTimes();
-        EasyMock.replay(analyzer);
-
-        ShowLoadStmt stmt = new ShowLoadStmt(null, null, null, null);
-        stmt.analyze(analyzer);
-        Assert.fail("No exception throws.");
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testNoPriv() throws InternalException, AnalysisException {
-        analyzer = EasyMock.createMock(Analyzer.class);
-        EasyMock.expect(analyzer.getDefaultDb()).andReturn("testDb").anyTimes();
-        EasyMock.expect(analyzer.getUser()).andReturn("testUser").anyTimes();
-        EasyMock.expect(analyzer.getCatalog()).andReturn(AccessTestUtil.fetchBlockCatalog()).anyTimes();
         EasyMock.expect(analyzer.getClusterName()).andReturn("testCluster").anyTimes();
         EasyMock.replay(analyzer);
 

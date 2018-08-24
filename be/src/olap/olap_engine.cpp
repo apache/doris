@@ -124,7 +124,8 @@ OLAPStatus OLAPEngine::_load_tables(const string& tablet_root_path) {
 }
 
 OLAPStatus OLAPEngine::load_one_tablet(
-        TTabletId tablet_id, SchemaHash schema_hash, const string& schema_hash_path) {
+        TTabletId tablet_id, SchemaHash schema_hash, const string& schema_hash_path,
+        bool force) {
     stringstream header_name_stream;
     header_name_stream << schema_hash_path << "/" << tablet_id << ".hdr";
     string header_path = header_name_stream.str();
@@ -143,7 +144,6 @@ OLAPStatus OLAPEngine::load_one_tablet(
         move_to_trash(boost_schema_hash_path, boost_schema_hash_path);
         return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
     }
-
     if (olap_table->latest_version() == NULL && !olap_table->is_schema_changing()) {
         OLAP_LOG_WARNING("tablet not in schema change state without delta is invalid. "
                          "[header_path=%s]",
@@ -156,7 +156,7 @@ OLAPStatus OLAPEngine::load_one_tablet(
     // 这里不需要SAFE_DELETE(olap_table),因为olap_table指针已经在add_table中托管到smart pointer中
     OLAPStatus res = OLAP_SUCCESS;
     string table_name = olap_table->full_name();
-    res = add_table(tablet_id, schema_hash, olap_table);
+    res = add_table(tablet_id, schema_hash, olap_table, force);
     if (res != OLAP_SUCCESS) {
         // 插入已经存在的table时返回成功
         if (res == OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE) {
@@ -386,10 +386,11 @@ bool OLAPEngine::check_tablet_id_exist(TTabletId tablet_id) {
     return is_exist;
 }
 
-OLAPStatus OLAPEngine::add_table(TTabletId tablet_id, SchemaHash schema_hash, OLAPTable* table) {
+OLAPStatus OLAPEngine::add_table(TTabletId tablet_id, SchemaHash schema_hash,
+        OLAPTable* table, bool force) {
     OLAPStatus res = OLAP_SUCCESS;
-    OLAP_LOG_DEBUG("begin to add olap table to OLAPEngine. [tablet_id=%ld schema_hash=%d]",
-                   tablet_id, schema_hash);
+    OLAP_LOG_DEBUG("begin to add olap table to OLAPEngine. [tablet_id=%ld schema_hash=%d], force: %d",
+                   tablet_id, schema_hash, force);
     _tablet_map_lock.wrlock();
 
     SmartOLAPTable smart_table(table, OLAPTableDestruction);
@@ -412,10 +413,12 @@ OLAPStatus OLAPEngine::add_table(TTabletId tablet_id, SchemaHash schema_hash, OL
     }
     _tablet_map_lock.unlock();
 
-    if (table_item->header_file_name() == smart_table->header_file_name()) {
-        OLAP_LOG_WARNING("add the same tablet twice! [tablet_id=%ld schema_hash=%d]",
-                         tablet_id, schema_hash);
-        return OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE;
+    if (!force) {
+        if (table_item->header_file_name() == smart_table->header_file_name()) {
+            OLAP_LOG_WARNING("add the same tablet twice! [tablet_id=%ld schema_hash=%d]",
+                             tablet_id, schema_hash);
+            return OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE;
+        }
     }
 
     table_item->obtain_header_rdlock();
@@ -425,9 +428,19 @@ OLAPStatus OLAPEngine::add_table(TTabletId tablet_id, SchemaHash schema_hash, OL
     int32_t new_version = smart_table->latest_version()->end_version();
     table_item->release_header_lock();
 
-    if (new_version > old_version
-            || (new_version == old_version && new_time > old_time)) {
-        drop_table(tablet_id, schema_hash);
+    /*
+     * In restore process, we replace all origin files in tablet dir with
+     * the downloaded snapshot files. Than we try to reload tablet header.
+     * force == true means we forcibly replace the OLAPTable in _tablet_map
+     * with the new one. But if we do so, the files in the tablet dir will be
+     * dropped when the origin OLAPTable deconstruct.
+     * So we set keep_files == true to not delete files when the
+     * origin OLAPTable deconstruct.
+     */
+    bool keep_files = force ? true : false;
+    if (force || (new_version > old_version
+            || (new_version == old_version && new_time > old_time))) {
+        drop_table(tablet_id, schema_hash, keep_files);
         _tablet_map_lock.wrlock();
         _tablet_map[tablet_id].table_arr.push_back(smart_table);
         _tablet_map[tablet_id].table_arr.sort(_sort_table_by_create_time);
@@ -436,9 +449,9 @@ OLAPStatus OLAPEngine::add_table(TTabletId tablet_id, SchemaHash schema_hash, OL
         smart_table->mark_dropped();
         res = OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE;
     }
-    OLAP_LOG_WARNING("add duplicated table. [res=%d tablet_id=%ld schema_hash=%d "
+    OLAP_LOG_WARNING("add duplicated table. force: %d, [res=%d tablet_id=%ld schema_hash=%d "
                      "old_version=%d new_version=%d old_time=%ld new_time=%ld]",
-                     res, tablet_id, schema_hash,
+                     force, res, tablet_id, schema_hash,
                      old_version, new_version, old_time, new_time);
 
     return res;
@@ -452,7 +465,8 @@ OLAPStatus OLAPEngine::add_table(TTabletId tablet_id, SchemaHash schema_hash, OL
 //          base table cannot be dropped;
 //      b. other cases:
 //          drop specified table and clear schema change info.
-OLAPStatus OLAPEngine::drop_table(TTabletId tablet_id, SchemaHash schema_hash) {
+OLAPStatus OLAPEngine::drop_table(
+        TTabletId tablet_id, SchemaHash schema_hash, bool keep_files) {
     OLAP_LOG_INFO("begin to drop olap table. [tablet_id=%ld]", tablet_id);
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -478,7 +492,7 @@ OLAPStatus OLAPEngine::drop_table(TTabletId tablet_id, SchemaHash schema_hash) {
 
     // Drop table directly when not in schema change
     if (!ret) {
-        return _drop_table_directly(tablet_id, schema_hash);
+        return _drop_table_directly(tablet_id, schema_hash, keep_files);
     }
 
     // Check table is in schema change or not, is base table or not
@@ -496,7 +510,7 @@ OLAPStatus OLAPEngine::drop_table(TTabletId tablet_id, SchemaHash schema_hash) {
         OLAP_LOG_WARNING("drop table directly when related table not found. "
                          "[tablet_id=%ld schema_hash=%d]",
                          related_tablet_id, related_schema_hash);
-        return _drop_table_directly(tablet_id, schema_hash);
+        return _drop_table_directly(tablet_id, schema_hash, keep_files);
     }
 
     if (dropped_table->creation_time() < related_table->creation_time()) {
@@ -519,7 +533,7 @@ OLAPStatus OLAPEngine::drop_table(TTabletId tablet_id, SchemaHash schema_hash) {
                        res, related_table->full_name().c_str());
     }
 
-    res = _drop_table_directly(tablet_id, schema_hash);
+    res = _drop_table_directly(tablet_id, schema_hash, keep_files);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to drop table which in schema change. [table=%s]",
                          dropped_table->full_name().c_str());
@@ -530,7 +544,8 @@ OLAPStatus OLAPEngine::drop_table(TTabletId tablet_id, SchemaHash schema_hash) {
     return res;
 }
 
-OLAPStatus OLAPEngine::_drop_table_directly(TTabletId tablet_id, SchemaHash schema_hash) {
+OLAPStatus OLAPEngine::_drop_table_directly(
+        TTabletId tablet_id, SchemaHash schema_hash, bool keep_files) {
     OLAPStatus res = OLAP_SUCCESS;
     _tablet_map_lock.wrlock();
 
@@ -545,7 +560,9 @@ OLAPStatus OLAPEngine::_drop_table_directly(TTabletId tablet_id, SchemaHash sche
     for (list<SmartOLAPTable>::iterator it = _tablet_map[tablet_id].table_arr.begin();
             it != _tablet_map[tablet_id].table_arr.end();) {
         if ((*it)->equal(tablet_id, schema_hash)) {
-            (*it)->mark_dropped();
+            if (!keep_files) {
+                (*it)->mark_dropped();
+            }
             it = _tablet_map[tablet_id].table_arr.erase(it);
         } else {
             ++it;
@@ -859,6 +876,7 @@ OLAPStatus OLAPEngine::report_all_tablets_info(
                 }
             }
 
+            tablet_info.__set_version_count(olap_table->file_version_size());
             tablet.tablet_infos.push_back(tablet_info);
         }
 
@@ -1401,6 +1419,11 @@ OLAPStatus OLAPEngine::_create_new_table_header_file(
                          key_count, request.tablet_schema.short_key_column_count);
         remove_dir(header_dir);
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
+    }
+
+    // set restore mode
+    if (request.__isset.in_restore_mode && request.in_restore_mode) {
+        header.set_in_restore_mode(true);
     }
 
     // save header file

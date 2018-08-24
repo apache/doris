@@ -140,7 +140,7 @@ public class ResourceGroup implements Writable {
             return new ResourceGroup(cpuShare);
         }
 
-        Builder cpuShare(int share) {
+        public Builder cpuShare(int share) {
             this.cpuShare = share;
             return this;
         }

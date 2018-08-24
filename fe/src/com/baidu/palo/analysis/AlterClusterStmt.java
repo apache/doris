@@ -20,12 +20,15 @@
 
 package com.baidu.palo.analysis;
 
-import java.util.Map;
-
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
+
+import java.util.Map;
 
 public class AlterClusterStmt extends DdlStmt {
 
@@ -41,9 +44,8 @@ public class AlterClusterStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
-
-        if (!analyzer.getCatalog().getUserMgr().isAdmin(analyzer.getUser())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_AUTHORITY, analyzer.getUser());
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_AUTHORITY, "NODE");
         }
 
         if (properties == null || properties.size() == 0

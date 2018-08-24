@@ -20,23 +20,19 @@
 
 package com.baidu.palo.common;
 
+import com.baidu.palo.mysql.privilege.PaloRole;
 import com.baidu.palo.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 
 public class FeNameFormat {
-    private static final String CLUSTER_REGEX = "^[a-zA-Z][a-zA-Z0-9_]{0,63}$";
-    private static final String DB_REGEX = "^[a-zA-Z][a-zA-Z0-9_]{0,63}$";
-    private static final String TABLE_REGEX = "^[a-zA-Z][a-zA-Z0-9_]{0,63}$";
-    private static final String PARTITION_REGEX = "^[a-zA-Z][a-zA-Z0-9_]{0,63}$";
-    private static final String COLUMN_REGEX = "^[a-zA-Z][a-zA-Z0-9_]{0,63}$";
-    private static final String USER_REGEX = "^[a-zA-Z][a-zA-Z0-9_]{0,63}$";
     private static final String LABEL_REGEX = "^[-_A-Za-z0-9]{1,128}$";
+    private static final String COMMON_NAME_REGEX = "^[a-zA-Z][a-zA-Z0-9_]{0,63}$";
 
     public static final String FORBIDDEN_PARTITION_NAME = "placeholder_";
 
     public static void checkClusterName(String clusterName) throws AnalysisException {
-        if (Strings.isNullOrEmpty(clusterName) || !clusterName.matches(CLUSTER_REGEX)) {
+        if (Strings.isNullOrEmpty(clusterName) || !clusterName.matches(COMMON_NAME_REGEX)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_CLUSTER_NAME, clusterName);
         }
         if (clusterName.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
@@ -45,19 +41,19 @@ public class FeNameFormat {
     }
 
     public static void checkDbName(String dbName) throws AnalysisException {
-        if (Strings.isNullOrEmpty(dbName) || !dbName.matches(DB_REGEX)) {
+        if (Strings.isNullOrEmpty(dbName) || !dbName.matches(COMMON_NAME_REGEX)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
         }
     }
 
     public static void checkTableName(String tableName) throws AnalysisException {
-        if (Strings.isNullOrEmpty(tableName) || !tableName.matches(TABLE_REGEX)) {
+        if (Strings.isNullOrEmpty(tableName) || !tableName.matches(COMMON_NAME_REGEX)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_TABLE_NAME, tableName);
         }
     }
 
     public static void checkPartitionName(String partitionName) throws AnalysisException {
-        if (Strings.isNullOrEmpty(partitionName) || !partitionName.matches(PARTITION_REGEX)) {
+        if (Strings.isNullOrEmpty(partitionName) || !partitionName.matches(COMMON_NAME_REGEX)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_PARTITION_NAME, partitionName);
         }
 
@@ -67,7 +63,7 @@ public class FeNameFormat {
     }
 
     public static void checkColumnName(String columnName) throws AnalysisException {
-        if (Strings.isNullOrEmpty(columnName) || !columnName.matches(COLUMN_REGEX)) {
+        if (Strings.isNullOrEmpty(columnName) || !columnName.matches(COMMON_NAME_REGEX)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, columnName);
         }
     }
@@ -79,8 +75,32 @@ public class FeNameFormat {
     }
     
     public static void checkUserName(String userName) throws AnalysisException {
-        if (Strings.isNullOrEmpty(userName) || !userName.matches(USER_REGEX)) {
+        if (Strings.isNullOrEmpty(userName) || !userName.matches(COMMON_NAME_REGEX)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CANNOT_USER, "CREATE USER", userName);
+        }
+    }
+
+    public static void checkRoleName(String role, boolean canBeSuperuser) throws AnalysisException {
+        if (Strings.isNullOrEmpty(role) || !role.matches(COMMON_NAME_REGEX)) {
+            throw new AnalysisException("invalid role format: " + role);
+        }
+
+        boolean res = false;
+        if (CaseSensibility.ROLE.getCaseSensibility()) {
+            res = role.equals(PaloRole.OPERATOR_ROLE) || (!canBeSuperuser && role.equals(PaloRole.ADMIN_ROLE));
+        } else {
+            res = role.equalsIgnoreCase(PaloRole.OPERATOR_ROLE)
+                    || (!canBeSuperuser && role.equalsIgnoreCase(PaloRole.ADMIN_ROLE));
+        }
+
+        if (res) {
+            throw new AnalysisException("Can not create role with name: " + role);
+        }
+    }
+
+    public static void checkCommonName(String type, String name) throws AnalysisException {
+        if (Strings.isNullOrEmpty(name) || !name.matches(COMMON_NAME_REGEX)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name);
         }
     }
 }

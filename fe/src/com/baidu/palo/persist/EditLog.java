@@ -18,12 +18,15 @@ package com.baidu.palo.persist;
 import com.baidu.palo.alter.DecommissionBackendJob;
 import com.baidu.palo.alter.RollupJob;
 import com.baidu.palo.alter.SchemaChangeJob;
+import com.baidu.palo.analysis.UserIdentity;
 import com.baidu.palo.backup.BackupJob;
+import com.baidu.palo.backup.BackupJob_D;
+import com.baidu.palo.backup.Repository;
 import com.baidu.palo.backup.RestoreJob;
+import com.baidu.palo.backup.RestoreJob_D;
 import com.baidu.palo.catalog.BrokerMgr;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
-import com.baidu.palo.catalog.UserProperty;
 import com.baidu.palo.cluster.BaseParam;
 import com.baidu.palo.cluster.Cluster;
 import com.baidu.palo.common.Config;
@@ -45,6 +48,7 @@ import com.baidu.palo.load.Load;
 import com.baidu.palo.load.LoadErrorHub;
 import com.baidu.palo.load.LoadJob;
 import com.baidu.palo.metric.MetricRepo;
+import com.baidu.palo.mysql.privilege.UserProperty;
 import com.baidu.palo.qe.SessionVariable;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.Frontend;
@@ -229,29 +233,26 @@ public class EditLog {
                     catalog.replayRenamePartition(info);
                     break;
                 }
-                case OperationType.OP_BACKUP_START: {
-                    BackupJob job = (BackupJob) journal.getData();
-                    catalog.getBackupHandler().replayBackupStart(catalog, job);
-                    break;
-                }
-                case OperationType.OP_BACKUP_FINISH_SNAPSHOT: {
-                    BackupJob job = (BackupJob) journal.getData();
-                    catalog.getBackupHandler().replayBackupFinishSnapshot(job);
-                    break;
-                }
+                case OperationType.OP_BACKUP_START:
+                case OperationType.OP_BACKUP_FINISH_SNAPSHOT:
                 case OperationType.OP_BACKUP_FINISH: {
-                    BackupJob job = (BackupJob) journal.getData();
-                    catalog.getBackupHandler().replayBackupFinish(catalog, job);
+                    BackupJob_D job = (BackupJob_D) journal.getData();
                     break;
                 }
-                case OperationType.OP_RESTORE_START: {
-                    RestoreJob job = (RestoreJob) journal.getData();
-                    catalog.getBackupHandler().replayRestoreStart(catalog, job);
-                    break;
-                }
+                case OperationType.OP_RESTORE_START:
                 case OperationType.OP_RESTORE_FINISH: {
+                    RestoreJob_D job = (RestoreJob_D) journal.getData();
+                    break;
+                }
+                case OperationType.OP_BACKUP_JOB: {
+                    BackupJob job = (BackupJob) journal.getData();
+                    catalog.getBackupHandler().replayAddJob(job);
+                    break;
+                }
+                case OperationType.OP_RESTORE_JOB: {
                     RestoreJob job = (RestoreJob) journal.getData();
-                    catalog.getBackupHandler().replayRestoreFinish(catalog, job);
+                    job.setCatalog(catalog);
+                    catalog.getBackupHandler().replayAddJob(job);
                     break;
                 }
                 case OperationType.OP_START_ROLLUP: {
@@ -418,13 +419,48 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_ALTER_ACCESS_RESOURCE: {
-                    UserProperty resource = (UserProperty) journal.getData();
-                    catalog.getUserMgr().replayAlterAccess(resource);
+                    UserProperty userProperty = (UserProperty) journal.getData();
+                    catalog.getAuth().replayAlterAccess(userProperty);
                     break;
                 }
                 case OperationType.OP_DROP_USER: {
                     String userName = ((Text) journal.getData()).toString();
-                    catalog.getUserMgr().replayDropUser(userName);
+                    catalog.getAuth().replayOldDropUser(userName);
+                    break;
+                }
+                case OperationType.OP_CREATE_USER: {
+                    PrivInfo privInfo = (PrivInfo) journal.getData();
+                    catalog.getAuth().replayCreateUser(privInfo);
+                    break;
+                }
+                case OperationType.OP_NEW_DROP_USER: {
+                    UserIdentity userIdent = (UserIdentity) journal.getData();
+                    catalog.getAuth().replayDropUser(userIdent);
+                    break;
+                }
+                case OperationType.OP_GRANT_PRIV: {
+                    PrivInfo privInfo = (PrivInfo) journal.getData();
+                    catalog.getAuth().replayGrant(privInfo);
+                    break;
+                }
+                case OperationType.OP_REVOKE_PRIV: {
+                    PrivInfo privInfo = (PrivInfo) journal.getData();
+                    catalog.getAuth().replayRevoke(privInfo);
+                    break;
+                }
+                case OperationType.OP_SET_PASSWORD: {
+                    PrivInfo privInfo = (PrivInfo) journal.getData();
+                    catalog.getAuth().replaySetPassword(privInfo);
+                    break;
+                }
+                case OperationType.OP_CREATE_ROLE: {
+                    PrivInfo privInfo = (PrivInfo) journal.getData();
+                    catalog.getAuth().replayCreateRole(privInfo);
+                    break;
+                }
+                case OperationType.OP_DROP_ROLE: {
+                    PrivInfo privInfo = (PrivInfo) journal.getData();
+                    catalog.getAuth().replayDropRole(privInfo);
                     break;
                 }
                 case OperationType.OP_TIMESTAMP: {
@@ -514,9 +550,20 @@ public class EditLog {
                     catalog.replayUpdateClusterAndBackends(info);
                     break;
                 }
+                case OperationType.OP_CREATE_REPOSITORY: {
+                    Repository repository = (Repository) journal.getData();
+                    catalog.getBackupHandler().getRepoMgr().addAndInitRepoIfNotExist(repository, true);
+                    break;
+                }
+                case OperationType.OP_DROP_REPOSITORY: {
+                    String repoName = ((Text) journal.getData()).toString();
+                    catalog.getBackupHandler().getRepoMgr().removeRepo(repoName, true);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
+                    throw e;
                 }
             }
         } catch (Exception e) {
@@ -777,8 +824,37 @@ public class EditLog {
         logEdit(OperationType.OP_ALTER_ACCESS_RESOURCE, userProperty);
     }
 
+    @Deprecated
     public void logDropUser(String userName) {
         logEdit(OperationType.OP_DROP_USER, new Text(userName));
+    }
+
+    public void logCreateUser(PrivInfo info) {
+        logEdit(OperationType.OP_CREATE_USER, info);
+    }
+
+    public void logNewDropUser(UserIdentity userIdent) {
+        logEdit(OperationType.OP_NEW_DROP_USER, userIdent);
+    }
+
+    public void logGrantPriv(PrivInfo info) {
+        logEdit(OperationType.OP_GRANT_PRIV, info);
+    }
+
+    public void logRevokePriv(PrivInfo info) {
+        logEdit(OperationType.OP_REVOKE_PRIV, info);
+    }
+
+    public void logSetPassword(PrivInfo info) {
+        logEdit(OperationType.OP_SET_PASSWORD, info);
+    }
+
+    public void logCreateRole(PrivInfo info) {
+        logEdit(OperationType.OP_CREATE_ROLE, info);
+    }
+
+    public void logDropRole(PrivInfo info) {
+        logEdit(OperationType.OP_DROP_ROLE, info);
     }
 
     public void logStartDecommissionBackend(DecommissionBackendJob job) {
@@ -809,23 +885,23 @@ public class EditLog {
         logEdit(OperationType.OP_RENAME_PARTITION, tableInfo);
     }
 
-    public void logBackupStart(BackupJob backupJob) {
+    public void logBackupStart(BackupJob_D backupJob) {
         logEdit(OperationType.OP_BACKUP_START, backupJob);
     }
 
-    public void logBackupFinishSnapshot(BackupJob backupJob) {
+    public void logBackupFinishSnapshot(BackupJob_D backupJob) {
         logEdit(OperationType.OP_BACKUP_FINISH_SNAPSHOT, backupJob);
     }
 
-    public void logBackupFinish(BackupJob backupJob) {
+    public void logBackupFinish(BackupJob_D backupJob) {
         logEdit(OperationType.OP_BACKUP_FINISH, backupJob);
     }
 
-    public void logRestoreJobStart(RestoreJob restoreJob) {
+    public void logRestoreJobStart(RestoreJob_D restoreJob) {
         logEdit(OperationType.OP_RESTORE_START, restoreJob);
     }
 
-    public void logRestoreFinish(RestoreJob restoreJob) {
+    public void logRestoreFinish(RestoreJob_D restoreJob) {
         logEdit(OperationType.OP_RESTORE_FINISH, restoreJob);
     }
 
@@ -891,4 +967,19 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_CLUSTER_AND_BACKENDS, info);
     }
     
+    public void logBackupJob(BackupJob job) {
+        logEdit(OperationType.OP_BACKUP_JOB, job);
+    }
+
+    public void logCreateRepository(Repository repo) {
+        logEdit(OperationType.OP_CREATE_REPOSITORY, repo);
+    }
+
+    public void logDropRepository(String repoName) {
+        logEdit(OperationType.OP_DROP_REPOSITORY, new Text(repoName));
+    }
+
+    public void logRestoreJob(RestoreJob job) {
+        logEdit(OperationType.OP_RESTORE_JOB, job);
+    }
 }

@@ -15,11 +15,13 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.AccessPrivilege;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
@@ -64,10 +66,10 @@ public class DropTableStmt extends DdlStmt {
         }
         tableName.analyze(analyzer);
         // check access
-        if (!analyzer.getCatalog().getUserMgr()
-                .checkAccess(analyzer.getUser(), tableName.getDb(), AccessPrivilege.READ_WRITE)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED,
-                    analyzer.getUser(), tableName.getDb());
+
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
+                                                                tableName.getTbl(), PrivPredicate.DROP)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
         }
     }
 

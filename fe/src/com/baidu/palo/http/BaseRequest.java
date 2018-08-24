@@ -35,7 +35,7 @@ public class BaseRequest {
     protected HttpRequest request;
     protected Map<String, String> params = Maps.newHashMap();
 
-    private boolean isAdmin = false;
+    private boolean isAuthorized = false;
     private QueryStringDecoder decoder;
 
     public BaseRequest(ChannelHandlerContext ctx, HttpRequest request) {
@@ -67,12 +67,12 @@ public class BaseRequest {
         this.params = params;
     }
     
-    public boolean isAdmin() {
-        return isAdmin;
+    public boolean isAuthorized() {
+        return isAuthorized;
     }
     
-    public void setAdmin(boolean isAdmin) {
-        this.isAdmin = isAdmin;
+    public void setAuthorized(boolean isAuthorized) {
+        this.isAuthorized = isAuthorized;
     }
     
     public Cookie getCookieByName(String cookieName) {
@@ -114,7 +114,7 @@ public class BaseRequest {
         return params.get(key);
     }
     
-    // get an array patameter.
+    // get an array parameter.
     // eg.  ?a=1&a=2
     public List<String> getArrayParameter(String key) {
         String uri = request.uri();

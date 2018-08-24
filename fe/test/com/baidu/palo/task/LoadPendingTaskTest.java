@@ -120,6 +120,7 @@ public class LoadPendingTaskTest {
         // mock load
         load = EasyMock.createMock(Load.class);
         EasyMock.expect(load.updateLoadJobState(job, JobState.ETL)).andReturn(true).times(1);
+        EasyMock.expect(load.getLoadErrorHubInfo()).andReturn(null).times(1);
         EasyMock.replay(load);
         EasyMock.expect(catalog.getLoadInstance()).andReturn(load).times(1);
         EasyMock.replay(catalog);

@@ -22,7 +22,7 @@ public class DropReplicaTask extends AgentTask {
     private int schemaHash; // set -1L as unknown
 
     public DropReplicaTask(long backendId, long tabletId, int schemaHash) {
-        super(null, backendId, TTaskType.DROP, -1L, -1L, -1L, -1L, tabletId);
+        super(null, backendId, tabletId, TTaskType.DROP, -1L, -1L, -1L, -1L, tabletId);
         this.schemaHash = schemaHash;
     }
     

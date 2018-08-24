@@ -25,21 +25,30 @@ import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.log4j.Logger;
 import com.google.common.base.Strings;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.ByteBuffer;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Base64;
+import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.security.MessageDigest;
 
 public class FileSystemManager {
 
@@ -49,6 +58,11 @@ public class FileSystemManager {
     private static final String HDFS_UGI_CONF = "hadoop.job.ugi";
     private static final String USER_NAME_KEY = "username";
     private static final String PASSWORD_KEY = "password";
+    private static final String AUTHENTICATION_SIMPLE = "simple";
+    private static final String AUTHENTICATION_KERBEROS = "kerberos";
+    private static final String KERBEROS_PRINCIPAL = "kerberos_principal";
+    private static final String KERBEROS_KEYTAB = "kerberos_keytab";
+    private static final String KERBEROS_KEYTAB_CONTENT = "kerberos_keytab_content";
 
     // arguments for ha hdfs
     private static final String DFS_NAMESERVICES_KEY = "dfs.nameservices";
@@ -110,10 +124,50 @@ public class FileSystemManager {
         String password = properties.containsKey(PASSWORD_KEY) ? properties.get(PASSWORD_KEY) : "";
         String dfsNameServices =
                 properties.containsKey(DFS_NAMESERVICES_KEY) ? properties.get(DFS_NAMESERVICES_KEY) : "";
+        String authentication = AUTHENTICATION_SIMPLE;
+        if (properties.containsKey(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION)) {
+            authentication = properties.get(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION);
+            if (Strings.isNullOrEmpty(authentication)
+                    || (!authentication.equals(AUTHENTICATION_SIMPLE)
+                    && !authentication.equals(AUTHENTICATION_KERBEROS))) {
+                logger.warn("invalid authentication:" + authentication);
+                throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                        "invalid authentication:" + authentication);
+            }
+        }
 
         String hdfsUgi = username + "," + password;
-        FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(host, hdfsUgi);
+        FileSystemIdentity fileSystemIdentity = null;
         BrokerFileSystem fileSystem = null;
+        if (authentication.equals(AUTHENTICATION_SIMPLE)) {
+            fileSystemIdentity = new FileSystemIdentity(host, hdfsUgi);
+        } else {
+            // for kerberos, use host + principal + keytab as filesystemindentity
+            String kerberosContent = "";
+            if (properties.containsKey(KERBEROS_KEYTAB)) {
+                kerberosContent = properties.get(KERBEROS_KEYTAB);
+            } else if (properties.containsKey(KERBEROS_KEYTAB_CONTENT)) {
+                kerberosContent = properties.get(KERBEROS_KEYTAB_CONTENT);
+            } else {
+                throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                        "keytab is required for kerberos authentication");
+            }
+            if (!properties.containsKey(KERBEROS_PRINCIPAL)) {
+                throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                        "principal is required for kerberos authentication");
+            } else {
+                kerberosContent = kerberosContent + properties.get(KERBEROS_PRINCIPAL);
+            }
+            try {
+                MessageDigest digest = MessageDigest.getInstance("md5");
+                byte[] result = digest.digest(kerberosContent.getBytes());
+                String kerberosUgi = new String(result);
+                fileSystemIdentity = new FileSystemIdentity(host, kerberosUgi);
+            } catch (NoSuchAlgorithmException e) {
+                throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                        e.getMessage());
+            }
+        }
         cachedFileSystem.putIfAbsent(fileSystemIdentity, new BrokerFileSystem(fileSystemIdentity));
         fileSystem = cachedFileSystem.get(fileSystemIdentity);
         if (fileSystem == null) {
@@ -133,7 +187,52 @@ public class FileSystemManager {
                 Configuration conf = new Configuration();
                 // TODO get this param from properties
                 // conf.set("dfs.replication", "2");
-                conf.set(HDFS_UGI_CONF, hdfsUgi);
+                String tmpFilePath = null;
+                if (authentication.equals(AUTHENTICATION_SIMPLE)) {
+                    conf.set(HDFS_UGI_CONF, hdfsUgi);
+                } else if (authentication.equals(AUTHENTICATION_KERBEROS)){
+                    conf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
+                            AUTHENTICATION_KERBEROS);
+
+                    String principal = properties.get(KERBEROS_PRINCIPAL);
+                    String keytab = "";
+                    if (properties.containsKey(KERBEROS_KEYTAB)) {
+                        keytab = properties.get(KERBEROS_KEYTAB);
+                    } else if (properties.containsKey(KERBEROS_KEYTAB_CONTENT)) {
+                        // pass kerberos keytab content use base64 encoding
+                        // so decode it and write it to tmp path under /tmp
+                        // because ugi api only accept a local path as argument
+                        String keytab_content = properties.get(KERBEROS_KEYTAB_CONTENT);
+                        byte[] base64decodedBytes = Base64.getDecoder().decode(keytab_content);
+                        long currentTime = System.currentTimeMillis();
+                        Random random = new Random(currentTime);
+                        int randNumber = random.nextInt(10000);
+                        tmpFilePath = "/tmp/." + Long.toString(currentTime) + "_" + Integer.toString(randNumber);
+                        FileOutputStream fileOutputStream = new FileOutputStream(tmpFilePath);
+                        fileOutputStream.write(base64decodedBytes);
+                        fileOutputStream.close();
+                        keytab = tmpFilePath;
+                    } else {
+                        throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                                "keytab is required for kerberos authentication");
+                    }
+                    UserGroupInformation.setConfiguration(conf);
+                    UserGroupInformation.loginUserFromKeytab(principal, keytab);
+                    if (properties.containsKey(KERBEROS_KEYTAB_CONTENT)) {
+                        try {
+                            File file = new File(tmpFilePath);
+                            if(!file.delete()){
+                                logger.warn("delete tmp file:" +  tmpFilePath + " failed");
+                            }
+                        } catch (Exception e) {
+                            throw new  BrokerException(TBrokerOperationStatusCode.FILE_NOT_FOUND,
+                                    e.getMessage());
+                        }
+                    }
+                } else {
+                    throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                            "invalid authentication.");
+                }
                 if (!Strings.isNullOrEmpty(dfsNameServices)) {
                     // ha hdfs arguments
                     final String dfsHaNameNodesKey = DFS_HA_NAMENODES_PREFIX + dfsNameServices;

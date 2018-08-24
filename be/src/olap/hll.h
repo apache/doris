@@ -37,7 +37,7 @@ struct HllContext {
     bool has_value;
     bool has_sparse_or_full;
     char registers[HLL_REGISTERS_COUNT];
-    std::set<uint64_t> hash64_set;
+    std::set<uint64_t>* hash64_set = nullptr;
 };
 
 // help parse hll set

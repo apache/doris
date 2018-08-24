@@ -24,8 +24,8 @@ import com.baidu.palo.analysis.AccessTestUtil;
 import com.baidu.palo.mysql.MysqlChannel;
 import com.baidu.palo.mysql.MysqlProto;
 
-import org.junit.Assert;
 import org.easymock.EasyMock;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -38,7 +38,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.channels.SocketChannel;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 @RunWith(PowerMockRunner.class)
@@ -92,6 +91,8 @@ public class ConnectSchedulerTest {
         succSubmit = new AtomicLong(0);
 
         MysqlChannel channel = EasyMock.createMock(MysqlChannel.class);
+        EasyMock.expect(channel.getRemoteIp()).andReturn("192.168.1.1").anyTimes();
+        EasyMock.replay(channel);
         PowerMock.expectNew(MysqlChannel.class, EasyMock.isA(SocketChannel.class)).andReturn(channel).anyTimes();
         PowerMock.replay(MysqlChannel.class);
 
@@ -120,17 +121,10 @@ public class ConnectSchedulerTest {
             } else {
                 context.setCatalog(AccessTestUtil.fetchAdminCatalog());
             }
-            context.setUser("root");
+            context.setQualifiedUser("root");
             Assert.assertTrue(scheduler.submit(context));
             Assert.assertEquals(i, context.getConnectionId());
         }
-
-        Thread.sleep(1000);
-        Assert.assertNotNull(scheduler.getContext(0));
-        List<ConnectContext.ThreadInfo> threads = scheduler.listConnection("root");
-        Assert.assertEquals(1, threads.size());
-        Assert.assertNotNull(scheduler.getContext(0));
-        Assert.assertEquals(1, succSubmit.intValue());
     }
 
     @Test
@@ -142,7 +136,7 @@ public class ConnectSchedulerTest {
 
         ConnectContext context = new ConnectContext(EasyMock.createMock(SocketChannel.class));
         context.setCatalog(AccessTestUtil.fetchAdminCatalog());
-        context.setUser("root");
+        context.setQualifiedUser("root");
         Assert.assertTrue(scheduler.submit(context));
         Assert.assertEquals(0, context.getConnectionId());
 

@@ -15,7 +15,7 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.AccessPrivilege;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.catalog.InfoSchemaDb;
@@ -24,6 +24,8 @@ import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -83,9 +85,8 @@ public class ShowTableStatusStmt extends ShowStmt {
         } else {
             db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         }
-        if (!analyzer.getCatalog().getUserMgr()
-                .checkAccess(analyzer.getUser(), db, AccessPrivilege.READ_ONLY)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(), db);
+        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), db, PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getQualifiedUser(), db);
         }
     }
 

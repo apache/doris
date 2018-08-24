@@ -22,32 +22,56 @@ package com.baidu.palo.analysis;
 
 import com.baidu.palo.analysis.BinaryPredicate.Operator;
 import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.mysql.privilege.MockedAuth;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.qe.ConnectContext;
+
 import com.google.common.collect.Lists;
 
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
 
+import mockit.Mocked;
+import mockit.internal.startup.Startup;
+
 public class DataDescriptionTest {
+
+    @Mocked
+    private PaloAuth auth;
+    @Mocked
+    private ConnectContext ctx;
+
+    static {
+        Startup.initializeIfPossible();
+    }
+
+    @Before
+    public void setUp() {
+        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
+    }
+
     @Test
     public void testNormal() throws AnalysisException {
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
                 null, null, false, null);
-        desc.analyze();
+        desc.analyze("testDb");
         Assert.assertEquals("DATA INFILE ('abc.txt') INTO TABLE testTable", desc.toString());
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"), null, null, true, null);
-        desc.analyze();
+        desc.analyze("testDb");
         Assert.assertEquals("DATA INFILE ('abc.txt') NEGATIVE INTO TABLE testTable", desc.toString());
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt", "bcd.txt"), null, null, true, null);
-        desc.analyze();
+        desc.analyze("testDb");
         Assert.assertEquals("DATA INFILE ('abc.txt', 'bcd.txt') NEGATIVE INTO TABLE testTable", desc.toString());
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
                 Lists.newArrayList("col1", "col2"), null, true, null);
-        desc.analyze();
+        desc.analyze("testDb");
         Assert.assertEquals("DATA INFILE ('abc.txt') NEGATIVE INTO TABLE testTable (col1, col2)", desc.toString());
         Assert.assertEquals("testTable", desc.getTableName());
         Assert.assertEquals("[col1, col2]", desc.getColumnNames().toString());
@@ -57,7 +81,7 @@ public class DataDescriptionTest {
 
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt", "bcd.txt"),
                 Lists.newArrayList("col1", "col2"), new ColumnSeparator("\t"), true, null);
-        desc.analyze();
+        desc.analyze("testDb");
         Assert.assertEquals("DATA INFILE ('abc.txt', 'bcd.txt') NEGATIVE INTO TABLE testTable"
                         +  " COLUMNS TERMINATED BY '\t' (col1, col2)",
                 desc.toString());
@@ -65,7 +89,7 @@ public class DataDescriptionTest {
         // hive \x01 column separator
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt", "bcd.txt"),
                 Lists.newArrayList("col1", "col2"), new ColumnSeparator("\\x01"), true, null);
-        desc.analyze();
+        desc.analyze("testDb");
         Assert.assertEquals("DATA INFILE ('abc.txt', 'bcd.txt') NEGATIVE INTO TABLE testTable"
                         +  " COLUMNS TERMINATED BY '\\x01' (col1, col2)",
                 desc.toString());
@@ -73,7 +97,7 @@ public class DataDescriptionTest {
         // with partition
         desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"), Lists.newArrayList("abc.txt"),
                 null, null, false, null);
-        desc.analyze();
+        desc.analyze("testDb");
         Assert.assertEquals("DATA INFILE ('abc.txt') INTO TABLE testTable PARTITION (p1, p2)", desc.toString());
         
         // alignment_timestamp func
@@ -84,7 +108,7 @@ public class DataDescriptionTest {
                 new FunctionCallExpr("alignment_timestamp", params));
         desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"), Lists.newArrayList("abc.txt"),
                 Lists.newArrayList("k2", "k3"), null, false, Lists.newArrayList((Expr) predicate));
-        desc.analyze();
+        desc.analyze("testDb");
         String sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITION (p1, p2) (k2, k3)" 
                 + " SET (`k1` = alignment_timestamp('day', `k2`))";
         Assert.assertEquals(sql, desc.toString());
@@ -97,7 +121,7 @@ public class DataDescriptionTest {
                 new FunctionCallExpr("replace_value", params));
         desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"), Lists.newArrayList("abc.txt"),
                 Lists.newArrayList("k2", "k3"), null, false, Lists.newArrayList((Expr) predicate));
-        desc.analyze();
+        desc.analyze("testDb");
         sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITION (p1, p2) (k2, k3)"
                 + " SET (`k1` = replace_value('-', '10'))";
         Assert.assertEquals(sql, desc.toString());
@@ -110,7 +134,7 @@ public class DataDescriptionTest {
                 new FunctionCallExpr("replace_value", params));
         desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"), Lists.newArrayList("abc.txt"),
                 Lists.newArrayList("k2", "k3"), null, false, Lists.newArrayList((Expr) predicate));
-        desc.analyze();
+        desc.analyze("testDb");
         sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITION (p1, p2) (k2, k3)"
                 + " SET (`k1` = replace_value('', NULL))";
         Assert.assertEquals(sql, desc.toString());
@@ -120,19 +144,19 @@ public class DataDescriptionTest {
     public void testNoTable() throws AnalysisException {
         DataDescription desc = new DataDescription("", null, Lists.newArrayList("abc.txt"),
                 null, null, false, null);
-        desc.analyze();
+        desc.analyze("testDb");
     }
 
     @Test(expected = AnalysisException.class)
     public void testNoFile() throws AnalysisException {
         DataDescription desc = new DataDescription("testTable", null, null, null, null, false, null);
-        desc.analyze();
+        desc.analyze("testDb");
     }
 
     @Test(expected = AnalysisException.class)
     public void testDupCol() throws AnalysisException {
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
                 Lists.newArrayList("col1", "col1"), null, false, null);
-        desc.analyze();
+        desc.analyze("testDb");
     }
 }

@@ -45,7 +45,7 @@ protected:
     virtual void TearDown() {
     }
 private:
-    RuntimeState* _runtime_state;
+    ExecEnv* _env;
     std::map<std::string, std::string> _properties;
     std::vector<TNetworkAddress> _addresses;
 };
@@ -61,7 +61,7 @@ void BrokerReaderTest::init() {
 
 TEST_F(BrokerReaderTest, normal) {
     std::string path = "hdfs://host:port/dir";
-    BrokerReader reader(_runtime_state, _addresses, _properties, path, 0);
+    BrokerReader reader(_env, _addresses, _properties, path, 0);
     auto st = reader.open();
     ASSERT_TRUE(st.ok());
     uint8_t buf[128 * 1024];

@@ -15,10 +15,13 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.system.SystemInfoService;
 
 import com.google.common.base.Strings;
@@ -42,7 +45,7 @@ public class DropClusterStmt extends DdlStmt {
             throw new AnalysisException("Can not drop " + SystemInfoService.DEFAULT_CLUSTER);
         }
 
-        if (!analyzer.getCatalog().getUserMgr().isAdmin(analyzer.getUser())) {
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_PERMISSIONS);
         }
     }

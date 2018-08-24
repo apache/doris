@@ -49,7 +49,8 @@ public class SchemaChangeTask extends AgentTask {
                             List<Column> newColumns, int newSchemaHash, int baseSchemaHash,
                             short newShortKeyColumnCount, TStorageType storageType,
                             Set<String> bfColumns, double bfFpp, TKeysType keysType) {
-        super(resourceInfo, backendId, TTaskType.SCHEMA_CHANGE, dbId, tableId, partitionId, indexId, baseTabletId);
+        super(resourceInfo, backendId, baseTabletId, TTaskType.SCHEMA_CHANGE, dbId, tableId, partitionId, indexId,
+                baseTabletId);
 
         this.baseReplicaId = baseReplicaId;
         this.baseSchemaHash = baseSchemaHash;

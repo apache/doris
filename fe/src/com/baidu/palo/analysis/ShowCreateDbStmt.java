@@ -15,7 +15,8 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.AccessPrivilege;
+import com.baidu.palo.analysis.CompoundPredicate.Operator;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.cluster.ClusterNamespace;
@@ -23,6 +24,10 @@ import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PaloPrivilege;
+import com.baidu.palo.mysql.privilege.PrivBitSet;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -54,9 +59,15 @@ public class ShowCreateDbStmt extends ShowStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, db);
         }
         db = ClusterNamespace.getFullName(getClusterName(), db);
-        if (!analyzer.getCatalog().getUserMgr()
-                .checkAccess(analyzer.getUser(), db, AccessPrivilege.READ_ONLY)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(), db);
+
+        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), db,
+                                                               PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
+                                                                                              PaloPrivilege.ALTER_PRIV,
+                                                                                              PaloPrivilege.CREATE_PRIV,
+                                                                                              PaloPrivilege.DROP_PRIV),
+                                                                                Operator.OR))) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED,
+                                                ConnectContext.get().getQualifiedUser(), db);
         }
     }
 

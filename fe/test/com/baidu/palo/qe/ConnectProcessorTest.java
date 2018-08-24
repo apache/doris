@@ -22,6 +22,7 @@ package com.baidu.palo.qe;
 
 import com.baidu.palo.analysis.AccessTestUtil;
 import com.baidu.palo.catalog.Catalog;
+import com.baidu.palo.metric.MetricRepo;
 import com.baidu.palo.mysql.MysqlChannel;
 import com.baidu.palo.mysql.MysqlCommand;
 import com.baidu.palo.mysql.MysqlEofPacket;
@@ -29,8 +30,8 @@ import com.baidu.palo.mysql.MysqlErrPacket;
 import com.baidu.palo.mysql.MysqlOkPacket;
 import com.baidu.palo.mysql.MysqlSerializer;
 
-import org.junit.Assert;
 import org.easymock.EasyMock;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -96,6 +97,8 @@ public class ConnectProcessorTest {
             serializer.writeEofString("");
             fieldListPacket = serializer.toByteBuffer();
         }
+
+        MetricRepo.init();
     }
 
     @Before
@@ -108,7 +111,7 @@ public class ConnectProcessorTest {
         // Mock
         MysqlChannel channel = EasyMock.createNiceMock(MysqlChannel.class);
         PowerMock.expectNew(MysqlChannel.class, EasyMock.isA(SocketChannel.class)).andReturn(channel).anyTimes();
-        EasyMock.expect(channel.getRemoteHostString()).andReturn("127.0.0.1:12345").anyTimes();
+        EasyMock.expect(channel.getRemoteHostPortString()).andReturn("127.0.0.1:12345").anyTimes();
         PowerMock.replay(MysqlChannel.class);
         myContext = new ConnectContext(EasyMock.createMock(SocketChannel.class));
     }
@@ -126,7 +129,7 @@ public class ConnectProcessorTest {
             channel.sendAndFlush(EasyMock.isA(ByteBuffer.class));
             EasyMock.expectLastCall().anyTimes();
 
-            EasyMock.expect(channel.getRemoteHostString()).andReturn("127.0.0.1:12345").anyTimes();
+            EasyMock.expect(channel.getRemoteHostPortString()).andReturn("127.0.0.1:12345").anyTimes();
 
             EasyMock.replay(channel);
 
@@ -144,10 +147,12 @@ public class ConnectProcessorTest {
         EasyMock.expect(context.getCatalog()).andReturn(catalog).anyTimes();
         EasyMock.expect(context.getState()).andReturn(myContext.getState()).anyTimes();
         EasyMock.expect(context.getAuditBuilder()).andReturn(auditBuilder).anyTimes();
-        EasyMock.expect(context.getUser()).andReturn("testCluster:user").anyTimes();
+        EasyMock.expect(context.getQualifiedUser()).andReturn("testCluster:user").anyTimes();
         EasyMock.expect(context.getClusterName()).andReturn("testCluster").anyTimes();
         EasyMock.expect(context.getStartTime()).andReturn(0L).anyTimes();
         EasyMock.expect(context.getSerializer()).andDelegateTo(myContext).anyTimes();
+        EasyMock.expect(context.getReturnRows()).andReturn(1L).anyTimes();
+        EasyMock.expect(context.isKilled()).andReturn(false).anyTimes();
         context.setKilled();
         EasyMock.expectLastCall().andDelegateTo(myContext).anyTimes();
         context.setCommand(EasyMock.anyObject(MysqlCommand.class));
@@ -278,7 +283,6 @@ public class ConnectProcessorTest {
 
         processor.processOnce();
         Assert.assertEquals(MysqlCommand.COM_QUERY, myContext.getCommand());
-        Assert.assertEquals("Maybe palo bug", myContext.getState().getErrorMessage());
         Assert.assertTrue(myContext.getState().toResponsePacket() instanceof MysqlErrPacket);
     }
 

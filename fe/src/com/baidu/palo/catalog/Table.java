@@ -59,6 +59,9 @@ public class Table extends MetaObject implements Writable {
     // tree map for case-insensitive lookup
     protected Map<String, Column> nameToColumn;
 
+    // DO NOT persist this variable.
+    protected boolean isTypeRead = false;
+
     public Table(TableType type) {
         this.type = type;
         this.baseSchema = new LinkedList<Column>();
@@ -80,6 +83,14 @@ public class Table extends MetaObject implements Writable {
             // Only view in with-clause have null base
             Preconditions.checkArgument(type == TableType.VIEW, "Table has no columns");
         }
+    }
+
+    public boolean isTypeRead() {
+        return isTypeRead;
+    }
+
+    public void setTypeRead(boolean isTypeRead) {
+        this.isTypeRead = isTypeRead;
     }
 
     public long getId() {
@@ -129,27 +140,27 @@ public class Table extends MetaObject implements Writable {
         TableType type = TableType.valueOf(Text.readString(in));
         if (type == TableType.OLAP) {
             table = new OlapTable();
-            table.readFields(in);
         } else if (type == TableType.MYSQL) {
             table = new MysqlTable();
-            table.readFields(in);
         } else if (type == TableType.VIEW) {
-            View view = new View();
-            view.readFields(in);
+            table = new View();
+        } else if (type == TableType.KUDU) {
+            table = new KuduTable();
+        } else if (type == TableType.BROKER) {
+            table = new BrokerTable();
+        } else {
+            throw new IOException("Unknown table type: " + type.name());
+        }
+
+        table.setTypeRead(true);
+        table.readFields(in);
+        if (type == TableType.VIEW) {
+            View view = (View) table;
             try {
                 view.init();
             } catch (InternalException e) {
                 throw new IOException(e.getMessage());
             }
-            table = view;
-        } else if (type == TableType.KUDU) {
-            table = new KuduTable();
-            table.readFields(in);
-        } else if (type == TableType.BROKER) {
-            table = new BrokerTable();
-            table.readFields(in);
-        } else {
-            throw new IOException("Unknown table type: " + type.name());
         }
 
         return table;
@@ -176,6 +187,11 @@ public class Table extends MetaObject implements Writable {
 
     @Override
     public void readFields(DataInput in) throws IOException {
+        if (!isTypeRead) {
+            type = TableType.valueOf(Text.readString(in));
+            isTypeRead = true;
+        }
+
         super.readFields(in);
 
         this.id = in.readLong();

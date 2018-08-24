@@ -15,13 +15,14 @@
 
 package com.baidu.palo.ha;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.persist.EditLog;
+
 import com.sleepycat.je.rep.StateChangeEvent;
 import com.sleepycat.je.rep.StateChangeListener;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class BDBStateChangeListener implements StateChangeListener {
     public static final Logger LOG = LogManager.getLogger(EditLog.class);

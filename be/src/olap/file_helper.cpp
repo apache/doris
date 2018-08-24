@@ -160,6 +160,8 @@ OLAPStatus FileHandler::close() {
         }
     }
 
+    OLAP_LOG_DEBUG("finished to close file. [file_name='%s' fd=%d]",
+                    _file_name.c_str(), _fd);
     _fd = -1;
     _file_name = "";
     _wr_length = 0;

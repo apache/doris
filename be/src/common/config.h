@@ -79,8 +79,8 @@ namespace config {
     CONF_Int32(check_consistency_worker_count, "1");
     // the count of thread to upload
     CONF_Int32(upload_worker_count, "3");
-    // the count of thread to restore
-    CONF_Int32(restore_worker_count, "3");
+    // the count of thread to download
+    CONF_Int32(download_worker_count, "3");
     // the count of thread to make snapshot
     CONF_Int32(make_snapshot_worker_count, "5");
     // the count of thread to release snapshot
@@ -364,6 +364,9 @@ namespace config {
 
     // Aligement
     CONF_Int32(FLAGS_MEMORY_MAX_ALIGNMENT, "16");
+
+    // result buffer cancelled time (unit: second)
+    CONF_Int32(result_buffer_cancelled_interval_time, "5");
 } // namespace config
 
 } // namespace palo

@@ -20,6 +20,7 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
@@ -27,78 +28,86 @@ import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.FeNameFormat;
 import com.baidu.palo.common.InternalException;
 import com.baidu.palo.mysql.MysqlPassword;
+import com.baidu.palo.mysql.privilege.PaloRole;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-// this is memory struct from CREATE USER statement
-// CREATE USER user_name [IDENTIFIED BY [PASSWORD] 'password']
-//
-// CREATE USER user_name
-//      this clause create user without password
-//      eg. CREATE USER 'jeffrey'
-//
-// CREATE USER user_name IDENTIFIED BY 'password'
-//      this clause create user with password in plaintext mode
-//      eg. CREATE USER 'jeffrey' IDENTIFIED BY 'mypass'
-//
-// CREATE USER user_name IDENTIFIED BY PASSWORD 'password'
-//      this clause create user with password in hashed mode.
-//      eg. CREATE USER 'jeffrey' IDENTIFIED BY PASSWORD '*90E462C37378CED12064BB3388827D2BA3A9B689'
+/*
+ * We support the following create user stmt
+ * 1. create user user@ip [identified by 'password']
+ *      specify the user name at a certain ip(wildcard is accepted), with optional password.
+ *      the user@ip must not exist in system
+ *      
+ * 2. create user user@[domain] [identified by 'password']
+ *      specify the user name at a certain domain, with optional password.
+ *      the user@[domain] must not exist in system
+ *      the daemon thread will resolve this domain to user@ip format
+ *      
+ * 3. create user user@xx [identified by 'password'] role role_name
+ *      not only create the specified user, but also grant all privs of the specified role to the user.
+ */
 public class CreateUserStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(CreateUserStmt.class);
 
-    private String user;
+    private boolean ifNotExist;
+    private UserIdentity userIdent;
     private String password;
     private byte[] scramblePassword;
     private boolean isPlain;
-    private boolean isSuperuser;
+    private String role;
 
     public CreateUserStmt() {
     }
 
     public CreateUserStmt(UserDesc userDesc) {
-        user = userDesc.getUser();
+        userIdent = userDesc.getUserIdent();
         password = userDesc.getPassword();
         isPlain = userDesc.isPlain();
     }
 
-    public CreateUserStmt(UserDesc userDesc, boolean isSuperuser) {
-        user = userDesc.getUser();
+    public CreateUserStmt(boolean ifNotExist, UserDesc userDesc, String role) {
+        this.ifNotExist = ifNotExist;
+        userIdent = userDesc.getUserIdent();
         password = userDesc.getPassword();
         isPlain = userDesc.isPlain();
-        this.isSuperuser = isSuperuser;
+        this.role = role;
+    }
+
+    public boolean isIfNotExist() {
+        return ifNotExist;
     }
 
     public boolean isSuperuser() {
-        return isSuperuser;
+        return role.equalsIgnoreCase(PaloRole.ADMIN_ROLE);
+    }
+
+    public boolean hasRole() {
+        return role != null;
+    }
+
+    public String getQualifiedRole() {
+        return role;
     }
 
     public byte[] getPassword() {
         return scramblePassword;
     }
 
-    public String getUser() {
-        return user;
-    }
-
-    private void checkUser() throws AnalysisException {
-        if (Strings.isNullOrEmpty(user)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CANNOT_USER, "CREATE USER", user);
-        }
-
-        FeNameFormat.checkUserName(user);
+    public UserIdentity getUserIdent() {
+        return userIdent;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         super.analyze(analyzer);
-        checkUser();
+        userIdent.analyze(analyzer.getClusterName());
         // convert plain password to hashed password
         if (!Strings.isNullOrEmpty(password)) {
-            // TODO(zhaochun): convert password
             if (isPlain) {
                 // convert plain password to scramble
                 scramblePassword = MysqlPassword.makeScrambledPassword(password);
@@ -108,32 +117,39 @@ public class CreateUserStmt extends DdlStmt {
         } else {
             scramblePassword = new byte[0];
         }
-        user = ClusterNamespace.getFullName(getClusterName(), user);
-        // check authenticate
-        if (isSuperuser) {
-            // Only root can create superuser
-            if (!analyzer.getCatalog().getUserMgr().isAdmin(analyzer.getUser())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_PERMISSION_TO_CREATE_USER, analyzer.getUser());
+
+        if (role != null) {
+            if (role.equalsIgnoreCase("SUPERUSER")) {
+                // for forward compatibility
+                role = PaloRole.ADMIN_ROLE;
             }
-        } else {
-            if (!analyzer.getCatalog().getUserMgr().isSuperuser(analyzer.getUser())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_PERMISSION_TO_CREATE_USER, analyzer.getUser());
-            }
+            FeNameFormat.checkRoleName(role, true /* can be admin */);
+            role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
+        }
+
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE USER");
         }
     }
 
     @Override
     public String toSql() {
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("CREATE USER '").append(user).append("'");
+        StringBuilder sb = new StringBuilder();
+        sb.append("CREATE USER ").append(userIdent);
         if (!Strings.isNullOrEmpty(password)) {
             if (isPlain) {
-                stringBuilder.append(" IDENTIFIED BY '").append(password).append("'");
+                sb.append(" IDENTIFIED BY '").append(password).append("'");
             } else {
-                stringBuilder.append(" IDENTIFIED BY PASSWORD '").append(password).append("'");
+                sb.append(" IDENTIFIED BY PASSWORD '").append(password).append("'");
             }
         }
-        return stringBuilder.toString();
+
+        if (!Strings.isNullOrEmpty(role)) {
+            sb.append(" DEFAULT ROLE '").append(role).append("'");
+
+        }
+
+        return sb.toString();
     }
 
     @Override

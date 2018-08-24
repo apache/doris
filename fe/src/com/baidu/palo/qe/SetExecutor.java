@@ -22,8 +22,8 @@ import com.baidu.palo.analysis.SetTransaction;
 import com.baidu.palo.analysis.SetVar;
 import com.baidu.palo.common.DdlException;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 // Set executor
 public class SetExecutor {
@@ -41,7 +41,7 @@ public class SetExecutor {
         if (var instanceof SetPassVar) {
             // Set password
             SetPassVar setPassVar = (SetPassVar) var;
-            ctx.getCatalog().getUserMgr().setPasswd(setPassVar.getUser(), setPassVar.getPassword());
+            ctx.getCatalog().getAuth().setPassword(setPassVar);
         } else if (var instanceof SetNamesVar) {
             // do nothing
             return;

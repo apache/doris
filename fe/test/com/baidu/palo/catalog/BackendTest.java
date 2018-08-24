@@ -22,6 +22,7 @@ package com.baidu.palo.catalog;
 
 import com.baidu.palo.analysis.AccessTestUtil;
 import com.baidu.palo.common.FeConstants;
+import com.baidu.palo.metric.MetricRepo;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.thrift.TDisk;
 
@@ -47,7 +48,7 @@ import java.util.Map;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("org.apache.log4j.*")
-@PrepareForTest(Catalog.class)
+@PrepareForTest({ Catalog.class, MetricRepo.class })
 public class BackendTest {
     private Backend backend;
     private long backendId = 9999;
@@ -69,6 +70,11 @@ public class BackendTest {
 
         backend = new Backend(backendId, host, heartbeatPort);
         backend.updateOnce(bePort, httpPort, beRpcPort);
+
+        PowerMock.mockStatic(MetricRepo.class);
+        MetricRepo.generateCapacityMetrics();
+        EasyMock.expectLastCall().anyTimes();
+        PowerMock.replay(MetricRepo.class);
     }
 
     @Test
@@ -104,8 +110,7 @@ public class BackendTest {
         backend.updateDisks(diskInfos);
         Assert.assertEquals(disk1.getDisk_total_capacity() + disk2.getDisk_total_capacity(),
                             backend.getTotalCapacityB());
-        Assert.assertEquals(disk1.getDisk_total_capacity() + disk2.getDisk_total_capacity() + 1,
-                            backend.getAvailableCapacityB());
+        Assert.assertEquals(1, backend.getAvailableCapacityB());
 
         // second update
         diskInfos.remove(disk1.getRoot_path());

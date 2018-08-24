@@ -22,10 +22,10 @@ import com.baidu.palo.common.io.Writable;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.List;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Map.Entry;
 
 /**
@@ -67,6 +67,10 @@ public class Partition extends MetaObject implements Writable {
         this.committedVersion = PARTITION_INIT_VERSION;
         this.committedVersionHash = PARTITION_INIT_VERSION_HASH;
         this.distributionInfo = distributionInfo;
+    }
+
+    public void setIdForRestore(long id) {
+        this.id = id;
     }
 
     public long getId() {

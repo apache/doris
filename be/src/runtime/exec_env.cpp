@@ -60,6 +60,7 @@
 #include "runtime/etl_job_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/pull_load_task_mgr.h"
+#include "runtime/snapshot_loader.h"
 #include "util/pretty_printer.h"
 #include "util/palo_metrics.h"
 #include "util/brpc_stub_cache.h"
@@ -99,6 +100,7 @@ ExecEnv::ExecEnv() :
         _bfd_parser(BfdParser::create()),
         _pull_load_task_mgr(new PullLoadTaskMgr(config::pull_load_task_dir)),
         _broker_mgr(new BrokerMgr(this)),
+        _snapshot_loader(new SnapshotLoader(this)),
         _brpc_stub_cache(new BrpcStubCache()),
         _enable_webserver(true),
         _tz_database(TimezoneDatabase()) {

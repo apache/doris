@@ -20,12 +20,14 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.InfoSchemaDb;
+import com.baidu.palo.catalog.OlapTable;
+import com.baidu.palo.catalog.OlapTable.OlapTableState;
 import com.baidu.palo.catalog.Table;
+import com.baidu.palo.catalog.Table.TableType;
 import com.baidu.palo.catalog.Type;
 import com.baidu.palo.catalog.View;
 import com.baidu.palo.cluster.ClusterNamespace;
@@ -219,7 +221,7 @@ public class Analyzer {
         public final Map<ExprId, TableRef> ijClauseByConjunct = Maps.newHashMap();
 
         // TODO chenhao16, to save conjuncts, which children are constant
-        public final Map<TupleId, Expr> constantConjunct = Maps.newHashMap();
+        public final Map<TupleId, Set<Expr>> constantConjunct = Maps.newHashMap();
 
         // map from slot id to the analyzer/block in which it was registered
         public final Map<SlotId, Analyzer> blockBySlot = Maps.newHashMap();
@@ -469,6 +471,11 @@ public class Analyzer {
         Table table = database.getTable(tableName.getTbl());
         if (table == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName.getTbl());
+        }
+
+        if (table.getType() == TableType.OLAP && (((OlapTable) table).getState() == OlapTableState.RESTORE
+                || ((OlapTable) table).getState() == OlapTableState.RESTORE_WITH_LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_STATE, "RESTORING");
         }
 
         TableName tblName = new TableName(database.getFullName(), table.getName());
@@ -739,7 +746,12 @@ public class Analyzer {
 
     private void registerConstantConjunct(TupleId id, Expr e) {
         if (id != null && e.isConstant()) {
-            globalState.constantConjunct.put(id, e);
+            Set<Expr> set = globalState.constantConjunct.get(id);
+            if (set == null) {
+                set = Sets.newHashSet();
+                globalState.constantConjunct.put(id, set);
+            }
+            set.add(e);
         }
     }
 
@@ -866,7 +878,8 @@ public class Analyzer {
             if (e.isConstant()) {
                 boolean isBoundByTuple = false;
                 for (TupleId id : tupleIds) {
-                    if (globalState.constantConjunct.containsKey(id)) {
+                    final Set<Expr> exprSet = globalState.constantConjunct.get(id);
+                    if (exprSet != null && exprSet.contains(e)) {
                         isBoundByTuple = true;
                         break;
                     }
@@ -875,6 +888,7 @@ public class Analyzer {
                     continue;
                 }
             }
+
             if (e.isBoundByTupleIds(tupleIds)
                     && !e.isAuxExpr()
                     && !globalState.assignedConjuncts.contains(e.getId())
@@ -1378,8 +1392,8 @@ public class Analyzer {
         return globalState.context.getClusterName();
     }
 
-    public String getUser() {
-        return globalState.context.getUser();
+    public String getQualifiedUser() {
+        return globalState.context.getQualifiedUser();
     }
 
     public String getSchemaDb() {
@@ -1587,12 +1601,6 @@ public class Analyzer {
     }
 
     public Map<String, View> getLocalViews() { return localViews_; }
-
-    public void checkPrivilege(String db, AccessPrivilege priv) throws AnalysisException {
-        if (!globalState.catalog.getUserMgr().checkAccess(getUser(), db, priv)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, priv.toString());
-        }
-    }
 
     public boolean isOuterJoined(TupleId tid) {
         return globalState.outerJoinedTupleIds.containsKey(tid);

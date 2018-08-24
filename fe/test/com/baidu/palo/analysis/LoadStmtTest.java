@@ -20,21 +20,37 @@
 
 package com.baidu.palo.analysis;
 
-import java.util.List;
+import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.qe.ConnectContext;
+
+import com.google.common.collect.Lists;
 
 import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
-import com.google.common.collect.Lists;
+import java.util.List;
+
+import mockit.Mocked;
+import mockit.NonStrictExpectations;
+import mockit.internal.startup.Startup;
 
 public class LoadStmtTest {
     private DataDescription desc;
     private List<DataDescription> dataDescriptions;
     private Analyzer analyzer;
+
+    @Mocked
+    private PaloAuth auth;
+    @Mocked
+    private ConnectContext ctx;
+
+    static {
+        Startup.initializeIfPossible();
+    }
 
     @Before
     public void setUp() {
@@ -43,11 +59,21 @@ public class LoadStmtTest {
         desc = EasyMock.createMock(DataDescription.class);
         EasyMock.expect(desc.toSql()).andReturn("XXX");
         dataDescriptions.add(desc);
+
+        new NonStrictExpectations() {
+            {
+                ConnectContext.get();
+                result = ctx;
+
+                ctx.getQualifiedUser();
+                result = "default_cluster:user";
+            }
+        };
     }
 
     @Test
     public void testNormal() throws InternalException, AnalysisException {
-        desc.analyze();
+        desc.analyze(EasyMock.anyString());
         EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(desc);
 
@@ -62,20 +88,8 @@ public class LoadStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoPriv() throws InternalException, AnalysisException {
-        desc.analyze();
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(desc);
-
-        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptions, null, null, null);
-        stmt.analyze(AccessTestUtil.fetchBlockAnalyzer());
-
-        Assert.fail("No exception throws.");
-    }
-
-    @Test(expected = AnalysisException.class)
     public void testNoData() throws InternalException, AnalysisException {
-        desc.analyze();
+        desc.analyze(EasyMock.anyString());
         EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(desc);
 

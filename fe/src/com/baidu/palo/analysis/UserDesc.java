@@ -22,26 +22,22 @@ package com.baidu.palo.analysis;
 
 // Description of user in SQL statement
 public class UserDesc {
-    private String user;
+    private UserIdentity userIdent;
     private String password;
     private boolean isPlain;
 
-    public UserDesc(String user) {
-        this(user, "", false);
+    public UserDesc(UserIdentity userIdent) {
+        this(userIdent, "", false);
     }
 
-    public UserDesc(String user, String password, boolean isPlain) {
-        this.user = user;
+    public UserDesc(UserIdentity userIdent, String password, boolean isPlain) {
+        this.userIdent = userIdent;
         this.password = password;
         this.isPlain = isPlain;
     }
 
-    public String getUser() {
-        return user;
-    }
-
-    public void setUser(String user) {
-        this.user = user;
+    public UserIdentity getUserIdent() {
+        return userIdent;
     }
 
     public String getPassword() {
@@ -50,9 +46,5 @@ public class UserDesc {
 
     public boolean isPlain() {
         return isPlain;
-    }
-
-    public void setPlain(boolean isPlain) {
-        this.isPlain = isPlain;
     }
 }

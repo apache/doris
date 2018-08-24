@@ -20,10 +20,13 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.UserProperty;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.mysql.privilege.UserProperty;
+import com.baidu.palo.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
@@ -49,23 +52,22 @@ public class SetUserPropertyVar extends SetVar {
         return value;
     }
 
-    public void analyze(Analyzer analyzer, String user) throws AnalysisException {
+    public void analyze(Analyzer analyzer, boolean isSelf) throws AnalysisException {
         if (Strings.isNullOrEmpty(key)) {
             throw new AnalysisException("User property key is null");
         }
 
-        checkAcess(analyzer, user);
+        checkAccess(analyzer, isSelf);
     }
 
-    private void checkAcess(Analyzer analyzer, String user) throws AnalysisException {
+    private void checkAccess(Analyzer analyzer, boolean isSelf) throws AnalysisException {
         for (Pattern advPattern : UserProperty.ADVANCED_PROPERTIES) {
             Matcher matcher = advPattern.matcher(key);
             if (matcher.find()) {
-                if (!analyzer.getCatalog().getUserMgr().isSuperuser(analyzer.getUser())) {
+                if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                        "SET PROPERTY FOR " + user + " " + key);
+                                                        "ADMIN");
                 }
-
                 return;
             }
         }
@@ -73,11 +75,11 @@ public class SetUserPropertyVar extends SetVar {
         for (Pattern commPattern : UserProperty.COMMON_PROPERTIES) {
             Matcher matcher = commPattern.matcher(key);
             if (matcher.find()) {
-                if (!analyzer.getCatalog().getUserMgr().checkUserAccess(analyzer.getUser(), user)) {
+                if (!isSelf && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
+                                                                                      PrivPredicate.ADMIN)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                        "SET PROPERTY FOR " + user + " " + key);
+                                                        "GRANT");
                 }
-
                 return;
             }
         }

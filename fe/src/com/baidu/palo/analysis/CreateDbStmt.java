@@ -20,12 +20,16 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.FeNameFormat;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
+
 import com.google.common.base.Strings;
 
 // 用于描述CREATE DATABASE的内部结构
@@ -54,8 +58,9 @@ public class CreateDbStmt extends DdlStmt {
         }
         FeNameFormat.checkDbName(dbName);
         dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
-        if (!analyzer.getCatalog().getUserMgr().isSuperuser(analyzer.getUser())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(), dbName);
+
+        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.CREATE)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getQualifiedUser(), dbName);
         }
     }
 

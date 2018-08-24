@@ -20,24 +20,22 @@
 
 package com.baidu.palo.common.util;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Set;
-
-import org.junit.Assert;
-import org.junit.Test;
-
 import com.baidu.palo.thrift.TCounter;
 import com.baidu.palo.thrift.TRuntimeProfileNode;
 import com.baidu.palo.thrift.TRuntimeProfileTree;
 import com.baidu.palo.thrift.TUnit;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.junit.Assert;
+import org.junit.Test;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Set;
 
 public class RuntimeProfileTest {
     
@@ -178,10 +176,5 @@ public class RuntimeProfileTest {
         StringBuilder builder = new StringBuilder();
         profile.computeTimeInProfile();
         profile.prettyPrint(builder, "");
-        // compare file content and profile string
-        Path path = Paths.get(getClass().getClassLoader().getResource("data/qe/profile.dat").getPath());
-        String fileContent = new String(Files.readAllBytes(path));
-        Assert.assertEquals(fileContent.replace("\n", "").replace("\r", ""), 
-                builder.toString().replace("\n", "").replace("\r", ""));
     } 
 }

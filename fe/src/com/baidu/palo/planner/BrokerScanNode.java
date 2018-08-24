@@ -439,6 +439,9 @@ public class BrokerScanNode extends ScanNode {
             candidateBes.add(backends.get(nextBe++));
             nextBe = nextBe % backends.size();
         }
+        // we shuffle it because if we only has 3 backends
+        // we will always choose the same backends without shuffle
+        Collections.shuffle(candidateBes);
 
         // Generate on broker scan range
         TBrokerScanRange brokerScanRange = new TBrokerScanRange();
@@ -480,7 +483,7 @@ public class BrokerScanNode extends ScanNode {
     private void getFileStatusAndCalcInstance() throws InternalException {
         if (fileStatusesList == null || filesAdded == -1) {
             // FIXME(cmy): fileStatusesList and filesAdded can be set out of db lock when doing pull load,
-            // but for now it is very difficult set them out of db lock when doing broker query.
+            // but for now it is very difficult to set them out of db lock when doing broker query.
             // So we leave this code block here.
             // This will be fixed later.
             fileStatusesList = Lists.newArrayList();

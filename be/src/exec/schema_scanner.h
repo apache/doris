@@ -41,12 +41,13 @@ struct SchemaScannerParam {
     const std::string* table;
     const std::string* wild;
     const std::string* user;
+    const std::string* user_ip;
     const std::string* ip;
     int32_t port;
     int64_t thread_id;
 
     SchemaScannerParam()
-        : db(NULL), table(NULL), wild(NULL), user(NULL), ip(NULL), port(0) { }
+        : db(NULL), table(NULL), wild(NULL), user(NULL), user_ip(NULL), ip(NULL), port(0) { }
 };
 
 // virtual scanner for all schema table

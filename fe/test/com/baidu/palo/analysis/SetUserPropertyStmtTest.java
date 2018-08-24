@@ -22,19 +22,38 @@ package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.MockedAuth;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.qe.ConnectContext;
+
 import com.google.common.collect.Lists;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
 
+import mockit.Mocked;
+import mockit.internal.startup.Startup;
+
 public class SetUserPropertyStmtTest {
     private Analyzer analyzer;
+
+    @Mocked
+    private PaloAuth auth;
+    @Mocked
+    private ConnectContext ctx;
+
+    static {
+        Startup.initializeIfPossible();
+    }
 
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
+        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
 
     @Test
@@ -46,9 +65,6 @@ public class SetUserPropertyStmtTest {
         SetUserPropertyStmt stmt = new SetUserPropertyStmt("testUser", propertyVarList);
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:testUser", stmt.getUser());
-        Assert.assertEquals(
-                "SET PROPERTY FOR 'testCluster:testUser' 'load_cluster.palo-dpp' = NULL, 'quota.normal' = '100'",
-                stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)

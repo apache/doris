@@ -25,7 +25,6 @@ import com.baidu.palo.common.proc.BaseProcResult;
 import com.baidu.palo.common.proc.ProcNodeInterface;
 import com.baidu.palo.common.proc.ProcResult;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -119,7 +118,7 @@ public class BrokerMgr {
         }
     }
 
-    // we need IP to find the colocation broker.
+    // we need IP to find the co-location broker.
     // { BrokerName -> { IP -> [BrokerAddress] } }
     private final Map<String, ArrayListMultimap<String, BrokerAddress>> brokersMap = Maps.newHashMap();
     private final Map<String, List<BrokerAddress>> addressListMap = Maps.newHashMap();
@@ -154,6 +153,15 @@ public class BrokerMgr {
         lock.lock();
         try {
             return brokersMap.keySet();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public boolean contaisnBroker(String brokerName) {
+        lock.lock();
+        try {
+            return brokersMap.containsKey(brokerName);
         } finally {
             lock.unlock();
         }
@@ -364,11 +372,12 @@ public class BrokerMgr {
             try {
                 for (Map.Entry<String, ArrayListMultimap<String, BrokerAddress>> entry : brokersMap.entrySet()) {
                     String brokerName = entry.getKey();
-                    List<String> brokerAddrs = Lists.newArrayList();
                     for (BrokerAddress address : entry.getValue().values()) {
-                        brokerAddrs.add(address.toString());
+                        List<String> row = Lists.newArrayList();
+                        row.add(brokerName);
+                        row.add(address.toString());
+                        result.addRow(row);
                     }
-                    result.addRow(Lists.newArrayList(brokerName, Joiner.on(", ").join(brokerAddrs)));
                 }
             } finally {
                 lock.unlock();
@@ -415,3 +424,4 @@ public class BrokerMgr {
         }
     }
 }
+

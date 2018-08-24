@@ -142,6 +142,9 @@ public class TupleIsNullPredicate extends Predicate {
      */
     private static boolean requiresNullWrapping(Expr expr, Analyzer analyzer)
         throws InternalException {
+        if (expr.isConstant()) {
+            return false;
+        }
         return true;
     }
 

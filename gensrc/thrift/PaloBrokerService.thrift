@@ -90,6 +90,7 @@ struct TBrokerListPathRequest {
     2: required string path;
     3: required bool isRecursive;
     4: required map<string,string> properties;
+    5: optional bool fileNameOnly;
 }
 
 struct TBrokerDeletePathRequest {

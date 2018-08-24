@@ -15,11 +15,10 @@
 
 package com.baidu.palo.http;
 
-import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.DdlException;
-import com.baidu.palo.mysql.MysqlPassword;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.qe.QeService;
 import com.baidu.palo.system.SystemInfoService;
 
@@ -90,9 +89,13 @@ public abstract class BaseAction implements IAction {
         try {
             execute(request, response);
         } catch (Exception e) {
-            LOG.warn("fail to process url={}. error={}",
-                    request.getRequest().uri(), e);
-            writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
+            LOG.warn("fail to process url: {}", request.getRequest().uri(), e);
+            if (e instanceof UnauthorizedException) {
+                response.updateHeader(HttpHeaders.Names.WWW_AUTHENTICATE, "Basic realm=\"\"");
+                writeResponse(request, response, HttpResponseStatus.UNAUTHORIZED);
+            } else {
+                writeResponse(request, response, HttpResponseStatus.NOT_FOUND);
+            }
         }
     }
 
@@ -230,11 +233,67 @@ public abstract class BaseAction implements IAction {
 
     public static class AuthorizationInfo {
         public String fullUserName;
+        public String remoteIp;
         public String password;
         public String cluster;
+
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder();
+            sb.append("user: ").append(fullUserName).append(", remote ip: ").append(remoteIp);
+            sb.append(", password: ").append(password).append(", cluster: ").append(cluster);
+            return sb.toString();
+        }
     }
 
-    public boolean parseAuth(BaseRequest request, AuthorizationInfo authInfo) {
+    protected void checkGlobalAuth(AuthorizationInfo authInfo, PrivPredicate predicate) throws UnauthorizedException {
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(authInfo.remoteIp,
+                                                                   authInfo.fullUserName,
+                                                                   predicate)) {
+            throw new UnauthorizedException("Access denied; you need (at least one of) the "
+                    + predicate.getPrivs().toString() + " privilege(s) for this operation");
+        }
+    }
+
+    protected void checkDbAuth(AuthorizationInfo authInfo, String db, PrivPredicate predicate)
+            throws UnauthorizedException {
+        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(authInfo.remoteIp, db, authInfo.fullUserName,
+                                                               predicate)) {
+            throw new UnauthorizedException("Access denied; you need (at least one of) the "
+                    + predicate.getPrivs().toString() + " privilege(s) for this operation");
+        }
+    }
+
+    protected void checkTblAuth(AuthorizationInfo authInfo, String db, String tbl, PrivPredicate predicate) 
+            throws UnauthorizedException {
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(authInfo.remoteIp, db, authInfo.fullUserName,
+                                                                tbl, predicate)) {
+            throw new UnauthorizedException("Access denied; you need (at least one of) the "
+                    + predicate.getPrivs().toString() + " privilege(s) for this operation");
+        }
+    }
+
+    protected void checkPassword(AuthorizationInfo authInfo)
+            throws UnauthorizedException {
+        if (!Catalog.getCurrentCatalog().getAuth().checkPlainPassword(authInfo.fullUserName,
+                                                                      authInfo.remoteIp,
+                                                                      authInfo.password)) {
+            throw new UnauthorizedException("Access denied for "
+                    + authInfo.fullUserName + "@" + authInfo.remoteIp);
+        }
+    }
+
+    public AuthorizationInfo getAuthorizationInfo(BaseRequest request)
+            throws UnauthorizedException {
+        AuthorizationInfo authInfo = new AuthorizationInfo();
+        if (!parseAuthInfo(request, authInfo)) {
+            throw new UnauthorizedException("Need auth information.");
+        }
+        LOG.debug("get auth info: {}", authInfo);
+        return authInfo;
+    }
+
+    private boolean parseAuthInfo(BaseRequest request, AuthorizationInfo authInfo) {
         String encodedAuthString = request.getAuthorizationHeader();
         if (Strings.isNullOrEmpty(encodedAuthString)) {
             return false;
@@ -265,6 +324,7 @@ public abstract class BaseAction implements IAction {
                 authInfo.cluster = elements[1];
             }
             authInfo.password = authString.substring(index + 1);
+            authInfo.remoteIp = request.getHostString();
         } finally {
             // release the buf after using Unpooled.copiedBuffer
             // or it will get memory leak
@@ -273,50 +333,6 @@ public abstract class BaseAction implements IAction {
             }
         }
         return true;
-    }
-
-    // check authenticate information
-    private AuthorizationInfo checkAndGetUser(BaseRequest request)
-            throws UnauthorizedException {
-        AuthorizationInfo authInfo = new AuthorizationInfo();
-        if (!parseAuth(request, authInfo)) {
-            throw new UnauthorizedException("Need auth information.");
-        }
-        byte[] hashedPasswd = catalog.getUserMgr().getPassword(authInfo.fullUserName);
-        if (hashedPasswd == null) {
-            // No such user
-            throw new UnauthorizedException("No such user(" + authInfo.fullUserName + ")");
-        }
-        if (!MysqlPassword.checkPlainPass(hashedPasswd, authInfo.password)) {
-            throw new UnauthorizedException("Password error");
-        }
-        return authInfo;
-    }
-
-    protected void checkAdmin(BaseRequest request) throws UnauthorizedException {
-        final AuthorizationInfo authInfo = checkAndGetUser(request);
-        if (!catalog.getUserMgr().isAdmin(authInfo.fullUserName)) {
-            throw new UnauthorizedException("Administrator needed");
-        }
-    }
-
-    protected void checkReadPriv(String fullUserName, String fullDbName)
-            throws UnauthorizedException {
-        if (!catalog.getUserMgr().checkAccess(fullUserName, fullDbName, AccessPrivilege.READ_ONLY)) {
-            throw new UnauthorizedException("Read Privilege needed");
-        }
-    }
-
-    protected void checkWritePriv(String fullUserName, String fullDbName)
-            throws UnauthorizedException {
-        if (!catalog.getUserMgr().checkAccess(fullUserName, fullDbName, AccessPrivilege.READ_WRITE)) {
-            throw new UnauthorizedException("Write Privilege needed");
-        }
-    }
-
-    public AuthorizationInfo getAuthorizationInfo(BaseRequest request)
-            throws UnauthorizedException {
-        return checkAndGetUser(request);
     }
 
     protected int checkIntParam(String strParam) {

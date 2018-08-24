@@ -23,6 +23,7 @@ import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -32,10 +33,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
 
-import io.netty.handler.codec.http.HttpMethod;
-
 import java.util.List;
 import java.util.Map;
+
+import io.netty.handler.codec.http.HttpMethod;
 
 /*
  * used to get a table's ddl stmt
@@ -57,8 +58,9 @@ public class GetDdlStmtAction extends RestBaseAction {
     }
 
     @Override
-    public void execute(BaseRequest request, BaseResponse response) throws DdlException {
-        checkAdmin(request);
+    public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+            throws DdlException {
+        checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
 
         String dbName = request.getSingleParameter(DB_PARAM);
         String tableName = request.getSingleParameter(TABLE_PARAM);

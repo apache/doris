@@ -202,6 +202,8 @@ inline void Field::agg_init(char* dest, const char* src) {
     if (OLAP_LIKELY(_type != OLAP_FIELD_TYPE_HLL)) {
         copy_without_pool(dest, src);
     } else {
+        bool is_null = *reinterpret_cast<const bool*>(src);
+        *reinterpret_cast<bool*>(dest) = is_null;
         StringSlice* slice = reinterpret_cast<StringSlice*>(dest + 1);
         size_t hll_ptr = *(size_t*)(slice->data - sizeof(HllContext*));
         HllContext* context = (reinterpret_cast<HllContext*>(hll_ptr));

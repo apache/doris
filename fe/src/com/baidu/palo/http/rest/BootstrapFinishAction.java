@@ -16,18 +16,11 @@
 package com.baidu.palo.http.rest;
 
 import com.baidu.palo.catalog.Catalog;
-import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.DdlException;
-import com.baidu.palo.common.Pair;
 import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
-import com.baidu.palo.system.SystemInfoService;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-
-import java.util.List;
 
 import io.netty.handler.codec.http.HttpMethod;
 
@@ -50,7 +43,6 @@ public class BootstrapFinishAction extends RestBaseAction {
 
     @Override
     public void execute(BaseRequest request, BaseResponse response) throws DdlException {
-
         boolean canRead = Catalog.getInstance().canRead();
 
         // to json response

@@ -55,6 +55,7 @@ import com.baidu.palo.http.rest.SetConfigAction;
 import com.baidu.palo.http.rest.ShowMetaInfoAction;
 import com.baidu.palo.http.rest.ShowProcAction;
 import com.baidu.palo.http.rest.ShowRuntimeInfoAction;
+import com.baidu.palo.http.rest.StorageTypeCheckAction;
 import com.baidu.palo.master.MetaHelper;
 import com.baidu.palo.qe.QeService;
 
@@ -100,6 +101,7 @@ public class HttpServer {
         SetConfigAction.registerAction(controller);
         GetDdlStmtAction.registerAction(controller);
         MigrationAction.registerAction(controller);
+        StorageTypeCheckAction.registerAction(controller);
 
         // add web action
         IndexAction.registerAction(controller);

@@ -23,8 +23,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -106,6 +106,14 @@ public class AgentTaskQueue {
         signatureMap.remove(signature);
         LOG.debug("remove task: type[{}], backend[{}], signature[{}]", TTaskType.PUSH, backendId, signature);
         --taskNum;
+    }
+
+    public static synchronized void removeTaskOfType(TTaskType type, long signature) {
+        // be id -> (signature -> task)
+        Map<Long, Map<Long, AgentTask>> map = tasks.column(type);
+        for (Map<Long, AgentTask> innerMap : map.values()) {
+            innerMap.remove(signature);
+        }
     }
 
     public static synchronized AgentTask getTask(long backendId, TTaskType type, long signature) {

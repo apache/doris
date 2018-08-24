@@ -1141,23 +1141,17 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      *                           failure to convert a string literal to a date literal
      */
     public final Expr castTo(Type targetType) throws AnalysisException {
-        final Type type = Type.getAssignmentCompatibleType(this.type, targetType, false);
-        if (!type.isValid()) {
-            throw new AnalysisException("can't cast " + this.type + " to " + targetType);
-        }
         // If the targetType is NULL_TYPE then ignore the cast because NULL_TYPE
         // is compatible with all types and no cast is necessary.
         if (targetType.isNull()) {
             return this;
         }
-        if (!targetType.isDecimal()) {
-          // requested cast must be to assignment-compatible type
-          // (which implies no loss of precision)
-            if (!targetType.equals(type)) {
-                throw new AnalysisException("can't cast " + this.type + " to " + targetType);
-            }
-        }
 
+
+        if ((targetType.isStringType() || targetType.isHllType())
+               && (this.type.isStringType() || this.type.isHllType())) {
+            return this;
+        }
         // Preconditions.checkState(PrimitiveType.isImplicitCast(type, targetType), "cast %s to %s", this.type, targetType);
         // TODO(zc): use implicit cast
         Preconditions.checkState(Type.canCastTo(this.type, targetType), "cast %s to %s", this.type, targetType);

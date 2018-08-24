@@ -123,6 +123,7 @@ public:
             TTabletId tablet_id,
             TSchemaHash schema_hash,
             std::string* snapshot_path);
+
     virtual OLAPStatus make_snapshot(
             const TSnapshotRequest& request,
             std::string* snapshot_path);

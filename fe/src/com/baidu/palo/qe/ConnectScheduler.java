@@ -15,7 +15,9 @@
 
 package com.baidu.palo.qe;
 
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.mysql.MysqlProto;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -90,15 +92,15 @@ public class ConnectScheduler {
             return false;
         }
         // Check user
-        if (connByUser.get(ctx.getUser()) == null) {
-            connByUser.put(ctx.getUser(), new AtomicInteger(0));
+        if (connByUser.get(ctx.getQualifiedUser()) == null) {
+            connByUser.put(ctx.getQualifiedUser(), new AtomicInteger(0));
         }
-        int conns = connByUser.get(ctx.getUser()).get();
-        if (conns >= ctx.getCatalog().getUserMgr().getMaxConn(ctx.getUser())) {
+        int conns = connByUser.get(ctx.getQualifiedUser()).get();
+        if (conns >= ctx.getCatalog().getAuth().getMaxConn(ctx.getQualifiedUser())) {
             return false;
         }
         numberConnection++;
-        connByUser.get(ctx.getUser()).incrementAndGet();
+        connByUser.get(ctx.getQualifiedUser()).incrementAndGet();
         connectionMap.put((long) ctx.getConnectionId(), ctx);
         return true;
     }
@@ -106,7 +108,7 @@ public class ConnectScheduler {
     public synchronized void unregisterConnection(ConnectContext ctx) {
         if (connectionMap.remove((long) ctx.getConnectionId()) != null) {
             numberConnection--;
-            AtomicInteger conns = connByUser.get(ctx.getUser());
+            AtomicInteger conns = connByUser.get(ctx.getQualifiedUser());
             if (conns != null) {
                 conns.decrementAndGet();
             }
@@ -126,9 +128,12 @@ public class ConnectScheduler {
 
         for (ConnectContext ctx : connectionMap.values()) {
             // Check auth
-            if (!ctx.getCatalog().getUserMgr().checkUserAccess(user, ctx.getUser())) {
+            if (!ctx.getQualifiedUser().equals(user) &&
+                    !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
+                                                                           PrivPredicate.GRANT)) {
                 continue;
             }
+            
             infos.add(ctx.toThreadInfo());
         }
         return infos;

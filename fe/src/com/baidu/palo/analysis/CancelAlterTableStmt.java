@@ -16,8 +16,12 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.analysis.ShowAlterStmt.AlterType;
-import com.baidu.palo.catalog.AccessPrivilege;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.ErrorCode;
+import com.baidu.palo.common.ErrorReport;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 
 /*
  * CANCEL ALTER COLUMN|ROLLUP FROM db_name.table_name
@@ -50,9 +54,13 @@ public class CancelAlterTableStmt extends CancelStmt {
         dbTableName.analyze(analyzer);
 
         // check access
-        if (!analyzer.getCatalog().getUserMgr()
-                .checkAccess(analyzer.getUser(), dbTableName.getDb(), AccessPrivilege.READ_WRITE)) {
-            throw new AnalysisException("No privilege to access database[" + dbTableName.getDb() + "]");
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbTableName.getDb(),
+                                                                dbTableName.getTbl(),
+                                                                PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL ALTER TABLE",
+                                                ConnectContext.get().getQualifiedUser(),
+                                                ConnectContext.get().getRemoteIP(),
+                                                dbTableName.getTbl());
         }
     }
 

@@ -67,6 +67,7 @@ struct TDescribeTableParams {
   1: optional string db
   2: required string table_name
   3: optional string user
+  4: optional string user_ip
 }
 
 // Results of a call to describeTable()
@@ -282,6 +283,7 @@ struct TGetDbsParams {
   // If not set, match every database
   1: optional string pattern
   2: optional string user
+  3: optional string user_ip
 }
 
 // getDbNames returns a list of database names
@@ -298,6 +300,7 @@ struct TGetTablesParams {
   // If not set, match every table
   2: optional string pattern 
   3: optional string user 
+  4: optional string user_ip
 }
 
 struct TTableStatus {
@@ -386,6 +389,7 @@ struct TMiniLoadRequest {
     9: optional string subLabel
     10: optional string cluster
     11: optional i64 timestamp
+    12: optional string user_ip
 }
 
 struct TUpdateMiniEtlTaskStatusRequest {
@@ -402,6 +406,7 @@ struct TMasterOpRequest {
     5: optional string cluster
     6: optional i64 execMemLimit
     7: optional i32 queryTimeout
+    8: optional string user_ip
 }
 
 struct TColumnDefinition {
@@ -434,6 +439,8 @@ struct TLoadCheckRequest {
     5: optional string label
     6: optional string cluster
     7: optional i64 timestamp
+    8: optional string user_ip
+    9: optional string tbl
 }
 
 struct TUpdateExportTaskStatusRequest {

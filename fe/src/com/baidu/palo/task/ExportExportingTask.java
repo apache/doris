@@ -269,7 +269,7 @@ public class ExportExportingTask extends MasterTask {
             String localIP = FrontendOptions.getLocalHostAddress();
             brokerAddress = Catalog.getInstance().getBrokerMgr().getBroker(job.getBrokerDesc().getName(), localIP);
         } catch (AnalysisException e) {
-            String failMsg = "Broker rename failed. msg=" + e.getMessage();
+            String failMsg = "get broker failed. msg=" + e.getMessage();
             LOG.warn(failMsg);
             return new Status(TStatusCode.CANCELLED, failMsg);
         }

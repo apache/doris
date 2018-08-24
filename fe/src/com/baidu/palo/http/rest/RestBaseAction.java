@@ -57,7 +57,16 @@ public class RestBaseAction extends BaseAction {
 
     @Override
     public void execute(BaseRequest request, BaseResponse response) throws DdlException {
-        throw new DdlException("Do not implemented.");
+        AuthorizationInfo authInfo = getAuthorizationInfo(request);
+        // check password
+        checkPassword(authInfo);
+        executeWithoutPassword(authInfo, request, response);
+    }
+
+    // all derived classed should implement this method, NOT 'execute'
+    protected void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+            throws DdlException {
+        throw new DdlException("Not implemented");
     }
 
     public void sendResult(BaseRequest request, BaseResponse response, RestBaseResult result) {

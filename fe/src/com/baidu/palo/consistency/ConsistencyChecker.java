@@ -242,6 +242,9 @@ public class ConsistencyChecker extends Daemon {
 
         // sort dbs
         List<Long> dbIds = catalog.getDbIds();
+        if (dbIds.isEmpty()) {
+            return -1L;
+        }
         Queue<MetaObject> dbQueue = new PriorityQueue<MetaObject>(dbIds.size(), COMPARATOR);
         for (Long dbId : dbIds) {
             if (dbId == 0L) {

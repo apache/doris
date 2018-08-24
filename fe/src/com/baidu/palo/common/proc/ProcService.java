@@ -37,7 +37,7 @@ public final class ProcService {
 
     private ProcService() {
         root = new BaseProcDir();
-        root.register("access_resource", new AccessResourceProcDir(Catalog.getInstance().getUserMgr()));
+        root.register("auth", new AuthProcDir(Catalog.getCurrentCatalog().getAuth()));
         root.register("backends", new BackendsProcDir(Catalog.getCurrentSystemInfo()));
         root.register("dbs", new DbsProcDir(Catalog.getInstance()));
         root.register("jobs", new JobsDbProcDir(Catalog.getInstance()));

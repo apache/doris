@@ -57,6 +57,8 @@ class BrokerMgr;
 class MetricRegistry;
 class BufferPool;
 class ReservationTracker;
+class ConnectionManager;
+class SnapshotLoader;
 class BrpcStubCache;
 
 // Execution environment for queries/plan fragments.
@@ -149,6 +151,10 @@ public:
         return _broker_mgr.get();
     }
 
+    SnapshotLoader* snapshot_loader() const {
+        return _snapshot_loader.get();
+    }
+
     BrpcStubCache* brpc_stub_cache() const {
         return _brpc_stub_cache.get();
     }
@@ -197,6 +203,7 @@ private:
     std::unique_ptr<BfdParser> _bfd_parser;
     std::unique_ptr<PullLoadTaskMgr> _pull_load_task_mgr;
     std::unique_ptr<BrokerMgr> _broker_mgr;
+    std::unique_ptr<SnapshotLoader> _snapshot_loader;
     std::unique_ptr<BrpcStubCache> _brpc_stub_cache;
     bool _enable_webserver;
 

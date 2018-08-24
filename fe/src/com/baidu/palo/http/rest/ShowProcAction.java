@@ -24,6 +24,7 @@ import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
 import com.baidu.palo.http.UnauthorizedException;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 
 import com.google.common.base.Strings;
 import com.google.gson.Gson;
@@ -31,9 +32,9 @@ import com.google.gson.Gson;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import io.netty.handler.codec.http.HttpMethod;
-
 import java.util.List;
+
+import io.netty.handler.codec.http.HttpMethod;
 
 // Format:
 //   http://username:password@10.73.150.30:8138/api/show_proc?path=/
@@ -52,8 +53,8 @@ public class ShowProcAction extends RestBaseAction {
     public void execute(BaseRequest request, BaseResponse response) {
         // check authority
         try {
-            checkAdmin(request);
-            request.setAdmin(true);
+            AuthorizationInfo authInfo = getAuthorizationInfo(request);
+            checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
         } catch (UnauthorizedException e) {
             response.appendContent("Authentication Failed. " + e.getMessage());
             sendResult(request, response);

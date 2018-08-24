@@ -174,6 +174,9 @@ public:
     // Get table row_count and selectivity vector for SHOW_TABLE_INFO command
     OLAPStatus get_selectivities(std::vector<uint32_t>* selectivities);
 
+    // used for restore, merge the (0, to_version) in 'hdr'
+    OLAPStatus merge_header(const OLAPHeader& hdr, int to_version);
+
     // Get OLAPHeader write lock before call get_selectivities()
     void set_selectivities(const std::vector<uint32_t>& selectivities);
 
@@ -274,6 +277,10 @@ public:
     std::string construct_data_file_path(const Version& version,
                                          VersionHash version_hash,
                                          uint32_t segment) const;
+
+    // return the dir path of this tablet, include tablet id and schema hash
+    // eg: /path/to/data/0/100001/237480234/
+    std::string construct_dir_path() const;
 
     // For index file, suffix is "idx", for data file, suffix is "dat".
     static std::string construct_file_path(const std::string& header_path,
@@ -376,6 +383,10 @@ public:
 
     const FileVersionMessage* latest_version() const {
         return _header->get_latest_version();
+    }
+
+    const FileVersionMessage* base_version() const {
+        return _header->get_base_version();
     }
 
     // 在使用之前对header加锁

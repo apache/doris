@@ -22,9 +22,6 @@ package com.baidu.palo.common.proc;
 
 import com.baidu.palo.alter.RollupHandler;
 import com.baidu.palo.alter.SchemaChangeHandler;
-import com.baidu.palo.backup.BackupHandler;
-import com.baidu.palo.backup.BackupJob.BackupJobState;
-import com.baidu.palo.backup.RestoreJob.RestoreJobState;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.clone.CloneJob.JobState;
@@ -53,8 +50,6 @@ public class JobsProcDir implements ProcDirInterface {
     private static final String DELETE = "delete";
     private static final String ROLLUP = "rollup";
     private static final String SCHEMA_CHANGE = "schema_change";
-    private static final String BACKUP = "backup";
-    private static final String RESTORE = "restore";
     private static final String EXPORT = "export";
 
     private Catalog catalog;
@@ -86,10 +81,6 @@ public class JobsProcDir implements ProcDirInterface {
             return new RollupProcDir(catalog.getRollupHandler(), db);
         } else if (jobTypeName.equals(SCHEMA_CHANGE)) {
             return new SchemaChangeProcNode(catalog.getSchemaChangeHandler(), db);
-        } else if (jobTypeName.equals(BACKUP)) {
-            return new BackupProcNode(catalog.getBackupHandler(), db);
-        } else if (jobTypeName.equals(RESTORE)) {
-            return new RestoreProcNode(catalog.getBackupHandler(), db);
         } else if (jobTypeName.equals(EXPORT)) {
             return new ExportProcNode(catalog.getExportMgr(), db);
         } else {
@@ -156,6 +147,7 @@ public class JobsProcDir implements ProcDirInterface {
         result.addRow(Lists.newArrayList(SCHEMA_CHANGE, pendingNum.toString(), runningNum.toString(),
                                          finishedNum.toString(), cancelledNum.toString(), totalNum.toString()));
 
+        /*
         // backup
         BackupHandler backupHandler = Catalog.getInstance().getBackupHandler();
         pendingNum = backupHandler.getBackupJobNum(BackupJobState.PENDING, dbId);
@@ -168,7 +160,7 @@ public class JobsProcDir implements ProcDirInterface {
         totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
         result.addRow(Lists.newArrayList(BACKUP, pendingNum.toString(), runningNum.toString(),
                                          finishedNum.toString(), cancelledNum.toString(), totalNum.toString()));
-
+        
         // restore
         pendingNum = backupHandler.getRestoreJobNum(RestoreJobState.PENDING, dbId);
         runningNum = backupHandler.getRestoreJobNum(RestoreJobState.RESTORE_META, dbId)
@@ -179,6 +171,7 @@ public class JobsProcDir implements ProcDirInterface {
         totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
         result.addRow(Lists.newArrayList(RESTORE, pendingNum.toString(), runningNum.toString(),
                                          finishedNum.toString(), cancelledNum.toString(), totalNum.toString()));
+         */
 
         // export
         ExportMgr exportMgr = Catalog.getInstance().getExportMgr();

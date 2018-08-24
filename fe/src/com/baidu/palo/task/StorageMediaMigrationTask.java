@@ -26,7 +26,7 @@ public class StorageMediaMigrationTask extends AgentTask {
 
     public StorageMediaMigrationTask(long backendId, long tabletId, int schemaHash,
                                      TStorageMedium toStorageMedium) {
-        super(null, backendId, TTaskType.STORAGE_MEDIUM_MIGRATE, -1L, -1L, -1L, -1L, tabletId);
+        super(null, backendId, tabletId, TTaskType.STORAGE_MEDIUM_MIGRATE, -1L, -1L, -1L, -1L, tabletId);
 
         this.schemaHash = schemaHash;
         this.toStorageMedium = toStorageMedium;

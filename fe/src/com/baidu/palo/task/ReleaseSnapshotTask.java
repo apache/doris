@@ -25,7 +25,7 @@ public class ReleaseSnapshotTask extends AgentTask {
 
     public ReleaseSnapshotTask(TResourceInfo resourceInfo, long backendId, long dbId, long tabletId,
                                String snapshotPath) {
-        super(resourceInfo, backendId, TTaskType.RELEASE_SNAPSHOT, dbId, -1, -1, -1, tabletId);
+        super(resourceInfo, backendId, tabletId, TTaskType.RELEASE_SNAPSHOT, dbId, -1, -1, -1, tabletId);
         this.snapshotPath = snapshotPath;
     }
 

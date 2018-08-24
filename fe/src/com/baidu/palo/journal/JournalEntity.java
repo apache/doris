@@ -16,11 +16,14 @@
 package com.baidu.palo.journal;
 
 import com.baidu.palo.alter.AlterJob;
+import com.baidu.palo.analysis.UserIdentity;
 import com.baidu.palo.backup.BackupJob;
+import com.baidu.palo.backup.BackupJob_D;
+import com.baidu.palo.backup.Repository;
 import com.baidu.palo.backup.RestoreJob;
+import com.baidu.palo.backup.RestoreJob_D;
 import com.baidu.palo.catalog.BrokerMgr;
 import com.baidu.palo.catalog.Database;
-import com.baidu.palo.catalog.UserProperty;
 import com.baidu.palo.cluster.BaseParam;
 import com.baidu.palo.cluster.Cluster;
 import com.baidu.palo.common.io.Text;
@@ -33,6 +36,7 @@ import com.baidu.palo.load.ExportJob;
 import com.baidu.palo.load.LoadErrorHub;
 import com.baidu.palo.load.LoadJob;
 import com.baidu.palo.master.Checkpoint;
+import com.baidu.palo.mysql.privilege.UserProperty;
 import com.baidu.palo.persist.BackendIdsUpdateInfo;
 import com.baidu.palo.persist.CloneInfo;
 import com.baidu.palo.persist.ClusterInfo;
@@ -45,6 +49,7 @@ import com.baidu.palo.persist.DropPartitionInfo;
 import com.baidu.palo.persist.ModifyPartitionInfo;
 import com.baidu.palo.persist.OperationType;
 import com.baidu.palo.persist.PartitionPersistInfo;
+import com.baidu.palo.persist.PrivInfo;
 import com.baidu.palo.persist.RecoverInfo;
 import com.baidu.palo.persist.ReplicaPersistInfo;
 import com.baidu.palo.persist.TableInfo;
@@ -176,12 +181,22 @@ public class JournalEntity implements Writable {
             case OperationType.OP_BACKUP_START:
             case OperationType.OP_BACKUP_FINISH_SNAPSHOT:
             case OperationType.OP_BACKUP_FINISH: {
-                data = new BackupJob();
+                data = new BackupJob_D();
                 break;
             }
             case OperationType.OP_RESTORE_START:
             case OperationType.OP_RESTORE_FINISH: {
-                data = new RestoreJob();
+                data = new RestoreJob_D();
+                break;
+            }
+            case OperationType.OP_BACKUP_JOB: {
+                data = BackupJob.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_RESTORE_JOB: {
+                data = RestoreJob.read(in);
+                needRead = false;
                 break;
             }
             case OperationType.OP_FINISH_CONSISTENCY_CHECK: {
@@ -245,6 +260,21 @@ public class JournalEntity implements Writable {
                 data = new Text();
                 break;
             }
+            case OperationType.OP_NEW_DROP_USER: {
+                data = UserIdentity.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_CREATE_USER:
+            case OperationType.OP_GRANT_PRIV:
+            case OperationType.OP_REVOKE_PRIV:
+            case OperationType.OP_SET_PASSWORD:
+            case OperationType.OP_CREATE_ROLE:
+            case OperationType.OP_DROP_ROLE: {
+                data = PrivInfo.read(in);
+                needRead = false;
+                break;
+            }
             case OperationType.OP_MASTER_INFO_CHANGE: {
                 data = new MasterInfo();
                 break;
@@ -304,6 +334,15 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_UPDATE_CLUSTER_AND_BACKENDS: {
                 data = new BackendIdsUpdateInfo();
+                break;
+            }
+            case OperationType.OP_CREATE_REPOSITORY: {
+                data = Repository.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_DROP_REPOSITORY: {
+                data = new Text();
                 break;
             }
             default: {

@@ -53,6 +53,7 @@ import com.baidu.palo.common.util.TimeUtils;
 import com.baidu.palo.mysql.MysqlChannel;
 import com.baidu.palo.mysql.MysqlEofPacket;
 import com.baidu.palo.mysql.MysqlSerializer;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.planner.Planner;
 import com.baidu.palo.rewrite.ExprRewriter;
 import com.baidu.palo.rpc.RpcException;
@@ -67,7 +68,6 @@ import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.thrift.transport.TTransportException;
 
 import java.io.IOException;
 import java.io.StringReader;
@@ -123,7 +123,7 @@ public class StmtExecutor {
         summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Query");
         summaryProfile.addInfoString(ProfileManager.QUERY_STATE, context.getState().toString());
         summaryProfile.addInfoString("Palo Version", "Palo version 2.0");
-        summaryProfile.addInfoString(ProfileManager.USER, context.getUser());
+        summaryProfile.addInfoString(ProfileManager.USER, context.getQualifiedUser());
         summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, context.getDatabase());
         summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, originStmt);
         profile.addChild(summaryProfile);
@@ -304,7 +304,6 @@ public class StmtExecutor {
         }
     }
 
-
     // Analyze one statement to structure in memory.
     private void analyze() throws AnalysisException, InternalException, 
                                                NotImplementedException {
@@ -475,10 +474,10 @@ public class StmtExecutor {
             context.setKilled();
         } else {
             // Check auth
-            if (!context.getCatalog().getUserMgr()
-                    .checkUserAccess(context.getUser(), killCtx.getUser())) {
+            if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, id);
             }
+
             killCtx.kill(killStmt.isConnectionKill());
         }
         context.getState().setOk();
@@ -732,7 +731,7 @@ public class StmtExecutor {
         } catch (Exception e) {
             // Maybe our bug
             LOG.warn("DDL statement(" + originStmt + ") process failed.", e);
-            context.getState().setError("Maybe palo bug, please info palo RD.");
+            context.getState().setError("Unexpected exception: " + e.getMessage());
         }
     }
 

@@ -15,15 +15,19 @@
 
 package com.baidu.palo.analysis;
 
-import java.util.Map;
-
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.FeNameFormat;
 import com.baidu.palo.common.InternalException;
 import com.baidu.palo.mysql.MysqlPassword;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
+
 import com.google.common.base.Strings;
+
+import java.util.Map;
 
 public class CreateClusterStmt extends DdlStmt {
     public static String CLUSTER_INSTANCE_NUM = "instance_num";
@@ -62,8 +66,8 @@ public class CreateClusterStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         FeNameFormat.checkDbName(clusterName);
-        if (!analyzer.getCatalog().getUserMgr().isAdmin(analyzer.getUser())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_PERMISSIONS);
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_AUTHORITY, analyzer.getQualifiedUser());
         }
 
         if (properties == null || properties.size() == 0 || !properties.containsKey(CLUSTER_INSTANCE_NUM)) {

@@ -343,15 +343,15 @@ public class SingleNodePlanner {
     }
 
     private void turnOffPreAgg(AggregateInfo aggInfo, SelectStmt selectStmt, Analyzer analyzer, PlanNode root) {
+        String turnOffReason = null;
         do {
-            String logStr = "turn off preAggregate because: ";
             if (null == aggInfo) {
-                LOG.info(logStr + "No AggregateInfo");
+                turnOffReason = "No AggregateInfo";
                 break;
             }
 
             if (!(root instanceof OlapScanNode)) {
-                LOG.info(logStr + "left-deep Node is not OlapScanNode");
+                turnOffReason = "left-deep Node is not OlapScanNode";
                 break;
             }
 
@@ -363,8 +363,8 @@ public class SingleNodePlanner {
                     final JoinOperator joinOperator = selectStmt.getTableRefs().get(i).getJoinOp();
                     // TODO chenhao16 , right out join ?
                     if (joinOperator.isRightOuterJoin() || joinOperator.isFullOuterJoin()) {
-                        LOG.info(logStr + selectStmt.getTableRefs().get(i) 
-                            + " joinOp is full outer join or right outer join.");
+                        turnOffReason = selectStmt.getTableRefs().get(i) +
+                                " joinOp is full outer join or right outer join.";
                         aggTableValidate = false;
                         break;
                     }  
@@ -391,12 +391,9 @@ public class SingleNodePlanner {
 
                             if (analyzer.getTupleDesc(tupleId).getRef() != olapTableRef) {
                                 if (analyzer.getTupleDesc(tupleId).getTable() != null
-                                        && analyzer.getTupleDesc(tupleId).getTable().getType()
-                                        == Table.TableType.OLAP) {
-                                    LOG.info("{} agg expr [{}] is not bound [{}]",
-                                            logStr,
-                                            aggExpr.debugString(),
-                                            selectStmt.getTableRefs().get(0).toSql());
+                                        && analyzer.getTupleDesc(tupleId).getTable().getType() == Table.TableType.OLAP) {
+                                    turnOffReason = "agg expr [" + aggExpr.debugString() + "] is not bound ["
+                                            + selectStmt.getTableRefs().get(0).toSql() + "]";
                                     aggTableValidate = false;
                                 } else {
                                     LOG.debug("The table which agg expr [{}] is bound to, is not OLAP table [{}]",
@@ -416,8 +413,7 @@ public class SingleNodePlanner {
             }
 
             boolean valueColumnValidate = true;
-            List<Expr> allConjuncts =
-                    analyzer.getAllConjunt(selectStmt.getTableRefs().get(0).getId());
+            List<Expr> allConjuncts = analyzer.getAllConjunt(selectStmt.getTableRefs().get(0).getId());
             List<SlotId> conjunctSlotIds = Lists.newArrayList();
             if (allConjuncts != null) {
                 for (Expr conjunct : allConjuncts) {
@@ -426,8 +422,8 @@ public class SingleNodePlanner {
                 for (SlotDescriptor slot : selectStmt.getTableRefs().get(0).getDesc().getSlots()) {
                     if (!slot.getColumn().isKey()) {
                         if (conjunctSlotIds.contains(slot.getId())) {
-                            LOG.info(logStr + "conjunct on " + slot.getColumn().getName() + " which is "
-                                    + "OlapEngine value column");
+                            turnOffReason = "conjunct on " + slot.getColumn().getName() +
+                                    " which is OlapEngine value column";
                             valueColumnValidate = false;
                             break;
                         }
@@ -441,7 +437,7 @@ public class SingleNodePlanner {
             boolean aggExprValidate = true;
             for (FunctionCallExpr aggExpr : aggExprs) {
                 if (aggExpr.getChildren().size() != 1) {
-                    LOG.info(logStr + "aggExpr has more than one child");
+                    turnOffReason = "aggExpr has more than one child";
                     aggExprValidate = false;
                     break;
                 }
@@ -455,8 +451,7 @@ public class SingleNodePlanner {
                                 && child.getChild(0).getType().isNumericType()) {
                             returnColumns.add(((SlotRef) child.getChild(0)).getDesc().getColumn());
                         } else {
-                            LOG.info("{} aggExpr.getChild(0)[{}] is not Numeric CastExpr",
-                                    logStr, aggExpr.getChild(0).toSql());
+                            turnOffReason = "aggExpr.getChild(0)[aggExpr.getChild(0).toSql()] is not Numeric CastExpr";
                             aggExprValidate = false;
                             break;
                         }
@@ -481,8 +476,8 @@ public class SingleNodePlanner {
                             if (returnExpr instanceof SlotRef) {
                                 returnColumns.add(((SlotRef) returnExpr).getDesc().getColumn());
                             } else {
-                                LOG.info("{} aggExpr.getChild(0)[{}] is not SlotExpr",
-                                        logStr, aggExpr.getChild(0).toSql());
+                                turnOffReason = "aggExpr.getChild(0)[" + aggExpr.getChild(0).toSql()
+                                        + "] is not SlotExpr";
                                 caseReturnExprValidate = false;
                                 break;
                             }
@@ -494,9 +489,8 @@ public class SingleNodePlanner {
                         }
 
                     } else {
-                        LOG.info("{} aggExpr.getChild(0)[{}] is not SlotRef or CastExpr|CaseExpr",
-                                logStr,
-                                aggExpr.getChild(0).debugString());
+                        turnOffReason = "aggExpr.getChild(0)[" + aggExpr.getChild(0).debugString()
+                                + "] is not SlotRef or CastExpr|CaseExpr";
                         aggExprValidate = false;
                         break;
                     }
@@ -513,10 +507,8 @@ public class SingleNodePlanner {
                         continue;
                     }
                     if (!col.isKey()) {
-                        LOG.info("{} the condition column [{}] is not key type in aggr expr [{}].",
-                                logStr,
-                                col.getName(),
-                                aggExpr.toSql());
+                        turnOffReason = "the condition column [" + col.getName() + "] is not key type in aggr expr ["
+                                + aggExpr.toSql() + "].";
                         conditionColumnValidate = false;
                         break;
                     }
@@ -538,46 +530,41 @@ public class SingleNodePlanner {
                         if (aggExpr.getFnName().getFunction().equalsIgnoreCase("MAX")
                                 && aggExpr.getFnName().getFunction().equalsIgnoreCase("MIN")) {
                             returnColumnValidate = false;
-                            LOG.info("{} the type of agg on OlapEngine's Key column should only be MAX or MIN. "
-                                            + "agg expr: {}",
-                                    logStr,
-                                    aggExpr.toSql());
+                            turnOffReason = "the type of agg on OlapEngine's Key column should only be MAX or MIN."
+                                    + "agg expr: " + aggExpr.toSql();
                             break;
                         }
                     }
 
                     if (aggExpr.getFnName().getFunction().equalsIgnoreCase("SUM")) {
                         if (col.getAggregationType() != AggregateType.SUM) {
-                            LOG.info(
-                                    logStr + "Aggregate Operator not match: SUM <--> " + col
-                                            .getAggregationType());
+                            turnOffReason = "Aggregate Operator not match: SUM <--> " + col.getAggregationType();
                             returnColumnValidate = false;
                             break;
                         }
                     } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("MAX")) {
                         if ((!col.isKey()) && col.getAggregationType() != AggregateType.MAX) {
-                            LOG.info(
-                                    logStr + "Aggregate Operator not match: MAX <--> " + col
-                                            .getAggregationType());
+                            turnOffReason = "Aggregate Operator not match: MAX <--> " + col.getAggregationType();
                             returnColumnValidate = false;
                             break;
                         }
                     } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("MIN")) {
                         if ((!col.isKey()) && col.getAggregationType() != AggregateType.MIN) {
-                            LOG.info(
-                                    logStr + "Aggregate Operator not match: MIN <--> " + col
-                                            .getAggregationType());
+                            turnOffReason = "Aggregate Operator not match: MIN <--> " + col.getAggregationType();
                             returnColumnValidate = false;
                             break;
                         }
                     } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("HLL_UNION_AGG")) {
                     } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("NDV")) {
                         if ((!col.isKey())) {
+                            turnOffReason = "NDV function with non-key column: " + col.getName();
                             returnColumnValidate = false;
                             break;
                         }
+                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("multi_distinct_count")) {
+                        // count(distinct k1), count(distinct k2) / count(distinct k1,k2) can turn on pre aggregation
                     } else {
-                        LOG.info(logStr + "Invalid Aggregate Operator: " + aggExpr.getFnName().getFunction());
+                        turnOffReason = "Invalid Aggregate Operator: " + aggExpr.getFnName().getFunction();
                         returnColumnValidate = false;
                         break;
                     }
@@ -601,7 +588,7 @@ public class SingleNodePlanner {
                 for (SlotDescriptor slot : selectStmt.getTableRefs().get(0).getDesc().getSlots()) {
                     if (!slot.getColumn().isKey()) {
                         if (groupSlotIds.contains(slot.getId())) {
-                            LOG.info(logStr + "groupExpr contains OlapEngine's Value");
+                            turnOffReason = "groupExpr contains OlapEngine's Value";
                             groupExprValidate = false;
                             break;
                         }
@@ -617,13 +604,18 @@ public class SingleNodePlanner {
             }
 
             OlapScanNode olapNode = (OlapScanNode) root;
-            if (olapNode.getCanTurnOnPreAggr()) {
-                ((OlapScanNode) root).setIsPreAggregation(true);
-            } else {
-                LOG.info("this olap-scan-node[{}] has already been turned off pre-aggregation. ",
-                        olapNode.debugString());
+            if (!olapNode.getCanTurnOnPreAggr()) {
+                turnOffReason = "this olap scan node[" + olapNode.debugString()
+                        + "] has already been turned off pre-aggregation.";
+                break;
             }
+
+            olapNode.setIsPreAggregation(true, null);
         } while (false);
+
+        if ((root instanceof OlapScanNode) && turnOffReason != null) {
+            ((OlapScanNode) root).setIsPreAggregation(false, turnOffReason);
+        }
     }
 
     /**
@@ -1233,7 +1225,7 @@ public class SingleNodePlanner {
      */
     private PlanNode createJoinNode(Analyzer analyzer, PlanNode outer, TableRef outerRef, TableRef innerRef)
             throws InternalException, AnalysisException {
-         materializeTableResultForCrossJoinOrCountStar(innerRef, analyzer);
+        materializeTableResultForCrossJoinOrCountStar(innerRef, analyzer);
         // the rows coming from the build node only need to have space for the tuple
         // materialized by that node
         PlanNode inner = createTableRefNode(analyzer, innerRef);
@@ -1371,6 +1363,11 @@ public class SingleNodePlanner {
         // List<Expr> conjuncts =
         //         analyzer.getUnassignedConjuncts(unionStmt.getTupleId().asList(), false);
         List<Expr> conjuncts = analyzer.getUnassignedConjuncts(unionStmt.getTupleId().asList());
+        // TODO chenhao16
+        // Because Conjuncts can't be assigned to UnionNode and Palo's fe can't evaluate conjuncts,
+        // it needs to add SelectNode as UnionNode's parent, when UnionStmt's Ops contains constant 
+        // Select.
+        boolean hasConstantOp = false;
         if (!unionStmt.hasAnalyticExprs()) {
             // Turn unassigned predicates for unionStmt's tupleId_ into predicates for
             // the individual operands.
@@ -1379,17 +1376,32 @@ public class SingleNodePlanner {
             for (UnionStmt.UnionOperand op: unionStmt.getOperands()) {
                 List<Expr> opConjuncts =
                         Expr.substituteList(conjuncts, op.getSmap(), analyzer, false);
-                if (op.getQueryStmt() instanceof SelectStmt) {
-                    final SelectStmt select = (SelectStmt) op.getQueryStmt();
+                boolean selectHasTableRef = true;
+                final QueryStmt queryStmt = op.getQueryStmt();
+                // Check whether UnionOperand is constant Select.
+                if (queryStmt instanceof SelectStmt) {
+                    final SelectStmt selectStmt = (SelectStmt) queryStmt;
+                    if (selectStmt.getTableRefs().isEmpty()) {
+                        selectHasTableRef = false;
+                        hasConstantOp = !selectHasTableRef;
+                    }
+                }
+                // Forbid to register Conjuncts with SelectStmt' tuple when Select is constant
+                if ((queryStmt instanceof SelectStmt) && selectHasTableRef) {
+                    final SelectStmt select = (SelectStmt) queryStmt;
                     op.getAnalyzer().registerConjuncts(opConjuncts, select.getTableRefIds());
-                } else if (op.getQueryStmt() instanceof UnionStmt) {
-                    final UnionStmt union = (UnionStmt) op.getQueryStmt();
+                } else if (queryStmt instanceof UnionStmt) {
+                    final UnionStmt union = (UnionStmt) queryStmt;
                     op.getAnalyzer().registerConjuncts(opConjuncts, union.getTupleId().asList());
                 } else {
-                    Preconditions.checkArgument(false);
+                    if (selectHasTableRef) {
+                        Preconditions.checkArgument(false);
+                    }
                 }
             }
-            analyzer.markConjunctsAssigned(conjuncts);
+            if (!hasConstantOp) {
+                analyzer.markConjunctsAssigned(conjuncts);
+            }
         } else {
             // mark slots referenced by the yet-unassigned conjuncts
             analyzer.materializeSlots(conjuncts);
@@ -1410,7 +1422,7 @@ public class SingleNodePlanner {
             result = createUnionPlan(analyzer, unionStmt, unionStmt.getAllOperands(), result, defaultOrderByLimit);
         }
 
-        if (unionStmt.hasAnalyticExprs()) {
+        if (unionStmt.hasAnalyticExprs() || hasConstantOp) {
             result = addUnassignedConjuncts(
                     analyzer, unionStmt.getTupleId().asList(), result);
         }
@@ -1483,13 +1495,14 @@ public class SingleNodePlanner {
                 exprSize += slot.getByteSize();
             }
 
-            if (exprIsMaterialized && exprSize <= resultExprSelectedSize) {
-                resultExprSelectedSize = exprSize;
-                resultExprSelected = e;
-            }
             // Result Expr contains materialized expr, return
             if (exprIsMaterialized) {
                 return;
+            }
+
+            if (exprSize <= resultExprSelectedSize) {
+                resultExprSelectedSize = exprSize;
+                resultExprSelected = e;
             }
         }
 
@@ -1508,3 +1521,4 @@ public class SingleNodePlanner {
     }
 
 }
+

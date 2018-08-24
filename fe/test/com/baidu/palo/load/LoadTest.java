@@ -33,7 +33,6 @@ import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.catalog.Partition;
 import com.baidu.palo.catalog.Replica;
 import com.baidu.palo.catalog.Tablet;
-import com.baidu.palo.catalog.UserPropertyMgr;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.MarkedCountDownLatch;
@@ -42,8 +41,13 @@ import com.baidu.palo.common.util.UnitTestUtil;
 import com.baidu.palo.load.FailMsg.CancelType;
 import com.baidu.palo.load.LoadJob.EtlJobType;
 import com.baidu.palo.load.LoadJob.JobState;
+import com.baidu.palo.metric.MetricRepo;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.persist.EditLog;
 import com.baidu.palo.qe.ConnectContext;
+import com.baidu.palo.qe.QueryState;
+import com.baidu.palo.qe.SessionVariable;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.SystemInfoService;
 
@@ -52,6 +56,7 @@ import com.google.common.collect.Lists;
 import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.powermock.api.easymock.PowerMock;
@@ -84,6 +89,11 @@ public class LoadTest {
 
     private ConnectContext connectContext;
 
+    @BeforeClass
+    public static void start() {
+        MetricRepo.init();
+    }
+
     @Before
     public void setUp() throws DdlException {
         dbId = 0L;
@@ -112,12 +122,16 @@ public class LoadTest {
         // mock editLog
         EditLog editLog = EasyMock.createMock(EditLog.class);
         EasyMock.expect(catalog.getEditLog()).andReturn(editLog).anyTimes();
-        // mock userMgr
-        UserPropertyMgr userPropertyMgr = EasyMock.createNiceMock(UserPropertyMgr.class);
-        EasyMock.expect(userPropertyMgr.getClusterInfo(EasyMock.anyString(), EasyMock.anyString()))
+        // mock auth
+        PaloAuth auth = EasyMock.createNiceMock(PaloAuth.class);
+        EasyMock.expect(auth.getLoadClusterInfo(EasyMock.anyString(), EasyMock.anyString()))
                 .andReturn(Pair.create("cluster", new DppConfig())).anyTimes();
-        EasyMock.expect(catalog.getUserMgr()).andReturn(userPropertyMgr).anyTimes();
-        EasyMock.replay(userPropertyMgr);
+        EasyMock.expect(auth.checkTblPriv(EasyMock.isA(ConnectContext.class), EasyMock.anyString(),
+                                          EasyMock.anyString(), EasyMock.isA(PrivPredicate.class)))
+                .andReturn(true).anyTimes();
+        EasyMock.expect(catalog.getAuth()).andReturn(auth).anyTimes();
+        EasyMock.replay(auth);
+
         // mock backend
         Backend backend = EasyMock.createMock(Backend.class);
         EasyMock.expect(backend.isAlive()).andReturn(true).anyTimes();
@@ -134,11 +148,17 @@ public class LoadTest {
         // mock static getInstance
         PowerMock.mockStatic(Catalog.class);
         EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
+        EasyMock.expect(Catalog.getCurrentCatalog()).andReturn(catalog).anyTimes();
         EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfoService).anyTimes();
         PowerMock.replay(Catalog.class);
 
+        QueryState state = new QueryState();
         connectContext = EasyMock.createMock(ConnectContext.class);
         EasyMock.expect(connectContext.toResourceCtx()).andReturn(null).anyTimes();
+        EasyMock.expect(connectContext.getSessionVariable()).andReturn(new SessionVariable()).anyTimes();
+        EasyMock.expect(connectContext.getQualifiedUser()).andReturn("root").anyTimes();
+        EasyMock.expect(connectContext.getRemoteIP()).andReturn("192.168.1.1").anyTimes();
+        EasyMock.expect(connectContext.getState()).andReturn(state).anyTimes();
         EasyMock.replay(connectContext);
 
         PowerMock.mockStatic(ConnectContext.class);
@@ -168,7 +188,7 @@ public class LoadTest {
         Assert.assertEquals(1, dbLoadJobs.size());
         LoadJob job = dbLoadJobs.get(0);
         Assert.assertEquals("cluster", job.getHadoopCluster());
-        Assert.assertEquals(0, job.getTimeoutSecond());
+        Assert.assertEquals(Config.hadoop_load_default_timeout_second, job.getTimeoutSecond());
 
         // getLoadJobNumber
         Assert.assertEquals(1, load.getLoadJobNumber());
@@ -187,7 +207,7 @@ public class LoadTest {
         Assert.assertEquals(job, load.getLoadJob(job.getId()));
 
         // getLoadJobInfosByDb
-        Assert.assertEquals(1, load.getLoadJobInfosByDb(db.getId(), null, false, null, null).size());
+        Assert.assertEquals(1, load.getLoadJobInfosByDb(db.getId(), db.getFullName(), null, false, null, null).size());
     }
 
     @Test

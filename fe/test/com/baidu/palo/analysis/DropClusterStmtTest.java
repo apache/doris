@@ -20,20 +20,47 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import mockit.Mocked;
+import mockit.NonStrictExpectations;
+import mockit.internal.startup.Startup;
 
 public class DropClusterStmtTest {
 
     private static Analyzer analyzer;
 
+    @Mocked
+    private PaloAuth auth;
+
+    static {
+        Startup.initializeIfPossible();
+    }
+
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
+
+        new NonStrictExpectations() {
+            {
+                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                result = true;
+
+                auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                result = true;
+
+                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                result = true;
+            }
+        };
     }
 
     @Test

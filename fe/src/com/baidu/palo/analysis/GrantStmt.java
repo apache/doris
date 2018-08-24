@@ -21,11 +21,19 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.catalog.AccessPrivilege;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
+import com.baidu.palo.common.FeNameFormat;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PaloPrivilege;
+import com.baidu.palo.mysql.privilege.PrivBitSet;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
+
+import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 
 import java.util.List;
@@ -33,65 +41,80 @@ import java.util.List;
 // GRANT STMT
 // grant privilege to some user, this is an administrator operation.
 //
-// GRANT privilege [, privilege] ON db_name TO user
+// GRANT privilege [, privilege] ON db.tbl TO user [ROLE 'role'];
 public class GrantStmt extends DdlStmt {
-    private String user;
-    private String db;
-    private List<AccessPrivilege> privileges;
+    private UserIdentity userIdent;
+    private String role;
+    private TablePattern tblPattern;
+    private List<PaloPrivilege> privileges;
 
-    public GrantStmt(String user, String db, List<AccessPrivilege> privileges) {
-        this.user = user;
-        this.db = db;
-        this.privileges = privileges;
+    public GrantStmt(UserIdentity userIdent, String role, TablePattern tblPattern, List<AccessPrivilege> privileges) {
+        this.userIdent = userIdent;
+        this.role = role;
+        this.tblPattern = tblPattern;
+        PrivBitSet privs = PrivBitSet.of();
+        for (AccessPrivilege accessPrivilege : privileges) {
+            privs.or(accessPrivilege.toPaloPrivilege());
+        }
+        this.privileges = privs.toPrivilegeList();
     }
 
-    public String getUser() {
-        return user;
+    public UserIdentity getUserIdent() {
+        return userIdent;
     }
 
-    public String getDb() {
-        return db;
+    public TablePattern getTblPattern() {
+        return tblPattern;
     }
 
-    public AccessPrivilege getPrivilege() {
-        return AccessPrivilege.merge(privileges);
+    public boolean hasRole() {
+        return !Strings.isNullOrEmpty(role);
+    }
+
+    public String getQualifiedRole() {
+        return role;
+    }
+
+    public List<PaloPrivilege> getPrivileges() {
+        return privileges;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         super.analyze(analyzer);
-        if (Strings.isNullOrEmpty(user)) {
-            throw new AnalysisException("No user in grant statement.");
+        if (userIdent != null) {
+            userIdent.analyze(analyzer.getClusterName());
+        } else {
+            FeNameFormat.checkUserName(role);
         }
-        if (Strings.isNullOrEmpty(db)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-        }
-        db = ClusterNamespace.getFullName(getClusterName(), db);
-        user = ClusterNamespace.getFullName(getClusterName(), user);
-        
+
+        tblPattern.analyze(analyzer.getClusterName());
+
         if (privileges == null || privileges.isEmpty()) {
             throw new AnalysisException("No privileges in grant statement.");
         }
 
-        if (!analyzer.getCatalog().getUserMgr().checkUserAccess(analyzer.getUser(), user)) {
-            throw new AnalysisException("No privilege to grant.");
+        if (role != null) {
+            FeNameFormat.checkRoleName(role, false /* can not be superuser */);
+            role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
+        }
+
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                                                "GRANT");
         }
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("GRANT ");
-        int idx = 0;
-        for (AccessPrivilege privilege : privileges) {
-            if (idx != 0) {
-                sb.append(", ");
-            }
-            sb.append(privilege);
-            idx++;
+        sb.append("GRANT ").append(Joiner.on(", ").join(privileges));
+        sb.append(" ON ").append(tblPattern).append(" TO ");
+        if (!Strings.isNullOrEmpty(role)) {
+            sb.append(" ROLE '").append(role).append("'");
+        } else {
+            sb.append(userIdent);
         }
-        sb.append(" ON ").append(db).append(" TO '").append(user).append("'");
-
         return sb.toString();
     }
 

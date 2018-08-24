@@ -15,12 +15,14 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.AccessPrivilege;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.ShowResultSetMetaData;
 
 // SHOW CREATE TABLE statement.
@@ -73,9 +75,13 @@ public class ShowCreateTableStmt extends ShowStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
         }
         tbl.analyze(analyzer);
-        if (!analyzer.getCatalog().getUserMgr()
-                .checkAccess(analyzer.getUser(), tbl.getDb(), AccessPrivilege.READ_ONLY)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(), tbl.getDb());
+
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
+                                                                PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE TABLE",
+                                                ConnectContext.get().getQualifiedUser(),
+                                                ConnectContext.get().getRemoteIP(),
+                                                tbl.getTbl());
         }
     }
 

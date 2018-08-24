@@ -15,6 +15,7 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.common.AnalysisException;
@@ -24,6 +25,8 @@ import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.proc.ProcNodeInterface;
 import com.baidu.palo.common.proc.ProcResult;
 import com.baidu.palo.common.proc.ProcService;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.ShowResultSetMetaData;
 
 // SHOW PROC statement. Used to show proc information, only admin can use.
@@ -41,9 +44,11 @@ public class ShowProcStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
-        if (!analyzer.getCatalog().getUserMgr().isAdmin(analyzer.getUser())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW PROC");
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                                                "ADMIN");
         }
+
         node = ProcService.getInstance().open(path);
         if (node == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_PROC_PATH, path);

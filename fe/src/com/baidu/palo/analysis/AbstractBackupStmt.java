@@ -20,90 +20,116 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.AccessPrivilege;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.Config;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
 
 public class AbstractBackupStmt extends DdlStmt {
-    private static final String SERVER_TYPE = "server_type";
-    private static final String HOST = "host";
-    private static final String PORT = "port";
-    private static final String USER = "user";
-    private static final String PASSWORD = "password";
-    private static final String OPT_PROPERTIES = "opt_properties";
+    private static final Logger LOG = LogManager.getLogger(AbstractBackupStmt.class);
+
+    private final static String PROP_TIMEOUT = "timeout";
+    private final static long MIN_TIMEOUT_MS = 600 * 1000L; // 10 min
 
     protected LabelName labelName;
-    protected List<PartitionName> objNames;
-    protected String remotePath;
+    protected String repoName;
+    protected List<TableRef> tblRefs;
     protected Map<String, String> properties;
 
-    public AbstractBackupStmt(LabelName labelName, List<PartitionName> objNames,
-                              String remotePath, Map<String, String> properties) {
+    protected long timeoutMs;
+
+    public AbstractBackupStmt(LabelName labelName, String repoName, List<TableRef> tableRefs,
+            Map<String, String> properties) {
         this.labelName = labelName;
-        this.objNames = objNames;
-        if (this.objNames == null) {
-            this.objNames = Lists.newArrayList();
+        this.repoName = repoName;
+        this.tblRefs = tableRefs;
+        if (this.tblRefs == null) {
+            this.tblRefs = Lists.newArrayList();
         }
 
-        this.remotePath = remotePath;
-        this.properties = properties;
+        this.properties = properties == null ? Maps.newHashMap() : properties;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         labelName.analyze(analyzer);
-
-        // check authenticate
-        if (!analyzer.getCatalog().getUserMgr()
-                .checkAccess(analyzer.getUser(), labelName.getDbName(), AccessPrivilege.READ_WRITE)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(),
-                                                labelName.getDbName());
+        
+        // check auth
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
-        for (PartitionName partitionName : objNames) {
-            partitionName.analyze(analyzer);
-        }
-
-        if (Strings.isNullOrEmpty(remotePath)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_MISSING_PARAM, "restore path is not specified");
-        }
+        checkAndNormalizeBackupObjs();
 
         analyzeProperties();
-
-        // check if partition names has intersection
-        PartitionName.checkIntersect(objNames);
     }
 
-    private void analyzeProperties() throws AnalysisException {
-        if (properties == null || properties.isEmpty()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_MISSING_PARAM, "romote source info is not specified");
+    private void checkAndNormalizeBackupObjs() throws AnalysisException {
+        for (TableRef tblRef : tblRefs) {
+            if (!Strings.isNullOrEmpty(tblRef.getName().getDb())) {
+                throw new AnalysisException("Cannot specify database name on backup objects: "
+                        + tblRef.getName().getTbl() + ". Sepcify database name before label");
+            }
+            // set db name because we can not persist empty string when writing bdbje log
+            tblRef.getName().setDb(labelName.getDbName());
+        }
+        
+        // normalize
+        // table name => table ref
+        Map<String, TableRef> tblPartsMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        for (TableRef tblRef : tblRefs) {
+            String tblName = tblRef.getName().getTbl();
+
+            if (!tblPartsMap.containsKey(tblName)) {
+                tblPartsMap.put(tblName, tblRef);
+            } else {
+                throw new AnalysisException("Duplicated restore table: " + tblName);
+            }
+        }
+        
+        // update table ref
+        tblRefs.clear();
+        for (TableRef tableRef : tblPartsMap.values()) {
+            tblRefs.add(tableRef);
         }
 
-        Map<String, String> tmpProp = Maps.newHashMap();
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            tmpProp.put(entry.getKey().toLowerCase(), entry.getValue());
-        }
-        properties = tmpProp;
+        LOG.debug("table refs after normalization: \n{}", Joiner.on("\n").join(tblRefs));
+    }
 
-        if (!properties.containsKey(SERVER_TYPE)
-                || !properties.containsKey(HOST)
-                || !properties.containsKey(PORT)
-                || !properties.containsKey(USER)
-                || !properties.containsKey(PASSWORD)) {
-            throw new AnalysisException("Properties should contains required params.");
-        }
+    protected void analyzeProperties() throws AnalysisException {
+        // timeout
+        if (properties.containsKey("timeout")) {
+            try {
+                timeoutMs = Long.valueOf(properties.get(PROP_TIMEOUT));
+            } catch (NumberFormatException e) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                                                    "Invalid timeout format: "
+                                                            + properties.get(PROP_TIMEOUT));
+            }
 
-        if (!properties.containsKey(OPT_PROPERTIES)) {
-            properties.put(OPT_PROPERTIES, "");
+            if (timeoutMs * 1000 < MIN_TIMEOUT_MS) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR, "timeout must be at least 10 min");
+            }
+
+            timeoutMs = timeoutMs * 1000;
+            properties.remove(PROP_TIMEOUT);
+        } else {
+            timeoutMs = Config.backup_job_default_timeout_ms;
         }
     }
 
@@ -119,15 +145,20 @@ public class AbstractBackupStmt extends DdlStmt {
         return labelName;
     }
 
-    public List<PartitionName> getObjNames() {
-        return objNames;
+    public String getRepoName() {
+        return repoName;
     }
 
-    public String getRemotePath() {
-        return remotePath;
+    public List<TableRef> getTableRefs() {
+        return tblRefs;
     }
 
     public Map<String, String> getProperties() {
         return properties;
     }
+
+    public long getTimeoutMs() {
+        return timeoutMs;
+    }
 }
+
