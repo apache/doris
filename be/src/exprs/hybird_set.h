@@ -21,6 +21,7 @@
 #ifndef BDG_PALO_BE_SRC_QUERY_EXPRS_HYBIRD_SET_H
 #define BDG_PALO_BE_SRC_QUERY_EXPRS_HYBIRD_SET_H
 
+#include <cstring>
 #include <unordered_set>
 #include "common/status.h"
 #include "common/object_pool.h"
@@ -72,7 +73,7 @@ public:
         if (sizeof(T) >= 16) {
             // for largeint, it will core dump with no memcpy
             T value;
-            memcpy(&value, data, sizeof(T));
+            memcpy(&value, data, sizeof(T)); 
             _set.insert(value);
         } else {
             _set.insert(*reinterpret_cast<T*>(data));

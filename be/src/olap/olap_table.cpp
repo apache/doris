@@ -34,7 +34,7 @@
 #include "olap/olap_rootpath.h"
 #include "olap/reader.h"
 #include "olap/row_cursor.h"
-
+#include "util/defer_op.h"
 
 using std::map;
 using std::nothrow;
@@ -211,6 +211,8 @@ OLAPTable::~OLAPTable() {
 
     path path_name(_header->file_name());
     SAFE_DELETE(_header);
+
+    OLAP_LOG_WARNING("deconstruct table");
 
     // 移动数据目录
     if (_is_dropped) {
@@ -705,6 +707,63 @@ void OLAPTable::set_selectivities(const vector<uint32_t>& selectivities) {
     }
 }
 
+OLAPStatus OLAPTable::merge_header(const OLAPHeader& hdr, int to_version) {
+    obtain_header_wrlock();
+    DeferOp release_lock(std::bind<void>(&OLAPTable::release_header_lock, this));
+
+    const FileVersionMessage* base_version = _header->get_base_version();
+    if (base_version->end_version() != to_version) {
+        return OLAP_ERR_VERSION_NOT_EXIST;
+    }
+
+    // delete old base version
+    Version base = { base_version->start_version(), base_version->end_version() };
+    OLAPStatus st = _header->delete_version(base);
+    if (st != OLAP_SUCCESS) {
+        OLAP_LOG_WARNING("failed to delete version [%d-%d] from header",
+                base_version->start_version(), base_version->end_version());
+        return st;
+    }
+    OLAP_LOG_DEBUG("finished to delete version [%d-%d] from header",
+            base_version->start_version(), base_version->end_version());
+
+
+    // add new versions
+    int version_num = hdr.file_version_size();
+    for (int i = 0; i < version_num; ++i) {
+        const FileVersionMessage& v = hdr.file_version(i);
+        if (v.end_version() > to_version) {
+            break;
+        }
+
+        st = _header->add_version(
+                { v.start_version(), v.end_version() },
+                v.version_hash(),
+                v.max_timestamp(),
+                v.num_segments(),
+                v.index_size(),
+                v.data_size(),
+                v.num_rows());
+
+        if (st != OLAP_SUCCESS) {
+            OLAP_LOG_WARNING("failed to add version [%d-%d] to header",
+                    v.start_version(), v.end_version());
+            return st;
+        }
+        OLAP_LOG_WARNING("finished to add version [%d-%d] to header",
+                v.start_version(), v.end_version());
+    }
+
+    st = _header->save();
+    if (st != OLAP_SUCCESS) {
+       OLAP_LOG_FATAL("failed to save header when merging. tablet: %d", _tablet_id);
+       return st;
+    }
+
+    OLAP_LOG_DEBUG("finished to merge header to version: %d", to_version);
+    return OLAP_SUCCESS;
+}
+
 OLAPIndex* OLAPTable::_get_largest_index() {
     OLAPIndex* largest_index = NULL;
     size_t largest_index_sizes = 0;
@@ -1098,6 +1157,11 @@ string OLAPTable::construct_file_name(const Version& version,
              suffix.c_str());
 
     return file_name;
+}
+
+string OLAPTable::construct_dir_path() const {
+    path path_name(_header->file_name());
+    return path_name.parent_path().string();
 }
 
 int32_t OLAPTable::get_field_index(const string& field_name) const {

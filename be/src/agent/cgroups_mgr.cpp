@@ -62,11 +62,8 @@ CgroupsMgr::~CgroupsMgr() {
 
 AgentStatus CgroupsMgr::update_local_cgroups(const TFetchResourceResult&  new_fetched_resource) {
    
-    LOG(INFO) << "Current resource version is " << _cur_version
-        << ". Resource version is " << new_fetched_resource.resourceVersion; 
     std::lock_guard<std::mutex> lck(_update_cgroups_mtx);
     if (!_is_cgroups_init_success) {
-        LOG(WARNING) << "Cgroups manager initialized failed, will not update local cgroups!";
         return AgentStatus::PALO_ERROR;
     }
    

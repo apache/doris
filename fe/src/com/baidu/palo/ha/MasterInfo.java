@@ -79,4 +79,3 @@ public class MasterInfo implements Writable {
     }
 
 }
-

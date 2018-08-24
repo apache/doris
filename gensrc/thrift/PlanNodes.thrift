@@ -204,6 +204,7 @@ struct TSchemaScanNode {
   7: optional string ip
   8: optional i32 port
   9: optional i64 thread_id
+  10: optional string user_ip
 }
 
 struct TMetaScanNode {

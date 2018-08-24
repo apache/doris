@@ -156,4 +156,3 @@ public class BDBJournalCursor implements JournalCursor {
         
     }
 }
-

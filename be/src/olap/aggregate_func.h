@@ -226,9 +226,9 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
         HllContext* context = (reinterpret_cast<HllContext*>(hll_ptr));
         std::map<int, uint8_t> index_to_value;
         if (context->has_sparse_or_full ||
-                context->hash64_set.size() > HLL_EXPLICLIT_INT64_NUM) {
+                context->hash64_set->size() > HLL_EXPLICLIT_INT64_NUM) {
             HllSetHelper::set_max_register(context->registers, HLL_REGISTERS_COUNT,
-                                           context->hash64_set);
+                                           *(context->hash64_set));
             for (int i = 0; i < HLL_REGISTERS_COUNT; i++) {
                 if (context->registers[i] != 0) {
                     index_to_value[i] = context->registers[i];
@@ -248,14 +248,14 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
         } else if (index_to_value.size() > 0) {
             // sparse set
             HllSetHelper::set_sparse(slice->data, index_to_value, result_len);
-        } else if (context->hash64_set.size() > 0) {
+        } else if (context->hash64_set->size() > 0) {
             // expliclit set
-            HllSetHelper::set_expliclit(slice->data, context->hash64_set, result_len);
+            HllSetHelper::set_expliclit(slice->data, *(context->hash64_set), result_len);
         }
 
         slice->size = result_len & 0xffff;
 
-        HllSetHelper::init_context(context);
+        delete context->hash64_set;
     }
 };
 

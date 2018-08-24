@@ -4871,12 +4871,15 @@ public class Catalog {
      * @throws DdlException
      */
     public void changeCluster(ConnectContext ctx, String clusterName) throws DdlException {
+        if (!Catalog.getCurrentCatalog().getAuth().checkCanEnterCluster(ConnectContext.get(), clusterName)) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_NO_AUTHORITY,
+                                           ConnectContext.get().getQualifiedUser(), "enter");
+        }
+
         if (!nameToCluster.containsKey(clusterName)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_NO_EXISTS, clusterName);
         }
-        if (!userPropertyMgr.isAdmin(ctx.getUser())) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_NO_AUTHORITY);
-        }
+
         ctx.setCluster(clusterName);
     }
 

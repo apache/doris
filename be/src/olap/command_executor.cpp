@@ -295,13 +295,14 @@ OLAPStatus CommandExecutor::create_table(const TCreateTabletReq& request) {
             break;
         }
 
-        // 6. Create init version if request.version set
-        if (request.__isset.version) {
-            res = _create_init_version(olap_table_ptr, request);
-            if (res != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("fail to create initial version for table. [res=%d]", res);
-            }
+        // 6. Create init version if this is not a restore mode replica and request.version is set
+        // bool in_restore_mode = request.__isset.in_restore_mode && request.in_restore_mode;
+        // if (!in_restore_mode && request.__isset.version) {
+        res = _create_init_version(olap_table_ptr, request);
+        if (res != OLAP_SUCCESS) {
+            OLAP_LOG_WARNING("fail to create initial version for table. [res=%d]", res);
         }
+        // }
     } while (0);
 
     // 7. clear environment

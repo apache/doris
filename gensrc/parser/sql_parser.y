@@ -201,14 +201,14 @@ terminal String KW_ADD, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANT
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DECIMAL, KW_DECOMMISSION, KW_DEFAULT, KW_DESC, KW_DESCRIBE,
     KW_DELETE, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
     KW_ELSE, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXISTS, KW_EXPORT, KW_EXTERNAL, KW_EXTRACT,
-    KW_FALSE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FIRST, KW_FLOAT, KW_FOR, KW_FULL, KW_FUNCTION,
-    KW_GLOBAL, KW_GRANT, KW_GROUP,
+    KW_FALSE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FIRST, KW_FLOAT, KW_FOR, KW_FRONTENDS, KW_FULL, KW_FUNCTION,
+    KW_GLOBAL, KW_GRANT, KW_GRANTS, KW_GROUP,
     KW_HASH, KW_HAVING, KW_HELP,KW_HLL, KW_HLL_UNION,
     KW_IDENTIFIED, KW_IF, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE,
     KW_INNER, KW_INSERT, KW_INT, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL,  KW_ISOLATION,
     KW_JOIN,
     KW_KEY, KW_KILL,
-    KW_LABEL, KW_LARGEINT, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LOAD, KW_LOCAL,
+    KW_LABEL, KW_LARGEINT, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LOAD, KW_LOCAL, KW_LOCATION,
     KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY,
     KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL,
     KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_ORDER, KW_OUTER, KW_OVER,
@@ -218,13 +218,13 @@ terminal String KW_ADD, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANT
     KW_PROC, KW_PROCEDURE, KW_PROCESSLIST, KW_PROPERTIES, KW_PROPERTY,
     KW_QUERY, KW_QUOTA,
     KW_RANDOM, KW_RANGE, KW_READ, KW_RECOVER, KW_REGEXP, KW_RELEASE, KW_RENAME,
-    KW_REPEATABLE, KW_REPLACE, KW_RESOURCE, KW_RESTORE, KW_REVOKE,
-    KW_RIGHT, KW_ROLLBACK, KW_ROLLUP, KW_ROW, KW_ROWS,
+    KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_RESOURCE, KW_RESTORE, KW_REVOKE,
+    KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROW, KW_ROWS,
     KW_SCHEMAS, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SHOW,
     KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STORAGE, KW_STRING, 
     KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM, 
     KW_TABLE, KW_TABLES, KW_TABLET, KW_TERMINATED, KW_THAN, KW_THEN, KW_TIMESTAMP, KW_TINYINT,
-    KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TYPES,
+    KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TYPE, KW_TYPES,
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNSIGNED, KW_USE, KW_USER, KW_USING,
     KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VIEW,
     KW_WARNINGS, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE;
@@ -260,6 +260,7 @@ nonterminal describe_command, opt_full, opt_inner, opt_outer, from_or_in, keys_o
 
 // String
 nonterminal String user, opt_user;
+nonterminal UserIdentity user_identity;
 
 // Description of user
 nonterminal UserDesc grant_user;
@@ -309,7 +310,7 @@ nonterminal AnalyticWindow opt_window_clause;
 nonterminal AnalyticWindow.Type window_type;
 nonterminal AnalyticWindow.Boundary window_boundary;
 nonterminal SlotRef column_ref;
-nonterminal ArrayList<TableRef> table_ref_list;
+nonterminal ArrayList<TableRef> table_ref_list, base_table_ref_list;
 nonterminal FromClause from_clause;
 nonterminal TableRef table_ref;
 nonterminal TableRef base_table_ref;
@@ -370,9 +371,12 @@ nonterminal List<String> opt_col_list, opt_dup_keys;
 nonterminal List<String> opt_partitions;
 nonterminal List<Expr> opt_col_mapping_list;
 nonterminal ColumnSeparator opt_field_term;
+nonterminal String opt_user_role;
+nonterminal TablePattern tbl_pattern;
+nonterminal String ident_or_star;
 
 // Boolean
-nonterminal Boolean opt_negative, opt_super_user, opt_is_allow_null, opt_is_key;
+nonterminal Boolean opt_negative, opt_super_user, opt_is_allow_null, opt_is_key, opt_read_only;
 nonterminal String opt_from_rollup, opt_to_rollup;
 nonterminal ColumnPosition opt_col_pos;
 
@@ -539,9 +543,9 @@ alter_stmt ::=
     {:
         RESULT = new AlterDatabaseRename(dbName, newDbName);
     :}
-    | KW_ALTER KW_USER ident:userName alter_user_clause:clause
+    | KW_ALTER KW_USER user_identity:userIdent alter_user_clause:clause
     {:
-        RESULT = new AlterUserStmt(userName, clause);
+        RESULT = new AlterUserStmt(userIdent, clause);
 	:}
     ;
 
@@ -801,9 +805,9 @@ create_stmt ::=
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, engineName, keys, partition, distribution, tblProperties, extProperties);
     :}
     /* User */
-    | KW_CREATE KW_USER grant_user:user opt_super_user:isSuperuser
+    | KW_CREATE KW_USER opt_if_not_exists:ifNotExists grant_user:user opt_user_role:userRole
     {:
-        RESULT = new CreateUserStmt(user, isSuperuser);
+        RESULT = new CreateUserStmt(ifNotExists, user, userRole);
     :}
     | KW_CREATE KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
         opt_col_list:columns KW_AS query_stmt:view_def
@@ -815,34 +819,58 @@ create_stmt ::=
     {:
         RESULT = new CreateClusterStmt(name, properties, password);
     :}
-    ;
-
-grant_user ::=
-    user:user
+    | KW_CREATE opt_read_only:isReadOnly KW_REPOSITORY ident:repoName KW_WITH KW_BROKER ident:brokerName
+      KW_ON KW_LOCATION STRING_LITERAL:location
+      opt_properties:properties
     {:
-        /* No password */
-        RESULT = new UserDesc(user);
+        RESULT = new CreateRepositoryStmt(isReadOnly, repoName, brokerName, location, properties);
     :}
-    | user:user KW_IDENTIFIED KW_BY STRING_LITERAL:password
+    | KW_CREATE KW_ROLE ident:role
     {:
-        /* plain text password */
-        RESULT = new UserDesc(user, password, true);
-    :}
-    | user:user KW_IDENTIFIED KW_BY KW_PASSWORD STRING_LITERAL:password
-    {:
-        /* hashed password */
-        RESULT = new UserDesc(user, password, false);
+        RESULT = new CreateRoleStmt(role);
     :}
     ;
 
-opt_super_user ::=
-    /* Empty */
+opt_read_only ::=
     {:
         RESULT = false;
     :}
-    | KW_SUPERUSER
+    | KW_READ KW_ONLY
     {:
         RESULT = true;
+    :}
+    ;
+
+grant_user ::=
+    user_identity:user_id
+    {:
+        /* No password */
+        RESULT = new UserDesc(user_id);
+    :}
+    | user_identity:user_id KW_IDENTIFIED KW_BY STRING_LITERAL:password
+    {:
+        /* plain text password */
+        RESULT = new UserDesc(user_id, password, true);
+    :}
+    | user_identity:user_id KW_IDENTIFIED KW_BY KW_PASSWORD STRING_LITERAL:password
+    {:
+        /* hashed password */
+        RESULT = new UserDesc(user_id, password, false);
+    :}
+    ;
+
+opt_user_role ::=
+    /* Empty */
+    {:
+        RESULT = null;
+    :}
+    | KW_SUPERUSER /* for forward compatibility*/
+    {:
+        RESULT = "superuser";
+    :}
+    | KW_DEFAULT KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = role;
     :}
     ;
 
@@ -850,6 +878,21 @@ user ::=
     ident_or_text:user
     {:
         RESULT = user;
+    :}
+    ;
+
+user_identity ::=
+    ident_or_text:user
+    {:
+        RESULT = new UserIdentity(user, "%", false);
+    :}
+    | ident_or_text:user AT ident_or_text:host
+    {:
+        RESULT = new UserIdentity(user, host, false);
+    :}
+    | ident_or_text:user AT LBRACKET ident_or_text:host RBRACKET
+    {:
+        RESULT = new UserIdentity(user, host, true);
     :}
     ;
 
@@ -1024,18 +1067,47 @@ opt_cluster ::=
 
 // Grant statement
 grant_stmt ::=
-    KW_GRANT privilege_list:privs KW_ON ident:dbName KW_TO user:user
+    KW_GRANT privilege_list:privs KW_ON tbl_pattern:tblPattern KW_TO user_identity:userId
     {:
-        RESULT = new GrantStmt(user, dbName, privs);
+        RESULT = new GrantStmt(userId, null, tblPattern, privs);
+    :}
+    | KW_GRANT privilege_list:privs KW_ON tbl_pattern:tblPattern KW_TO KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new GrantStmt(null, role, tblPattern, privs);
+    :}
+    ;
+
+tbl_pattern ::=
+    ident_or_star:db
+    {:
+        RESULT = new TablePattern(db, "*");        
+    :}
+    | ident_or_star:db DOT ident_or_star:tbl
+    {:
+        RESULT = new TablePattern(db, tbl);        
+    :}
+    ;
+
+ident_or_star ::=
+    STAR
+    {:
+        RESULT = "*";
+    :}
+    | ident:ident
+    {:
+        RESULT = ident;
     :}
     ;
 
 // Revoke statement
 revoke_stmt ::=
-    /* for now, simply revoke ALL privilege */
-    KW_REVOKE KW_ALL KW_ON ident:dbName KW_FROM user:user
+    KW_REVOKE privilege_list:privs KW_ON tbl_pattern:tblPattern KW_FROM user_identity:userId
     {:
-        RESULT = new RevokeStmt(user, dbName);
+        RESULT = new RevokeStmt(userId, null, tblPattern, privs);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON tbl_pattern:tblPattern KW_FROM KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new RevokeStmt(null, role, tblPattern, privs);
     :}
     ;
 
@@ -1062,14 +1134,22 @@ drop_stmt ::=
         RESULT = new DropTableStmt(ifExists, name);
     :}
     /* User */
-    | KW_DROP KW_USER STRING_LITERAL:user
+    | KW_DROP KW_USER user_identity:userId
     {:
-        RESULT = new DropUserStmt(user);
+        RESULT = new DropUserStmt(userId);
     :}
     /* View */
     | KW_DROP KW_VIEW opt_if_exists:ifExists table_name:name
     {:
         RESULT = new DropTableStmt(ifExists, name, true);
+    :}
+    | KW_DROP KW_REPOSITORY ident:repoName
+    {:
+        RESULT = new DropRepositoryStmt(repoName);
+    :}
+    | KW_DROP KW_ROLE ident:role
+    {:
+        RESULT = new DropRoleStmt(role);
     :}
     ;
 
@@ -1659,9 +1739,9 @@ show_param ::=
     {:
         RESULT = new ShowUserPropertyStmt(user, parser.wild);
     :}
-    | KW_BACKUP opt_db:db opt_wild_where
+    | KW_BACKUP opt_db:db
     {:
-        RESULT = new ShowBackupStmt(db, parser.where);
+        RESULT = new ShowBackupStmt(db);
     :}
     | KW_RESTORE opt_db:db opt_wild_where
     {:
@@ -1675,10 +1755,38 @@ show_param ::=
     {:   
         RESULT = new ShowBackendsStmt();
     :} 
+    | KW_FRONTENDS
+    {:   
+        RESULT = new ShowFrontendsStmt();
+    :} 
     | KW_USER
     {:   
         RESULT = new ShowUserStmt();
     :} 
+    | KW_REPOSITORIES
+    {:
+       RESULT = new ShowRepositoriesStmt(); 
+    :}
+    | KW_SNAPSHOT KW_ON ident:repo opt_wild_where
+    {:
+        RESULT = new ShowSnapshotStmt(repo, parser.where);
+    :}
+    | KW_ALL KW_GRANTS 
+    {:
+        RESULT = new ShowGrantsStmt(null, true);
+    :}
+    | KW_GRANTS 
+    {:
+        RESULT = new ShowGrantsStmt(null, false);
+    :}
+    | KW_GRANTS KW_FOR user_identity:userIdent
+    {:
+        RESULT = new ShowGrantsStmt(userIdent, false);
+    :}
+    | KW_ROLES
+    {:
+        RESULT = new ShowRolesStmt();
+    :}
     ;
 
 keys_or_index ::=
@@ -2105,23 +2213,23 @@ insert_source ::=
 
 // backup stmt
 backup_stmt ::=
-    KW_BACKUP KW_LABEL job_label:label
-	opt_partition_name_list:backupObjNames
-    KW_INTO STRING_LITERAL:rootPath
+    KW_BACKUP KW_SNAPSHOT job_label:label
+    KW_TO ident:repoName
+	KW_ON LPAREN base_table_ref_list:tbls RPAREN
     opt_properties:properties
     {:
-        RESULT = new BackupStmt(label, backupObjNames, rootPath, properties);
+        RESULT = new BackupStmt(label, repoName, tbls, properties);
     :}
     ;
 
 // Restore statement
 restore_stmt ::=
-    KW_RESTORE KW_LABEL job_label:label
-	opt_partition_name_list:restoreObjNames
-    KW_FROM STRING_LITERAL:rootPath
+    KW_RESTORE KW_SNAPSHOT job_label:label
+    KW_FROM ident:repoName
+	KW_ON LPAREN base_table_ref_list:tbls RPAREN
     opt_properties:properties
     {:
-        RESULT = new RestoreStmt(label, restoreObjNames, rootPath, properties);
+        RESULT = new RestoreStmt(label, repoName, tbls, properties);
     :}
     ;
 
@@ -2339,9 +2447,9 @@ option_value_no_option_type ::=
     {:
         RESULT = new SetPassVar(null, passwd);
     :}
-    | KW_PASSWORD KW_FOR STRING_LITERAL:user equal text_or_password:passwd
+    | KW_PASSWORD KW_FOR user_identity:userId equal text_or_password:passwd
     {:
-        RESULT = new SetPassVar(user, passwd);
+        RESULT = new SetPassVar(userId, passwd);
     :}
     ;
 
@@ -2654,6 +2762,20 @@ inline_view_ref ::=
         RESULT = new InlineViewRef(alias, query);
     :}
     ;
+
+base_table_ref_list ::=
+  base_table_ref:tbl
+  {:
+    ArrayList<TableRef> list = new ArrayList<TableRef>();
+    list.add(tbl);
+    RESULT = list;
+  :}
+  | base_table_ref_list:list COMMA base_table_ref:tbl
+  {:
+    list.add(tbl);
+    RESULT = list;
+  :}
+  ;
 
 base_table_ref ::=
     table_name:name opt_using_partition:parts opt_table_alias:alias
@@ -3513,6 +3635,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_LOCAL:id
     {: RESULT = id; :}
+    | KW_LOCATION:id
+    {: RESULT = id; :}
     | KW_MERGE:id
     {: RESULT = id; :}
     | KW_MODIFY:id
@@ -3557,6 +3681,10 @@ keyword ::=
     {: RESULT = id; :}
     | KW_REPEATABLE:id
     {: RESULT = id; :}
+    | KW_REPOSITORY:id
+    {: RESULT = id; :}
+    | KW_REPOSITORIES:id
+    {: RESULT = id; :}
     | KW_RESOURCE:id
     {: RESULT = id; :}
     | KW_RESTORE:id
@@ -3592,6 +3720,8 @@ keyword ::=
     | KW_TRANSACTION:id
     {: RESULT = id; :}
     | KW_TRIGGERS:id
+    {: RESULT = id; :}
+    | KW_TYPE:id
     {: RESULT = id; :}
     | KW_TYPES:id
     {: RESULT = id; :}

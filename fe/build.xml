@@ -136,4 +136,112 @@
        </javac>
    </target>
 
+    <property name="result-dir"  value="${builddir}/testreportdir"/>
+    <property name="instrumented-classes-dir"  value="${builddir}/testreportdir/instrumented-classes"/>
+    <property name="case-result-dir"  value="${builddir}/testreportdir/caseresult"/>
+    <property name="case-result-html-dir"  value="${builddir}/testreportdir/caseresult_html"/>
+    <property name="cobertura-dir"  value="${builddir}/testreportdir/cobertura"/>
+
+    <path id="cobertura.classpath">
+        <pathelement location="${builddir}"/>
+        <fileset dir="${libdir}/cobertura/">
+            <include name="*.jar" />
+        </fileset>
+    </path>
+
+    <taskdef classpathref="cobertura.classpath" resource="tasks.properties" />
+
+    <target name="instrument" depends="compile-test">
+        <mkdir dir="${result-dir}"/>
+        <mkdir dir="${instrumented-classes-dir}"/>
+        <cobertura-instrument todir="${instrumented-classes-dir}">
+            <classpath refid="classpathid"/>
+            <fileset dir="${builddir}/compile/src">
+                <include name="**/*.class"/>
+                <exclude name="**/*Test.class"/>
+                <exclude name="**/*Test*.class"/>
+                <exclude name="**/thrift/*.class"/>
+                <exclude name="**/opcode/*.class"/>
+                <exclude name="**/common/Version.class"/>
+                <exclude name="**/analysis/SqlParser.class"/>
+                <exclude name="**/analysis/SqlParserSymbols.class"/>
+                <exclude name="**/analysis/SqlScanner.class"/>
+            </fileset>
+        </cobertura-instrument>
+    </target>
+
+  <target name="run-test" depends="make-test-help-zip, compile-test">
+      <mkdir dir="${case-result-dir}"/>
+      <mkdir dir="${case-result-html-dir}"/>
+      <junit dir='./' failureproperty="test.failure" printSummary="yes" fork="yes" haltonerror="false">
+      <jvmarg value="-Xverify:none" />
+          <classpath location="${builddir}/compile/src"/>
+          <classpath location="${builddir}/compile/test"/>
+          <!-- test help-zip file -->
+          <classpath location="${builddir}/compile"/>
+          <!-- for test loading data from help-dir -->
+          <classpath location="test/resource"/>
+          <classpath refid="classpathid"/>
+          <formatter type="xml"/>
+          <batchtest fork="yes" todir="${case-result-dir}">
+               <fileset dir="test">
+                   <include name="**/*Test.java"/>
+                   <!-- <exclude name="**/CatalogTest.java"/>  -->
+               </fileset>
+          </batchtest>
+      </junit>
+      <junitreport todir="${case-result-html-dir}">
+         <fileset dir="${case-result-dir}">
+            <include name="TEST-*.xml"/>
+         </fileset>
+         <report format="frames" todir="${case-result-html-dir}"/>
+      </junitreport>
+  </target>
+
+  <target name="cover-test" depends="instrument, make-test-help-zip">
+      <mkdir dir="${case-result-dir}"/>
+      <mkdir dir="${case-result-html-dir}"/>
+      <junit dir='./' failureproperty="test.failure" printSummary="yes" fork="yes" haltonerror="false">
+      <jvmarg value="-Xverify:none" />
+          <sysproperty key="net.sourceforge.cobertura.datafile" file="cobertura.ser" />
+          <classpath location="${instrumented-classes-dir}"/>
+          <classpath location="${builddir}/compile/src"/>
+          <classpath location="${builddir}/compile/test"/>
+          <!-- test help-zip file -->
+          <classpath location="${builddir}/compile"/>
+          <!-- for test loading data from help-dir -->
+          <classpath location="test/resource"/>
+          <classpath location="${libdir}/cobertura/cobertura.jar"/>
+          <classpath refid="cobertura.classpath"/>
+          <classpath refid="classpathid"/>
+          <formatter type="xml"/>
+          <batchtest fork="yes" todir="${case-result-dir}">
+               <fileset dir="test">
+                   <include name="**/*Test.java"/>
+                   <!-- <exclude name="**/CatalogTest.java"/>  -->
+               </fileset>
+          </batchtest>
+      </junit>
+      <junitreport todir="${case-result-html-dir}">
+         <fileset dir="${case-result-dir}">
+            <include name="TEST-*.xml"/>
+         </fileset>
+         <report format="frames" todir="${case-result-html-dir}"/>
+      </junitreport>
+  </target>
+
+  <target name="coverage-report" depends="cover-test">
+      <mkdir dir="${cobertura-dir}"/>
+      <cobertura-report format="html" srcdir="src" destdir="${cobertura-dir}"/>
+    <fileset dir="src">
+        <include name="**/*.java" />
+    </fileset>
+  </target>
+
+    <property name="test-help-dir"  value="test/resource/data" />
+    <target name="make-test-help-zip">
+        <zip zipfile="${builddir}/compile/test-help-resource.zip" basedir="${test-help-dir}/help" />
+        <zip zipfile="${builddir}/compile/test-help-resource-show-help.zip" basedir="${test-help-dir}/show_help" />
+    </target>
 </project>
+

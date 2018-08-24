@@ -83,51 +83,71 @@ AgentServer::AgentServer(ExecEnv* exec_env,
     // init task worker pool
     _create_table_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::CREATE_TABLE,
+            _exec_env,
             master_info);
     _drop_table_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::DROP_TABLE,
+            _exec_env,
             master_info);
     _push_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::PUSH,
+            _exec_env,
             master_info);
     _delete_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::DELETE,
+            _exec_env,
             master_info);
     _alter_table_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
+            _exec_env,
             master_info);
     _clone_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::CLONE,
+            _exec_env,
             master_info);
     _storage_medium_migrate_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::STORAGE_MEDIUM_MIGRATE,
+            _exec_env,
             master_info);
     _cancel_delete_data_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::CANCEL_DELETE_DATA,
+            _exec_env,
             master_info);
     _check_consistency_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::CHECK_CONSISTENCY,
+            _exec_env,
             master_info);
     _report_task_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::REPORT_TASK,
+            _exec_env,
             master_info);
     _report_disk_state_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE,
+            _exec_env,
             master_info);
     _report_olap_table_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::REPORT_OLAP_TABLE,
+            _exec_env,
             master_info);
     _upload_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::UPLOAD,
+            _exec_env,
             master_info);
-    _restore_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::RESTORE,
+    _download_workers = new TaskWorkerPool(
+            TaskWorkerPool::TaskWorkerType::DOWNLOAD,
+            _exec_env,
             master_info);
     _make_snapshot_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::MAKE_SNAPSHOT,
+            _exec_env,
             master_info);
     _release_snapshot_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::RELEASE_SNAPSHOT,
+            _exec_env,
+            master_info);
+    _move_dir_workers= new TaskWorkerPool(
+            TaskWorkerPool::TaskWorkerType::MOVE,
+            _exec_env,
             master_info);
 #ifndef BE_TEST
     _create_table_workers->start();
@@ -143,9 +163,10 @@ AgentServer::AgentServer(ExecEnv* exec_env,
     _report_disk_state_workers->start();
     _report_olap_table_workers->start();
     _upload_workers->start();
-    _restore_workers->start();
+    _download_workers->start();
     _make_snapshot_workers->start();
     _release_snapshot_workers->start();
+    _move_dir_workers->start();
     // Add subscriber here and register listeners
     TopicListener* user_resource_listener = new UserResourceListener(exec_env, master_info);
     LOG(INFO) << "Register user resource listener";
@@ -196,11 +217,14 @@ AgentServer::~AgentServer() {
     if (_upload_workers != NULL) {
         delete _upload_workers;
     }
-    if (_restore_workers != NULL) {
-        delete _restore_workers;
+    if (_download_workers != NULL) {
+        delete _download_workers;
     }
     if (_make_snapshot_workers != NULL) {
         delete _make_snapshot_workers;
+    }
+    if (_move_dir_workers!= NULL) {
+        delete _move_dir_workers;
     }
     if (_release_snapshot_workers != NULL) {
         delete _release_snapshot_workers;
@@ -303,9 +327,9 @@ void AgentServer::submit_tasks(
                 status_code = TStatusCode::ANALYSIS_ERROR;
             }
             break;
-        case TTaskType::RESTORE:
-            if (task.__isset.restore_req) {
-                _restore_workers->submit_task(task);
+        case TTaskType::DOWNLOAD:
+            if (task.__isset.download_req) {
+                _download_workers->submit_task(task);
             } else {
                 status_code = TStatusCode::ANALYSIS_ERROR;
             }
@@ -320,6 +344,13 @@ void AgentServer::submit_tasks(
         case TTaskType::RELEASE_SNAPSHOT:
             if (task.__isset.release_snapshot_req) {
                 _release_snapshot_workers->submit_task(task);
+            } else {
+                status_code = TStatusCode::ANALYSIS_ERROR;
+            }
+            break;
+        case TTaskType::MOVE:
+            if (task.__isset.move_dir_req) {
+                _move_dir_workers->submit_task(task);
             } else {
                 status_code = TStatusCode::ANALYSIS_ERROR;
             }
@@ -391,7 +422,6 @@ void AgentServer::release_snapshot(TAgentResult& return_value, const std::string
 void AgentServer::publish_cluster_state(TAgentResult& _return, const TAgentPublishRequest& request) {
     vector<string> error_msgs;
     _topic_subscriber->handle_updates(request);
-    OLAP_LOG_INFO("AgentService receive contains %d publish updates", request.updates.size());
     _return.status.__set_status_code(TStatusCode::OK);
 }
 

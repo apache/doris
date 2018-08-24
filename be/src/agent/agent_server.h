@@ -106,9 +106,10 @@ private:
     TaskWorkerPool* _report_disk_state_workers;
     TaskWorkerPool* _report_olap_table_workers;
     TaskWorkerPool* _upload_workers;
-    TaskWorkerPool* _restore_workers;
+    TaskWorkerPool* _download_workers;
     TaskWorkerPool* _make_snapshot_workers;
     TaskWorkerPool* _release_snapshot_workers;
+    TaskWorkerPool* _move_dir_workers;
 
     DISALLOW_COPY_AND_ASSIGN(AgentServer);
     

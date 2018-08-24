@@ -34,6 +34,7 @@ struct TTabletInfo {
     5: required Types.TCount row_count
     6: required Types.TSize data_size
     7: optional Types.TStorageMedium storage_medium
+    8: optional i64 version_count
 }
 
 struct TFinishTaskRequest {
@@ -47,6 +48,9 @@ struct TFinishTaskRequest {
     8: optional i64 request_version
     9: optional i64 request_version_hash
     10: optional string snapshot_path
+    11: optional list<string> snapshot_files
+    12: optional map<Types.TTabletId, list<string>> tablet_files
+    13: optional list<Types.TTabletId> downloaded_tablet_ids
 }
 
 struct TTablet {

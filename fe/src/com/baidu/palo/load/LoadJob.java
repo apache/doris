@@ -26,6 +26,7 @@ import com.baidu.palo.task.PushTask;
 import com.baidu.palo.thrift.TPriority;
 import com.baidu.palo.thrift.TResourceInfo;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
@@ -629,7 +630,8 @@ public class LoadJob implements Writable {
         }
 
         // resourceInfo
-        if (resourceInfo == null) {
+        if (resourceInfo == null || Strings.isNullOrEmpty(resourceInfo.getGroup())
+                || Strings.isNullOrEmpty(resourceInfo.getUser())) {
             out.writeBoolean(false);
         } else {
             out.writeBoolean(true);

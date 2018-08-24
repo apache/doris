@@ -363,8 +363,8 @@ public class SingleNodePlanner {
                     final JoinOperator joinOperator = selectStmt.getTableRefs().get(i).getJoinOp();
                     // TODO chenhao16 , right out join ?
                     if (joinOperator.isRightOuterJoin() || joinOperator.isFullOuterJoin()) {
-                        LOG.info(logStr + selectStmt.getTableRefs().get(i) 
-                            + " joinOp is full outer join or right outer join.");
+                        turnOffReason = selectStmt.getTableRefs().get(i) +
+                                " joinOp is full outer join or right outer join.";
                         aggTableValidate = false;
                         break;
                     }  

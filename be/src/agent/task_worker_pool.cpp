@@ -37,8 +37,12 @@
 #include "olap/olap_table.h"
 #include "olap/utils.h"
 #include "common/resource_tls.h"
+#include "common/status.h"
+#include "util/file_utils.h"
 #include "agent/cgroups_mgr.h"
 #include "service/backend_options.h"
+#include "runtime/exec_env.h"
+#include "runtime/snapshot_loader.h"
 #include "util/palo_metrics.h"
 
 using std::deque;
@@ -77,6 +81,7 @@ boost::posix_time::time_duration TaskWorkerPool::_wait_duration;
 
 TaskWorkerPool::TaskWorkerPool(
         const TaskWorkerType task_worker_type,
+        ExecEnv* env,
         const TMasterInfo& master_info) :
         _master_info(master_info),
         _worker_thread_condition_lock(_worker_thread_lock),
@@ -84,6 +89,7 @@ TaskWorkerPool::TaskWorkerPool(
     _agent_utils = new AgentUtils();
     _master_client = new MasterServerClient(_master_info, &_master_service_client_cache);
     _command_executor = new CommandExecutor();
+    _env = env;
     _backend.__set_host(BackendOptions::get_localhost());
     _backend.__set_be_port(config::be_port);
     _backend.__set_http_port(config::webserver_port);
@@ -162,9 +168,9 @@ void TaskWorkerPool::start() {
         _worker_count = config::upload_worker_count;
         _callback_function = _upload_worker_thread_callback;
         break;
-    case TaskWorkerType::RESTORE:
-        _worker_count = config::restore_worker_count;
-        _callback_function = _restore_worker_thread_callback;
+    case TaskWorkerType::DOWNLOAD:
+        _worker_count = config::download_worker_count;
+        _callback_function = _download_worker_thread_callback;
         break;
     case TaskWorkerType::MAKE_SNAPSHOT:
         _worker_count = config::make_snapshot_worker_count;
@@ -173,6 +179,10 @@ void TaskWorkerPool::start() {
     case TaskWorkerType::RELEASE_SNAPSHOT:
         _worker_count = config::release_snapshot_worker_count;
         _callback_function = _release_snapshot_thread_callback;
+        break;
+    case TaskWorkerType::MOVE:
+        _worker_count = 1;
+        _callback_function = _move_dir_thread_callback;
         break;
     default:
         // pass
@@ -1008,7 +1018,6 @@ AgentStatus TaskWorkerPool::_clone_copy(
         vector<string>* error_msgs) {
     AgentStatus status = PALO_SUCCESS;
 
-
     std::string token = _master_info.token;
 
     for (auto src_backend : clone_req.src_backends) {
@@ -1509,20 +1518,16 @@ void* TaskWorkerPool::_report_task_worker_thread_callback(void* arg_this) {
             lock_guard<MutexLock> task_signatures_lock(_s_task_signatures_lock);
             request.__set_tasks(_s_task_signatures);
         }
-        OLAP_LOG_INFO("master host: %s, port: %d",
-                      worker_pool_this->_master_info.network_address.hostname.c_str(),
-                      worker_pool_this->_master_info.network_address.port);
 
         PaloMetrics::report_task_requests_total.increment(1);
         TMasterResult result;
         AgentStatus status = worker_pool_this->_master_client->report(request, &result);
 
-        if (status == PALO_SUCCESS) {
-            OLAP_LOG_INFO("finish report task success. return code: %d",
-                          result.status.status_code);
-        } else {
+        if (status != PALO_SUCCESS) {
             PaloMetrics::report_task_requests_failed.increment(1);
-            OLAP_LOG_WARNING("finish report task failed. status: %d", status);
+            LOG(WARNING) << "finish report task failed. status:" << status << ", "
+                << "master host:" << worker_pool_this->_master_info.network_address.hostname << ", "
+                << "port:" << worker_pool_this->_master_info.network_address.port;
         }
 
 #ifndef BE_TEST
@@ -1570,12 +1575,11 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
         TMasterResult result;
         AgentStatus status = worker_pool_this->_master_client->report(request, &result);
 
-        if (status == PALO_SUCCESS) {
-            OLAP_LOG_INFO("finish report disk state success. return code: %d",
-                          result.status.status_code);
-        } else {
+        if (status != PALO_SUCCESS) {
             PaloMetrics::report_disk_requests_failed.increment(1);
-            OLAP_LOG_WARNING("finish report disk state failed. status: %d", status);
+            LOG(WARNING) << "finish report disk state failed. status:" << status << ", "
+                << "master host:" << worker_pool_this->_master_info.network_address.hostname << ", "
+                << "port:" << worker_pool_this->_master_info.network_address.port;
         }
 
 #ifndef BE_TEST
@@ -1638,12 +1642,11 @@ void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) 
         TMasterResult result;
         status = worker_pool_this->_master_client->report(request, &result);
 
-        if (status == PALO_SUCCESS) {
-            OLAP_LOG_INFO("finish report olap table success. return code: %d",
-                          result.status.status_code);
-        } else {
+        if (status != PALO_SUCCESS) {
             PaloMetrics::report_all_tablets_requests_failed.increment(1);
-            OLAP_LOG_WARNING("finish report olap table failed. status: %d", status);
+            LOG(WARNING) << "finish report olap table state failed. status:" << status << ", "
+                << "master host:" << worker_pool_this->_master_info.network_address.hostname << ", "
+                << "port:" << worker_pool_this->_master_info.network_address.port;
         }
 
 #ifndef BE_TEST
@@ -1678,58 +1681,30 @@ void* TaskWorkerPool::_upload_worker_thread_callback(void* arg_this) {
             upload_request = agent_task_req.upload_req;
             worker_pool_this->_tasks.pop_front();
         }
-        // Try to register to cgroups_mgr
-        CgroupsMgr::apply_system_cgroup();
-        OLAP_LOG_INFO("get upload task, signature: %ld", agent_task_req.signature);
 
-        TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
-        TStatus task_status;
+        OLAP_LOG_INFO("get upload task, signature: %ld, job id: %d",
+                      agent_task_req.signature, upload_request.job_id);
 
-        // Write remote source info into file by json format
-        pthread_t tid = pthread_self();
-        time_t now = time(NULL);
-        stringstream label_stream;
-        label_stream << tid << "_" << now;
-        string label(label_stream.str());
-        string info_file_path(config::agent_tmp_dir + "/" + label);
-        bool ret = worker_pool_this->_agent_utils->write_json_to_file(
-                upload_request.remote_source_properties,
-                info_file_path);
-        if (!ret) {
+        std::map<int64_t, std::vector<std::string>> tablet_files;
+        SnapshotLoader* loader = worker_pool_this->_env->snapshot_loader();
+        Status status = loader->upload(
+                upload_request.src_dest_map,
+                upload_request.broker_addr,
+                upload_request.broker_prop,
+                upload_request.job_id,
+                &tablet_files);
+
+        TStatusCode::type status_code = TStatusCode::OK; 
+        std::vector<string> error_msgs;
+        if (!status.ok()) {
             status_code = TStatusCode::RUNTIME_ERROR;
-            error_msgs.push_back("Write remote source info to file failed. Path:" +
-                                 info_file_path);
-            OLAP_LOG_WARNING("Write remote source info to file failed. Path: %s",
-                             info_file_path.c_str());
+            OLAP_LOG_WARNING("upload failed. job id: %ld, msg: %s",
+                upload_request.job_id,
+                status.get_error_msg().c_str());
+            error_msgs.push_back(status.get_error_msg());
         }
 
-        // Upload files to remote source
-        stringstream local_file_path_stream;
-        local_file_path_stream << upload_request.local_file_path;
-        if (upload_request.__isset.tablet_id) {
-            local_file_path_stream << "/" << upload_request.tablet_id;
-        }
-        if (status_code == TStatusCode::OK) {
-            string command = "sh " + config::trans_file_tool_path + " " + label + " upload " +
-                         local_file_path_stream.str() + " " + upload_request.remote_file_path +
-                         " " + info_file_path + " " + "file_list";
-            OLAP_LOG_INFO("Upload cmd: %s", command.c_str());
-            string errmsg;
-            ret = worker_pool_this->_agent_utils->exec_cmd(command, &errmsg);
-            if (!ret) {
-                status_code = TStatusCode::RUNTIME_ERROR;
-                error_msgs.push_back(errmsg);
-                OLAP_LOG_WARNING("Upload file failed. Error: %s", errmsg.c_str());
-            }
-        }
-
-        // Delete tmp file
-        boost::filesystem::path file_path(info_file_path);
-        if (boost::filesystem::exists(file_path)) {
-            boost::filesystem::remove_all(file_path);
-        }
-
+        TStatus task_status;
         task_status.__set_status_code(status_code);
         task_status.__set_error_msgs(error_msgs);
 
@@ -1738,23 +1713,27 @@ void* TaskWorkerPool::_upload_worker_thread_callback(void* arg_this) {
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         finish_task_request.__set_task_status(task_status);
+        finish_task_request.__set_tablet_files(tablet_files);
 
         worker_pool_this->_finish_task(finish_task_request);
         worker_pool_this->_remove_task_info(agent_task_req.task_type, agent_task_req.signature, "");
+
+        OLAP_LOG_INFO("finished upload task, signature: %ld, job id: %ld",
+                      agent_task_req.signature, upload_request.job_id);
 #ifndef BE_TEST
     }
 #endif
     return (void*)0;
 }
 
-void* TaskWorkerPool::_restore_worker_thread_callback(void* arg_this) {
+void* TaskWorkerPool::_download_worker_thread_callback(void* arg_this) {
     TaskWorkerPool* worker_pool_this = (TaskWorkerPool*)arg_this;
 
 #ifndef BE_TEST
     while (true) {
 #endif
         TAgentTaskRequest agent_task_req;
-        TRestoreReq restore_request;
+        TDownloadReq download_request;
         {
             lock_guard<MutexLock> worker_thread_lock(worker_pool_this->_worker_thread_lock);
             while (worker_pool_this->_tasks.empty()) {
@@ -1762,169 +1741,51 @@ void* TaskWorkerPool::_restore_worker_thread_callback(void* arg_this) {
             }
 
             agent_task_req = worker_pool_this->_tasks.front();
-            restore_request = agent_task_req.restore_req;
+            download_request = agent_task_req.download_req;
             worker_pool_this->_tasks.pop_front();
         }
         // Try to register to cgroups_mgr
         CgroupsMgr::apply_system_cgroup();
-        OLAP_LOG_INFO("get restore task, signature: %ld", agent_task_req.signature);
+        OLAP_LOG_INFO("get download task, signature: %ld, job id: %ld",
+                      agent_task_req.signature, download_request.job_id);
 
         TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
+        std::vector<string> error_msgs;
         TStatus task_status;
 
-        // Write remote source info into file by json format
-        pthread_t tid = pthread_self();
-        time_t now = time(NULL);
-        stringstream label_stream;
-        label_stream << tid << "_" << now << "_" << restore_request.tablet_id;
-        string label(label_stream.str());
-        string info_file_path(config::agent_tmp_dir + "/" + label);
-        bool ret = worker_pool_this->_agent_utils->write_json_to_file(
-                restore_request.remote_source_properties,
-                info_file_path);
-        if (!ret) {
+        // TODO: download
+        std::vector<int64_t> downloaded_tablet_ids;
+        SnapshotLoader* loader = worker_pool_this->_env->snapshot_loader();
+        Status status = loader->download(
+                download_request.src_dest_map,
+                download_request.broker_addr,
+                download_request.broker_prop,
+                download_request.job_id,
+                &downloaded_tablet_ids);
+
+        if (!status.ok()) {
             status_code = TStatusCode::RUNTIME_ERROR;
-            error_msgs.push_back("Write remote source info to file failed. Path:" +
-                                 info_file_path);
-            OLAP_LOG_WARNING("Write remote source info to file failed. Path: %s",
-                             info_file_path.c_str());
-        }
-
-        // Get local disk to restore from olap
-        string local_shard_root_path;
-        if (status_code == TStatusCode::OK) {
-            OLAPStatus olap_status = worker_pool_this->_command_executor->obtain_shard_path(
-                    TStorageMedium::HDD, &local_shard_root_path);
-            if (olap_status != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("clone get local root path failed. signature: %ld",
-                                 agent_task_req.signature);
-                error_msgs.push_back("clone get local root path failed.");
-                status_code = TStatusCode::RUNTIME_ERROR;
-            }
-        }
-
-        stringstream local_file_path_stream;
-        local_file_path_stream << local_shard_root_path << "/" << restore_request.tablet_id << "/";
-        string local_file_path(local_file_path_stream.str());
-
-        // Download files from remote source
-        if (status_code == TStatusCode::OK) {
-            string command = "sh " + config::trans_file_tool_path + " " + label + " download " +
-                         local_file_path + " " + restore_request.remote_file_path +
-                         " " + info_file_path;
-            OLAP_LOG_INFO("Download cmd: %s", command.c_str());
-            string errmsg;
-            ret = worker_pool_this->_agent_utils->exec_cmd(command, &errmsg);
-            if (!ret) {
-                status_code = TStatusCode::RUNTIME_ERROR;
-                error_msgs.push_back(errmsg);
-                OLAP_LOG_WARNING("Download file failed. Error: %s", errmsg.c_str());
-            }
-        }
-
-        // Delete tmp file
-        boost::filesystem::path file_path(info_file_path);
-        if (boost::filesystem::exists(file_path)) {
-            boost::filesystem::remove_all(file_path);
-        }
-
-        // Change file name
-        boost::filesystem::path blocal_file_path(local_file_path);
-        if (status_code == TStatusCode::OK && boost::filesystem::exists(blocal_file_path)) {
-            boost::filesystem::recursive_directory_iterator end_iter;
-            for (boost::filesystem::recursive_directory_iterator file_path(blocal_file_path);
-                    file_path != end_iter; ++file_path) {
-                if (boost::filesystem::is_directory(*file_path)) {
-                    continue;
-                }
-
-                // Check file name
-                string file_path_str = file_path->path().string();
-                string file_name = file_path_str;
-                uint32_t slash_pos = file_path_str.rfind('/');
-                if (slash_pos != -1) {
-                    file_name = file_path_str.substr(slash_pos + 1);
-                }
-                uint32_t file_path_str_len = file_name.size();
-                if (file_path_str_len <= 4) {
-                    continue;
-                }
-                string file_path_suffix = file_name.substr(file_path_str_len - 4);
-                if (file_path_suffix != ".hdr" && file_path_suffix != ".idx" &&
-                        file_path_suffix != ".dat") {
-                    continue;
-                }
-
-                // Get new file name
-                stringstream new_file_name_stream;
-                char sperator = '_';
-                if (file_path_suffix == ".hdr") {
-                    sperator = '.';
-                }
-                uint32_t sperator_pos = file_name.find(sperator);
-                new_file_name_stream << restore_request.tablet_id << file_name.substr(sperator_pos);
-                string new_file_path_str = file_path_str.substr(0, slash_pos) + "/" +
-                                           new_file_name_stream.str();
-
-                OLAP_LOG_INFO("change file name %s to %s",
-                        file_path_str.c_str(), new_file_path_str.c_str());
-                // Change file name to new one
-                boost::filesystem::path new_file_path(new_file_path_str);
-                boost::filesystem::rename(*file_path, new_file_path);
-            }
-        }
-
-        // Load olap
-        if (status_code == TStatusCode::OK) {
-            OLAPStatus load_header_status =
-                    worker_pool_this->_command_executor->load_header(
-                            local_shard_root_path,
-                            restore_request.tablet_id,
-                            restore_request.schema_hash);
-            if (load_header_status != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("load header failed. local_shard_root_path: %s, tablet_id: %d "
-                                 "schema_hash: %d, status: %d, signature: %ld",
-                                 local_shard_root_path.c_str(), restore_request.tablet_id,
-                                 restore_request.schema_hash, load_header_status,
-                                 agent_task_req.signature);
-                error_msgs.push_back("load header failed.");
-                status_code = TStatusCode::RUNTIME_ERROR;;
-            }
-        }
-
-        // Get tablets info
-        vector<TTabletInfo> finish_tablet_infos;
-        if (status_code == TStatusCode::OK) {
-            TTabletInfo tablet_info;
-            AgentStatus get_tablet_info_status = worker_pool_this->_get_tablet_info(
-                    restore_request.tablet_id,
-                    restore_request.schema_hash,
-                    agent_task_req.signature,
-                    &tablet_info);
-
-            if (get_tablet_info_status != PALO_SUCCESS) {
-                OLAP_LOG_WARNING("Restore success, but get new tablet info failed."
-                                 "tablet_id: %ld, schema_hash: %ld, signature: %ld.",
-                                 restore_request.tablet_id, restore_request.schema_hash,
-                                 agent_task_req.signature);
-            } else {
-                finish_tablet_infos.push_back(tablet_info);
-            }
+            OLAP_LOG_WARNING("download failed. job id: %ld, msg: %s",
+                download_request.job_id,
+                status.get_error_msg().c_str());
+            error_msgs.push_back(status.get_error_msg());
         }
 
         task_status.__set_status_code(status_code);
         task_status.__set_error_msgs(error_msgs);
 
         TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_finish_tablet_infos(finish_tablet_infos);
         finish_task_request.__set_backend(worker_pool_this->_backend);
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         finish_task_request.__set_task_status(task_status);
+        finish_task_request.__set_downloaded_tablet_ids(downloaded_tablet_ids);
 
         worker_pool_this->_finish_task(finish_task_request);
         worker_pool_this->_remove_task_info(agent_task_req.task_type, agent_task_req.signature, "");
+
+        OLAP_LOG_INFO("finished download task, signature: %ld, job id: %d",
+                      agent_task_req.signature, download_request.job_id);
 #ifndef BE_TEST
     }
 #endif
@@ -1958,6 +1819,7 @@ void* TaskWorkerPool::_make_snapshot_thread_callback(void* arg_this) {
         TStatus task_status;
 
         string snapshot_path;
+        std::vector<string> snapshot_files;
         OLAPStatus make_snapshot_status = worker_pool_this->_command_executor->make_snapshot(
                 snapshot_request, &snapshot_path);
         if (make_snapshot_status != OLAP_SUCCESS) {
@@ -1975,6 +1837,26 @@ void* TaskWorkerPool::_make_snapshot_thread_callback(void* arg_this) {
                           snapshot_request.tablet_id, snapshot_request.schema_hash,
                           snapshot_request.version, snapshot_request.version_hash,
                           snapshot_path.c_str());
+
+            if (snapshot_request.__isset.list_files) {
+                // list and save all snapshot files
+                // snapshot_path like: data/snapshot/20180417205230.1
+                // we need to add subdir: tablet_id/schema_hash/
+                std::stringstream ss;
+                ss << snapshot_path << "/" << snapshot_request.tablet_id
+                    << "/" << snapshot_request.schema_hash << "/";
+                Status st = FileUtils::scan_dir(ss.str(), &snapshot_files); 
+                if (!st.ok()) {
+                    status_code = TStatusCode::RUNTIME_ERROR;
+                    OLAP_LOG_WARNING("make_snapshot failed. tablet_id: %ld, schema_hash: %ld, version: %d,"
+                        "version_hash: %ld, list file failed: %s",
+                        snapshot_request.tablet_id, snapshot_request.schema_hash,
+                        snapshot_request.version, snapshot_request.version_hash,
+                        st.get_error_msg().c_str());
+                    error_msgs.push_back("make_snapshot failed. list file failed: " +
+                                 st.get_error_msg());
+                }
+            }
         }
 
         task_status.__set_status_code(status_code);
@@ -1985,6 +1867,7 @@ void* TaskWorkerPool::_make_snapshot_thread_callback(void* arg_this) {
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
         finish_task_request.__set_snapshot_path(snapshot_path);
+        finish_task_request.__set_snapshot_files(snapshot_files);
         finish_task_request.__set_task_status(task_status);
 
         worker_pool_this->_finish_task(finish_task_request);
@@ -2087,4 +1970,102 @@ AgentStatus TaskWorkerPool::_get_tablet_info(
     }
     return status;
 }
+
+void* TaskWorkerPool::_move_dir_thread_callback(void* arg_this) {
+    TaskWorkerPool* worker_pool_this = (TaskWorkerPool*)arg_this;
+
+#ifndef BE_TEST
+    while (true) {
+#endif
+        TAgentTaskRequest agent_task_req;
+        TMoveDirReq move_dir_req;
+        {
+            lock_guard<MutexLock> worker_thread_lock(worker_pool_this->_worker_thread_lock);
+            while (worker_pool_this->_tasks.empty()) {
+                worker_pool_this->_worker_thread_condition_lock.wait();
+            }
+
+            agent_task_req = worker_pool_this->_tasks.front();
+            move_dir_req =  agent_task_req.move_dir_req;
+            worker_pool_this->_tasks.pop_front();
+        }
+        // Try to register to cgroups_mgr
+        CgroupsMgr::apply_system_cgroup();
+        OLAP_LOG_INFO("get move dir task, signature: %ld, job id: %ld",
+                      agent_task_req.signature, move_dir_req.job_id);
+
+        TStatusCode::type status_code = TStatusCode::OK;
+        vector<string> error_msgs;
+        TStatus task_status;
+
+        // TODO: move dir
+        AgentStatus status = worker_pool_this->_move_dir(
+                    move_dir_req.tablet_id,
+                    move_dir_req.schema_hash,
+                    move_dir_req.src,
+                    move_dir_req.job_id,
+                    true /* TODO */,
+                    &error_msgs);
+
+        if (status != PALO_SUCCESS) {
+            status_code = TStatusCode::RUNTIME_ERROR;
+            OLAP_LOG_WARNING("failed to move dir: %s, tablet id: %ld, signature: %ld, job id: %ld",
+                    move_dir_req.src.c_str(), move_dir_req.tablet_id, agent_task_req.signature,
+                    move_dir_req.job_id);
+        } else {
+            OLAP_LOG_INFO("finished to move dir: %s, tablet id: %ld, signature: %ld, job id: %ld",
+                    move_dir_req.src.c_str(), move_dir_req.tablet_id, agent_task_req.signature,
+                    move_dir_req.job_id);
+        }
+
+        task_status.__set_status_code(status_code);
+        task_status.__set_error_msgs(error_msgs);
+
+        TFinishTaskRequest finish_task_request;
+        finish_task_request.__set_backend(worker_pool_this->_backend);
+        finish_task_request.__set_task_type(agent_task_req.task_type);
+        finish_task_request.__set_signature(agent_task_req.signature);
+        finish_task_request.__set_task_status(task_status);
+
+        worker_pool_this->_finish_task(finish_task_request);
+        worker_pool_this->_remove_task_info(agent_task_req.task_type, agent_task_req.signature, "");
+
+#ifndef BE_TEST
+    }
+#endif
+    return (void*)0;
+}
+
+AgentStatus TaskWorkerPool::_move_dir(
+     const TTabletId tablet_id,
+     const TSchemaHash schema_hash,
+     const std::string& src,
+     int64_t job_id,
+     bool overwrite,
+     std::vector<std::string>* error_msgs) {
+
+    SmartOLAPTable tablet = _command_executor->get_table(
+                tablet_id, schema_hash);
+    if (tablet.get() == NULL) {
+        OLAP_LOG_INFO("failed to get tablet: %ld, schema hash: %d",
+                tablet_id, schema_hash);
+        error_msgs->push_back("failed to get tablet");
+        return PALO_TASK_REQUEST_ERROR;
+    }
+
+    std::string dest_tablet_dir = tablet->construct_dir_path();
+
+    SnapshotLoader* loader = _env->snapshot_loader();
+    Status status = loader->move(src, dest_tablet_dir, job_id, overwrite);
+
+    if (!status.ok()) {
+        OLAP_LOG_WARNING("move failed. job id: %ld, msg: %s",
+            job_id, status.get_error_msg().c_str());
+        error_msgs->push_back(status.get_error_msg());
+        return PALO_INTERNAL_ERROR;
+    }
+
+    return PALO_SUCCESS;
+}
+
 }  // namespace palo

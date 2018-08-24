@@ -513,19 +513,19 @@
         TO example_rollup_index;
 
     2. 向example_rollup_index的col1后添加一个value列new_col(非聚合模型)
-     	  ALTER TABLE example_db.my_table   
-     	  ADD COLUMN new_col INT DEFAULT "0" AFTER col1    
-     	  TO example_rollup_index;
+          ALTER TABLE example_db.my_table   
+          ADD COLUMN new_col INT DEFAULT "0" AFTER col1    
+          TO example_rollup_index;
 
     3. 向example_rollup_index的col1后添加一个key列new_col(聚合模型)
-     	  ALTER TABLE example_db.my_table   
-     	  ADD COLUMN new_col INT DEFAULT "0" AFTER col1    
-     	  TO example_rollup_index;
+          ALTER TABLE example_db.my_table   
+          ADD COLUMN new_col INT DEFAULT "0" AFTER col1    
+          TO example_rollup_index;
 
     4. 向example_rollup_index的col1后添加一个value列new_col SUM聚合类型(聚合模型)
-     	  ALTER TABLE example_db.my_table   
-     	  ADD COLUMN new_col INT SUM DEFAULT "0" AFTER col1    
-     	  TO example_rollup_index;
+          ALTER TABLE example_db.my_table   
+          ADD COLUMN new_col INT SUM DEFAULT "0" AFTER col1    
+          TO example_rollup_index;
     
     5. 向 example_rollup_index 添加多列(聚合模型)
         ALTER TABLE example_db.my_table
@@ -687,8 +687,8 @@
         重命名数据库后，如需要，请使用 REVOKE 和 GRANT 命令修改相应的用户权限。 
 
 ## example
-    1. 设置指定数据库数据量配额为 1GB
-        ALTER DATABASE example_db SET DATA QUOTA 1073741824;
+    1. 设置指定数据库数据量配额为 10 TB
+        ALTER DATABASE example_db SET DATA QUOTA 10995116277760;
         
     2. 将数据库额 example_db 重命名为 example_db2
         ALTER DATABASE example_db RENAME example_db2;
@@ -696,48 +696,106 @@
 ## keyword
     ALTER,DATABASE,RENAME
     
-# BACKUP
+# CREATE REPOSITORY
 ## description
-    该语句用于备份指定数据库下的数据。该命令为异步操作。提交成功后，需通过 SHOW BACKUP 命令查看进度。
+    该语句用于创建仓库。仓库用于属于备份或恢复。仅 root 或 superuser 用户可以创建仓库。
     语法：
-        BACKUP LABEL [db_name.label] [backup_objs] INTO "remote_path"
-        PROPERTIES ("key"="value", ...)
-        
-        backup_objs: 需要备份的表名或分区名
-        语法：
-            (table_name[.partition_name], ...)
+        CREATE [READ ONLY] REPOSITORY `repo_name`
+        WITH BROKER `broker_name`
+        ON LOCATION `repo_location`
+        PROPERTIES ("key"="value", ...);
             
     说明：
-        1. 同一数据库下只能有一个正在执行的 BACKUP 任务。
-        2. 如果 backup_objs 中不写 partition_name，则默认备份该 table 下所有分区。
-           如果完全不写 backup_objs，则默认备份整个 database。
-        3. PROPERTIES 需要填写访问远端备份系统所需信息。
-        4. 统一数据库下，BACKUP 任务的 label 不能重复。
-
+        1. 仓库的创建，依赖于已存在的 broker
+        2. 如果是只读仓库，则只能在仓库上进行恢复。如果不是，则可以进行备份和恢复操作。
+        3. 根据 broker 的不同类型，PROPERTIES 有所不同，具体见示例。
+        
 ## example
-    1. 备份 example_db 下的所有数据，备份到 Hdfs 路径：/user/cmy/backup/ 下
-        BACKUP LABEL example_db.backup_label1
-        INTO "/dir/backup/" 
-        PROPERTIES(
-        "server_type" = "hadoop",
-        "host" = "hdfs://host",
-        "port" = "port",
-        "user" = "user",
-        "password" = "passwd",
-        "opt_properties" = ""
+    1. 创建名为 bos_repo 的仓库，依赖 BOS broker "bos_broker"，数据根目录为：bos://palo_backup
+        CREATE REPOSITORY `bos_repo`
+        WITH BROKER `bos_broker `
+        ON LOCATION "bos://palo_backup"
+        PROPERTIES
+        (
+            "bos_endpoint" = "http://gz.bcebos.com",
+            "bos_accesskey" = "069fc2786e664e63a5f111111114ddbs22",
+            "bos_secret_accesskey"="70999999999999de274d59eaa980a"
+        );
+     
+    2. 创建和示例 1 相同的仓库，但属性为只读：
+        CREATE READ ONLY REPOSITORY `bos_repo`
+        WITH BROKER `bos_broker `
+        ON LOCATION "bos://palo_backup"
+        PROPERTIES
+        (
+            "bos_endpoint" = "http://gz.bcebos.com",
+            "bos_accesskey" = "069fc2786e664e63a5f111111114ddbs22",
+            "bos_secret_accesskey"="70999999999999de274d59eaa980a"
+        );
+
+    3. 创建名为 hdfs_repo 的仓库，依赖 Baidu hdfs broker "hdfs_broker"，数据根目录为：hdfs://hadoop-name-node:54310/path/to/repo/
+        CREATE REPOSITORY `hdfs_repo`
+        WITH BROKER `hdfs_broker `
+        ON LOCATION "hdfs://hadoop-name-node:54310/path/to/repo/"
+        PROPERTIES
+        (
+            "username" = "user",
+            "password" = "password"
         );
         
-    2. 备份 example_db 下的表 example_tbl，备份到 Hdfs 路径：/user/cmy/backup/ 下
-        BACKUP LABEL example_db.backup_label1
-        (example_tbl)
-        INTO "/dir/backup/" 
-        PROPERTIES (
-        "server_type" = "hadoop",
-        "host" = "hdfs://host",
-        "port" = "port",
-        "user" = "user",
-        "password" = "passwd",
-        "opt_properties" = ""
+## keyword
+    CREATE REPOSITORY
+
+# DROP REPOSITORY
+## description
+    该语句用于删除一个已创建的仓库。仅 root 或 superuser 用户可以删除仓库。
+    语法：
+        DROP REPOSITORY `repo_name`;
+            
+    说明：
+        1. 删除仓库，仅仅是删除该仓库在 Palo 中的映射，不会删除实际的仓库数据。删除后，可以再次通过指定相同的 broker 和 LOCATION 映射到该仓库。 
+        
+## example
+    1. 删除名为 bos_repo 的仓库：
+        DROP REPOSITORY `bos_repo`;
+            
+## keyword
+    DROP REPOSITORY
+
+# BACKUP
+## description
+    该语句用于备份指定数据库下的数据。该命令为异步操作。提交成功后，需通过 SHOW BACKUP 命令查看进度。仅支持备份 OLAP 类型的表。
+    语法：
+        BACKUP SNAPSHOT [db_name].{snapshot_name}
+        TO `repository_name`
+        ON (
+            `table_name` [PARTITION (`p1`, ...)],
+            ...
+        )
+        PROPERTIES ("key"="value", ...);
+            
+    说明：
+        1. 同一数据库下只能有一个正在执行的 BACKUP 或 RESTORE 任务。
+        2. ON 子句中标识需要备份的表和分区。如果不指定分区，则默认备份该表的所有分区。
+        3. PROPERTIES 目前支持以下属性：
+                "type" = "full"：表示这是一次全量更新（默认）。
+                "timeout" = "3600"：任务超时时间，默认为一天。单位秒。
+
+## example
+
+    1. 全量备份 example_db 下的表 example_tbl 到仓库 example_repo 中：
+        BACKUP SNAPSHOT example_db.snapshot_label1
+        TO example_repo
+        ON (example_tbl)
+        PROPERTIES ("type" = "full");
+        
+    2. 全量备份 example_db 下，表 example_tbl 的 p1, p2 分区，以及表 example_tbl2 到仓库 example_repo 中：
+        BACKUP SNAPSHOT example_db.snapshot_label2
+        TO example_repo
+        ON 
+        (
+            example_tbl PARTITION (p1,p2),
+            example_tbl2
         );
 
 ## keyword
@@ -746,48 +804,49 @@
 # RESTORE
 ## description
     1. RESTORE
-    该语句用于将之前通过 BACKUP 命令备份的数据，恢复到指定数据库下。该命令为异步操作。提交成功后，需通过 SHOW RESTORE 命令查看进度。
+    该语句用于将之前通过 BACKUP 命令备份的数据，恢复到指定数据库下。该命令为异步操作。提交成功后，需通过 SHOW RESTORE 命令查看进度。仅支持恢复 OLAP 类型的表。
     语法：
-        RESTORE LABEL [db_name.label] [restore_objs] FROM "remote_path"
-        PROPERTIES ("key"="value", ...)
-        
-        restore_objs: 需要恢复的表名或分区名
-        语法：
-            (table_name[.partition_name] [AS new_table_name[.partition_name]], ...)
+        RESTORE SNAPSHOT [db_name].{snapshot_name}
+        FROM `repository_name`
+        ON (
+            `table_name` [PARTITION (`p1`, ...)] [AS `tbl_alias`],
+            ...
+        )
+        PROPERTIES ("key"="value", ...);
             
     说明：
-        1. 同一数据库下只能有一个正在执行的 RESTORE 任务。
-        2. 需恢复的 database 已经创建，并且在备份路径中存在
-        3. 如果 restore_objs 中不写 partition_name，则默认恢复该 table 下所有分区。
-           如果完全不写 restore_objs，则默认恢复所有备份过的数据。支持重命名需要恢复的表名
-        4. remote_path 需指定到之前 BACKUP 任务中，remote_path/backup_label/ 下。
-        5. PROPERTIES 需要填写访问远端备份系统所需信息。
-        6. 同一数据库下，RESTORE 任务的 label 不能重复。
+        1. 同一数据库下只能有一个正在执行的 BACKUP 或 RESTORE 任务。
+        2. ON 子句中标识需要恢复的表和分区。如果不指定分区，则默认恢复该表的所有分区。所指定的表和分区必须已存在于仓库备份中。
+        3. 可以通过 AS 语句将仓库中备份的表名恢复为新的表。但新表名不能已存在于数据库中。分区名称不能修改。
+        4. 可以将仓库中备份的表恢复替换数据库中已有的同名表，但须保证两张表的表结构完全一致。表结构包括：表名、列、分区、Rollup等等。
+        5. 可以指定恢复表的部分分区，系统会检查分区 Range 是否能够匹配。
+        6. PROPERTIES 目前支持以下属性：
+                "backup_timestamp" = "2018-05-04-16-45-08"：指定了恢复对应备份的哪个时间版本，必填。该信息可以通过 `SHOW SNAPSHOT ON repo;` 语句获得。
+                "replication_num" = "3"：指定恢复的表或分区的副本数。默认为3。若恢复已存在的表或分区，则副本数必须和已存在表或分区的副本数相同。同时，必须有足够的 host 容纳多个副本。
+                "timeout" = "3600"：任务超时时间，默认为一天。单位秒。
 
 ## example
-    1. 恢复 Hdfs 路径：/user/cmy/backup/backup_label1 下所有备份数据，恢复到 example_db 中
-        RESTORE LABEL example_db.restore_label1
-        FROM "/dir/backup/backup_label1" 
-        PROPERTIES(
-        "server_type" = "hadoop",
-        "host" = "hdfs://host",
-        "port" = "port",
-        "user" = "user",
-        "password" = "passwd",
-        "opt_properties" = ""
+    1. 从 example_repo 中恢复备份 snapshot_1 中的表 backup_tbl 到数据库 example_db1，时间版本为 "2018-05-04-16-45-08"。恢复为 1 个副本：
+        RESTORE SNAPSHOT example_db1.`snapshot_1 `
+        FROM `example_repo`
+        ON ( `backup_tbl` )
+        PROPERTIES
+        (
+            "backup_timestamp"="2018-05-04-16-45-08",
+            "replication_num" = "1"
         );
         
-    2. 恢复 Hdfs 路径：/user/cmy/backup/backup_label1 下表 example_tbl 的数据。
-        RESTORE LABEL example_db.restore_label1
-        (example_tbl)
-        FROM "/dir/backup/backup_label1" 
-        PROPERTIES (
-        "server_type" = "hadoop",
-        "host" = "hdfs://host",
-        "port" = "port",
-        "user" = "user",
-        "password" = "passwd",
-        "opt_properties" = ""
+    2. 从 example_repo 中恢复备份 snapshot_2 中的表 backup_tbl 的分区 p1,p2，以及表 backup_tbl2 到数据库 example_db1，并重命名为 new_tbl，时间版本为 "2018-05-04-17-11-01"。默认恢复为 3 个副本：
+        RESTORE SNAPSHOT example_db1.`snapshot_2 `
+        FROM `example_repo `
+        ON
+        (
+            `backup_tbl` PARTITION (`p1`, `p2`) AS `backup_tbl2`,
+            `backup_tbl2`
+        )
+        PROPERTIES
+        (
+            "backup_timestamp"="2018-05-04-17-11-01"
         );
 
 ## keyword
@@ -811,6 +870,9 @@
     该语句用于取消一个正在进行的 RESTORE 任务。
     语法：
         CANCEL RESTORE FROM db_name;
+    
+    注意：
+        当取消处于 COMMIT 或之后阶段的恢复左右时，可能导致被恢复的表无法访问。此时只能通过再次执行恢复作业进行数据恢复。
 
 ## example
     1. 取消 example_db 下的 RESTORE 任务。
@@ -825,18 +887,18 @@
     通过聚合来不断的减少数据量，以此来实现加快查询的目的，基于它到的是一个估算结果，误差大概在1%左右
     hll列是通过其它列或者导入数据里面的数据生成的，导入的时候通过hll_hash函数来指定数据中哪一列用于生成hll列
     它常用于替代count distinct，通过结合rollup在业务上用于快速计算uv等
-	
-	  相关函数:
-	
-	  HLL_UNION_AGG(hll)
-	  此函数为聚合函数，用于计算满足条件的所有数据的基数估算。
-	
-	  HLL_CARDINALITY(hll)
-	  此函数用于计算单条hll列的基数估算
-	
-	  HLL_HASH(column_name)
-	  生成HLL列类型，用于insert或导入的时候，导入的使用见相关说明
-	
+    
+      相关函数:
+    
+      HLL_UNION_AGG(hll)
+      此函数为聚合函数，用于计算满足条件的所有数据的基数估算。
+    
+      HLL_CARDINALITY(hll)
+      此函数用于计算单条hll列的基数估算
+    
+      HLL_HASH(column_name)
+      生成HLL列类型，用于insert或导入的时候，导入的使用见相关说明
+    
 ## example
     1. 首先创建一张含有hll列的表
         create table test(
@@ -848,7 +910,7 @@
         set1 hll hll_union, 
         set2 hll hll_union) 
         distributed by hash(id) buckets 32;
-		
+        
     2. 导入数据，导入的方式见相关help curl
 
       a. 使用表中的列生成hll列
@@ -862,32 +924,33 @@
 
       a. 创建一个rollup，让hll列产生聚合，
         alter table test add rollup test_rollup(date, set1);
-		
+        
       b. 创建另外一张专门计算uv的表，然后insert数据）
-	
+    
         create table test_uv(
         time date,
         uv_set hll hll_union)
         distributed by hash(id) buckets 32;
 
         insert into test_uv select date, set1 from test;
-		
+        
       c. 创建另外一张专门计算uv的表，然后insert并通过hll_hash根据test其它非hll列生成hll列
       
         create table test_uv(
         time date,
         id_set hll hll_union)
         distributed by hash(id) buckets 32;
-		
+        
         insert into test_uv select date, hll_hash(id) from test;
-			
+            
     4. 查询，hll列不允许直接查询它的原始值，可以通过配套的函数进行查询
-	
+    
       a. 求总uv
         select HLL_UNION_AGG(uv_set) from test_uv;
-			
+            
       b. 求每一天的uv
         select HLL_CARDINALITY(uv_set) from test_uv;
 
 ## keyword
-	HLL
+    HLL
+

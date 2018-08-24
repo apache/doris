@@ -731,7 +731,7 @@ public class StmtExecutor {
         } catch (Exception e) {
             // Maybe our bug
             LOG.warn("DDL statement(" + originStmt + ") process failed.", e);
-            context.getState().setError("Maybe palo bug, please info palo RD.");
+            context.getState().setError("Unexpected exception: " + e.getMessage());
         }
     }
 

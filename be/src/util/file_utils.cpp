@@ -22,15 +22,19 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 #include <dirent.h>
 
 #include <sstream>
 #include <algorithm>
+#include <iomanip>
 
 #include <boost/filesystem.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/trim.hpp>
+
+#include <openssl/md5.h>
 
 #include "olap/file_helper.h"
 #include "util/defer_op.h"
@@ -212,6 +216,34 @@ Status FileUtils::copy_file(const std::string& src_path, const std::string& dest
         offset += to_read;
         src_length -= to_read;
     }
+    return Status::OK;
+}
+
+Status FileUtils::md5sum(const std::string& file, std::string* md5sum) {
+    int fd = open(file.c_str(), O_RDONLY);
+    if (fd < 0) {
+        return Status("failed to open file");
+    }
+    
+    struct stat statbuf;
+    if (fstat(fd, &statbuf) < 0) {
+        close(fd);
+        return Status("failed to stat file");
+    }
+    size_t file_len = statbuf.st_size;
+    void* buf = mmap(0, file_len, PROT_READ, MAP_SHARED, fd, 0);
+
+    unsigned char result[MD5_DIGEST_LENGTH];
+    MD5((unsigned char*) buf, file_len, result);
+    munmap(buf, file_len); 
+
+    std::stringstream ss;
+    for (int32_t i = 0; i < MD5_DIGEST_LENGTH; i++) {
+        ss << std::setfill('0') << std::setw(2) << std::hex << (int) result[i];
+    }
+    ss >> *md5sum;
+    
+    close(fd);
     return Status::OK;
 }
 

@@ -274,6 +274,9 @@ Status SchemaColumnsScanner::get_new_desc() {
     if (NULL != _param->user) {
         desc_params.__set_user(*(_param->user));
     }
+    if (NULL != _param->user_ip) {
+        desc_params.__set_user_ip(*(_param->user_ip));
+    }
 
     if (NULL != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(FrontendHelper::describe_table(*(_param->ip),
@@ -294,6 +297,9 @@ Status SchemaColumnsScanner::get_new_table() {
     }
     if (NULL != _param->user) {
         table_params.__set_user(*(_param->user));
+    }
+    if (NULL != _param->user_ip) {
+        table_params.__set_user_ip(*(_param->user_ip));
     }
 
     if (NULL != _param->ip && 0 != _param->port) {

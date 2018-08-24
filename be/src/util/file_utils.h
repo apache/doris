@@ -61,6 +61,9 @@ public:
 
     // copy the file from src path to dest path, it will overwrite the existing files
     static Status copy_file(const std::string& src_path, const std::string& dest_path);
+
+    // calc md5sum of a local file
+    static Status md5sum(const std::string& file, std::string* md5sum);
 };
 
 }

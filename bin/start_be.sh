@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-
 # Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -54,11 +53,11 @@ rm -f ${UDF_RUNTIME_DIR}/*
 pidfile=$PID_DIR/be.pid
 
 if [ -f $pidfile ]; then
-    if flock -nx $pidfile -c "ls > /dev/null 2>&1"; then
-        rm $pidfile
-    else
+    if kill -0 $(cat $pidfile); then
         echo "Backend running as process `cat $pidfile`. Stop it first."
         exit 1
+    else
+        rm $pidfile
     fi
 fi
  
@@ -72,4 +71,3 @@ else
 fi
 
 nohup $LIMIT ${PALO_HOME}/lib/palo_be "$@" >>$LOG_DIR/be.out 2>&1 </dev/null &
-echo $! > $pidfile

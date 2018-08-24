@@ -28,15 +28,14 @@
 
 namespace palo {
 
-class RuntimeState;
+class ExecEnv;
 class TBrokerRangeDesc;
 class TNetworkAddress;
-class RuntimeState;
 
 // Reader of broker file
 class BrokerWriter : public FileWriter {
 public:
-    BrokerWriter(RuntimeState* state,
+    BrokerWriter(ExecEnv* env,
                   const std::vector<TNetworkAddress>& broker_addresses,
                   const std::map<std::string, std::string>& properties,
                   const std::string& dir,
@@ -50,7 +49,7 @@ public:
     virtual void close() override;
 
 private:
-    RuntimeState* _state;
+    ExecEnv* _env;
     const std::vector<TNetworkAddress>& _addresses;
     const std::map<std::string, std::string>& _properties;
     std::string _path;

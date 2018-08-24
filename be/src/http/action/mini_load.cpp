@@ -445,6 +445,7 @@ Status MiniLoadAction::generate_check_load_req(
         check_load_req->__set_cluster(cluster);
     }
     check_load_req->db = http_req->param(DB_KEY);
+    check_load_req->__set_tbl(http_req->param(TABLE_KEY));
     if (http_req->param(SUB_LABEL_KEY).empty()) {
         check_load_req->__set_label(http_req->param(LABEL_KEY));
 

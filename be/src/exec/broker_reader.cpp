@@ -23,7 +23,6 @@
 #include "runtime/broker_mgr.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
-#include "runtime/runtime_state.h"
 #include "util/thrift_util.h"
 
 namespace palo {
@@ -31,12 +30,12 @@ namespace palo {
 // Broker
 
 BrokerReader::BrokerReader(
-        RuntimeState* state,
+        ExecEnv* env,
         const std::vector<TNetworkAddress>& broker_addresses,
         const std::map<std::string, std::string>& properties,
         const std::string& path,
         int64_t start_offset) :
-            _state(state),
+            _env(env),
             _addresses(broker_addresses),
             _properties(properties),
             _path(path),
@@ -51,22 +50,22 @@ BrokerReader::~BrokerReader() {
 }
 
 #ifdef BE_TEST
-inline BrokerServiceClientCache* client_cache(RuntimeState* state) {
+inline BrokerServiceClientCache* client_cache(ExecEnv* env) {
     static BrokerServiceClientCache s_client_cache;
     return &s_client_cache;
 }
 
-inline const std::string& client_id(RuntimeState* state, const TNetworkAddress& addr) {
+inline const std::string& client_id(ExecEnv* env, const TNetworkAddress& addr) {
     static std::string s_client_id = "palo_unit_test";
     return s_client_id;
 }
 #else
-inline BrokerServiceClientCache* client_cache(RuntimeState* state) {
-    return state->exec_env()->broker_client_cache();
+inline BrokerServiceClientCache* client_cache(ExecEnv* env) {
+    return env->broker_client_cache();
 }
 
-inline const std::string& client_id(RuntimeState* state, const TNetworkAddress& addr) {
-    return state->exec_env()->broker_mgr()->get_client_id(addr);
+inline const std::string& client_id(ExecEnv* env, const TNetworkAddress& addr) {
+    return env->broker_mgr()->get_client_id(addr);
 }
 #endif
 
@@ -77,13 +76,13 @@ Status BrokerReader::open() {
     request.__set_version(TBrokerVersion::VERSION_ONE);
     request.__set_path(_path);
     request.__set_startOffset(_cur_offset);
-    request.__set_clientId(client_id(_state, broker_addr));
+    request.__set_clientId(client_id(_env, broker_addr));
     request.__set_properties(_properties);
 
     TBrokerOpenReaderResponse response;
     try {
         Status status;
-        BrokerServiceConnection client(client_cache(_state), broker_addr, 10000, &status);
+        BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << broker_addr
                 << ", status=" << status.get_error_msg();
@@ -132,7 +131,7 @@ Status BrokerReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
     TBrokerReadResponse response;
     try {
         Status status;
-        BrokerServiceConnection client(client_cache(_state), broker_addr, 10000, &status);
+        BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << broker_addr
                 << ", status=" << status.get_error_msg();
@@ -186,8 +185,7 @@ void BrokerReader::close() {
     TBrokerOperationStatus response;
     try {
         Status status;
-        // 500ms is enough
-        BrokerServiceConnection client(client_cache(_state), broker_addr, 10000, &status);
+        BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << broker_addr
                 << ", status=" << status.get_error_msg();

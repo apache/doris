@@ -246,7 +246,7 @@ Status BrokerScanner::open_file_reader() {
     }
     case TFileType::FILE_BROKER: {
         BrokerReader* broker_reader = new BrokerReader(
-            _state, _broker_addresses, _params.properties, range.path, start_offset);
+            _state->exec_env(), _broker_addresses, _params.properties, range.path, start_offset);
         RETURN_IF_ERROR(broker_reader->open());
         _cur_file_reader = broker_reader;
         break;

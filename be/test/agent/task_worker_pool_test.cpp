@@ -29,6 +29,7 @@
 #include "agent/utils.h"
 #include "olap/mock_command_executor.h"
 #include "util/logging.h"
+#include "runtime/exec_env.h"
 
 using ::testing::_;
 using ::testing::Return;
@@ -55,20 +56,24 @@ MockMasterServerClient::MockMasterServerClient(
 
 TEST(TaskWorkerPoolTest, TestStart) {
     TMasterInfo master_info;
+    ExecEnv env;
     TaskWorkerPool task_worker_pool_create_table(
             TaskWorkerPool::TaskWorkerType::CREATE_TABLE,
+            &env,
             master_info);
     task_worker_pool_create_table.start();
     EXPECT_EQ(task_worker_pool_create_table._worker_count, config::create_table_worker_count);
 
     TaskWorkerPool task_worker_pool_drop_table(
             TaskWorkerPool::TaskWorkerType::DROP_TABLE,
+            &env,
             master_info);
     task_worker_pool_drop_table.start();
     EXPECT_EQ(task_worker_pool_create_table._worker_count, config::drop_table_worker_count);
 
     TaskWorkerPool task_worker_pool_push(
             TaskWorkerPool::TaskWorkerType::PUSH,
+            &env,
             master_info);
     task_worker_pool_push.start();
     EXPECT_EQ(task_worker_pool_push._worker_count, config::push_worker_count_normal_priority
@@ -76,18 +81,21 @@ TEST(TaskWorkerPoolTest, TestStart) {
 
     TaskWorkerPool task_worker_pool_alter_table(
             TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
+            &env,
             master_info);
     task_worker_pool_alter_table.start();
     EXPECT_EQ(task_worker_pool_alter_table._worker_count, config::alter_table_worker_count);
 
     TaskWorkerPool task_worker_pool_clone(
             TaskWorkerPool::TaskWorkerType::CLONE,
+            &env,
             master_info);
     task_worker_pool_clone.start();
     EXPECT_EQ(task_worker_pool_clone._worker_count, config::clone_worker_count);
 
     TaskWorkerPool task_worker_pool_cancel_delete_data(
             TaskWorkerPool::TaskWorkerType::CANCEL_DELETE_DATA,
+            &env,
             master_info);
     task_worker_pool_cancel_delete_data.start();
     EXPECT_EQ(
@@ -96,42 +104,42 @@ TEST(TaskWorkerPoolTest, TestStart) {
 
     TaskWorkerPool task_worker_pool_report_task(
             TaskWorkerPool::TaskWorkerType::REPORT_TASK,
+            &env,
             master_info);
     task_worker_pool_report_task.start();
     EXPECT_EQ(task_worker_pool_report_task._worker_count, REPORT_TASK_WORKER_COUNT);
 
     TaskWorkerPool task_worker_pool_report_disk_state(
             TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE,
+            &env,
             master_info);
     task_worker_pool_report_disk_state.start();
     EXPECT_EQ(task_worker_pool_report_disk_state._worker_count, REPORT_DISK_STATE_WORKER_COUNT);
 
     TaskWorkerPool task_worker_pool_report_olap_table(
             TaskWorkerPool::TaskWorkerType::REPORT_OLAP_TABLE,
+            &env,
             master_info);
     task_worker_pool_report_olap_table.start();
     EXPECT_EQ(task_worker_pool_report_olap_table._worker_count, REPORT_OLAP_TABLE_WORKER_COUNT);
     
     TaskWorkerPool task_worker_pool_upload(
             TaskWorkerPool::TaskWorkerType::UPLOAD,
+            &env,
             master_info);
     task_worker_pool_upload.start();
     EXPECT_EQ(task_worker_pool_upload._worker_count, config::upload_worker_count);
 
-    TaskWorkerPool task_worker_pool_restore(
-            TaskWorkerPool::TaskWorkerType::RESTORE,
-            master_info);
-    task_worker_pool_restore.start();
-    EXPECT_EQ(task_worker_pool_restore._worker_count, config::restore_worker_count);
-
     TaskWorkerPool task_worker_pool_make_snapshot(
             TaskWorkerPool::TaskWorkerType::MAKE_SNAPSHOT,
+            &env,
             master_info);
     task_worker_pool_make_snapshot.start();
     EXPECT_EQ(task_worker_pool_make_snapshot._worker_count, config::make_snapshot_worker_count);
 
     TaskWorkerPool task_worker_pool_release_snapshot(
             TaskWorkerPool::TaskWorkerType::RELEASE_SNAPSHOT,
+            &env,
             master_info);
     task_worker_pool_release_snapshot.start();
     EXPECT_EQ(task_worker_pool_release_snapshot._worker_count,
@@ -140,8 +148,10 @@ TEST(TaskWorkerPoolTest, TestStart) {
 
 TEST(TaskWorkerPoolTest, TestSubmitTask) {
     TMasterInfo master_info;
+    ExecEnv env;
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
+            &env,
             master_info);
 
     // Record signature success
@@ -160,8 +170,10 @@ TEST(TaskWorkerPoolTest, TestSubmitTask) {
 
 TEST(TaskWorkerPoolTest, TestRecordTaskInfo) {
     TMasterInfo master_info;
+    ExecEnv env;
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
+            &env,
             master_info);
 
     TTaskType::type task_type = TTaskType::ROLLUP;
@@ -183,6 +195,7 @@ TEST(TaskWorkerPoolTest, TestRecordTaskInfo) {
     TMasterInfo master_info2;
     TaskWorkerPool task_worker_pool2(
             TaskWorkerPool::TaskWorkerType::PUSH,
+            &env,
             master_info2);
     TTaskType::type task_type2 = TTaskType::PUSH;
     
@@ -217,8 +230,10 @@ TEST(TaskWorkerPoolTest, TestRecordTaskInfo) {
 
 TEST(TaskWorkerPoolTest, TestRemoveTaskInfo) {
     TMasterInfo master_info;
+    ExecEnv env;
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
+            &env,
             master_info);
 
     TTaskType::type task_type = TTaskType::ROLLUP;
@@ -255,8 +270,10 @@ TEST(TaskWorkerPoolTest, TestRemoveTaskInfo) {
 
 TEST(TaskWorkerPoolTest, TestGetNextTask) {
     TMasterInfo master_info;
+    ExecEnv env;
     TaskWorkerPool task_worker_pool(
         TaskWorkerPool::TaskWorkerType::PUSH,
+            &env,
         master_info);
 
     // Add 1 task
@@ -334,8 +351,10 @@ TEST(TaskWorkerPoolTest, TestGetNextTask) {
 
 TEST(TaskWorkerPoolTest, TestFinishTask) {
     TMasterInfo master_info;
+    ExecEnv env;
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
+            &env,
             master_info);
 
     FrontendServiceClientCache* client_cache = new FrontendServiceClientCache();
@@ -362,11 +381,13 @@ TEST(TaskWorkerPoolTest, TestFinishTask) {
 
 TEST(TaskWorkerPoolTest, TestCreateTable) {
     TMasterInfo master_info;
+    ExecEnv env;
     TAgentTaskRequest agent_task_request;
     agent_task_request.task_type = TTaskType::CREATE;
     agent_task_request.signature = 123456;
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::CREATE_TABLE,
+            &env,
             master_info);
 
     MockCommandExecutor mock_command_executor;
@@ -415,11 +436,13 @@ TEST(TaskWorkerPoolTest, TestCreateTable) {
 
 TEST(TaskWorkerPoolTest, TestDropTableTask) {
     TMasterInfo master_info;
+    ExecEnv env;
     TAgentTaskRequest agent_task_request;
     agent_task_request.task_type = TTaskType::DROP;
     agent_task_request.signature = 123456;
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::DROP_TABLE,
+            &env,
             master_info);
 
     MockCommandExecutor mock_command_executor;
@@ -468,11 +491,13 @@ TEST(TaskWorkerPoolTest, TestDropTableTask) {
 
 TEST(TaskWorkerPoolTest, TestSchemaChange) {
     TMasterInfo master_info;
+    ExecEnv env;
     TAgentTaskRequest agent_task_request;
     agent_task_request.task_type = TTaskType::SCHEMA_CHANGE;
     agent_task_request.signature = 123456;
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
+            &env,
             master_info);
 
     MockCommandExecutor mock_command_executor;
@@ -598,11 +623,13 @@ TEST(TaskWorkerPoolTest, TestSchemaChange) {
 
 TEST(TaskWorkerPoolTest, TestRollup) {
     TMasterInfo master_info;
+    ExecEnv env;
     TAgentTaskRequest agent_task_request;
     agent_task_request.task_type = TTaskType::ROLLUP;
     agent_task_request.signature = 123456;
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
+            &env,
             master_info);
 
     MockCommandExecutor mock_command_executor;
@@ -651,12 +678,14 @@ TEST(TaskWorkerPoolTest, TestRollup) {
 
 TEST(TaskWorkerPoolTest, TestPush) {
     TMasterInfo master_info;
+    ExecEnv env;
     TAgentTaskRequest agent_task_request;
     agent_task_request.task_type = TTaskType::PUSH;
     agent_task_request.signature = 123456;
     agent_task_request.__set_priority(TPriority::HIGH);
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::PUSH,
+            &env,
             master_info);
 
     MockCommandExecutor mock_command_executor;
@@ -765,11 +794,13 @@ TEST(TaskWorkerPoolTest, TestPush) {
 
 TEST(TaskWorkerPoolTest, TestClone) {
     TMasterInfo master_info;
+    ExecEnv env;
     TAgentTaskRequest agent_task_request;
     agent_task_request.task_type = TTaskType::CLONE;
     agent_task_request.signature = 123456;
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::CLONE,
+            &env,
             master_info);
 
     MockCommandExecutor mock_command_executor;
@@ -1216,11 +1247,13 @@ TEST(TaskWorkerPoolTest, TestClone) {
 
 TEST(TaskWorkerPoolTest, TestCancelDeleteData) {
     TMasterInfo master_info;
+    ExecEnv env;
     TAgentTaskRequest agent_task_request;
     agent_task_request.task_type = TTaskType::CANCEL_DELETE;
     agent_task_request.signature = 123456;
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::CANCEL_DELETE_DATA,
+            &env,
             master_info);
 
     MockCommandExecutor mock_command_executor;
@@ -1269,11 +1302,13 @@ TEST(TaskWorkerPoolTest, TestCancelDeleteData) {
 
 TEST(TaskWorkerPoolTest, TestReportTask) {
     TMasterInfo master_info;
+    ExecEnv env;
     TAgentTaskRequest agent_task_request;
     agent_task_request.task_type = TTaskType::SCHEMA_CHANGE;
     agent_task_request.signature = 123456;
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
+            &env,
             master_info);
 
     MockCommandExecutor mock_command_executor;
@@ -1304,11 +1339,13 @@ TEST(TaskWorkerPoolTest, TestReportTask) {
 
 TEST(TaskWorkerPoolTest, TestReportDiskState) {
     TMasterInfo master_info;
+    ExecEnv env;
     TAgentTaskRequest agent_task_request;
     agent_task_request.task_type = TTaskType::SCHEMA_CHANGE;
     agent_task_request.signature = 123456;
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
+            &env,
             master_info);
 
     MockCommandExecutor mock_command_executor;
@@ -1355,8 +1392,10 @@ TEST(TaskWorkerPoolTest, TestReportDiskState) {
 
 TEST(TaskWorkerPoolTest, TestReportOlapTable) {
     TMasterInfo master_info;
+    ExecEnv env;
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
+            &env,
             master_info);
 
     MockCommandExecutor mock_command_executor;
@@ -1399,245 +1438,12 @@ TEST(TaskWorkerPoolTest, TestReportOlapTable) {
     task_worker_pool._master_client = original_master_server_client;
 }
 
-TEST(TaskWorkerPoolTest, TestUpload) {
-    TMasterInfo master_info;
-    TaskWorkerPool task_worker_pool(
-            TaskWorkerPool::TaskWorkerType::UPLOAD,
-            master_info);
-
-    MockAgentUtils mock_agent_utils;
-    AgentUtils* original_agent_utils;
-    original_agent_utils = task_worker_pool._agent_utils;
-    task_worker_pool._agent_utils = &mock_agent_utils;
-    FrontendServiceClientCache* client_cache = new FrontendServiceClientCache();
-    MockMasterServerClient mock_master_server_client(master_info, client_cache);
-    MasterServerClient* original_master_server_client;
-    original_master_server_client = task_worker_pool._master_client;
-    task_worker_pool._master_client = &mock_master_server_client;
-
-    TAgentTaskRequest agent_task_request;
-    agent_task_request.task_type = TTaskType::UPLOAD;
-    agent_task_request.signature = 123456;
-    TUploadReq upload_request;
-    upload_request.__set_tablet_id(54321);
-    agent_task_request.__set_upload_req(upload_request);
-
-    // Write remote source info into file by json format failed
-    task_worker_pool.submit_task(agent_task_request);
-    EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
-    EXPECT_EQ(1, task_worker_pool._tasks.size());
-    EXPECT_CALL(mock_agent_utils, write_json_to_file(_, _))
-            .Times(1)
-            .WillOnce(Return(false));
-    EXPECT_CALL(mock_master_server_client, finish_task(_, _))
-            .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
-    task_worker_pool._upload_worker_thread_callback(&task_worker_pool);
-    EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
-    EXPECT_EQ(0, task_worker_pool._tasks.size());    
-
-    // write json file success, run command failed
-    task_worker_pool.submit_task(agent_task_request);
-    EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
-    EXPECT_EQ(1, task_worker_pool._tasks.size());
-    EXPECT_CALL(mock_agent_utils, write_json_to_file(_, _))
-            .Times(1)
-            .WillOnce(Return(true));
-    EXPECT_CALL(mock_agent_utils, exec_cmd(_, _))
-            .Times(1)
-            .WillOnce(Return(false));
-    EXPECT_CALL(mock_master_server_client, finish_task(_, _))
-            .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
-    task_worker_pool._upload_worker_thread_callback(&task_worker_pool);
-    EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
-    EXPECT_EQ(0, task_worker_pool._tasks.size());    
-    
-    // write json file success, run command success
-    task_worker_pool.submit_task(agent_task_request);
-    EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
-    EXPECT_EQ(1, task_worker_pool._tasks.size());
-    EXPECT_CALL(mock_agent_utils, write_json_to_file(_, _))
-            .Times(1)
-            .WillOnce(Return(true));
-    EXPECT_CALL(mock_agent_utils, exec_cmd(_, _))
-            .Times(1)
-            .WillOnce(Return(true));
-    EXPECT_CALL(mock_master_server_client, finish_task(_, _))
-            .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
-    task_worker_pool._upload_worker_thread_callback(&task_worker_pool);
-    EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
-    EXPECT_EQ(0, task_worker_pool._tasks.size());    
-    
-    task_worker_pool._agent_utils = original_agent_utils;
-    task_worker_pool._master_client = original_master_server_client;
-}
-
-TEST(TaskWorkerPoolTest, TestRestore) {
-    TMasterInfo master_info;
-    TaskWorkerPool task_worker_pool(
-            TaskWorkerPool::TaskWorkerType::RESTORE,
-            master_info);
-    
-    MockAgentUtils mock_agent_utils;
-    AgentUtils* original_agent_utils;
-    original_agent_utils = task_worker_pool._agent_utils;
-    task_worker_pool._agent_utils = &mock_agent_utils;
-    MockCommandExecutor mock_command_executor;
-    CommandExecutor* original_command_executor;
-    original_command_executor = task_worker_pool._command_executor;
-    task_worker_pool._command_executor = &mock_command_executor;
-    FrontendServiceClientCache* client_cache = new FrontendServiceClientCache();
-    MockMasterServerClient mock_master_server_client(master_info, client_cache);
-    MasterServerClient* original_master_server_client;
-    original_master_server_client = task_worker_pool._master_client;
-    task_worker_pool._master_client = &mock_master_server_client;
-
-    TAgentTaskRequest agent_task_request;
-    agent_task_request.task_type = TTaskType::RESTORE;
-    agent_task_request.signature = 123456;
-    TRestoreReq restore_request;
-    restore_request.__set_tablet_id(12345);
-    agent_task_request.__set_restore_req(restore_request);
-
-    // write json file failed
-    task_worker_pool.submit_task(agent_task_request);
-    EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
-    EXPECT_EQ(1, task_worker_pool._tasks.size());
-    EXPECT_CALL(mock_agent_utils, write_json_to_file(_, _))
-            .Times(1)
-            .WillOnce(Return(false));
-    EXPECT_CALL(mock_master_server_client, finish_task(_, _))
-            .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
-    task_worker_pool._restore_worker_thread_callback(&task_worker_pool);
-    EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
-    EXPECT_EQ(0, task_worker_pool._tasks.size());    
-    
-    // get disk info from olap failed
-    task_worker_pool.submit_task(agent_task_request);
-    EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
-    EXPECT_EQ(1, task_worker_pool._tasks.size());
-    EXPECT_CALL(mock_agent_utils, write_json_to_file(_, _))
-            .Times(1)
-            .WillOnce(Return(true));
-    EXPECT_CALL(mock_command_executor, obtain_shard_path(_, _))
-            .Times(1)
-            .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));     
-    EXPECT_CALL(mock_master_server_client, finish_task(_, _))
-            .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
-    task_worker_pool._restore_worker_thread_callback(&task_worker_pool);
-    EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
-    EXPECT_EQ(0, task_worker_pool._tasks.size());    
-    
-    // download file failed 
-    task_worker_pool.submit_task(agent_task_request);
-    EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
-    EXPECT_EQ(1, task_worker_pool._tasks.size());
-    EXPECT_CALL(mock_agent_utils, write_json_to_file(_, _))
-            .Times(1)
-            .WillOnce(Return(true));
-    EXPECT_CALL(mock_command_executor, obtain_shard_path(_, _))
-            .Times(1)
-            .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
-    EXPECT_CALL(mock_agent_utils, exec_cmd(_, _))
-            .Times(1)
-            .WillOnce(Return(false)); 
-    EXPECT_CALL(mock_master_server_client, finish_task(_, _))
-            .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
-    task_worker_pool._restore_worker_thread_callback(&task_worker_pool);
-    EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
-    EXPECT_EQ(0, task_worker_pool._tasks.size());    
-    
-    // load header failed
-    string shard_dir = std::string(getenv("PALO_HOME")) +
-            "/build/be/binary/test/agent/test_data/restore_file/";
-    task_worker_pool.submit_task(agent_task_request);
-    EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
-    EXPECT_EQ(1, task_worker_pool._tasks.size());
-    EXPECT_CALL(mock_agent_utils, write_json_to_file(_, _))
-            .Times(1)
-            .WillOnce(Return(true));
-    EXPECT_CALL(mock_command_executor, obtain_shard_path(_, _))
-            .Times(1)
-            .WillOnce(DoAll(SetArgPointee<1>(shard_dir), Return(OLAPStatus::OLAP_SUCCESS)));
-    EXPECT_CALL(mock_agent_utils, exec_cmd(_, _))
-            .Times(1)
-            .WillOnce(Return(true));
-    EXPECT_CALL(mock_command_executor, load_header(_, _, _))
-            .Times(1)
-            .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
-    EXPECT_CALL(mock_master_server_client, finish_task(_, _))
-            .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
-    task_worker_pool._restore_worker_thread_callback(&task_worker_pool);
-    EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
-    EXPECT_EQ(0, task_worker_pool._tasks.size());    
-    
-    // get tablets info failed
-    task_worker_pool.submit_task(agent_task_request);
-    EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
-    EXPECT_EQ(1, task_worker_pool._tasks.size());
-    EXPECT_CALL(mock_agent_utils, write_json_to_file(_, _))
-            .Times(1)
-            .WillOnce(Return(true));
-    EXPECT_CALL(mock_command_executor, obtain_shard_path(_, _))
-            .Times(1)
-            .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
-    EXPECT_CALL(mock_agent_utils, exec_cmd(_, _))
-            .Times(1)
-            .WillOnce(Return(true));
-    EXPECT_CALL(mock_command_executor, load_header(_, _, _))
-            .Times(1)
-            .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
-    EXPECT_CALL(mock_command_executor, report_tablet_info(_))
-            .Times(1)
-            .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
-    EXPECT_CALL(mock_master_server_client, finish_task(_, _))
-            .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
-    task_worker_pool._restore_worker_thread_callback(&task_worker_pool);
-    EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
-    EXPECT_EQ(0, task_worker_pool._tasks.size());    
-
-    // get tablets info success
-    task_worker_pool.submit_task(agent_task_request);
-    EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
-    EXPECT_EQ(1, task_worker_pool._tasks.size());
-    EXPECT_CALL(mock_agent_utils, write_json_to_file(_, _))
-            .Times(1)
-            .WillOnce(Return(true));
-    EXPECT_CALL(mock_command_executor, obtain_shard_path(_, _))
-            .Times(1)
-            .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
-    EXPECT_CALL(mock_agent_utils, exec_cmd(_, _))
-            .Times(1)
-            .WillOnce(Return(true));
-    EXPECT_CALL(mock_command_executor, load_header(_, _, _))
-            .Times(1)
-            .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
-    EXPECT_CALL(mock_command_executor, report_tablet_info(_))
-            .Times(1)
-            .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
-    EXPECT_CALL(mock_master_server_client, finish_task(_, _))
-            .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
-    task_worker_pool._restore_worker_thread_callback(&task_worker_pool);
-    EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
-    EXPECT_EQ(0, task_worker_pool._tasks.size());    
-
-    task_worker_pool._agent_utils = original_agent_utils;
-    task_worker_pool._command_executor = original_command_executor;
-    task_worker_pool._master_client = original_master_server_client;
-}
-
 TEST(TaskWorkerPoolTest, TestMakeSnapshot) {
     TMasterInfo master_info;
+    ExecEnv env;
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::MAKE_SNAPSHOT,
+            &env,
             master_info);
     
     MockCommandExecutor mock_command_executor;
@@ -1687,8 +1493,10 @@ TEST(TaskWorkerPoolTest, TestMakeSnapshot) {
 
 TEST(TaskWorkerPoolTest, TestReleaseSnapshot) {
     TMasterInfo master_info;
+    ExecEnv env;
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::RELEASE_SNAPSHOT,
+            &env,
             master_info);
     
     MockCommandExecutor mock_command_executor;
@@ -1738,8 +1546,10 @@ TEST(TaskWorkerPoolTest, TestReleaseSnapshot) {
 
 TEST(TaskWorkerPoolTest, TestShowAlterTableStatus) {
     TMasterInfo master_info;
+    ExecEnv env;
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
+            &env,
             master_info);
 
     MockCommandExecutor mock_command_executor;
@@ -1767,8 +1577,10 @@ TEST(TaskWorkerPoolTest, TestShowAlterTableStatus) {
 
 TEST(TaskWorkerPoolTest, TestDropTable) {
     TMasterInfo master_info;
+    ExecEnv env;
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
+            &env,
             master_info);
 
     MockCommandExecutor mock_command_executor;
@@ -1789,8 +1601,10 @@ TEST(TaskWorkerPoolTest, TestDropTable) {
 
 TEST(TaskWorkerPoolTest, TestGetTabletInfo) {
     TMasterInfo master_info;
+    ExecEnv env;
     TaskWorkerPool task_worker_pool(
             TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
+            &env,
             master_info);
 
     MockCommandExecutor mock_command_executor;

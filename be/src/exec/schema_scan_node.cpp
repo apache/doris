@@ -77,6 +77,10 @@ Status SchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _scanner_param.ip = _pool->add(new std::string(tnode.schema_scan_node.ip));
     }
 
+    if (tnode.schema_scan_node.__isset.user_ip) {
+        _scanner_param.user_ip = _pool->add(new std::string(tnode.schema_scan_node.user_ip));
+    }
+
     if (tnode.schema_scan_node.__isset.port) {
         _scanner_param.port = tnode.schema_scan_node.port;
     }

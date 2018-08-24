@@ -628,4 +628,3 @@ public class ReportHandler extends Daemon {
         }
     }
 }
-

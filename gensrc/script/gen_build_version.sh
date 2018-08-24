@@ -26,7 +26,7 @@
 # contains the build version based on the git hash or svn revision.
 ##############################################################
 
-build_version="PALO3.3.19-RELEASE"
+build_version="3.3-branch"
 
 unset LANG
 unset LC_CTYPE

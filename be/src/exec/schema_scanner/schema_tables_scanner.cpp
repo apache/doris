@@ -73,6 +73,9 @@ Status SchemaTablesScanner::start(RuntimeState *state) {
     if (NULL != _param->user) {
         db_params.__set_user(*(_param->user));
     }
+    if (NULL != _param->user_ip) {
+        db_params.__set_user_ip(*(_param->user_ip));
+    }
     
     if (NULL != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(FrontendHelper::get_db_names(*(_param->ip),
@@ -226,6 +229,9 @@ Status SchemaTablesScanner::get_new_table() {
     }
     if (NULL != _param->user) {
         table_params.__set_user(*(_param->user));
+    }
+    if (NULL != _param->user_ip) {
+        table_params.__set_user_ip(*(_param->user_ip));
     }
 
     if (NULL != _param->ip && 0 != _param->port) {
