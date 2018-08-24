@@ -26,8 +26,12 @@ import com.baidu.palo.analysis.PartitionDesc;
 import com.baidu.palo.analysis.RangePartitionDesc;
 import com.baidu.palo.analysis.SingleRangePartitionDesc;
 import com.baidu.palo.analysis.TableName;
+import com.baidu.palo.backup.Status;
+import com.baidu.palo.backup.Status.ErrCode;
 import com.baidu.palo.catalog.DistributionInfo.DistributionInfoType;
+import com.baidu.palo.catalog.Replica.ReplicaState;
 import com.baidu.palo.common.FeMetaVersion;
+import com.baidu.palo.common.io.DeepCopy;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.util.PropertyAnalyzer;
 import com.baidu.palo.common.util.Util;
@@ -51,6 +55,7 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -68,8 +73,10 @@ public class OlapTable extends Table {
         NORMAL,
         ROLLUP,
         SCHEMA_CHANGE,
+        @Deprecated
         BACKUP,
-        RESTORE
+        RESTORE,
+        RESTORE_WITH_LOAD
     }
 
     private OlapTableState state;
@@ -218,6 +225,111 @@ public class OlapTable extends Table {
             }
         }
         return null;
+    }
+
+    public Status resetIdsForRestore(Catalog catalog, Database db, int restoreReplicationNum) {
+        // table id
+        id = catalog.getNextId();
+
+        // copy an origin index id to name map
+        Map<Long, String> origIdxIdToName = Maps.newHashMap();
+        for (Map.Entry<String, Long> entry : indexNameToId.entrySet()) {
+            origIdxIdToName.put(entry.getValue(), entry.getKey());
+        }
+
+        // reset all 'indexIdToXXX' map
+        for (Map.Entry<Long, String> entry : origIdxIdToName.entrySet()) {
+            long newIdxId = 0;
+            if (entry.getValue().equals(name)) {
+                // base index
+                newIdxId = id;
+            } else {
+                newIdxId = catalog.getNextId();
+            }
+            indexIdToSchema.put(newIdxId, indexIdToSchema.remove(entry.getKey()));
+            indexIdToSchemaHash.put(newIdxId, indexIdToSchemaHash.remove(entry.getKey()));
+            indexIdToSchemaVersion.put(newIdxId, indexIdToSchemaVersion.remove(entry.getKey()));
+            indexIdToShortKeyColumnCount.put(newIdxId, indexIdToShortKeyColumnCount.remove(entry.getKey()));
+            indexIdToStorageType.put(newIdxId, indexIdToStorageType.remove(entry.getKey()));
+            indexNameToId.put(entry.getValue(), newIdxId);
+        }
+
+        // generate a partition name to id map
+        Map<String, Long> origPartNameToId = Maps.newHashMap();
+        for (Partition partition : idToPartition.values()) {
+            origPartNameToId.put(partition.getName(), partition.getId());
+        }
+
+        // reset partition info and idToPartition map
+        if (partitionInfo.getType() == PartitionType.RANGE) {
+            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
+            for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
+                long newPartId = catalog.getNextId();
+                rangePartitionInfo.idToDataProperty.put(newPartId,
+                                                        rangePartitionInfo.idToDataProperty.remove(entry.getValue()));
+                rangePartitionInfo.idToReplicationNum.remove(entry.getValue());
+                rangePartitionInfo.idToReplicationNum.put(newPartId,
+                                                          (short) restoreReplicationNum);
+                rangePartitionInfo.getIdToRange().put(newPartId,
+                                                      rangePartitionInfo.getIdToRange().remove(entry.getValue()));
+
+                idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
+            }
+        } else {
+            // Single partitioned
+            long newPartId = catalog.getNextId();
+            for (Map.Entry<String, Long> entry : origPartNameToId.entrySet()) {
+                partitionInfo.idToDataProperty.put(newPartId, partitionInfo.idToDataProperty.remove(entry.getValue()));
+                partitionInfo.idToReplicationNum.remove(entry.getValue());
+                partitionInfo.idToReplicationNum.put(newPartId, (short) restoreReplicationNum);
+                idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
+            }
+        }
+
+        // for each partition, reset rollup index map
+        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
+            Partition partition = entry.getValue();
+            for (Map.Entry<Long, String> entry2 : origIdxIdToName.entrySet()) {
+                MaterializedIndex idx = partition.getIndex(entry2.getKey());
+                long newIdxId = indexNameToId.get(entry2.getValue());
+                idx.setIdForRestore(newIdxId);
+                if (newIdxId != id) {
+                    // not base table, reset
+                    partition.deleteRollupIndex(entry2.getKey());
+                    partition.createRollupIndex(idx);
+                }
+
+                // generate new tablets in origin tablet order
+                int tabletNum = idx.getTablets().size();
+                idx.clearTabletsForRestore();
+                for (int i = 0; i < tabletNum; i++) {
+                    long newTabletId = catalog.getNextId();
+                    Tablet newTablet = new Tablet(newTabletId);
+                    idx.addTablet(newTablet, null /* tablet meta */, true /* is restore */);
+
+                    // replicas
+                    List<Long> beIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(partitionInfo.getReplicationNum(entry.getKey()),
+                                                                                          true, true,
+                                                                                          db.getClusterName());
+                    if (beIds == null) {
+                        return new Status(ErrCode.COMMON_ERROR, "failed to find "
+                                + partitionInfo.getReplicationNum(entry.getKey())
+                                + " different hosts to create table: " + name);
+                    }
+                    for (Long beId : beIds) {
+                        long newReplicaId = catalog.getNextId();
+                        Replica replica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
+                                partition.getCommittedVersion(), partition.getCommittedVersionHash());
+                        newTablet.addReplica(replica, true /* is restore */);
+                    }
+                }
+            }
+
+            // reset partition id
+            partition.setIdForRestore(entry.getKey());
+        }
+
+        return Status.OK;
     }
 
     // schema
@@ -371,6 +483,10 @@ public class OlapTable extends Table {
         return partition;
     }
 
+    public Partition dropPartitionForBackup(String partitionName) {
+        return dropPartition(-1, partitionName, true);
+    }
+
     public Collection<Partition> getPartitions() {
         return idToPartition.values();
     }
@@ -381,6 +497,10 @@ public class OlapTable extends Table {
 
     public Partition getPartition(String partitionName) {
         return nameToPartition.get(partitionName);
+    }
+
+    public Set<String> getPartitionNames() {
+        return Sets.newHashSet(nameToPartition.keySet());
     }
 
     public Set<String> getCopiedBfColumns() {
@@ -524,42 +644,75 @@ public class OlapTable extends Table {
         return stmt;
     }
 
-    @Override
-    public int getSignature(int signatureVersion) {
+    public int getSignature(int signatureVersion, List<String> partNames) {
         Adler32 adler32 = new Adler32();
         adler32.update(signatureVersion);
         final String charsetName = "UTF-8";
 
         try {
-            // ignore table name
-            // adler32.update(name.getBytes(charsetName));
+            // table name
+            adler32.update(name.getBytes(charsetName));
+            LOG.debug("signature. table name: {}", name);
             // type
             adler32.update(type.name().getBytes(charsetName));
+            LOG.debug("signature. table type: {}", type.name());
 
             // all indices(should be in order)
             Set<String> indexNames = Sets.newTreeSet();
             indexNames.addAll(indexNameToId.keySet());
             for (String indexName : indexNames) {
                 long indexId = indexNameToId.get(indexName);
-                if (!indexName.equals(name)) {
-                    // index name(ignore base index name. base index name maybe changed)
-                    adler32.update(indexName.getBytes(charsetName));
-                }
+                adler32.update(indexName.getBytes(charsetName));
+                LOG.debug("signature. index name: {}", indexName);
                 // schema hash
                 adler32.update(indexIdToSchemaHash.get(indexId));
+                LOG.debug("signature. index schema hash: {}", indexIdToSchemaHash.get(indexId));
                 // short key column count
                 adler32.update(indexIdToShortKeyColumnCount.get(indexId));
+                LOG.debug("signature. index short key: {}", indexIdToShortKeyColumnCount.get(indexId));
                 // storage type
                 adler32.update(indexIdToStorageType.get(indexId).name().getBytes(charsetName));
+                LOG.debug("signature. index storage type: {}", indexIdToStorageType.get(indexId));
+            }
+
+            // bloom filter
+            if (bfColumns != null && !bfColumns.isEmpty()) {
+                for (String bfCol : bfColumns) {
+                    adler32.update(bfCol.getBytes());
+                    LOG.debug("signature. bf col: {}", bfCol);
+                }
+                adler32.update(String.valueOf(bfFpp).getBytes());
+                LOG.debug("signature. bf fpp: {}", bfFpp);
             }
 
             // partition type
             adler32.update(partitionInfo.getType().name().getBytes(charsetName));
+            LOG.debug("signature. partition type: {}", partitionInfo.getType().name());
             // partition columns
             if (partitionInfo.getType() == PartitionType.RANGE) {
                 RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
                 List<Column> partitionColumns = rangePartitionInfo.getPartitionColumns();
                 adler32.update(Util.schemaHash(0, partitionColumns, null, 0));
+                LOG.debug("signature. partition col hash: {}", Util.schemaHash(0, partitionColumns, null, 0));
+            }
+
+            // partition and distribution
+            Collections.sort(partNames, String.CASE_INSENSITIVE_ORDER);
+            for (String partName : partNames) {
+                Partition partition = getPartition(partName);
+                Preconditions.checkNotNull(partition, partName);
+                adler32.update(partName.getBytes(charsetName));
+                LOG.debug("signature. partition name: {}", partName);
+                DistributionInfo distributionInfo = partition.getDistributionInfo();
+                adler32.update(distributionInfo.getType().name().getBytes(charsetName));
+                if (distributionInfo.getType() == DistributionInfoType.HASH) {
+                    HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+                    adler32.update(Util.schemaHash(0, hashDistributionInfo.getDistributionColumns(), null, 0));
+                    LOG.debug("signature. distribution col hash: {}",
+                              Util.schemaHash(0, hashDistributionInfo.getDistributionColumns(), null, 0));
+                    adler32.update(hashDistributionInfo.getBucketNum());
+                    LOG.debug("signature. bucket num: {}", hashDistributionInfo.getBucketNum());
+                }
             }
 
         } catch (UnsupportedEncodingException e) {
@@ -567,7 +720,19 @@ public class OlapTable extends Table {
             return -1;
         }
 
+        LOG.debug("signature: {}", Math.abs((int) adler32.getValue()));
         return Math.abs((int) adler32.getValue());
+    }
+
+    public Status getIntersectPartNamesWith(OlapTable anotherTbl, List<String> intersectPartNames) {
+        if (this.getPartitionInfo().getType() != anotherTbl.getPartitionInfo().getType()) {
+            return new Status(ErrCode.COMMON_ERROR, "Table's partition type is different");
+        }
+
+        Set<String> intersect = this.getPartitionNames();
+        intersect.retainAll(anotherTbl.getPartitionNames());
+        intersectPartNames.addAll(intersect);
+        return Status.OK;
     }
 
     @Override
@@ -733,4 +898,29 @@ public class OlapTable extends Table {
 
         return true;
     }
+
+    public OlapTable selectiveCopy(Collection<String> reservedPartNames) {
+        OlapTable copied = new OlapTable();
+        if (!DeepCopy.copy(this, copied)) {
+            LOG.warn("failed to copy olap table: " + getName());
+            return null;
+        }
+        
+        if (reservedPartNames == null || reservedPartNames.isEmpty()) {
+            // reserve all
+            return copied;
+        }
+        
+        Set<String> partNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        partNames.addAll(copied.getPartitionNames());
+        
+        for (String partName : partNames) {
+            if (!reservedPartNames.contains(partName)) {
+                copied.dropPartitionForBackup(partName);
+            }
+        }
+        
+        return copied;
+    }
 }
+

@@ -27,32 +27,64 @@ import com.baidu.palo.analysis.SetNamesVar;
 import com.baidu.palo.analysis.SetPassVar;
 import com.baidu.palo.analysis.SetStmt;
 import com.baidu.palo.analysis.SetVar;
+import com.baidu.palo.analysis.UserIdentity;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 
 import com.google.common.collect.Lists;
-import org.junit.Assert;
+
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
 
+import mockit.Mocked;
+import mockit.NonStrictExpectations;
+import mockit.internal.startup.Startup;
+
 public class SetExecutorTest {
     private Analyzer analyzer;
     private ConnectContext ctx;
 
+    @Mocked
+    private PaloAuth auth;
+
+    static {
+        Startup.initializeIfPossible();
+    }
+
     @Before
-    public void setUp() {
+    public void setUp() throws DdlException {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         ctx = new ConnectContext(null);
         ctx.setCatalog(AccessTestUtil.fetchAdminCatalog());
+        ctx.setQualifiedUser("root");
+        ctx.setRemoteIP("192.168.1.1");
+
+        new NonStrictExpectations() {
+            {
+                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                result = true;
+
+                auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                result = true;
+
+                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                result = true;
+
+                auth.setPassword((SetPassVar) any);
+                minTimes = 0;
+            }
+        };
     }
 
     @Test
     public void testNormal() throws InternalException, AnalysisException, DdlException {
         List<SetVar> vars = Lists.newArrayList();
-        vars.add(new SetPassVar("testUser", "*88EEBA7D913688E7278E2AD071FDB5E76D76D34B"));
+        vars.add(new SetPassVar(new UserIdentity("testUser", "%"), "*88EEBA7D913688E7278E2AD071FDB5E76D76D34B"));
         vars.add(new SetNamesVar("utf8"));
         vars.add(new SetVar("query_timeout", new IntLiteral(10L)));
 
@@ -61,19 +93,6 @@ public class SetExecutorTest {
         SetExecutor executor = new SetExecutor(ctx, stmt);
 
         executor.execute();
-    }
-
-    @Test(expected = DdlException.class)
-    public void testNoPriv() throws InternalException, AnalysisException, DdlException {
-        List<SetVar> vars = Lists.newArrayList();
-        vars.add(new SetPassVar("root", "*88EEBA7D913688E7278E2AD071FDB5E76D76D34B"));
-
-        SetStmt stmt = new SetStmt(vars);
-        stmt.analyze(analyzer);
-        SetExecutor executor = new SetExecutor(ctx, stmt);
-
-        executor.execute();
-        Assert.fail("No exception throws");
     }
 
     @Test

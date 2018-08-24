@@ -43,9 +43,7 @@ public final class HttpAuthManager {
     }
 
     public String getUsername(String sessionId) {
-        String username = null;
-        username = authSessions.getIfPresent(sessionId);
-        return username;
+        return authSessions.getIfPresent(sessionId);
     }
 
     public void addClient(String key, String value) {

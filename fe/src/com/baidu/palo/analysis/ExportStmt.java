@@ -15,7 +15,6 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.BrokerMgr;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
@@ -27,6 +26,8 @@ import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.util.PrintableMap;
 import com.baidu.palo.common.util.PropertyAnalyzer;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -61,8 +62,6 @@ public class ExportStmt extends StatementBase {
 
     private TableRef tableRef;
 
-    private String user;
-
     public ExportStmt(TableRef tableRef, String path,
                       Map<String, String> properties, BrokerDesc brokerDesc) {
         this.tableRef = tableRef;
@@ -71,8 +70,6 @@ public class ExportStmt extends StatementBase {
         this.brokerDesc = brokerDesc;
         this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
-
-        this.user = null;
     }
 
     public TableRef getTableRef() {
@@ -99,10 +96,6 @@ public class ExportStmt extends StatementBase {
         return properties;
     }
 
-    public String getUser() {
-        return user;
-    }
-
     public String getColumnSeparator() {
         return this.columnSeparator;
     }
@@ -123,9 +116,13 @@ public class ExportStmt extends StatementBase {
         this.partitions = tableRef.getPartitions();
 
         // check auth
-        user = analyzer.getUser();
-        if (!analyzer.getCatalog().getUserMgr().checkAccess(user, tblName.getDb(), AccessPrivilege.READ_ONLY)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, user, tblName.getDb());
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                                                                tblName.getDb(), tblName.getTbl(),
+                                                                PrivPredicate.SELECT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "EXPORT",
+                                                ConnectContext.get().getQualifiedUser(),
+                                                ConnectContext.get().getRemoteIP(),
+                                                tblName.getTbl());
         }
 
         // check table && partitions whether exist

@@ -90,6 +90,8 @@ public class SystemInfoServiceTest {
         EasyMock.expect(catalog.getNextId()).andReturn(backendId).anyTimes();
         EasyMock.expect(catalog.getEditLog()).andReturn(editLog).anyTimes();
         EasyMock.expect(catalog.getDb(EasyMock.anyLong())).andReturn(db).anyTimes();
+        EasyMock.expect(catalog.getCluster(EasyMock.anyString())).andReturn(new Cluster("cluster", 1)).anyTimes();
+
         catalog.clear();
         EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(catalog);

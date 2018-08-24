@@ -15,9 +15,10 @@
 
 package com.baidu.palo.http.action;
 
+import com.baidu.palo.analysis.CompoundPredicate.Operator;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.Config;
-import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.proc.ProcNodeInterface;
 import com.baidu.palo.common.proc.ProcService;
 import com.baidu.palo.http.ActionController;
@@ -25,14 +26,18 @@ import com.baidu.palo.http.BaseAction;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.HttpAuthManager;
+import com.baidu.palo.http.UnauthorizedException;
 import com.baidu.palo.http.rest.RestBaseResult;
+import com.baidu.palo.mysql.privilege.PaloPrivilege;
+import com.baidu.palo.mysql.privilege.PrivBitSet;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.UUID;
 
@@ -43,7 +48,6 @@ import io.netty.handler.codec.http.HttpResponseStatus;
 
 public class WebBaseAction extends BaseAction {
     private static final Logger LOG = LogManager.getLogger(WebBaseAction.class);
-    private static final String ADMIN_USER = "root";
 
     protected static final String LINE_SEP = System.getProperty("line.separator");
 
@@ -109,7 +113,7 @@ public class WebBaseAction extends BaseAction {
 
     @Override
     public void execute(BaseRequest request, BaseResponse response) {
-        if (!checkAuth(request, response)) {
+        if (!checkAuthWithCookie(request, response)) {
             return;
         }
 
@@ -119,66 +123,89 @@ public class WebBaseAction extends BaseAction {
         } else if (method.equals(HttpMethod.POST)) {
             executePost(request, response);
         } else {
-            response.appendContent(new RestBaseResult("HTTP method is not allowed.").toJson());
+            response.appendContent(new RestBaseResult("HTTP method is not allowed: " + method.name()).toJson());
             writeResponse(request, response, HttpResponseStatus.METHOD_NOT_ALLOWED);
         }
     }
 
-    // Sub Action class should overvide this method
+    // Sub Action class should override this method
     public void executeGet(BaseRequest request, BaseResponse response) {
         response.appendContent(new RestBaseResult("Not implemented").toJson());
         writeResponse(request, response, HttpResponseStatus.NOT_IMPLEMENTED);
     }
 
-    // Sub Action class should overvide this method
+    // Sub Action class should override this method
     public void executePost(BaseRequest request, BaseResponse response) {
         response.appendContent(new RestBaseResult("Not implemented").toJson());
         writeResponse(request, response, HttpResponseStatus.NOT_IMPLEMENTED);
     }
 
     // We first check cookie, if not admin, we check http's authority header
-    protected boolean checkAuth(BaseRequest request, BaseResponse response) {
-        if (checkAuthByCookie(request, response)) {
+    private boolean checkAuthWithCookie(BaseRequest request, BaseResponse response) {
+        if (!needPassword()) {
             return true;
         }
 
-        if (needAdmin()) {
-            try {
-                checkAdmin(request);
-                request.setAdmin(true);
-                addSession(request, response, ADMIN_USER);
-                return true;
-            } catch (DdlException e) {
-                response.appendContent("Authentication Failed. <br/> "
-                        + "You can only access <a href=\"/help\">'/help'</a> page without login!");
-                writeAuthResponse(request, response);
-                return false;
-            }
+        if (checkCookie(request, response)) {
+            return true;
         }
 
-        return true;
+        // cookie is invalid.
+        AuthorizationInfo authInfo;
+        try {
+            authInfo = getAuthorizationInfo(request);
+            checkPassword(authInfo);
+            if (needAdmin()) {
+                checkGlobalAuth(authInfo, PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
+                                                                         PaloPrivilege.NODE_PRIV),
+                                                           Operator.OR));
+            }
+            request.setAuthorized(true);
+            addSession(request, response, authInfo.fullUserName);
+
+            ConnectContext ctx = new ConnectContext(null);
+            ctx.setQualifiedUser(authInfo.fullUserName);
+            ctx.setRemoteIP(authInfo.remoteIp);
+            ctx.setThreadLocalInfo();
+
+            return true;
+        } catch (UnauthorizedException e) {
+            response.appendContent("Authentication Failed. <br/> " + e.getMessage());
+            writeAuthResponse(request, response);
+            return false;
+        }
     }
 
-    protected boolean checkAuthByCookie(BaseRequest request, BaseResponse response) {
+    private boolean checkCookie(BaseRequest request, BaseResponse response) {
         String sessionId = request.getCookieValue(PALO_SESSION_ID);
         HttpAuthManager authMgr = HttpAuthManager.getInstance();
-        String username = "";
         if (!Strings.isNullOrEmpty(sessionId)) {
-            username = authMgr.getUsername(sessionId);
-            if (!Strings.isNullOrEmpty(username)) {
-                if (username.equals(ADMIN_USER)) {
-                    response.updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME);
-                    request.setAdmin(true);
-                    return true;
-                }
+            String username = authMgr.getUsername(sessionId);
+            if (Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(request.getHostString(), username,
+                                                                      PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
+                                                                                                     PaloPrivilege.NODE_PRIV),
+                                                                                       Operator.OR))) {
+                response.updateCookieAge(request, PALO_SESSION_ID, PALO_SESSION_EXPIRED_TIME);
+                request.setAuthorized(true);
+
+                ConnectContext ctx = new ConnectContext(null);
+                ctx.setQualifiedUser(username);
+                ctx.setRemoteIP(request.getHostString());
+                ctx.setThreadLocalInfo();
+                return true;
             }
         }
         return false;
     }
 
-    // ATTN: sub Action classes can override it when there is no need to check authority.
-    //       eg. It is no need admin privileges to access to HelpAction, so we will override this
-    //       mothod in HelpAction by returning false.
+    // return true if this Action need to check password.
+    // Currently, all sub actions need to check password except for MetaBaseAction.
+    // if needPassword() is false, then needAdmin() should also return false
+    public boolean needPassword() {
+        return true;
+    }
+
+    // return true if this Action need Admin privilege.
     public boolean needAdmin() {
         return true;
     }
@@ -193,9 +220,6 @@ public class WebBaseAction extends BaseAction {
     }
 
     protected void addSession(BaseRequest request, BaseResponse response, String value) {
-        // We use hashcode of client's IP and timestamp, which not only can identify users from
-        // different host machine, but also can improve the difficulty of forging cookie.
-        int clientAddrHashCode = ((InetSocketAddress) request.getContext().channel().remoteAddress()).hashCode();
         String key = UUID.randomUUID().toString();
         DefaultCookie cookie = new DefaultCookie(PALO_SESSION_ID, key);
         cookie.setMaxAge(PALO_SESSION_EXPIRED_TIME);
@@ -212,7 +236,7 @@ public class WebBaseAction extends BaseAction {
         sb.append(NAVIGATION_BAR_PREFIX);
 
         // TODO(lingbin): maybe should change to register the menu item?
-        if (request.isAdmin()) {
+        if (request.isAuthorized()) {
             sb.append("<li><a href=\"/system\">")
                     .append("system")
                     .append("</a></li>");

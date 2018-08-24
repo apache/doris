@@ -30,6 +30,7 @@ import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -38,10 +39,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
 
-import io.netty.handler.codec.http.HttpMethod;
-
 import java.util.Collections;
 import java.util.List;
+
+import io.netty.handler.codec.http.HttpMethod;
 
 /*
  * used to get table's sorted tablet info
@@ -64,7 +65,8 @@ public class MigrationAction extends RestBaseAction {
 
     @Override
     public void execute(BaseRequest request, BaseResponse response) throws DdlException {
-        checkAdmin(request);
+        AuthorizationInfo authInfo = getAuthorizationInfo(request);
+        checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
 
         String dbName = request.getSingleParameter(DB_PARAM);
         String tableName = request.getSingleParameter(TABLE_PARAM);

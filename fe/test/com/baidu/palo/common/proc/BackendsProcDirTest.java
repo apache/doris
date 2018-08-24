@@ -20,6 +20,14 @@
 
 package com.baidu.palo.common.proc;
 
+import com.baidu.palo.catalog.Catalog;
+import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.persist.EditLog;
+import com.baidu.palo.system.Backend;
+import com.baidu.palo.system.SystemInfoService;
+
+import com.google.common.collect.Lists;
+
 import org.easymock.EasyMock;
 import org.junit.After;
 import org.junit.Assert;
@@ -31,13 +39,6 @@ import org.powermock.api.easymock.PowerMock;
 import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
-
-import com.baidu.palo.catalog.Catalog;
-import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.persist.EditLog;
-import com.baidu.palo.system.Backend;
-import com.baidu.palo.system.SystemInfoService;
-import com.google.common.collect.Lists;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("org.apache.log4j.*")
@@ -163,10 +164,6 @@ public class BackendsProcDirTest {
         result = dir.fetchResult();
         Assert.assertNotNull(result);
         Assert.assertTrue(result instanceof BaseProcResult);
-
-        Assert.assertEquals(Lists.newArrayList("Cluster", "BackendId", "IP", "HostName", "HeartbeatPort", "BePort",
-                "HttpPort", "LastStartTime", "LastHeartbeat", "Alive", "SystemDecommissioned", "ClusterDecommissioned",
-                "TabletNum"), result.getColumnNames());
     }
 
 }

@@ -20,10 +20,13 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.util.PrintableMap;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 
 import java.util.Map;
 
@@ -40,16 +43,22 @@ public class ModifyTablePropertiesClause extends AlterClause {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (!analyzer.getCatalog().getUserMgr().isAdmin(analyzer.getUser())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                "Modify table property");
-        }
-
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Properties is not set");
         }
 
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                                                "ALTER");
+        }
+
         if (properties.containsKey(KEY_STORAGE_TYPE)) {
+            // if set storage type, we need ADMIN privs.
+            if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                                                    "ADMIN");
+            }
+
             if (!properties.get(KEY_STORAGE_TYPE).equals("column")) {
                 throw new AnalysisException("Can only change storage type to COLUMN");
             }

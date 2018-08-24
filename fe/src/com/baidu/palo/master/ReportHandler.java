@@ -577,7 +577,8 @@ public class ReportHandler extends Daemon {
             for (Replica replica : replicas) {
                 final long id = replica.getBackendId();
                 final Backend backend = Catalog.getCurrentSystemInfo().getBackend(id);
-                if (backend.isAlive() && !backend.isDecommissioned() && replica.getState() == ReplicaState.NORMAL) {
+                if (backend != null && backend.isAlive() && !backend.isDecommissioned()
+                        && replica.getState() == ReplicaState.NORMAL) {
                     replicationOnLine++;
                 }
             }

@@ -34,7 +34,7 @@ public class CloneTask extends AgentTask {
     public CloneTask(long backendId, long dbId, long tableId, long partitionId, long indexId,
                      long tabletId, int schemaHash, List<TBackend> srcBackends, TStorageMedium storageMedium,
                      long committedVersion, long committedVersionHash) {
-        super(null, backendId, TTaskType.CLONE, dbId, tableId, partitionId, indexId, tabletId);
+        super(null, backendId, tabletId, TTaskType.CLONE, dbId, tableId, partitionId, indexId, tabletId);
         this.schemaHash = schemaHash;
         this.srcBackends = srcBackends;
         this.storageMedium = storageMedium;

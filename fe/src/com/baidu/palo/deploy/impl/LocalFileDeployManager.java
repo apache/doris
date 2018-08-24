@@ -68,7 +68,7 @@ public class LocalFileDeployManager extends DeployManager {
     @Override
     public List<Pair<String, Integer>> getGroupHostPorts(String groupName) {
         List<Pair<String, Integer>> result = Lists.newArrayList();
-        LOG.debug("begin to get group: {} from file: {}", groupName, clusterInfoFile);
+        LOG.info("begin to get group: {} from file: {}", groupName, clusterInfoFile);
 
         FileChannel channel = null;
         FileLock lock = null;

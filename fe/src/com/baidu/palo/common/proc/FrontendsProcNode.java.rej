@@ -1,0 +1,7 @@
+--- fe/src/com/baidu/palo/common/proc/FrontendsProcNode.java
++++ fe/src/com/baidu/palo/common/proc/FrontendsProcNode.java
+@@ -112,3 +123,4 @@
+         return hostPortPair;
+     }
+ }
++

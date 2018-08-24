@@ -35,21 +35,16 @@ import com.baidu.palo.planner.PlanNode;
 import com.baidu.palo.planner.PlanNodeId;
 import com.baidu.palo.planner.Planner;
 import com.baidu.palo.system.Backend;
-import com.baidu.palo.thrift.TExecPlanFragmentParams;
 import com.baidu.palo.thrift.TNetworkAddress;
-import com.baidu.palo.thrift.TQueryOptions;
 import com.baidu.palo.thrift.TScanRange;
 import com.baidu.palo.thrift.TScanRangeLocation;
 import com.baidu.palo.thrift.TScanRangeLocations;
-import com.baidu.palo.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableMap;
 
-import org.apache.thrift.TException;
 import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.BeforeClass;
-import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.powermock.api.easymock.PowerMock;
 import org.powermock.core.classloader.annotations.PowerMockIgnore;
@@ -63,7 +58,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentMap;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore({"org.apache.log4j.*", "javax.management.*"})
@@ -412,10 +406,6 @@ public class CoordinatorTest extends Coordinator {
             // Assert.assertTrue(hostname2.equals("machineC") || hostname2.equals("machineD"));
             // Assert.assertFalse(hostname1.equals(hostname2));
         }
-    }
-
-    @Test
-    public void testNoUsedHosts() {
     }
 
     /*

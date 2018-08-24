@@ -15,13 +15,20 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.analysis.CompoundPredicate.Operator;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PaloPrivilege;
+import com.baidu.palo.mysql.privilege.PrivBitSet;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.ShowResultSetMetaData;
+
 import com.google.common.collect.ImmutableList;
 
 public class ShowClusterStmt extends ShowStmt {
@@ -50,8 +57,11 @@ public class ShowClusterStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
-        if (!analyzer.getCatalog().getUserMgr().isAdmin(analyzer.getUser())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_PERMISSIONS);
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
+                                                                   PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
+                                                                                                  PaloPrivilege.NODE_PRIV),
+                                                                                    Operator.OR))) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }
 

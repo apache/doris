@@ -15,29 +15,29 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.analysis.BinaryPredicate.Operator;
-import com.baidu.palo.backup.BackupHandler;
-import com.baidu.palo.backup.RestoreJob;
-import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
-import com.baidu.palo.catalog.Database;
+import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
-import com.baidu.palo.common.PatternMatcher;
-import com.baidu.palo.common.proc.RestoreProcNode;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
-
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
+import com.google.common.collect.ImmutableList;
 
 public class ShowRestoreStmt extends ShowStmt {
+    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("JobId").add("Label").add("Timestamp").add("DbName").add("State")
+            .add("AllowLoad").add("ReplicationNum")
+            .add("RestoreObjs").add("CreateTime").add("MetaPreparedTime").add("SnapshotFinishedTime")
+            .add("DownloadFinishedTime").add("FinishedTime").add("UnfinishedTasks").add("TaskErrMsg")
+            .add("Status").add("Timeout")
+            .build();
 
     private String dbName;
     private Expr where;
@@ -58,103 +58,26 @@ public class ShowRestoreStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+        super.analyze(analyzer);
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
+        } else {
+            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
 
-        // check access
-        if (!analyzer.getCatalog().getUserMgr().checkAccess(analyzer.getUser(), dbName, AccessPrivilege.READ_ONLY)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(), dbName);
-        }
-
-        analyzeWhere();
-    }
-
-    private void analyzeWhere() throws AnalysisException {
-        boolean valid = true;
-        if (where == null) {
-            return;
-        }
-
-        CHECK: {
-            if (where instanceof BinaryPredicate) {
-                BinaryPredicate binaryPredicate = (BinaryPredicate) where;
-                if (binaryPredicate.getOp() != Operator.EQ) {
-                    valid = false;
-                    break CHECK;
-                }
-            } else if (where instanceof LikePredicate) {
-                LikePredicate likePredicate = (LikePredicate) where;
-                if (likePredicate.getOp() != LikePredicate.Operator.LIKE) {
-                    valid = false;
-                    break CHECK;
-                }
-            } else {
-                valid = false;
-                break CHECK;
-            }
-
-            // left child
-            if (!(where.getChild(0) instanceof SlotRef)) {
-                valid = false;
-                break CHECK;
-            }
-            String leftKey = ((SlotRef) where.getChild(0)).getColumnName();
-            if (!leftKey.equalsIgnoreCase("label")) {
-                valid = false;
-                break CHECK;
-            }
-
-            // right child
-            if (!(where.getChild(1) instanceof StringLiteral)) {
-                valid = false;
-                break CHECK;
-            }
-
-            label = ((StringLiteral) where.getChild(1)).getStringValue();
-            if (Strings.isNullOrEmpty(label)) {
-                valid = false;
-                break CHECK;
-            }
-        }
-
-        if (!valid) {
-            throw new AnalysisException("Where clause should looks like: LABEL = \"your_restore_label\","
-                    + " or LABEL LIKE \"matcher\"");
+        // check auth
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }
-
-    public List<List<String>> getResultRows() throws AnalysisException {
-        List<List<String>> result = new LinkedList<List<String>>();
-        Database db = Catalog.getInstance().getDb(dbName);
-        if (db == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
-
-        BackupHandler backupHandler = Catalog.getInstance().getBackupHandler();
-        PatternMatcher matcher = null;
-        if (!Strings.isNullOrEmpty(label)) {
-            matcher = PatternMatcher.createMysqlPattern(label);
-        }
-        List<List<Comparable>> backupJobInfos = backupHandler.getJobInfosByDb(db.getId(), RestoreJob.class, matcher);
-        for (List<Comparable> infoStr : backupJobInfos) {
-            List<String> oneInfo = new ArrayList<String>(RestoreProcNode.TITLE_NAMES.size());
-            for (Comparable element : infoStr) {
-                oneInfo.add(element.toString());
-            }
-            result.add(oneInfo);
-        }
-        return result;
-    }
-
 
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        for (String title : RestoreProcNode.TITLE_NAMES) {
+        for (String title : TITLE_NAMES) {
             builder.addColumn(new Column(title, ColumnType.createVarchar(30)));
         }
         return builder.build();
@@ -177,3 +100,4 @@ public class ShowRestoreStmt extends ShowStmt {
         return toSql();
     }
 }
+

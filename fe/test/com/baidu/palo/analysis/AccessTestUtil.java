@@ -20,14 +20,9 @@
 
 package com.baidu.palo.analysis;
 
-import java.util.LinkedList;
-import java.util.List;
-
-import org.easymock.EasyMock;
-
 import com.baidu.palo.alter.RollupHandler;
 import com.baidu.palo.alter.SchemaChangeHandler;
-import com.baidu.palo.catalog.AccessPrivilege;
+import com.baidu.palo.catalog.BrokerMgr;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.Database;
@@ -39,50 +34,55 @@ import com.baidu.palo.catalog.Partition;
 import com.baidu.palo.catalog.PrimitiveType;
 import com.baidu.palo.catalog.RandomDistributionInfo;
 import com.baidu.palo.catalog.SinglePartitionInfo;
-import com.baidu.palo.catalog.UserPropertyMgr;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.load.Load;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.persist.EditLog;
 import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.system.SystemInfoService;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import org.easymock.EasyMock;
+
+import java.util.LinkedList;
+import java.util.List;
+
 public class AccessTestUtil {
-    public static UserPropertyMgr fetchAdminAccess() {
-        UserPropertyMgr userPropertyMgr = EasyMock.createMock(UserPropertyMgr.class);
-        EasyMock.expect(userPropertyMgr.checkAccess(EasyMock.isA(String.class), EasyMock.isA(String.class),
-                EasyMock.isA(AccessPrivilege.class))).andReturn(true).anyTimes();
-        EasyMock.expect(userPropertyMgr.isAdmin(EasyMock.isA(String.class))).andReturn(true).anyTimes();
-        EasyMock.expect(userPropertyMgr.isSuperuser(EasyMock.isA(String.class))).andReturn(true).anyTimes();
-        EasyMock.expect(userPropertyMgr.checkUserAccess(EasyMock.isA(String.class), EasyMock.eq("blockUser")))
-                .andReturn(false).anyTimes();
-        EasyMock.expect(userPropertyMgr.checkUserAccess(EasyMock.isA(String.class), EasyMock.isA(String.class)))
-                .andReturn(true).anyTimes();
-        EasyMock.expect(userPropertyMgr.getMaxConn(EasyMock.isA(String.class))).andReturn(1000L).anyTimes();
-        try {
-            userPropertyMgr.setPasswd(EasyMock.endsWith("testCluster:testUser"), EasyMock.isA(byte[].class));
-            EasyMock.expectLastCall().anyTimes();
-            userPropertyMgr.setPasswd(EasyMock.endsWith("root"), EasyMock.isA(byte[].class));
-            EasyMock.expectLastCall().andThrow(new DdlException("No privilege to change password")).anyTimes();
-        } catch (DdlException e) {
-            return null;
-        }
-        EasyMock.replay(userPropertyMgr);
-        return userPropertyMgr;
-    }
 
     public static SystemInfoService fetchSystemInfoService() {
         SystemInfoService clusterInfo = EasyMock.createMock(SystemInfoService.class);
         EasyMock.replay(clusterInfo);
         return clusterInfo;
     }
+    
+    public static PaloAuth fetchAdminAccess() {
+        PaloAuth auth = EasyMock.createMock(PaloAuth.class);
+        EasyMock.expect(auth.checkGlobalPriv(EasyMock.isA(ConnectContext.class),
+                                             EasyMock.isA(PrivPredicate.class))).andReturn(true).anyTimes();
+        EasyMock.expect(auth.checkDbPriv(EasyMock.isA(ConnectContext.class), EasyMock.anyString(),
+                                         EasyMock.isA(PrivPredicate.class))).andReturn(true).anyTimes();
+        EasyMock.expect(auth.checkTblPriv(EasyMock.isA(ConnectContext.class), EasyMock.anyString(),
+                                          EasyMock.anyString(), EasyMock.isA(PrivPredicate.class)))
+                .andReturn(true).anyTimes();
+        try {
+            auth.setPassword(EasyMock.isA(SetPassVar.class));
+        } catch (DdlException e) {
+            e.printStackTrace();
+        }
+        EasyMock.expectLastCall().anyTimes();
+
+        EasyMock.replay(auth);
+        return auth;
+    }
 
     public static Catalog fetchAdminCatalog() {
         try {
             Catalog catalog = EasyMock.createMock(Catalog.class);
-            EasyMock.expect(catalog.getUserMgr()).andReturn(fetchAdminAccess()).anyTimes();
+            EasyMock.expect(catalog.getAuth()).andReturn(fetchAdminAccess()).anyTimes();
             Database db = new Database(50000L, "testCluster:testDb");
             MaterializedIndex baseIndex = new MaterializedIndex(30000, IndexState.NORMAL);
 
@@ -105,12 +105,12 @@ public class AccessTestUtil {
             EasyMock.expect(catalog.getSchemaChangeHandler()).andReturn(new SchemaChangeHandler()).anyTimes();
             EasyMock.expect(catalog.getRollupHandler()).andReturn(new RollupHandler()).anyTimes();
             EasyMock.expect(catalog.getEditLog()).andReturn(EasyMock.createMock(EditLog.class)).anyTimes();
-            EasyMock.expect(catalog.getClusterDbNames("testCluster"))
-                    .andReturn(Lists.newArrayList("testCluster:testDb")).anyTimes();
+            EasyMock.expect(catalog.getClusterDbNames("testCluster")).andReturn(Lists.newArrayList("testCluster:testDb")).anyTimes();
             catalog.changeDb(EasyMock.isA(ConnectContext.class), EasyMock.eq("blockDb"));
             EasyMock.expectLastCall().andThrow(new DdlException("failed.")).anyTimes();
             catalog.changeDb(EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class));
             EasyMock.expectLastCall().anyTimes();
+            EasyMock.expect(catalog.getBrokerMgr()).andReturn(new BrokerMgr()).anyTimes();
             EasyMock.replay(catalog);
             return catalog;
         } catch (DdlException e) {
@@ -120,19 +120,20 @@ public class AccessTestUtil {
         }
     }
 
-    public static UserPropertyMgr fetchBlockAccess() {
-        UserPropertyMgr userPropertyMgr = EasyMock.createMock(UserPropertyMgr.class);
-        EasyMock.expect(userPropertyMgr.checkAccess(EasyMock.isA(String.class), EasyMock.isA(String.class),
-                EasyMock.isA(AccessPrivilege.class))).andReturn(false).anyTimes();
-        EasyMock.expect(userPropertyMgr.isAdmin(EasyMock.isA(String.class))).andReturn(false).anyTimes();
-        EasyMock.expect(userPropertyMgr.isSuperuser(EasyMock.isA(String.class))).andReturn(false).anyTimes();
-        EasyMock.expect(userPropertyMgr.checkUserAccess(EasyMock.isA(String.class), EasyMock.isA(String.class)))
+    public static PaloAuth fetchBlockAccess() {
+        PaloAuth auth = EasyMock.createMock(PaloAuth.class);
+        EasyMock.expect(auth.checkGlobalPriv(EasyMock.isA(ConnectContext.class),
+                                             EasyMock.isA(PrivPredicate.class))).andReturn(false).anyTimes();
+        EasyMock.expect(auth.checkDbPriv(EasyMock.isA(ConnectContext.class), EasyMock.anyString(),
+                                         EasyMock.isA(PrivPredicate.class))).andReturn(false).anyTimes();
+        EasyMock.expect(auth.checkTblPriv(EasyMock.isA(ConnectContext.class), EasyMock.anyString(),
+                                          EasyMock.anyString(), EasyMock.isA(PrivPredicate.class)))
                 .andReturn(false).anyTimes();
-        EasyMock.replay(userPropertyMgr);
-        return userPropertyMgr;
+        EasyMock.replay(auth);
+        return auth;
     }
 
-    public static OlapTable mockTableFamilyGroup(String name) {
+    public static OlapTable mockTable(String name) {
         OlapTable table = EasyMock.createMock(OlapTable.class);
         Partition partition = EasyMock.createMock(Partition.class);
         MaterializedIndex index = EasyMock.createMock(MaterializedIndex.class);
@@ -150,7 +151,7 @@ public class AccessTestUtil {
 
     public static Database mockDb(String name) {
         Database db = EasyMock.createMock(Database.class);
-        OlapTable olapTable = mockTableFamilyGroup("testTable");
+        OlapTable olapTable = mockTable("testTable");
         EasyMock.expect(db.getTable("testTable")).andReturn(olapTable).anyTimes();
         EasyMock.expect(db.getTable("emptyTable")).andReturn(null).anyTimes();
         EasyMock.expect(db.getTableNamesWithLock()).andReturn(Sets.newHashSet("testTable")).anyTimes();
@@ -169,7 +170,7 @@ public class AccessTestUtil {
     public static Catalog fetchBlockCatalog() {
         try {
             Catalog catalog = EasyMock.createMock(Catalog.class);
-            EasyMock.expect(catalog.getUserMgr()).andReturn(fetchBlockAccess()).anyTimes();
+            EasyMock.expect(catalog.getAuth()).andReturn(fetchBlockAccess()).anyTimes();
             catalog.changeDb(EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class));
             EasyMock.expectLastCall().andThrow(new DdlException("failed.")).anyTimes();
 
@@ -197,17 +198,12 @@ public class AccessTestUtil {
         }
         Analyzer analyzer = EasyMock.createMock(Analyzer.class);
         EasyMock.expect(analyzer.getDefaultDb()).andReturn(prefix + "testDb").anyTimes();
-        EasyMock.expect(analyzer.getUser()).andReturn(prefix + "testUser").anyTimes();
+        EasyMock.expect(analyzer.getQualifiedUser()).andReturn(prefix + "testUser").anyTimes();
         EasyMock.expect(analyzer.getCatalog()).andReturn(fetchAdminCatalog()).anyTimes();
         EasyMock.expect(analyzer.getClusterName()).andReturn("testCluster").anyTimes();
-
-        try {
-            analyzer.checkPrivilege(EasyMock.isA(String.class), EasyMock.isA(AccessPrivilege.class));
-        } catch (AnalysisException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-        }
-        EasyMock.expectLastCall().anyTimes();
+        EasyMock.expect(analyzer.incrementCallDepth()).andReturn(1).anyTimes();
+        EasyMock.expect(analyzer.decrementCallDepth()).andReturn(0).anyTimes();
+        EasyMock.expect(analyzer.getCallDepth()).andReturn(1).anyTimes();
         EasyMock.expect(analyzer.getContext()).andReturn(new ConnectContext(null)).anyTimes();
         EasyMock.replay(analyzer);
         return analyzer;
@@ -216,11 +212,9 @@ public class AccessTestUtil {
     public static Analyzer fetchBlockAnalyzer() throws AnalysisException {
         Analyzer analyzer = EasyMock.createMock(Analyzer.class);
         EasyMock.expect(analyzer.getDefaultDb()).andReturn("testCluster:testDb").anyTimes();
-        EasyMock.expect(analyzer.getUser()).andReturn("testCluster:testUser").anyTimes();
+        EasyMock.expect(analyzer.getQualifiedUser()).andReturn("testCluster:testUser").anyTimes();
         EasyMock.expect(analyzer.getClusterName()).andReturn("testCluster").anyTimes();
         EasyMock.expect(analyzer.getCatalog()).andReturn(AccessTestUtil.fetchBlockCatalog()).anyTimes();
-        analyzer.checkPrivilege(EasyMock.isA(String.class), EasyMock.isA(AccessPrivilege.class));
-        EasyMock.expectLastCall().andThrow(new AnalysisException(""));
         EasyMock.replay(analyzer);
         return analyzer;
     }
@@ -228,7 +222,7 @@ public class AccessTestUtil {
     public static Analyzer fetchEmptyDbAnalyzer() {
         Analyzer analyzer = EasyMock.createMock(Analyzer.class);
         EasyMock.expect(analyzer.getDefaultDb()).andReturn("").anyTimes();
-        EasyMock.expect(analyzer.getUser()).andReturn("testCluster:testUser").anyTimes();
+        EasyMock.expect(analyzer.getQualifiedUser()).andReturn("testCluster:testUser").anyTimes();
         EasyMock.expect(analyzer.getClusterName()).andReturn("testCluster").anyTimes();
         EasyMock.expect(analyzer.getCatalog()).andReturn(AccessTestUtil.fetchBlockCatalog()).anyTimes();
         EasyMock.expect(analyzer.getContext()).andReturn(new ConnectContext(null)).anyTimes();

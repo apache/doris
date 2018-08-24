@@ -50,6 +50,11 @@ public class MetaBaseAction extends WebBaseAction {
     }
 
     @Override
+    public boolean needPassword() {
+        return false;
+    }
+
+    @Override
     public void execute(BaseRequest request, BaseResponse response) {
         if (needCheckClientIsFe()) {
             try {

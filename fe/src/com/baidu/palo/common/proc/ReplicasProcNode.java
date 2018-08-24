@@ -36,7 +36,7 @@ import java.util.Arrays;
 public class ReplicasProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("ReplicaId").add("BackendId").add("Version").add("VersionHash")
-            .add("DataSize").add("RowCount").add("State")
+            .add("DataSize").add("RowCount").add("State").add("VersionCount")
             .build();
 
     private Database db;
@@ -64,7 +64,8 @@ public class ReplicasProcNode implements ProcNodeInterface {
                                             String.valueOf(replica.getVersionHash()),
                                             String.valueOf(replica.getDataSize()),
                                             String.valueOf(replica.getRowCount()),
-                                            String.valueOf(replica.getState())));
+                                            String.valueOf(replica.getState()),
+                                            String.valueOf(replica.getVersionCount())));
             }
             return result;
         } finally {
@@ -72,3 +73,4 @@ public class ReplicasProcNode implements ProcNodeInterface {
         }
     }
 }
+

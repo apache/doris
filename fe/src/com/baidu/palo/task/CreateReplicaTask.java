@@ -25,8 +25,8 @@ import com.baidu.palo.thrift.TStorageType;
 import com.baidu.palo.thrift.TTabletSchema;
 import com.baidu.palo.thrift.TTaskType;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -54,12 +54,14 @@ public class CreateReplicaTask extends AgentTask {
     // used for synchronous process
     private MarkedCountDownLatch latch;
 
+    private boolean inRestoreMode = false;
+
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              short shortKeyColumnCount, int schemaHash, long version, long versionHash,
                              KeysType keysType, TStorageType storageType,
                              TStorageMedium storageMedium, List<Column> columns,
                              Set<String> bfColumns, double bfFpp, MarkedCountDownLatch latch) {
-        super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
+        super(null, backendId, tabletId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.shortKeyColumnCount = shortKeyColumnCount;
         this.schemaHash = schemaHash;
@@ -86,6 +88,14 @@ public class CreateReplicaTask extends AgentTask {
                           latch.getCount(), backendId, tabletId);
             }
         }
+    }
+
+    public void setLatch(MarkedCountDownLatch latch) {
+        this.latch = latch;
+    }
+
+    public void setInRestoreMode(boolean inRestoreMode) {
+        this.inRestoreMode = inRestoreMode;
     }
 
     public TCreateTabletReq toThrift() {
@@ -118,7 +128,9 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setVersion_hash(versionHash);
 
         createTabletReq.setStorage_medium(storageMedium);
-
+        if (inRestoreMode) {
+            createTabletReq.setIn_restore_mode(true);
+        }
 
         return createTabletReq;
     }

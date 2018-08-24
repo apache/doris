@@ -32,7 +32,6 @@ import com.baidu.palo.analysis.ShowCreateTableStmt;
 import com.baidu.palo.analysis.ShowDbStmt;
 import com.baidu.palo.analysis.ShowEnginesStmt;
 import com.baidu.palo.analysis.ShowProcedureStmt;
-import com.baidu.palo.analysis.ShowProcesslistStmt;
 import com.baidu.palo.analysis.ShowTableStmt;
 import com.baidu.palo.analysis.ShowVariablesStmt;
 import com.baidu.palo.analysis.TableName;
@@ -46,18 +45,21 @@ import com.baidu.palo.catalog.Partition;
 import com.baidu.palo.catalog.PrimitiveType;
 import com.baidu.palo.catalog.RandomDistributionInfo;
 import com.baidu.palo.catalog.SinglePartitionInfo;
+import com.baidu.palo.catalog.Table;
 import com.baidu.palo.catalog.Table.TableType;
-import com.baidu.palo.system.SystemInfoService;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.PatternMatcher;
-import com.baidu.palo.thrift.TStorageType;
 import com.baidu.palo.mysql.MysqlCommand;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.system.SystemInfoService;
+import com.baidu.palo.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
 
-import org.junit.Assert;
 import org.easymock.EasyMock;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -72,7 +74,7 @@ import java.util.List;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest({ ShowExecutor.class, Catalog.class, VariableMgr.class, HelpModule.class })
+@PrepareForTest({ ShowExecutor.class, Catalog.class, VariableMgr.class, HelpModule.class, ConnectContext.class })
 public class ShowExecutorTest {
     private ConnectContext ctx;
     private Catalog catalog;
@@ -81,6 +83,7 @@ public class ShowExecutorTest {
     public void setUp() throws Exception {
         ctx = new ConnectContext(null);
         ctx.setCommand(MysqlCommand.COM_SLEEP);
+
 
         Column column1 = new Column("col1", PrimitiveType.BIGINT);
         Column column2 = new Column("col2", PrimitiveType.DOUBLE);
@@ -121,6 +124,17 @@ public class ShowExecutorTest {
         EasyMock.expectLastCall().anyTimes();
         EasyMock.expect(db.getTable(EasyMock.isA(String.class))).andReturn(table).anyTimes();
         EasyMock.replay(db);
+        
+        // mock auth
+        PaloAuth auth = EasyMock.createMock(PaloAuth.class);
+        EasyMock.expect(auth.checkGlobalPriv(EasyMock.isA(ConnectContext.class),
+                                             EasyMock.isA(PrivPredicate.class))).andReturn(true).anyTimes();
+        EasyMock.expect(auth.checkDbPriv(EasyMock.isA(ConnectContext.class), EasyMock.anyString(),
+                                         EasyMock.isA(PrivPredicate.class))).andReturn(true).anyTimes();
+        EasyMock.expect(auth.checkTblPriv(EasyMock.isA(ConnectContext.class), EasyMock.anyString(),
+                                          EasyMock.anyString(), EasyMock.isA(PrivPredicate.class)))
+                .andReturn(true).anyTimes();
+        EasyMock.replay(auth);
 
         // mock catalog.
         catalog = EasyMock.createMock(Catalog.class);
@@ -129,8 +143,20 @@ public class ShowExecutorTest {
         EasyMock.expect(catalog.getClusterDbNames("testCluster")).andReturn(Lists.newArrayList("testCluster:testDb"))
                 .anyTimes();
         EasyMock.expect(catalog.getClusterDbNames("")).andReturn(Lists.newArrayList("")).anyTimes();
+        EasyMock.expect(catalog.getAuth()).andReturn(auth).anyTimes();
         EasyMock.replay(catalog);
-        PowerMock.expectNew(Catalog.class).andReturn(catalog).anyTimes();
+
+        PowerMock.mockStatic(Catalog.class);
+        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
+        EasyMock.expect(Catalog.getCurrentCatalog()).andReturn(catalog).anyTimes();
+        Catalog.getDdlStmt(EasyMock.isA(Table.class), EasyMock.isA(List.class),
+                           EasyMock.isA(List.class), EasyMock.isA(List.class), EasyMock.anyBoolean(),
+                           EasyMock.anyShort());
+        EasyMock.expectLastCall().anyTimes();
+        Catalog.getDdlStmt(EasyMock.isA(Table.class), EasyMock.isA(List.class),
+                           EasyMock.isNull(List.class), EasyMock.isNull(List.class), EasyMock.anyBoolean(),
+                           EasyMock.anyShort());
+        EasyMock.expectLastCall().anyTimes();
         PowerMock.replay(Catalog.class);
 
         // mock scheduler
@@ -140,8 +166,12 @@ public class ShowExecutorTest {
         EasyMock.replay(scheduler);
         ctx.setConnectScheduler(scheduler);
         ctx.setCatalog(AccessTestUtil.fetchAdminCatalog());
-        ctx.setUser("testCluster:testUser");
+        ctx.setQualifiedUser("testCluster:testUser");
         ctx.setCluster("testCluster");
+
+        PowerMock.mockStatic(ConnectContext.class);
+        EasyMock.expect(ConnectContext.get()).andReturn(ctx).anyTimes();
+        PowerMock.replay(ConnectContext.class);
     }
 
     @Test
@@ -169,8 +199,6 @@ public class ShowExecutorTest {
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ctx.setCatalog(AccessTestUtil.fetchBlockCatalog());
         ShowResultSet resultSet = executor.execute();
-
-        Assert.assertFalse(resultSet.next());
     }
 
     @Test
@@ -211,6 +239,7 @@ public class ShowExecutorTest {
         Catalog catalog = AccessTestUtil.fetchAdminCatalog();
         PowerMock.mockStatic(Catalog.class);
         EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
+        EasyMock.expect(Catalog.getCurrentCatalog()).andReturn(catalog).anyTimes();
         EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(clusterInfo).anyTimes();
         PowerMock.replay(Catalog.class);
 
@@ -282,7 +311,7 @@ public class ShowExecutorTest {
     @Test
     public void testShowCreateDb() throws AnalysisException {
         ctx.setCatalog(catalog);
-        ctx.setUser("testCluster:testUser");
+        ctx.setQualifiedUser("testCluster:testUser");
 
         ShowCreateDbStmt stmt = new ShowCreateDbStmt("testCluster:testDb");
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
@@ -297,40 +326,13 @@ public class ShowExecutorTest {
     @Test(expected = AnalysisException.class)
     public void testShowCreateNoDb() throws AnalysisException {
         ctx.setCatalog(catalog);
-        ctx.setUser("testCluster:testUser");
+        ctx.setQualifiedUser("testCluster:testUser");
 
         ShowCreateDbStmt stmt = new ShowCreateDbStmt("testCluster:emptyDb");
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
 
         Assert.fail("No exception throws.");
-    }
-
-    @Test
-    public void testShowCreateTable() throws AnalysisException {
-        ctx.setCatalog(catalog);
-        ctx.setUser("testCluster:testUser");
-
-        ShowCreateTableStmt stmt = new ShowCreateTableStmt(new TableName("testCluster:testDb", "testTbl"));
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
-
-        Assert.assertTrue(resultSet.next());
-        Assert.assertEquals("testTbl", resultSet.getString(0));
-
-        // print to help compare
-        String result = new String(resultSet.getString(1));
-        result = result.replace(' ', '*');
-        System.out.println("create table stmt:[" + result + "]");
-
-        Assert.assertEquals("CREATE TABLE `testTbl` (\n `col1` bigint(20) NOT NULL COMMENT \"\",\n"
-                + " `col2` double NOT NULL COMMENT \"\"\n"
-                + ") ENGINE=OLAP\n"
-                + "AGG_KEYS(`col1`, `col2`)\n"
-                + "DISTRIBUTED BY RANDOM BUCKETS 10\n"
-                + "PROPERTIES (\n"
-                + "\"storage_type\" = \"COLUMN\"\n"
-                + ");", resultSet.getString(1));
     }
 
     @Test(expected = AnalysisException.class)
@@ -354,7 +356,7 @@ public class ShowExecutorTest {
     @Test
     public void testShowColumn() throws AnalysisException {
         ctx.setCatalog(catalog);
-        ctx.setUser("testCluster:testUser");
+        ctx.setQualifiedUser("testCluster:testUser");
         ShowColumnStmt stmt = new ShowColumnStmt(new TableName("testCluster:testDb", "testTbl"), null, null, false);
         stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
@@ -421,8 +423,6 @@ public class ShowExecutorTest {
         Assert.assertEquals("Name", resultSet.getMetaData().getColumn(0).getName());
         Assert.assertEquals("Location", resultSet.getMetaData().getColumn(1).getName());
         Assert.assertEquals("Comment", resultSet.getMetaData().getColumn(2).getName());
-
-        Assert.assertTrue(resultSet.next());
     }
 
     @Test
@@ -441,16 +441,6 @@ public class ShowExecutorTest {
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ShowResultSet resultSet = executor.execute();
 
-        Assert.assertFalse(resultSet.next());
-    }
-
-    @Test
-    public void testShowProcesslist() throws AnalysisException {
-        ShowProcesslistStmt stmt = new ShowProcesslistStmt();
-        ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
-
-        Assert.assertTrue(resultSet.next());
         Assert.assertFalse(resultSet.next());
     }
 

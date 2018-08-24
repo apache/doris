@@ -33,7 +33,6 @@ import com.baidu.palo.analysis.AlterDatabaseQuotaStmt;
 import com.baidu.palo.analysis.AlterDatabaseRename;
 import com.baidu.palo.analysis.AlterSystemStmt;
 import com.baidu.palo.analysis.AlterTableStmt;
-import com.baidu.palo.analysis.AlterUserStmt;
 import com.baidu.palo.analysis.BackupStmt;
 import com.baidu.palo.analysis.CancelAlterSystemStmt;
 import com.baidu.palo.analysis.CancelAlterTableStmt;
@@ -42,6 +41,7 @@ import com.baidu.palo.analysis.ColumnRenameClause;
 import com.baidu.palo.analysis.CreateClusterStmt;
 import com.baidu.palo.analysis.CreateDbStmt;
 import com.baidu.palo.analysis.CreateTableStmt;
+import com.baidu.palo.analysis.CreateUserStmt;
 import com.baidu.palo.analysis.CreateViewStmt;
 import com.baidu.palo.analysis.DecommissionBackendClause;
 import com.baidu.palo.analysis.DistributionDesc;
@@ -65,10 +65,12 @@ import com.baidu.palo.analysis.RollupRenameClause;
 import com.baidu.palo.analysis.ShowAlterStmt.AlterType;
 import com.baidu.palo.analysis.SingleRangePartitionDesc;
 import com.baidu.palo.analysis.TableRenameClause;
-import com.baidu.palo.backup.AbstractBackupJob;
+import com.baidu.palo.analysis.UserDesc;
+import com.baidu.palo.analysis.UserIdentity;
+import com.baidu.palo.backup.AbstractBackupJob_D;
 import com.baidu.palo.backup.BackupHandler;
-import com.baidu.palo.backup.BackupJob;
-import com.baidu.palo.backup.RestoreJob;
+import com.baidu.palo.backup.BackupJob_D;
+import com.baidu.palo.backup.RestoreJob_D;
 import com.baidu.palo.catalog.BrokerMgr.BrokerAddress;
 import com.baidu.palo.catalog.Database.DbState;
 import com.baidu.palo.catalog.DistributionInfo.DistributionInfoType;
@@ -123,6 +125,9 @@ import com.baidu.palo.load.LoadJob.JobState;
 import com.baidu.palo.master.Checkpoint;
 import com.baidu.palo.master.MetaHelper;
 import com.baidu.palo.metric.MetricRepo;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.mysql.privilege.UserPropertyMgr;
 import com.baidu.palo.persist.BackendIdsUpdateInfo;
 import com.baidu.palo.persist.ClusterInfo;
 import com.baidu.palo.persist.DatabaseInfo;
@@ -232,6 +237,7 @@ public class Catalog {
     private ConsistencyChecker consistencyChecker;
     private BackupHandler backupHandler;
 
+    @Deprecated
     private UserPropertyMgr userPropertyMgr;
 
     private Daemon cleaner; // To clean old LabelInfo, ExportJobInfos
@@ -298,6 +304,10 @@ public class Catalog {
 
     private DeployManager deployManager;
 
+    private PaloAuth auth;
+
+    private DomainResolver domainResolver;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         List<Frontend> result = Lists.newArrayList();
         readLock();
@@ -359,7 +369,7 @@ public class Catalog {
         this.clone = new Clone();
         this.alter = new Alter();
         this.consistencyChecker = new ConsistencyChecker();
-        this.backupHandler = new BackupHandler();
+        this.backupHandler = new BackupHandler(this);
         this.lock = new ReentrantReadWriteLock(true);
         this.metaDir = Config.meta_dir;
         this.userPropertyMgr = new UserPropertyMgr();
@@ -397,6 +407,10 @@ public class Catalog {
 
         this.pullLoadJobMgr = new PullLoadJobMgr();
         this.brokerMgr = new BrokerMgr();
+
+        this.auth = new PaloAuth();
+        this.domainResolver = new DomainResolver(auth);
+        this.domainResolver.start();
     }
 
     public static void destroyCheckpoint() {
@@ -432,6 +446,10 @@ public class Catalog {
 
     public BrokerMgr getBrokerMgr() {
         return brokerMgr;
+    }
+
+    public PaloAuth getAuth() {
+        return auth;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -504,7 +522,6 @@ public class Catalog {
         this.editLog = new EditLog(nodeName);
         loadImage(IMAGE_DIR); // load image file
         editLog.open(); // open bdb env or local output stream
-        this.userPropertyMgr.setEditLog(editLog);
 
         // 4. start load label cleaner thread
         createCleaner();
@@ -517,8 +534,6 @@ public class Catalog {
         listener.setName("stateListener");
         listener.setInterval(STATE_CHANGE_CHECK_INTERVAL_MS);
         listener.start();
-
-        userPropertyMgr.setUp();
     }
 
     private void getClusterIdAndRole() throws IOException {
@@ -730,6 +745,12 @@ public class Catalog {
                         + "/role?host=" + selfNode.first + "&port=" + selfNode.second);
                 HttpURLConnection conn = null;
                 conn = (HttpURLConnection) url.openConnection();
+                if (conn.getResponseCode() != 200) {
+                    LOG.warn("failed to get fe node type from helper node: {}. response code: {}",
+                             helperNode, conn.getResponseCode());
+                    continue;
+                }
+
                 String type = conn.getHeaderField("role");
                 if (type == null) {
                     LOG.warn("failed to get fe node type from helper node: {}.", helperNode);
@@ -1127,13 +1148,15 @@ public class Catalog {
 
             checksum = loadLoadJob(dis, checksum);
             checksum = loadAlterJob(dis, checksum);
-            checksum = loadBackupAndRestoreJob(dis, checksum);
+            checksum = loadBackupAndRestoreJob_D(dis, checksum);
             checksum = loadAccessService(dis, checksum);
             checksum = loadRecycleBin(dis, checksum);
             checksum = loadGlobalVariable(dis, checksum);
             checksum = loadCluster(dis, checksum);
             checksum = loadBrokers(dis, checksum);
             checksum = loadExportJob(dis, checksum);
+            checksum = loadBackupHandler(dis, checksum);
+            checksum = loadPaloAuth(dis, checksum);
 
             long remoteChecksum = dis.readLong();
             Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
@@ -1385,45 +1408,48 @@ public class Catalog {
         return newChecksum;
     }
 
-    public long loadBackupAndRestoreJob(DataInputStream dis, long checksum) throws IOException {
+    public long loadBackupHandler(DataInputStream dis, long checksum) throws IOException {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_42) {
+            getBackupHandler().readFields(dis);
+        }
+        getBackupHandler().setCatalog(this);
+        return checksum;
+    }
+
+    public long saveBackupHandler(DataOutputStream dos, long checksum) throws IOException {
+        getBackupHandler().write(dos);
+        return checksum;
+    }
+
+    // This method is deprecated, we keep it because we need to consume the old image
+    // which contains old backup and restore jobs
+    @Deprecated
+    public long loadBackupAndRestoreJob_D(DataInputStream dis, long checksum) throws IOException {
         long newChecksum = checksum;
-        if (getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
-            newChecksum = loadBackupAndRestoreJob(dis, newChecksum, BackupJob.class);
-            newChecksum = loadBackupAndRestoreJob(dis, newChecksum, RestoreJob.class);
-            newChecksum = loadBackupAndRestoreLabel(dis, newChecksum);
+        if (getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22
+                && getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_42) {
+            newChecksum = loadBackupAndRestoreJob_D(dis, newChecksum, BackupJob_D.class);
+            newChecksum = loadBackupAndRestoreJob_D(dis, newChecksum, RestoreJob_D.class);
+            newChecksum = loadBackupAndRestoreLabel_D(dis, newChecksum);
         }
         return newChecksum;
     }
 
-    private long loadBackupAndRestoreJob(DataInputStream dis, long checksum,
-            Class<? extends AbstractBackupJob> jobClass) throws IOException {
-        Map<Long, AbstractBackupJob> jobs = null;
-        List<AbstractBackupJob> finishedOrCancelledJobs = null;
-        if (jobClass == BackupJob.class) {
-            jobs = getBackupHandler().unprotectedGetBackupJobs();
-            finishedOrCancelledJobs = getBackupHandler().unprotectedGetFinishedOrCancelledBackupJobs();
-        } else if (jobClass == RestoreJob.class) {
-            jobs = getBackupHandler().unprotectedGetRestoreJobs();
-            finishedOrCancelledJobs = getBackupHandler().unprotectedGetFinishedOrCancelledRestoreJobs();
-        } else {
-            Preconditions.checkState(false);
-        }
-
+    @Deprecated
+    private long loadBackupAndRestoreJob_D(DataInputStream dis, long checksum,
+            Class<? extends AbstractBackupJob_D> jobClass) throws IOException {
         int size = dis.readInt();
         long newChecksum = checksum ^ size;
         for (int i = 0; i < size; i++) {
             long dbId = dis.readLong();
             newChecksum ^= dbId;
-            if (jobClass == BackupJob.class) {
-                BackupJob job = new BackupJob();
+            if (jobClass == BackupJob_D.class) {
+                BackupJob_D job = new BackupJob_D();
                 job.readFields(dis);
-                jobs.put(dbId, job);
             } else {
-                RestoreJob job = new RestoreJob();
+                RestoreJob_D job = new RestoreJob_D();
                 job.readFields(dis);
-                jobs.put(dbId, job);
             }
-            LOG.debug("put {} job to map", dbId);
         }
 
         // finished or cancelled
@@ -1432,40 +1458,51 @@ public class Catalog {
         for (int i = 0; i < size; i++) {
             long dbId = dis.readLong();
             newChecksum ^= dbId;
-            if (jobClass == BackupJob.class) {
-                BackupJob job = new BackupJob();
+            if (jobClass == BackupJob_D.class) {
+                BackupJob_D job = new BackupJob_D();
                 job.readFields(dis);
-                finishedOrCancelledJobs.add(job);
             } else {
-                RestoreJob job = new RestoreJob();
+                RestoreJob_D job = new RestoreJob_D();
                 job.readFields(dis);
-                finishedOrCancelledJobs.add(job);
             }
         }
 
         return newChecksum;
     }
 
-    private long loadBackupAndRestoreLabel(DataInputStream dis, long checksum) throws IOException {
+    @Deprecated
+    private long loadBackupAndRestoreLabel_D(DataInputStream dis, long checksum) throws IOException {
         int size = dis.readInt();
         long newChecksum = checksum ^ size;
-
-        Multimap<Long, String> dbIdtoLabels = getBackupHandler().unprotectedGetDbIdToLabels();
-
         for (int i = 0; i < size; i++) {
             long dbId = dis.readLong();
             newChecksum ^= dbId;
-            String label = Text.readString(dis);
-            dbIdtoLabels.put(dbId, label);
+            Text.readString(dis); // label
         }
         return newChecksum;
     }
 
+    public long loadPaloAuth(DataInputStream dis, long checksum) throws IOException {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_43) {
+            // CAN NOT use PaloAuth.read(), cause this auth instance is already passed to DomainResolver
+            auth.readFields(dis);
+        }
+        return checksum;
+    }
+
+    @Deprecated
     public long loadAccessService(DataInputStream dis, long checksum) throws IOException {
-        int size = dis.readInt();
-        long newChecksum = checksum ^ size;
-        userPropertyMgr.readFields(dis);
-        return newChecksum;
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_43) {
+            int size = dis.readInt();
+            long newChecksum = checksum ^ size;
+            UserPropertyMgr tmpUserPropertyMgr = new UserPropertyMgr();
+            tmpUserPropertyMgr.readFields(dis);
+            
+            // transform it. the old UserPropertyMgr is deprecated
+            tmpUserPropertyMgr.transform(auth);
+            return newChecksum;
+        }
+        return checksum;
     }
 
     public long loadRecycleBin(DataInputStream dis, long checksum) throws IOException {
@@ -1473,7 +1510,7 @@ public class Catalog {
             Catalog.getCurrentRecycleBin().readFields(dis);
 
             if (!isCheckpointThread()) {
-                // add tablet in Recyclebin to TabletInvertedIndex
+                // add tablet in Recycle bin to TabletInvertedIndex
                 Catalog.getCurrentRecycleBin().addTabletToInvertedIndex();
             }
         }
@@ -1516,13 +1553,13 @@ public class Catalog {
                 checksum = saveDb(dos, checksum);
                 checksum = saveLoadJob(dos, checksum);
                 checksum = saveAlterJob(dos, checksum);
-                checksum = saveBackupAndRestoreJob(dos, checksum);
-                checksum = saveAccessService(dos, checksum);
                 checksum = saveRecycleBin(dos, checksum);
                 checksum = saveGlobalVariable(dos, checksum);
                 checksum = saveCluster(dos, checksum);
                 checksum = saveBrokers(dos, checksum);
                 checksum = saveExportJob(dos, checksum);
+                checksum = saveBackupHandler(dos, checksum);
+                checksum = savePaloAuth(dos, checksum);
                 dos.writeLong(checksum);
             } finally {
                 dos.close();
@@ -1713,75 +1750,8 @@ public class Catalog {
         return checksum;
     }
 
-    private long saveBackupAndRestoreJob(DataOutputStream dos, long checksum) throws IOException {
-        checksum = saveBackupAndRestoreJob(dos, checksum, BackupJob.class);
-        checksum = saveBackupAndRestoreJob(dos, checksum, RestoreJob.class);
-        checksum = saveBackupAndRestoreLabel(dos, checksum);
-        return checksum;
-    }
-
-    private long saveBackupAndRestoreJob(DataOutputStream dos, long checksum,
-            Class<? extends AbstractBackupJob> jobClass) throws IOException {
-        Map<Long, AbstractBackupJob> jobs = null;
-        List<AbstractBackupJob> finishedOrCancelledJobs = null;
-        if (jobClass == BackupJob.class) {
-            jobs = getBackupHandler().unprotectedGetBackupJobs();
-            finishedOrCancelledJobs = getBackupHandler().unprotectedGetFinishedOrCancelledBackupJobs();
-        } else if (jobClass == RestoreJob.class) {
-            jobs = getBackupHandler().unprotectedGetRestoreJobs();
-            finishedOrCancelledJobs = getBackupHandler().unprotectedGetFinishedOrCancelledRestoreJobs();
-        } else {
-            Preconditions.checkState(false);
-        }
-
-        // jobs
-        int size = jobs.size();
-        checksum ^= size;
-        dos.writeInt(size);
-        for (Entry<Long, AbstractBackupJob> entry : jobs.entrySet()) {
-            long dbId = entry.getKey();
-            checksum ^= dbId;
-            dos.writeLong(dbId);
-            entry.getValue().write(dos);
-            LOG.debug("save {} job", dbId);
-        }
-
-        // finished or cancelled jobs
-        size = finishedOrCancelledJobs.size();
-        checksum ^= size;
-        dos.writeInt(size);
-        for (AbstractBackupJob job : finishedOrCancelledJobs) {
-            long dbId = job.getDbId();
-            checksum ^= dbId;
-            dos.writeLong(dbId);
-            job.write(dos);
-        }
-
-        return checksum;
-    }
-
-    private long saveBackupAndRestoreLabel(DataOutputStream dos, long checksum) throws IOException {
-        Multimap<Long, String> dbIdtoLabels = getBackupHandler().unprotectedGetDbIdToLabels();
-        Collection<Map.Entry<Long, String>> entries = dbIdtoLabels.entries();
-        int size = entries.size();
-        checksum ^= size;
-        dos.writeInt(size);
-        for (Map.Entry<Long, String> entry : entries) {
-            long dbId = entry.getKey();
-            String label = entry.getValue();
-            checksum ^= dbId;
-            dos.writeLong(dbId);
-            Text.writeString(dos, label);
-        }
-
-        return checksum;
-    }
-
-    public long saveAccessService(DataOutputStream dos, long checksum) throws IOException {
-        int size = userPropertyMgr.getUserMapSize();
-        checksum ^= size;
-        dos.writeInt(size);
-        userPropertyMgr.write(dos);
+    public long savePaloAuth(DataOutputStream dos, long checksum) throws IOException {
+        auth.write(dos);
         return checksum;
     }
 
@@ -3668,7 +3638,7 @@ public class Catalog {
                 List<Long> chosenBackendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(replicationNum, true,
                         true, clusterName);
                 if (chosenBackendIds == null) {
-                    throw new DdlException("Failed to find enough host in all backends. need: " + replicationNum);
+                    throw new DdlException("Failed to find " + replicationNum + " different hosts to create table");
                 }
                 Preconditions.checkState(chosenBackendIds.size() == replicationNum);
                 for (long backendId : chosenBackendIds) {
@@ -4111,10 +4081,6 @@ public class Catalog {
 
     public BackupHandler getBackupHandler() {
         return this.backupHandler;
-    }
-
-    public UserPropertyMgr getUserMgr() {
-        return this.userPropertyMgr;
     }
 
     public Load getLoadInstance() {
@@ -4573,14 +4539,16 @@ public class Catalog {
     }
 
     // Change current database of this session.
-    public void changeDb(ConnectContext ctx, String dbName) throws DdlException {
-        if (getDb(dbName) == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
+    public void changeDb(ConnectContext ctx, String qualifiedDb) throws DdlException {
+        if (!auth.checkDbPriv(ctx, qualifiedDb, PrivPredicate.SHOW)) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_DB_ACCESS_DENIED, ctx.getQualifiedUser(), qualifiedDb);
         }
-        if (!userPropertyMgr.checkAccess(ctx.getUser(), dbName, AccessPrivilege.READ_ONLY)) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_DB_ACCESS_DENIED, ctx.getUser(), dbName);
+
+        if (getDb(qualifiedDb) == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, qualifiedDb);
         }
-        ctx.setDatabase(dbName);
+
+        ctx.setDatabase(qualifiedDb);
     }
 
     // for test only
@@ -4658,18 +4626,6 @@ public class Catalog {
         return functionSet.getFunction(desc, mode);
     }
 
-    public void alterUser(AlterUserStmt stmt) throws DdlException {
-        getUserMgr().alterUser(stmt);
-    }
-
-    public boolean checkWhiteList(String user, String remoteIp) {
-        return getUserMgr().checkWhiltListAccess(user, remoteIp);
-    }
-
-    public List<List<String>> showWhiteList(String user) {
-        return getUserMgr().showWhiteList(user);
-    }
-
     /**
      * create cluster
      *
@@ -4709,6 +4665,15 @@ public class Catalog {
         } finally {
             writeUnlock();
         }
+
+        // create super user for this cluster
+        UserIdentity adminUser = new UserIdentity(PaloAuth.ADMIN_USER, "%");
+        try {
+            adminUser.analyze(stmt.getClusterName());
+        } catch (AnalysisException e) {
+            LOG.error("should not happen", e);
+        }
+        auth.createUser(new CreateUserStmt(new UserDesc(adminUser, "", true)));
     }
 
     private void unprotectCreateCluster(Cluster cluster) {
@@ -4782,6 +4747,9 @@ public class Catalog {
             writeUnlock();
         }
 
+        // drop user of this cluster
+        // set is replay to true, not write log
+        auth.dropUserOfCluster(stmt.getClusterName(), true /* is replay */);
     }
 
     private void unprotectDropCluster(ClusterInfo info, boolean isReplay) {
@@ -4800,6 +4768,8 @@ public class Catalog {
         } finally {
             writeUnlock();
         }
+
+        auth.dropUserOfCluster(info.getClusterName(), true /* is replay */);
     }
 
     public void replayExpandCluster(ClusterInfo info) {
@@ -5354,3 +5324,4 @@ public class Catalog {
         }
     }
 }
+

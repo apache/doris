@@ -37,7 +37,7 @@ import java.util.List;
  */
 public class FrontendsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("name").add("Host").add("Port").add("Role").add("IsMaster").add("ClusterId").add("Join")
+            .add("name").add("Host").add("EditLogPort").add("Role").add("IsMaster").add("ClusterId").add("Join")
             .build();
     
     private Catalog catalog;
@@ -51,6 +51,18 @@ public class FrontendsProcNode implements ProcNodeInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
         
+        List<List<String>> infos = Lists.newArrayList();
+
+        getFrontendsInfo(catalog, infos);
+
+        for (List<String> info : infos) {
+            result.addRow(info);
+        }
+
+        return result;
+    }
+
+    public static void getFrontendsInfo(Catalog catalog, List<List<String>> infos) {
         InetSocketAddress master = catalog.getHaProtocol().getLeader();
         String masterIp = master.getAddress().getHostAddress();
         int masterPort = master.getPort();
@@ -79,12 +91,11 @@ public class FrontendsProcNode implements ProcNodeInterface {
                 info.add("true");
             }
             
-            result.addRow(info);
+            infos.add(info);
         }
-        return result;
     }
     
-    private boolean isJoin(List<Pair<String, Integer>> allFeHosts, Frontend fe) {
+    private static boolean isJoin(List<Pair<String, Integer>> allFeHosts, Frontend fe) {
         for (Pair<String, Integer> pair : allFeHosts) {
             if (fe.getHost().equals(pair.first) && fe.getEditLogPort() == pair.second) {
                 return true;
@@ -93,7 +104,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
         return false;
     }
     
-    private List<Pair<String, Integer>> convertToHostPortPair(List<InetSocketAddress> addrs) {
+    private static List<Pair<String, Integer>> convertToHostPortPair(List<InetSocketAddress> addrs) {
         List<Pair<String, Integer>> hostPortPair = Lists.newArrayList();
         for (InetSocketAddress addr : addrs) {
             hostPortPair.add(Pair.create(addr.getAddress().getHostAddress(), addr.getPort()));

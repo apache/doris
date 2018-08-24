@@ -1,0 +1,12 @@
+--- fe/src/com/baidu/palo/planner/SingleNodePlanner.java
++++ fe/src/com/baidu/palo/planner/SingleNodePlanner.java
+@@ -363,7 +363,8 @@
+                     final JoinOperator joinOperator = selectStmt.getTableRefs().get(i).getJoinOp();
+                     // TODO chenhao16 , right out join ?
+                     if (joinOperator.isRightOuterJoin() || joinOperator.isFullOuterJoin()) {
+-                        LOG.info(logStr + selectStmt.getTableRefs().get(i) + " joinOp is full outer join or right outer join.");
++                        turnOffReason = selectStmt.getTableRefs().get(i) +
++                                " joinOp is full outer join or right outer join.";
+                         aggTableValidate = false;
+                         break;
+                     }  

@@ -15,8 +15,15 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
+import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.ErrorCode;
+import com.baidu.palo.common.ErrorReport;
+import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.ShowResultSetMetaData;
 
 // Show
@@ -31,7 +38,12 @@ public class ShowBrokerStmt extends ShowStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) {
+    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
+                && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
+                                                                          PrivPredicate.OPERATOR)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN/OPERATOR");
+        }
     }
 
     @Override

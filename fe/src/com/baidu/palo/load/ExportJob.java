@@ -34,11 +34,12 @@ import com.baidu.palo.catalog.PrimitiveType;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.catalog.Type;
 import com.baidu.palo.common.Config;
+import com.baidu.palo.common.FeMetaVersion;
 import com.baidu.palo.common.InternalException;
-import com.baidu.palo.common.io.Text;
-import com.baidu.palo.common.io.Writable;
 import com.baidu.palo.common.Pair;
 import com.baidu.palo.common.Status;
+import com.baidu.palo.common.io.Text;
+import com.baidu.palo.common.io.Writable;
 import com.baidu.palo.common.util.TimeUtils;
 import com.baidu.palo.planner.DataPartition;
 import com.baidu.palo.planner.ExportSink;
@@ -54,13 +55,13 @@ import com.baidu.palo.system.Backend;
 import com.baidu.palo.task.AgentClient;
 import com.baidu.palo.thrift.TAgentResult;
 import com.baidu.palo.thrift.TNetworkAddress;
-import com.baidu.palo.thrift.TStatusCode;
 import com.baidu.palo.thrift.TScanRangeLocation;
 import com.baidu.palo.thrift.TScanRangeLocations;
+import com.baidu.palo.thrift.TStatusCode;
 import com.baidu.palo.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings; 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -213,7 +214,7 @@ public class ExportJob implements Writable {
                 scanNode = new OlapScanNode(new PlanNodeId(0), exportTupleDesc, "OlapScanNodeForExport");
                 Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
                 ((OlapScanNode) scanNode).setColumnFilters(columnFilters);
-                ((OlapScanNode) scanNode).setIsPreAggregation(false);
+                ((OlapScanNode) scanNode).setIsPreAggregation(false, "Export");
                 ((OlapScanNode) scanNode).setCanTurnOnPreAggr(false);
                 break;
             case MYSQL:
@@ -361,36 +362,16 @@ public class ExportJob implements Writable {
         return id;
     }
 
-    public void setClusterName(String clusterName) {
-        this.clusterName = clusterName;
-    }
-
     public long getDbId() {
         return dbId;
-    }
-
-    public void setDbId(long dbId) {
-        this.dbId = dbId;
     }
 
     public long getTableId() {
         return this.tableId;
     }
 
-    public void setTableId(long tableId) {
-        this.tableId = tableId;
-    }
-
-    public void setTableName(TableName tblName) {
-        this.tableName = tblName;
-    }
-
     public JobState getState() {
         return state;
-    }
-
-    public void setState(JobState state) {
-        this.state = state;
     }
 
     public BrokerDesc getBrokerDesc() {
@@ -405,20 +386,8 @@ public class ExportJob implements Writable {
         return exportPath;
     }
 
-    public void setExportPath(String exportPath) {
-        this.exportPath = exportPath;
-    }
-
-    public void setColumnSeparator(String columnSeparator) {
-        this.columnSeparator = columnSeparator;
-    }
-
     public String getColumnSeparator() {
         return this.columnSeparator;
-    }
-
-    public void setLineDelimiter(String lineDelimiter) {
-        this.lineDelimiter = lineDelimiter;
     }
 
     public String getLineDelimiter() {
@@ -427,10 +396,6 @@ public class ExportJob implements Writable {
 
     public List<String> getPartitions() {
         return partitions;
-    }
-
-    public void setPartitions(List<String> partitions) {
-        this.partitions = partitions;
     }
 
     public int getProgress() {
@@ -451,10 +416,6 @@ public class ExportJob implements Writable {
 
     public long getStartTimeMs() {
         return startTimeMs;
-    }
-
-    public void setStartTimeMs(long startTimeMs) {
-        this.startTimeMs = startTimeMs;
     }
 
     public long getFinishTimeMs() {
@@ -502,8 +463,8 @@ public class ExportJob implements Writable {
         return sql;
     }
 
-    public void setSql(String sql) {
-        this.sql = sql;
+    public TableName getTableName() {
+        return tableName;
     }
 
     public synchronized void cancel(ExportFailMsg.CancelType type, String msg) {
@@ -620,6 +581,8 @@ public class ExportJob implements Writable {
             out.writeBoolean(true);
             brokerDesc.write(out);
         }
+
+        tableName.write(out);
     }
 
     @Override
@@ -651,6 +614,13 @@ public class ExportJob implements Writable {
 
         if (in.readBoolean()) {
             brokerDesc = BrokerDesc.read(in);
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_43) {
+            tableName = new TableName();
+            tableName.readFields(in);
+        } else {
+            tableName = new TableName("DUMMY", "DUMMY");
         }
     }
 

@@ -15,9 +15,9 @@
 
 package com.baidu.palo.cluster;
 
-import com.google.common.base.Strings;
+import com.baidu.palo.mysql.privilege.PaloAuth;
 
-import com.baidu.palo.catalog.UserPropertyMgr;
+import com.google.common.base.Strings;
 
 /**
  * used to isolate the use for the database name and user name in the catalog, 
@@ -62,7 +62,8 @@ public class ClusterNamespace {
         if (Strings.isNullOrEmpty(cluster) || Strings.isNullOrEmpty(name)) {
             return null;
         }
-        if (name.contains(CLUSTER_DELIMITER) || name.equals(UserPropertyMgr.getRootName())) {
+        if (name.contains(CLUSTER_DELIMITER) || name.equalsIgnoreCase(PaloAuth.ROOT_USER)
+                || name.equalsIgnoreCase(PaloAuth.ADMIN_USER)) {
             return name;
         }
         final StringBuilder sb = new StringBuilder(cluster);

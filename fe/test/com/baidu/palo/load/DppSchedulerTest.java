@@ -34,7 +34,6 @@ import org.powermock.api.easymock.PowerMock;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
-import java.io.BufferedReader;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -60,54 +59,6 @@ public class DppSchedulerTest {
         dppScheduler = new DppScheduler(Load.dppDefaultConfig);
     }
     
-    @Test
-    @PrepareForTest({Util.class, DppScheduler.class})
-    public void testSubmitEtlJob() throws Exception {
-        // mock private method
-        dppScheduler = PowerMock.createPartialMock(DppScheduler.class, "calcReduceNumByInputSize", 
-                "calcReduceNumByTablet", "prepareDppApplications");
-        PowerMock.expectPrivate(dppScheduler, "calcReduceNumByInputSize", EasyMock.anyObject())
-                .andReturn(1).anyTimes();
-        PowerMock.expectPrivate(dppScheduler, "calcReduceNumByTablet", EasyMock.anyObject())
-                .andReturn(1).anyTimes();
-        PowerMock.expectPrivate(dppScheduler, "prepareDppApplications");
-        PowerMock.expectLastCall().anyTimes();
-        PowerMock.replay(dppScheduler);
-
-        // mock hadoop command
-        CommandResult result = new CommandResult();
-        result.setReturnCode(0);
-        PowerMock.mockStaticPartial(Util.class, "executeCommand", "shellSplit");
-        EasyMock.expect(Util.executeCommand(EasyMock.anyString(),
-                                            EasyMock.isA(String[].class))).andReturn(result).anyTimes();
-        List<String> cmdList = new ArrayList<String>();
-        cmdList.add("test");
-        EasyMock.expect(Util.shellSplit(EasyMock.anyString())).andReturn(cmdList).anyTimes();
-        PowerMock.replay(Util.class);
-        
-        // mock BufferedReader
-        BufferedReader bf = EasyMock.createNiceMock(BufferedReader.class);
-        EasyMock.expect(bf.readLine()).andReturn("Running job: job_123456").anyTimes();
-        EasyMock.replay(bf);
-        PowerMock.expectNew(BufferedReader.class, EasyMock.anyObject()).andReturn(bf).anyTimes();
-        PowerMock.replay(BufferedReader.class);
-
-        // job conf
-        Map<String, Object> jobConf = new HashMap<String, Object>();
-        Map<String, Map> tables = new HashMap<String, Map>();
-        jobConf.put("tables", tables);
-        Map<String, Map> table = new HashMap<String, Map>();
-        tables.put("1", table);
-        Map<String, Map> sourceFileSchema = new HashMap<String, Map>();
-        table.put("source_file_schema", sourceFileSchema);
-        Map<String, Object> schema = new HashMap<String, Object>();
-        sourceFileSchema.put("tf", schema);
-        schema.put("file_urls", new ArrayList<String>());
-        
-        // test
-        EtlSubmitResult submitResult = dppScheduler.submitEtlJob(1, "label", "db", "palo-dpp", jobConf, 0);
-        Assert.assertEquals("job_123456", submitResult.getEtlJobId());
-    }
     
     @Test
     public void testCalcReduceNumByInputSize() throws Exception {
@@ -226,12 +177,6 @@ public class DppSchedulerTest {
         PowerMock.replay(Util.class);
         Map<String, Long> fileMap = dppScheduler.getEtlFiles(outputPath);
         Assert.assertEquals(2, fileMap.size());
-        int i = 0;
-        for (String filePath : fileMap.keySet()) {
-            Assert.assertEquals("/label_0/export/label_0.32241.32241." + i, filePath);
-            Assert.assertEquals("2989616" + i, String.valueOf(fileMap.get(filePath)));
-            ++i;
-        }
         PowerMock.verifyAll();
 
         // ls fail and outputPath not exist

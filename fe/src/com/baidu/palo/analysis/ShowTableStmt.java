@@ -15,7 +15,6 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.catalog.InfoSchemaDb;
@@ -79,9 +78,9 @@ public class ShowTableStmt extends ShowStmt {
         } else {
             db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         }
-        if (!analyzer.getCatalog().getUserMgr().checkAccess(analyzer.getUser(), db, AccessPrivilege.READ_ONLY)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(), db);
-        }
+
+        // we do not check db privs here. because user may not have any db privs,
+        // but if it has privs of tbls inside this db,it should be allowed to see this db.
     }
 
     @Override

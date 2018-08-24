@@ -20,15 +20,14 @@
 
 package com.baidu.palo.common.proc;
 
+import com.baidu.palo.alter.SchemaChangeHandler;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.alter.SchemaChangeHandler;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 public class SchemaChangeProcNode implements ProcNodeInterface {

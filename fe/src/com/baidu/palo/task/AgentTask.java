@@ -33,10 +33,10 @@ public abstract class AgentTask {
 
     protected int failedTimes;
 
-    public AgentTask(TResourceInfo resourceInfo, long backendId, TTaskType taskType,
+    public AgentTask(TResourceInfo resourceInfo, long backendId, long signature, TTaskType taskType,
                      long dbId, long tableId, long partitionId, long indexId, long tabletId) {
         this.backendId = backendId;
-        this.signature = tabletId;
+        this.signature = signature;
         this.taskType = taskType;
 
         this.dbId = dbId;
@@ -96,6 +96,6 @@ public abstract class AgentTask {
 
     @Override
     public String toString() {
-        return "[" + taskType + "], signature: " + signature + ", backendId: " + backendId;
+        return "[" + taskType + "], signature: " + signature + ", backendId: " + backendId + ", tablet id: " + tabletId;
     }
 }

@@ -18,6 +18,7 @@ package com.baidu.palo.rpc;
 import com.baidu.jprotobuf.pbrpc.client.ProtobufRpcProxy;
 import com.baidu.jprotobuf.pbrpc.transport.RpcClient;
 import com.baidu.jprotobuf.pbrpc.transport.RpcClientOptions;
+import com.baidu.palo.common.Config;
 import com.baidu.palo.qe.SimpleScheduler;
 import com.baidu.palo.thrift.TExecPlanFragmentParams;
 import com.baidu.palo.thrift.TNetworkAddress;
@@ -29,6 +30,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.concurrent.Future;
 
 public class BackendServiceProxy {
@@ -41,7 +43,10 @@ public class BackendServiceProxy {
     private static BackendServiceProxy INSTANCE;
 
     public BackendServiceProxy() {
-        rpcClient = new RpcClient(new RpcClientOptions());
+        final RpcClientOptions rpcOptions = new RpcClientOptions();
+        rpcOptions.setMaxWait(Config.brpc_idle_wait_max_time);
+        rpcOptions.setThreadPoolSize(Config.brpc_number_of_concurrent_requests_processed);
+        rpcClient = new RpcClient(rpcOptions);
         serviceMap = Maps.newHashMap();
     }
 
@@ -65,16 +70,31 @@ public class BackendServiceProxy {
         return service;
     }
 
-    public Future<PExecPlanFragmentResult> execPlanFragmentAsync(
+public Future<PExecPlanFragmentResult> execPlanFragmentAsync(
             TNetworkAddress address, TExecPlanFragmentParams tRequest)
             throws TException, RpcException {
+        final PExecPlanFragmentRequest pRequest = new PExecPlanFragmentRequest();
+        pRequest.setRequest(tRequest);
         try {
-            PExecPlanFragmentRequest pRequest = new PExecPlanFragmentRequest();
-            pRequest.setRequest(tRequest);
-            PInternalService service = getProxy(address);
+            final PInternalService service = getProxy(address);
             return service.execPlanFragmentAsync(pRequest);
+        } catch (NoSuchElementException e) {
+            try {
+                // retry
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException interruptedException) {
+                    // do nothing
+                }
+                final PInternalService service = getProxy(address);
+                return service.execPlanFragmentAsync(pRequest);
+            } catch (NoSuchElementException noSuchElementException) {
+                LOG.warn("Execute plan fragment retry failed, address={}:{}",
+                        address.getHostname(), address.getPort(), noSuchElementException);
+                throw new RpcException(e.getMessage());               
+            }
         } catch (Throwable e) {
-            LOG.warn("execute plan fragment catch a exception, address={}:{}",
+            LOG.warn("Execute plan fragment catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
             throw new RpcException(e.getMessage());
         }
@@ -82,12 +102,27 @@ public class BackendServiceProxy {
 
     public Future<PCancelPlanFragmentResult> cancelPlanFragmentAsync(
             TNetworkAddress address, TUniqueId finstId) throws RpcException {
+        final PCancelPlanFragmentRequest pRequest = new PCancelPlanFragmentRequest(new PUniqueId(finstId));;
         try {
-            PCancelPlanFragmentRequest pRequest = new PCancelPlanFragmentRequest(new PUniqueId(finstId));
-            PInternalService service = getProxy(address);
+            final PInternalService service = getProxy(address);
             return service.cancelPlanFragmentAsync(pRequest);
+        } catch (NoSuchElementException e) {
+            // retry
+            try {
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException interruptedException) {
+                    // do nothing
+                }
+                final PInternalService service = getProxy(address);
+                return service.cancelPlanFragmentAsync(pRequest);
+            } catch (NoSuchElementException noSuchElementException) {
+                LOG.warn("Cancel plan fragment retry failed, address={}:{}",
+                        address.getHostname(), address.getPort(), noSuchElementException);
+                throw new RpcException(e.getMessage());            
+            }
         } catch (Throwable e) {
-            LOG.warn("cancel plan fragment catch a exception, address={}:{}",
+            LOG.warn("Cancel plan fragment catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
             throw new RpcException(e.getMessage());
         }

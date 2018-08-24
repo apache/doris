@@ -91,4 +91,10 @@ public final class FeMetaVersion {
 
     // change the way to name Frontend
     public static final int VERSION_41 = 41;
+
+    // new backup and restore
+    public static final int VERSION_42 = 42;
+
+    // new privilege management
+    public static final int VERSION_43 = 43;
 }

@@ -20,98 +20,44 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.AccessPrivilege;
-import com.baidu.palo.cluster.ClusterNamespace;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.Config;
-import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
-
-import com.google.common.base.Strings;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 
 import org.apache.commons.lang.NotImplementedException;
 
 import java.util.List;
 
+@Deprecated
 public class AlterUserStmt extends DdlStmt {
-    private String userName;
+    private UserIdentity userIdent;
     private AlterUserClause clause;
     
-    public AlterUserStmt(String userName, AlterClause clause) {
-        this.userName = userName;
+    public AlterUserStmt(UserIdentity userIdent, AlterClause clause) {
+        this.userIdent = userIdent;
         this.clause = (AlterUserClause) clause;
-    }
-    
-    private boolean hasRightToModify(Analyzer analyzer) {
-        String user = analyzer.getUser();
-        String toUser = userName;
-        
-        // own can modify own
-        if (user.equals(toUser)) {
-            return true;
-        }
-        
-        // admin can modify all 
-        if (analyzer.getCatalog().getUserMgr().isAdmin(user)) {
-            return true;
-        }
-        
-        // superuse can modify Ordinary user
-        if (analyzer.getCatalog().getUserMgr().isSuperuser(user)
-                && !analyzer.getCatalog().getUserMgr().isSuperuser(toUser)) {
-            return true;
-        }
-        return false;
-    }
-    
-    private void checkWhiteListSize(Analyzer analyzer) throws AnalysisException {
-        if (clause.getAlterUserType() == AlterUserType.ADD_USER_WHITELIST) {
-            try {
-                if (analyzer.getCatalog().getUserMgr().getWhiteListSize(userName) 
-                        > Config.per_user_white_list_limit) {
-                    throw new AnalysisException("whitelist size excced the max ("
-                            + Config.per_user_white_list_limit + ")");
-                }
-            } catch (DdlException e) {
-                throw new AnalysisException(e.getMessage());
-            }
-        }
     }
     
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         super.analyze(analyzer);
-        // check toUser
-        if (Strings.isNullOrEmpty(userName)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "empty user");
-        }
-        userName = ClusterNamespace.getFullName(getClusterName(), userName);
-        // check destination user if exists
-        try {
-            analyzer.getCatalog().getUserMgr().checkUserIfExist(userName);
-        } catch (DdlException e) {
-            throw new AnalysisException(e.getMessage());
-        }
         
-        // check destination user's whitelist if ecceed max value
-        checkWhiteListSize(analyzer);
+        userIdent.analyze(analyzer.getClusterName());
         
-        // only write user can modify
-        analyzer.checkPrivilege(analyzer.getDefaultDb(), AccessPrivilege.READ_WRITE);
-            
-        // check if has the right
-        if (!hasRightToModify(analyzer)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ALTER CLUSTER");
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ALTER USER");
         }
-        
+
         // alter clause analysis
         clause.analyze(analyzer);        
     }
     
-    public String getUser() {
-        return userName;
+    public UserIdentity getUserIdent() {
+        return userIdent;
     }
     
     public List<String> getHosts() {

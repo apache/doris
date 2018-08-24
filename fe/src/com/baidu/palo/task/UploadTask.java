@@ -15,6 +15,8 @@
 
 package com.baidu.palo.task;
 
+import com.baidu.palo.catalog.BrokerMgr.BrokerAddress;
+import com.baidu.palo.thrift.TNetworkAddress;
 import com.baidu.palo.thrift.TResourceInfo;
 import com.baidu.palo.thrift.TTaskType;
 import com.baidu.palo.thrift.TUploadReq;
@@ -24,40 +26,40 @@ import java.util.Map;
 public class UploadTask extends AgentTask {
 
     private long jobId;
-    private String src;
-    private String dest;
 
-    private Map<String, String> remoteSourceProperties;
+    private Map<String, String> srcToDestPath;
+    private BrokerAddress brokerAddress;
+    private Map<String, String> brokerProperties;
 
-    public UploadTask(TResourceInfo resourceInfo, long backendId, long jobId, long dbId, long tableId,
-                      long partitionId, long indexId, long tabletId, String src, String dest,
-                      Map<String, String> remoteSourceProperties) {
-        super(resourceInfo, backendId, TTaskType.UPLOAD, dbId, tableId, partitionId, indexId, tabletId);
+    public UploadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, Long dbId,
+            Map<String, String> srcToDestPath, BrokerAddress brokerAddr, Map<String, String> brokerProperties) {
+        super(resourceInfo, backendId, signature, TTaskType.UPLOAD, dbId, -1, -1, -1, -1);
         this.jobId = jobId;
-        this.src = src;
-        this.dest = dest;
-        this.remoteSourceProperties = remoteSourceProperties;
+        this.srcToDestPath = srcToDestPath;
+        this.brokerAddress = brokerAddr;
+        this.brokerProperties = brokerProperties;
     }
 
     public long getJobId() {
         return jobId;
     }
 
-    public String getSrc() {
-        return src;
+    public Map<String, String> getSrcToDestPath() {
+        return srcToDestPath;
     }
 
-    public String getDest() {
-        return dest;
+    public BrokerAddress getBrokerAddress() {
+        return brokerAddress;
     }
 
-    public Map<String, String> getRemoteSourceProperties() {
-        return remoteSourceProperties;
+    public Map<String, String> getBrokerProperties() {
+        return brokerProperties;
     }
 
     public TUploadReq toThrift() {
-        TUploadReq request = new TUploadReq(src, dest, remoteSourceProperties);
-        request.setTablet_id(tabletId);
+        TNetworkAddress address = new TNetworkAddress(brokerAddress.ip, brokerAddress.port);
+        TUploadReq request = new TUploadReq(jobId, srcToDestPath, address);
+        request.setBroker_prop(brokerProperties);
         return request;
     }
 }

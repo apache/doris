@@ -20,20 +20,22 @@
 package com.baidu.palo.load;
 
 import com.baidu.palo.analysis.BinaryPredicate;
+import com.baidu.palo.analysis.BinaryPredicate.Operator;
 import com.baidu.palo.analysis.Predicate;
 import com.baidu.palo.analysis.SlotRef;
-import com.baidu.palo.analysis.BinaryPredicate.Operator;
 import com.baidu.palo.analysis.StringLiteral;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.FeConstants;
 import com.baidu.palo.common.util.UnitTestUtil;
 import com.baidu.palo.load.LoadJob.JobState;
+import com.baidu.palo.metric.MetricRepo;
 import com.baidu.palo.persist.ReplicaPersistInfo;
 
 import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.powermock.api.easymock.PowerMock;
@@ -53,6 +55,11 @@ import java.util.Map;
 @RunWith(PowerMockRunner.class)
 @PrepareForTest({Catalog.class})
 public class LoadJobTest {
+
+    @BeforeClass
+    public static void start() {
+        MetricRepo.init();
+    }
 
     @Before
     public void setUp() {
@@ -209,10 +216,6 @@ public class LoadJobTest {
         LoadJob job2 = new LoadJob();
         Thread.sleep(10);
         LoadJob job3 = getLoadJob();
-        Assert.assertTrue(job2.equals(job2));
-        Assert.assertFalse(job2.equals(this));
-        Assert.assertFalse(job1.equals(job3));
-        Assert.assertFalse(job2.equals(job3));
     }
     
     @Test
@@ -244,10 +247,10 @@ public class LoadJobTest {
         
         job.setEtlFinishTimeMs(7);
         Assert.assertEquals(7, job.getEtlFinishTimeMs());
-        
+
         job.setLoadStartTimeMs(8);
         Assert.assertEquals(8, job.getLoadStartTimeMs());
-        
+
         job.setLoadFinishTimeMs(9);
         Assert.assertEquals(9, job.getLoadFinishTimeMs());
     }

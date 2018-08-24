@@ -31,13 +31,13 @@ import com.baidu.palo.thrift.TPlanNode;
 import com.baidu.palo.thrift.TPlanNodeType;
 import com.baidu.palo.thrift.TScanRangeLocations;
 import com.baidu.palo.thrift.TSchemaScanNode;
+
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
-import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.LogManager;
 
-import java.net.InetAddress;
-import java.net.UnknownHostException;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.List;
 
 /**
@@ -47,12 +47,13 @@ public class SchemaScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(SchemaTable.class);
 
     private final String tableName;
-    private       String schemaDb;
-    private       String schemaTable;
-    private       String schemaWild;
-    private       String user;
-    private       String frontendIP;
-    private       int    frontendPort;
+    private String schemaDb;
+    private String schemaTable;
+    private String schemaWild;
+    private String user;
+    private String userIp;
+    private String frontendIP;
+    private int frontendPort;
 
     /**
      * Constructs node to scan given data files of table 'tbl'.
@@ -74,7 +75,8 @@ public class SchemaScanNode extends ScanNode {
         schemaDb = analyzer.getSchemaDb();
         schemaTable = analyzer.getSchemaTable();
         schemaWild = analyzer.getSchemaWild();
-        user = analyzer.getUser();
+        user = analyzer.getQualifiedUser();
+        userIp = analyzer.getContext().getRemoteIP();
         frontendIP = FrontendOptions.getLocalHostAddress();
         frontendPort = Config.rpc_port;
     }
@@ -108,10 +110,11 @@ public class SchemaScanNode extends ScanNode {
         }
         msg.schema_scan_node.setIp(frontendIP);
         msg.schema_scan_node.setPort(frontendPort);
+        msg.schema_scan_node.setUser_ip(userIp);
     }
 
     /**
-     * We query MySQL Meta to get request's data localtion
+     * We query MySQL Meta to get request's data location
      * extra result info will pass to backend ScanNode
      */
     @Override

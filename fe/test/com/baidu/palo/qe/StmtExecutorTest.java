@@ -36,19 +36,21 @@ import com.baidu.palo.analysis.UseStmt;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.util.RuntimeProfile;
+import com.baidu.palo.metric.MetricRepo;
 import com.baidu.palo.mysql.MysqlChannel;
 import com.baidu.palo.mysql.MysqlSerializer;
 import com.baidu.palo.planner.Planner;
+import com.baidu.palo.rewrite.ExprRewriter;
+import com.baidu.palo.service.FrontendOptions;
 import com.baidu.palo.thrift.TQueryOptions;
 import com.baidu.palo.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 
-import java_cup.runtime.Symbol;
-
 import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.powermock.api.easymock.PowerMock;
@@ -58,9 +60,12 @@ import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.SortedMap;
+
+import java_cup.runtime.Symbol;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore({"org.apache.log4j.*", "javax.management.*"})
@@ -69,6 +74,17 @@ public class StmtExecutorTest {
     private ConnectContext ctx;
     private QueryState state;
     private ConnectScheduler scheduler;
+
+    @BeforeClass
+    public static void start() {
+        MetricRepo.init();
+        try {
+            FrontendOptions.init();
+        } catch (UnknownHostException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+    }
 
     @Before
     public void setUp() throws IOException {
@@ -90,8 +106,10 @@ public class StmtExecutorTest {
         EasyMock.expect(ctx.getState()).andReturn(state).anyTimes();
         EasyMock.expect(ctx.getConnectScheduler()).andReturn(scheduler).anyTimes();
         EasyMock.expect(ctx.getConnectionId()).andReturn(1).anyTimes();
-        EasyMock.expect(ctx.getUser()).andReturn("testUser").anyTimes();
+        EasyMock.expect(ctx.getQualifiedUser()).andReturn("testUser").anyTimes();
         ctx.setKilled();
+        EasyMock.expectLastCall().anyTimes();
+        ctx.updateReturnRows(EasyMock.anyInt());
         EasyMock.expectLastCall().anyTimes();
         ctx.setQueryId(EasyMock.isA(TUniqueId.class));
         EasyMock.expectLastCall().anyTimes();
@@ -114,6 +132,8 @@ public class StmtExecutorTest {
         queryStmt.getDbs(EasyMock.isA(Analyzer.class), EasyMock.isA(SortedMap.class));
         EasyMock.expectLastCall().anyTimes();
         EasyMock.expect(queryStmt.getRedirectStatus()).andReturn(RedirectStatus.NO_FORWARD).anyTimes();
+        queryStmt.rewriteExprs(EasyMock.isA(ExprRewriter.class));
+        EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(queryStmt);
 
         Symbol symbol = new Symbol(0, queryStmt);
@@ -276,7 +296,7 @@ public class StmtExecutorTest {
 
         ConnectContext killCtx = EasyMock.createMock(ConnectContext.class);
         EasyMock.expect(killCtx.getCatalog()).andReturn(AccessTestUtil.fetchAdminCatalog()).anyTimes();
-        EasyMock.expect(killCtx.getUser()).andReturn("blockUser").anyTimes();
+        EasyMock.expect(killCtx.getQualifiedUser()).andReturn("blockUser").anyTimes();
         killCtx.kill(true);
         EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(killCtx);
@@ -310,7 +330,7 @@ public class StmtExecutorTest {
 
         ConnectContext killCtx = EasyMock.createMock(ConnectContext.class);
         EasyMock.expect(killCtx.getCatalog()).andReturn(AccessTestUtil.fetchAdminCatalog()).anyTimes();
-        EasyMock.expect(killCtx.getUser()).andReturn("killUser").anyTimes();
+        EasyMock.expect(killCtx.getQualifiedUser()).andReturn("killUser").anyTimes();
         killCtx.kill(true);
         EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(killCtx);
@@ -321,7 +341,7 @@ public class StmtExecutorTest {
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
         stmtExecutor.execute();
 
-        Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
+        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
     }
 
     @Test

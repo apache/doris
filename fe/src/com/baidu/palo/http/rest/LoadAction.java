@@ -22,6 +22,7 @@ import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.service.ExecuteEnv;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.thrift.TNetworkAddress;
@@ -93,7 +94,9 @@ public class LoadAction extends RestBaseAction {
             throw new DdlException("No label selected.");
         }
  
-        checkWritePriv(authInfo.fullUserName, fullDbName);
+        // check auth
+        checkTblAuth(authInfo, fullDbName, tableName, PrivPredicate.LOAD);
+
         // Try to redirect to master
         if (redirectToMaster(request, response)) {
             return;
@@ -102,12 +105,12 @@ public class LoadAction extends RestBaseAction {
         // Choose a backend sequentially.
         List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(1, true, false, clusterName);
         if (backendIds == null) {
-            throw new DdlException("No live backend.");
+            throw new DdlException("No backend alive.");
         }
 
         Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
         if (backend == null) {
-            throw new DdlException("No live backend.");
+            throw new DdlException("No backend alive.");
         }
 
         TNetworkAddress redirectAddr = new TNetworkAddress(backend.getHost(), backend.getHttpPort());
@@ -115,8 +118,6 @@ public class LoadAction extends RestBaseAction {
             redirectAddr = execEnv.getMultiLoadMgr().redirectAddr(fullDbName, label, tableName, redirectAddr);
         }
         LOG.info("mini load redirect to backend: {}, label: {}", redirectAddr.toString(), label);
-
-        LOG.info("redrect address is {}, {}", backend.getHost(), backend.getHttpPort());
 
         redirectTo(request, response, redirectAddr);
     }

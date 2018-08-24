@@ -40,8 +40,9 @@ import com.baidu.palo.task.CheckConsistencyTask;
 import com.baidu.palo.task.CloneTask;
 import com.baidu.palo.task.CreateReplicaTask;
 import com.baidu.palo.task.CreateRollupTask;
+import com.baidu.palo.task.DirMoveTask;
+import com.baidu.palo.task.DownloadTask;
 import com.baidu.palo.task.PushTask;
-import com.baidu.palo.task.RestoreTask;
 import com.baidu.palo.task.SchemaChangeTask;
 import com.baidu.palo.task.SnapshotTask;
 import com.baidu.palo.task.UploadTask;
@@ -121,7 +122,11 @@ public class MasterImpl {
         } else {
             if (taskStatus.getStatus_code() != TStatusCode.OK) {
                 task.failed();
-                return result;
+                // We start to let FE perceive the task's error msg, begin with these 4 types of task.
+                if (taskType != TTaskType.MAKE_SNAPSHOT && taskType != TTaskType.UPLOAD
+                        && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE) {
+                    return result;
+                }
             }
         }
  
@@ -160,14 +165,16 @@ public class MasterImpl {
                     finishConsistenctCheck(task, request);
                     break;
                 case MAKE_SNAPSHOT:
-                    Preconditions.checkState(request.isSetSnapshot_path());
-                    finishMakeSnapshot(task, request.getSnapshot_path());
+                    finishMakeSnapshot(task, request);
                     break;
                 case UPLOAD:
-                    finishUpload(task);
+                    finishUpload(task, request);
                     break;
-                case RESTORE:
-                    finishRestore(task);
+                case DOWNLOAD:
+                    finishDownloadTask(task, request);
+                    break;
+                case MOVE:
+                    finishMoveDirTask(task, request);
                     break;
                 default:
                     break;
@@ -481,22 +488,33 @@ public class MasterImpl {
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CHECK_CONSISTENCY, task.getSignature());
     }
 
-    private void finishMakeSnapshot(AgentTask task, String snapshotPath) {
+    private void finishMakeSnapshot(AgentTask task, TFinishTaskRequest request) {
         SnapshotTask snapshotTask = (SnapshotTask) task;
-        Catalog.getInstance().getBackupHandler().handleFinishedSnapshot(snapshotTask, snapshotPath);
-        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.MAKE_SNAPSHOT, task.getSignature());
+        if (Catalog.getInstance().getBackupHandler().handleFinishedSnapshotTask(snapshotTask, request)) {
+            AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.MAKE_SNAPSHOT, task.getSignature());
+        }
+
     }
 
-    private void finishUpload(AgentTask task) {
+    private void finishUpload(AgentTask task, TFinishTaskRequest request) {
         UploadTask uploadTask = (UploadTask) task;
-        Catalog.getInstance().getBackupHandler().handleFinishedUpload(uploadTask);
-        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.UPLOAD, task.getSignature());
+        if (Catalog.getInstance().getBackupHandler().handleFinishedSnapshotUploadTask(uploadTask, request)) {
+            AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.UPLOAD, task.getSignature());
+        }
     }
 
-    private void finishRestore(AgentTask task) {
-        RestoreTask restoreTask = (RestoreTask) task;
-        Catalog.getInstance().getBackupHandler().handleFinishedRestore(restoreTask);
-        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.RESTORE, task.getSignature());
+    private void finishDownloadTask(AgentTask task, TFinishTaskRequest request) {
+        DownloadTask downloadTask = (DownloadTask) task;
+        if (Catalog.getInstance().getBackupHandler().handleDownloadSnapshotTask(downloadTask, request)) {
+            AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.DOWNLOAD, task.getSignature());
+        }
+    }
+
+    private void finishMoveDirTask(AgentTask task, TFinishTaskRequest request) {
+        DirMoveTask dirMoveTask = (DirMoveTask) task;
+        if (Catalog.getInstance().getBackupHandler().handleDirMoveTask(dirMoveTask, request)) {
+            AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.MOVE, task.getSignature());
+        }
     }
 
     public TMasterResult report(TReportRequest request) throws TException {
@@ -505,7 +523,7 @@ public class MasterImpl {
     }
 
     public TFetchResourceResult fetchResource() {
-        return Catalog.getInstance().getUserMgr().toResourceThrift();
+        return Catalog.getInstance().getAuth().toResourceThrift();
     }
 
 }

@@ -16,15 +16,14 @@
 package com.baidu.palo.service;
 
 import com.baidu.palo.analysis.SetType;
-import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.Table;
-import com.baidu.palo.catalog.UserPropertyMgr;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.AuditLog;
+import com.baidu.palo.common.CaseSensibility;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.PatternMatcher;
@@ -34,7 +33,7 @@ import com.baidu.palo.load.EtlStatus;
 import com.baidu.palo.load.LoadJob;
 import com.baidu.palo.load.MiniEtlTaskInfo;
 import com.baidu.palo.master.MasterImpl;
-import com.baidu.palo.mysql.MysqlPassword;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.qe.AuditBuilder;
 import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.ConnectProcessor;
@@ -104,26 +103,35 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TGetDbsResult getDbNames(TGetDbsParams params) throws TException {
+        LOG.debug("get db request: {}", params);
         TGetDbsResult result = new TGetDbsResult();
+
         List<String> dbs = Lists.newArrayList();
-        List<String> dbNames = Catalog.getInstance().getDbNames();
-        UserPropertyMgr userPropertyMgr = Catalog.getInstance().getUserMgr();
         PatternMatcher matcher = null;
         if (params.isSetPattern()) {
             try {
-                matcher = PatternMatcher.createMysqlPattern(params.getPattern());
+                matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
+                                                            CaseSensibility.DATABASE.getCaseSensibility());
             } catch (AnalysisException e) {
-                throw new TException("Pattern is in bad format " + params.getPattern());
+                throw new TException("Pattern is in bad format: " + params.getPattern());
             }
         }
+
+        Catalog catalog = Catalog.getCurrentCatalog();
+        List<String> dbNames = catalog.getDbNames();
+        LOG.debug("get db names: {}", dbNames);
         for (String fullName : dbNames) {
+            if (!catalog.getAuth().checkDbPriv(params.user_ip, fullName, params.user,
+                                               PrivPredicate.SHOW)) {
+                continue;
+            }
+
             final String db = ClusterNamespace.getNameFromFullName(fullName);
             if (matcher != null && !matcher.match(db)) {
                 continue;
             }
-            if (userPropertyMgr.checkAccess(params.user, fullName, AccessPrivilege.READ_ONLY)) {
-                dbs.add(fullName);
-            }
+
+            dbs.add(fullName);
         }
         result.setDbs(dbs);
         return result;
@@ -131,20 +139,31 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TGetTablesResult getTableNames(TGetTablesParams params) throws TException {
+        LOG.debug("get table name request: {}", params);
         TGetTablesResult result = new TGetTablesResult();
         List<String> tablesResult = Lists.newArrayList();
         result.setTables(tablesResult);
         PatternMatcher matcher = null;
         if (params.isSetPattern()) {
             try {
-                matcher = PatternMatcher.createMysqlPattern(params.getPattern());
+                matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
+                                                            CaseSensibility.TABLE.getCaseSensibility());
             } catch (AnalysisException e) {
-                throw new TException("Pattern is in bad format " + params.getPattern());
+                throw new TException("Pattern is in bad format: " + params.getPattern());
             }
         }
+
+        // database privs should be checked in analysis phrase
+
         Database db = Catalog.getInstance().getDb(params.db);
         if (db != null) {
             for (String tableName : db.getTableNamesWithLock()) {
+                LOG.debug("get table: {}, wait to check", tableName);
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(params.user_ip, params.db, params.user,
+                                                                        tableName, PrivPredicate.SHOW)) {
+                    continue;
+                }
+
                 if (matcher != null && !matcher.match(tableName)) {
                     continue;
                 }
@@ -156,22 +175,32 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TListTableStatusResult listTableStatus(TGetTablesParams params) throws TException {
+        LOG.debug("get list table request: {}", params);
         TListTableStatusResult result = new TListTableStatusResult();
         List<TTableStatus> tablesResult = Lists.newArrayList();
         result.setTables(tablesResult);
         PatternMatcher matcher = null;
         if (params.isSetPattern()) {
             try {
-                matcher = PatternMatcher.createMysqlPattern(params.getPattern());
+                matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
+                                                            CaseSensibility.TABLE.getCaseSensibility());
             } catch (AnalysisException e) {
                 throw new TException("Pattern is in bad format " + params.getPattern());
             }
         }
+
+        // database privs should be checked in analysis phrase
+
         Database db = Catalog.getInstance().getDb(params.db);
         if (db != null) {
             db.readLock();
             try {
                 for (Table table : db.getTables()) {
+                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(params.user_ip, params.db, params.user,
+                                                                            table.getName(), PrivPredicate.SHOW)) {
+                        continue;
+                    }
+
                     if (matcher != null && !matcher.match(table.getName())) {
                         continue;
                     }
@@ -200,9 +229,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TDescribeTableResult describeTable(TDescribeTableParams params) throws TException {
+        LOG.debug("get desc table request: {}", params);
         TDescribeTableResult result = new TDescribeTableResult();
         List<TColumnDef> columns = Lists.newArrayList();
         result.setColumns(columns);
+
+        // database privs should be checked in analysis phrase
+
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(params.user_ip, params.db, params.user,
+                                                                params.getTable_name(), PrivPredicate.SHOW)) {
+            return result;
+        }
+
         Database db = Catalog.getInstance().getDb(params.db);
         if (db != null) {
             db.readLock();
@@ -272,14 +310,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
 
-        final String userFullName = Catalog.getInstance().getUserMgr().isAdmin(request.user) ? request.user :
-            ClusterNamespace.getFullName(cluster, request.user);
         final String dbFullName = ClusterNamespace.getFullName(cluster, request.db);
-        request.setUser(userFullName);
+        request.setUser(request.user);
         request.setDb(dbFullName);
         context.setCluster(cluster);
         context.setDatabase(ClusterNamespace.getFullName(cluster, request.db));
-        context.setUser(ClusterNamespace.getFullName(cluster, request.user));
+        context.setQualifiedUser(ClusterNamespace.getFullName(cluster, request.user));
         context.setCatalog(Catalog.getInstance());
         context.getState().reset();
         context.setThreadLocalInfo();
@@ -311,7 +347,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    public static String getMiniLoadStmt(TMiniLoadRequest request) throws UnknownHostException {
+    private void logMiniLoadStmt(TMiniLoadRequest request) throws UnknownHostException {
+        String stmt = getMiniLoadStmt(request);
+        AuditBuilder auditBuilder = new AuditBuilder();
+        auditBuilder.put("client", request.user_ip + ":0");
+        auditBuilder.put("user", request.user);
+        auditBuilder.put("db", request.db);
+        auditBuilder.put("state", TStatusCode.OK);
+        auditBuilder.put("time", "0");
+        auditBuilder.put("stmt", stmt);
+
+        AuditLog.getQueryAudit().log(auditBuilder.toString());
+    }
+
+    private String getMiniLoadStmt(TMiniLoadRequest request) throws UnknownHostException {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("curl --location-trusted -u user:passwd -T ");
 
@@ -337,19 +386,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         return stringBuilder.toString();
-    }
-
-    private void logMiniLoadStmt(TMiniLoadRequest request) throws UnknownHostException {
-        String stmt = getMiniLoadStmt(request);
-        AuditBuilder auditBuilder = new AuditBuilder();
-        auditBuilder.put("client", request.getBackend().getHostname() + ":" + request.getBackend().getPort());
-        auditBuilder.put("user", request.user);
-        auditBuilder.put("db", request.db);
-        auditBuilder.put("state", TStatusCode.OK);
-        auditBuilder.put("time", "0");
-        auditBuilder.put("stmt", stmt);
-
-        AuditLog.getQueryAudit().log(auditBuilder.toString());
     }
 
     @Override
@@ -432,30 +468,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
-        final String userFullName = Catalog.getInstance().getUserMgr().isAdmin(request.user) ? request.user :
-            ClusterNamespace.getFullName(cluster, request.user);
+
         final String dbFullName = ClusterNamespace.getFullName(cluster, request.db);
-        request.setUser(userFullName);
+
+        request.setUser(request.user);
         request.setDb(dbFullName);
-        // Check user and password
-        byte[] passwd = Catalog.getInstance().getUserMgr().getPassword(userFullName);
-        if (passwd == null) {
-            // No such user
-            status.setStatus_code(TStatusCode.INTERNAL_ERROR);
-            status.setError_msgs(Lists.newArrayList("No such user(" + userFullName + ")"));
-            return result;
-        }
-        if (!MysqlPassword.checkPlainPass(passwd, request.passwd)) {
-            status.setStatus_code(TStatusCode.INTERNAL_ERROR);
-            status.setError_msgs(Lists.newArrayList("Wrong password."));
-            return result;
-        }
-        if (!Catalog.getInstance().getUserMgr().checkAccess(userFullName, dbFullName, AccessPrivilege.READ_WRITE)) {
-            status.setStatus_code(TStatusCode.INTERNAL_ERROR);
-            status.setError_msgs(
-                    Lists.newArrayList("Have no privilege to write this database(" + request.getDb() + ")"));
-            return result;
-        }
+
         if (request.isSetLabel()) {
             // Only single table will be set label
             try {

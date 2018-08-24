@@ -125,9 +125,8 @@ public class CloneTest {
                 timeoutSecond));
         // add tablet2 high priority clone job success
         priority = JobPriority.NORMAL;
-        Assert.assertTrue(clone.addCloneJob(dbId, tableId, partitionId, indexId, tabletId, backendId,
-                                            type, priority,
-                timeoutSecond));
+        Assert.assertFalse(clone.addCloneJob(dbId, tableId, partitionId, indexId, tabletId, backendId,
+                                            type, priority, timeoutSecond));
     }
     
     @Test

@@ -110,7 +110,20 @@ public class MysqlServer {
                         context.cleanup();
                     }
                 } catch (IOException e) {
-                    // some error when accept
+                    // ClosedChannelException
+                    // AsynchronousCloseException
+                    // ClosedByInterruptException
+                    // Other IOException, for example "to many open files" ...
+                    LOG.warn("Query server encounter exception.", e);
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e1) {
+                       // Do nothing
+                    }
+                    continue;
+                } catch (RuntimeException e) {
+                    // NotYetBoundException
+                    // SecurityException
                     LOG.warn("Query server failed when calling accept.", e);
                     return;
                 }

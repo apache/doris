@@ -23,8 +23,10 @@ package com.baidu.palo.catalog;
 import com.baidu.palo.analysis.SetUserPropertyVar;
 import com.baidu.palo.analysis.SetVar;
 import com.baidu.palo.common.DdlException;
-import com.baidu.palo.common.FeMetaVersion;
+import com.baidu.palo.common.FeConstants;
 import com.baidu.palo.load.DppConfig;
+import com.baidu.palo.mysql.privilege.UserProperty;
+
 import com.google.common.collect.Lists;
 
 import org.easymock.EasyMock;
@@ -49,11 +51,10 @@ public class UserPropertyTest {
     public void testNormal() throws IOException, DdlException {
         // mock catalog
         PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeMetaVersion.VERSION_12).anyTimes();
+        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
         PowerMock.replay(Catalog.class);
 
-        UserProperty property = new UserProperty();
-
+        UserProperty property = new UserProperty("root");
         property.getResource().updateGroupShare("low", 991);
         // To image
         ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
@@ -80,7 +81,7 @@ public class UserPropertyTest {
         Assert.assertEquals(100, userProperty.getMaxConn());
         Assert.assertEquals(101, userProperty.getResource().getResource().getByDesc("cpu_share"));
         Assert.assertEquals(102, userProperty.getResource().getShareByGroup().get("normal").intValue());
-        Assert.assertEquals("/user/palo2", userProperty.getClusterInfo("dpp-cluster").second.getPaloPath());
+        Assert.assertEquals("/user/palo2", userProperty.getLoadClusterInfo("dpp-cluster").second.getPaloPath());
         Assert.assertEquals("dpp-cluster", userProperty.getDefaultLoadCluster());
 
         // fetch property
@@ -103,21 +104,21 @@ public class UserPropertyTest {
         }
 
         // get cluster info
-        DppConfig dppConfig = userProperty.getClusterInfo("dpp-cluster").second;
+        DppConfig dppConfig = userProperty.getLoadClusterInfo("dpp-cluster").second;
         Assert.assertEquals(8070, dppConfig.getHttpPort());
 
         // set palo path null
         propertyList = Lists.newArrayList();
         propertyList.add(new SetUserPropertyVar("load_cluster.dpp-cluster.hadoop_palo_path", null));
         userProperty.update(propertyList);
-        Assert.assertEquals(null, userProperty.getClusterInfo("dpp-cluster").second.getPaloPath());
+        Assert.assertEquals(null, userProperty.getLoadClusterInfo("dpp-cluster").second.getPaloPath());
 
         // remove dpp-cluster
         propertyList = Lists.newArrayList();
         propertyList.add(new SetUserPropertyVar("load_cluster.dpp-cluster", null));
         Assert.assertEquals("dpp-cluster", userProperty.getDefaultLoadCluster());
         userProperty.update(propertyList);
-        Assert.assertEquals(null, userProperty.getClusterInfo("dpp-cluster").second);
+        Assert.assertEquals(null, userProperty.getLoadClusterInfo("dpp-cluster").second);
         Assert.assertEquals(null, userProperty.getDefaultLoadCluster());
     }
 }

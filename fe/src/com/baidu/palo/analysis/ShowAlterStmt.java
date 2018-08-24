@@ -15,7 +15,6 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.catalog.Database;
@@ -34,8 +33,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /*
  * ShowAlterStmt: used to show process state of alter statement.
@@ -74,7 +73,6 @@ public class ShowAlterStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         super.analyze(analyzer);
-        final String dbNameWithoutPrefix = dbName;
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
             if (Strings.isNullOrEmpty(dbName)) {
@@ -85,11 +83,9 @@ public class ShowAlterStmt extends ShowStmt {
         }
 
         Preconditions.checkNotNull(type);
-        // check access
-        if (!analyzer.getCatalog().getUserMgr().checkAccess(analyzer.getUser(), dbName, AccessPrivilege.READ_ONLY)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(),
-                    dbNameWithoutPrefix);
-        }
+
+        // check auth when get job info
+
         handleShowAlterTable(analyzer);
     }
 
@@ -101,21 +97,21 @@ public class ShowAlterStmt extends ShowStmt {
         }
 
         // build proc path
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("/jobs/");
-        stringBuilder.append(db.getId());
+        StringBuilder sb = new StringBuilder();
+        sb.append("/jobs/");
+        sb.append(db.getId());
         if (type == AlterType.COLUMN) {
-            stringBuilder.append("/schema_change");
+            sb.append("/schema_change");
         } else if (type == AlterType.ROLLUP) {
-            stringBuilder.append("/rollup");
+            sb.append("/rollup");
         } else {
             throw new InternalException("SHOW " + type.name() + " does not implement yet");
         }
 
-        LOG.debug("process SHOW PROC '{}';", stringBuilder.toString());
+        LOG.debug("process SHOW PROC '{}';", sb.toString());
         // create show proc stmt
         // '/jobs/db_name/rollup|schema_change/
-        node = ProcService.getInstance().open(stringBuilder.toString());
+        node = ProcService.getInstance().open(sb.toString());
         if (node == null) {
             throw new AnalysisException("Failed to show alter table");
         }

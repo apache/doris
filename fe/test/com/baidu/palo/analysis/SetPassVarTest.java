@@ -22,17 +22,34 @@ package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.MockedAuth;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.qe.ConnectContext;
 
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import mockit.Mocked;
+import mockit.internal.startup.Startup;
+
 public class SetPassVarTest {
     private Analyzer analyzer;
+
+    @Mocked
+    private PaloAuth auth;
+    @Mocked
+    private ConnectContext ctx;
+
+    static {
+        Startup.initializeIfPossible();
+    }
 
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
+        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
 
     @Test
@@ -40,40 +57,30 @@ public class SetPassVarTest {
         SetPassVar stmt;
 
         //  mode: SET PASSWORD FOR 'testUser' = 'testPass';
-        stmt = new SetPassVar("testUser", "*88EEBA7D913688E7278E2AD071FDB5E76D76D34B");
+        stmt = new SetPassVar(new UserIdentity("testUser", "%"), "*88EEBA7D913688E7278E2AD071FDB5E76D76D34B");
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:testUser", stmt.getUser());
+        Assert.assertEquals("testCluster:testUser", stmt.getUserIdent().getQualifiedUser());
         Assert.assertEquals("*88EEBA7D913688E7278E2AD071FDB5E76D76D34B", new String(stmt.getPassword()));
-        Assert.assertEquals("SET PASSWORD FOR 'testCluster:testUser' = '*88EEBA7D913688E7278E2AD071FDB5E76D76D34B'",
+        Assert.assertEquals("SET PASSWORD FOR 'testCluster:testUser'@'%' = '*88EEBA7D913688E7278E2AD071FDB5E76D76D34B'",
                 stmt.toString());
 
         // empty password
-        stmt = new SetPassVar("testUser", null);
+        stmt = new SetPassVar(new UserIdentity("testUser", "%"), null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SET PASSWORD FOR 'testCluster:testUser' = ''", stmt.toString());
+        Assert.assertEquals("SET PASSWORD FOR 'testCluster:testUser'@'%' = ''", stmt.toString());
 
         // empty user
         // empty password
         stmt = new SetPassVar(null, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SET PASSWORD FOR 'testCluster:testUser' = ''", stmt.toString());
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testNoPriv() throws InternalException, AnalysisException {
-        SetPassVar stmt;
-
-        // plain mode: SET PASSWORD FOR 'testUser' = PASSWORD('testPass');
-        stmt = new SetPassVar("testUser", "*88EEBA7D913688E7278E2AD071FDB5E76D76D34B");
-        stmt.analyze(AccessTestUtil.fetchBlockAnalyzer());
-        Assert.fail("No exception throws.");
+        Assert.assertEquals("SET PASSWORD FOR 'testCluster:testUser'@'192.168.1.1' = ''", stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)
     public void testBadPassword() throws InternalException, AnalysisException {
         SetPassVar stmt;
         //  mode: SET PASSWORD FOR 'testUser' = 'testPass';
-        stmt = new SetPassVar("testUser", "*88EEBAHD913688E7278E2AD071FDB5E76D76D34B");
+        stmt = new SetPassVar(new UserIdentity("testUser", "%"), "*88EEBAHD913688E7278E2AD071FDB5E76D76D34B");
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }

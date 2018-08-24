@@ -21,8 +21,6 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.ErrorCode;
-import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.load.LoadErrorHub;
 
 import org.apache.logging.log4j.LogManager;
@@ -48,12 +46,7 @@ public class AlterLoadErrorUrlClause extends AlterClause {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        // only root can do it
-        if (!analyzer.getCatalog().getUserMgr().isAdmin(analyzer.getUser())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                    "SET LOAD_ERROR_URL");
-        }
-
+        // auth is checked in Alter System Stmt
         this.param = LoadErrorHub.analyzeUrl(url);
     }
 

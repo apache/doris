@@ -15,7 +15,6 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.cluster.ClusterNamespace;
@@ -43,8 +42,7 @@ public class ShowDeleteStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         super.analyze(analyzer);
-        final String dbNameWithoutPrefix = dbName;
-        final String userNameWithoutPrefix = ClusterNamespace.getNameFromFullName(analyzer.getUser());
+
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
             if (Strings.isNullOrEmpty(dbName)) {
@@ -52,12 +50,6 @@ public class ShowDeleteStmt extends ShowStmt {
             }
         } else {
             dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
-        }
-
-        // check access
-        if (!analyzer.getCatalog().getUserMgr().checkAccess(analyzer.getUser(), dbName, AccessPrivilege.READ_ONLY)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, userNameWithoutPrefix,
-                    dbNameWithoutPrefix);
         }
     }
 

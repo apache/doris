@@ -21,7 +21,17 @@
 
 package com.baidu.palo.analysis;
 
-import java.util.List;
+import com.baidu.palo.catalog.Column;
+import com.baidu.palo.catalog.ColumnType;
+import com.baidu.palo.catalog.KeysType;
+import com.baidu.palo.catalog.PrimitiveType;
+import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.MockedAuth;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.qe.ConnectContext;
+
+import com.google.common.collect.Lists;
 
 import org.easymock.EasyMock;
 import org.junit.Assert;
@@ -30,13 +40,10 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.baidu.palo.catalog.Column;
-import com.baidu.palo.catalog.ColumnType;
-import com.baidu.palo.catalog.KeysType;
-import com.baidu.palo.catalog.PrimitiveType;
-import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
-import com.google.common.collect.Lists;
+import java.util.List;
+
+import mockit.Mocked;
+import mockit.internal.startup.Startup;
 
 public class CreateTableStmtTest {
     private static final Logger LOG = LoggerFactory.getLogger(CreateTableStmtTest.class);
@@ -50,6 +57,15 @@ public class CreateTableStmtTest {
     private List<String> invalidColsName;
     private Analyzer analyzer;
     
+    @Mocked
+    private PaloAuth auth;
+    @Mocked
+    private ConnectContext ctx;
+
+    static {
+        Startup.initializeIfPossible();
+    }
+
     // set default db is 'db1'
     // table name is table1
     // Column: [col1 int; col2 string]
@@ -76,38 +92,32 @@ public class CreateTableStmtTest {
         invalidColsName.add("col1");
         invalidColsName.add("col2");
         invalidColsName.add("col2");
+
+        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
     
     @Test
     public void testNormal() throws InternalException, AnalysisException {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                new RandomDistributionDesc(10), null, null);
+                new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null);
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
         Assert.assertNull(stmt.getProperties());
-        LOG.info(stmt.toSql());
-        Assert.assertEquals("CREATE TABLE `testCluster:db1`.`table1` (\n"
-                + "`col1` int(11) NOT NULL COMMENT \"\",\n" + "`col2` char(10) NOT NULL COMMENT \"\"\n"
-                + ") ENGINE = olap\nAGG_KEYS(`col1`, `col2`)\nDISTRIBUTED BY RANDOM\nBUCKETS 10",
-                stmt.toSql());
     }
     
     @Test
     public void testDefaultDbNormal() throws InternalException, AnalysisException {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                new RandomDistributionDesc(10), null, null);
+                new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:testDb", stmt.getDbName());
+        Assert.assertEquals("testDb", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
         Assert.assertNull(stmt.getPartitionDesc());
         Assert.assertNull(stmt.getProperties());
-        LOG.info(stmt.toSql());
-        Assert.assertEquals("CREATE TABLE `testCluster:testDb`.`table1` (\n"
-                + "`col1` int(11) NOT NULL COMMENT \"\",\n" + "`col2` char(10) NOT NULL COMMENT \"\"\n"
-                + ") ENGINE = olap\nAGG_KEYS(`col1`, `col2`)\nDISTRIBUTED BY RANDOM\nBUCKETS 10", stmt.toSql());
     }
     
     @Test(expected = AnalysisException.class)
@@ -115,6 +125,7 @@ public class CreateTableStmtTest {
         // make defalut db return empty;
         analyzer = EasyMock.createMock(Analyzer.class);
         EasyMock.expect(analyzer.getDefaultDb()).andReturn("").anyTimes();
+        EasyMock.expect(analyzer.getClusterName()).andReturn("cluster").anyTimes();
         EasyMock.replay(analyzer);
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null,
@@ -139,16 +150,6 @@ public class CreateTableStmtTest {
                 new KeysDesc(KeysType.AGG_KEYS, invalidColsName), null,
                 new RandomDistributionDesc(10), null, null);
         stmt.analyze(analyzer);
-    }
-    
-    @Test(expected = AnalysisException.class)
-    public void testNoPriv() throws InternalException, AnalysisException {
-        // make default db return empty;
-        CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                new RandomDistributionDesc(10), null, null);
-        stmt.analyze(AccessTestUtil.fetchBlockAnalyzer());
-        Assert.fail("No exception throws.");
     }
     
 }

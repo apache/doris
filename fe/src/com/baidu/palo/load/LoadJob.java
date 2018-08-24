@@ -27,6 +27,7 @@ import com.baidu.palo.thrift.TPriority;
 import com.baidu.palo.thrift.TResourceInfo;
 
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -106,6 +107,9 @@ public class LoadJob implements Writable {
 
     private long execMemLimit;
 
+    // save table names for auth check
+    private Set<String> tableNames;
+
     public LoadJob() {
         this("");
     }
@@ -141,8 +145,17 @@ public class LoadJob implements Writable {
         this.resourceInfo = null;
         this.priority = TPriority.NORMAL;
         this.execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
+        this.tableNames = Sets.newHashSet();
     }
     
+    public void addTableName(String tableName) {
+        tableNames.add(tableName);
+    }
+    
+    public Set<String> getTableNames() {
+        return tableNames;
+    }
+
     public long getId() {
         return id;
     }
@@ -642,13 +655,20 @@ public class LoadJob implements Writable {
         }
 
         out.writeLong(execMemLimit);
+
+        out.writeInt(tableNames.size());
+        for (String tableName : tableNames) {
+            Text.writeString(out, tableName);
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
+        long version = Catalog.getCurrentCatalogJournalVersion();
+
         id = in.readLong();
         dbId = in.readLong();
         label = Text.readString(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_23) {
+        if (version >= FeMetaVersion.VERSION_23) {
             timestamp = in.readLong();
         } else {
             timestamp = -1;
@@ -657,7 +677,7 @@ public class LoadJob implements Writable {
         maxFilterRatio = in.readDouble();
         
         deleteFlag = false;
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_30) {
+        if (version >= FeMetaVersion.VERSION_30) {
             deleteFlag = in.readBoolean();
         }
 
@@ -726,7 +746,6 @@ public class LoadJob implements Writable {
             resourceInfo = new TResourceInfo(user, group);
         }
 
-        long version = Catalog.getCurrentCatalogJournalVersion();
         if (version >= 3 && version < 7) {
             // bos 3 parameters
             String bosEndpoint = Text.readString(in);
@@ -753,6 +772,13 @@ public class LoadJob implements Writable {
 
         if (version >= FeMetaVersion.VERSION_34) {
             this.execMemLimit = in.readLong();
+        }
+        
+        if (version >= FeMetaVersion.VERSION_43) {
+            int size = in.readInt();
+            for (int i = 0; i < size; i++) {
+                tableNames.add(Text.readString(in));
+            }
         }
     }
     

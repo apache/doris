@@ -23,6 +23,7 @@ package com.baidu.palo.analysis;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.qe.ConnectContext;
 
 import org.easymock.EasyMock;
 import org.junit.Assert;
@@ -36,19 +37,30 @@ import org.powermock.modules.junit4.PowerMockRunner;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("org.apache.log4j.*")
-@PrepareForTest(Catalog.class)
+@PrepareForTest({ Catalog.class, ConnectContext.class })
 public class DescribeStmtTest {
     private Analyzer analyzer;
     private Catalog catalog;
+    private ConnectContext ctx;
 
     @Before
     public void setUp() {
+        ctx = new ConnectContext(null);
+        ctx.setQualifiedUser("root");
+        ctx.setRemoteIP("192.168.1.1");
+
+        PowerMock.mockStatic(ConnectContext.class);
+        EasyMock.expect(ConnectContext.get()).andReturn(ctx).anyTimes();
+        PowerMock.replay(ConnectContext.class);
+
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         catalog = AccessTestUtil.fetchAdminCatalog();
         PowerMock.mockStatic(Catalog.class);
         EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
+        EasyMock.expect(Catalog.getCurrentCatalog()).andReturn(catalog).anyTimes();
         EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(AccessTestUtil.fetchSystemInfoService()).anyTimes();
         PowerMock.replay(Catalog.class);
+
     }
 
     @Test
@@ -69,12 +81,5 @@ public class DescribeStmtTest {
         Assert.assertEquals(7, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("testCluster:testDb", stmt.getDb());
         Assert.assertEquals("testTbl", stmt.getTableName());
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testNoPriv() throws AnalysisException, InternalException {
-        DescribeStmt stmt = new DescribeStmt(new TableName("", "testTable"), false);
-        stmt.analyze(AccessTestUtil.fetchBlockAnalyzer());
-        Assert.fail("No exception throws.");
     }
 }

@@ -20,7 +20,10 @@
 
 package com.baidu.palo.catalog;
 
-import com.google.common.collect.ImmutableSortedMap;
+import com.baidu.palo.mysql.privilege.PaloPrivilege;
+import com.baidu.palo.mysql.privilege.PrivBitSet;
+
+import com.google.common.base.Preconditions;
 
 import java.util.List;
 
@@ -29,21 +32,50 @@ import java.util.List;
 public enum AccessPrivilege {
     READ_ONLY(1, "READ_ONLY"),
     READ_WRITE(2, "READ_WRITE"),
-    ALL(3, "ALL");
+    ALL(3, "ALL"),
+    NODE_PRIV(4, "Privilege for cluster node operations"),
+    GRANT_PRIV(5, "Privilege for granting privlege"),
+    SELECT_PRIV(6, "Privilege for select data in tables"),
+    LOAD_PRIV(7, "Privilege for loading data into tables"),
+    ALTER_PRIV(8, "Privilege for alter database or table"),
+    CREATE_PRIV(9, "Privilege for createing database or table"),
+    DROP_PRIV(10, "Privilege for dropping database or table");
 
     private int flag;
     private String desc;
 
-    private static final ImmutableSortedMap<String, AccessPrivilege> NAME_MAP =
-            ImmutableSortedMap.<String, AccessPrivilege>orderedBy(String.CASE_INSENSITIVE_ORDER)
-                    .put("READ_ONLY", READ_ONLY)
-                    .put("READ_WRITE", READ_WRITE)
-                    .put("ALL", ALL)
-                    .build();
-
     private AccessPrivilege(int flag, String desc) {
         this.flag = flag;
         this.desc = desc;
+    }
+
+    public PrivBitSet toPaloPrivilege() {
+        Preconditions.checkState(flag > 0 && flag < 11);
+        switch (flag) {
+            case 1:
+                return PrivBitSet.of(PaloPrivilege.SELECT_PRIV);
+            case 2:
+            case 3:
+                return PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.LOAD_PRIV,
+                                                 PaloPrivilege.ALTER_PRIV, PaloPrivilege.CREATE_PRIV,
+                                                 PaloPrivilege.DROP_PRIV);
+            case 4:
+                return PrivBitSet.of(PaloPrivilege.NODE_PRIV);
+            case 5:
+                return PrivBitSet.of(PaloPrivilege.GRANT_PRIV);
+            case 6:
+                return PrivBitSet.of(PaloPrivilege.SELECT_PRIV);
+            case 7:
+                return PrivBitSet.of(PaloPrivilege.LOAD_PRIV);
+            case 8:
+                return PrivBitSet.of(PaloPrivilege.ALTER_PRIV);
+            case 9:
+                return PrivBitSet.of(PaloPrivilege.CREATE_PRIV);
+            case 10:
+                return PrivBitSet.of(PaloPrivilege.DROP_PRIV);
+            default:
+                return null;
+        }
     }
 
     public static boolean contains(AccessPrivilege p1, AccessPrivilege p2) {
@@ -55,7 +87,11 @@ public enum AccessPrivilege {
     }
 
     public static AccessPrivilege fromName(String privStr) {
-        return NAME_MAP.get(privStr);
+        try {
+            return AccessPrivilege.valueOf(privStr.toUpperCase());
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public static AccessPrivilege merge(List<AccessPrivilege> privileges) {

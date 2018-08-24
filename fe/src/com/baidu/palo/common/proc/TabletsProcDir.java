@@ -22,8 +22,8 @@ package com.baidu.palo.common.proc;
 
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
-import com.baidu.palo.catalog.Replica;
 import com.baidu.palo.catalog.MaterializedIndex;
+import com.baidu.palo.catalog.Replica;
 import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.util.ListComparator;
@@ -48,6 +48,7 @@ public class TabletsProcDir implements ProcDirInterface {
             .add("TabletId").add("ReplicaId").add("BackendId").add("HostName").add("Version")
             .add("VersionHash").add("DataSize").add("RowCount").add("State")
             .add("LastConsistencyCheckTime").add("CheckVersion").add("CheckVersionHash")
+            .add("VersionCount")
             .build();
 
     private Database db;
@@ -82,6 +83,7 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add("N/A");
                     tabletInfo.add(-1);
                     tabletInfo.add(-1);
+                    tabletInfo.add(-1);
 
                     tabletInfos.add(tabletInfo);
                 } else {
@@ -114,6 +116,7 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(TimeUtils.longToTimeString(tablet.getLastCheckTime()));
                         tabletInfo.add(tablet.getCheckedVersion());
                         tabletInfo.add(tablet.getCheckedVersionHash());
+                        tabletInfo.add(replica.getVersionCount());
 
                         tabletInfos.add(tabletInfo);
                     }
@@ -172,3 +175,4 @@ public class TabletsProcDir implements ProcDirInterface {
     }
 
 }
+

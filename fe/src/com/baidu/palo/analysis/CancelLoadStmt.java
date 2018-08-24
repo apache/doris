@@ -16,7 +16,6 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.analysis.BinaryPredicate.Operator;
-import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.InternalException;
@@ -46,7 +45,6 @@ public class CancelLoadStmt extends DdlStmt {
         this.whereClause = whereClause;
     }
 
-
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         super.analyze(analyzer);
@@ -59,11 +57,7 @@ public class CancelLoadStmt extends DdlStmt {
             dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
 
-        // check access
-        if (!analyzer.getCatalog().getUserMgr()
-                .checkAccess(analyzer.getUser(), dbName, AccessPrivilege.READ_ONLY)) {
-            throw new AnalysisException("No privilege of db(" + dbName + ").");
-        }
+        // check auth after we get real load job
 
         // analyze expr if not null
         boolean valid = true;

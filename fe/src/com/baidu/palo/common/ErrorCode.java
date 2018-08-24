@@ -59,6 +59,10 @@ public enum ErrorCode {
     ERR_PASSWORD_NOT_ALLOWED(1132, new byte[] {'4', '2', '0', '0', '0'},
             "You must have privileges to "
                     + "update tables in the mysql database to be able to change passwords for others"),
+    ERR_NONEXISTING_GRANT(1141, new byte[] { '4', '2', '0', '0', '0' },
+            "There is no such grant defined for user '%s' on host '%s'"),
+    ERR_TABLEACCESS_DENIED_ERROR(1142, new byte[] { '4', '2', '0', '0', '0' },
+            "%s command denied to user '%s'@'%s' for table '%s'"),
     ERR_WRONG_COLUMN_NAME(1166, new byte[] {'4', '2', '0', '0', '0'}, "Incorrect column name '%s'"),
     ERR_UNKNOWN_SYSTEM_VARIABLE(1193, new byte[] {'H', 'Y', '0', '0', '0'}, "Unknown system variable '%s'"),
     ERR_TOO_MANY_USER_CONNECTIONS(1203, new byte[] {'4', '2', '0', '0', '0'},
@@ -154,8 +158,6 @@ public enum ErrorCode {
             "All datbases in cluster must be dropped before dropping cluster"),
     ERR_CLUSTER_DELETE_BE_ID_ERROR(5037, new byte[] { 'H', 'Y', '0', '0', '0' }, "There is no be's id in the System"),
     ERR_CLUSTER_NO_CLUSTER_NAME(5038, new byte[] { 'H', 'Y', '0', '0', '0' }, "There is no cluster name"),
-    ERR_CLUSTER_SHOW_ACCESS_DENIED(5039, new byte[] {'4', '2', '0', '0', '0'}, 
-            "Access denied for user '%s' to show cluster"),
     ERR_CLUSTER_UNKNOWN_ERROR(5040, new byte[] {'4', '2', '0', '0', '0'}, "Unknown cluster '%s'"),
     ERR_CLUSTER_NAME_NULL(5041, new byte[] {'4', '2', '0', '0', '0'}, "No cluster name"),
     ERR_CLUSTER_NO_PERMISSIONS(5042, new byte[] {'4', '2', '0', '0', '0'}, "No permissions"),
@@ -193,7 +195,11 @@ public enum ErrorCode {
     ERR_KUDU_NOT_SUPPORT_VALUE_TYPE(5061, new byte[] { '4', '2', '0', '0', '0' },
             "Kudu does not support value type '%s'"),
     ERR_WRONG_CLUSTER_NAME(5062, new byte[] { '4', '2', '0', '0', '0' },
-            "Incorrect cluster name '%s'(name 'default_cluster' is a reserved name)");
+            "Incorrect cluster name '%s'(name 'default_cluster' is a reserved name)"),
+    ERR_WRONG_NAME_FORMAT(5063, new byte[] { '4', '2', '0', '0', '0' },
+            "Incorrect %s name '%s'"),
+    ERR_COMMON_ERROR(5064, new byte[] { '4', '2', '0', '0', '0' },
+            "%s");
 
 
     ErrorCode(int code, byte[] sqlState, String errorMsg) {

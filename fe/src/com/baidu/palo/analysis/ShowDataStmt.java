@@ -15,7 +15,6 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
@@ -35,6 +34,8 @@ import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.Pair;
 import com.baidu.palo.common.util.DebugUtil;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -85,12 +86,6 @@ public class ShowDataStmt extends ShowStmt {
         } else {
             dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
-
-        // check access
-        if (!analyzer.getCatalog().getUserMgr()
-                .checkAccess(analyzer.getUser(), dbName, AccessPrivilege.READ_ONLY)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(), dbName);
-        }
         
         Database db = Catalog.getInstance().getDb(dbName);
         if (db == null) {
@@ -111,6 +106,11 @@ public class ShowDataStmt extends ShowStmt {
                 });
 
                 for (Table table : tables) {
+                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
+                                                                            table.getName(),
+                                                                            PrivPredicate.SHOW)) {
+                        continue;
+                    }
                     sortedTables.add(table);
                 }
 
@@ -166,6 +166,15 @@ public class ShowDataStmt extends ShowStmt {
                 List<String> leftRow = Arrays.asList("Left", readableLeft);
                 totalRows.add(leftRow);
             } else {
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
+                                                                        tableName,
+                                                                        PrivPredicate.SHOW)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW DATA",
+                                                        ConnectContext.get().getQualifiedUser(),
+                                                        ConnectContext.get().getRemoteIP(),
+                                                        tableName);
+                }
+
                 Table table = db.getTable(tableName);
                 if (table == null) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);

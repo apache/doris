@@ -17,11 +17,15 @@ package com.baidu.palo.load;
 
 import com.baidu.palo.analysis.BrokerDesc;
 import com.baidu.palo.analysis.ExportStmt;
+import com.baidu.palo.analysis.TableName;
 import com.baidu.palo.catalog.Catalog;
+import com.baidu.palo.catalog.Database;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.util.ListComparator;
 import com.baidu.palo.common.util.OrderByPair;
 import com.baidu.palo.common.util.TimeUtils;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -135,6 +139,28 @@ public class ExportMgr {
                     }
                 }
 
+                // check auth
+
+                TableName tableName = job.getTableName();
+                if (tableName == null || tableName.getTbl().equals("DUMMY")) {
+                    // forward compatibility, no table name is saved before
+                    Database db = Catalog.getCurrentCatalog().getDb(dbId);
+                    if (db == null) {
+                        continue;
+                    }
+                    if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(),
+                                                                           db.getFullName(), PrivPredicate.SHOW)) {
+                        continue;
+                    }
+                } else {
+                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                                                                            tableName.getDb(), tableName.getTbl(),
+                                                                            PrivPredicate.SHOW)) {
+                        continue;
+                    }
+                }
+                
+                
                 if (states != null) {
                     if (!states.contains(state)) {
                         continue;

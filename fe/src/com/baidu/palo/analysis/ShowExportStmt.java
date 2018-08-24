@@ -16,7 +16,6 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.analysis.BinaryPredicate.Operator;
-import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.cluster.ClusterNamespace;
@@ -100,13 +99,6 @@ public class ShowExportStmt extends ShowStmt {
             }
         } else {
             dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
-        }
-        final String userNameWithoutPrefix = ClusterNamespace.getNameFromFullName(dbName);
-        final String dbNameWithoutPrefix = ClusterNamespace.getNameFromFullName(dbName);
-        // check access
-        if (!analyzer.getCatalog().getUserMgr().checkAccess(analyzer.getUser(), dbName, AccessPrivilege.READ_ONLY)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, userNameWithoutPrefix,
-                    dbNameWithoutPrefix);
         }
 
         // analyze where clause if not null

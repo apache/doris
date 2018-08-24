@@ -78,6 +78,7 @@ public class OlapScanNode extends ScanNode {
 
     private List<TScanRangeLocations> result = new ArrayList<TScanRangeLocations>();
     private boolean isPreAggregation = false;
+    private String reasonOfPreAggregation = null;
     private boolean canTurnOnPreAggr = true;
     private ArrayList<String> tupleColumns = new ArrayList<String>();
     private HashSet<String> predicateColumns = new HashSet<String>();
@@ -99,8 +100,9 @@ public class OlapScanNode extends ScanNode {
         olapTable = (OlapTable) desc.getTable();
     }
 
-    public void setIsPreAggregation(boolean isPreAggregation) {
+    public void setIsPreAggregation(boolean isPreAggregation, String reason) {
         this.isPreAggregation = isPreAggregation;
+        this.reasonOfPreAggregation = reason;
     }
 
 
@@ -555,7 +557,7 @@ public class OlapScanNode extends ScanNode {
         if (isPreAggregation) {
             output.append(prefix).append("PREAGGREGATION: ON").append("\n");
         } else {
-            output.append(prefix).append("PREAGGREGATION: OFF").append("\n");
+            output.append(prefix).append("PREAGGREGATION: OFF. Reason: ").append(reasonOfPreAggregation).append("\n");
         }
         if (!conjuncts.isEmpty()) {
             output.append(prefix).append("PREDICATES: ").append(
