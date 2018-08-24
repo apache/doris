@@ -20,18 +20,72 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.ErrorCode;
+import com.baidu.palo.common.ErrorReport;
+import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.util.PrintableMap;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
 
 public class BackupStmt extends AbstractBackupStmt {
+    private final static String PROP_TYPE = "type";
 
-    public BackupStmt(LabelName labelName, List<PartitionName> backupObjNames, String backupPath,
-                      Map<String, String> properties) {
-        super(labelName, backupObjNames, backupPath, properties);
+    public enum BackupType {
+        INCREMENTAL, FULL
+    }
+
+    private BackupType type = BackupType.FULL;
+
+    public BackupStmt(LabelName labelName, String repoName, List<TableRef> tblRefs, Map<String, String> properties) {
+        super(labelName, repoName, tblRefs, properties);
+    }
+
+    public long getTimeoutMs() {
+        return timeoutMs;
+    }
+
+    public BackupType getType() {
+        return type;
+    }
+
+    @Override
+    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+        super.analyze(analyzer);
+
+        // tbl refs can not set alias in backup
+        for (TableRef tblRef : tblRefs) {
+            if (tblRef.hasExplicitAlias()) {
+                throw new AnalysisException("Can not set alias for table in Backup Stmt: " + tblRef);
+            }
+        }
+    }
+
+    @Override
+    protected void analyzeProperties() throws AnalysisException {
+        super.analyzeProperties();
+        
+        Map<String, String> copiedProperties = Maps.newHashMap(properties);
+        // type
+        if (copiedProperties.containsKey(PROP_TYPE)) {
+            try {
+                type = BackupType.valueOf(copiedProperties.get(PROP_TYPE).toUpperCase());
+            } catch (Exception e) { 
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                                                    "Invalid backup job type: "
+                                                            + copiedProperties.get(PROP_TYPE));
+            }
+            copiedProperties.remove(PROP_TYPE);
+        }
+
+        if (!copiedProperties.isEmpty()) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
+                                                "Unknown backup job properties: " + copiedProperties.keySet());
+        }
     }
 
     @Override
@@ -42,15 +96,14 @@ public class BackupStmt extends AbstractBackupStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("BACKUP LABEL ").append(labelName.toSql());
-        if (!objNames.isEmpty()) {
-            sb.append(" (");
-            sb.append(Joiner.on(", ").join(objNames));
-            sb.append(")");
-        }
-        sb.append(" INTO \"").append(remotePath).append("\" PROPERTIES(");
-        sb.append(new PrintableMap<String, String>(properties, "=", true, false));
-        sb.append(")");
+        sb.append("BACKUP SNAPSHOT ").append(labelName.toSql());
+        sb.append("\n").append("TO ").append(repoName).append("\nON\n(");
+
+        sb.append(Joiner.on(",\n").join(tblRefs));
+
+        sb.append("\n)\nPROPERTIES\n(");
+        sb.append(new PrintableMap<String, String>(properties, " = ", true, true));
+        sb.append("\n)");
         return sb.toString();
     }
 }

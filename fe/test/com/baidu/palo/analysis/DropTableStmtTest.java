@@ -22,17 +22,32 @@ package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.MockedAuth;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.qe.ConnectContext;
 
-import org.junit.Assert;
 import org.easymock.EasyMock;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import mockit.Mocked;
+import mockit.internal.startup.Startup;
 
 public class DropTableStmtTest {
     private TableName tbl;
     private TableName noDbTbl;
     private Analyzer analyzer;
     private Analyzer noDbAnalyzer;
+
+    @Mocked
+    private PaloAuth auth;
+    @Mocked
+    private ConnectContext ctx;
+
+    static {
+        Startup.initializeIfPossible();
+    }
 
     @Before
     public void setUp() {
@@ -44,6 +59,9 @@ public class DropTableStmtTest {
         EasyMock.expect(noDbAnalyzer.getDefaultDb()).andReturn("").anyTimes();
         EasyMock.expect(noDbAnalyzer.getClusterName()).andReturn("testCluster").anyTimes();
         EasyMock.replay(noDbAnalyzer);
+
+        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
 
     @Test
@@ -62,13 +80,6 @@ public class DropTableStmtTest {
         Assert.assertEquals("testCluster:testDb", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
         Assert.assertEquals("DROP TABLE `testCluster:testDb`.`table1`", stmt.toSql());
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testNoPriv() throws InternalException, AnalysisException {
-        DropTableStmt stmt = new DropTableStmt(false, tbl);
-        stmt.analyze(AccessTestUtil.fetchBlockAnalyzer());
-        Assert.fail("No exception throws");
     }
 
     @Test(expected = AnalysisException.class)

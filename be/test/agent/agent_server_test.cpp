@@ -90,11 +90,6 @@ TEST(SubmitTasksTest, TestSubmitTasks){
     upload_task.task_type = TTaskType::UPLOAD;
     upload_task.__set_upload_req(upload_req);
     tasks.push_back(upload_task);
-    TAgentTaskRequest restore_task;
-    TRestoreReq restore_req;
-    restore_task.task_type = TTaskType::RESTORE;
-    restore_task.__set_restore_req(restore_req);
-    tasks.push_back(restore_task);
     TAgentTaskRequest make_snapshot_task;
     TSnapshotRequest snapshot_req;
     make_snapshot_task.task_type = TTaskType::MAKE_SNAPSHOT;

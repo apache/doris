@@ -115,4 +115,3 @@ public class Frontend implements Writable {
         return sb.toString();
     }
 }
-

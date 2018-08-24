@@ -20,8 +20,8 @@ import com.baidu.palo.common.io.Writable;
 
 import com.google.common.collect.Sets;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -68,6 +68,10 @@ public class Tablet extends MetaObject implements Writable {
         isConsistent = true;
     }
     
+    public void setIdForRestore(long tabletId) {
+        this.id = tabletId;
+    }
+
     public long getId() {
         return this.id;
     }
@@ -111,13 +115,19 @@ public class Tablet extends MetaObject implements Writable {
         return delete || !hasBackend;
     }
 
-    public void addReplica(Replica replica) {
+    public void addReplica(Replica replica, boolean isRestore) {
         if (deleteRedundantReplica(replica.getBackendId(), replica.getVersion())) {
             replicas.add(replica);
-            Catalog.getCurrentInvertedIndex().addReplica(id, replica);
+            if (!isRestore) {
+                Catalog.getCurrentInvertedIndex().addReplica(id, replica);
+            }
         }
     }
     
+    public void addReplica(Replica replica) {
+        addReplica(replica, false);
+    }
+
     public List<Replica> getReplicas() {
         return this.replicas;
     }

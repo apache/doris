@@ -20,6 +20,13 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.analysis.ShowAlterStmt.AlterType;
+import com.baidu.palo.catalog.Catalog;
+import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.qe.ConnectContext;
+
 import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
@@ -30,30 +37,40 @@ import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
-import com.baidu.palo.analysis.ShowAlterStmt.AlterType;
-import com.baidu.palo.catalog.Catalog;
-import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
-
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("org.apache.log4j.*")
-@PrepareForTest(Catalog.class)
+@PrepareForTest({ Catalog.class, ConnectContext.class })
 public class CancelAlterStmtTest {
 
     private Analyzer analyzer;
     private Catalog catalog;
 
+    private ConnectContext ctx;
+
+    private PaloAuth auth;
+
     @Before
     public void setUp() {
+        auth = new PaloAuth();
+
+        ctx = new ConnectContext(null);
+        ctx.setQualifiedUser("root");
+        ctx.setRemoteIP("192.168.1.1");
+
         catalog = AccessTestUtil.fetchAdminCatalog();
 
         PowerMock.mockStatic(Catalog.class);
         EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
+        EasyMock.expect(Catalog.getCurrentCatalog()).andReturn(catalog).anyTimes();
         PowerMock.replay(Catalog.class);
+
+        PowerMock.mockStatic(ConnectContext.class);
+        EasyMock.expect(ConnectContext.get()).andReturn(ctx).anyTimes();
+        PowerMock.replay(ConnectContext.class);
 
         analyzer = EasyMock.createMock(Analyzer.class);
         EasyMock.expect(analyzer.getDefaultDb()).andReturn("testDb").anyTimes();
-        EasyMock.expect(analyzer.getUser()).andReturn("testUser").anyTimes();
+        EasyMock.expect(analyzer.getQualifiedUser()).andReturn("testUser").anyTimes();
         EasyMock.expect(analyzer.getCatalog()).andReturn(catalog).anyTimes();
         EasyMock.replay(analyzer);
     }
@@ -61,7 +78,6 @@ public class CancelAlterStmtTest {
     @Test
     public void testNormal() throws InternalException, AnalysisException {
         // cancel alter column
-
         CancelAlterTableStmt stmt = new CancelAlterTableStmt(AlterType.COLUMN, new TableName(null, "testTbl"));
         stmt.analyze(analyzer);
         Assert.assertEquals("CANCEL ALTER COLUMN FROM `testDb`.`testTbl`", stmt.toString());

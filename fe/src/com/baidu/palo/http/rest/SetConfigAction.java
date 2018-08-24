@@ -16,12 +16,13 @@
 package com.baidu.palo.http.rest;
 
 import com.baidu.palo.common.ConfigBase;
-import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.ConfigBase.ConfField;
+import com.baidu.palo.common.DdlException;
 import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 
 import com.google.common.collect.Maps;
 
@@ -29,11 +30,11 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
 
-import io.netty.handler.codec.http.HttpMethod;
-
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
+
+import io.netty.handler.codec.http.HttpMethod;
 
 /*
  * used to set fe config
@@ -54,7 +55,8 @@ public class SetConfigAction extends RestBaseAction {
 
     @Override
     public void execute(BaseRequest request, BaseResponse response) throws DdlException {
-        checkAdmin(request);
+        AuthorizationInfo authInfo = getAuthorizationInfo(request);
+        checkGlobalAuth(authInfo, PrivPredicate.ADMIN);
 
         Map<String, List<String>> configs = request.getAllParameters();
         Map<String, String> setConfigs = Maps.newHashMap();

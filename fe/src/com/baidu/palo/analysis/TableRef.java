@@ -25,6 +25,8 @@ import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.io.Text;
+import com.baidu.palo.common.io.Writable;
 import com.baidu.palo.rewrite.ExprRewriter;
 
 import com.google.common.base.Joiner;
@@ -35,6 +37,9 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -68,7 +73,7 @@ import java.util.Set;
  * TODO for 2.3: Rename this class to CollectionRef and re-consider the naming and
  * structure of all subclasses.
  */
-public class TableRef implements ParseNode {
+public class TableRef implements ParseNode, Writable {
     private static final Logger LOG = LogManager.getLogger(TableRef.class);
     protected TableName name;
     private List<String> partitions = null;
@@ -126,6 +131,10 @@ public class TableRef implements ParseNode {
     // END: Members that need to be reset()
     // ///////////////////////////////////////
     
+    public TableRef() {
+        // for persist
+    }
+
     public TableRef(TableName name, String alias) {
         this(name, alias, null);
     }
@@ -640,5 +649,59 @@ public class TableRef implements ParseNode {
     @Override
     public TableRef clone() {
         return new TableRef(this);
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(name);
+        if (partitions != null && !partitions.isEmpty()) {
+            sb.append(" PARTITIONS(");
+            sb.append(Joiner.on(", ").join(partitions)).append(")");
+        }
+        if (aliases_ != null && aliases_.length > 0) {
+            sb.append(" AS ").append(aliases_[0]);
+        }
+        return sb.toString();
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        name.write(out);
+        if (partitions == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            out.writeInt(partitions.size());
+            for (String partName : partitions) {
+                Text.writeString(out, partName);
+            }
+        }
+        
+        if (hasExplicitAlias()) {
+            out.writeBoolean(true);
+            Text.writeString(out, getExplicitAlias());
+        } else {
+            out.writeBoolean(false);
+        }
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        name = new TableName();
+        name.readFields(in);
+        if (in.readBoolean()) {
+            partitions = Lists.newArrayList();
+            int size = in.readInt();
+            for (int i = 0; i < size; i++) {
+                String partName = Text.readString(in);
+                partitions.add(partName);
+            }
+        }
+
+        if (in.readBoolean()) {
+            String alias = Text.readString(in);
+            aliases_ = new String[] { alias };
+        }
     }
 }

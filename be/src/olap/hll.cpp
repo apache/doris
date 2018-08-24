@@ -163,7 +163,7 @@ void HllSetHelper::set_sparse(
 
 void HllSetHelper::set_expliclit(char* result, const std::set<uint64_t>& hash_value_set, int& len) {
     result[0] = HLL_DATA_EXPLICIT;
-    result[1] = (HllSetResolver::ExpliclitLengthValueType)hash_value_set.size();
+    result[1] = (HllSetResolver::ExpliclitLengthValueType)(hash_value_set.size());
     len = sizeof(HllSetResolver::SetTypeValueType)
         + sizeof(HllSetResolver::ExpliclitLengthValueType);
     char* write_pos = result + len;
@@ -212,7 +212,7 @@ void HllSetHelper::fill_set(const char* data, HllContext* context) {
     resolver.parse();
     if (resolver.get_hll_data_type() == HLL_DATA_EXPLICIT) {
         // expliclit set
-        resolver.fill_hash64_set(&(context->hash64_set));
+        resolver.fill_hash64_set(context->hash64_set);
     } else if (resolver.get_hll_data_type() != HLL_DATA_EMPTY) {
         // full or sparse
         context->has_sparse_or_full = true;
@@ -222,7 +222,7 @@ void HllSetHelper::fill_set(const char* data, HllContext* context) {
 
 void HllSetHelper::init_context(HllContext* context) {
     memset(context->registers, 0, HLL_REGISTERS_COUNT);
-    context->hash64_set.clear();
+    context->hash64_set = new std::set<uint64_t>();
     context->has_value = false;
     context->has_sparse_or_full = false;
 }

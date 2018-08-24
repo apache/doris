@@ -20,27 +20,30 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.mysql.MysqlPassword;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
 public class SetPassVar extends SetVar {
-    private String user;
+    private UserIdentity userIdent;
     private String passwdParam;
     private byte[] passwdBytes;
 
     // The password in parameter is a hashed password.
-    public SetPassVar(String user, String passwd) {
-        this.user = user;
+    public SetPassVar(UserIdentity userIdent, String passwd) {
+        this.userIdent = userIdent;
         this.passwdParam = passwd;
     }
 
-    public String getUser() {
-        return user;
+    public UserIdentity getUserIdent() {
+        return userIdent;
     }
 
     public byte[] getPassword() {
@@ -52,16 +55,29 @@ public class SetPassVar extends SetVar {
         if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER);
         }
-        if (Strings.isNullOrEmpty(user)) {
-            user = analyzer.getUser();
-        } else {
-            user = ClusterNamespace.getFullName(analyzer.getClusterName(), user);
+
+        boolean isSelf = false;
+        ConnectContext ctx = ConnectContext.get();
+        if (userIdent == null) {
+            // set userIdent as itself
+            userIdent = new UserIdentity(ClusterNamespace.getNameFromFullName(analyzer.getQualifiedUser()),
+                    ctx.getRemoteIP());
+            isSelf = true;
         }
+        userIdent.analyze(analyzer.getClusterName());
+
         // Check password
         passwdBytes = MysqlPassword.checkPassword(passwdParam);
-        // Check user
-        if (!analyzer.getCatalog().getUserMgr().checkUserAccess(analyzer.getUser(), user)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_PASSWORD_NOT_ALLOWED);
+
+        // check privs.
+        // 1. this is user itself
+        if (isSelf) {
+            return;
+        }
+
+        // 2. user has grant privs
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
         }
     }
 
@@ -72,6 +88,6 @@ public class SetPassVar extends SetVar {
 
     @Override
     public String toSql() {
-        return "SET PASSWORD FOR '" + user + "' = '" + new String(passwdBytes) + "'";
+        return "SET PASSWORD FOR " + userIdent + " = '" + new String(passwdBytes) + "'";
     }
 }

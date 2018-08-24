@@ -86,6 +86,7 @@ public:
 
     const FileVersionMessage* get_lastest_delta_version() const;
     const FileVersionMessage* get_latest_version() const;
+    const FileVersionMessage* get_base_version() const;
     const uint32_t get_compaction_nice_estimate() const;
     const OLAPStatus version_creation_time(const Version& version, int64_t* creation_time) const;
 

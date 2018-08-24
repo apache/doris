@@ -22,17 +22,34 @@ package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.MockedAuth;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.qe.ConnectContext;
 
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import mockit.Mocked;
+import mockit.internal.startup.Startup;
+
 public class UseStmtTest {
     private Analyzer analyzer;
+
+    @Mocked
+    private PaloAuth auth;
+    @Mocked
+    private ConnectContext ctx;
+
+    static {
+        Startup.initializeIfPossible();
+    }
 
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
+        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
 
     @Test
@@ -48,14 +65,6 @@ public class UseStmtTest {
     public void testNoDb() throws InternalException, AnalysisException {
         UseStmt stmt = new UseStmt("");
         stmt.analyze(analyzer);
-
-        Assert.fail("No exception throws.");
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testNoPriv() throws InternalException, AnalysisException {
-        UseStmt stmt = new UseStmt("testDb");
-        stmt.analyze(AccessTestUtil.fetchBlockAnalyzer());
 
         Assert.fail("No exception throws.");
     }

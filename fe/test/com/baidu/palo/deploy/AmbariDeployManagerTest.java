@@ -56,8 +56,6 @@ public class AmbariDeployManagerTest {
 
         Method getPropM = manager.getClass().getDeclaredMethod("getPropertyFromBlueprint", String.class, String.class);
         getPropM.setAccessible(true);
-        String fePort = (String) getPropM.invoke(manager, "palo-fe-node", AmbariDeployManager.KEY_FE_EDIT_LOG_PORT);
-        System.out.println(fePort);
     }
 
     @Test

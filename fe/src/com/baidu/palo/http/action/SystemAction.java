@@ -26,9 +26,9 @@ import com.baidu.palo.http.IllegalArgException;
 
 import com.google.common.base.Strings;
 
-import io.netty.handler.codec.http.HttpMethod;
-
 import java.util.List;
+
+import io.netty.handler.codec.http.HttpMethod;
 
 public class SystemAction extends WebBaseAction {
 
@@ -110,7 +110,8 @@ public class SystemAction extends WebBaseAction {
             for (String str : strList) {
                 buffer.append("<td>");
                 if (isDir && columnIndex == 1) {
-                    buffer.append("<a href=\"?path=" + path + "/" + str + "\">");
+                    String escapeStr = str.replace("%", "%25");
+                    buffer.append("<a href=\"?path=" + path + "/" + escapeStr + "\">");
                     buffer.append(str);
                     buffer.append("</a>");
                 } else {

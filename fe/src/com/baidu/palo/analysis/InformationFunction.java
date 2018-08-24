@@ -58,10 +58,10 @@ public class InformationFunction extends Expr {
             strValue = analyzer.getDefaultDb();
         } else if (funcType.equalsIgnoreCase("USER")) {
             type = Type.VARCHAR;
-            strValue = analyzer.getUser();
+            strValue = analyzer.getQualifiedUser();
         } else if (funcType.equalsIgnoreCase("CURRENT_USER")) {
             type = Type.VARCHAR;
-            strValue = analyzer.getUser();
+            strValue = analyzer.getQualifiedUser();
         } else if (funcType.equalsIgnoreCase("CONNECTION_ID")) {
             type = Type.BIGINT;
             intValue = analyzer.getConnectId();

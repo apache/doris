@@ -36,8 +36,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.LinkedList;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
@@ -81,6 +81,13 @@ public class RangePartitionInfo extends PartitionInfo {
         idToRange.remove(partitionId);
         idToDataProperty.remove(partitionId);
         idToReplicationNum.remove(partitionId);
+    }
+
+    public void addPartitionForRestore(long partitionId, Range<PartitionKey> range, DataProperty dataProperty,
+            short replicationNum) {
+        idToRange.put(partitionId, range);
+        idToDataProperty.put(partitionId, dataProperty);
+        idToReplicationNum.put(partitionId, replicationNum);
     }
 
     public Range<PartitionKey> checkAndCreateRange(SingleRangePartitionDesc desc) throws DdlException {
@@ -311,6 +318,18 @@ public class RangePartitionInfo extends PartitionInfo {
         return singleDesc;
     }
 
+    public boolean checkRange(Range<PartitionKey> newRange) {
+        for (Range<PartitionKey> range : idToRange.values()) {
+            if (range.isConnected(newRange)) {
+                Range<PartitionKey> intersection = range.intersection(newRange);
+                if (!intersection.isEmpty()) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     public static PartitionInfo read(DataInput in) throws IOException {
         PartitionInfo partitionInfo = new RangePartitionInfo();
         partitionInfo.readFields(in);
@@ -413,3 +432,4 @@ public class RangePartitionInfo extends PartitionInfo {
         return sb.toString();
     }
 }
+

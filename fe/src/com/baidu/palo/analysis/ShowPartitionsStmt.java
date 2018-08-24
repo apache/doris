@@ -15,7 +15,6 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
@@ -24,10 +23,14 @@ import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.ErrorCode;
+import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.proc.ProcNodeInterface;
 import com.baidu.palo.common.proc.ProcResult;
 import com.baidu.palo.common.proc.ProcService;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -80,9 +83,12 @@ public class ShowPartitionsStmt extends ShowStmt {
         }
 
         // check access
-        if (!analyzer.getCatalog().getUserMgr()
-                .checkAccess(analyzer.getUser(), dbName, AccessPrivilege.READ_ONLY)) {
-            throw new AnalysisException("No privilege of db(" + dbName + ").");
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tableName,
+                                                                PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW PARTITIONS",
+                                                ConnectContext.get().getQualifiedUser(),
+                                                ConnectContext.get().getRemoteIP(),
+                                                tableName);
         }
 
         Database db = Catalog.getInstance().getDb(dbName);

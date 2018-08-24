@@ -21,6 +21,7 @@ import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.service.ExecuteEnv;
 
 import com.google.common.base.Strings;
@@ -57,8 +58,8 @@ public class MultiCommit extends RestBaseAction {
 
         AuthorizationInfo authInfo = getAuthorizationInfo(request);
         String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, db);
+        checkDbAuth(authInfo, fullDbName, PrivPredicate.LOAD);
 
-        checkWritePriv(authInfo.fullUserName, fullDbName);
         if (redirectToMaster(request, response)) {
             return;
         }

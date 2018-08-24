@@ -38,20 +38,20 @@ public class SetUserPropertyVarTest {
     @Test
     public void testNormal() throws AnalysisException, InternalException {
         SetUserPropertyVar var = new SetUserPropertyVar("quota.normal", "1000");
-        var.analyze(analyzer, "testUser");
+        var.analyze(analyzer, true);
         Assert.assertEquals("quota.normal", var.getPropertyKey());
         Assert.assertEquals("1000", var.getPropertyValue());
         Assert.assertEquals("'quota.normal' = '1000'", var.toString());
 
         var = new SetUserPropertyVar("load_cluster.palo-dpp", null);
-        var.analyze(analyzer, "testUser");
+        var.analyze(analyzer, true);
         Assert.assertEquals("'load_cluster.palo-dpp' = NULL", var.toString());
     }
 
     @Test(expected = AnalysisException.class)
     public void testUnknownProperty() throws InternalException, AnalysisException {
         SetUserPropertyVar var = new SetUserPropertyVar("unknown_property", "1000");
-        var.analyze(analyzer, "testUser");
+        var.analyze(analyzer, true);
         Assert.fail("No exception throws.");
     }
 }

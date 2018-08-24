@@ -29,10 +29,13 @@ public class SnapshotTask extends AgentTask {
 
     private long timeout;
 
-    public SnapshotTask(TResourceInfo resourceInfo, long backendId, long jobId, long dbId, long tableId,
-                        long partitionId, long indexId, long tabletId, long version, long versionHash,
-                        int schemaHash, long timeout) {
-        super(resourceInfo, backendId, TTaskType.MAKE_SNAPSHOT, dbId, tableId, partitionId, indexId, tabletId);
+    private boolean isRestoreTask;
+
+    public SnapshotTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId,
+            long dbId, long tableId, long partitionId, long indexId, long tabletId,
+            long version, long versionHash, int schemaHash, long timeout, boolean isRestoreTask) {
+        super(resourceInfo, backendId, signature, TTaskType.MAKE_SNAPSHOT, dbId, tableId, partitionId, indexId,
+                tabletId);
 
         this.jobId = jobId;
 
@@ -41,6 +44,8 @@ public class SnapshotTask extends AgentTask {
         this.schemaHash = schemaHash;
 
         this.timeout = timeout;
+
+        this.isRestoreTask = isRestoreTask;
     }
 
     public long getJobId() {
@@ -63,10 +68,15 @@ public class SnapshotTask extends AgentTask {
         return timeout;
     }
 
+    public boolean isRestoreTask() {
+        return isRestoreTask;
+    }
+
     public TSnapshotRequest toThrift() {
         TSnapshotRequest request = new TSnapshotRequest(tabletId, schemaHash);
         request.setVersion(version);
         request.setVersion_hash(versionHash);
+        request.setList_files(true);
         return request;
     }
 }

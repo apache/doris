@@ -929,6 +929,9 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
     // TODO: not equal and not in predicate is not pushed down
     int index = _olap_table->get_field_index(condition.column_name);
     FieldInfo fi = _olap_table->tablet_schema()[index];
+    if (fi.aggregation != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
+        return nullptr;
+    }
     ColumnPredicate* predicate = NULL;
     if (condition.condition_op == "*="
             && condition.condition_values.size() == 1) {

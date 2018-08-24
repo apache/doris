@@ -23,6 +23,8 @@ package com.baidu.palo.analysis;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
@@ -51,10 +53,10 @@ public class SetUserPropertyStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(user)) {
             // If param 'user' is not set, use the login user name.
             // The login user name is full-qualified with cluster name.
-            user = analyzer.getUser();
+            user = ConnectContext.get().getQualifiedUser();
         } else {
             // If param 'user' is set, check if it need to be full-qualified
-            if (!analyzer.getCatalog().getUserMgr().isAdmin(user)) {
+            if (!user.equals(PaloAuth.ROOT_USER) && !user.equals(PaloAuth.ADMIN_USER)) {
                 user = ClusterNamespace.getFullName(getClusterName(), user);
             }
         }
@@ -62,8 +64,10 @@ public class SetUserPropertyStmt extends DdlStmt {
         if (propertyList == null || propertyList.isEmpty()) {
             throw new AnalysisException("Empty properties");
         }
+
+        boolean isSelf = user.equals(ConnectContext.get().getQualifiedUser());
         for (SetVar var : propertyList) {
-            ((SetUserPropertyVar) var).analyze(analyzer, user);
+            ((SetUserPropertyVar) var).analyze(analyzer, isSelf);
         }
     }
 

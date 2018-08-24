@@ -19,16 +19,16 @@
 
 package com.baidu.palo.mysql;
 
-import com.baidu.palo.catalog.AccessPrivilege;
-import com.baidu.palo.catalog.UserPropertyMgr;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.common.DdlException;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.mysql.privilege.UserPropertyMgr;
 import com.baidu.palo.qe.ConnectContext;
 
-import org.junit.Assert;
-
 import org.easymock.EasyMock;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -54,25 +54,24 @@ public class MysqlProtoTest {
 
     @Before
     public void setUp() throws DdlException {
-        // Mock access service
-        UserPropertyMgr service = EasyMock.createMock(UserPropertyMgr.class);
-        EasyMock.expect(service.getPassword(EasyMock.anyObject(String.class))).andReturn(new byte[20]).anyTimes();
-        EasyMock.expect(service.checkAccess(EasyMock.anyObject(String.class), EasyMock.anyObject(String.class),
-                EasyMock.anyObject(AccessPrivilege.class)))
-                .andReturn(true).anyTimes();
-        EasyMock.expect(service.isAdmin("user")).andReturn(false).anyTimes();
-        PowerMock.replay(UserPropertyMgr.class);
-        EasyMock.replay(service);
+
+        // mock auth
+        PaloAuth auth = EasyMock.createMock(PaloAuth.class);
+        EasyMock.expect(auth.checkGlobalPriv(EasyMock.anyObject(ConnectContext.class),
+                                             EasyMock.anyObject(PrivPredicate.class))).andReturn(true).anyTimes();
+        EasyMock.expect(auth.checkPassword(EasyMock.anyString(), EasyMock.anyString(), (byte[]) EasyMock.anyObject(),
+                                           (byte[]) EasyMock.anyObject())).andReturn(true).anyTimes();
+        EasyMock.replay(auth);
 
         // Mock catalog
         catalog = EasyMock.createMock(Catalog.class);
         EasyMock.expect(catalog.getDb(EasyMock.isA(String.class))).andReturn(new Database()).anyTimes();
-        EasyMock.expect(catalog.getUserMgr()).andReturn(service).anyTimes();
+        EasyMock.expect(catalog.getAuth()).andReturn(auth).anyTimes();
         PowerMock.mockStatic(Catalog.class);
         EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
+        EasyMock.expect(Catalog.getCurrentCatalog()).andReturn(catalog).anyTimes();
         catalog.changeDb(EasyMock.anyObject(ConnectContext.class), EasyMock.anyString());
         EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(catalog.checkWhiteList(EasyMock.anyString(), EasyMock.anyString())).andReturn(true).anyTimes();
 
         EasyMock.replay(catalog);
         PowerMock.replay(Catalog.class);
@@ -163,7 +162,7 @@ public class MysqlProtoTest {
         mockPassword(false);
         mockAccess();
         ConnectContext context = new ConnectContext(null);
-        Assert.assertFalse(MysqlProto.negotiate(context));
+        Assert.assertTrue(MysqlProto.negotiate(context));
     }
 
     @Test

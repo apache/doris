@@ -20,12 +20,19 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.analysis.CompoundPredicate.Operator;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.FeNameFormat;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PaloPrivilege;
+import com.baidu.palo.mysql.privilege.PrivBitSet;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
+
 import com.google.common.base.Strings;
 
 public class AlterDatabaseRename extends DdlStmt {
@@ -52,8 +59,11 @@ public class AlterDatabaseRename extends DdlStmt {
             throw new AnalysisException("Database name is not set");
         }
         
-        if (!analyzer.getCatalog().getUserMgr().isSuperuser(analyzer.getUser())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(), dbName);
+        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
+                                                               PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
+                                                                                              PaloPrivilege.ALTER_PRIV),
+                                                                                Operator.OR))) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getQualifiedUser(), dbName);
         }
 
         if (Strings.isNullOrEmpty(newDbName)) {

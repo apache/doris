@@ -20,7 +20,7 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.AccessPrivilege;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.OlapTable;
@@ -37,26 +37,26 @@ import com.baidu.palo.common.Pair;
 import com.baidu.palo.common.TableAliasGenerator;
 import com.baidu.palo.common.TreeNode;
 import com.baidu.palo.common.util.SqlUtils;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.rewrite.ExprRewriter;
 
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.base.Strings;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import com.google.common.collect.Sets;
-import org.apache.logging.log4j.Logger;
+
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-import java.util.ListIterator;
 import java.util.Map;
 import java.util.Set;
 
@@ -231,11 +231,16 @@ public class SelectStmt extends QueryStmt {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
                 }
 
-                // check access
-                if (!analyzer.getCatalog().getUserMgr()
-                        .checkAccess(analyzer.getUser(), dbName, AccessPrivilege.READ_ONLY)) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(), db);
+                // check auth
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
+                                                                        tblRef.getName().getTbl(),
+                                                                        PrivPredicate.SELECT)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
+                                                        ConnectContext.get().getQualifiedUser(),
+                                                        ConnectContext.get().getRemoteIP(),
+                                                        tblRef.getName().getTbl());
                 }
+
                 dbs.put(dbName, db);
             }
         }

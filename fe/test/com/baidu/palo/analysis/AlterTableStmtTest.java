@@ -22,6 +22,9 @@ package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 
@@ -31,12 +34,36 @@ import org.junit.Test;
 
 import java.util.List;
 
+import mockit.Mocked;
+import mockit.NonStrictExpectations;
+import mockit.internal.startup.Startup;
+
 public class AlterTableStmtTest {
     private Analyzer analyzer;
+
+    @Mocked
+    private PaloAuth auth;
+
+    static {
+        Startup.initializeIfPossible();
+    }
 
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
+
+        new NonStrictExpectations() {
+            {
+                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                result = true;
+
+                auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                result = true;
+
+                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                result = true;
+            }
+        };
     }
 
     @Test
@@ -52,13 +79,12 @@ public class AlterTableStmtTest {
         Assert.assertEquals(2, stmt.getOps().size());
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void testNoPriv() throws AnalysisException, InternalException {
         List<AlterClause> ops = Lists.newArrayList();
         ops.add(new DropColumnClause("col1", "", null));
         AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
         stmt.analyze(AccessTestUtil.fetchBlockAnalyzer());
-        Assert.assertEquals("ALTER TABLE `testDb`.`testTbl` DROP COLUMN `col1`", stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)

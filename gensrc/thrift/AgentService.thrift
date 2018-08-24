@@ -50,6 +50,7 @@ struct TCreateTabletReq {
     3: optional Types.TVersion version
     4: optional Types.TVersionHash version_hash
     5: optional Types.TStorageMedium storage_medium
+    6: optional bool in_restore_mode
 }
 
 struct TDropTabletReq {
@@ -111,17 +112,17 @@ struct TCheckConsistencyReq {
 }
 
 struct TUploadReq {
-    1: required string local_file_path
-    2: required string remote_file_path
-    3: required map<string, string> remote_source_properties
-    4: optional Types.TTabletId tablet_id
+    1: required i64 job_id;
+    2: required map<string, string> src_dest_map
+    3: required Types.TNetworkAddress broker_addr
+    4: optional map<string, string> broker_prop
 }
 
-struct TRestoreReq {
-    1: required Types.TTabletId tablet_id
-    2: required Types.TSchemaHash schema_hash
-    3: required string remote_file_path
-    4: required map<string, string> remote_source_properties
+struct TDownloadReq {
+    1: required i64 job_id
+    2: required map<string, string> src_dest_map
+    3: required Types.TNetworkAddress broker_addr
+    4: optional map<string, string> broker_prop
 }
 
 struct TSnapshotRequest {
@@ -130,6 +131,7 @@ struct TSnapshotRequest {
     3: optional Types.TVersion version
     4: optional Types.TVersionHash version_hash
     5: optional i64 timeout
+    6: optional bool list_files
 }
 
 struct TReleaseSnapshotRequest {
@@ -139,6 +141,14 @@ struct TReleaseSnapshotRequest {
 struct TClearRemoteFileReq {
     1: required string remote_file_path
     2: required map<string, string> remote_source_properties
+}
+
+struct TMoveDirReq {
+    1: required Types.TTabletId tablet_id
+    2: required Types.TSchemaHash schema_hash
+    3: required string src
+    4: required i64 job_id
+    5: required bool overwrite
 }
 
 enum TAgentServiceVersion {
@@ -160,10 +170,11 @@ struct TAgentTaskRequest {
     12: optional TStorageMediumMigrateReq storage_medium_migrate_req
     13: optional TCheckConsistencyReq check_consistency_req
     14: optional TUploadReq upload_req
-    15: optional TRestoreReq restore_req
+    15: optional TDownloadReq download_req
     16: optional TSnapshotRequest snapshot_req
     17: optional TReleaseSnapshotRequest release_snapshot_req
     18: optional TClearRemoteFileReq clear_remote_file_req
+    19: optional TMoveDirReq move_dir_req
 }
 
 struct TAgentResult {

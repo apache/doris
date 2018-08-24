@@ -29,8 +29,8 @@ import com.baidu.palo.thrift.TPushType;
 import com.baidu.palo.thrift.TResourceInfo;
 import com.baidu.palo.thrift.TTaskType;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -62,7 +62,7 @@ public class PushTask extends AgentTask {
                     long indexId, long tabletId, long replicaId, int schemaHash, long version, long versionHash, 
                     String filePath, long fileSize, int timeoutSecond, long loadJobId, TPushType pushType,
                     List<Predicate> conditions, boolean needDecompress, TPriority priority) {
-        super(resourceInfo, backendId, TTaskType.PUSH, dbId, tableId, partitionId, indexId, tabletId);
+        super(resourceInfo, backendId, tabletId, TTaskType.PUSH, dbId, tableId, partitionId, indexId, tabletId);
         this.replicaId = replicaId;
         this.schemaHash = schemaHash;
         this.version = version;

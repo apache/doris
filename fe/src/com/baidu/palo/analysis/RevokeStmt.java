@@ -20,52 +20,91 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.catalog.AccessPrivilege;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.ErrorCode;
+import com.baidu.palo.common.ErrorReport;
+import com.baidu.palo.common.FeNameFormat;
+import com.baidu.palo.mysql.privilege.PaloPrivilege;
+import com.baidu.palo.mysql.privilege.PrivBitSet;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
+
+import java.util.List;
 
 // REVOKE STMT
 // revoke privilege from some user, this is an administrator operation.
 //
-// REVOKE ALL ON db_name FROM user
+// REVOKE privilege [, privilege] ON db.tbl FROM user [ROLE 'role'];
 public class RevokeStmt extends DdlStmt {
-    private String user;
-    private String db;
+    private UserIdentity userIdent;
+    private String role;
+    private TablePattern tblPattern;
+    private List<PaloPrivilege> privileges;
 
-    public RevokeStmt(String user, String db) {
-        this.user = user;
-        this.db = db;
+    public RevokeStmt(UserIdentity userIdent, String role, TablePattern tblPattern, List<AccessPrivilege> privileges) {
+        this.userIdent = userIdent;
+        this.role = role;
+        this.tblPattern = tblPattern;
+        PrivBitSet privs = PrivBitSet.of();
+        for (AccessPrivilege accessPrivilege : privileges) {
+            privs.or(accessPrivilege.toPaloPrivilege());
+        }
+        this.privileges = privs.toPrivilegeList();
     }
 
-    public String getUser() {
-        return user;
+    public UserIdentity getUserIdent() {
+        return userIdent;
     }
 
-    public String getDb() {
-        return db;
+    public TablePattern getTblPattern() {
+        return tblPattern;
+    }
+
+    public String getQualifiedRole() {
+        return role;
+    }
+
+    public List<PaloPrivilege> getPrivileges() {
+        return privileges;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (Strings.isNullOrEmpty(user)) {
-            throw new AnalysisException("No user in grant statement.");
+        if (userIdent != null) {
+            userIdent.analyze(analyzer.getClusterName());
+        } else {
+            FeNameFormat.checkRoleName(role, false /* can not be superuser */);
+            role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
         }
-        user = ClusterNamespace.getFullName(analyzer.getClusterName(), user);
-        if (Strings.isNullOrEmpty(db)) {
-            throw new AnalysisException("No database in grant statement.");
+
+        tblPattern.analyze(analyzer.getClusterName());
+
+        if (privileges == null || privileges.isEmpty()) {
+            throw new AnalysisException("No privileges in revoke statement.");
         }
-        db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
-        if (!analyzer.getCatalog().getUserMgr().checkUserAccess(analyzer.getUser(), user)) {
-            throw new AnalysisException("No privilege to grant.");
+
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                                                "REVOKE");
         }
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("REVOKE ALL ON ").append(db).append(" FROM '").append(user).append("'");
-
+        sb.append("REVOKE ").append(Joiner.on(", ").join(privileges));
+        sb.append(" ON ").append(tblPattern).append(" FROM ");
+        if (!Strings.isNullOrEmpty(role)) {
+            sb.append(" ROLE '").append(role).append("'");
+        } else {
+            sb.append(userIdent);
+        }
         return sb.toString();
     }
 

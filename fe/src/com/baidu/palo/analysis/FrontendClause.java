@@ -20,16 +20,20 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.Pair;
 import com.baidu.palo.ha.FrontendNodeType;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.system.SystemInfoService;
 
-import org.apache.commons.lang.NotImplementedException;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+
+import org.apache.commons.lang.NotImplementedException;
 
 import java.util.Map;
 
@@ -54,9 +58,9 @@ public class FrontendClause extends AlterClause {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (!analyzer.getCatalog().getUserMgr().isAdmin(analyzer.getUser())) {
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                    "ADD/DROP OBSERVER/REPLICA");
+                                                analyzer.getQualifiedUser());
         }
 
         Pair<String, Integer> pair = SystemInfoService.validateHostAndPort(hostPort);

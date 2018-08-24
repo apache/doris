@@ -20,7 +20,6 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.AggregateType;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
@@ -37,6 +36,8 @@ import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.io.Writable;
 import com.baidu.palo.common.util.KuduUtil;
 import com.baidu.palo.common.util.PrintableMap;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -191,10 +192,9 @@ public class CreateTableStmt extends DdlStmt implements Writable {
         tableName.analyze(analyzer);
         FeNameFormat.checkTableName(tableName.getTbl());
 
-        // check authenticate
-        if (!analyzer.getCatalog().getUserMgr()
-                .checkAccess(analyzer.getUser(), tableName.getDb(), AccessPrivilege.READ_WRITE)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(), tableName.getDb());
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
+                                                                tableName.getTbl(), PrivPredicate.CREATE)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
 
         analyzeEngineName();
@@ -358,7 +358,7 @@ public class CreateTableStmt extends DdlStmt implements Writable {
             if (idx != 0) {
                 sb.append(",\n");
             }
-            sb.append(column.toSql());
+            sb.append("  ").append(column.toSql());
             idx++;
         }
         sb.append("\n)");

@@ -26,8 +26,8 @@ import com.baidu.palo.common.AnalysisException;
 
 import com.google.common.base.Preconditions;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.text.ParseException;
 import java.text.ParsePosition;
@@ -102,11 +102,15 @@ public class TimeUtils {
         return DATETIME_FORMAT.format(new Date());
     }
 
-    public static synchronized String longToTimeString(long timeStamp) {
+    public static String longToTimeString(long timeStamp, SimpleDateFormat dateFormat) {
         if (timeStamp < 0L) {
             return "N/A";
         }
-        return DATETIME_FORMAT.format(new Date(timeStamp));
+        return dateFormat.format(new Date(timeStamp));
+    }
+
+    public static synchronized String longToTimeString(long timeStamp) {
+        return longToTimeString(timeStamp, DATETIME_FORMAT);
     }
     
     public static synchronized Date getTimeAsDate(String timeString) {
@@ -189,5 +193,15 @@ public class TimeUtils {
 
     public static long dateTransform(long time, Type type) {
         return dateTransform(time, type.getPrimitiveType());
+    }
+
+    public static long timeStringToLong(String timeStr) {
+        Date d;
+        try {
+            d = DATETIME_FORMAT.parse(timeStr);
+        } catch (ParseException e) {
+            return -1;
+        }
+        return d.getTime();
     }
 }

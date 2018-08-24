@@ -18,13 +18,14 @@ package com.baidu.palo.catalog;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.io.Writable;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Comparator;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * This class represents the olap replica related metadata.
@@ -47,6 +48,7 @@ public class Replica implements Writable {
     private long dataSize;
     private long rowCount;
     private ReplicaState state;
+    private AtomicLong versionCount = new AtomicLong(-1);
     
     public Replica() {
     }
@@ -127,6 +129,14 @@ public class Replica implements Writable {
         return this.state;
     }
     
+    public long getVersionCount() {
+        return versionCount.get();
+    }
+
+    public void setVersionCount(long versionCount) {
+        this.versionCount.set(versionCount);
+    }
+
     @Override
     public String toString() {
         StringBuffer strBuffer = new StringBuffer("replicaId=");
@@ -204,3 +214,4 @@ public class Replica implements Writable {
         }
     }
 }
+

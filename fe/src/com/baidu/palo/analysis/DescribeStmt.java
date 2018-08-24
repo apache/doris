@@ -20,7 +20,6 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
@@ -37,10 +36,13 @@ import com.baidu.palo.common.proc.ProcNodeInterface;
 import com.baidu.palo.common.proc.ProcResult;
 import com.baidu.palo.common.proc.ProcService;
 import com.baidu.palo.common.proc.TableProcDir;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+
 import org.apache.commons.lang.StringUtils;
 
 import java.util.Arrays;
@@ -95,10 +97,13 @@ public class DescribeStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         dbTableName.analyze(analyzer);
-        if (!analyzer.getCatalog().getUserMgr()
-                .checkAccess(analyzer.getUser(), dbTableName.getDb(), AccessPrivilege.READ_ONLY)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED,
-                    analyzer.getUser(), dbTableName.getDb());
+        
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbTableName.getDb(),
+                                                                dbTableName.getTbl(), PrivPredicate.SHOW)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "DESCRIBE",
+                                                ConnectContext.get().getQualifiedUser(),
+                                                ConnectContext.get().getRemoteIP(),
+                                                dbTableName.getTbl());
         }
 
         Database db = Catalog.getInstance().getDb(dbTableName.getDb());

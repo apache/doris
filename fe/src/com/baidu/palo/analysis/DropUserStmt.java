@@ -15,48 +15,46 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.cluster.ClusterNamespace;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
-import com.google.common.base.Strings;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 
-// DROP USER statement
+// drop user cmy;
 public class DropUserStmt extends DdlStmt {
-    private String user;
+    private UserIdentity userIdent;
 
-    public DropUserStmt(String user) {
-        this.user = user;
+    public DropUserStmt(UserIdentity userIdent) {
+        this.userIdent = userIdent;
     }
 
-    public String getUser() {
-        return user;
+    public UserIdentity getUserIdentity() {
+        return userIdent;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         super.analyze(analyzer);
-        if (Strings.isNullOrEmpty(user)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CANNOT_USER, "DROP USER", user);
+        userIdent.analyze(analyzer.getClusterName());
+
+        if (!userIdent.getHost().equals("%")) {
+            throw new AnalysisException("Can not drop user with specified host: " + userIdent.getHost());
         }
-        user = ClusterNamespace.getFullName(getClusterName(), user);
-        // check access
-        if (analyzer.getCatalog().getUserMgr().isSuperuser(user)) {
-            if (!analyzer.getCatalog().getUserMgr().isAdmin(analyzer.getUser())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP USER");
-            }
-        } else {
-            if (!analyzer.getCatalog().getUserMgr().isSuperuser(analyzer.getUser())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP USER");
-            }
+
+        // check authenticate
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                                                "DROP USER");
         }
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("DROP USER '").append(user).append("'");
+        sb.append("DROP USER ").append(userIdent);
         return sb.toString();
     }
 

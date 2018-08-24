@@ -15,9 +15,16 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
+import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.ErrorCode;
+import com.baidu.palo.common.ErrorReport;
+import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.proc.BackendsProcDir;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.ShowResultSetMetaData;
 
 public class ShowBackendsStmt extends ShowStmt {
@@ -26,10 +33,20 @@ public class ShowBackendsStmt extends ShowStmt {
     }
     
     @Override
+    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
+                && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
+                                                                          PrivPredicate.OPERATOR)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN/OPERATOR");
+        }
+    }
+
+    @Override
     public ShowResultSetMetaData getMetaData() {
          ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
          for (String title : BackendsProcDir.TITLE_NAMES) {
-            if (title.equals("HostName") || title.contains("Port")) {
+            // hide hostname for SHOW BACKENDS stmt
+            if (title.equals("HostName")) {
                  continue;
              }
             builder.addColumn(new Column(title, ColumnType.createVarchar(30)));
@@ -37,3 +54,4 @@ public class ShowBackendsStmt extends ShowStmt {
         return builder.build();
     }
 }
+

@@ -35,6 +35,8 @@
 
 namespace palo {
 
+class ExecEnv;
+
 class TaskWorkerPool {
 public:
     enum TaskWorkerType {
@@ -52,15 +54,17 @@ public:
         REPORT_DISK_STATE,
         REPORT_OLAP_TABLE,
         UPLOAD,
-        RESTORE,
+        DOWNLOAD,
         MAKE_SNAPSHOT,
-        RELEASE_SNAPSHOT
+        RELEASE_SNAPSHOT,
+        MOVE
     };
 
     typedef void* (*CALLBACK_FUNCTION)(void*);
 
     TaskWorkerPool(
             const TaskWorkerType task_worker_type,
+            ExecEnv* env,
             const TMasterInfo& master_info);
     virtual ~TaskWorkerPool();
 
@@ -95,9 +99,10 @@ private:
     static void* _report_disk_state_worker_thread_callback(void* arg_this);
     static void* _report_olap_table_worker_thread_callback(void* arg_this);
     static void* _upload_worker_thread_callback(void* arg_this);
-    static void* _restore_worker_thread_callback(void* arg_this);
+    static void* _download_worker_thread_callback(void* arg_this);
     static void* _make_snapshot_thread_callback(void* arg_this);
     static void* _release_snapshot_thread_callback(void* arg_this);
+    static void* _move_dir_thread_callback(void* arg_this);
 
     AgentStatus _clone_copy(
             const TCloneReq& clone_req,
@@ -125,11 +130,20 @@ private:
             int64_t signature,
             TTabletInfo* tablet_info);
 
+    AgentStatus _move_dir(
+            const TTabletId tablet_id,
+            const TSchemaHash schema_hash,
+            const std::string& src,
+            int64_t job_id,
+            bool overwrite,
+            std::vector<std::string>* error_msgs);
+
     const TMasterInfo& _master_info;
     TBackend _backend;
     AgentUtils* _agent_utils;
     MasterServerClient* _master_client;
     CommandExecutor* _command_executor;
+    ExecEnv* _env;
 #ifdef BE_TEST
     AgentServerClient* _agent_client;
     FileDownloader* _file_downloader_ptr;

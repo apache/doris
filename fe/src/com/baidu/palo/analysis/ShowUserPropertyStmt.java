@@ -15,17 +15,19 @@
 
 package com.baidu.palo.analysis;
 
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.CaseSensibility;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.PatternMatcher;
-import com.baidu.palo.common.proc.ProcNodeInterface;
-import com.baidu.palo.common.proc.ProcService;
 import com.baidu.palo.common.proc.UserPropertyProcNode;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -45,8 +47,6 @@ public class ShowUserPropertyStmt extends ShowStmt {
     private String user;
     private String pattern;
 
-    private ProcNodeInterface node;
-
     public ShowUserPropertyStmt(String user, String pattern) {
         this.user = user;
         this.pattern = pattern;
@@ -56,39 +56,29 @@ public class ShowUserPropertyStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(user)) {
-            user = analyzer.getUser();
+            user = analyzer.getQualifiedUser();
+            // user can see itself's property, no need to check privs
         } else {
             user = ClusterNamespace.getFullName(getClusterName(), user);
-            if (!analyzer.getCatalog().getUserMgr().checkUserAccess(analyzer.getUser(), user)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW PROPERTY");
+
+            if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
             }
         }
 
         pattern = Strings.emptyToNull(pattern);
     }
 
-    public void handleShow() throws AnalysisException {
-        // build proc path
-        // /access_resource/user
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.append("/access_resource/");
-        stringBuilder.append(user);
-        LOG.debug("process SHOW PROC '{}';", stringBuilder.toString());
-
-        node = ProcService.getInstance().open(stringBuilder.toString());
-        if (node == null) {
-            throw new AnalysisException("Failed to show user property");
-        }
-    }
-
     public List<List<String>> getRows() throws AnalysisException {
-        List<List<String>> rows = node.fetchResult().getRows();
+        List<List<String>> rows = Catalog.getCurrentCatalog().getAuth().getUserProperties(user);
+
         if (pattern == null) {
             return rows;
         }
 
         List<List<String>> result = Lists.newArrayList();
-        PatternMatcher matcher = PatternMatcher.createMysqlPattern(pattern);
+        PatternMatcher matcher = PatternMatcher.createMysqlPattern(pattern,
+                                                                   CaseSensibility.USER.getCaseSensibility());
         for (List<String> row : rows) {
             String key = row.get(0).split("\\" + SetUserPropertyVar.DOT_SEPARATOR)[0];
             if (matcher.match(key)) {

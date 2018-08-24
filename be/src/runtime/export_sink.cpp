@@ -222,7 +222,7 @@ Status ExportSink::open_file_writer() {
         break;
     }
     case TFileType::FILE_BROKER: {
-        BrokerWriter* broker_writer = new BrokerWriter(_state,
+        BrokerWriter* broker_writer = new BrokerWriter(_state->exec_env(),
                                                        _t_export_sink.broker_addresses,
                                                        _t_export_sink.properties,
                                                        _t_export_sink.export_path + "/" + file_name,

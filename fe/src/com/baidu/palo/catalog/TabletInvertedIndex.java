@@ -49,31 +49,30 @@ public class TabletInvertedIndex {
 
     public static final int NOT_EXIST_VALUE = -1;
 
-    private ReentrantReadWriteLock lock;
+    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     // tablet id -> tablet meta
-    private Map<Long, TabletMeta> tabletMetaMap;
+    private Map<Long, TabletMeta> tabletMetaMap = Maps.newHashMap();
     
     /*
      *  we use this to save memory.
-     *  we do not need create TabletMeta intance for each tablet,
+     *  we do not need create TabletMeta instance for each tablet,
      *  cause tablets in one (Partition-MaterializedIndex) has same parent info
      *      (dbId, tableId, partitionId, indexId, schemaHash)
      *  we use 'tabletMetaTable' to do the update things
      *      (eg. update schema hash in TabletMeta)
-     *  partitionid -> (index id -> tablet meta)
+     *  partition id -> (index id -> tablet meta)
      */
-    private Table<Long, Long, TabletMeta> tabletMetaTable;
+    private Table<Long, Long, TabletMeta> tabletMetaTable = HashBasedTable.create();
     
     // tablet id -> (backend id -> replica)
-    private Table<Long, Long, Replica> replicaMetaTable;
+    private Table<Long, Long, Replica> replicaMetaTable = HashBasedTable.create();
+    // backing replica table, for visiting backend replicas faster.
+    // backend id -> (tablet id -> replica)
+    private Table<Long, Long, Replica> backingReplicaMetaTable = HashBasedTable.create();
 
     public TabletInvertedIndex() {
-        lock = new ReentrantReadWriteLock();
 
-        tabletMetaMap = Maps.newHashMap();
-        tabletMetaTable = HashBasedTable.create();
-        replicaMetaTable = HashBasedTable.create();
     }
 
     private final void readLock() {
@@ -105,7 +104,7 @@ public class TabletInvertedIndex {
         try {
             LOG.info("begin to do tablet diff with backend[{}]. num: {}", backendId, backendTablets.size());
             start = System.currentTimeMillis();
-            Map<Long, Replica> replicaMetaWithBackend = replicaMetaTable.column(backendId);
+            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
             if (replicaMetaWithBackend != null) {
                 // traverse replicas in meta with this backend
                 for (Map.Entry<Long, Replica> entry : replicaMetaWithBackend.entrySet()) {
@@ -133,6 +132,12 @@ public class TabletInvertedIndex {
                                     if (storageMedium != backendTabletInfo.getStorage_medium()) {
                                         tabletMigrationMap.put(storageMedium, tabletId);
                                     }
+                                }
+
+                                // update replicas's version count
+                                // no need to write log, and no need to get db lock.
+                                if (backendTabletInfo.isSetVersion_count()) {
+                                    replica.setVersionCount(backendTabletInfo.getVersion_count());
                                 }
                             } else {
                                 // tablet with invalid schemahash
@@ -262,7 +267,12 @@ public class TabletInvertedIndex {
         }
         writeLock();
         try {
-            replicaMetaTable.rowMap().remove(tabletId);
+            Map<Long, Replica> replicas = replicaMetaTable.rowMap().remove(tabletId);
+            if (replicas != null) {
+                for (long backendId : replicas.keySet()) {
+                    backingReplicaMetaTable.remove(backendId, tabletId);
+                }
+            }
             TabletMeta tabletMeta = tabletMetaMap.remove(tabletId);
             if (tabletMeta != null) {
                 tabletMetaTable.remove(tabletMeta.getPartitionId(), tabletMeta.getIndexId());
@@ -280,6 +290,7 @@ public class TabletInvertedIndex {
         try {
             Preconditions.checkState(tabletMetaMap.containsKey(tabletId));
             replicaMetaTable.put(tabletId, replica.getBackendId(), replica);
+            backingReplicaMetaTable.put(replica.getBackendId(), tabletId, replica);
         } finally {
             writeUnlock();
         }
@@ -295,6 +306,7 @@ public class TabletInvertedIndex {
             // Preconditions.checkState(replicaMetaTable.containsRow(tabletId));
             if (replicaMetaTable.containsRow(tabletId)) {
                 replicaMetaTable.remove(tabletId, backendId);
+                backingReplicaMetaTable.remove(backendId, tabletId);
                 LOG.debug("delete tablet[{}] in backend[{}]", tabletId, backendId);
             } else {
                 // this may happend when fe restart after tablet is empty(bug cause)
@@ -329,7 +341,6 @@ public class TabletInvertedIndex {
         } finally {
             writeUnlock();
         }
-
     }
 
     public void updateToNewSchemaHash(long partitionId, long indexId) {
@@ -364,7 +375,7 @@ public class TabletInvertedIndex {
         List<Long> tabletIds = Lists.newArrayList();
         readLock();
         try {
-            Map<Long, Replica> replicaMetaWithBackend = replicaMetaTable.column(backendId);
+            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
             if (replicaMetaWithBackend != null) {
                 tabletIds.addAll(replicaMetaWithBackend.keySet());
             }
@@ -377,7 +388,7 @@ public class TabletInvertedIndex {
     public int getTabletNumByBackendId(long backendId) {
         readLock();
         try {
-            Map<Long, Replica> replicaMetaWithBackend = replicaMetaTable.column(backendId);
+            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
             if (replicaMetaWithBackend != null) {
                 return replicaMetaWithBackend.size();
             }
@@ -394,8 +405,10 @@ public class TabletInvertedIndex {
             tabletMetaMap.clear();
             tabletMetaTable.clear();
             replicaMetaTable.clear();
+            backingReplicaMetaTable.clear();
         } finally {
             writeUnlock();
         }
     }
 }
+

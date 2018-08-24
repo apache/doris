@@ -47,6 +47,7 @@ import com.baidu.palo.common.util.ListComparator;
 import com.baidu.palo.common.util.PropertyAnalyzer;
 import com.baidu.palo.common.util.TimeUtils;
 import com.baidu.palo.common.util.Util;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.persist.DropInfo;
 import com.baidu.palo.persist.EditLog;
 import com.baidu.palo.qe.ConnectContext;
@@ -546,14 +547,34 @@ public class RollupHandler extends AlterHandler {
         }
     }
 
-    private List<Comparable> getJobInfo(RollupJob rollupJob, String tableName) {
+    private void getJobInfo(List<List<Comparable>> rollupJobInfos,
+            RollupJob rollupJob, Database db) {
+        if (rollupJob.getDbId() != db.getId()) {
+            return;
+        }
+
+        OlapTable olapTable = (OlapTable) db.getTable(rollupJob.getTableId());
+        if (olapTable == null) {
+            return;
+        }
+
+        // check auth
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), db.getFullName(),
+                                                                olapTable.getName(),
+                                                                PrivPredicate.ALTER)) {
+            // no priv, return
+            LOG.debug("No priv for user {} to table {}.{}", ConnectContext.get().getQualifiedUser(),
+                      ConnectContext.get().getRemoteIP(), db.getFullName(), olapTable.getName());
+            return;
+        }
+
         List<Comparable> jobInfo = new ArrayList<Comparable>();
 
         // job id
         jobInfo.add(rollupJob.getTableId());
 
         // table name
-        jobInfo.add(tableName);
+        jobInfo.add(olapTable.getName());
 
         // create time
         long createTime = rollupJob.getCreateTimeMs();
@@ -584,7 +605,8 @@ public class RollupHandler extends AlterHandler {
             jobInfo.add("N/A");
         }
 
-        return jobInfo;
+        rollupJobInfos.add(jobInfo);
+        return;
     }
 
     @Override
@@ -668,31 +690,12 @@ public class RollupHandler extends AlterHandler {
             this.jobsLock.readLock().lock();
             try {
                 for (AlterJob alterJob : this.alterJobs.values()) {
-                    if (alterJob.getDbId() != dbId) {
-                        continue;
-                    }
-
-                    OlapTable olapTable = (OlapTable) db.getTable(alterJob.getTableId());
-                    if (olapTable == null) {
-                        continue;
-                    }
-
-                    rollupJobInfos.add(getJobInfo((RollupJob) alterJob, olapTable.getName()));
-                } // end for rollupJobs
+                    getJobInfo(rollupJobInfos, (RollupJob) alterJob, db);
+                }
 
                 for (AlterJob alterJob : this.finishedOrCancelledAlterJobs) {
-                    if (alterJob.getDbId() != dbId) {
-                        continue;
-                    }
-
-                    String tableName = "";
-                    OlapTable olapTable = (OlapTable) db.getTable(alterJob.getTableId());
-                    if (olapTable != null) {
-                        tableName = olapTable.getName();
-                    }
-
-                    rollupJobInfos.add(getJobInfo((RollupJob) alterJob, tableName));
-                } // end for rollupJobs
+                    getJobInfo(rollupJobInfos, (RollupJob) alterJob, db);
+                }
 
                 // sort by
                 // "JobId", "TableName", "CreateTime", "FinishedTime", "BaseIndexName", "RollupIndexName"

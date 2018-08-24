@@ -143,8 +143,8 @@ public class ConnectProcessor {
         }
         ctx.getAuditBuilder().reset();
         // replace '\n' to '\\\n' to make string in one line
-        ctx.getAuditBuilder().put("client", ctx.getMysqlChannel().getRemoteHostString());
-        ctx.getAuditBuilder().put("user", ctx.getUser());
+        ctx.getAuditBuilder().put("client", ctx.getMysqlChannel().getRemoteHostPortString());
+        ctx.getAuditBuilder().put("user", ctx.getQualifiedUser());
         ctx.getAuditBuilder().put("db", ctx.getDatabase());
 
         // execute this query.
@@ -301,7 +301,7 @@ public class ConnectProcessor {
 
     public TMasterOpResult proxyExecute(TMasterOpRequest request) {
         ctx.setDatabase(request.db);
-        ctx.setUser(request.user);
+        ctx.setQualifiedUser(request.user);
         ctx.setCatalog(Catalog.getInstance());
         ctx.getState().reset();
         if (request.isSetCluster()) {
@@ -315,6 +315,9 @@ public class ConnectProcessor {
         }
         if (request.isSetQueryTimeout()) {
             ctx.getSessionVariable().setQueryTimeoutS(request.getQueryTimeout());
+        }
+        if (request.isSetUser_ip()) {
+            ctx.setRemoteIP(request.getUser_ip());
         }
 
         ctx.setThreadLocalInfo();
@@ -357,7 +360,7 @@ public class ConnectProcessor {
         try {
             packetBuf = channel.fetchOnePacket();
             if (packetBuf == null) {
-                LOG.warn("Null packet received from network. remote: {}", channel.getRemoteHostString());
+                LOG.warn("Null packet received from network. remote: {}", channel.getRemoteHostPortString());
                 throw new IOException("Error happened when receiving packet.");
             }
         } catch (AsynchronousCloseException e) {
@@ -387,4 +390,3 @@ public class ConnectProcessor {
         }
     }
 }
-

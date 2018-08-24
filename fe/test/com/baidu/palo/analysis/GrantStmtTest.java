@@ -21,21 +21,61 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.catalog.AccessPrivilege;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.qe.ConnectContext;
+
 import com.google.common.collect.Lists;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
 
+import mockit.Mocked;
+import mockit.NonStrictExpectations;
+import mockit.internal.startup.Startup;
+
 public class GrantStmtTest {
     private Analyzer analyzer;
+
+    private PaloAuth auth;
+    @Mocked
+    private ConnectContext ctx;
+
+    @Mocked
+    private Catalog catalog;
+
+    static {
+        Startup.initializeIfPossible();
+    }
 
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
+        auth = new PaloAuth();
+
+        new NonStrictExpectations() {
+            {
+                ConnectContext.get();
+                result = ctx;
+
+                ctx.getQualifiedUser();
+                result = "root";
+
+                ctx.getRemoteIP();
+                result = "192.168.0.1";
+
+                Catalog.getCurrentCatalog();
+                result = catalog;
+
+                catalog.getAuth();
+                result = auth;
+            }
+        };
     }
 
     @Test
@@ -43,27 +83,14 @@ public class GrantStmtTest {
         GrantStmt stmt;
 
         List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.ALL);
-        stmt = new GrantStmt("testUser", "testDb", privileges);
+        stmt = new GrantStmt(new UserIdentity("testUser", "%"), null, new TablePattern("testDb", "*"), privileges);
         stmt.analyze(analyzer);
-        Assert.assertEquals("GRANT ALL ON testCluster:testDb TO 'testCluster:testUser'", stmt.toString());
-        Assert.assertEquals("testCluster:testUser", stmt.getUser());
-        Assert.assertEquals("testCluster:testDb", stmt.getDb());
-        Assert.assertEquals(AccessPrivilege.ALL, stmt.getPrivilege());
+        Assert.assertEquals("testCluster:testUser", stmt.getUserIdent().getQualifiedUser());
+        Assert.assertEquals("testCluster:testDb", stmt.getTblPattern().getQuolifiedDb());
 
         privileges = Lists.newArrayList(AccessPrivilege.READ_ONLY, AccessPrivilege.ALL);
-        stmt = new GrantStmt("testUser", "testDb", privileges);
+        stmt = new GrantStmt(new UserIdentity("testUser", "%"), null, new TablePattern("testDb", "*"), privileges);
         stmt.analyze(analyzer);
-        Assert.assertEquals("GRANT READ_ONLY, ALL ON testCluster:testDb TO 'testCluster:testUser'", stmt.toString());
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testNoPriv() throws AnalysisException, InternalException {
-        GrantStmt stmt;
-
-        List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.ALL);
-        stmt = new GrantStmt("testUser", "testDb", privileges);
-        stmt.analyze(AccessTestUtil.fetchBlockAnalyzer());
-        Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
@@ -71,26 +98,7 @@ public class GrantStmtTest {
         GrantStmt stmt;
 
         List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.ALL);
-        stmt = new GrantStmt("", "testDb", privileges);
-        stmt.analyze(analyzer);
-        Assert.fail("No exeception throws.");
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testDbFail() throws AnalysisException, InternalException {
-        GrantStmt stmt;
-
-        List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.ALL);
-        stmt = new GrantStmt("testUser", "", privileges);
-        stmt.analyze(analyzer);
-        Assert.fail("No exeception throws.");
-    }
-
-    @Test(expected = AnalysisException.class)
-    public void testPrivFail() throws AnalysisException, InternalException {
-        GrantStmt stmt;
-
-        stmt = new GrantStmt("testUser", "testDb", null);
+        stmt = new GrantStmt(new UserIdentity("", "%"), null, new TablePattern("testDb", "*"), privileges);
         stmt.analyze(analyzer);
         Assert.fail("No exeception throws.");
     }

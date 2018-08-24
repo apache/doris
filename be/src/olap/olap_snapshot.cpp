@@ -299,7 +299,7 @@ OLAPStatus OLAPSnapshot::_create_snapshot_files(
         const FileVersionMessage* latest_version = NULL;
         latest_version = ref_olap_table->latest_version();
         if (latest_version == NULL) {
-            OLAP_LOG_WARNING("table has not any version. [path='%s']",
+            OLAP_LOG_WARNING("table does not have any version. [path='%s']",
                     ref_olap_table->full_name().c_str());
             res = OLAP_ERR_VERSION_NOT_EXIST;
             break;

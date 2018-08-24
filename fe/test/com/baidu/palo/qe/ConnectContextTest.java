@@ -49,13 +49,14 @@ public class ConnectContextTest {
     @Before
     public void setUp() throws Exception {
         channel = EasyMock.createMock(MysqlChannel.class);
-        EasyMock.expect(channel.getRemoteHostString()).andReturn("127.0.0.1:12345").anyTimes();
+        EasyMock.expect(channel.getRemoteHostPortString()).andReturn("127.0.0.1:12345").anyTimes();
         channel.close();
         EasyMock.expectLastCall().anyTimes();
         executor = EasyMock.createMock(StmtExecutor.class);
         executor.cancel();
         EasyMock.expectLastCall().anyTimes();
         PowerMock.expectNew(MysqlChannel.class, EasyMock.isA(SocketChannel.class)).andReturn(channel).anyTimes();
+        EasyMock.expect(channel.getRemoteIp()).andReturn("192.168.1.1").anyTimes();
         EasyMock.replay(channel);
         EasyMock.replay(executor);
         PowerMock.replay(MysqlChannel.class);
@@ -92,8 +93,8 @@ public class ConnectContextTest {
         Assert.assertEquals("testCluster:testDb", ctx.getDatabase());
 
         // User
-        ctx.setUser("testCluster:testUser");
-        Assert.assertEquals("testCluster:testUser", ctx.getUser());
+        ctx.setQualifiedUser("testCluster:testUser");
+        Assert.assertEquals("testCluster:testUser", ctx.getQualifiedUser());
 
         // Serializer
         Assert.assertNotNull(ctx.getSerializer());
@@ -119,10 +120,10 @@ public class ConnectContextTest {
         List<String> row = ctx.toThreadInfo().toRow(1000);
         Assert.assertEquals(9, row.size());
         Assert.assertEquals("101", row.get(0));
-        Assert.assertEquals("testCluster:testUser", row.get(1));
+        Assert.assertEquals("testUser", row.get(1));
         Assert.assertEquals("127.0.0.1:12345", row.get(2));
         Assert.assertEquals("testCluster", row.get(3));
-        Assert.assertEquals("testCluster:testDb", row.get(4));
+        Assert.assertEquals("testDb", row.get(4));
         Assert.assertEquals("Ping", row.get(5));
         Assert.assertEquals("1", row.get(6));
         Assert.assertEquals("", row.get(7));

@@ -96,11 +96,25 @@ public class MaterializedIndex extends MetaObject implements Writable {
         return idToTablets.get(tabletId);
     }
 
+    public void clearTabletsForRestore() {
+        idToTablets.clear();
+        tablets.clear();
+    }
+
     public void addTablet(Tablet tablet, TabletMeta tabletMeta) {
+        addTablet(tablet, tabletMeta, false);
+    }
+
+    public void addTablet(Tablet tablet, TabletMeta tabletMeta, boolean isRestore) {
         idToTablets.put(tablet.getId(), tablet);
         tablets.add(tablet);
+        if (!isRestore) {
+            Catalog.getCurrentInvertedIndex().addTablet(tablet.getId(), tabletMeta);
+        }
+    }
 
-        Catalog.getCurrentInvertedIndex().addTablet(tablet.getId(), tabletMeta);
+    public void setIdForRestore(long idxId) {
+        this.id = idxId;
     }
 
     public long getId() {

@@ -20,32 +20,33 @@
 
 package com.baidu.palo.common.proc;
 
-import com.baidu.palo.catalog.UserPropertyMgr;
 import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+
 import com.google.common.collect.ImmutableList;
 
 /*
- * SHOW PROC '/access_resource/user'
+ * SHOW PROC '/auth/user'
  */
 public class UserPropertyProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Key").add("Value")
             .build();
 
-    private UserPropertyMgr userPropertyMgr;
-    private String user;
+    private PaloAuth auth;
+    private String qualifiedUser;
 
-    public UserPropertyProcNode(UserPropertyMgr userPropertyMgr, String user) {
-        this.userPropertyMgr = userPropertyMgr;
-        this.user = user;
+    public UserPropertyProcNode(PaloAuth auth, String qualifiedUser) {
+        this.auth = auth;
+        this.qualifiedUser = qualifiedUser;
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        result.setRows(userPropertyMgr.fetchUserProperty(user));
+
+        result.setRows(auth.getUserProperties(qualifiedUser));
         return result;
     }
-
 }

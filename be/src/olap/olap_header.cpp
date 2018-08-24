@@ -427,6 +427,21 @@ const FileVersionMessage* OLAPHeader::get_latest_version() const {
     return max_version;
 }
 
+const FileVersionMessage* OLAPHeader::get_base_version() const {
+    if (file_version_size() == 0) {
+        return NULL;
+    }
+
+    const FileVersionMessage* base_version = NULL;
+    for (int i = 0; i < file_version_size(); ++i) {
+        if (file_version(i).start_version() == 0) {
+            base_version = &file_version(i);
+            break;
+        }
+    }
+    return base_version;
+}
+
 const uint32_t OLAPHeader::get_compaction_nice_estimate() const{
     uint32_t nice = 0;
     bool base_version_exists = false;

@@ -87,6 +87,9 @@ message OLAPHeaderMessage {
     // bloom filter false positive probability
     optional double bf_fpp = 14;
     optional KeysType keys_type = 15;
+    // if true, this tablet will not do compaction,
+    // and does not create init version
+    optional bool in_restore_mode = 16 [default = false];
 }
 
 message OLAPIndexHeaderMessage {

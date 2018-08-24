@@ -20,11 +20,14 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.UserResource;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.mysql.privilege.UserResource;
+import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.SessionVariable;
 
 import com.google.common.base.Strings;
@@ -75,8 +78,9 @@ public class SetVar {
             throw new AnalysisException("No variable name in set statement.");
         }
         if (type == SetType.GLOBAL) {
-            if (!analyzer.getCatalog().getUserMgr().isSuperuser(analyzer.getUser())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SET GLOBAL");
+            if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                                                    "ADMIN");
             }
         }
         if (value == null) {

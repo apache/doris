@@ -21,39 +21,39 @@ package com.baidu.palo.backup;
 
 import com.baidu.palo.alter.RollupHandler;
 import com.baidu.palo.alter.SchemaChangeHandler;
-import com.baidu.palo.catalog.AccessPrivilege;
-import com.baidu.palo.catalog.KeysType;
 import com.baidu.palo.catalog.AggregateType;
+import com.baidu.palo.catalog.Catalog;
+import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.catalog.DataProperty;
+import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.DistributionInfo;
 import com.baidu.palo.catalog.HashDistributionInfo;
+import com.baidu.palo.catalog.KeysType;
 import com.baidu.palo.catalog.MaterializedIndex;
+import com.baidu.palo.catalog.MaterializedIndex.IndexState;
 import com.baidu.palo.catalog.MysqlTable;
+import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.catalog.Partition;
 import com.baidu.palo.catalog.PartitionInfo;
 import com.baidu.palo.catalog.PartitionKey;
+import com.baidu.palo.catalog.PrimitiveType;
 import com.baidu.palo.catalog.RandomDistributionInfo;
 import com.baidu.palo.catalog.RangePartitionInfo;
 import com.baidu.palo.catalog.Replica;
-import com.baidu.palo.catalog.TabletMeta;
 import com.baidu.palo.catalog.Replica.ReplicaState;
 import com.baidu.palo.catalog.SinglePartitionInfo;
 import com.baidu.palo.catalog.Tablet;
-import com.baidu.palo.catalog.UserPropertyMgr;
-import com.baidu.palo.catalog.Catalog;
-import com.baidu.palo.catalog.Column;
-import com.baidu.palo.catalog.Database;
-import com.baidu.palo.catalog.OlapTable;
-import com.baidu.palo.catalog.PrimitiveType;
-import com.baidu.palo.catalog.MaterializedIndex.IndexState;
-import com.baidu.palo.system.SystemInfoService;
+import com.baidu.palo.catalog.TabletMeta;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.util.Util;
 import com.baidu.palo.load.Load;
+import com.baidu.palo.mysql.privilege.PaloAuth;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.persist.EditLog;
 import com.baidu.palo.qe.ConnectContext;
+import com.baidu.palo.system.SystemInfoService;
 import com.baidu.palo.thrift.TStorageMedium;
 import com.baidu.palo.thrift.TStorageType;
 
@@ -67,7 +67,6 @@ import java.util.List;
 import java.util.Map;
 
 public class CatalogMocker {
-
     // user
     public static final String ROOTUSER = "root";
     public static final String SUPERUSER = "superuser";
@@ -203,27 +202,17 @@ public class CatalogMocker {
         ROLLUP_SCHEMA_HASH = Util.schemaHash(0, TEST_ROLLUP_SCHEMA, null, 0);
     }
 
-    public static UserPropertyMgr fetchAdminAccess() {
-        UserPropertyMgr userPropertyMgr = EasyMock.createMock(UserPropertyMgr.class);
-        EasyMock.expect(userPropertyMgr.checkAccess(EasyMock.isA(String.class),
-                                                    EasyMock.isA(String.class), EasyMock.isA(AccessPrivilege.class)))
-                .andReturn(true).anyTimes();
-        EasyMock.expect(userPropertyMgr.isAdmin(EasyMock.isA(String.class))).andReturn(true).anyTimes();
-        EasyMock.expect(userPropertyMgr.isSuperuser(EasyMock.isA(String.class))).andReturn(true).anyTimes();
-        EasyMock.expect(userPropertyMgr.checkUserAccess(EasyMock.isA(String.class), EasyMock.eq(BLOCKUSER)))
-                .andReturn(false).anyTimes();
-        EasyMock.expect(userPropertyMgr.checkUserAccess(EasyMock.isA(String.class), EasyMock.isA(String.class)))
-                .andReturn(true).anyTimes();
-        try {
-            userPropertyMgr.setPasswd(EasyMock.endsWith(TESTUSER), EasyMock.isA(byte[].class));
-            EasyMock.expectLastCall().anyTimes();
-            userPropertyMgr.setPasswd(EasyMock.endsWith(ROOTUSER), EasyMock.isA(byte[].class));
-            EasyMock.expectLastCall().andThrow(new DdlException("No privilege to change password")).anyTimes();
-        } catch (DdlException e) {
-            return null;
-        }
-        EasyMock.replay(userPropertyMgr);
-        return userPropertyMgr;
+    private static PaloAuth fetchAdminAccess() {
+        PaloAuth auth = EasyMock.createMock(PaloAuth.class);
+        EasyMock.expect(auth.checkGlobalPriv(EasyMock.isA(ConnectContext.class),
+                                             EasyMock.isA(PrivPredicate.class))).andReturn(true).anyTimes();
+        EasyMock.expect(auth.checkDbPriv(EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class),
+                                         EasyMock.isA(PrivPredicate.class))).andReturn(true).anyTimes();
+        EasyMock.expect(auth.checkTblPriv(EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class),
+                                          EasyMock.isA(String.class),
+                                          EasyMock.isA(PrivPredicate.class))).andReturn(true).anyTimes();
+        EasyMock.replay(auth);
+        return auth;
     }
 
     public static SystemInfoService fetchSystemInfoService() {
@@ -259,7 +248,6 @@ public class CatalogMocker {
         tablet0.addReplica(replica0);
         tablet0.addReplica(replica1);
         tablet0.addReplica(replica2);
-
 
         olapTable.setIndexSchemaInfo(TEST_TBL_ID, TEST_TBL_NAME, TEST_TBL_BASE_SCHEMA, 0, SCHEMA_HASH, (short) 1);
         olapTable.setStorageTypeToIndex(TEST_TBL_ID, TStorageType.COLUMN);
@@ -351,7 +339,6 @@ public class CatalogMocker {
         olapTable2.addPartition(partition2);
 
         // rollup index p1
-
         MaterializedIndex rollupIndexP1 = new MaterializedIndex(TEST_ROLLUP_ID, IndexState.NORMAL);
         Tablet rollupTabletP1 = new Tablet(TEST_ROLLUP_TABLET_P1_ID);
         TabletMeta tabletMetaRollupTabletP1 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION1_ID,
@@ -393,7 +380,7 @@ public class CatalogMocker {
     public static Catalog fetchAdminCatalog() {
         try {
             Catalog catalog = EasyMock.createMock(Catalog.class);
-            EasyMock.expect(catalog.getUserMgr()).andReturn(fetchAdminAccess()).anyTimes();
+            EasyMock.expect(catalog.getAuth()).andReturn(fetchAdminAccess()).anyTimes();
 
             Database db = mockDb();
 
@@ -417,16 +404,16 @@ public class CatalogMocker {
         }
     }
 
-    public static UserPropertyMgr fetchBlockAccess() {
-        UserPropertyMgr service = EasyMock.createMock(UserPropertyMgr.class);
-        EasyMock.expect(service.checkAccess(EasyMock.isA(String.class),
-                                            EasyMock.isA(String.class), EasyMock.isA(AccessPrivilege.class)))
-                .andReturn(false).anyTimes();
-        EasyMock.expect(service.isAdmin(EasyMock.isA(String.class))).andReturn(false).anyTimes();
-        EasyMock.expect(service.isSuperuser(EasyMock.isA(String.class))).andReturn(false).anyTimes();
-        EasyMock.expect(service.checkUserAccess(EasyMock.isA(String.class), EasyMock.isA(String.class)))
-                .andReturn(false).anyTimes();
-        EasyMock.replay(service);
-        return service;
+    public static PaloAuth fetchBlockAccess() {
+        PaloAuth auth = EasyMock.createMock(PaloAuth.class);
+        EasyMock.expect(auth.checkGlobalPriv(EasyMock.isA(ConnectContext.class),
+                                             EasyMock.isA(PrivPredicate.class))).andReturn(false).anyTimes();
+        EasyMock.expect(auth.checkDbPriv(EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class),
+                                         EasyMock.isA(PrivPredicate.class))).andReturn(false).anyTimes();
+        EasyMock.expect(auth.checkTblPriv(EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class),
+                                          EasyMock.isA(String.class),
+                                          EasyMock.isA(PrivPredicate.class))).andReturn(false).anyTimes();
+        EasyMock.replay(auth);
+        return auth;
     }
 }

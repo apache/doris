@@ -92,6 +92,7 @@ add_library(Runtime STATIC
   bufferpool/suballocator.cc
   bufferpool/system_allocator.cc
   initial_reservations.cc
+  snapshot_loader.cpp
 )
 
 # This test runs forever so should not be part of 'make test'

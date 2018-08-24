@@ -765,8 +765,13 @@ OLAPStatus SegmentReader::_read_all_data_streams(size_t* buffer_size) {
             continue;
         }
 
+        if (_include_columns.find(unique_column_id) == _include_columns.end() &&
+            _include_bf_columns.find(unique_column_id) == _include_bf_columns.end()) {
+            continue;
+        }
+
         if (message.kind() == StreamInfoMessage::ROW_INDEX ||
-                message.kind() == StreamInfoMessage::BLOOM_FILTER) {
+            message.kind() == StreamInfoMessage::BLOOM_FILTER) {
             continue;
         }
 

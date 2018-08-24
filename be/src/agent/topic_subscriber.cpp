@@ -41,7 +41,6 @@ void TopicSubscriber::register_listener(TTopicType::type topic_type, TopicListen
 }
 
 void TopicSubscriber::handle_updates(const TAgentPublishRequest& agent_publish_request) {
-    LOG(INFO) << "Received master's published state, begin to handle";
     // Shared lock here in order to avoid updates in listeners' map
     boost::shared_lock<boost::shared_mutex> lock(_listener_mtx);
     // Currently, not deal with protocol version, the listener should deal with protocol version
@@ -56,6 +55,5 @@ void TopicSubscriber::handle_updates(const TAgentPublishRequest& agent_publish_r
                                           *topic_update_it); 
         }    
     }
-    LOG(INFO) << "Handle master's published state finished";
 }
 } // namespace palo

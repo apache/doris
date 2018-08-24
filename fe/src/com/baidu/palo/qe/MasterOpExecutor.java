@@ -15,18 +15,18 @@
 
 package com.baidu.palo.qe;
 
-import java.nio.ByteBuffer;
+import com.baidu.palo.analysis.RedirectStatus;
+import com.baidu.palo.common.ClientPool;
+import com.baidu.palo.thrift.FrontendService;
+import com.baidu.palo.thrift.TMasterOpRequest;
+import com.baidu.palo.thrift.TMasterOpResult;
+import com.baidu.palo.thrift.TNetworkAddress;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.transport.TTransportException;
 
-import com.baidu.palo.common.ClientPool;
-import com.baidu.palo.analysis.RedirectStatus;
-import com.baidu.palo.thrift.FrontendService;
-import com.baidu.palo.thrift.TMasterOpRequest;
-import com.baidu.palo.thrift.TMasterOpResult;
-import com.baidu.palo.thrift.TNetworkAddress;
+import java.nio.ByteBuffer;
 
 public class MasterOpExecutor {
     private static final Logger LOG = LogManager.getLogger(MasterOpExecutor.class);
@@ -72,11 +72,12 @@ public class MasterOpExecutor {
         TMasterOpRequest params = new TMasterOpRequest();
         params.setCluster(ctx.getClusterName());
         params.setSql(originStmt);
-        params.setUser(ctx.getUser());
+        params.setUser(ctx.getQualifiedUser());
         params.setDb(ctx.getDatabase());
         params.setResourceInfo(ctx.toResourceCtx());
         params.setExecMemLimit(ctx.getSessionVariable().getMaxExecMemByte());
         params.setQueryTimeout(ctx.getSessionVariable().getQueryTimeoutS());
+        params.setUser_ip(ctx.getRemoteIP());
 
         LOG.info("Forward statement {} to Master {}", originStmt, thriftAddress);
 

@@ -16,12 +16,12 @@
 package com.baidu.palo.mysql;
 
 import com.baidu.palo.catalog.Catalog;
-import com.baidu.palo.catalog.UserResource;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
+import com.baidu.palo.mysql.privilege.UserResource;
 import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.system.SystemInfoService;
 
@@ -38,34 +38,27 @@ public class MysqlProto {
     private static final Logger LOG = LogManager.getLogger(MysqlProto.class);
 
     // scramble: data receive from server.
-    // randomString: data send by server in plugin data field
+    // randomString: data send by server in plug-in data field
+    // user_name#HIGH@cluster_name
     private static boolean authenticate(ConnectContext context, byte[] scramble, byte[] randomString, String user) {
-        String usePass = scramble.length == 0 ? "NO" : "YES";
-        String clusterName = "";
+        String usePasswd = scramble.length == 0 ? "NO" : "YES";
         
         String tmpUser = user;
         if (tmpUser == null || tmpUser.isEmpty()) {
-            ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, "", usePass);
+            ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, "", usePasswd);
             return false;
         }
-        String remoteIp = "";
-        // check ip
-        if (tmpUser.charAt(0) == '@') {
-            String[] strList =  tmpUser.split("@", 3);
-            if (strList.length != 3) {
-                ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, strList[1]);
-                return false;
-            }
-            remoteIp = strList[1];
-            tmpUser = strList[2];
-        }
 
-        // check deploy id
+        // check cluster, user name may contains cluster name or cluster id.
+        // eg:
+        // user_name@cluster_name
+        String clusterName = "";
         String[] strList = tmpUser.split("@", 2);
         if (strList.length > 1) {
             tmpUser = strList[0];
             clusterName = strList[1];
             try {
+                // if cluster does not exist and it is not a valid cluster id, authenticate failed
                 if (Catalog.getInstance().getCluster(clusterName) == null 
                         && Integer.valueOf(strList[1]) != context.getCatalog().getClusterId()) {
                     ErrorReport.report(ErrorCode.ERR_UNKNOWN_CLUSTER_ID, strList[1]);
@@ -76,7 +69,15 @@ public class MysqlProto {
                 return false;
             }
         }
+        if (Strings.isNullOrEmpty(clusterName)) {
+            clusterName = SystemInfoService.DEFAULT_CLUSTER;
+        }
+        context.setCluster(clusterName);
 
+        // check resource group level. user name may contains resource group level.
+        // eg:
+        // ...@user_name#HIGH
+        // set resource group if it is valid, or just ignore it
         strList = tmpUser.split("#", 2);
         if (strList.length > 1) {
             tmpUser = strList[0];
@@ -85,46 +86,17 @@ public class MysqlProto {
             }
         }
         
-        if (Strings.isNullOrEmpty(clusterName)) {
-            clusterName = SystemInfoService.DEFAULT_CLUSTER;   
-        }
-        context.setCluster(clusterName);
-        
-        if (Catalog.getInstance().getUserMgr().getPassword(tmpUser) == null) {
-            tmpUser = ClusterNamespace.getFullName(clusterName, tmpUser);
-        }
-        
-        byte[] userPassword = Catalog.getInstance().getUserMgr().getPassword(tmpUser);
-        
-        if (userPassword == null) {
-            ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, tmpUser, usePass);
-            return false;
-        }
+        LOG.debug("parse cluster: {}", clusterName);
+        String qualifiedUser = ClusterNamespace.getFullName(clusterName, tmpUser);
+        String remoteIp = context.getMysqlChannel().getRemoteIp();
 
-        userPassword = MysqlPassword.getSaltFromPassword(userPassword);
-
-        // when the length of password is zero, the user has no password
-        if ((scramble.length == userPassword.length)
-                && (scramble.length == 0 || MysqlPassword.checkScramble(scramble, randomString, userPassword))) {
-            // authenticate success
-            context.setUser(tmpUser);
-        } else {
-            // password check failed.
-            ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, tmpUser, usePass);
+        if (!Catalog.getCurrentCatalog().getAuth().checkPassword(qualifiedUser, remoteIp,
+                                                                 scramble, randomString)) {
+            ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, qualifiedUser, usePasswd);
             return false;
         }
        
-        // check whitelist
-        if (remoteIp.equals("")) {
-            remoteIp = context.getMysqlChannel().getRemoteIp();
-        }
-        boolean ok = context.getCatalog().checkWhiteList(tmpUser, remoteIp);
-        if (!ok) {
-            LOG.debug("deny by whiltList. remoteIp={} user={}", context.getMysqlChannel().getRemoteIp(), tmpUser);
-            ErrorReport.report(ErrorCode.ERR_IP_NOT_ALLOWED, context.getMysqlChannel().getRemoteIp());
-            return false;
-        }
-
+        context.setQualifiedUser(qualifiedUser);
         return true;
     }
 

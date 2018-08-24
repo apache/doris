@@ -54,6 +54,7 @@ import com.baidu.palo.common.util.ListComparator;
 import com.baidu.palo.common.util.PropertyAnalyzer;
 import com.baidu.palo.common.util.TimeUtils;
 import com.baidu.palo.common.util.Util;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.thrift.TResourceInfo;
 import com.baidu.palo.thrift.TStorageType;
@@ -1367,6 +1368,16 @@ public class SchemaChangeHandler extends AlterHandler {
         long tableId = schemaChangeJob.getTableId();
         OlapTable olapTable = (OlapTable) db.getTable(tableId);
         if (olapTable == null) {
+            return;
+        }
+        
+        // check auth
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), db.getFullName(),
+                                                                olapTable.getName(),
+                                                                PrivPredicate.ALTER)) {
+            // no priv, return
+            LOG.debug("No priv for user {} to table {}.{}", ConnectContext.get().getQualifiedUser(),
+                      ConnectContext.get().getRemoteIP(), db.getFullName(), olapTable.getName());
             return;
         }
 

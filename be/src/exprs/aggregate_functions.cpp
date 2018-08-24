@@ -1053,10 +1053,9 @@ int64_t AggregateFunctions::hll_algorithm(const palo_udf::StringVal& src) {
     double tmp = 0.f;
     // according to HerperLogLog current correction, if E is cardinal
     // E =< num_streams * 2.5 , LC has higher accuracy.
-    // num_streams * 2.5 < E =< 2 ^ 32 / 30 , HerperLogLog has higher accuracy.
-    // E > 2 ^ 32 / 30 ,  estimate = -tmp * log(1 - estimate / tmp);
+    // num_streams * 2.5 < E , HerperLogLog has higher accuracy.
     // Generally , we can use HerperLogLog to produce value as E.
-    if (num_zero_registers != 0) {
+    if (estimate <= num_streams * 2.5 && num_zero_registers != 0) {
         // Estimated cardinality is too low. Hll is too inaccurate here, instead use
         // linear counting.
         estimate = num_streams * log(static_cast<float>(num_streams) / num_zero_registers);
@@ -1069,8 +1068,6 @@ int64_t AggregateFunctions::hll_algorithm(const palo_udf::StringVal& src) {
         - 5.2921 * 1.0e-3 * estimate +
         83.3216;
         estimate -= estimate * (bias / 100);
-    } else if (estimate > (tmp = std::pow(2, 32) / 30)) {
-        estimate = -tmp * log(1 - estimate / tmp);
     }
     return (int64_t)(estimate + 0.5);
 }

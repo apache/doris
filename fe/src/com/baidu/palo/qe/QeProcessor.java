@@ -69,7 +69,8 @@ public class QeProcessor {
     }
     
     public static synchronized void unregisterQuery(TUniqueId queryId) {
-        LOG.info("deregister query id = " + queryId.toString());
-        coordinatorMap.remove(queryId);
+        if (coordinatorMap.remove(queryId) != null) {
+            LOG.info("deregister query id:" + queryId.toString());
+        }
     }
 }

@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-
 # Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -44,7 +43,6 @@ fi
 # java
 if [ "$JAVA_HOME" = "" ]; then
   echo "Error: JAVA_HOME is not set."
-  echo "You could set JAVA_HOME in conf/fe.conf"
   exit 1
 fi
 JAVA=$JAVA_HOME/bin/java

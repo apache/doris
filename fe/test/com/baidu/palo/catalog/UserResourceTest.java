@@ -21,6 +21,7 @@
 package com.baidu.palo.catalog;
 
 import com.baidu.palo.common.DdlException;
+import com.baidu.palo.mysql.privilege.UserResource;
 import com.baidu.palo.thrift.TResourceType;
 import com.baidu.palo.thrift.TUserResource;
 

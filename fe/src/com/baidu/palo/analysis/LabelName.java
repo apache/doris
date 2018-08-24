@@ -28,6 +28,7 @@ import com.baidu.palo.common.FeNameFormat;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.io.Writable;
 import com.baidu.palo.system.SystemInfoService;
+
 import com.google.common.base.Strings;
 
 import org.apache.commons.lang.builder.HashCodeBuilder;

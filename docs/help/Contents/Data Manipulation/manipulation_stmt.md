@@ -98,7 +98,10 @@
         -   dfs.ha.namenodes.xxx：ha模式中指定namenode的名字,多个名字以逗号分隔,ha模式中必须配置。其中xxx表示dfs.nameservices配置的value.例子: "dfs.ha.namenodes.palo" = "nn1,nn2"
         -   dfs.namenode.rpc-address.xxx.nn: ha模式中指定namenode的rpc地址信息,ha模式中必须配置。其中nn表示dfs.ha.namenodes.xxx中配置的一个namenode的名字。例子: "dfs.namenode.rpc-address.palo.nn1" = "host:port"
         -   dfs.client.failover.proxy.provider: ha模式中指定client连接namenode的provider,默认为:org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
-
+        -   hadoop.security.authentication: 鉴权方式，包含simple和kerberos两种值。默认是SIMPLE模式。如果要使用kerberos，那必须配置以下配置。
+        -   kerberos_principal: 指定kerberos的principal
+        -   kerberos_keytab: 指定kerberos的keytab文件路径
+        -   kerberos_keytab_content: 指定kerberos中keytab文件内容经过base64编码之后的内容。这个跟kerberos_keytab配置二选一就可以.
 
     4. opt_properties
         用于指定一些特殊参数。
@@ -130,7 +133,7 @@
         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
         INTO TABLE `my_table`
         )
-		WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password")
+        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password")
         PROPERTIES
         (
         "timeout"="3600",
@@ -220,7 +223,7 @@
           v2 = hll_hash(k2)
         )
         )
-        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");	
+        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");  
 
         LOAD LABEL example_db.label8
         (
@@ -249,6 +252,48 @@
              "dfs.ha.namenodes.bdos"="nn1,nn2",
              "dfs.namenode.rpc-address.bdos.nn1"="host1:port1",
              "dfs.namenode.rpc-address.bdos.nn2"="host2:port2")
+         PROPERTIES (
+             "timeout"="3600",
+             "max_filter_ratio"="0.1"
+         );
+
+    9. 基于keytab的kerberos鉴权访问hdfs
+         LOAD LABEL table1_20170707 (
+             DATA INFILE("hdfs://bdos/palo/table1_data")
+             INTO TABLE table1
+         )
+         WITH BROKER hdfs (
+             "fs.defaultFS"="hdfs://bdos",
+             "username"="hdfs_user",
+             "password"="hdfs_password",
+             "dfs.nameservices"="bdos",
+             "dfs.ha.namenodes.bdos"="nn1,nn2",
+             "dfs.namenode.rpc-address.bdos.nn1"="host1:port1",
+             "dfs.namenode.rpc-address.bdos.nn2"="host2:port2",
+             "hadoop.security.authentication"="kerberos",
+             "kerberos_principal"="palo@BAIDU.COM",
+             "kerberos_keytab"="/home/palo/palo.keytab"))
+         PROPERTIES (
+             "timeout"="3600",
+             "max_filter_ratio"="0.1"
+         );
+
+    10. 使用keytab content的kerberos鉴权访问hdfs
+         LOAD LABEL table1_20170707 (
+             DATA INFILE("hdfs://bdos/palo/table1_data")
+             INTO TABLE table1
+         )
+         WITH BROKER hdfs (
+             "fs.defaultFS"="hdfs://bdos",
+             "username"="hdfs_user",
+             "password"="hdfs_password",
+             "dfs.nameservices"="bdos",
+             "dfs.ha.namenodes.bdos"="nn1,nn2",
+             "dfs.namenode.rpc-address.bdos.nn1"="host1:port1",
+             "dfs.namenode.rpc-address.bdos.nn2"="host2:port2",
+             "hadoop.security.authentication"="kerberos",
+             "kerberos_principal"="palo@BAIDU.COM",
+             "kerberos_keytab_content"="BQIAAABEAAEACUJBSURVLkNPTQAEcGFsbw"))
          PROPERTIES (
              "timeout"="3600",
              "max_filter_ratio"="0.1"
@@ -369,7 +414,7 @@
         timeout:            指定 load 作业的超时时间，单位是秒。当load执行时间超过该阈值时，会自动取消。默认超时时间是 86400 秒。
                             建议指定 timeout 时间小于 86400 秒。
                             
-       	hll:                用于指定数据里面和表里面的HLL列的对应关系，表中的列和数据里面指定的列
+        hll:                用于指定数据里面和表里面的HLL列的对应关系，表中的列和数据里面指定的列
                             （如果不指定columns，则数据列面的列也可以是表里面的其它非HLL列）通过","分割
                             指定多个hll列使用“:”分割，例如: 'hll1,cuid:hll2,device'
     
@@ -535,7 +580,7 @@
         EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("column_separator"=",") WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
 
 ## keyword
-	EXPORT
+    EXPORT
 
 # SHOW DATABASES
 ## description
@@ -625,9 +670,9 @@
 
     3. 展示指定 db 的导出任务，state 为 "exporting", 并按 StartTime 降序排序
         SHOW EXPORT FROM example_db WHERE STATE = "exporting" ORDER BY StartTime DESC;
-	
+    
     4. 展示指定db，指定job_id的导出任务
-		    SHOW EXPORT FROM example_db WHERE EXPORT_JOB_ID = job_id;
+            SHOW EXPORT FROM example_db WHERE EXPORT_JOB_ID = job_id;
 
 ## keyword
     SHOW,EXPORT
@@ -744,29 +789,34 @@
     该语句用于查看 BACKUP 任务
     语法：
         SHOW BACKUP [FROM db_name]
-        [WHERE LABEL = "backup_label" | LABEL LIKE "pattern"];
         
     说明：
-        BACKUP 任务的状态（State）有以下几种：
-        PENDING：刚提交的
-        SNAPSHOT：正在执行快照
-        UPLOAD：准备上传数据
-        CHECK_UPLOAD：正在上传数据
-        FINISHING：即将结束
-        FINISHED：任务完成
-        CANCELLED：任务失败
-        
-        失败的任务可以通过 ErrMsg 列失败查看原因。
+        1. Palo 中仅保存最近一次 BACKUP 任务。
+        2. 各列含义如下：
+            JobId：                  唯一作业id
+            SnapshotName：           备份的名称
+            DbName：                 所属数据库
+            State：                  当前阶段
+                PENDING：        提交作业后的初始状态
+                SNAPSHOTING：    执行快照中
+                UPLOAD_SNAPSHOT：快照完成，准备上传
+                UPLOADING：      快照上传中
+                SAVE_META：      将作业元信息保存为本地文件
+                UPLOAD_INFO：    上传作业元信息
+                FINISHED：       作业成功
+                CANCELLED：      作业失败
+            BackupObjs：             备份的表和分区
+            CreateTime：             任务提交时间
+            SnapshotFinishedTime：   快照完成时间
+            UploadFinishedTime：     快照上传完成时间
+            FinishedTime：           作业结束时间
+            UnfinishedTasks：        在 SNAPSHOTING 和 UPLOADING 阶段会显示还未完成的子任务id
+            Status：                 如果作业失败，显示失败信息
+            Timeout：                作业超时时间，单位秒
 
 ## example
-    1. 查看 example_db 下的所有 BACKUP 任务。
+    1. 查看 example_db 下最后一次 BACKUP 任务。
         SHOW BACKUP FROM example_db;
-
-    2. 查看 example_db 下 LABEL 为 "backup_label" 的任务。
-        SHOW BACKUP FROM example_db WHERE LABEL = "backup_label";
-        
-    3. 查看 example_db 下 LABEL 前缀为 "backup" 的任务。
-        SHOW BACKUP FROM example_db WHERE LABEL LIKE "backup%";
 
 ## keyword
     SHOW, BACKUP
@@ -776,34 +826,96 @@
     该语句用于查看 RESTORE 任务
     语法：
         SHOW RESTORE [FROM db_name]
-        [WHERE LABEL = "restore_label" | LABEL LIKE "pattern"];
         
     说明：
-        BACKUP 任务的状态（State）有以下几种：
-        PENDING：刚提交的
-        RESTORE_META：正在恢复元数据
-        DOWNLOAD_OBJS：准备恢复数据
-        DOWNLOADING：正在恢复数据
-        FINISHING：恢复完成，等待确认
-        FINISHED：任务完成
-        CANCELLED：任务失败
-        
-        FINISHING 状态的任务需要通过 RESTORE COMMIT 语句进行确认生效，详见 RESTORE 语句
-        失败的任务可以通过 ErrMsg 列失败查看原因。
+        1. Palo 中仅保存最近一次 RESTORE 任务。
+        2. 各列含义如下：
+            JobId：                  唯一作业id
+            Label：                  要恢复的备份的名称
+            Timestamp：              要恢复的备份的时间版本
+            DbName：                 所属数据库
+            State：                  当前阶段
+                PENDING：        提交作业后的初始状态
+                SNAPSHOTING：    执行快照中
+                DOWNLOAD：       快照完成，准备下载仓库中的快照
+                DOWNLOADING：    快照下载中
+                COMMIT：         快照下载完成，准备生效
+                COMMITING：      生效中
+                FINISHED：       作业成功
+                CANCELLED：      作业失败
+            AllowLoad：              恢复时是否允许导入（当前不支持）
+            ReplicationNum：         指定恢复的副本数
+            RestoreJobs：            要恢复的表和分区
+            CreateTime：             任务提交时间
+            MetaPreparedTime：       元数据准备完成时间
+            SnapshotFinishedTime：   快照完成时间
+            DownloadFinishedTime：   快照下载完成时间
+            FinishedTime：           作业结束时间
+            UnfinishedTasks：        在 SNAPSHOTING、DOWNLOADING 和 COMMITING 阶段会显示还未完成的子任务id
+            Status：                 如果作业失败，显示失败信息
+            Timeout：                作业超时时间，单位秒
 
 ## example
-    1. 查看 example_db 下的所有 RESTORE 任务。
+    1. 查看 example_db 下最近一次 RESTORE 任务。
         SHOW RESTORE FROM example_db;
-
-    2. 查看 example_db 下 LABEL 为 "restore_label" 的任务。
-        SHOW RESTORE FROM example_db WHERE LABEL = "restore_label";
-        
-    3. 查看 example_db 下 LABEL 前缀为 "restore" 的任务。
-        SHOW RESTORE FROM example_db WHERE LABEL LIKE "restore%";
 
 ## keyword
     SHOW, RESTORE
-
+    
+# SHOW REPOSITORIES
+## description
+    该语句用于查看当前已创建的仓库。
+    语法：
+        SHOW REPOSITORIES;
+        
+    说明：
+        1. 各列含义如下：
+            RepoId：     唯一的仓库ID
+            RepoName：   仓库名称
+            CreateTime： 第一次创建该仓库的时间
+            IsReadOnly： 是否为只读仓库
+            Location：   仓库中用于备份数据的根目录
+            Broker：     依赖的 Broker
+            ErrMsg：     Palo 会定期检查仓库的连通性，如果出现问题，这里会显示错误信息
+    
+## example
+    1. 查看已创建的仓库：
+        SHOW REPOSITORIES;
+        
+## keyword
+    SHOW, REPOSITORY, REPOSITORIES
+    
+# SHOW SNAPSHOT
+## description
+    该语句用于查看仓库中已存在的备份。
+    语法：
+        SHOW SNAPSHOT ON `repo_name`
+        [WHERE SNAPSHOT = "snapshot" [AND TIMESTAMP = "backup_timestamp"]];
+        
+    说明：
+        1. 各列含义如下：
+            Snapshot：   备份的名称
+            Timestamp：  对应备份的时间版本
+            Status：     如果备份正常，则显示 OK，否则显示错误信息
+            
+        2. 如果指定了 TIMESTAMP，则会额外显示如下信息：
+            Database：   备份数据原属的数据库名称
+            Details：    以 Json 的形式，展示整个备份的数据目录及文件结构
+    
+## example
+    1. 查看仓库 example_repo 中已有的备份：
+        SHOW SNAPSHOT ON example_repo;
+        
+    2. 仅查看仓库 example_repo 中名称为 backup1 的备份：
+        SHOW SNAPSHOT ON example_repo WHERE SNAPSHOT = "backup1";
+        
+    2. 查看仓库 example_repo 中名称为 backup1 的备份，时间版本为 "2018-05-05-15-34-26" 的详细信息：
+        SHOW SNAPSHOT ON example_repo
+        WHERE SNAPSHOT = "backup1" AND TIMESTAMP = "2018-05-05-15-34-26";
+        
+## keyword
+    SHOW, SNAPSHOT
+    
 # SHOW BACKENDS
 ## description
     该语句用于查看cluster内的节点
@@ -812,3 +924,4 @@
         
 ## keyword
     SHOW, BACKENDS
+

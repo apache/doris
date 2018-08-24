@@ -321,7 +321,7 @@ public class MetaService {
         public void executeGet(BaseRequest request, BaseResponse response) {
             /*
              * Before dump, we acquired the catalog read lock and all databases' read lock and all
-             * the jobs' read lock. This will guarantee the consistance of database and job queues.
+             * the jobs' read lock. This will guarantee the consistency of database and job queues.
              * But Backend may still inconsistent.
              */
 

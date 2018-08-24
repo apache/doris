@@ -23,7 +23,9 @@ import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.system.SystemInfoService;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
@@ -50,8 +52,9 @@ public class CheckDecommissionAction extends RestBaseAction {
     }
 
     @Override
-    public void execute(BaseRequest request, BaseResponse response) throws DdlException {
-        checkAdmin(request);
+    public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+            throws DdlException {
+        checkGlobalAuth(authInfo, PrivPredicate.OPERATOR);
 
         String hostPorts = request.getSingleParameter(HOST_PORTS);
         if (Strings.isNullOrEmpty(hostPorts)) {

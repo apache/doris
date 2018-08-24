@@ -20,8 +20,8 @@
 
 package com.baidu.palo.analysis;
 
-import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.BrokerTable;
+import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.MysqlTable;
@@ -29,14 +29,17 @@ import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.catalog.Partition;
 import com.baidu.palo.catalog.PartitionType;
 import com.baidu.palo.catalog.Table;
+import com.baidu.palo.catalog.Type;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.planner.DataPartition;
 import com.baidu.palo.planner.DataSink;
 import com.baidu.palo.planner.DataSplitSink;
 import com.baidu.palo.planner.ExportSink;
+import com.baidu.palo.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -136,9 +139,11 @@ public class InsertStmt extends DdlStmt {
         }
 
         // check access
-        if (!analyzer.getCatalog().getUserMgr()
-                .checkAccess(analyzer.getUser(), dbName, AccessPrivilege.READ_WRITE)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getUser(), dbName);
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tblName.getDb(), tblName.getTbl(),
+                                                                PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                                                ConnectContext.get().getQualifiedUser(),
+                                                ConnectContext.get().getRemoteIP(), tblName.getTbl());
         }
 
         dbs.put(dbName, db);
@@ -152,11 +157,18 @@ public class InsertStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         super.analyze(analyzer);
 
-        // Check privilege
         if (targetTable == null) {
             tblName.analyze(analyzer);
-            analyzer.checkPrivilege(tblName.getDb(), AccessPrivilege.READ_WRITE);
         }
+
+        // Check privilege
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tblName.getDb(),
+                                                                tblName.getTbl(), PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                                                ConnectContext.get().getQualifiedUser(),
+                                                ConnectContext.get().getRemoteIP(), tblName.getTbl());
+        }
+
         // check partition
         if (targetPartitions != null && targetPartitions.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_ON_NONPARTITIONED);
@@ -315,6 +327,20 @@ public class InsertStmt extends DdlStmt {
     }
 
     private Expr checkTypeCompatibility(Column col, Expr expr) throws AnalysisException {
+        // TargeTable's hll column must be hll_hash's result
+        if (col.getType().equals(Type.HLL)) {
+            final String hllAnalysisErrorLog = "Column's type is HLL,"
+                    + " it must be hll_hash function's result, column=" + col.getName(); 
+            if (!(expr instanceof FunctionCallExpr)) {
+                throw new AnalysisException(hllAnalysisErrorLog);
+            }
+
+            final FunctionCallExpr functionExpr = (FunctionCallExpr) expr;
+            if (!functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_hash")) {
+                throw new AnalysisException(hllAnalysisErrorLog);
+            }
+        }
+
         if (col.getDataType().equals(expr.getType())) {
             return expr;
         }
@@ -350,6 +376,9 @@ public class InsertStmt extends DdlStmt {
             dataPartition = dataSink.getOutputPartition();
         } else if (targetTable instanceof BrokerTable) {
             BrokerTable table = (BrokerTable) targetTable;
+            // TODO(lingbin): think use which one if have more than one path
+            // Map<String, String> brokerProperties = Maps.newHashMap();
+            // BrokerDesc brokerDesc = new BrokerDesc("test_broker", brokerProperties);
             BrokerDesc brokerDesc = new BrokerDesc(table.getBrokerName(), table.getBrokerProperties());
             dataSink = new ExportSink(
                     table.getWritablePath(),

@@ -17,7 +17,6 @@ package com.baidu.palo.journal.local;
 
 import com.baidu.palo.alter.AlterJob;
 import com.baidu.palo.catalog.Database;
-import com.baidu.palo.catalog.UserProperty;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.ha.MasterInfo;
 import com.baidu.palo.journal.JournalCursor;
@@ -27,6 +26,7 @@ import com.baidu.palo.load.AsyncDeleteJob;
 import com.baidu.palo.load.DeleteInfo;
 import com.baidu.palo.load.LoadErrorHub;
 import com.baidu.palo.load.LoadJob;
+import com.baidu.palo.mysql.privilege.UserProperty;
 import com.baidu.palo.persist.CloneInfo;
 import com.baidu.palo.persist.ConsistencyCheckInfo;
 import com.baidu.palo.persist.CreateTableInfo;
@@ -54,6 +54,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.List;
 
+@Deprecated
 public final class LocalJournalCursor implements JournalCursor {
     private static final Logger LOG = LogManager.getLogger(LocalJournalCursor.class);
     private String imageDir;
@@ -184,6 +185,7 @@ public final class LocalJournalCursor implements JournalCursor {
         return ret;
     }
 
+    @Deprecated
     private JournalEntity getJournalEntity(DataInputStream in, short opCode) throws IOException {
         JournalEntity ret = new JournalEntity();
         ret.setOpCode(opCode);

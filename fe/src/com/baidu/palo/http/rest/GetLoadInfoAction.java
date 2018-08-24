@@ -15,13 +15,13 @@
 
 package com.baidu.palo.http.rest;
 
-import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.http.ActionController;
 import com.baidu.palo.http.BaseRequest;
 import com.baidu.palo.http.BaseResponse;
 import com.baidu.palo.http.IllegalArgException;
 import com.baidu.palo.load.Load;
+import com.baidu.palo.mysql.privilege.PrivPredicate;
 
 import com.google.common.base.Strings;
 
@@ -43,8 +43,8 @@ public class GetLoadInfoAction extends RestBaseAction {
     }
 
     @Override
-    public void execute(BaseRequest request, BaseResponse response) throws DdlException {
-        AuthorizationInfo authInfo = getAuthorizationInfo(request);
+    public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+            throws DdlException {
 
         Load.JobInfo info = new Load.JobInfo(request.getSingleParameter(DB_KEY),
                                              request.getSingleParameter(LABEL_KEY),
@@ -59,13 +59,19 @@ public class GetLoadInfoAction extends RestBaseAction {
             throw new DdlException("No cluster name selected");
         }
 
-        String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
-        checkReadPriv(authInfo.fullUserName, fullDbName);
-
         if (redirectToMaster(request, response)) {
             return;
         }
         catalog.getLoadInstance().getJobInfo(info);
+
+        if (info.tblNames.isEmpty()) {
+            checkDbAuth(authInfo, info.dbName, PrivPredicate.LOAD);
+        } else {
+            for (String tblName : info.tblNames) {
+                checkTblAuth(authInfo, info.dbName, tblName, PrivPredicate.LOAD);
+            }
+        }
+
         sendResult(request, response, new Result(info));
     }
 

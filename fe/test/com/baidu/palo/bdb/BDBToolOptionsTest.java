@@ -18,7 +18,7 @@ public class BDBToolOptionsTest {
         options = new BDBToolOptions(false, "12345", false, "12345", "12456", 35);
         Assert.assertTrue(options.hasFromKey());
         Assert.assertTrue(options.hasEndKey());
-        Assert.assertNotEquals(FeConstants.meta_version, options.getMetaVersion());
+        Assert.assertNotSame(FeConstants.meta_version, options.getMetaVersion());
     }
 
 }
