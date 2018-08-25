@@ -138,8 +138,6 @@ bool TimestampFunctions::check_format(const StringVal& format, DateTimeValue& t)
 
 void TimestampFunctions::report_bad_format(const StringVal* format) {
     std::string format_str((char *)format->ptr, format->len);
-    LOG(WARNING) << "Bad date/time conversion format: " << format_str
-                 << " Format must be: 'yyyy-MM-dd[ HH:mm:ss]'";
 }
 
 IntVal TimestampFunctions::year(
