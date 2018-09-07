@@ -205,9 +205,9 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_INNER, KW_INSERT, KW_INT, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL,  KW_ISOLATION,
     KW_JOIN,
     KW_KEY, KW_KILL,
-    KW_LABEL, KW_LARGEINT, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LOAD, KW_LOCAL, KW_LOCATION,
+    KW_LABEL, KW_LARGEINT, KW_LAST, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LOAD, KW_LOCAL, KW_LOCATION,
     KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY,
-    KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL,
+    KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
     KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_ORDER, KW_OUTER, KW_OVER,
     KW_PARTITION, KW_PARTITIONS, KW_PRECEDING,
     KW_PASSWORD, KW_PLUGIN, KW_PLUGINS,
@@ -299,6 +299,8 @@ nonterminal ArrayList<Expr> group_by_clause, opt_partition_by_clause;
 nonterminal Expr having_clause;
 nonterminal ArrayList<OrderByElement> order_by_elements, order_by_clause;
 nonterminal OrderByElement order_by_element;
+nonterminal Boolean opt_order_param;
+nonterminal Boolean opt_nulls_order_param;
 nonterminal LimitElement limit_clause;
 nonterminal Expr cast_expr, case_else_clause, analytic_expr;
 nonterminal LiteralExpr literal;
@@ -2981,12 +2983,26 @@ order_by_elements ::=
   ;
 
 order_by_element ::=
-  expr:e
-  {: RESULT = new OrderByElement(e, true); :}
-  | expr:e KW_ASC
-  {: RESULT = new OrderByElement(e, true); :}
-  | expr:e KW_DESC
-  {: RESULT = new OrderByElement(e, false); :}
+  expr:e opt_order_param:o opt_nulls_order_param:n
+  {: RESULT = new OrderByElement(e, o, n); :}
+  ;
+
+opt_order_param ::=
+  KW_ASC
+  {: RESULT = true; :}
+  | KW_DESC
+  {: RESULT = false; :}
+  | /* empty */
+  {: RESULT = true; :}
+  ;
+
+opt_nulls_order_param ::=
+  KW_NULLS KW_FIRST
+  {: RESULT = true; :}
+  | KW_NULLS KW_LAST
+  {: RESULT = false; :}
+  | /* empty */
+  {: RESULT = null; :}
   ;
 
 limit_clause ::=
