@@ -409,7 +409,8 @@ public class Coordinator {
                     TStatusCode code = TStatusCode.INTERNAL_ERROR;
                     String errMsg = null;
                     try {
-                        PExecPlanFragmentResult result = pair.second.get(5, TimeUnit.SECONDS);
+                        PExecPlanFragmentResult result = pair.second.get(Config.remote_fragment_exec_timeout_ms,
+                                                                         TimeUnit.MILLISECONDS);
                         code = TStatusCode.findByValue(result.status.code);
                         if (result.status.msgs != null && !result.status.msgs.isEmpty()) {
                             errMsg = result.status.msgs.get(0);
@@ -1210,7 +1211,7 @@ public class Coordinator {
             // add scan range
             TScanRangeParams scanRangeParams = new TScanRangeParams();
             scanRangeParams.scan_range = scanRangeLocations.scan_range;
-            // Volume is is optional, so we need to set the value and the is-set bit
+            // Volume is optional, so we need to set the value and the is-set bit
             scanRangeParams.setVolume_id(minLocation.volume_id);
             scanRangeParamsList.add(scanRangeParams);
         }
@@ -1363,6 +1364,14 @@ public class Coordinator {
 
         public void unlock() {
             lock.unlock();
+        }
+
+        public int getInstanceId() {
+            return instanceId;
+        }
+
+        public PlanFragmentId getfragmentId() {
+            return fragmentId;
         }
 
         public BackendExecState(PlanFragmentId fragmentId, int instanceId, int profileFragmentId,
@@ -1538,4 +1547,25 @@ public class Coordinator {
         }
     }
 
+    // consistent with EXPLAIN's fragment index
+    public List<QueryStatisticsItem.FragmentInstanceInfo> getFragmentInstanceInfos() {
+        final List<QueryStatisticsItem.FragmentInstanceInfo> result =
+                Lists.newArrayList();
+        for (int index = 0; index < fragments.size(); index++) {
+            for (Map.Entry<TUniqueId, BackendExecState> entry: backendExecStateMap.entrySet()) {
+                final BackendExecState backendExecState = entry.getValue();
+                if (fragments.get(index).getFragmentId() != backendExecState.getfragmentId()) {
+                    continue;
+                }
+                final QueryStatisticsItem.FragmentInstanceInfo info
+                        = new QueryStatisticsItem.FragmentInstanceInfo.Builder()
+                        .instanceId(entry.getValue().getFragmentInstanceId())
+                        .fragmentId(String.valueOf(index))
+                        .address(backendExecState.getBackendAddress())
+                        .build();
+                result.add(info);
+            }
+        }
+        return result;
+    }
 }

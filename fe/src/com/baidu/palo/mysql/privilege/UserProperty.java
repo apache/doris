@@ -16,7 +16,6 @@
 package com.baidu.palo.mysql.privilege;
 
 import com.baidu.palo.analysis.SetUserPropertyVar;
-import com.baidu.palo.analysis.SetVar;
 import com.baidu.palo.analysis.TablePattern;
 import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.Catalog;
@@ -35,6 +34,7 @@ import com.baidu.palo.load.DppConfig;
 import com.baidu.palo.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -188,7 +188,7 @@ public class UserProperty implements Writable {
         }
     }
 
-    public void update(List<SetVar> propertyVarList) throws DdlException {
+    public void update(List<Pair<String, String>> properties) throws DdlException {
         // copy
         long newMaxConn = maxConn;
         UserResource newResource = resource.getCopiedUserResource();
@@ -196,10 +196,9 @@ public class UserProperty implements Writable {
         Map<String, DppConfig> newDppConfigs = Maps.newHashMap(clusterToDppConfig);
 
         // update
-        for (SetVar var : propertyVarList) {
-            SetUserPropertyVar propertyVar = (SetUserPropertyVar) var;
-            String key = propertyVar.getPropertyKey();
-            String value = propertyVar.getPropertyValue();
+        for (Pair<String, String> entry : properties) {
+            String key = entry.first;
+            String value = entry.second;
 
             String[] keyArr = key.split("\\" + SetUserPropertyVar.DOT_SEPARATOR);
             if (keyArr[0].equalsIgnoreCase(PROP_MAX_USER_CONNECTIONS)) {
@@ -283,15 +282,15 @@ public class UserProperty implements Writable {
 
     private void updateLoadCluster(String[] keyArr, String value, Map<String, DppConfig> newDppConfigs)
             throws DdlException {
-        if (keyArr.length == 1 && value == null) {
-            // set property "load_cluster" = null
+        if (keyArr.length == 1 && Strings.isNullOrEmpty(value)) {
+            // set property "load_cluster" = '';
             newDppConfigs.clear();
-        } else if (keyArr.length == 2 && value == null) {
-            // set property "load_cluster.cluster1" = null
+        } else if (keyArr.length == 2 && Strings.isNullOrEmpty(value)) {
+            // set property "load_cluster.cluster1" = ''
             String cluster = keyArr[1];
             newDppConfigs.remove(cluster);
-        } else if (keyArr.length == 3 && value == null) {
-            // set property "load_cluster.cluster1.xxx" = null
+        } else if (keyArr.length == 3 && Strings.isNullOrEmpty(value)) {
+            // set property "load_cluster.cluster1.xxx" = ''
             String cluster = keyArr[1];
             if (!newDppConfigs.containsKey(cluster)) {
                 throw new DdlException("Load cluster[" + value + "] does not exist");

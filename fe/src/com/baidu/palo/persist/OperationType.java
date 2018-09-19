@@ -103,6 +103,7 @@ public class OperationType {
     public static final short OP_SET_PASSWORD = 66;
     public static final short OP_CREATE_ROLE = 67;
     public static final short OP_DROP_ROLE = 68;
+    public static final short OP_UPDATE_USER_PROPERTY = 69;
 
     public static final short OP_TIMESTAMP = 70;
     public static final short OP_MASTER_INFO_CHANGE = 71;

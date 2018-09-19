@@ -45,7 +45,6 @@ public class GetLoadInfoAction extends RestBaseAction {
     @Override
     public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
             throws DdlException {
-
         Load.JobInfo info = new Load.JobInfo(request.getSingleParameter(DB_KEY),
                                              request.getSingleParameter(LABEL_KEY),
                                              authInfo.cluster);

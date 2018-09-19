@@ -102,6 +102,10 @@ public class CreateUserStmt extends DdlStmt {
         return userIdent;
     }
 
+    public boolean needAuditEncryption() {
+        return true;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         super.analyze(analyzer);
@@ -138,7 +142,7 @@ public class CreateUserStmt extends DdlStmt {
         sb.append("CREATE USER ").append(userIdent);
         if (!Strings.isNullOrEmpty(password)) {
             if (isPlain) {
-                sb.append(" IDENTIFIED BY '").append(password).append("'");
+                sb.append(" IDENTIFIED BY '").append("*XXX").append("'");
             } else {
                 sb.append(" IDENTIFIED BY PASSWORD '").append(password).append("'");
             }

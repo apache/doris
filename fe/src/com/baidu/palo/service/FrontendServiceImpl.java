@@ -37,7 +37,7 @@ import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.qe.AuditBuilder;
 import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.ConnectProcessor;
-import com.baidu.palo.qe.QeProcessor;
+import com.baidu.palo.qe.QeProcessorImpl;
 import com.baidu.palo.qe.VariableMgr;
 import com.baidu.palo.system.Frontend;
 import com.baidu.palo.system.SystemInfoService;
@@ -91,12 +91,10 @@ import java.util.Map;
 // thrift protocol
 public class FrontendServiceImpl implements FrontendService.Iface {
     private static final Logger LOG = LogManager.getLogger(MasterImpl.class);
-    private QeProcessor qeProcessor;
     private MasterImpl masterImpl;
     private ExecuteEnv exeEnv;
 
     public FrontendServiceImpl(ExecuteEnv exeEnv) {
-        qeProcessor = new QeProcessor();
         masterImpl = new MasterImpl();
         this.exeEnv = exeEnv;
     }
@@ -280,7 +278,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params) throws TException {
-        return qeProcessor.reportExecStatus(params);
+        return QeProcessorImpl.INSTANCE.reportExecStatus(params);
     }
 
     @Override

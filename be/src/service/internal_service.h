@@ -52,9 +52,15 @@ public:
         const PFetchDataRequest* request,
         PFetchDataResult* result,
         google::protobuf::Closure* done) override;
+
+    void fetch_fragment_exec_infos(
+        google::protobuf::RpcController* controller,
+        const PFetchFragmentExecInfoRequest* request,
+        PFetchFragmentExecInfosResult* result,
+        google::protobuf::Closure* done) override;
+
 private:
     Status _exec_plan_fragment(brpc::Controller* cntl);
-
 private:
     ExecEnv* _exec_env;
 };

@@ -217,3 +217,12 @@
 
 ## keyword
     ENTER
+    
+# SHOW BACKENDS
+## description
+    该语句用于查看cluster内的节点
+    语法：
+        SHOW BACKENDS
+        
+## keyword
+    SHOW, BACKENDS

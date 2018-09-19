@@ -40,6 +40,9 @@ public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
     private static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<ConnectContext>();
 
+    // set this id before analyze
+    private volatile long stmtId;
+
     private volatile TUniqueId queryId;
     // id for this connection
     private volatile int connectionId;
@@ -113,6 +116,14 @@ public class ConnectContext {
         if (channel != null) {
             remoteIP = mysqlChannel.getRemoteIp();
         }
+    }
+
+    public long getStmtId() {
+        return stmtId;
+    }
+
+    public void setStmtId(long stmtId) {
+        this.stmtId = stmtId;
     }
 
     public String getRemoteIP() {
@@ -265,10 +276,6 @@ public class ConnectContext {
 
     // kill operation with no protect.
     public void kill(boolean killConnection) {
-        if (isKilled) {
-            return;
-        }
-
         LOG.warn("kill timeout query, {}, kill connection: {}",
                  mysqlChannel.getRemoteHostPortString(), killConnection);
 

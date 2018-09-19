@@ -20,10 +20,9 @@
 
 package com.baidu.palo.catalog;
 
-import com.baidu.palo.analysis.SetUserPropertyVar;
-import com.baidu.palo.analysis.SetVar;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.FeConstants;
+import com.baidu.palo.common.Pair;
 import com.baidu.palo.load.DppConfig;
 import com.baidu.palo.mysql.privilege.UserProperty;
 
@@ -69,15 +68,15 @@ public class UserPropertyTest {
 
     @Test
     public void testUpdate() throws DdlException {
-        List<SetVar> propertyList = Lists.newArrayList();
-        propertyList.add(new SetUserPropertyVar("MAX_USER_CONNECTIONS", "100"));
-        propertyList.add(new SetUserPropertyVar("resource.cpu_share", "101"));
-        propertyList.add(new SetUserPropertyVar("quota.normal", "102"));
-        propertyList.add(new SetUserPropertyVar("load_cluster.dpp-cluster.hadoop_palo_path", "/user/palo2"));
-        propertyList.add(new SetUserPropertyVar("default_load_cluster", "dpp-cluster"));
+        List<Pair<String, String>> properties = Lists.newArrayList();
+        properties.add(Pair.create("MAX_USER_CONNECTIONS", "100"));
+        properties.add(Pair.create("resource.cpu_share", "101"));
+        properties.add(Pair.create("quota.normal", "102"));
+        properties.add(Pair.create("load_cluster.dpp-cluster.hadoop_palo_path", "/user/palo2"));
+        properties.add(Pair.create("default_load_cluster", "dpp-cluster"));
 
         UserProperty userProperty = new UserProperty();
-        userProperty.update(propertyList);
+        userProperty.update(properties);
         Assert.assertEquals(100, userProperty.getMaxConn());
         Assert.assertEquals(101, userProperty.getResource().getResource().getByDesc("cpu_share"));
         Assert.assertEquals(102, userProperty.getResource().getShareByGroup().get("normal").intValue());
@@ -108,16 +107,16 @@ public class UserPropertyTest {
         Assert.assertEquals(8070, dppConfig.getHttpPort());
 
         // set palo path null
-        propertyList = Lists.newArrayList();
-        propertyList.add(new SetUserPropertyVar("load_cluster.dpp-cluster.hadoop_palo_path", null));
-        userProperty.update(propertyList);
+        properties.clear();
+        properties.add(Pair.create("load_cluster.dpp-cluster.hadoop_palo_path", null));
+        userProperty.update(properties);
         Assert.assertEquals(null, userProperty.getLoadClusterInfo("dpp-cluster").second.getPaloPath());
 
         // remove dpp-cluster
-        propertyList = Lists.newArrayList();
-        propertyList.add(new SetUserPropertyVar("load_cluster.dpp-cluster", null));
+        properties.clear();
+        properties.add(Pair.create("load_cluster.dpp-cluster", null));
         Assert.assertEquals("dpp-cluster", userProperty.getDefaultLoadCluster());
-        userProperty.update(propertyList);
+        userProperty.update(properties);
         Assert.assertEquals(null, userProperty.getLoadClusterInfo("dpp-cluster").second);
         Assert.assertEquals(null, userProperty.getDefaultLoadCluster());
     }

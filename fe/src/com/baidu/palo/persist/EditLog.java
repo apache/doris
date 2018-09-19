@@ -49,6 +49,7 @@ import com.baidu.palo.load.LoadErrorHub;
 import com.baidu.palo.load.LoadJob;
 import com.baidu.palo.metric.MetricRepo;
 import com.baidu.palo.mysql.privilege.UserProperty;
+import com.baidu.palo.mysql.privilege.UserPropertyInfo;
 import com.baidu.palo.qe.SessionVariable;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.Frontend;
@@ -461,6 +462,11 @@ public class EditLog {
                 case OperationType.OP_DROP_ROLE: {
                     PrivInfo privInfo = (PrivInfo) journal.getData();
                     catalog.getAuth().replayDropRole(privInfo);
+                    break;
+                }
+                case OperationType.OP_UPDATE_USER_PROPERTY: {
+                    UserPropertyInfo propertyInfo = (UserPropertyInfo) journal.getData();
+                    catalog.getAuth().replayUpdateUserProperty(propertyInfo);
                     break;
                 }
                 case OperationType.OP_TIMESTAMP: {
@@ -981,5 +987,9 @@ public class EditLog {
 
     public void logRestoreJob(RestoreJob job) {
         logEdit(OperationType.OP_RESTORE_JOB, job);
+    }
+
+    public void logUpdateUserProperty(UserPropertyInfo propertyInfo) {
+        logEdit(OperationType.OP_UPDATE_USER_PROPERTY, propertyInfo);
     }
 }

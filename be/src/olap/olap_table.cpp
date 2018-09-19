@@ -212,8 +212,6 @@ OLAPTable::~OLAPTable() {
     path path_name(_header->file_name());
     SAFE_DELETE(_header);
 
-    OLAP_LOG_WARNING("deconstruct table");
-
     // 移动数据目录
     if (_is_dropped) {
         path table_path = path_name.parent_path();

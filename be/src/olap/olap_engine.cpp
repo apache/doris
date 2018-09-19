@@ -891,30 +891,6 @@ OLAPStatus OLAPEngine::report_all_tablets_info(
     return OLAP_SUCCESS;
 }
 
-bool OLAPEngine::_can_do_compaction(SmartOLAPTable table) {
-    // 如果table正在做schema change，则通过选路判断数据是否转换完成
-    // 如果选路成功，则转换完成，可以进行BE
-    // 如果选路失败，则转换未完成，不能进行BE
-    table->obtain_header_rdlock();
-    const FileVersionMessage* latest_version = table->latest_version();
-    if (latest_version == NULL) {
-        table->release_header_lock();
-        return false;
-    }
-
-    if (table->is_schema_changing()) {
-        Version test_version = Version(0, latest_version->end_version());
-        vector<Version> path_versions;
-        if (OLAP_SUCCESS != table->select_versions_to_span(test_version, &path_versions)) {
-            table->release_header_lock();
-            return false;
-        }
-    }
-    table->release_header_lock();
-
-    return true;
-}
-
 void OLAPEngine::start_clean_fd_cache() {
     OLAP_LOG_TRACE("start clean file descritpor cache");
     _file_descriptor_lru_cache->prune();
@@ -922,6 +898,38 @@ void OLAPEngine::start_clean_fd_cache() {
 }
 
 void OLAPEngine::start_base_compaction(string* last_base_compaction_fs, TTabletId* last_base_compaction_tablet_id) {
+
+    {
+        std::lock_guard<std::mutex> l(_base_compaction_queue_lock);
+        if (!_base_compaction_tablet_queue.empty()) {
+            TableInfo& tablet_info = _base_compaction_tablet_queue.front();
+            _tablet_map_lock.rdlock();
+            SmartOLAPTable table = OLAPEngine::get_instance()->get_table(
+                        tablet_info.tablet_id, tablet_info.schema_hash);
+            _tablet_map_lock.unlock();
+            _base_compaction_tablet_queue.pop();
+            if (table == nullptr) {
+                return;
+            }
+            if (!table->is_loaded() || !table->can_do_compaction()) {
+                return;
+            }
+            BaseCompaction base_compaction;
+            OLAPStatus res = base_compaction.init(table, true);
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "failed to init base compaction. table=" << table->full_name();
+                return;
+            }
+
+            res = base_compaction.run();
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "failed to do base compaction. table=" << table->full_name();
+                return;
+            }
+            return;
+        }
+    }
+
     uint64_t base_compaction_start_hour = config::base_compaction_start_hour;
     uint64_t base_compaction_end_hour = config::base_compaction_end_hour;
     time_t current_time = time(NULL);
@@ -974,7 +982,7 @@ void OLAPEngine::start_base_compaction(string* last_base_compaction_fs, TTabletI
             }
 
             // 跳过正在做schema change的tablet
-            if (!_can_do_compaction(j)) {
+            if (!j->can_do_compaction()) {
                 OLAP_LOG_DEBUG("skip tablet, it is schema changing. [tablet=%s]",
                                j->full_name().c_str());
                 continue;
@@ -1060,6 +1068,37 @@ void OLAPEngine::_select_candidate() {
 }
 
 void OLAPEngine::start_cumulative_priority() {
+    {
+        std::lock_guard<std::mutex> l(_cumulative_compaction_queue_lock);
+        if (!_cumulative_compaction_tablet_queue.empty()) {
+            TableInfo& tablet_info = _cumulative_compaction_tablet_queue.front();
+            _tablet_map_lock.rdlock();
+            SmartOLAPTable table = OLAPEngine::get_instance()->get_table(
+                        tablet_info.tablet_id, tablet_info.schema_hash);
+            _tablet_map_lock.unlock();
+            _cumulative_compaction_tablet_queue.pop();
+            if (table == nullptr) {
+                return;
+            }
+            if (!table->is_loaded() || !table->can_do_compaction()) {
+                return;
+            }
+            CumulativeCompaction cumulative_compaction;
+            OLAPStatus res = cumulative_compaction.init(table);
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "failed to init cumulative compaction. table=" << table->full_name();
+                return;
+            }
+
+            res = cumulative_compaction.run();
+            if (res != OLAP_SUCCESS) {
+                LOG(WARNING) << "failed to do cumulative compaction. table=" << table->full_name();
+                return;
+            }
+            return;
+        }
+    }
+
     _tablet_map_lock.rdlock();
     _fs_task_mutex.lock();
 
@@ -1102,7 +1141,7 @@ void OLAPEngine::start_cumulative_priority() {
         }
 
         for (SmartOLAPTable j : i->second.table_arr) {
-            if (!_can_do_compaction(j)) {
+            if (!j->can_do_compaction()) {
                 OLAP_LOG_DEBUG("skip tablet, it is schema changing. [tablet=%s]",
                                j->full_name().c_str());
                 continue;

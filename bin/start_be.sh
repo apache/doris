@@ -70,4 +70,4 @@ else
     LIMIT="/bin/limit3 -c 0 -n 65536"
 fi
 
-nohup $LIMIT ${PALO_HOME}/lib/palo_be "$@" >>$LOG_DIR/be.out 2>&1 </dev/null &
+nohup $LIMIT ${PALO_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 </dev/null &

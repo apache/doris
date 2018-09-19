@@ -34,6 +34,7 @@ import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -457,6 +458,22 @@ public class FunctionCallExpr extends Expr {
             throw new AnalysisException(fnName.getFunction() + "can't support");
         }
 
+        if (fnName.getFunction().equals("from_unixtime")) {
+            // if has only one child, it has default time format: yyyy-MM-dd HH:mm:ss.SSSSSS
+            if (children.size() > 1) {
+                final StringLiteral formatExpr = (StringLiteral) children.get(1);
+                final String dateFormat1 = "yyyy-MM-dd HH:mm:ss";
+                final String dateFormat2 = "yyyy-MM-dd";
+                if (!formatExpr.getStringValue().equals(dateFormat1)
+                        && !formatExpr.getStringValue().equals(dateFormat2)) {
+                    throw new AnalysisException(new StringBuilder("format does't support, try ")
+                                                .append("'").append(dateFormat1).append("'")
+                                                .append(" or ")
+                                                .append("'").append(dateFormat2).append("'.").toString());
+                }
+            }
+        }
+
         if (fn.getFunctionName().getFunction().equals("time_diff")) {
             fn.getReturnType().getPrimitiveType().setTimeType();
             return;
@@ -557,6 +574,26 @@ public class FunctionCallExpr extends Expr {
 
     @Override
     protected boolean isConstantImpl() {
+        // TODO: we can't correctly determine const-ness before analyzing 'fn_'. We should
+        // rework logic so that we do not call this function on unanalyzed exprs.
+        // Aggregate functions are never constant.
+        if (fn instanceof AggregateFunction) return false;
+
+        final String fnName = this.fnName.getFunction();
+        // Non-deterministic functions are never constant.
+        if (isNondeterministicBuiltinFnName(fnName)) {
+            return false;
+        }
+        // Sleep is a special function for testing.
+        if (fnName.equalsIgnoreCase("sleep")) return false;
+        return super.isConstantImpl();
+    }
+
+    static boolean isNondeterministicBuiltinFnName(String fnName) {
+        if (fnName.equalsIgnoreCase("rand") || fnName.equalsIgnoreCase("random")
+                || fnName.equalsIgnoreCase("uuid")) {
+            return true;
+        }
         return false;
     }
 }

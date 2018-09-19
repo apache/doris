@@ -57,6 +57,10 @@ public class SetUserPropertyVar extends SetVar {
             throw new AnalysisException("User property key is null");
         }
 
+        if (value == null) {
+            throw new AnalysisException("User property value is null");
+        }
+
         checkAccess(analyzer, isSelf);
     }
 

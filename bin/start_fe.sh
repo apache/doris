@@ -78,6 +78,7 @@ else
     LIMIT=/bin/limit
 fi
 
-nohup $LIMIT $JAVA $JAVA_OPTS com.baidu.palo.PaloFe "$@" >$LOG_DIR/fe.out 2>&1 </dev/null &
+echo `date` >> $LOG_DIR/fe.out
+nohup $LIMIT $JAVA $JAVA_OPTS com.baidu.palo.PaloFe "$@" >> $LOG_DIR/fe.out 2>&1 </dev/null &
 
 echo $! > $pidfile

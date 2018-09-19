@@ -63,10 +63,10 @@ public:
 private:
     class ChildCtx {
     public:
-        ChildCtx(IData* data, RowBlock* block, DeleteHandler* delete_handler)
+        ChildCtx(IData* data, RowBlock* block, Reader* reader)
                 : _data(data),
                 _is_delete(data->delete_flag()),
-                _delete_handler(delete_handler),
+                _reader(reader),
                 _row_block(block) {
         }
 
@@ -104,10 +104,6 @@ private:
             return res;
         }
 
-        int64_t num_filtered_rows() const {
-            return _num_filtered_rows;
-        }
-
     private:
         // refresh _current_row, 
         OLAPStatus _refresh_current_row() {
@@ -117,8 +113,8 @@ private:
                     size_t pos = _row_block->pos();
                     _row_block->get_row(pos, &_row_cursor);
                     if (_row_block->block_status() == DEL_PARTIAL_SATISFIED &&
-                        _delete_handler->is_filter_data(_data->version().second, _row_cursor)) {
-                        _num_filtered_rows++;
+                        _reader->_delete_handler.is_filter_data(_data->version().second, _row_cursor)) {
+                        _reader->_stats.rows_del_filtered++;
                         _row_block->pos_inc();
                         continue;
                     }
@@ -139,8 +135,7 @@ private:
         IData* _data = nullptr;
         const RowCursor* _current_row = nullptr;
         bool _is_delete = false;
-        int64_t _num_filtered_rows = 0;
-        DeleteHandler* _delete_handler;
+        Reader* _reader;
 
         RowCursor _row_cursor;
         RowBlock* _row_block = nullptr;
@@ -191,16 +186,12 @@ OLAPStatus CollectIterator::init(Reader* reader) {
 }
 
 OLAPStatus CollectIterator::add_child(IData* data, RowBlock* block) {
-    std::unique_ptr<ChildCtx> child(new ChildCtx(data, block, &_reader->_delete_handler));
-    auto res = child->init();
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to initial reader, res=" << res;
-        return res;
-    }
+    std::unique_ptr<ChildCtx> child(new ChildCtx(data, block, _reader));
+    RETURN_NOT_OK(child->init());
     if (child->current_row() == nullptr) {
-        _reader->_stats.rows_del_filtered += child->num_filtered_rows();
         return OLAP_SUCCESS;
     }
+
     ChildCtx* child_ptr = child.release();
     _children.push_back(child_ptr);
     if (_merge) {
@@ -230,7 +221,6 @@ inline OLAPStatus CollectIterator::_merge_next(const RowCursor** row, bool* dele
         _heap.push(_cur_child);
         _cur_child = _heap.top();
     } else if (res == OLAP_ERR_DATA_EOF) {
-        _reader->_stats.rows_del_filtered += _cur_child->num_filtered_rows();
         if (_heap.size() > 0) {
             _cur_child = _heap.top();
         } else {
@@ -251,7 +241,6 @@ inline OLAPStatus CollectIterator::_normal_next(const RowCursor** row, bool* del
         return OLAP_SUCCESS;
     } else if (res == OLAP_ERR_DATA_EOF) {
         // this child has been read, to read next
-        _reader->_stats.rows_del_filtered += _cur_child->num_filtered_rows();
         _child_idx++;
         if (_child_idx < _children.size()) {
             _cur_child = _children[_child_idx]; 
@@ -536,16 +525,16 @@ OLAPStatus Reader::_acquire_data_sources(const ReaderParams& read_params) {
         }
         int ret = i_data->delete_pruning_filter();
         if (ret == DEL_SATISFIED) {
-            OLAP_LOG_DEBUG("filter delta in query: %d, %d",
+            OLAP_LOG_DEBUG("filter delta in delete predicate: %d, %d",
                            i_data->version().first, i_data->version().second);
             _stats.rows_del_filtered += i_data->num_rows();
             continue;
         } else if (ret == DEL_PARTIAL_SATISFIED) {
-            OLAP_LOG_DEBUG("filter delta partially in query: %d, %d",
+            OLAP_LOG_DEBUG("filter delta partially in delete predicate: %d, %d",
                            i_data->version().first, i_data->version().second);
             i_data->set_delete_status(DEL_PARTIAL_SATISFIED);
         } else {
-            OLAP_LOG_DEBUG("not filter delta in query: %d, %d",
+            OLAP_LOG_DEBUG("not filter delta in delete predicate: %d, %d",
                            i_data->version().first, i_data->version().second);
             i_data->set_delete_status(DEL_NOT_SATISFIED);
         }

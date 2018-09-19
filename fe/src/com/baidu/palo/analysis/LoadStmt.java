@@ -202,6 +202,14 @@ public class LoadStmt extends DdlStmt {
     }
 
     @Override
+    public boolean needAuditEncryption() {
+        if (brokerDesc != null) {
+            return true;
+        }
+        return false;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("LOAD LABEL ").append(label.toSql()).append("\n");
@@ -217,6 +225,13 @@ public class LoadStmt extends DdlStmt {
             sb.append(cluster);
             sb.append("'");
         }
+
+        if (brokerDesc != null) {
+            sb.append("\n WITH BROKER '").append(brokerDesc.getName()).append("' (");
+            sb.append(new PrintableMap<String, String>(brokerDesc.getProperties(), "=", true, false, true));
+            sb.append(")");
+        }
+
         if (properties != null && !properties.isEmpty()) {
             sb.append("\nPROPERTIES (");
             sb.append(new PrintableMap<String, String>(properties, "=", true, false));

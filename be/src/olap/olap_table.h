@@ -617,6 +617,31 @@ public:
         return _is_dropped;
     }
 
+    bool can_do_compaction() {
+        // 如果table正在做schema change，则通过选路判断数据是否转换完成
+        // 如果选路成功，则转换完成，可以进行BE
+        // 如果选路失败，则转换未完成，不能进行BE
+        obtain_header_rdlock();
+        const FileVersionMessage* version = latest_version();
+        if (version == NULL) {
+            release_header_lock();
+            return false;
+        }
+
+        if (is_schema_changing()) {
+            Version test_version = Version(0, version->end_version());
+            std::vector<Version> path_versions;
+            if (OLAP_SUCCESS != select_versions_to_span(test_version, &path_versions)) {
+                release_header_lock();
+                return false;
+            }
+        }
+        release_header_lock();
+
+        return true;
+    }
+
+
 private:
     // used for hash-struct of hash_map<Version, OLAPIndex*>.
     struct HashOfVersion {

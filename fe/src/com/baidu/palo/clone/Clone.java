@@ -116,7 +116,7 @@ public class Clone {
                 cloneJobs.put(tabletId, job);
                 return false;
             }
-            
+
             // check job num
             // TODO(cmy): for now we limit clone job num in all priority level.
             if (jobNum >= Config.clone_max_job_num) {

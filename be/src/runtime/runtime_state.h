@@ -313,6 +313,7 @@ public:
             return;
         }
         _process_status = status;
+
     }
 
     // Sets query_status_ to MEM_LIMIT_EXCEEDED and logs all the registered trackers.
@@ -464,6 +465,18 @@ public:
     /// Helper to call QueryState::StartSpilling().
     Status StartSpilling(MemTracker* mem_tracker);
 
+    void set_query_state_for_wait() {
+        _is_running = false;
+    }
+
+    void set_query_state_for_running() {
+        _is_running = true;
+    }
+
+    bool is_running() {
+        return _is_running;
+    }
+
 private:
     // Allow TestEnv to set block_mgr manually for testing.
     friend class TestEnv;
@@ -583,6 +596,9 @@ private:
     std::string _error_log_file_path;
     std::ofstream* _error_log_file; // error file path, absolute path
     std::unique_ptr<LoadErrorHub> _error_hub;
+
+    // state of execution
+    volatile bool _is_running;
 
     //TODO chenhao , remove this to QueryState 
     /// Pool of buffer reservations used to distribute initial reservations to operators

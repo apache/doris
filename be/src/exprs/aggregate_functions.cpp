@@ -1050,7 +1050,6 @@ int64_t AggregateFunctions::hll_algorithm(const palo_udf::StringVal& src) {
     
     harmonic_mean = 1.0f / harmonic_mean;
     double estimate = alpha * num_streams * num_streams * harmonic_mean;
-    double tmp = 0.f;
     // according to HerperLogLog current correction, if E is cardinal
     // E =< num_streams * 2.5 , LC has higher accuracy.
     // num_streams * 2.5 < E , HerperLogLog has higher accuracy.

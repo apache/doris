@@ -111,4 +111,17 @@ void PInternalServiceImpl::fetch_data(
     _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
 }
 
+void PInternalServiceImpl::fetch_fragment_exec_infos(
+        google::protobuf::RpcController* controller,
+        const PFetchFragmentExecInfoRequest* request,
+        PFetchFragmentExecInfosResult* result,
+        google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    auto status = _exec_env->fragment_mgr()->fetch_fragment_exec_infos(result, request);
+    if (!status.ok()) {
+        LOG(WARNING) << "fetch fragment exec status failed:" << status.get_error_msg();
+    }
+    status.to_protobuf(result->mutable_status());
+}
+
 }

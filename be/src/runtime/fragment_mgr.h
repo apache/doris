@@ -29,6 +29,7 @@
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "util/thread_pool.hpp"
 #include "util/hash_util.hpp"
 #include "http/rest_monitor_iface.h"
@@ -53,6 +54,9 @@ public:
 
     // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb);
+
+    Status fetch_fragment_exec_infos(PFetchFragmentExecInfosResult* result,
+                                     const PFetchFragmentExecInfoRequest* request);
 
     Status cancel(const TUniqueId& fragment_id);
 

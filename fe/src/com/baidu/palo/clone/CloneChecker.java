@@ -207,7 +207,7 @@ public class CloneChecker extends Daemon {
     @Override
     protected void runOneCycle() {
         Clone clone = Catalog.getInstance().getCloneInstance();
-        LOG.debug("start to check clone. job num: {}", clone.getJobNum());
+        LOG.info("start to check clone. job num: {}", clone.getJobNum());
 
         // 1. check tablet for supplement, migration and deletion
         checkTablets();

@@ -131,22 +131,23 @@ public class BrokerTable extends Table {
                     + "they are: broker_name, path, column_delimiter and line_delimiter");
         }
 
-        brokerName = properties.get(BROKER_NAME);
+        Map<String, String> copiedProps = Maps.newHashMap(properties);
+        brokerName = copiedProps.get(BROKER_NAME);
         if (Strings.isNullOrEmpty(brokerName)) {
             throw new DdlException("Broker name is null. "
                     + "Please add properties('broker_name'='xxx') when create table");
         }
-        properties.remove(BROKER_NAME);
+        copiedProps.remove(BROKER_NAME);
 
         // TODO(zc)
         // check if broker name exist
 
-        String pathsStr = properties.get(PATH);
+        String pathsStr = copiedProps.get(PATH);
         if (Strings.isNullOrEmpty(pathsStr)) {
             throw new DdlException("Path is null. "
                     + "Please add properties('path'='xxx') when create table");
         }
-        properties.remove(PATH);
+        copiedProps.remove(PATH);
         String[] origPaths = pathsStr.split(",");
         paths = Lists.newArrayList();
         // user will write %2c and %25 instead of ',' and '%'
@@ -161,22 +162,22 @@ public class BrokerTable extends Table {
             throw new DdlException("Encounter path encoding exception: " + e.getMessage());
         }
 
-        columnSeparator = properties.get(COLUMN_SEPARATOR);
+        columnSeparator = copiedProps.get(COLUMN_SEPARATOR);
         if (Strings.isNullOrEmpty(columnSeparator)) {
             // use default separater
             columnSeparator = "\t";
         }
-        properties.remove(COLUMN_SEPARATOR);
+        copiedProps.remove(COLUMN_SEPARATOR);
 
-        lineDelimiter = properties.get(LINE_DELIMITER);
+        lineDelimiter = copiedProps.get(LINE_DELIMITER);
         if (Strings.isNullOrEmpty(lineDelimiter)) {
             // use default delimiter
             lineDelimiter = "\n";
         }
-        properties.remove(LINE_DELIMITER);
+        copiedProps.remove(LINE_DELIMITER);
 
-        if (!properties.isEmpty()) {
-            throw new DdlException("Unknow properties: " + properties.toString());
+        if (!copiedProps.isEmpty()) {
+            throw new DdlException("Unknow properties: " + copiedProps.toString());
         }
     }
 
