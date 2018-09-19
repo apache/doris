@@ -30,6 +30,7 @@ import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.io.Writable;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -291,19 +292,21 @@ public class BackupJobInfo implements Writable {
          *                   "indexes": {
          *                       "rollup1": {
          *                           "id": 10009,
-         *                           "schema_hash": 3473401
+         *                           "schema_hash": 3473401,
          *                           "tablets": {
          *                               "10008": ["__10029_seg1.dat", "__10029_seg2.dat"],
          *                               "10007": ["__10029_seg1.dat", "__10029_seg2.dat"]
-         *                           }
+         *                           },
+         *                           "tablets_order": ["10029", "10030"]
          *                       },
          *                       "table1": {
          *                           "id": 10008,
-         *                           "schema_hash": 9845021
+         *                           "schema_hash": 9845021,
          *                           "tablets": {
          *                               "10004": ["__10027_seg1.dat", "__10027_seg2.dat"],
          *                               "10005": ["__10028_seg1.dat", "__10028_seg2.dat"]
-         *                           }
+         *                           },
+         *                           "tablets_order": ["10027, "10028"]
          *                       }
          *                   },
          *                   "id": 10007
@@ -347,7 +350,15 @@ public class BackupJobInfo implements Writable {
                     indexInfo.schemaHash = idx.getInt("schema_hash");
                     JSONObject tablets = idx.getJSONObject("tablets");
                     String[] tabletIds = JSONObject.getNames(tablets);
-                    for (String tabletId : tabletIds) {
+
+                    JSONArray tabletsOrder = null;
+                    if (idx.has("tablets_order")) {
+                        tabletsOrder = idx.getJSONArray("tablets_order");
+                    }
+                    String[] orderedTabletIds = sortTabletIds(tabletIds, tabletsOrder);
+                    Preconditions.checkState(tabletIds.length == orderedTabletIds.length);
+
+                    for (String tabletId : orderedTabletIds) {
                         BackupTabletInfo tabletInfo = new BackupTabletInfo();
                         tabletInfo.id = Long.valueOf(tabletId);
                         JSONArray files = tablets.getJSONArray(tabletId);
@@ -368,6 +379,18 @@ public class BackupJobInfo implements Writable {
             jobInfo.success = true;
         } else {
             jobInfo.success = false;
+        }
+    }
+
+    private static String[] sortTabletIds(String[] tabletIds, JSONArray tabletsOrder) {
+        if (tabletsOrder == null || tabletsOrder.toList().isEmpty()) {
+            // in previous version, we are not saving tablets order(which was a BUG),
+            // so we have to sort the tabletIds to restore the original order of tablets.
+            List<String> tmpList = Lists.newArrayList(tabletIds);
+            tmpList.sort((o1, o2) -> Long.valueOf(o1).compareTo(Long.valueOf(o2)));
+            return tmpList.toArray(new String[0]);
+        } else {
+            return (String[]) tabletsOrder.toList().toArray(new String[0]);
         }
     }
 
@@ -407,6 +430,7 @@ public class BackupJobInfo implements Writable {
                     idx.put("id", idxInfo.id);
                     idx.put("schema_hash", idxInfo.schemaHash);
                     JSONObject tablets = new JSONObject();
+                    JSONArray tabletsOrder = new JSONArray();
                     idx.put("tablets", tablets);
                     for (BackupTabletInfo tabletInfo : idxInfo.tablets) {
                         JSONArray files = new JSONArray();
@@ -414,6 +438,8 @@ public class BackupJobInfo implements Writable {
                         for (String fileName : tabletInfo.files) {
                             files.put(fileName);
                         }
+                        // to save the order of tablets
+                        tabletsOrder.put(String.valueOf(tabletInfo.id));
                     }
                     indexes.put(idxInfo.name, idx);
                 }

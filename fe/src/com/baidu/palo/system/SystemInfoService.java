@@ -1190,4 +1190,25 @@ public class SystemInfoService extends Daemon {
             }
         }
     }
+
+    /*
+     * Try to randomly get a backend id by given host.
+     * If not found, return -1
+     */
+    public long getBackendIdByHost(String host) {
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
+        List<Backend> selectedBackends = Lists.newArrayList();
+        for (Backend backend : idToBackend.values()) {
+            if (backend.getHost().equals(host)) {
+                selectedBackends.add(backend);
+            }
+        }
+
+        if (selectedBackends.isEmpty()) {
+            return -1L;
+        }
+
+        Collections.shuffle(selectedBackends);
+        return selectedBackends.get(0).getId();
+    }
 }

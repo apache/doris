@@ -35,9 +35,11 @@ import com.baidu.palo.catalog.RangePartitionInfo;
 import com.baidu.palo.catalog.Replica;
 import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.Config;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.service.FrontendOptions;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.thrift.TExplainLevel;
 import com.baidu.palo.thrift.TNetworkAddress;
@@ -387,7 +389,8 @@ public class OlapScanNode extends ScanNode {
 
     private void addScanRangeLocations(Partition partition,
                                        MaterializedIndex index,
-                                       List<Tablet> tablets)
+                                       List<Tablet> tablets,
+                                       long localBeId)
             throws InternalException, AnalysisException {
         int logNum = 0;
         String schemaHashStr = String.valueOf(olapTable.getSchemaHashByIndexId(index.getId()));
@@ -395,6 +398,7 @@ public class OlapScanNode extends ScanNode {
         long committedVersionHash = partition.getCommittedVersionHash();
         String committedVersionStr = String.valueOf(committedVersion);
         String committedVersionHashStr = String.valueOf(partition.getCommittedVersionHash());
+
         for (Tablet tablet : tablets) {
             long tabletId = tablet.getId();
             LOG.debug("{} tabletId={}", (logNum++), tabletId);
@@ -408,12 +412,23 @@ public class OlapScanNode extends ScanNode {
             paloRange.setTablet_id(tabletId);
 
             // random shuffle List && only collect one copy
-            List<Replica> replicas =
-                    Lists.newArrayList(tablet.getQueryableReplicas(committedVersion, committedVersionHash));
-            if (replicas.isEmpty()) {
+            List<Replica> allQueryableReplicas = Lists.newArrayList();
+            List<Replica> localReplicas = Lists.newArrayList();
+            tablet.getQueryableReplicas(allQueryableReplicas, localReplicas,
+                                        committedVersion, committedVersionHash,
+                                        localBeId);
+            if (allQueryableReplicas.isEmpty()) {
                 LOG.error("no queryable replica found in tablet[{}]. committed version[{}], committed version hash[{}]",
                          tabletId, committedVersion, committedVersionHash);
                 throw new InternalException("Failed to get scan range, no replica!");
+            }
+
+            List<Replica> replicas = null;
+            if (!localReplicas.isEmpty()) {
+                replicas = localReplicas;
+            } else {
+                replicas = allQueryableReplicas;
+
             }
 
             Collections.shuffle(replicas);
@@ -511,6 +526,10 @@ public class OlapScanNode extends ScanNode {
             }
         }
 
+        long localBeId = -1;
+        if (Config.enable_local_replica_selection) {
+            localBeId = Catalog.getCurrentSystemInfo().getBackendIdByHost(FrontendOptions.getLocalHostAddress());
+        }
         MaterializedIndex selectedTable = null;
         int j = 0;
         for (Long partitionId : partitionIds) {
@@ -529,14 +548,14 @@ public class OlapScanNode extends ScanNode {
             }
             totalTabletsNum += selectedTable.getTablets().size();
             selectedTabletsNum += tablets.size();
-            addScanRangeLocations(partition, selectedTable, tablets);
+            addScanRangeLocations(partition, selectedTable, tablets, localBeId);
         }
         LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
     }
 
 
     /**
-     * We query Palo Meta to get request's data localtion
+     * We query Palo Meta to get request's data location
      * extra result info will pass to backend ScanNode
      */
     @Override

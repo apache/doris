@@ -787,6 +787,31 @@ public class PaloAuth implements Writable {
         LOG.info("finished to drop role: {}, is replay: {}", role, isReplay);
     }
 
+    // update user property
+    public void updateUserProperty(SetUserPropertyStmt stmt) throws DdlException {
+        List<Pair<String, String>> properties = stmt.getPropertyPairList();
+        updateUserPropertyInternal(stmt.getUser(), properties, false /* is replay */);
+    }
+
+    public void replayUpdateUserProperty(UserPropertyInfo propInfo) throws DdlException {
+        updateUserPropertyInternal(propInfo.getUser(), propInfo.getProperties(), true /* is replay */);
+    }
+
+    public void updateUserPropertyInternal(String user, List<Pair<String, String>> properties, boolean isReplay)
+            throws DdlException {
+        writeLock();
+        try {
+            propertyMgr.updateUserProperty(user, properties);
+            if (!isReplay) {
+                UserPropertyInfo propertyInfo = new UserPropertyInfo(user, properties);
+                Catalog.getCurrentCatalog().getEditLog().logUpdateUserProperty(propertyInfo);
+            }
+            LOG.info("finished to set properties for user: {}", user);
+        } finally {
+            writeUnlock();
+        }
+    }
+
     public long getMaxConn(String qualifiedUser) {
         readLock();
         try {
@@ -948,15 +973,6 @@ public class PaloAuth implements Writable {
                     dropUserInternal(userIdent, isReplay);
                 }
             }
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    public void updateUserProperty(SetUserPropertyStmt ddlStmt) throws DdlException {
-        writeLock();
-        try {
-            propertyMgr.updateUserProperty(ddlStmt);
         } finally {
             writeUnlock();
         }

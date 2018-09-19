@@ -534,4 +534,40 @@ public class Config extends ConfigBase {
      * if set to false, auth check will be disable, in case some goes wrong with the new privilege system. 
      */
     @ConfField public static boolean enable_auth_check = true;
+    
+    /*
+     * Max bytes a broker scanner can process in one broker load job.
+     * Commonly, each Backends has one broker scanner.
+     */
+    @ConfField public static long max_bytes_per_broker_scanner = 3 * 1024 * 1024 * 1024L;  // 3G
+    
+    /*
+     * Max number of load jobs, include PENDING、ETL、LOADING、QUORUM_FINISHED.
+     * If exceed this number, load job is not allowed to be submitted.
+     */
+    @ConfField public static long max_unfinished_load_job = 1000;
+    
+    /*
+     * If set to true, Planner will try to select replica of tablet on same host as this Frontend.
+     * This may reduce network transmission in following case:
+     * 1. N hosts with N Backends and N Frontends deployed.
+     * 2. The data has N replicas.
+     * 3. High concurrency queries are sent to all Frontends evenly
+     * In this case, all Frontends can only use local replicas to do the query.
+     */
+    @ConfField public static boolean enable_local_replica_selection = false;
+    
+    /*
+     * The timeout of executing async remote fragment.
+     * In normal case, the async remote fragment will be executed in a short time. If system are under high load
+     * condition，try to set this timeout longer.
+     */
+    @ConfField public static long remote_fragment_exec_timeout_ms = 5000;   // 5 sec
+    
+    /*
+     * The number of query retries. 
+     * A query may retry if we encounter RPC exception and no result has been sent to user.
+     * You may reduce this number to void Avalanche disaster.
+     */
+    @ConfField public static int max_query_retry_time = 3;
 }

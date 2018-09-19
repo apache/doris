@@ -1,25 +1,42 @@
 # LOAD
 ## description
 
-    该语句用于向指定的 table（base table） 导入数据。
-    该操作会同时更新和此 base table 相关的 rollup table 的数据。
-    这是一个异步操作，任务提交成功则返回。执行后可使用 SHOW LOAD 命令查看进度。
+    Palo 目前支持以下4种导入方式：
 
-    NULL导入的时候用\N来表示。如果需要将其他字符串转化为NULL，可以使用replace_value进行转化。
-    语法：
-        LOAD LABEL load_label
-        (
-        data_desc1[, data_desc2, ...]
-        )
-        broker
-        [opt_properties];
+    1. Hadoop Load：基于 MR 进行 ETL 的导入。
+    2. Broker Load：使用 broker 进行进行数据导入。
+    3. Mini Load：通过 http 协议上传文件进行批量数据导入。
+    4. Stream Load：通过 http 协议进行流式数据导入。
+
+    本帮助主要描述第一种导入方式，即 Hadoop Load 相关帮助信息。其余导入方式可以使用以下命令查看帮助：
+
+    !!!该导入方式可能在后续某个版本即不再支持，建议使用其他导入方式进行数据导入。!!!
+    
+    1. help broker load;
+    2. help mini load;
+    3. help stream load;
+
+    Hadoop Load 仅适用于百度内部环境。公有云、私有云以及开源环境无法使用这种导入方式。
+    该导入方式必须设置用于 ETL 的 Hadoop 计算队列，设置方式可以通过 help set property 命令查看帮助。
+
+    Stream load 暂时只支持百度内部用户使用。开源社区和公有云用户将在后续版本更新中支持。
+
+语法：
+
+    LOAD LABEL load_label
+    (
+    data_desc1[, data_desc2, ...]
+    )
+    [opt_properties];
 
     1. load_label
-        当前导入批次的标签。在一个 database 唯一。
+
+        当前导入批次的标签。在一个 database 内唯一。
         语法：
         [database_name.]your_label
      
     2. data_desc
+
         用于描述一批导入数据。
         语法：
             DATA INFILE
@@ -34,30 +51,37 @@
             [SET (k1 = func(k2))]
     
         说明：
-            file_path: 文件路径，可以指定到一个文件，也可以用 * 通配符指定某个目录下的所有文件。
+            file_path: 
+
+            文件路径，可以指定到一个文件，也可以用 * 通配符指定某个目录下的所有文件。通配符必须匹配到文件，而不能是目录。
 
             PARTITION:
+
             如果指定此参数，则只会导入指定的分区，导入分区以外的数据会被过滤掉。
-            如果不指定默认导入table的所有分区。
+            如果不指定，默认导入table的所有分区。
         
             NEGATIVE：
             如果指定此参数，则相当于导入一批“负”数据。用于抵消之前导入的同一批数据。
             该参数仅适用于存在 value 列，并且 value 列的聚合类型仅为 SUM 的情况。
             
             column_separator：
+
             用于指定导入文件中的列分隔符。默认为 \t
             如果是不可见字符，则需要加\\x作为前缀，使用十六进制来表示分隔符。
             如hive文件的分隔符\x01，指定为"\\x01"
             
             column_list：
+
             用于指定导入文件中的列和 table 中的列的对应关系。
             当需要跳过导入文件中的某一列时，将该列指定为 table 中不存在的列名即可。
             语法：
             (col_name1, col_name2, ...)
             
             SET:
+
             如果指定此参数，可以将源文件某一列按照函数进行转化，然后将转化后的结果导入到table中。
             目前支持的函数有：
+
                 strftime(fmt, column) 日期转换函数
                     fmt: 日期格式，形如%Y%m%d%H%M%S (年月日时分秒)
                     column: column_list中的列，即输入文件中的列。存储内容应为数字型的时间戳。
@@ -85,36 +109,18 @@
                     
                 hll_hash(column) 用于将表或数据里面的某一列转化成HLL列的数据结构
             
-    3. broker
-        用于指定导入使用的Broker
-        语法：
-        WITH BROKER broker_name ("key"="value"[,...])
-        这里需要指定具体的Broker name, 以及所需的Broker属性.
-        开源hdfs Broker支持的属性如下:
-        -   fs.defaultFS:默认文件系统
-        -   username: 访问hdfs的用户名
-        -   password: 访问hdfs的用户密码
-        -   dfs.nameservices: ha模式的hdfs中必须配置这个，指定hdfs服务的名字.以下参数都是在ha hdfs中需要指定.例子: "dfs.nameservices" = "palo"
-        -   dfs.ha.namenodes.xxx：ha模式中指定namenode的名字,多个名字以逗号分隔,ha模式中必须配置。其中xxx表示dfs.nameservices配置的value.例子: "dfs.ha.namenodes.palo" = "nn1,nn2"
-        -   dfs.namenode.rpc-address.xxx.nn: ha模式中指定namenode的rpc地址信息,ha模式中必须配置。其中nn表示dfs.ha.namenodes.xxx中配置的一个namenode的名字。例子: "dfs.namenode.rpc-address.palo.nn1" = "host:port"
-        -   dfs.client.failover.proxy.provider: ha模式中指定client连接namenode的provider,默认为:org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
-        -   hadoop.security.authentication: 鉴权方式，包含simple和kerberos两种值。默认是SIMPLE模式。如果要使用kerberos，那必须配置以下配置。
-        -   kerberos_principal: 指定kerberos的principal
-        -   kerberos_keytab: 指定kerberos的keytab文件路径
-        -   kerberos_keytab_content: 指定kerberos中keytab文件内容经过base64编码之后的内容。这个跟kerberos_keytab配置二选一就可以.
+    3. opt_properties
 
-    4. opt_properties
         用于指定一些特殊参数。
         语法：
         [PROPERTIES ("key"="value", ...)]
         
         可以指定如下参数：
-        timeout：         指定导入操作的超时时间。默认不超时。单位秒。
+        cluster:          导入所使用的 Hadoop 计算队列。
+        timeout：         指定导入操作的超时时间。默认超时为3天。单位秒。
         max_filter_ratio：最大容忍可过滤（数据不规范等原因）的数据比例。默认零容忍。
         load_delete_flag：指定该导入是否通过导入key列的方式删除数据，仅适用于UNIQUE KEY，
                           导入时可不指定value列。默认为false。
-        exec_mem_limit:   当使用 broker 方式导入时，可以指定导入作业在单个 BE 上的内存大小限制。
-                          单位是字节。（默认是 2147483648，即 2G）
 
     5. 导入数据格式样例
 
@@ -127,20 +133,24 @@
 
 ## example
 
-    1. 导入一批数据，指定超时时间和过滤比例
+    1. 导入一批数据，指定超时时间和过滤比例。指定导入队列为 my_cluster。
+
         LOAD LABEL example_db.label1
         (
         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
         INTO TABLE `my_table`
         )
-        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password")
         PROPERTIES
         (
-        "timeout"="3600",
-        "max_filter_ratio"="0.1"
+        "cluster" = "my_cluster",
+        "timeout" = "3600",
+        "max_filter_ratio" = "0.1"
         );
+
+        其中 hdfs_host 为 namenode 的 host，hdfs_port 为 fs.defaultFS 端口（默认9000）
     
     2. 导入一批数据，包含多个文件。导入不同的 table，指定分隔符，指定列对应关系
+
         LOAD LABEL example_db.label2
         (
         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file1")
@@ -151,30 +161,30 @@
         INTO TABLE `my_table_2`
         COLUMNS TERMINATED BY "\t"
         (k1, k2, k3, v2, v1)
-        )
-        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+        );
 
     3. 导入一批数据，指定hive的默认分隔符\x01，并使用通配符*指定目录下的所有文件
+
         LOAD LABEL example_db.label3
         (
         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/*")
         NEGATIVE
         INTO TABLE `my_table`
         COLUMNS TERMINATED BY "\\x01"
-        )
-        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+        );
     
     4. 导入一批“负”数据
+
         LOAD LABEL example_db.label4
         (
         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/old_file)
         NEGATIVE
         INTO TABLE `my_table`
         COLUMNS TERMINATED BY "\t"
-        )
-        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+        );
 
     5. 导入一批数据，指定分区
+
         LOAD LABEL example_db.label5
         (
         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
@@ -182,33 +192,49 @@
         PARTITION (p1, p2)
         COLUMNS TERMINATED BY ","
         (k1, k3, k2, v1, v2)
-        )
-        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+        );
 
     6. 导入一批数据，指定分区, 并对导入文件的列做一些转化，如下：
-       1) k1将tmp_k1时间戳列转化为datetime类型的数据
-       2) k2将tmp_k2 date类型的数据转化为datetime的数据
-       3) k3将tmp_k3时间戳列转化为天级别时间戳
-       4) k4指定导入默认值为1
-       5) k5将tmp_k1、tmp_k2、tmp_k3列计算md5串
-       6) k6将导入文件中的-值替换为10
+       表结构为：
+        k1 datetime
+        k2 date
+        k3 bigint
+        k4 varchar(20)
+        k5 varchar(64)
+        k6 int
+
+        假设数据文件只有一行数据，5列，逗号分隔：
+
+        1537002087,2018-08-09 11:12:13,1537002087,-,1
+
+        数据文件中各列，对应导入语句中指定的各列：
+        tmp_k1, tmp_k2, tmp_k3, k6, v1
+
+        转换如下：
+
+        1) k1：将 tmp_k1 时间戳列转化为 datetime 类型的数据
+        2) k2：将 tmp_k2 datetime 类型的数据转化为 date 的数据
+        3) k3：将 tmp_k3 时间戳列转化为天级别时间戳
+        4) k4：指定导入默认值为1
+        5) k5：将 tmp_k1、tmp_k2、tmp_k3 列计算 md5 值
+        6) k6：将导入文件中的 - 值替换为 10
+
         LOAD LABEL example_db.label6
         (
         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
         INTO TABLE `my_table`
         PARTITION (p1, p2)
         COLUMNS TERMINATED BY ","
-        (tmp_k1, tmp_k2, tmp_k3, k6, v1, v2)
+        (tmp_k1, tmp_k2, tmp_k3, k6, v1)
         SET (
-          k1 = strftime("%Y-%m-%d %H:%M:%S", tmp_k1)),
-          k2 = time_format("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", tmp_k2)),
+          k1 = strftime("%Y-%m-%d %H:%M:%S", tmp_k1),
+          k2 = time_format("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", tmp_k2),
           k3 = alignment_timestamp("day", tmp_k3), 
           k4 = default_value("1"), 
           k5 = md5sum(tmp_k1, tmp_k2, tmp_k3),
           k6 = replace_value("-", "10")
         )
-        )
-        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+        );
     
     7. 导入数据到含有HLL列的表，可以是表中的列或者数据里面的列
 
@@ -222,8 +248,7 @@
           v1 = hll_hash(k1),
           v2 = hll_hash(k2)
         )
-        )
-        WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");  
+        );
 
         LOAD LABEL example_db.label8
         (
@@ -239,68 +264,8 @@
         )
         WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
  
-    8. 从ha模式的hdfs的路径中导入数据
-         LOAD LABEL table1_20170707 (
-             DATA INFILE("hdfs://bdos/palo/table1_data")
-             INTO TABLE table1
-         )
-         WITH BROKER hdfs (
-             "fs.defaultFS"="hdfs://bdos",
-             "username"="hdfs_user",
-             "password"="hdfs_password",
-             "dfs.nameservices"="bdos",
-             "dfs.ha.namenodes.bdos"="nn1,nn2",
-             "dfs.namenode.rpc-address.bdos.nn1"="host1:port1",
-             "dfs.namenode.rpc-address.bdos.nn2"="host2:port2")
-         PROPERTIES (
-             "timeout"="3600",
-             "max_filter_ratio"="0.1"
-         );
-
-    9. 基于keytab的kerberos鉴权访问hdfs
-         LOAD LABEL table1_20170707 (
-             DATA INFILE("hdfs://bdos/palo/table1_data")
-             INTO TABLE table1
-         )
-         WITH BROKER hdfs (
-             "fs.defaultFS"="hdfs://bdos",
-             "username"="hdfs_user",
-             "password"="hdfs_password",
-             "dfs.nameservices"="bdos",
-             "dfs.ha.namenodes.bdos"="nn1,nn2",
-             "dfs.namenode.rpc-address.bdos.nn1"="host1:port1",
-             "dfs.namenode.rpc-address.bdos.nn2"="host2:port2",
-             "hadoop.security.authentication"="kerberos",
-             "kerberos_principal"="palo@BAIDU.COM",
-             "kerberos_keytab"="/home/palo/palo.keytab"))
-         PROPERTIES (
-             "timeout"="3600",
-             "max_filter_ratio"="0.1"
-         );
-
-    10. 使用keytab content的kerberos鉴权访问hdfs
-         LOAD LABEL table1_20170707 (
-             DATA INFILE("hdfs://bdos/palo/table1_data")
-             INTO TABLE table1
-         )
-         WITH BROKER hdfs (
-             "fs.defaultFS"="hdfs://bdos",
-             "username"="hdfs_user",
-             "password"="hdfs_password",
-             "dfs.nameservices"="bdos",
-             "dfs.ha.namenodes.bdos"="nn1,nn2",
-             "dfs.namenode.rpc-address.bdos.nn1"="host1:port1",
-             "dfs.namenode.rpc-address.bdos.nn2"="host2:port2",
-             "hadoop.security.authentication"="kerberos",
-             "kerberos_principal"="palo@BAIDU.COM",
-             "kerberos_keytab_content"="BQIAAABEAAEACUJBSURVLkNPTQAEcGFsbw"))
-         PROPERTIES (
-             "timeout"="3600",
-             "max_filter_ratio"="0.1"
-         );
-
 ## keyword
-    LOAD,TABLE
+    LOAD
     
 # CANCEL LOAD
 ## description
@@ -371,17 +336,24 @@
 # MINI LOAD
 ## description
 
-    Syntax:
-        curl --location-trusted -u user:passwd -T data.file http://host:port/api/{db}/{table}/_load?label=xxx
-
     MINI LOAD 是 Palo 新提供的一种导入方式，这种导入方式可以使用户不依赖 Hadoop，从而完成导入方式。
     此种导入方式提交任务并不是通过 MySQL 客户端，而是通过 http 协议来完成的。用户通过 http 协议将导入描述，
     数据一同发送给 Palo，Palo 在接收任务成功后，会立即返回给用户成功信息，但是此时，数据并未真正导入。
     用户需要通过 'SHOW LOAD' 命令来查看具体的导入结果。
 
+    语法：
+    导入：
+
+        curl --location-trusted -u user:passwd -T data.file http://host:port/api/{db}/{table}/_load?label=xxx
+
+    查看导入状态
+    
+        curl -u user:passwd http://host:port/api/{db}/_load_info?label=xxx
+
     HTTP协议相关说明
+
         权限认证            当前 Palo 使用 http 的 Basic 方式权限认证。所以在导入的时候需要指定用户名密码
-                            这种方式是明文传递密码的，鉴于我们当前都是内网环境。。。
+                            这种方式是明文传递密码的，暂不支持加密传输。
 
         Expect              Palo需要发送过来的 http 请求带有 'Expect' 头部信息，内容为 '100-continue'。
                             为什么呢？因为我们需要将请求进行 redirect，那么必须在传输数据内容之前，
@@ -392,7 +364,9 @@
                             NOTE: 如果，发送的数据比 'Content-Length' 要多，那么 Palo 只读取 'Content-Length'
                             长度的内容，并进行导入
 
+
     参数说明：
+
         user:               用户如果是在default_cluster中的，user即为user_name。否则为user_name@cluster_name。
 
         label:              用于指定这一批次导入的 label，用于后期进行作业状态查询等。
@@ -428,6 +402,8 @@
         3. 支持类似 streaming 的方式使用 curl 来向 palo 中导入数据，但是，只有等这个 streaming 结束后 palo
         才会发生真实的导入行为，这中方式数据量也不能过大。
 
+        4. 当使用 curl 命令行导入时，需要在 & 前加入 \ 转义，否则参数信息会丢失。
+
 ## example
 
     1. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表（用户是defalut_cluster中的）
@@ -451,6 +427,10 @@
      
         curl --location-trusted -u root -T testData http://host:port/api/testDb/testTbl/_load?label=123\&max_filter_ratio=0.2
               \&hll=hll_column1,tmp_k4:hll_column2,tmp_k5\&columns=k1,k2,k3,tmp_k4,tmp_k5
+
+    7. 查看提交后的导入情况
+
+        curl -u root http://host:port/api/testDb/_load_info?label=123
 
 ## keyword
     MINI, LOAD
@@ -915,13 +895,3 @@
         
 ## keyword
     SHOW, SNAPSHOT
-    
-# SHOW BACKENDS
-## description
-    该语句用于查看cluster内的节点
-    语法：
-        SHOW BACKENDS
-        
-## keyword
-    SHOW, BACKENDS
-

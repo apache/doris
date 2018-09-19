@@ -116,8 +116,10 @@ Status ExchangeNode::fill_input_row_batch(RuntimeState* state) {
     DCHECK(!_is_merging);
     Status ret_status;
     {
+        state->set_query_state_for_wait();
         // SCOPED_TIMER(state->total_network_receive_timer());
         ret_status = _stream_recvr->get_batch(&_input_batch);
+        state->set_query_state_for_running();
     }
     VLOG_FILE << "exch: has batch=" << (_input_batch == NULL ? "false" : "true")
         << " #rows=" << (_input_batch != NULL ? _input_batch->num_rows() : 0)
@@ -211,7 +213,10 @@ Status ExchangeNode::get_next_merging(RuntimeState* state, RowBatch* output_batc
     RETURN_IF_CANCELLED(state);
     // RETURN_IF_ERROR(QueryMaintenance(state));
     RETURN_IF_ERROR(state->check_query_state());
+
+    state->set_query_state_for_wait();
     RETURN_IF_ERROR(_stream_recvr->get_next(output_batch, eos));
+    state->set_query_state_for_running();
 
     while ((_num_rows_skipped < _offset)) {
         _num_rows_skipped += output_batch->num_rows();

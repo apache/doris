@@ -303,7 +303,7 @@ SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O1 -ggdb3 -fsanitize=thread -DTHREAD_SANIT
 # Set compile flags based on the build type.
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG")
     SET(CMAKE_CXX_FLAGS ${CXX_FLAGS_DEBUG})
-elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
+elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE" OR "${CMAKE_BUILD_TYPE}" STREQUAL "BCC")
     SET(CMAKE_CXX_FLAGS ${CXX_FLAGS_RELEASE})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
     SET(CMAKE_CXX_FLAGS "${CXX_FLAGS_ASAN}")
@@ -485,8 +485,14 @@ set(PALO_LINK_LIBS ${PALO_LINK_LIBS}
     -static-libgcc
 )
 
+if ("${CMAKE_BUILD_TYPE}" STREQUAL "BCC")
+    set(PALO_LINK_LIBS ${PALO_LINK_LIBS}
+        -Wl,--dynamic-linker=/lib64/ld-linux-x86-64.so.2
+    )
+endif()
+
 # Add sanitize static link flags or tcmalloc
-if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
+if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE" OR "${CMAKE_BUILD_TYPE}" STREQUAL "BCC")
     set(PALO_LINK_LIBS ${PALO_LINK_LIBS} tcmalloc)
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
     set(PALO_LINK_LIBS ${PALO_LINK_LIBS} -static-libasan)

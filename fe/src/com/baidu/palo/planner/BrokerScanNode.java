@@ -520,6 +520,11 @@ public class BrokerScanNode extends ScanNode {
         numInstances = Math.max(1, numInstances);
 
         bytesPerInstance = totalBytes / numInstances + 1;
+        
+        if (bytesPerInstance > Config.max_bytes_per_broker_scanner) {
+            throw new InternalException(
+                    "Scan bytes per broker scanner exceed limit: " + Config.max_bytes_per_broker_scanner);
+        }
     }
 
     private void assignBackends() throws InternalException {

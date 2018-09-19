@@ -23,10 +23,12 @@ package com.baidu.palo.analysis;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.Pair;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -45,6 +47,16 @@ public class SetUserPropertyStmt extends DdlStmt {
 
     public List<SetVar> getPropertyList() {
         return propertyList;
+    }
+
+    // using List because we need retain the origin property order
+    public List<Pair<String, String>> getPropertyPairList() {
+        List<Pair<String, String>> list = Lists.newArrayList();
+        for (SetVar var : propertyList) {
+            list.add(Pair.create(((SetUserPropertyVar) var).getPropertyKey(),
+                                 ((SetUserPropertyVar) var).getPropertyValue()));
+        }
+        return list;
     }
 
     @Override

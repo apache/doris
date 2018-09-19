@@ -79,7 +79,7 @@ public class MasterOpExecutor {
         params.setQueryTimeout(ctx.getSessionVariable().getQueryTimeoutS());
         params.setUser_ip(ctx.getRemoteIP());
 
-        LOG.info("Forward statement {} to Master {}", originStmt, thriftAddress);
+        LOG.info("Forward statement {} to Master {}", ctx.getStmtId(), thriftAddress);
 
         boolean isReturnToPool = false;
         try {

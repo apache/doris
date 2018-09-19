@@ -37,6 +37,7 @@ import com.baidu.palo.load.LoadErrorHub;
 import com.baidu.palo.load.LoadJob;
 import com.baidu.palo.master.Checkpoint;
 import com.baidu.palo.mysql.privilege.UserProperty;
+import com.baidu.palo.mysql.privilege.UserPropertyInfo;
 import com.baidu.palo.persist.BackendIdsUpdateInfo;
 import com.baidu.palo.persist.CloneInfo;
 import com.baidu.palo.persist.ClusterInfo;
@@ -272,6 +273,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_CREATE_ROLE:
             case OperationType.OP_DROP_ROLE: {
                 data = PrivInfo.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_UPDATE_USER_PROPERTY: {
+                data = UserPropertyInfo.read(in);
                 needRead = false;
                 break;
             }

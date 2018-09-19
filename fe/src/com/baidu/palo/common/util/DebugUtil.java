@@ -21,6 +21,7 @@
 package com.baidu.palo.common.util;
 
 import com.baidu.palo.common.Pair;
+import com.baidu.palo.rpc.PUniqueId;
 import com.baidu.palo.thrift.TUniqueId;
 
 import java.io.PrintWriter;
@@ -121,6 +122,12 @@ public class DebugUtil {
     }
 
     public static String printId(final TUniqueId id) {
+        StringBuilder builder = new StringBuilder();
+        builder.append(Long.toHexString(id.hi)).append(":").append(Long.toHexString(id.lo));
+        return builder.toString();
+    }
+
+    public static String printId(final PUniqueId id) {
         StringBuilder builder = new StringBuilder();
         builder.append(Long.toHexString(id.hi)).append(":").append(Long.toHexString(id.lo));
         return builder.toString();

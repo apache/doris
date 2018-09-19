@@ -1,4 +1,4 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
+// Copyright (c) 2018, Baidu.com, Inc. All Rights Reserved
 
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,15 +21,19 @@ import java.util.concurrent.Future;
 
 public interface PInternalService {
     @ProtobufRPC(serviceName = "PInternalService", methodName = "exec_plan_fragment",
-            attachmentHandler = ThriftClientAttachmentHandler.class, onceTalkTimeout = 2000)
+            attachmentHandler = ThriftClientAttachmentHandler.class, onceTalkTimeout = 10000)
     Future<PExecPlanFragmentResult> execPlanFragmentAsync(PExecPlanFragmentRequest request);
 
     @ProtobufRPC(serviceName = "PInternalService", methodName = "cancel_plan_fragment",
-            onceTalkTimeout = 1000)
+            onceTalkTimeout = 5000)
     Future<PCancelPlanFragmentResult> cancelPlanFragmentAsync(PCancelPlanFragmentRequest request);
 
     // we set timeout to 1 day, because now there is no way to give different timeout for each RPC call
     @ProtobufRPC(serviceName = "PInternalService", methodName = "fetch_data",
             attachmentHandler = ThriftClientAttachmentHandler.class, onceTalkTimeout = 86400000)
     Future<PFetchDataResult> fetchDataAsync(PFetchDataRequest request);
+
+    @ProtobufRPC(serviceName = "PInternalService", methodName = "fetch_fragment_exec_infos",
+            attachmentHandler = ThriftClientAttachmentHandler.class, onceTalkTimeout = 10000)
+    Future<PFetchFragmentExecInfosResult> fetchFragmentExecInfosAsync(PFetchFragmentExecInfoRequest request);
 }

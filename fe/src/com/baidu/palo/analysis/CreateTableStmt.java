@@ -378,15 +378,19 @@ public class CreateTableStmt extends DdlStmt implements Writable {
             sb.append("\n").append(distributionDesc.toSql());
         }
 
+        // properties may contains password and other sensitive information,
+        // so do not print properties.
+        // This toSql() method is only used for log, user can see detail info by using show create table stmt,
+        // which is implemented in Catalog.getDdlStmt()
         if (properties != null && !properties.isEmpty()) {
             sb.append("\nPROPERTIES (");
-            sb.append(new PrintableMap<String, String>(properties, " = ", true, true));
+            sb.append(new PrintableMap<String, String>(properties, " = ", true, true, true));
             sb.append(")");
         }
 
         if (extProperties != null && !extProperties.isEmpty()) {
             sb.append("\n").append(engineName.toUpperCase()).append(" PROPERTIES (");
-            sb.append(new PrintableMap<String, String>(properties, " = ", true, true));
+            sb.append(new PrintableMap<String, String>(extProperties, " = ", true, true, true));
             sb.append(")");
         }
 
@@ -396,6 +400,14 @@ public class CreateTableStmt extends DdlStmt implements Writable {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public boolean needAuditEncryption() {
+        if (!engineName.equals("olap")) {
+            return true;
+        }
+        return false;
     }
 
     @Override

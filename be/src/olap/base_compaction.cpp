@@ -186,6 +186,8 @@ OLAPStatus BaseCompaction::run() {
     _table->set_base_compaction_status(BASE_COMPACTION_WAITING, -1);
     _release_base_compaction_lock();
 
+    LOG(INFO) << "succeed to do base compaction. table=" << _table->full_name() << ", "
+              << "base_version=" << _new_base_version.first << "-" << _new_base_version.second;
     return OLAP_SUCCESS;
 }
 

@@ -69,10 +69,33 @@ message PFetchDataResult {
     optional bool eos = 3;
 };
 
+message PFetchFragmentExecInfoRequest {
+    repeated PUniqueId finst_id = 1;
+};
+
+enum PFragmentExecStatus {
+    RUNNING = 0;
+    WAIT = 1;
+    FINISHED = 2;
+}
+
+message PFragmentExecInfo {
+    required PUniqueId finst_id = 1;
+    required int32 exec_status = 2;
+    optional int32 plan_node_type = 3;  // same as TPlanNodeType
+    optional int64 rows_count = 4;
+}
+
+message PFetchFragmentExecInfosResult {
+    required PStatus status = 1;
+    repeated PFragmentExecInfo fragment_exec_info = 2;
+}
+
 service PInternalService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc exec_plan_fragment(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
+    rpc fetch_fragment_exec_infos(PFetchFragmentExecInfoRequest) returns (PFetchFragmentExecInfosResult);
 };
 

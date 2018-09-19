@@ -807,6 +807,11 @@ public class Load {
         long dbId = job.getDbId();
         String label = job.getLabel();
         long timestamp = job.getTimestamp();
+
+        if (getAllUnfinishedLoadJob() > Config.max_unfinished_load_job) {
+            throw new DdlException(
+                    "Number of unfinished load jobs exceed the max number: " + Config.max_unfinished_load_job);
+        }
         
         // check label exist
         boolean checkMini = true;
@@ -867,6 +872,11 @@ public class Load {
                 // Impossible to be other state
                 Preconditions.checkNotNull(null, "Should not be here");
         }
+    }
+
+    private long getAllUnfinishedLoadJob() {
+        return idToPendingLoadJob.size() + idToEtlLoadJob.size() + idToLoadingLoadJob.size()
+            + idToQuorumFinishedLoadJob.size();
     }
 
     public void replayAddLoadJob(LoadJob job) throws DdlException {

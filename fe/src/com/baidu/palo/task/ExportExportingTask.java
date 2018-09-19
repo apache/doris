@@ -29,7 +29,7 @@ import com.baidu.palo.common.util.TimeUtils;
 import com.baidu.palo.load.ExportFailMsg;
 import com.baidu.palo.load.ExportJob;
 import com.baidu.palo.qe.Coordinator;
-import com.baidu.palo.qe.QeProcessor;
+import com.baidu.palo.qe.QeProcessorImpl;
 import com.baidu.palo.service.FrontendOptions;
 import com.baidu.palo.thrift.TBrokerOperationStatus;
 import com.baidu.palo.thrift.TBrokerOperationStatusCode;
@@ -175,14 +175,15 @@ public class ExportExportingTask extends MasterTask {
         TUniqueId queryId = coord.getQueryId();
         boolean needUnregister = false;
         try {
-            QeProcessor.registerQuery(queryId, coord);
+            QeProcessorImpl.INSTANCE
+                        .registerQuery(queryId, coord);
             needUnregister = true;
             actualExecCoord(queryId, coord);
         } catch (InternalException e) {
             LOG.warn("export exporting internal error. {}", e.getMessage());
         } finally {
             if (needUnregister) {
-                QeProcessor.unregisterQuery(queryId);
+                QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
             }
         }
 

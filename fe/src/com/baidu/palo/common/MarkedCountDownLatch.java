@@ -21,9 +21,10 @@
 package com.baidu.palo.common;
 
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 
-import java.util.Collection;
+import java.util.List;
 import java.util.Map.Entry;
 import java.util.concurrent.CountDownLatch;
 
@@ -48,7 +49,7 @@ public class MarkedCountDownLatch extends CountDownLatch {
         return false;
     }
 
-    public synchronized Collection<Entry<Long, Long>> getLeftMarks() {
-        return marks.entries();
+    public synchronized List<Entry<Long, Long>> getLeftMarks() {
+        return Lists.newArrayList(marks.entries());
     }
 }

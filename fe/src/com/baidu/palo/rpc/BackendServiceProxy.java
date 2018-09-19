@@ -1,4 +1,4 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
+// Copyright (c) 2018, Baidu.com, Inc. All Rights Reserved
 
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,12 +19,12 @@ import com.baidu.jprotobuf.pbrpc.client.ProtobufRpcProxy;
 import com.baidu.jprotobuf.pbrpc.transport.RpcClient;
 import com.baidu.jprotobuf.pbrpc.transport.RpcClientOptions;
 import com.baidu.palo.common.Config;
-import com.baidu.palo.qe.SimpleScheduler;
 import com.baidu.palo.thrift.TExecPlanFragmentParams;
 import com.baidu.palo.thrift.TNetworkAddress;
 import com.baidu.palo.thrift.TUniqueId;
 
 import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -70,7 +70,7 @@ public class BackendServiceProxy {
         return service;
     }
 
-public Future<PExecPlanFragmentResult> execPlanFragmentAsync(
+    public Future<PExecPlanFragmentResult> execPlanFragmentAsync(
             TNetworkAddress address, TExecPlanFragmentParams tRequest)
             throws TException, RpcException {
         final PExecPlanFragmentRequest pRequest = new PExecPlanFragmentRequest();
@@ -133,6 +133,19 @@ public Future<PExecPlanFragmentResult> execPlanFragmentAsync(
         try {
             PInternalService service = getProxy(address);
             return service.fetchDataAsync(request);
+        } catch (Throwable e) {
+            LOG.warn("fetch data catch a exception, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+            throw new RpcException(e.getMessage());
+        }
+    }
+
+
+    public Future<PFetchFragmentExecInfosResult> fetchFragmentExecInfosAsync(
+            TNetworkAddress address, PFetchFragmentExecInfoRequest request) throws RpcException {
+        try {
+            final PInternalService service = getProxy(address);
+            return service.fetchFragmentExecInfosAsync(request);
         } catch (Throwable e) {
             LOG.warn("fetch data catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);

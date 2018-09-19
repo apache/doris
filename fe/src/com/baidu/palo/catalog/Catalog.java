@@ -3015,8 +3015,10 @@ public class Catalog {
                         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CREATE, task.getSignature());
                     }
 
-                    Collection<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
-                    String idStr = Joiner.on(", ").join(unfinishedMarks);
+                    List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
+                    // only show at most 10 results
+                    List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 10));
+                    String idStr = Joiner.on(", ").join(subList);
                     LOG.warn("{}. unfinished marks: {}", errMsg, idStr);
                     throw new DdlException(errMsg);
                 }
@@ -3376,7 +3378,8 @@ public class Catalog {
     }
 
     public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
-            List<String> createRollupStmt, boolean separatePartition, short replicationNum) {
+            List<String> createRollupStmt, boolean separatePartition, short replicationNum,
+            boolean hidePassword) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -3478,7 +3481,7 @@ public class Catalog {
             sb.append("\"host\" = \"").append(mysqlTable.getHost()).append("\",\n");
             sb.append("\"port\" = \"").append(mysqlTable.getPort()).append("\",\n");
             sb.append("\"user\" = \"").append(mysqlTable.getUserName()).append("\",\n");
-            sb.append("\"password\" = \"").append(mysqlTable.getPasswd()).append("\",\n");
+            sb.append("\"password\" = \"").append(hidePassword ? "" : mysqlTable.getPasswd()).append("\",\n");
             sb.append("\"database\" = \"").append(mysqlTable.getMysqlDatabaseName()).append("\",\n");
             sb.append("\"table\" = \"").append(mysqlTable.getMysqlTableName()).append("\"\n");
             sb.append(");");
@@ -3525,7 +3528,8 @@ public class Catalog {
             sb.append(")");
             if (!brokerTable.getBrokerProperties().isEmpty()) {
                 sb.append("\nBROKER PROPERTIES (\n");
-                sb.append(new PrintableMap<>(brokerTable.getBrokerProperties(), " = ", true, true).toString());
+                sb.append(new PrintableMap<>(brokerTable.getBrokerProperties(), " = ", true, true,
+                        hidePassword).toString());
                 sb.append("\n)");
             }
 

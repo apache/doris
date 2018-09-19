@@ -104,6 +104,13 @@ public class ExportStmt extends StatementBase {
         return this.lineDelimiter;
     }
 
+    public boolean needAuditEncryption() {
+        if (brokerDesc != null) {
+            return true;
+        }
+        return false;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         super.analyze(analyzer);
@@ -235,7 +242,7 @@ public class ExportStmt extends StatementBase {
 
         if (brokerDesc != null) {
             sb.append("\n WITH BROKER '").append(brokerDesc.getName()).append("' (");
-            sb.append(new PrintableMap<String, String>(brokerDesc.getProperties(), "=", true, false));
+            sb.append(new PrintableMap<String, String>(brokerDesc.getProperties(), "=", true, false, true));
             sb.append(")");
         }
 

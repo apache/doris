@@ -39,6 +39,16 @@ public class SetStmt extends StatementBase {
     }
 
     @Override
+    public boolean needAuditEncryption() {
+        for (SetVar var : setVars) {
+            if (var instanceof SetPassVar) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         if (setVars == null || setVars.isEmpty()) {
             throw new AnalysisException("Empty set statement.");

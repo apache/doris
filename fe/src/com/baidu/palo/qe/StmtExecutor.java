@@ -41,6 +41,7 @@ import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.Table.TableType;
 import com.baidu.palo.catalog.Type;
 import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.Config;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
@@ -75,12 +76,15 @@ import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 // Do one COM_QEURY process.
 // first: Parse receive byte array to statement struct.
 // second: Do handle function for statement.
 public class StmtExecutor {
     private static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
+
+    private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
 
     private ConnectContext context;
     private MysqlSerializer serializer;
@@ -140,6 +144,12 @@ public class StmtExecutor {
             return false;
         }
 
+        // this is a query stmt, but this non-master FE can not read, forward it to master
+        if ((parsedStmt instanceof QueryStmt) && !Catalog.getInstance().isMaster()
+                && !Catalog.getInstance().canRead()) {
+            return true;
+        }
+
         if (redirectStatus == null) {
             return false;
         } else {
@@ -174,11 +184,16 @@ public class StmtExecutor {
         return false;
     }
 
+    public StatementBase getParsedStmt() {
+        return parsedStmt;
+    }
+
     // Execute one statement.
     // Exception:
     //  IOException: talk with client failed.
     public void execute() throws Exception {
         long beginTimeInNanoSecond = TimeUtils.getStartTime();
+        context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         try {
             // analyze this query
             analyze();
@@ -187,17 +202,11 @@ public class StmtExecutor {
                 forwardToMaster();
                 return;
             }  else {
-                LOG.debug("no need to transfer to Master originStmt={}", originStmt);
+                LOG.debug("no need to transfer to Master. stmt: {}", context.getStmtId());
             }
 
             if (parsedStmt instanceof QueryStmt) {
-                if (!Catalog.getInstance().isMaster() && !Catalog.getInstance().canRead()) {
-                    LOG.info("cannot read. forward to master");
-                    forwardToMaster();
-                    return;
-                }
-                LOG.debug("parsedStmt instanceof QueryStmt");
-                int retryTime = 3;
+                int retryTime = Config.max_query_retry_time;
                 for (int i = 0; i < retryTime; i ++) {
                     try {
                         handleQueryStmt();
@@ -210,13 +219,13 @@ public class StmtExecutor {
                             throw e;
                         }
                         if (!context.getMysqlChannel().isSend()) {
-                            LOG.warn("retry " + (i + 1) + " times, sql=" + originStmt);
+                            LOG.warn("retry {} times. stmt: {}", (i + 1), context.getStmtId());
                             continue;
                         } else {
                             throw e;
                         }
                     } finally {
-                        QeProcessor.unregisterQuery(context.queryId());
+                        QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
                     }
                 }
             } else if (parsedStmt instanceof SetStmt) {
@@ -253,7 +262,7 @@ public class StmtExecutor {
             throw e;
         } catch (AnalysisException e) {
             // analysis exception only print message, not print the stack
-            LOG.warn("execute Exception", e);
+            LOG.warn("execute Exception. ", e);
             context.getState().setError(e.getMessage());
             context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } catch (Exception e) {
@@ -265,14 +274,14 @@ public class StmtExecutor {
             }
         } finally {
             if (isRegisterQuery) {
-                QeProcessor.unregisterQuery(context.queryId());
+                QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
             }
         }
     }
 
     private void forwardToMaster() throws Exception {
         masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus);
-        LOG.debug("need to transfer to Master originStmt={}", originStmt);
+        LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
         masterOpExecutor.execute();
     }
 
@@ -307,7 +316,7 @@ public class StmtExecutor {
     // Analyze one statement to structure in memory.
     private void analyze() throws AnalysisException, InternalException, 
                                                NotImplementedException {
-        LOG.info("the originStmt is ={}", originStmt);
+        LOG.info("begin to analyze stmt: {}", context.getStmtId());
         // Parse statement with parser generated by CUP&FLEX
         SqlScanner input = new SqlScanner(new StringReader(originStmt));
         SqlParser parser = new SqlParser(input);
@@ -315,10 +324,11 @@ public class StmtExecutor {
             parsedStmt = (StatementBase) parser.parse().value;
             redirectStatus = parsedStmt.getRedirectStatus();
         } catch (Error e) {
-            LOG.warn("error happens when parsing sql: {}", e);
+            LOG.info("error happened when parsing stmt {}, id: {}", originStmt, context.getStmtId(), e);
             throw new AnalysisException("sql parsing error, please check your sql");
         } catch (AnalysisException e) {
-            LOG.warn("origin_stmt: " + originStmt + "; Analyze error message: " + parser.getErrorMsg(originStmt), e);
+            LOG.info("analysis exception happened when parsing stmt {}, id: {}, error: {}",
+                     originStmt, context.getStmtId(), parser.getErrorMsg(originStmt), e);
             String errorMessage = parser.getErrorMsg(originStmt);
             if (errorMessage == null) {
                 throw  e;
@@ -328,8 +338,9 @@ public class StmtExecutor {
         } catch (Exception e) {
             // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
             // should be removed this try-catch clause future.
-            LOG.warn("Analyze failed because " + parser.getErrorMsg(originStmt), e);
-            throw new AnalysisException("Internal Error, maybe this is a bug, please contact with Palo RD.");
+            LOG.info("unexpected exception happened when parsing stmt {}, id: {}, error: {}",
+                     originStmt, context.getStmtId(), parser.getErrorMsg(originStmt), e);
+            throw new AnalysisException("Unexpected exception: " + e.getMessage());
         }
 
         analyzer = new Analyzer(context.getCatalog(), context);
@@ -437,7 +448,7 @@ public class StmtExecutor {
                 throw e;
             } catch (Exception e) {
                 LOG.warn("Analyze failed because ", e);
-                throw new AnalysisException("Internal Error, maybe this is a bug, please contact with Palo RD.");
+                throw new AnalysisException("Unexpected exception: " + e.getMessage());
             } finally {
                 unLock(dbs);
             }
@@ -448,7 +459,7 @@ public class StmtExecutor {
                 throw e;
             } catch (Exception e) {
                 LOG.warn("Analyze failed because ", e);
-                throw new AnalysisException("Internal Error, maybe this is a bug, please contact with Palo RD.");
+                throw new AnalysisException("Unexpected exception: " + e.getMessage());
             }
         }
     }
@@ -514,10 +525,12 @@ public class StmtExecutor {
         }
         coord = new Coordinator(context, analyzer, planner);
 
-        QeProcessor.registerQuery(context.queryId(), coord);
+        QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), 
+                       new QeProcessorImpl.QueryInfo(context, originStmt, coord));
         isRegisterQuery = true;
 
         coord.exec();
+
         // if python's MysqlDb get error after sendfields, it can't catch the excpetion
         // so We need to send fields after first batch arrived
 
@@ -536,7 +549,6 @@ public class StmtExecutor {
             }
             context.updateReturnRows(batch.getRows().size());
         }
-
         if (!isSendFields) {
             sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
         }
@@ -568,7 +580,7 @@ public class StmtExecutor {
 
         coord = new Coordinator(context, analyzer, planner);
 
-        QeProcessor.registerQuery(context.queryId(), coord);
+        QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
         isRegisterQuery = true;
 
         coord.exec();

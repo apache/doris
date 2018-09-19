@@ -46,6 +46,7 @@ HashJoinNode::HashJoinNode(
         ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs) :
             ExecNode(pool, tnode, descs),
             _join_op(tnode.hash_join_node.join_op),
+            _probe_eos(false),
             _codegen_process_build_batch_fn(NULL),
             _process_build_batch_fn(NULL),
             _process_probe_batch_fn(NULL),

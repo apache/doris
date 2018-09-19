@@ -15,7 +15,6 @@
 
 package com.baidu.palo.mysql.privilege;
 
-import com.baidu.palo.analysis.SetUserPropertyStmt;
 import com.baidu.palo.analysis.TablePattern;
 import com.baidu.palo.analysis.UserIdentity;
 import com.baidu.palo.catalog.Catalog;
@@ -150,13 +149,13 @@ public class UserPropertyMgr implements Writable {
         property.getWhiteList().setPassword(password);
     }
 
-    public void updateUserProperty(SetUserPropertyStmt stmt) throws DdlException {
-        UserProperty property = propertyMap.get(stmt.getUser());
+    public void updateUserProperty(String user, List<Pair<String, String>> properties) throws DdlException {
+        UserProperty property = propertyMap.get(user);
         if (property == null) {
-            throw new DdlException("Unknown user(" + stmt.getUser() + ")");
+            throw new DdlException("Unknown user(" + user + ")");
         }
 
-        property.update(stmt.getPropertyList());
+        property.update(properties);
     }
 
     public long getMaxConn(String qualifiedUser) {

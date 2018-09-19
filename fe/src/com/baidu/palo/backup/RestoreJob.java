@@ -80,7 +80,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -683,8 +682,10 @@ public class RestoreJob extends AbstractJob {
                     db.writeUnlock();
                 }
             } else {
-                Collection<Entry<Long, Long>> unfinishedMarks = latch.getLeftMarks();
-                String idStr = Joiner.on(", ").join(unfinishedMarks);
+                List<Entry<Long, Long>> unfinishedMarks = latch.getLeftMarks();
+                // only show at most 10 results
+                List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 10));
+                String idStr = Joiner.on(", ").join(subList);
                 status = new Status(ErrCode.COMMON_ERROR,
                         "Failed to create replicas for restore. unfinished marks: " + idStr);
                 return;
@@ -810,6 +811,7 @@ public class RestoreJob extends AbstractJob {
             for (int i = 0; i < localIdx.getTablets().size(); i++) {
                 Tablet localTablet = localIdx.getTablets().get(i);
                 BackupTabletInfo backupTabletInfo = backupIdxInfo.tablets.get(i);
+                LOG.debug("get tablet mapping: {} to {}, index {}", backupTabletInfo.id, localTablet.getId(), i);
                 for (Replica localReplica : localTablet.getReplicas()) {
                     IdChain src = new IdChain(remoteTblId, backupPartInfo.id, backupIdxInfo.id, backupTabletInfo.id,
                             -1L /* no replica id */);

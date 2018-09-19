@@ -176,4 +176,10 @@ public abstract class StatementBase implements ParseNode {
         analyzer = null;
     }
 
+    // Override this method and return true
+    // if the stmt contains some information which need to be encrypted in audit log
+    public boolean needAuditEncryption() {
+        return false;
+    }
+
 }

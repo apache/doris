@@ -141,19 +141,21 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     // for query
-    public List<Replica> getQueryableReplicas(long committedVersion, long committedVersionHash) {
-        List<Replica> queryableReplicas = new LinkedList<Replica>();
+    public void getQueryableReplicas(List<Replica> allQuerableReplica, List<Replica> localReplicas,
+            long committedVersion, long committedVersionHash, long localBeId) {
         for (Replica replica : replicas) {
             ReplicaState state = replica.getState();
             if (state == ReplicaState.NORMAL || state == ReplicaState.SCHEMA_CHANGE) {
                 if (replica.getVersion() > committedVersion 
                         || (replica.getVersion() == committedVersion
                         && replica.getVersionHash() == committedVersionHash)) {
-                    queryableReplicas.add(replica);
+                    allQuerableReplica.add(replica);
+                    if (localBeId != -1 && replica.getBackendId() == localBeId) {
+                        localReplicas.add(replica);
+                    }
                 }
             }
         }
-        return queryableReplicas;
     }
 
     public Replica getReplicaById(long replicaId) {

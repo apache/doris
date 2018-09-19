@@ -23,7 +23,7 @@ import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.Status;
 import com.baidu.palo.load.BrokerFileGroup;
 import com.baidu.palo.qe.Coordinator;
-import com.baidu.palo.qe.QeProcessor;
+import com.baidu.palo.qe.QeProcessorImpl;
 import com.baidu.palo.thrift.TBrokerFileStatus;
 import com.baidu.palo.thrift.TQueryType;
 import com.baidu.palo.thrift.TStatusCode;
@@ -213,14 +213,15 @@ public class PullLoadTask {
 
         boolean needUnregister = false;
         try {
-            QeProcessor.registerQuery(executeId, curCoordinator);
+            QeProcessorImpl.INSTANCE
+                     .registerQuery(executeId, curCoordinator);
             actualExecute();
             needUnregister = true;
         } catch (InternalException e) {
             onFailed(executeId, new Status(TStatusCode.INTERNAL_ERROR, e.getMessage()));
         } finally {
             if (needUnregister) {
-                QeProcessor.unregisterQuery(executeId);
+                QeProcessorImpl.INSTANCE.unregisterQuery(executeId);
             }
             synchronized (this) {
                 curThread = null;

@@ -20,21 +20,40 @@
 
 package com.baidu.palo.common.util;
 
+import com.google.common.collect.Sets;
+
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
 
 public class PrintableMap<K, V> {
     private Map<K, V> map;
     private String keyValueSaperator;
     private boolean withQuotation;
     private boolean wrap;
+    private boolean hidePassword;
     
+    public static final Set<String> SENSITIVE_KEY;
+    static {
+        SENSITIVE_KEY = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        SENSITIVE_KEY.add("password");
+        SENSITIVE_KEY.add("kerberos_keytab_content");
+        SENSITIVE_KEY.add("bos_secret_accesskey");
+    }
+
     public PrintableMap(Map<K, V> map, String keyValueSaperator,
                         boolean withQuotation, boolean wrap) {
         this.map = map;
         this.keyValueSaperator = keyValueSaperator;
         this.withQuotation = withQuotation;
         this.wrap = wrap;
+        this.hidePassword = false;
+    }
+
+    public PrintableMap(Map<K, V> map, String keyValueSaperator,
+            boolean withQuotation, boolean wrap, boolean hidePassword) {
+        this(map, keyValueSaperator, withQuotation, wrap);
+        this.hidePassword = hidePassword;
     }
 
     @Override
@@ -54,7 +73,11 @@ public class PrintableMap<K, V> {
             if (withQuotation) {
                 sb.append("\"");
             }
-            sb.append(entry.getValue());
+            if (hidePassword && SENSITIVE_KEY.contains(entry.getKey())) {
+                sb.append("*XXX");
+            } else {
+                sb.append(entry.getValue());
+            }
             if (withQuotation) {
                 sb.append("\"");
             }
