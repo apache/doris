@@ -52,13 +52,17 @@ export LD_LIBRARY_PATH=$TP_DIR/installed/lib:$LD_LIBRARY_PATH
 
 if [ -f $PALO_HOME/palo-toolchain/gcc730/bin/gcc ]; then
     export GCC_HOME=$curdir/../palo-toolchain/gcc730
+    export CC=${GCC_HOME}/bin/gcc
+    export CPP=${GCC_HOME}/bin/cpp
+    export CXX=${GCC_HOME}/bin/g++
+else
+    export CC=gcc
+    export CPP=cpp
+    export CXX=g++
 fi
-export CC=${GCC_HOME}/bin/gcc
-export CPP=${GCC_HOME}/bin/cpp
-export CXX=${GCC_HOME}/bin/g++
 
 # Download thirdparties.
-sh $TP_DIR/download-thirdparty.sh $@
+$TP_DIR/download-thirdparty.sh $@
 
 check_prerequest() {
     local CMD=$1
