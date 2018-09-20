@@ -367,7 +367,7 @@ build_ncurses() {
     check_if_source_exist $NCURSES_SOURCE
     cd $TP_SOURCE_DIR/$NCURSES_SOURCE
     
-    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
+    CPPFLAGS="-I${TP_INCLUDE_DIR} -P" \
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
     ./configure --prefix=$TP_INSTALL_DIR
