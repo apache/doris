@@ -51,14 +51,18 @@ mkdir -p $TP_DIR/installed
 export LD_LIBRARY_PATH=$TP_DIR/installed/lib:$LD_LIBRARY_PATH
 
 if [ -f $PALO_HOME/palo-toolchain/gcc730/bin/gcc ]; then
-    export GCC_HOME=$curdir/../palo-toolchain/gcc730
+    GCC_HOME=$curdir/../palo-toolchain/gcc730
+    export CC=${GCC_HOME}/bin/gcc
+    export CPP=${GCC_HOME}/bin/cpp
+    export CXX=${GCC_HOME}/bin/g++
+else
+    export CC=gcc
+    export CPP=cpp
+    export CXX=g++
 fi
-export CC=${GCC_HOME}/bin/gcc
-export CPP=${GCC_HOME}/bin/cpp
-export CXX=${GCC_HOME}/bin/g++
 
 # Download thirdparties.
-sh $TP_DIR/download-thirdparty.sh $@
+$TP_DIR/download-thirdparty.sh $@
 
 check_prerequest() {
     local CMD=$1
@@ -145,7 +149,7 @@ build_libevent() {
     check_if_source_exist $LIBEVENT_SOURCE
     cd $TP_SOURCE_DIR/$LIBEVENT_SOURCE
     if [ ! -f configure ]; then
-        sh autogen.sh 
+        ./autogen.sh 
     fi
 
     CFLAGS="-std=c99 -fPIC -D_BSD_SOURCE -fno-omit-frame-pointer -g -ggdb -O2 -I${TP_INCLUDE_DIR}" \
@@ -154,26 +158,15 @@ build_libevent() {
     make -j2 && make install
 }
 
-# python
-build_python() {
-    check_if_source_exist $PYTHON_SOURCE
-    cd $TP_SOURCE_DIR/$PYTHON_SOURCE
-
-    CPPFLAGS="-I${TP_INCLUDE_DIR} -I${TP_INCLUDE_DIR}/ncurses/" \
-    LDFLAGS="-L${TP_LIB_DIR}" \
-    CFLAGS="-fPIC" \
-    ./configure --prefix=$TP_INSTALL_DIR
-    make -j2 && make install
-}
-
 build_openssl() {
     check_if_source_exist $OPENSSL_SOURCE
     cd $TP_SOURCE_DIR/$OPENSSL_SOURCE
 
-    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
+    CPPFLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
+    CXXFLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
-    ./Configure --prefix=$TP_INSTALL_DIR shared linux-x86_64
+    ./Configure --prefix=$TP_INSTALL_DIR -zlib -shared linux-x86_64
     make -j2 && make install
 }
 
@@ -183,11 +176,16 @@ build_thrift() {
     cd $TP_SOURCE_DIR/$THRIFT_SOURCE
 
     if [ ! -f configure ]; then
-        sh bootstrap.sh
+        ./bootstrap.sh
     fi
 
     echo ${TP_LIB_DIR}
-    ./configure CPPFLAGS="-I${TP_INCLUDE_DIR}" LDFLAGS="-L${TP_LIB_DIR}" LIBS="-lcrypto" CFLAGS="-fPIC" --prefix=$TP_INSTALL_DIR --docdir=$TP_INSTALL_DIR/doc --enable-static --disable-tests --disable-tutorial --without-qt4 --without-qt5 --without-csharp --without-erlang --without-nodejs --without-lua --without-perl --without-php --without-php_extension --without-dart --without-ruby --without-haskell --without-go --without-haxe --without-d --without-python -without-java --with-cpp --with-libevent=$TP_INSTALL_DIR --with-boost=$TP_INSTALL_DIR --with-openssl=$TP_INSTALL_DIR
+    ./configure CPPFLAGS="-I${TP_INCLUDE_DIR}" LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" LIBS="-lcrypto -ldl -lssl" CFLAGS="-fPIC" \
+    --prefix=$TP_INSTALL_DIR --docdir=$TP_INSTALL_DIR/doc --enable-static --disable-shared --disable-tests \
+    --disable-tutorial --without-qt4 --without-qt5 --without-csharp --without-erlang --without-nodejs \
+    --without-lua --without-perl --without-php --without-php_extension --without-dart --without-ruby \
+    --without-haskell --without-go --without-haxe --without-d --without-python -without-java --with-cpp \
+    --with-libevent=$TP_INSTALL_DIR --with-boost=$TP_INSTALL_DIR --with-openssl=$TP_INSTALL_DIR
 
     if [ -f compiler/cpp/thrifty.hh ];then
         mv compiler/cpp/thrifty.hh compiler/cpp/thrifty.h
@@ -229,10 +227,10 @@ build_protobuf() {
     cd $TP_SOURCE_DIR/$PROTOBUF_SOURCE
     rm -fr gmock
     mkdir gmock && cd gmock && tar xf ${TP_SOURCE_DIR}/googletest-release-1.8.0.tar.gz \
-    && mv googletest-release-1.8.0 gtest && cd $TP_SOURCE_DIR/$PROTOBUF_SOURCE && sh autogen.sh
-    CXXFLAGS="-fPIC -O2" \
+    && mv googletest-release-1.8.0 gtest && cd $TP_SOURCE_DIR/$PROTOBUF_SOURCE && ./autogen.sh
+    CXXFLAGS="-fPIC -O2 -I ${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
-    ./configure --prefix=${TP_INSTALL_DIR} --disable-shared --enable-static
+    ./configure --prefix=${TP_INSTALL_DIR} --disable-shared --enable-static --with-zlib=${TP_INSTALL_DIR}/include
     cd src
     sed -i 's/^AM_LDFLAGS\(.*\)$/AM_LDFLAGS\1 -all-static/' Makefile
     make -j$PARALLEL
@@ -310,7 +308,7 @@ build_gperftools() {
     check_if_source_exist $GPERFTOOLS_SOURCE
     cd $TP_SOURCE_DIR/$GPERFTOOLS_SOURCE
     if [ ! -f configure ]; then
-        sh autogen.sh 
+        ./autogen.sh 
     fi
 
     CPPFLAGS="-I${TP_INCLUDE_DIR}" \
@@ -362,18 +360,6 @@ build_lzo2() {
     make -j$PARALLEL && make install
 }
 
-# ncurses
-build_ncurses() {
-    check_if_source_exist $NCURSES_SOURCE
-    cd $TP_SOURCE_DIR/$NCURSES_SOURCE
-    
-    CPPFLAGS="-I${TP_INCLUDE_DIR} -P" \
-    LDFLAGS="-L${TP_LIB_DIR}" \
-    CFLAGS="-fPIC" \
-    ./configure --prefix=$TP_INSTALL_DIR
-    make -j$PARALLEL && make install
-}
-
 # curl
 build_curl() {
     check_if_source_exist $CURL_SOURCE
@@ -402,7 +388,7 @@ build_boost() {
     cd $TP_SOURCE_DIR/$BOOST_SOURCE
 
     echo "using gcc : $GCC_VERSION : $CXX ; " > tools/build/src/user-config.jam
-    sh bootstrap.sh --prefix=$TP_INSTALL_DIR 
+    ./bootstrap.sh --prefix=$TP_INSTALL_DIR 
     ./b2 link=static -d0 -j$PARALLEL --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -fPIC -I$TP_INCLUDE_DIR -L$TP_LIB_DIR" install
 }
 
@@ -424,7 +410,6 @@ build_mysql() {
     fi
 
     $CMAKE_CMD ../ -DWITH_BOOST=`pwd`/$BOOST_FOR_MYSQL_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR/mysql/ \
-    -DNCURSES_LIBRARY=$TP_LIB_DIR/libncurses.a -DNCURSES_INCLUDE_PATH=$TP_INCLUDE_DIR/ncurses/ \
     -DCMAKE_INCLUDE_PATH=$TP_INCLUDE_DIR -DCMAKE_LIBRARY_PATH=$TP_LIB_DIR -DWITHOUT_SERVER=1 \
     -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g -fabi-version=2 -fno-omit-frame-pointer -fno-strict-aliasing -std=gnu++11" \
     -DDISABLE_SHARED=1 -DBUILD_SHARED_LIBS=0
@@ -464,11 +449,16 @@ build_brpc() {
     cd $TP_SOURCE_DIR/$BRPC_SOURCE
     mkdir build -p && cd build
     rm -rf CMakeCache.txt CMakeFiles/
+    LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     $CMAKE_CMD -v -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DBRPC_WITH_GLOG=ON -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" \
     -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib;$TP_INSTALL_DIR/lib64" \
-    -DPROTOBUF_PROTOC_EXECUTABLE=$TP_INSTALL_DIR/bin/protoc ..
+    -DPROTOBUF_PROTOC_EXECUTABLE=$TP_INSTALL_DIR/bin/protoc \
+    -DProtobuf_PROTOC_EXECUTABLE=$TP_INSTALL_DIR/bin/protoc ..
     make -j$PARALLEL && make install
+    if [ -f $TP_INSTALL_DIR/lib/libbrpc.a ]; then
+        mkdir -p $TP_INSTALL_DIR/lib64 && ln -s $TP_INSTALL_DIR/lib/libbrpc.a $TP_INSTALL_DIR/lib64/libbrpc.a
+    fi
 }
 
 # java
@@ -499,13 +489,12 @@ build_ant() {
 
 build_llvm 
 build_libevent
-build_openssl
 build_zlib
 build_lz4
 build_bzip
 build_lzo2
+build_openssl
 build_boost # must before thrift
-build_ncurses
 build_protobuf
 build_gflags
 build_glog

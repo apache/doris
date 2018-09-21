@@ -22,8 +22,6 @@
 
 BUILD_DIR = ${CURDIR}/../build/
 
-PYTHON=python
-
 # Prerequisites on the right side of '|' is only order
 all: gen_opcode gen_version gen_builtins
 .PHONY: all

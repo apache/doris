@@ -195,13 +195,13 @@ cd -
 echo "Finished patching $LIBEVENT_SOURCE"
 
 # thrift patch
-cd $TP_SOURCE_DIR/$THRIFT_SOURCE
-if [ ! -f $PATCHED_MARK ]; then
-    patch -p0 < $TP_PATCH_DIR/thrift-0.9.3-aclocal.patch
-    touch $PATCHED_MARK
-fi
-cd -
-echo "Finished patching $THRIFT_SOURCE"
+# cd $TP_SOURCE_DIR/$THRIFT_SOURCE
+# if [ ! -f $PATCHED_MARK ]; then
+#     patch -p0 < $TP_PATCH_DIR/thrift-0.9.3-aclocal.patch
+#     touch $PATCHED_MARK
+# fi
+# cd -
+# echo "Finished patching $THRIFT_SOURCE"
 
 if test "x$REPOSITORY_URL" != x; then
     cd $TP_SOURCE_DIR/$COMPILER_RT_SOURCE

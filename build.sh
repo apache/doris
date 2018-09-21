@@ -33,9 +33,10 @@ PARALLEL=8
 
 # Check java version
 if [ -z $JAVA_HOME ]; then
-    echo "Error: JAVA_HOME is not set."
-    exit 1
+    echo "Error: JAVA_HOME is not set, use thirdparty/installed/jdk1.8.0_131"
+    export JAVA_HOME=${PALO_HOME}/thirdparty/installed/jdk1.8.0_131
 fi
+
 JAVA=${JAVA_HOME}/bin/java
 JAVA_VER=$(${JAVA} -version 2>&1 | sed 's/.* version "\(.*\)\.\(.*\)\..*"/\1\2/; 1q' | cut -f1 -d " ")
 if [ $JAVA_VER -lt 18 ]; then
@@ -43,13 +44,22 @@ if [ $JAVA_VER -lt 18 ]; then
     exit 1
 fi
 
+ANT=ant
 # Check ant
-if ! ant -version; then
-    echo "ant is not found."
-    exit 1
+if ! ${ANT} -version; then
+    echo "ant is not found, use thirdparty/installed/ant"
+    ANT=${PALO_HOME}/thirdparty/installed/ant/bin/ant
 fi
 
-cd ${PALO_HOME}
+# check python
+export PYTHON=python
+if ! ${PYTHON} --version; then
+    export PYTHON=python2.7
+    if ! ${PYTHON} --version; then
+        echo "python is not found"
+        exit
+    fi
+fi
 
 # Check args
 usage() {
@@ -160,9 +170,9 @@ if [ ${BUILD_FE} -eq 1 ] ; then
     echo "Build Frontend"
     cd ${PALO_HOME}/fe
     if [ ${CLEAN} -eq 1 ]; then
-        ant clean
+        ${ANT} clean
     fi
-    ant install
+    ${ANT} install
     cd ${PALO_HOME}
 fi
 

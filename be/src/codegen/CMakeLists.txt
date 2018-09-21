@@ -46,7 +46,7 @@ set(IR_DESC_GEN_OUTPUT
 
 add_custom_command(
     OUTPUT ${IR_DESC_GEN_OUTPUT}
-    COMMAND python ${CMAKE_CURRENT_SOURCE_DIR}/gen_ir_descriptions.py
+    COMMAND $ENV{PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/gen_ir_descriptions.py
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/gen_ir_descriptions.py
     COMMENT "Generating ir cross compile metadata."
     VERBATIM

@@ -124,7 +124,8 @@ LZ4_NAME=lz4-1.7.5.tar.gz
 LZ4_SOURCE=lz4-1.7.5
 
 # bzip
-BZIP_DOWNLOAD="http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz"
+# BZIP_DOWNLOAD="http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz"
+BZIP_DOWNLOAD="https://fossies.org/linux/misc/bzip2-1.0.6.tar.gz"
 BZIP_NAME=bzip2-1.0.6.tar.gz
 BZIP_SOURCE=bzip2-1.0.6
 
