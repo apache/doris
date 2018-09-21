@@ -28,7 +28,7 @@ endif
 BUILD_DIR = ${CURDIR}/../build/
 
 OUTPUT_DIR = ${BUILD_DIR}/java/com/baidu/palo/analysis
-JAVA = java
+JAVA = ${JAVA_HOME}/bin/java
 PARSER_ARGS = -jar ${BUILD_DIR}/../../thirdparty/installed/lib/jar/java-cup-0.11a.jar \
               -destdir ${OUTPUT_DIR} \
               -parser SqlParser -symbols SqlParserSymbols -expect 20
