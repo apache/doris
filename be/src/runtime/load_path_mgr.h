@@ -56,6 +56,7 @@ private:
     void clean_one_path(const std::string& path);
     void clean_error_log();
     void clean();
+    void process_label_dir(time_t now, const std::string& label_dir);
 
     static void* cleaner(void* param);
 
@@ -65,6 +66,7 @@ private:
     int _reserved_hours;
     pthread_t _cleaner_id;
     std::string _error_log_dir;
+    uint32_t _next_shard;
 };
 
 }

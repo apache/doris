@@ -30,6 +30,8 @@
 #include "runtime/string_value.hpp"
 #include "runtime/datetime_value.h"
 
+#include "olap/tuple.h"
+
 namespace palo {
 
 template<class T>
@@ -84,6 +86,10 @@ public:
 
     T get_range_min_value() const {
         return _low_value;
+    }
+
+    bool is_low_value_mininum() const {
+        return _low_value == _type_min;
     }
 
     bool is_begin_include() const {
@@ -193,8 +199,8 @@ public:
 
         for (int i = 0; i < _begin_scan_keys.size(); ++i) {
             VLOG(1) << "ScanKey=" << (_begin_include ? "[" : "(")
-                    << to_print_key(_begin_scan_keys[i]) << " : "
-                    << to_print_key(_end_scan_keys[i])
+                    << _begin_scan_keys[i] << " : "
+                    << _end_scan_keys[i]
                     << (_end_include ? "]" : ")");
         }
     }
@@ -224,23 +230,9 @@ public:
         _is_convertible = is_convertible;
     }
 
-    static std::string to_print_key(const std::vector<std::string>& key_vec) {
-        std::string print_key;
-
-        for (std::string key : key_vec) {
-            print_key += key;
-            print_key += ",";
-        }
-
-        if (!print_key.empty()) {
-            print_key.pop_back();
-        }
-
-        return print_key;
-    }
 private:
-    std::vector<std::vector<std::string>> _begin_scan_keys;
-    std::vector<std::vector<std::string>> _end_scan_keys;
+    std::vector<OlapTuple> _begin_scan_keys;
+    std::vector<OlapTuple> _end_scan_keys;
     bool _has_range_value;
     bool _begin_include;
     bool _end_include;
@@ -701,9 +693,9 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
 
             for (; iter != fixed_value_set.end(); ++iter) {
                 _begin_scan_keys.emplace_back();
-                _begin_scan_keys.back().push_back(cast_to_string(*iter));
+                _begin_scan_keys.back().add_value(cast_to_string(*iter));
                 _end_scan_keys.emplace_back();
-                _end_scan_keys.back().push_back(cast_to_string(*iter));
+                _end_scan_keys.back().add_value(cast_to_string(*iter));
             }
         } // 3.1.2 produces the Cartesian product of ScanKey and fixed_value
         else {
@@ -711,22 +703,22 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
             int original_key_range_size = _begin_scan_keys.size();
 
             for (int i = 0; i < original_key_range_size; ++i) {
-                vector<string> start_base_key_range = _begin_scan_keys[i];
-                vector<string> end_base_key_range = _end_scan_keys[i];
+                OlapTuple start_base_key_range = _begin_scan_keys[i];
+                OlapTuple end_base_key_range = _end_scan_keys[i];
 
                 const_iterator_type iter = fixed_value_set.begin();
 
                 for (; iter != fixed_value_set.end(); ++iter) {
                     // alter the first ScanKey in original place
                     if (iter == fixed_value_set.begin()) {
-                        _begin_scan_keys[i].push_back(cast_to_string(*iter));
-                        _end_scan_keys[i].push_back(cast_to_string(*iter));
+                        _begin_scan_keys[i].add_value(cast_to_string(*iter));
+                        _end_scan_keys[i].add_value(cast_to_string(*iter));
                     } // append follow ScanKey
                     else {
                         _begin_scan_keys.push_back(start_base_key_range);
-                        _begin_scan_keys.back().push_back(cast_to_string(*iter));
+                        _begin_scan_keys.back().add_value(cast_to_string(*iter));
                         _end_scan_keys.push_back(end_base_key_range);
-                        _end_scan_keys.back().push_back(cast_to_string(*iter));
+                        _end_scan_keys.back().add_value(cast_to_string(*iter));
                     }
                 }
             }
@@ -740,19 +732,21 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
 
         if (_begin_scan_keys.empty()) {
             _begin_scan_keys.emplace_back();
-            _begin_scan_keys.back().push_back(
-                cast_to_string(range.get_range_min_value()));
+            _begin_scan_keys.back().add_value(
+                cast_to_string(range.get_range_min_value()),
+                range.is_low_value_mininum());
             _end_scan_keys.emplace_back();
-            _end_scan_keys.back().push_back(
+            _end_scan_keys.back().add_value(
                 cast_to_string(range.get_range_max_value()));
         } else {
             for (int i = 0; i < _begin_scan_keys.size(); ++i) {
-                _begin_scan_keys[i].push_back(
-                    cast_to_string(range.get_range_min_value()));
+                _begin_scan_keys[i].add_value(
+                    cast_to_string(range.get_range_min_value()),
+                    range.is_low_value_mininum());
             }
 
             for (int i = 0; i < _end_scan_keys.size(); ++i) {
-                _end_scan_keys[i].push_back(
+                _end_scan_keys[i].add_value(
                     cast_to_string(range.get_range_max_value()));
             }
         }

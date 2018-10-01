@@ -39,7 +39,8 @@ public enum AccessPrivilege {
     LOAD_PRIV(7, "Privilege for loading data into tables"),
     ALTER_PRIV(8, "Privilege for alter database or table"),
     CREATE_PRIV(9, "Privilege for createing database or table"),
-    DROP_PRIV(10, "Privilege for dropping database or table");
+    DROP_PRIV(10, "Privilege for dropping database or table"),
+    ADMIN_PRIV(11, "All privileges except NODE_PRIV");
 
     private int flag;
     private String desc;
@@ -50,7 +51,7 @@ public enum AccessPrivilege {
     }
 
     public PrivBitSet toPaloPrivilege() {
-        Preconditions.checkState(flag > 0 && flag < 11);
+        Preconditions.checkState(flag > 0 && flag < 12);
         switch (flag) {
             case 1:
                 return PrivBitSet.of(PaloPrivilege.SELECT_PRIV);
@@ -73,17 +74,11 @@ public enum AccessPrivilege {
                 return PrivBitSet.of(PaloPrivilege.CREATE_PRIV);
             case 10:
                 return PrivBitSet.of(PaloPrivilege.DROP_PRIV);
+            case 11:
+                return PrivBitSet.of(PaloPrivilege.ADMIN_PRIV);
             default:
                 return null;
         }
-    }
-
-    public static boolean contains(AccessPrivilege p1, AccessPrivilege p2) {
-        return p1.flag >= p2.flag;
-    }
-
-    public boolean contains(AccessPrivilege priv) {
-        return contains(this, priv);
     }
 
     public static AccessPrivilege fromName(String privStr) {

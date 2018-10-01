@@ -453,6 +453,12 @@ Status MiniLoadAction::generate_check_load_req(
         gettimeofday(&tv, NULL);
         check_load_req->__set_timestamp(tv.tv_sec * 1000 + tv.tv_usec / 1000);
     }
+
+    if (http_req->remote_host() != nullptr) {
+        std::string user_ip(http_req->remote_host());
+        check_load_req->__set_user_ip(user_ip);
+    }
+
     return Status::OK;
 }
 

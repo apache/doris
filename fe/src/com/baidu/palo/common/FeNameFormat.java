@@ -80,21 +80,21 @@ public class FeNameFormat {
         }
     }
 
-    public static void checkRoleName(String role, boolean canBeSuperuser) throws AnalysisException {
+    public static void checkRoleName(String role, boolean canBeAdmin, String errMsg) throws AnalysisException {
         if (Strings.isNullOrEmpty(role) || !role.matches(COMMON_NAME_REGEX)) {
             throw new AnalysisException("invalid role format: " + role);
         }
 
         boolean res = false;
         if (CaseSensibility.ROLE.getCaseSensibility()) {
-            res = role.equals(PaloRole.OPERATOR_ROLE) || (!canBeSuperuser && role.equals(PaloRole.ADMIN_ROLE));
+            res = role.equals(PaloRole.OPERATOR_ROLE) || (!canBeAdmin && role.equals(PaloRole.ADMIN_ROLE));
         } else {
             res = role.equalsIgnoreCase(PaloRole.OPERATOR_ROLE)
-                    || (!canBeSuperuser && role.equalsIgnoreCase(PaloRole.ADMIN_ROLE));
+                    || (!canBeAdmin && role.equalsIgnoreCase(PaloRole.ADMIN_ROLE));
         }
 
         if (res) {
-            throw new AnalysisException("Can not create role with name: " + role);
+            throw new AnalysisException(errMsg + ": " + role);
         }
     }
 

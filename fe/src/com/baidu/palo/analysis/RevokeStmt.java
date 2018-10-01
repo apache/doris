@@ -27,6 +27,7 @@ import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.FeNameFormat;
+import com.baidu.palo.mysql.privilege.PaloAuth.PrivLevel;
 import com.baidu.palo.mysql.privilege.PaloPrivilege;
 import com.baidu.palo.mysql.privilege.PrivBitSet;
 import com.baidu.palo.mysql.privilege.PrivPredicate;
@@ -79,7 +80,7 @@ public class RevokeStmt extends DdlStmt {
         if (userIdent != null) {
             userIdent.analyze(analyzer.getClusterName());
         } else {
-            FeNameFormat.checkRoleName(role, false /* can not be superuser */);
+            FeNameFormat.checkRoleName(role, false /* can not be superuser */, "Can not revoke from role");
             role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
         }
 
@@ -87,6 +88,23 @@ public class RevokeStmt extends DdlStmt {
 
         if (privileges == null || privileges.isEmpty()) {
             throw new AnalysisException("No privileges in revoke statement.");
+        }
+
+        // can not revoke NODE_PRIV from any user
+        for (PaloPrivilege paloPrivilege : privileges) {
+            if (paloPrivilege == PaloPrivilege.NODE_PRIV) {
+                throw new AnalysisException("Can not revoke NODE_PRIV from any users or roles");
+            }
+        }
+
+        // ADMIN_PRIV and GRANT_PRIV can only be revoked as global
+        if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL) {
+            for (PaloPrivilege paloPrivilege : privileges) {
+                if (paloPrivilege == PaloPrivilege.ADMIN_PRIV || paloPrivilege == PaloPrivilege.GRANT_PRIV) {
+                    throw new AnalysisException(
+                            "Can not revoke ADMIN_PRIV or GRANT_PRIV from specified database or table. Only support from *.*");
+                }
+            }
         }
 
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {

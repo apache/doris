@@ -38,7 +38,6 @@
 #include "util/debug_util.h"
 #include "agent/cgroups_mgr.h"
 #include "common/resource_tls.h"
-#include "olap/olap_reader.h"
 #include <boost/variant.hpp>
 
 using llvm::Function;
@@ -573,8 +572,8 @@ Status OlapScanNode::split_scan_range() {
 
         for (auto sub_range : sub_ranges) {
             VLOG(1) << "SubScanKey=" << (sub_range.begin_include ? "[" : "(")
-                    << OlapScanKeys::to_print_key(sub_range.begin_scan_range)
-                    << " : " << OlapScanKeys::to_print_key(sub_range.end_scan_range) <<
+                    << sub_range.begin_scan_range
+                    << " : " << sub_range.end_scan_range <<
                     (sub_range.end_include ? "]" : ")");
             _query_key_ranges.push_back(sub_range);
             _query_scan_ranges.push_back(scan_range);
@@ -957,8 +956,8 @@ bool OlapScanNode::select_scan_range(boost::shared_ptr<PaloScanRange> scan_range
 }
 
 Status OlapScanNode::get_sub_scan_range(
-    boost::shared_ptr<PaloScanRange> scan_range,
-    std::vector<OlapScanRange>* sub_range) {
+        boost::shared_ptr<PaloScanRange> scan_range,
+        std::vector<OlapScanRange>* sub_range) {
     std::vector<OlapScanRange> scan_key_range;
     RETURN_IF_ERROR(_scan_keys.get_key_range(&scan_key_range));
 
@@ -970,10 +969,8 @@ Status OlapScanNode::get_sub_scan_range(
             sub_range->resize(1);
         }
     } else {
-        EngineMetaReader olap_meta_reader(scan_range);
-        RETURN_IF_ERROR(olap_meta_reader.open());
-
-        if (!olap_meta_reader.get_hints(
+        if (!EngineMetaReader::get_hints(
+                    scan_range,
                     config::palo_scan_range_row_count,
                     _scan_keys.begin_include(),
                     _scan_keys.end_include(),
@@ -986,8 +983,6 @@ Status OlapScanNode::get_sub_scan_range(
                 sub_range->resize(1);
             }
         }
-
-        RETURN_IF_ERROR(olap_meta_reader.close());
     }
 
     return Status::OK;

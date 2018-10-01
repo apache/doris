@@ -570,4 +570,24 @@ public class Config extends ConfigBase {
      * You may reduce this number to void Avalanche disaster.
      */
     @ConfField public static int max_query_retry_time = 3;
+
+    /*
+     * The tryLock timeout configuration of catalog lock.
+     * Normally it does not need to change, unless you need to test something.
+     */
+    @ConfField public static long catalog_try_lock_timeout_ms = 5000; // 5 sec
+    
+    /*
+     * if this is set to true
+     *    all pending load job will failed when call begin txn api
+     *    all prepare load job will failed when call commit txn api
+     *    all committed load job will waiting to be published
+     */
+    @ConfField public static boolean disable_load_job = false;
+    
+    /*
+     * Load using hadoop cluster will be deprecated in future.
+     * Set to true to disable this kind of load.
+     */
+    @ConfField public static boolean disable_hadoop_load = false;
 }

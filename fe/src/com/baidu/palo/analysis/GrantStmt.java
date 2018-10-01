@@ -28,6 +28,7 @@ import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.FeNameFormat;
 import com.baidu.palo.common.InternalException;
+import com.baidu.palo.mysql.privilege.PaloAuth.PrivLevel;
 import com.baidu.palo.mysql.privilege.PaloPrivilege;
 import com.baidu.palo.mysql.privilege.PrivBitSet;
 import com.baidu.palo.mysql.privilege.PrivPredicate;
@@ -94,8 +95,26 @@ public class GrantStmt extends DdlStmt {
             throw new AnalysisException("No privileges in grant statement.");
         }
 
+        // can not grant NODE_PRIV to any other user(root has NODE_PRIV, no need to grant)
+        for (PaloPrivilege paloPrivilege : privileges) {
+            if (paloPrivilege == PaloPrivilege.NODE_PRIV) {
+                throw new AnalysisException("Can not grant NODE_PRIV to any other users or roles");
+            }
+        }
+
+        // ADMIN_PRIV and GRANT_PRIV can only be granted as global
+        if (tblPattern.getPrivLevel() != PrivLevel.GLOBAL) {
+            for (PaloPrivilege paloPrivilege : privileges) {
+                if (paloPrivilege == PaloPrivilege.ADMIN_PRIV || paloPrivilege == PaloPrivilege.GRANT_PRIV) {
+                    throw new AnalysisException(
+                            "Can not grant ADMIN_PRIV or GRANT_PRIV to specified database or table. Only support to *.*");
+                }
+            }
+        }
+
         if (role != null) {
-            FeNameFormat.checkRoleName(role, false /* can not be superuser */);
+            // can not grant to admin or operator role
+            FeNameFormat.checkRoleName(role, false /* can not be admin */, "Can not grant to role");
             role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
         }
 

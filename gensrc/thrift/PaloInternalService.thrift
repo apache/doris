@@ -303,45 +303,10 @@ struct TFetchDataResult {
     4: optional Status.TStatus status
 }
 
-struct TFetchStartKey {
-    1: required list<string> key
-}
-
-struct TFetchEndKey {
-    1: required list<string> key
-}
-
 struct TCondition {
     1:  required string column_name
     2:  required string condition_op
     3:  required list<string> condition_values
-}
-
-struct TFetchRequest {
-    1: required bool use_compression
-    2: optional i32 num_rows
-    3: required i32 schema_hash
-    4: required Types.TTabletId tablet_id
-    5: required i32 version
-    6: required i64 version_hash
-    7: required list<string> field
-    8: optional string user
-    9: optional string output
-    10: optional string range
-    11: required list<TFetchStartKey> start_key
-	12: required list<TFetchEndKey> end_key
-    13: required list<TCondition> where
-    14: optional string end_range
-    15: optional bool aggregation
-}
-
-struct TShowHintsRequest {
-    1: required Types.TTabletId tablet_id
-    2: required i32 schema_hash
-    3: required i32 block_row_count
-    4: optional string end_range = "lt"
-    5: required list<TFetchStartKey> start_key
-	6: required list<TFetchEndKey> end_key
 }
 
 struct TExportStatusResult {

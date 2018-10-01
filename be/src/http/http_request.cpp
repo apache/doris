@@ -24,6 +24,7 @@
 #include <event2/buffer.h>
 #include <event2/bufferevent.h>
 #include <event2/http.h>
+#include <event2/http_struct.h>
 #include <event2/keyvalq_struct.h>
 
 #include "http/http_handler.h"
@@ -136,6 +137,10 @@ std::string HttpRequest::get_request_body() {
     _request_body.resize(length);
     evbuffer_remove(evbuf, (char*)_request_body.data(), length);
     return _request_body;
+}
+
+const char* HttpRequest::remote_host() const {
+    return _ev_req->remote_host;
 }
 
 }

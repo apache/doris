@@ -26,7 +26,7 @@ import com.baidu.palo.thrift.TStatusCode;
 
 public class Status {
     public static final Status OK               = new Status();
-    public static final Status CANCELLED        = new Status(TStatusCode.CANCELLED, "Canelled");
+   public static final Status CANCELLED        = new Status(TStatusCode.CANCELLED, "Cancelled");
     public static final Status THRIFT_RPC_ERROR = 
             new Status(TStatusCode.THRIFT_RPC_ERROR, "Thrift RPC failed");
 

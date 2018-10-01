@@ -38,42 +38,14 @@ class RuntimeProfile;
  */
 class EngineMetaReader {
 public:
-    EngineMetaReader(
-        boost::shared_ptr<PaloScanRange> scan_range);
-
-    ~EngineMetaReader();
-
-    /**
-     * @brief   打开reader，reader的实现可以在这个接口中完成初始化、
-     * 建立链接、发送请求等操作.
-     *
-     * @author  Hu Jie
-     * @date    2013/8/30
-     *
-     * @return  成功返回E_OK，错误返回负值.
-     */
-    Status open();
-
-    /**
-     * @brief
-     *
-     * @author  Hu Jie
-     * @date    2013/8/30
-     *
-     * @return  成功返回E_OK，错误返回负值.
-     */
-    Status get_hints(
+    static Status get_hints(
+        boost::shared_ptr<PaloScanRange> scan_range,
         int block_row_count,
         bool is_begin_include,
         bool is_end_include,
         std::vector<OlapScanRange>& scan_key_range,
         std::vector<OlapScanRange>* sub_scan_range, 
         RuntimeProfile* profile);
-
-    Status close();
-
-private:
-    boost::shared_ptr<PaloScanRange> _scan_range;
 };
 
 } // namespace palo

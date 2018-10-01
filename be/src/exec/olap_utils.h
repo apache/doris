@@ -22,6 +22,7 @@
 #include "gen_cpp/Opcodes_types.h"
 #include "runtime/primitive_type.h"
 #include "runtime/datetime_value.h"
+#include "olap/tuple.h"
 
 namespace palo {
 
@@ -80,8 +81,8 @@ static const char* POSITIVE_INFINITY = "+oo";
 typedef struct OlapScanRange {
 public:
     OlapScanRange() : begin_include(true), end_include(true) {
-        begin_scan_range.push_back(NEGATIVE_INFINITY);
-        end_scan_range.push_back(POSITIVE_INFINITY);
+        begin_scan_range.add_value(NEGATIVE_INFINITY);
+        end_scan_range.add_value(POSITIVE_INFINITY);
     }
     OlapScanRange(
         bool begin,
@@ -93,8 +94,8 @@ public:
 
     bool begin_include;
     bool end_include;
-    std::vector<std::string> begin_scan_range;
-    std::vector<std::string> end_scan_range;
+    OlapTuple begin_scan_range;
+    OlapTuple end_scan_range;
 } OlapScanRange;
 
 static char encoding_table[] = {

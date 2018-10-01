@@ -22,6 +22,7 @@
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/tuple.h"
 
 namespace palo {
 class Field;
@@ -120,7 +121,7 @@ public:
     // 从传入的字符串数组反序列化内部各field的值
     // 每个字符串必须是一个\0结尾的字符串
     // 要求输入字符串和row cursor有相同的列数，
-    OLAPStatus from_string(const std::vector<std::string>& val_string_arr);
+    OLAPStatus from_tuple(const OlapTuple& tuple);
 
     // 返回当前row cursor中列的个数
     size_t field_count() const {
@@ -130,7 +131,7 @@ public:
     // 以string格式输出rowcursor内容，仅供log及debug使用
     std::string to_string() const;
     std::string to_string(std::string sep) const;
-    std::vector<std::string> to_string_vector() const;
+    OlapTuple to_tuple() const;
 
     // 从另外一个RowCursor复制完整的内容，需要两个cursor在字段长度和类型上完全匹配
     inline OLAPStatus copy(const RowCursor& other, MemPool* mem_pool);

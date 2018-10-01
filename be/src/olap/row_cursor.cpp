@@ -357,6 +357,7 @@ OLAPStatus RowCursor::build_max_key() {
         Field* field = _field_array[cid];
         char* dest = field->get_ptr(_fixed_buf);
         field->set_to_max(dest);
+        field->set_not_null(_fixed_buf);
     }
     return OLAP_SUCCESS;
 }
@@ -366,26 +367,31 @@ OLAPStatus RowCursor::build_min_key() {
         Field* field = _field_array[cid];
         char* dest = field->get_ptr(_fixed_buf);
         field->set_to_min(dest);
+        field->set_null(_fixed_buf);
     }
 
     return OLAP_SUCCESS;
 }
 
-OLAPStatus RowCursor::from_string(const vector<string>& val_string_array) {
-    if (val_string_array.size() != _columns.size()) {
-        OLAP_LOG_WARNING("column count does not match. [string_array_size=%lu; field_count=%lu]",
-                         val_string_array.size(),
-                         _field_array.size());
+OLAPStatus RowCursor::from_tuple(const OlapTuple& tuple) {
+    if (tuple.size() != _columns.size()) {
+        LOG(WARNING) << "column count does not match. tuple_size=" << tuple.size()
+            << ", field_count=" << _field_array.size();
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    for (size_t i = 0; i < val_string_array.size(); ++i) {
+    for (size_t i = 0; i < tuple.size(); ++i) {
         Field* field = _field_array[_columns[i]];
+        if (tuple.is_null(i)) {
+            field->set_null(_fixed_buf);
+            continue;
+        }
+        field->set_not_null(_fixed_buf);
         char* buf = field->get_ptr(_fixed_buf);
-        OLAPStatus res = field->from_string(buf, val_string_array[i]);
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("Fail to convert field from string.[val_string=%s res=%d]", 
-                    val_string_array[i].c_str(), res);
+        OLAPStatus res = field->from_string(buf, tuple.get_value(i));
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to convert field from string. string=" << tuple.get_value(i)
+                << ", res=" << res;
             return res;
         }
     }
@@ -393,20 +399,24 @@ OLAPStatus RowCursor::from_string(const vector<string>& val_string_array) {
     return OLAP_SUCCESS;
 }
 
-std::vector<std::string> RowCursor::to_string_vector() const {
-    std::vector<std::string> result;
+OlapTuple RowCursor::to_tuple() const {
+    OlapTuple tuple;
 
     for (auto cid : _columns) {
         if (_field_array[cid] != NULL) {
             Field* field = _field_array[cid];
             char* src = field->get_ptr(_fixed_buf);
-            result.push_back(field->to_string(src));
+            if (field->is_null(_fixed_buf)) {
+                tuple.add_null();
+            } else {
+                tuple.add_value(field->to_string(src));
+            }
         } else {
-            result.push_back("");
+            tuple.add_value("");
         }
     }
 
-    return result;
+    return tuple;
 }
 
 string RowCursor::to_string() const {

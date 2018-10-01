@@ -151,11 +151,11 @@ public class ShowExecutorTest {
         EasyMock.expect(Catalog.getCurrentCatalog()).andReturn(catalog).anyTimes();
         Catalog.getDdlStmt(EasyMock.isA(Table.class), EasyMock.isA(List.class),
                            EasyMock.isA(List.class), EasyMock.isA(List.class), EasyMock.anyBoolean(),
-                           EasyMock.anyShort());
+                           EasyMock.anyShort(), EasyMock.anyBoolean());
         EasyMock.expectLastCall().anyTimes();
         Catalog.getDdlStmt(EasyMock.isA(Table.class), EasyMock.isA(List.class),
                            EasyMock.isNull(List.class), EasyMock.isNull(List.class), EasyMock.anyBoolean(),
-                           EasyMock.anyShort());
+                           EasyMock.anyShort(), EasyMock.anyBoolean());
         EasyMock.expectLastCall().anyTimes();
         PowerMock.replay(Catalog.class);
 

@@ -416,7 +416,7 @@ public class Load {
 
         writeLock();
         try {
-            unprotectAddLoadJob(job);
+            unprotectAddLoadJob(job, false /* not replay */);
             MetricRepo.COUNTER_LOAD_ADD.increase(1L);
             Catalog.getInstance().getEditLog().logLoadStart(job);
         } finally {
@@ -802,13 +802,13 @@ public class Load {
         }
     }
 
-    public void unprotectAddLoadJob(LoadJob job) throws DdlException {
+    public void unprotectAddLoadJob(LoadJob job, boolean isReplay) throws DdlException {
         long jobId = job.getId();
         long dbId = job.getDbId();
         String label = job.getLabel();
+        
         long timestamp = job.getTimestamp();
-
-        if (getAllUnfinishedLoadJob() > Config.max_unfinished_load_job) {
+        if (!isReplay && getAllUnfinishedLoadJob() > Config.max_unfinished_load_job) {
             throw new DdlException(
                     "Number of unfinished load jobs exceed the max number: " + Config.max_unfinished_load_job);
         }
@@ -882,7 +882,7 @@ public class Load {
     public void replayAddLoadJob(LoadJob job) throws DdlException {
         writeLock();
         try {
-            unprotectAddLoadJob(job);
+            unprotectAddLoadJob(job, true /* replay */);
         } finally {
             writeUnlock();
         }

@@ -103,6 +103,7 @@ public class Checkpoint extends Daemon {
        
         long replayedJournalId = -1;
         // generate new image file
+        LOG.info("begin to generate new image: image.{}", replayedJournalId);
         catalog = Catalog.getCheckpoint();
         catalog.setEditLog(editLog);
         try {

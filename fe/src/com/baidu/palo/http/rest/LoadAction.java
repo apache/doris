@@ -61,16 +61,12 @@ public class LoadAction extends RestBaseAction {
     }
 
     @Override
-    public void execute(BaseRequest request, BaseResponse response) throws DdlException {
+    public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+            throws DdlException {
         // A 'Load' request must have 100-continue header
         if (!request.getRequest().headers().contains(HttpHeaders.Names.EXPECT)) {
             throw new DdlException("There is no 100-continue header");
         }
-
-        final AuthorizationInfo authInfo = getAuthorizationInfo(request);
-        if (authInfo == null) {
-            throw new DdlException("Authorize failed");
-        } 
 
         final String clusterName = authInfo.cluster;
         if (Strings.isNullOrEmpty(clusterName)) {
@@ -122,3 +118,4 @@ public class LoadAction extends RestBaseAction {
         redirectTo(request, response, redirectAddr);
     }
 }
+

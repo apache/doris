@@ -507,7 +507,7 @@ else()
 endif()
 
 set(PALO_LINK_LIBS ${PALO_LINK_LIBS}
-    -lrt -lbfd -liberty -lc -lm -ldl -pthread
+    -lrt -lbfd -liberty -lc -lm -ldl -pthread -lz
 )
 
 # Set libraries for test

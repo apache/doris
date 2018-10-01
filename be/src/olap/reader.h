@@ -52,8 +52,8 @@ struct ReaderParams {
     Version version;
     std::string range;
     std::string end_range;
-    std::vector<TFetchStartKey> start_key;
-    std::vector<TFetchEndKey> end_key;
+    std::vector<OlapTuple> start_key;
+    std::vector<OlapTuple> end_key;
     std::vector<TCondition> conditions;
     // The IData will be set when using Merger, eg Cumulative, BE.
     std::vector<IData*> olap_data_arr;
@@ -82,12 +82,12 @@ struct ReaderParams {
            << " range=" << range
            << " end_range=" << end_range;
 
-        for (int i = 0, size = start_key.size(); i < size; ++i) {
-            ss << " keys=" << apache::thrift::ThriftDebugString(start_key[i]);
+        for (auto& key : start_key) {
+            ss << " keys=" << key;
         }
 
-        for (int i = 0, size = end_key.size(); i < size; ++i) {
-            ss << " end_keys=" << apache::thrift::ThriftDebugString(end_key[i]);
+        for (auto& key : end_key){
+            ss << " end_keys=" << key;
         }
 
         for (int i = 0, size = conditions.size(); i < size; ++i) {

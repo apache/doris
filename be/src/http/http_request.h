@@ -82,6 +82,8 @@ public:
     void* handler_ctx() const { return _handler_ctx; }
     void set_handler_ctx(void* ctx) { _handler_ctx = ctx; }
 
+    const char* remote_host() const;
+
 private:
     HttpMethod _method;
     std::string _uri;

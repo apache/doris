@@ -20,7 +20,6 @@
 #include "olap_scanner.h"
 #include "olap_scan_node.h"
 #include "olap_utils.h"
-#include "olap/olap_reader.h"
 #include "olap/field.h"
 #include "service/backend_options.h"
 #include "runtime/descriptors.h"
@@ -120,7 +119,10 @@ Status OlapScanner::open() {
     auto res = _reader->init(_params);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init reader.[res=%d]", res);
-        return Status("failed to initialize storage reader");
+        std::stringstream ss;
+        ss << "failed to initialize storage reader. tablet=" << _params.olap_table->full_name()
+           << ", res=" << res << ", backend=" << BackendOptions::get_localhost();
+        return Status(ss.str().c_str());
     }
     return Status::OK;
 }
@@ -146,24 +148,15 @@ Status OlapScanner::_init_params(
     // Range
     for (auto& key_range : key_ranges) {
         if (key_range.begin_scan_range.size() == 1 &&
-                key_range.begin_scan_range[0] == NEGATIVE_INFINITY) {
+                key_range.begin_scan_range.get_value(0) == NEGATIVE_INFINITY) {
             continue;
         }
 
         _params.range = (key_range.begin_include ? "ge" : "gt");
         _params.end_range = (key_range.end_include ? "le" : "lt");
 
-        TFetchStartKey start_key;
-        for (auto key : key_range.begin_scan_range) {
-            start_key.key.push_back(key);
-        }
-        _params.start_key.push_back(start_key);
-
-        TFetchEndKey end_key;
-        for (auto key : key_range.end_scan_range) {
-            end_key.key.push_back(key);
-        }
-        _params.end_key.push_back(end_key);
+        _params.start_key.push_back(key_range.begin_scan_range);
+        _params.end_key.push_back(key_range.end_scan_range);
     }
 
     // TODO(zc)

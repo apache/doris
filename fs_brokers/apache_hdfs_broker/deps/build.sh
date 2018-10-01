@@ -35,7 +35,7 @@ fi
 
 if [ ! -f bin/thrift ];then
     echo "thrift is not found."
-    echo "You need to copy thrift binary file from 'thirdparty/installed/bin/thrift' to $CURDIR/bin/"
+    echo "You need to copy thrift binary file from '$CURDIR/../../../thirdparty/installed/bin/thrift' to $CURDIR/bin/"
     exit 1
 fi
 

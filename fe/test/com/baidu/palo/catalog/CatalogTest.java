@@ -20,14 +20,22 @@
 
 package com.baidu.palo.catalog;
 
-import com.baidu.palo.common.FeConstants;
-import com.baidu.palo.alter.AlterJob.JobType;
 import com.baidu.palo.alter.AlterJob;
+import com.baidu.palo.alter.AlterJob.JobType;
 import com.baidu.palo.alter.SchemaChangeJob;
 import com.baidu.palo.catalog.MaterializedIndex.IndexState;
+import com.baidu.palo.cluster.Cluster;
+import com.baidu.palo.common.FeConstants;
 import com.baidu.palo.load.Load;
 import com.baidu.palo.load.LoadJob;
-import com.baidu.palo.cluster.Cluster;
+
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
+import org.powermock.core.classloader.annotations.PrepareForTest;
+import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
@@ -42,14 +50,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
-
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore("org.apache.log4j.*")
@@ -170,7 +170,7 @@ public class CatalogTest {
         field.set(catalog, new Load());
 
         LoadJob job1 = new LoadJob("label1", 20, 0);
-        catalog.getLoadInstance().unprotectAddLoadJob(job1);
+        catalog.getLoadInstance().unprotectAddLoadJob(job1, true);
         long checksum1 = catalog.saveLoadJob(dos, 0);
         catalog.clear();
         catalog = null;

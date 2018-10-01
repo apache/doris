@@ -29,7 +29,7 @@ ROOT=`dirname "$0"`
 ROOT=`cd "$ROOT"; pwd`
 export PALO_HOME=$ROOT
 
-PARALLEL=8
+PARALLEL=2
 
 # Check java version
 if [ -z $JAVA_HOME ]; then

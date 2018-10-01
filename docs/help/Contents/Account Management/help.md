@@ -12,7 +12,7 @@ CREATE USER 命令用于创建一个 Palo 用户。在 Palo 中，一个 user_id
     
 host 部分也可指定为 domain，语法为：'user_name'@['domain']，即使用中括号包围，则 Palo 会认为这个是一个 domain，并尝试解析其 ip 地址。目前仅支持百度内部的 BNS 解析。
     
-如果指定了角色（ROLE），则会自动将该角色所拥有的权限赋予新创建的这个用户。如果不指定，则该用户默认没有任何权限。
+如果指定了角色（ROLE），则会自动将该角色所拥有的权限赋予新创建的这个用户。如果不指定，则该用户默认没有任何权限。指定的 ROLE 必须已经存在。
 
 ## example
 
@@ -39,6 +39,10 @@ host 部分也可指定为 domain，语法为：'user_name'@['domain']，即使�
 5. 创建一个允许从域名 'example_domain' 登陆的用户
 
     CREATE USER 'jack'@['example_domain'] IDENTIFIED BY '12345';
+
+6. 创建一个用户，并指定一个角色
+
+    CREATE USER 'jack'@'%' IDENTIFIED BY '12345' DEFAULT ROLE 'my_role';
 
 ## keyword
     CREATE, USER
@@ -140,7 +144,7 @@ user_identity：
         
     3. 授予指定库表的权限给角色
 
-        GRANT ADMIN_PRIV ON db1.* TO ROLE admin_role
+        GRANT LOAD_PRIV ON db1.* TO ROLE my_role;
 
 ## keyword
    GRANT

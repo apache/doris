@@ -304,12 +304,14 @@ public abstract class BaseAction implements IAction {
         }
         encodedAuthString = parts[1];
         ByteBuf buf = null;
+        ByteBuf decodeBuf = null;
         try {
             buf = Unpooled.copiedBuffer(ByteBuffer.wrap(encodedAuthString.getBytes()));
 
             // The authString is a string connecting user-name and password with
             // a colon(':')
-            String authString = Base64.decode(buf).toString(CharsetUtil.UTF_8);
+            decodeBuf = Base64.decode(buf);
+            String authString = decodeBuf.toString(CharsetUtil.UTF_8);
             // Note that password may contain colon, so can not simply use a
             // colon to split.
             int index = authString.indexOf(":");
@@ -326,10 +328,14 @@ public abstract class BaseAction implements IAction {
             authInfo.password = authString.substring(index + 1);
             authInfo.remoteIp = request.getHostString();
         } finally {
-            // release the buf after using Unpooled.copiedBuffer
+            // release the buf and decode buf after using Unpooled.copiedBuffer
             // or it will get memory leak
             if (buf != null) {
                 buf.release();
+            }
+
+            if (decodeBuf != null) {
+                decodeBuf.release();
             }
         }
         return true;
