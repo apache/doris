@@ -93,7 +93,7 @@ public class ClientContextManager {
     }
     
     public synchronized void removeInputStream(TBrokerFD fd) {
-        String clientId = fdToClientMap.get(fd);
+        String clientId = fdToClientMap.remove(fd);
         if (clientId == null) {
             return;
         }
@@ -109,7 +109,7 @@ public class ClientContextManager {
     }
     
     public synchronized void removeOutputStream(TBrokerFD fd) {
-        String clientId = fdToClientMap.get(fd);
+        String clientId = fdToClientMap.remove(fd);
         if (clientId == null) {
             return;
         }

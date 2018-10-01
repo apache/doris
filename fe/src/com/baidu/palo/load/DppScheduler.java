@@ -41,7 +41,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -108,7 +107,7 @@ public class DppScheduler {
         String etlJobId = null;
         TStatus status = new TStatus();
         status.setStatus_code(TStatusCode.OK);
-        List<String> failMsgs = new ArrayList<String>();
+        List<String> failMsgs = Lists.newArrayList();
         status.setError_msgs(failMsgs);
 
         // check dpp lock map
@@ -122,7 +121,9 @@ public class DppScheduler {
                 try {
                     prepareDppApplications();
                 } catch (LoadException e) {
-                    return null;
+                    status.setStatus_code(TStatusCode.CANCELLED);
+                    failMsgs.add(e.getMessage());
+                    return new EtlSubmitResult(status, null);
                 }
             }
         }
@@ -131,12 +132,18 @@ public class DppScheduler {
         String configDirPath = JOB_CONFIG_DIR + "/" + jobId;
         File configDir = new File(configDirPath);
         if (!Util.deleteDirectory(configDir)) {
-            LOG.warn("delete config dir error. job[{}]", jobId);
-            return null;
+            String errMsg = "delete config dir error. job: " + jobId;
+            LOG.warn(errMsg + ", path: {}", configDirPath);
+            status.setStatus_code(TStatusCode.CANCELLED);
+            failMsgs.add(errMsg);
+            return new EtlSubmitResult(status, null);
         }
         if (!configDir.mkdirs()) {
-            LOG.warn("create config file dir error. job[{}]", jobId);
-            return null;
+            String errMsg = "create config file dir error. job: " + jobId;
+            LOG.warn(errMsg + ", path: {}", configDirPath);
+            status.setStatus_code(TStatusCode.CANCELLED);
+            failMsgs.add(errMsg);
+            return new EtlSubmitResult(status, null);
         }
         File configFile = new File(configDirPath + "/" + JOB_CONFIG_FILE);
         BufferedWriter bw = null;
@@ -147,15 +154,21 @@ public class DppScheduler {
             bw.flush();
         } catch (IOException e) {
             Util.deleteDirectory(configDir);
-            LOG.warn("create config file error. job[" + jobId + "]", e);
-            return null;
+
+            String errMsg = "create config file error. job: " + jobId;
+            LOG.warn(errMsg + ", file: {}", configDirPath + "/" + JOB_CONFIG_FILE);
+            status.setStatus_code(TStatusCode.CANCELLED);
+            failMsgs.add(errMsg);
+            return new EtlSubmitResult(status, null);
         } finally {
             if (bw != null) {
                 try {
                     bw.close();
                 } catch (IOException e) {
                     LOG.warn("close buffered writer error", e);
-                    return null;
+                    status.setStatus_code(TStatusCode.CANCELLED);
+                    failMsgs.add(e.getMessage());
+                    return new EtlSubmitResult(status, null);
                 }
             }
         }
@@ -169,8 +182,8 @@ public class DppScheduler {
         try {
             reduceNumByInputSize = calcReduceNumByInputSize(inputPaths);
         } catch (InputSizeInvalidException e) {
-            failMsgs.add(e.getMessage());
             status.setStatus_code(TStatusCode.CANCELLED);
+            failMsgs.add(e.getMessage());
             return new EtlSubmitResult(status, null);
         }
         int reduceNumByTablet = calcReduceNumByTablet(jobConf);
@@ -218,7 +231,9 @@ public class DppScheduler {
             }
         } catch (IOException e) {
             LOG.warn("submit etl job error", e);
-            return null;
+            status.setStatus_code(TStatusCode.CANCELLED);
+            failMsgs.add(e.getMessage());
+            return new EtlSubmitResult(status, null);
         } finally {
             Util.deleteDirectory(configDir);
             long endTime = System.currentTimeMillis();
@@ -228,7 +243,9 @@ public class DppScheduler {
                     errorReader.close();
                 } catch (IOException e) {
                     LOG.warn("close buffered reader error", e);
-                    return null;
+                    status.setStatus_code(TStatusCode.CANCELLED);
+                    failMsgs.add(e.getMessage());
+                    return new EtlSubmitResult(status, null);
                 }
             }
         }

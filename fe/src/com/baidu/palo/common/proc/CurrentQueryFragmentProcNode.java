@@ -169,9 +169,9 @@ public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
         sortedRowDatas.sort(new Comparator<List<String>>() {
             @Override
             public int compare(List<String> l1, List<String> l2) {
-                final int fragmentId1 = Integer.valueOf(l1.get(0));
-                final int fragmentId2 = Integer.valueOf(l2.get(0));
-                return fragmentId1 >= fragmentId2 ? 1 : -1;
+                final Integer fragmentId1 = Integer.valueOf(l1.get(0));
+                final Integer fragmentId2 = Integer.valueOf(l2.get(0));
+                return fragmentId1.compareTo(fragmentId2);
             }
         });
         final BaseProcResult result = new BaseProcResult();

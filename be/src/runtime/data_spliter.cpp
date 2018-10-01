@@ -21,6 +21,7 @@
 
 #include "exprs/expr.h"
 #include "common/object_pool.h"
+#include "service/backend_options.h"
 #include "runtime/runtime_state.h"
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
@@ -297,7 +298,8 @@ Status DataSpliter::close(RuntimeState* state, Status close_status) {
         Status status = iter->finish(state);
         if (UNLIKELY(is_ok && !status.ok())) {
             LOG(WARNING) << "finish dpp_sink error"
-                    << " err_msg=" << status.get_error_msg();
+                    << " err_msg=" << status.get_error_msg()
+                    << " backend=" << BackendOptions::get_localhost();
             is_ok = false;
             err_status = status;
         }

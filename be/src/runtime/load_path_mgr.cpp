@@ -29,7 +29,10 @@
 
 namespace palo {
 
-LoadPathMgr::LoadPathMgr() : _idx(0) { }
+static const uint32_t MAX_SHARD_NUM = 1024;
+static const std::string SHARD_PREFIX = "__shard_";
+
+LoadPathMgr::LoadPathMgr() : _idx(0), _next_shard(0) { }
 
 Status LoadPathMgr::init() {
     OLAPRootPath::RootPathVec all_available_root_path;
@@ -75,14 +78,18 @@ Status LoadPathMgr::allocate_dir(
     Status status = Status::OK;
     while (retry--) {
         {
+            // add SHARD_PREFIX for compatible purpose
             std::lock_guard<std::mutex> l(_lock);
-            path = _path_vec[_idx] + "/" + db + "/" + label;
+            std::string shard = SHARD_PREFIX + std::to_string(_next_shard++ % MAX_SHARD_NUM);
+            path = _path_vec[_idx] + "/" + db + "/" + shard + "/" + label;
             _idx = (_idx + 1) % size;
         }
         status = FileUtils::create_dir(path);
         if (LIKELY(status.ok())) {
             *prefix = path;
             return Status::OK;
+        } else {
+            LOG(WARNING) << "create dir failed:" << path << ", error msg:" << status.get_error_msg();
         }
     }
 
@@ -134,6 +141,19 @@ std::string LoadPathMgr::get_load_error_absolute_path(const std::string& file_na
     return path;
 }
 
+void LoadPathMgr::process_label_dir(time_t now, const std::string& label_dir) {
+    if (!is_too_old(now, label_dir)) {
+        return;
+    }
+    LOG(INFO) << "Going to remove load directory. path=" << label_dir;
+    Status status = FileUtils::remove_all(label_dir);
+    if (status.ok()) {
+        LOG(INFO) << "Remove load directory success. path=" << label_dir;
+    } else {
+        LOG(WARNING) << "Remove load directory failed. path=" << label_dir;
+    }
+}
+
 void LoadPathMgr::clean_one_path(const std::string& path) {
     std::vector<std::string> dbs;
     Status status = FileUtils::scan_dir(path, &dbs);
@@ -145,24 +165,32 @@ void LoadPathMgr::clean_one_path(const std::string& path) {
     time_t now = time(nullptr);
     for (auto& db : dbs) {
         std::string db_dir = path + "/" + db;
-        std::vector<std::string> labels;
-        status = FileUtils::scan_dir(db_dir, &labels);
+        std::vector<std::string> sub_dirs;
+        status = FileUtils::scan_dir(db_dir, &sub_dirs);
         if (!status.ok()) {
             LOG(WARNING) << "scan db of trash dir failed, continue. dir=" << db_dir;
             continue;
         }
         // delete this file
-        for (auto& label : labels) {
-            std::string label_dir = db_dir + "/" + label;
-            if (!is_too_old(now, label_dir)) {
-                continue;
-            }
-            LOG(INFO) << "Going to remove load directory. path=" << label_dir;
-            status = FileUtils::remove_all(label_dir);
-            if (status.ok()) {
-                LOG(INFO) << "Remove load directory success. path=" << label_dir;
+        for (auto& sub_dir : sub_dirs) {
+            std::string sub_path = db_dir + "/" + sub_dir;
+            // for compatible
+            if (sub_dir.find(SHARD_PREFIX) == 0) {
+                // sub_dir starts with SHARD_PREFIX
+                // process shard sub dir
+                std::vector<std::string> labels;
+                Status status = FileUtils::scan_dir(sub_path, &labels);
+                if (!status.ok()) {
+                    LOG(WARNING) << "scan one path to delete directory failed. path=" << path;
+                    continue;
+                }
+                for (auto& label : labels) {
+                    std::string label_dir = sub_path + "/" + label;
+                    process_label_dir(now, label_dir);
+                }
             } else {
-                LOG(WARNING) << "Remove load directory failed. path=" << label_dir;
+                // process label dir
+                process_label_dir(now, sub_path);
             }
         }
     }

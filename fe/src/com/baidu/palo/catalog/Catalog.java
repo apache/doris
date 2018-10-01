@@ -410,7 +410,6 @@ public class Catalog {
 
         this.auth = new PaloAuth();
         this.domainResolver = new DomainResolver(auth);
-        this.domainResolver.start();
     }
 
     public static void destroyCheckpoint() {
@@ -979,6 +978,7 @@ public class Catalog {
             deployManager.start();
         }
 
+        domainResolver.start();
         MetricRepo.init();
     }
 
@@ -1014,6 +1014,7 @@ public class Catalog {
         }
 
         formerFeType = feType;
+        domainResolver.start();
         MetricRepo.init();
     }
 
@@ -1288,7 +1289,7 @@ public class Catalog {
                 // This job must be FINISHED or CANCELLED
                 if ((currentTimeMs - job.getCreateTimeMs()) / 1000 <= Config.label_keep_max_second
                         || (job.getState() != JobState.FINISHED && job.getState() != JobState.CANCELLED)) {
-                    load.unprotectAddLoadJob(job);
+                    load.unprotectAddLoadJob(job, true /* replay */);
                 }
             }
         }

@@ -21,8 +21,8 @@ ROOT=`cd "$ROOT"; pwd`
 
 # check java version
 if [ -z $JAVA_HOME ]; then
-    echo "Error: JAVA_HOME is not set."
-    exit 1
+    echo "Error: JAVA_HOME is not set, use thirdparty/installed/jdk1.8.0_131"
+    export JAVA_HOME=${ROOT}/../../thirdparty/installed/jdk1.8.0_131
 fi
 JAVA=${JAVA_HOME}/bin/java
 JAVA_VER=$(${JAVA} -version 2>&1 | sed 's/.* version "\(.*\)\.\(.*\)\..*"/\1\2/; 1q' | cut -f1 -d " ")

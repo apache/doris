@@ -764,22 +764,16 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
         }
         
         res = _keys_param.start_keys[i]->init_scan_key(_olap_table->tablet_schema(),
-                                              read_params.start_key[i].key);
+                                                       read_params.start_key[i].values());
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init row cursor. [res=%d]", res);
             return res;
         }
         
-        res = _keys_param.start_keys[i]->from_string(read_params.start_key[i].key);
+        res = _keys_param.start_keys[i]->from_tuple(read_params.start_key[i]);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init row cursor from Keys. [res=%d key_index=%ld]", res, i);
             return res;
-        }
-        for (size_t j = 0; j < _keys_param.start_keys[i]->field_count(); ++j) {
-            if (_olap_table->tablet_schema()[j].is_allow_null
-                && _keys_param.start_keys[i]->is_min(j)) {
-                _keys_param.start_keys[i]->set_null(j);
-            }
         }
     }
 
@@ -792,13 +786,13 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
         }
         
         res = _keys_param.end_keys[i]->init_scan_key(_olap_table->tablet_schema(),
-                                            read_params.end_key[i].key);
+                                                     read_params.end_key[i].values());
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init row cursor. [res=%d]", res);
             return res;
         }
         
-        res = _keys_param.end_keys[i]->from_string(read_params.end_key[i].key);
+        res = _keys_param.end_keys[i]->from_tuple(read_params.end_key[i]);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init row cursor from Keys. [res=%d key_index=%ld]", res, i);
             return res;
@@ -1085,14 +1079,14 @@ OLAPStatus Reader::_init_load_bf_columns(const ReaderParams& read_params) {
     // remove columns which have same value between start_key and end_key
     int min_scan_key_len = _olap_table->tablet_schema().size();
     for (int i = 0; i < read_params.start_key.size(); ++i) {
-        if (read_params.start_key[i].key.size() < min_scan_key_len) {
-            min_scan_key_len = read_params.start_key[i].key.size();
+        if (read_params.start_key[i].size() < min_scan_key_len) {
+            min_scan_key_len = read_params.start_key[i].size();
         }
     }
 
     for (int i = 0; i < read_params.end_key.size(); ++i) {
-        if (read_params.end_key[i].key.size() < min_scan_key_len) {
-            min_scan_key_len = read_params.end_key[i].key.size();
+        if (read_params.end_key[i].size() < min_scan_key_len) {
+            min_scan_key_len = read_params.end_key[i].size();
         }
     }
 
@@ -1100,7 +1094,7 @@ OLAPStatus Reader::_init_load_bf_columns(const ReaderParams& read_params) {
     for (int i = 0; i < read_params.start_key.size(); ++i) {
         int j = 0;
         for (; j < min_scan_key_len; ++j) {
-            if (read_params.start_key[i].key[j] != read_params.end_key[i].key[j]) {
+            if (read_params.start_key[i].get_value(j) != read_params.end_key[i].get_value(j)) {
                 break;
             }
         }

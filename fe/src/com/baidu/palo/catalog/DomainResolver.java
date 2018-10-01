@@ -33,6 +33,7 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DomainResolver extends Daemon {
     private static final Logger LOG = LogManager.getLogger(DomainResolver.class);
@@ -40,9 +41,18 @@ public class DomainResolver extends Daemon {
 
     private PaloAuth auth;
 
+    private AtomicBoolean isStart = new AtomicBoolean(false);
+
     public DomainResolver(PaloAuth auth) {
         super("domain resolver", 10 * 1000);
         this.auth = auth;
+    }
+
+    @Override
+    public synchronized void start() {
+        if (isStart.compareAndSet(false, true)) {
+            super.start();
+        }
     }
 
     @Override
@@ -116,7 +126,7 @@ public class DomainResolver extends Daemon {
     public boolean resolveWithBNS(String domainName, Set<String> resolvedIPs) {
         File binaryFile = new File(BNS_RESOLVER_TOOLS_PATH);
         if (!binaryFile.exists()) {
-            LOG.warn("{} does not exist", BNS_RESOLVER_TOOLS_PATH);
+            LOG.info("{} does not exist", BNS_RESOLVER_TOOLS_PATH);
             return false;
         }
 

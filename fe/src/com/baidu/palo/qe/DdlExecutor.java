@@ -52,6 +52,7 @@ import com.baidu.palo.analysis.RevokeStmt;
 import com.baidu.palo.analysis.SetUserPropertyStmt;
 import com.baidu.palo.analysis.SyncStmt;
 import com.baidu.palo.catalog.Catalog;
+import com.baidu.palo.common.Config;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.load.LoadJob.EtlJobType;
 
@@ -89,6 +90,10 @@ public class DdlExecutor {
             if (loadStmt.getBrokerDesc() != null) {
                 jobType = EtlJobType.BROKER;
             } else {
+                if (Config.disable_hadoop_load) {
+                    throw new DdlException("Load job by hadoop cluster is disabled."
+                            + " Try use broker load. See 'help broker load;'");
+                }
                 jobType = EtlJobType.HADOOP;
             }
             catalog.getLoadInstance().addLoadJob(loadStmt, jobType, System.currentTimeMillis());

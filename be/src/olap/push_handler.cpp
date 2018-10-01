@@ -211,8 +211,8 @@ OLAPStatus PushHandler::process(
 
             res = table_var.olap_table->save_header();
             if (res != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("fail to save header. [res=%d table='%s']",
-                                 res, table_var.olap_table->full_name().c_str());
+                LOG(FATAL) << "fail to save header. res=" << res << ", "
+                           << "table=" << table_var.olap_table->full_name();
                 goto EXIT;
             }
         }
@@ -635,8 +635,8 @@ OLAPStatus PushHandler::_update_header(
     // Note we don't return fail here.
     res = olap_table->save_header();
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_FATAL("fail to save header. [res=%d table='%s']",
-                       res, olap_table->full_name().c_str());
+        LOG(FATAL) << "fail to save header. res=" << res << ", "
+                   << "table=" << olap_table->full_name();
     }
 
     return res;
@@ -670,8 +670,8 @@ OLAPStatus PushHandler::_clear_alter_table_info(
         
         res = tablet->save_header();
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_FATAL("fail to save header. [res=%d table='%s']",
-                           res, tablet->full_name().c_str());
+            LOG(FATAL) << "fail to save header. res=" << res << ", "
+                       << "table=" << tablet->full_name();
             break;
         }
 
@@ -690,8 +690,8 @@ OLAPStatus PushHandler::_clear_alter_table_info(
             
             res = related_tablet->save_header();
             if (res != OLAP_SUCCESS) {
-                OLAP_LOG_FATAL("fail to save header. [res=%d table='%s']",
-                               res, related_tablet->full_name().c_str());
+                LOG(FATAL) << "fail to save header. res=" << res << ", "
+                           << "table=" << related_tablet->full_name();
                 break;
             }
         }

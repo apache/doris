@@ -780,10 +780,10 @@ OLAPIndex* OLAPTable::_get_largest_index() {
 }
 
 OLAPStatus OLAPTable::split_range(
-        const vector<string>& start_key_strings,
-        const vector<string>& end_key_strings,
+        const OlapTuple& start_key_strings,
+        const OlapTuple& end_key_strings,
         uint64_t request_block_row_count,
-        std::vector<std::vector<std::string>>* ranges) {
+        std::vector<OlapTuple>* ranges) {
     if (ranges == NULL) {
         OLAP_LOG_WARNING("parameter end_row is null.");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
@@ -805,12 +805,12 @@ OLAPStatus OLAPTable::split_range(
 
     // 如果有startkey，用startkey初始化；反之则用minkey初始化
     if (start_key_strings.size() > 0) {
-        if (start_key.init_scan_key(_tablet_schema, start_key_strings) != OLAP_SUCCESS) {
+        if (start_key.init_scan_key(_tablet_schema, start_key_strings.values()) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to initial key strings with RowCursor type.");
             return OLAP_ERR_INIT_FAILED;
         }
 
-        if (start_key.from_string(start_key_strings) != OLAP_SUCCESS) {
+        if (start_key.from_tuple(start_key_strings) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("init end key failed");
             return OLAP_ERR_INVALID_SCHEMA;
         }
@@ -826,12 +826,12 @@ OLAPStatus OLAPTable::split_range(
 
     // 和startkey一样处理，没有则用maxkey初始化
     if (end_key_strings.size() > 0) {
-        if (OLAP_SUCCESS != end_key.init_scan_key(_tablet_schema, end_key_strings)) {
+        if (OLAP_SUCCESS != end_key.init_scan_key(_tablet_schema, end_key_strings.values())) {
             OLAP_LOG_WARNING("fail to parse strings to key with RowCursor type.");
             return OLAP_ERR_INVALID_SCHEMA;
         }
 
-        if (end_key.from_string(end_key_strings) != OLAP_SUCCESS) {
+        if (end_key.from_tuple(end_key_strings) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("init end key failed");
             return OLAP_ERR_INVALID_SCHEMA;
         }
@@ -852,8 +852,8 @@ OLAPStatus OLAPTable::split_range(
     if (base_index == NULL) {
         OLAP_LOG_DEBUG("there is no base file now, may be tablet is empty.");
         // it may be right if the table is empty, so we return success.
-        ranges->push_back(start_key.to_string_vector());
-        ranges->push_back(end_key.to_string_vector());
+        ranges->emplace_back(start_key.to_tuple());
+        ranges->emplace_back(end_key.to_tuple());
         return OLAP_SUCCESS;
     }
 
@@ -906,7 +906,7 @@ OLAPStatus OLAPTable::split_range(
     last_start_key.allocate_memory_for_string_type(_tablet_schema);
     last_start_key.copy_without_pool(cur_start_key);
     // start_key是last start_key, 但返回的实际上是查询层给出的key
-    ranges->push_back(start_key.to_string_vector());
+    ranges->emplace_back(start_key.to_tuple());
 
     while (end_pos > step_pos) {
         res = base_index->advance_row_block(expected_rows, &step_pos);
@@ -924,65 +924,13 @@ OLAPStatus OLAPTable::split_range(
         cur_start_key.attach(entry.data);
 
         if (cur_start_key.cmp(last_start_key) != 0) {
-            ranges->push_back(cur_start_key.to_string_vector()); // end of last section
-            ranges->push_back(cur_start_key.to_string_vector()); // start a new section
+            ranges->emplace_back(cur_start_key.to_tuple()); // end of last section
+            ranges->emplace_back(cur_start_key.to_tuple()); // start a new section
             last_start_key.copy_without_pool(cur_start_key);
         }
     }
 
-    ranges->push_back(end_key.to_string_vector());
-
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus OLAPTable::_get_block_pos(const vector<string>& key_strings,
-                                 bool is_start_key,
-                                 OLAPIndex* base_index,
-                                 bool find_last,
-                                 RowBlockPosition* pos) {
-    if (key_strings.size() == 0) {
-        if (is_start_key) {
-            if (base_index->find_first_row_block(pos) != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("fail to find first row block.");
-                return OLAP_ERR_TABLE_INDEX_FIND_ERROR;
-            }
-
-            OLAP_LOG_DEBUG("get first row block. [pos='%s']", pos->to_string().c_str());
-        } else {
-            if (base_index->find_last_row_block(pos) != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("fail to find last row block.");
-                return OLAP_ERR_TABLE_INDEX_FIND_ERROR;
-            }
-
-            OLAP_LOG_DEBUG("get last row block. [pos='%s']", pos->to_string().c_str());
-        }
-
-        return OLAP_SUCCESS;
-    }
-
-    RowCursor key;
-    if (key.init(_tablet_schema, key_strings.size()) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to initial key strings with RowCursor type.");
-        return OLAP_ERR_INIT_FAILED;
-    }
-    if (key.from_string(key_strings) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to parse strings to key with RowCursor type.");
-        return OLAP_ERR_INVALID_SCHEMA;
-    }
-
-    RowCursor helper_cursor;
-    if (helper_cursor.init(_tablet_schema, num_short_key_fields()) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to init helper cursor.");
-        return OLAP_ERR_INIT_FAILED;
-    }
-
-    OLAP_LOG_DEBUG("show num_short_key_field. [num=%lu]", num_short_key_fields());
-
-    // get the row block position.
-    if (base_index->find_row_block(key, &helper_cursor, find_last, pos) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to find row block. [key='%s']", key.to_string().c_str());
-        return OLAP_ERR_TABLE_INDEX_FIND_ERROR;
-    }
+    ranges->emplace_back(end_key.to_tuple());
 
     return OLAP_SUCCESS;
 }

@@ -25,7 +25,8 @@ import com.baidu.palo.load.LoadJob;
 import com.baidu.palo.load.LoadJob.JobState;
 import com.baidu.palo.thrift.TStatusCode;
 
-import org.apache.commons.lang.StringUtils;
+import com.google.common.base.Joiner;
+
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
@@ -94,8 +95,9 @@ public abstract class LoadPendingTask extends MasterTask {
         String failMsg = "submit etl job fail";
         if (result != null) {
             List<String> failMsgs = result.getStatus().getError_msgs();
-            failMsg = StringUtils.join(failMsgs, ";");
+            failMsg = Joiner.on(";").join(failMsgs);
         }
+
         load.cancelLoadJob(job, CancelType.ETL_SUBMIT_FAIL, failMsg);
         LOG.warn("submit etl job fail. job: {}", job);
     }

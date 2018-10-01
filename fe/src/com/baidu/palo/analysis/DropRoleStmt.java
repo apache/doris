@@ -35,7 +35,7 @@ public class DropRoleStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
         super.analyze(analyzer);
-        FeNameFormat.checkRoleName(role, false /* can not be superuser */);
+        FeNameFormat.checkRoleName(role, false /* can not be superuser */, "Can not drop role");
         role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
     }
 

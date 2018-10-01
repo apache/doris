@@ -127,7 +127,7 @@ public class CreateUserStmt extends DdlStmt {
                 // for forward compatibility
                 role = PaloRole.ADMIN_ROLE;
             }
-            FeNameFormat.checkRoleName(role, true /* can be admin */);
+            FeNameFormat.checkRoleName(role, true /* can be admin */, "Can not granted user to role");
             role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
         }
 

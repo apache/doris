@@ -26,6 +26,7 @@ import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.mysql.MysqlPassword;
+import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.qe.ConnectContext;
 
@@ -75,7 +76,13 @@ public class SetPassVar extends SetVar {
             return;
         }
 
-        // 2. user has grant privs
+        // 2. No user can set password for root expect for root user itself
+        if (userIdent.getQualifiedUser().equals(PaloAuth.ROOT_USER)
+                && !ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()).equals(PaloAuth.ROOT_USER)) {
+            throw new AnalysisException("Can not set password for root user, except root itself");
+        }
+
+        // 3. user has grant privs
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
         }

@@ -27,10 +27,10 @@ import java.io.IOException;
 import java.util.List;
 
 // ....0000000000
-//         ^    ^
-//         |    |
-//         |    -- first priv(0)
-//         |-------last priv(6)
+//        ^     ^
+//        |     |
+//        |     -- first priv(0)
+//        |--------last priv(7)
 public class PrivBitSet implements Writable {
 
     private long set = 0;

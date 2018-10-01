@@ -23,6 +23,7 @@ import com.baidu.palo.catalog.Table;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.AuditLog;
+import com.baidu.palo.common.AuthorizationException;
 import com.baidu.palo.common.CaseSensibility;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.DdlException;
@@ -458,6 +459,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TFeResult loadCheck(TLoadCheckRequest request) throws TException {
         LOG.info("Load check request is {}", request);
 
+
         TStatus status = new TStatus(TStatusCode.OK);
         TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
         String cluster;
@@ -469,8 +471,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         final String dbFullName = ClusterNamespace.getFullName(cluster, request.db);
 
-        request.setUser(request.user);
-        request.setDb(dbFullName);
+        try {
+            checkPasswordAndPrivs(cluster, request.user, request.passwd, request.db, request.tbl, request.user_ip,
+                                  PrivPredicate.LOAD);
+        } catch (AuthorizationException e) {
+            status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
+            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+            return result;
+        }
 
         if (request.isSetLabel()) {
             // Only single table will be set label
@@ -491,4 +499,25 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         return result;
     }
+
+    private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, String tbl,
+            String clientIp, PrivPredicate predicate) throws AuthorizationException {
+
+        final String fullUserName = ClusterNamespace.getFullName(cluster, user);
+        final String fullDbName = ClusterNamespace.getFullName(cluster, db);
+
+        if (!Catalog.getCurrentCatalog().getAuth().checkPlainPassword(fullUserName,
+                                                                      clientIp,
+                                                                      passwd)) {
+            throw new AuthorizationException("Access denied for "
+                    + fullUserName + "@" + clientIp);
+        }
+
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(clientIp, fullDbName,
+                                                                fullUserName, tbl, predicate)) {
+            throw new AuthorizationException(
+                    "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
+        }
+    }
 }
+

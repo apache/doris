@@ -28,6 +28,7 @@
 #include "olap/field.h"
 #include "olap/olap_define.h"
 #include "olap/olap_header.h"
+#include "olap/tuple.h"
 #include "olap/row_cursor.h"
 #include "olap/utils.h"
 
@@ -567,10 +568,10 @@ public:
     }
 
     OLAPStatus split_range(
-            const std::vector<std::string>& start_key_strings,
-            const std::vector<std::string>& end_key_strings,
+            const OlapTuple& start_key_strings,
+            const OlapTuple& end_key_strings,
             uint64_t request_block_row_count,
-            std::vector<std::vector<std::string>>* ranges);
+            std::vector<OlapTuple>* ranges);
 
     uint32_t segment_size() const {
         return _header->segment_size();
@@ -662,14 +663,6 @@ private:
     typedef std::unordered_map<Version, OLAPIndex*, HashOfVersion> version_olap_index_map_t;
 
     explicit OLAPTable(OLAPHeader* header);
-
-    // Get block pos in base file according to key_strings.
-    // pos is returned when succeed.
-    OLAPStatus _get_block_pos(const std::vector<std::string>& key_strings,
-                          bool is_start_key,
-                          OLAPIndex* base_index,
-                          bool find_last,
-                          RowBlockPosition* pos);
 
     // List files with suffix "idx" or "dat".
     void _list_files_with_suffix(const std::string& file_suffix,

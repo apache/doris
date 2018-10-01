@@ -121,72 +121,73 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
         void* item = _output_expr_ctxs[i]->get_value(row);
         if (item == nullptr) {
             (*ss) << "NULL";
-            continue;
-        }
-        switch (_output_expr_ctxs[i]->root()->type().type) {
-        case TYPE_BOOLEAN:
-        case TYPE_TINYINT:
-            (*ss) << (int)*static_cast<int8_t*>(item);
-            break;
-        case TYPE_SMALLINT:
-            (*ss) << *static_cast<int16_t*>(item);
-            break;
-        case TYPE_INT:
-            (*ss) << *static_cast<int32_t*>(item);
-            break;
-        case TYPE_BIGINT:
-            (*ss) << *static_cast<int64_t*>(item);
-            break;
-        case TYPE_LARGEINT:
-            (*ss) << reinterpret_cast<PackedInt128*>(item)->value;
-            break;
-        case TYPE_FLOAT:
-            (*ss) << *static_cast<float*>(item);
-            break;
-        case TYPE_DOUBLE:
-            (*ss) << *static_cast<double*>(item);
-            break;
-        case TYPE_DATE:
-        case TYPE_DATETIME: {
-            char buf[64];
-            const DateTimeValue* time_val = (const DateTimeValue*)(item);
-            time_val->to_string(buf);
-            (*ss) << buf;
-            break;
-        }
-        case TYPE_VARCHAR:
-        case TYPE_CHAR: {
-            const StringValue* string_val = (const StringValue*)(item);
-
-            if (string_val->ptr == NULL) {
-                if (string_val->len == 0) {
-                } else {
-                    (*ss) << "NULL";
+        } else {
+            switch (_output_expr_ctxs[i]->root()->type().type) {
+                case TYPE_BOOLEAN:
+                case TYPE_TINYINT:
+                    (*ss) << (int)*static_cast<int8_t*>(item);
+                    break;
+                case TYPE_SMALLINT:
+                    (*ss) << *static_cast<int16_t*>(item);
+                    break;
+                case TYPE_INT:
+                    (*ss) << *static_cast<int32_t*>(item);
+                    break;
+                case TYPE_BIGINT:
+                    (*ss) << *static_cast<int64_t*>(item);
+                    break;
+                case TYPE_LARGEINT:
+                    (*ss) << reinterpret_cast<PackedInt128*>(item)->value;
+                    break;
+                case TYPE_FLOAT:
+                    (*ss) << *static_cast<float*>(item);
+                    break;
+                case TYPE_DOUBLE:
+                    (*ss) << *static_cast<double*>(item);
+                    break;
+                case TYPE_DATE:
+                case TYPE_DATETIME: {
+                    char buf[64];
+                    const DateTimeValue* time_val = (const DateTimeValue*)(item);
+                    time_val->to_string(buf);
+                    (*ss) << buf;
+                    break;
                 }
-            } else {
-                (*ss) << std::string(string_val->ptr, string_val->len);
-            }
-            break;
-        }
-        case TYPE_DECIMAL: {
-            const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
-            std::string decimal_str;
-            int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+                case TYPE_VARCHAR:
+                case TYPE_CHAR: {
+                    const StringValue* string_val = (const StringValue*)(item);
 
-            if (output_scale > 0 && output_scale <= 30) {
-                decimal_str = decimal_val->to_string(output_scale);
-            } else {
-                decimal_str = decimal_val->to_string();
+                    if (string_val->ptr == NULL) {
+                        if (string_val->len == 0) {
+                        } else {
+                            (*ss) << "NULL";
+                        }
+                    } else {
+                        (*ss) << std::string(string_val->ptr, string_val->len);
+                    }
+                    break;
+                }
+                case TYPE_DECIMAL: {
+                    const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
+                    std::string decimal_str;
+                    int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+
+                    if (output_scale > 0 && output_scale <= 30) {
+                        decimal_str = decimal_val->to_string(output_scale);
+                    } else {
+                        decimal_str = decimal_val->to_string();
+                    }
+                    (*ss) << decimal_str;
+                    break;
+                }
+                default: {
+                    std::stringstream err_ss;
+                    err_ss << "can't export this type. type = " << _output_expr_ctxs[i]->root()->type();
+                    return Status(err_ss.str());
+                }
             }
-            (*ss) << decimal_str;
-            break;
         }
-        default: {
-            std::stringstream err_ss;
-            err_ss << "can't export this type. type = " << _output_expr_ctxs[i]->root()->type();
-            return Status(err_ss.str());
-        }
-        }
+
         if (i < num_columns - 1) {
             (*ss) << _t_export_sink.column_separator;
         }

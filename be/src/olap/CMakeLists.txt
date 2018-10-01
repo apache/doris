@@ -23,7 +23,6 @@ add_library(Olap STATIC
     comparison_predicate.cpp
     in_list_predicate.cpp
     null_predicate.cpp
-    olap_reader.cpp
     base_compaction.cpp
     command_executor.cpp
     cumulative_compaction.cpp
