@@ -94,7 +94,7 @@ SegmentReader::~SegmentReader() {
     _file_handler.close();
 
     if (_is_data_loaded && _runtime_state != NULL) {
-        MemTracker::update_limits(_buffer_size * -1, _runtime_state->mem_trackers()); 
+        MemTracker::update_limits(_buffer_size * -1, _runtime_state->mem_trackers());
     }
 
     for (auto& it : _streams) {
@@ -248,7 +248,7 @@ OLAPStatus SegmentReader::seek_to_block(
             OLAP_LOG_WARNING("fail to read data stream");
             return res;
         }
-    
+
         OLAPStatus res = _create_reader(&_buffer_size);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to create reader");
@@ -511,7 +511,7 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
                 --_remain_block;
 
                 if (j < _block_count - 1) {
-                    _stats->rows_stats_filtered += _num_rows_in_block; 
+                    _stats->rows_stats_filtered += _num_rows_in_block;
                 } else {
                     _stats->rows_stats_filtered +=
                         _header_message().number_of_rows() - j * _num_rows_in_block;
@@ -551,7 +551,7 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
                 _include_blocks[j] = DEL_SATISFIED;
                 --_remain_block;
                 if (j < _block_count - 1) {
-                    _stats->rows_stats_filtered += _num_rows_in_block; 
+                    _stats->rows_stats_filtered += _num_rows_in_block;
                 } else {
                     _stats->rows_stats_filtered +=
                         _header_message().number_of_rows() - j * _num_rows_in_block;
@@ -682,7 +682,7 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
                 OLAP_LOG_WARNING("fail to malloc memory. [size=%lu]", sizeof(StreamIndexReader));
                 return OLAP_ERR_MALLOC_ERROR;
             }
-            
+
             res = index_message->init(stream_buffer, stream_length, type, is_using_cache, _null_supported);
             if (OLAP_SUCCESS != res) {
                 OLAP_LOG_WARNING("init index from cahce fail");
@@ -775,6 +775,14 @@ OLAPStatus SegmentReader::_read_all_data_streams(size_t* buffer_size) {
             continue;
         }
 
+        //skip unnecessary stream init
+        //if the query doesn't inclde this column, we needn't init the stream for this column
+        //to reduce the call times for ByteBuffer::create and decrease the TCMalloc pressure
+        if (!_is_column_included(unique_column_id)) {
+            *buffer_size += OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE + sizeof(StreamHead);
+            continue;
+        }
+
         StreamName name(unique_column_id, message.kind());
         std::unique_ptr<ReadOnlyFileStream> stream(new(std::nothrow) ReadOnlyFileStream(
             &_file_handler,
@@ -845,7 +853,7 @@ OLAPStatus SegmentReader::_seek_to_block_directly(
         if (_column_indices[cid] == nullptr) {
             continue;
         }
-        
+
         OLAPStatus res = OLAP_SUCCESS;
         PositionProvider position(&_column_indices[cid]->entry(block_id));
         if (OLAP_SUCCESS != (res = _column_readers[cid]->seek(&position))) {
