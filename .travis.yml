@@ -1,4 +1,7 @@
-language: java
+language: generic
+before_install:
+  - sudo apt-get install curl tar gzip
 script:
   - curl http://palo-opensource.gz.bcebos.com/palo-0.8.0_20170816_ubuntu16.04_gcc540.tar.gz?authorization=bce-auth-v1%2F069fc2786e464e63a5f1183824ddb522%2F2017-08-16T01%3A27%3A47Z%2F-1%2Fhost%2F51bcab1d7a42cbdf3e4df502dada838919bdc7ef6afa7397928425ddc9a724d8 | tar xz -C palo
   - bash build.sh --fe --be
+
