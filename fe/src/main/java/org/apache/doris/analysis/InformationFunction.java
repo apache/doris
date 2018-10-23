@@ -73,7 +73,7 @@ public class InformationFunction extends Expr {
     }
 
     @Override
-    public String toSql() {
+    public String toSqlImpl() {
         return funcType + "()";
     }
 }

@@ -59,7 +59,7 @@ public class ExistsPredicate extends Predicate {
     @Override
     public Expr clone() { return new ExistsPredicate(this); }
 
-    public String toSql() {
+    public String toSqlImpl() {
         StringBuilder strBuilder = new StringBuilder();
         if (notExists) {
             strBuilder.append("NOT ");

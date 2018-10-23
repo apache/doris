@@ -53,7 +53,7 @@ public final class MaxLiteral extends LiteralExpr {
     }
 
     @Override
-    public String toSql() {
+    public String toSqlImpl() {
         return "MAXVALUE";
     }
 

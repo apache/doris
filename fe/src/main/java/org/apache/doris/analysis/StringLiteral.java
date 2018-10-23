@@ -112,7 +112,7 @@ public class StringLiteral extends LiteralExpr {
     }
 
     @Override
-    public String toSql() {
+    public String toSqlImpl() {
         return "'" + value + "'";
     }
 

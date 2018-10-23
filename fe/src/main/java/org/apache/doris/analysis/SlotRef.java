@@ -148,7 +148,7 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public String toSql() {
+    public String toSqlImpl() {
         StringBuilder sb = new StringBuilder();
 
         // if (desc != null) {
