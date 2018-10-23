@@ -3,11 +3,8 @@ before_install:
   - sudo apt-get install g++ ant cmake zip byacc flex automake libtool binutils-dev libiberty-dev bison python2.7 libncurses5-dev
   - sudo updatedb
 script:
-  - pwd
-  - ls
-  - cd palo-ci/palo
-  - wget http://palo-opensource.gz.bcebos.com/palo-thirdparty-20180927.tar.gz?authorization=bce-auth-v1/069fc2786e464e63a5f1183824ddb522/2018-09-27T02:03:00Z/-1/host/d049d39d29749caad0d1d1cbbd66fda409415bbd97baa06e6358f88531bd6619 -O palo-thirdparty.tar.gz
-  - tar -zxf palo-thirdparty.tar.gz
-  - cd -
+  - wget http://palo-opensource.gz.bcebos.com/palo-thirdparty-20180927.tar.gz?authorization=bce-auth-v1/069fc2786e464e63a5f1183824ddb522/2018-09-27T02:03:00Z/-1/host/d049d39d29749caad0d1d1cbbd66fda409415bbd97baa06e6358f88531bd6619 -O thirdparty/palo-thirdparty.tar.gz
+  - tar -zxf thirdparty/palo-thirdparty.tar.gz -C thirdparty
+  - mv thirdparty/palo-thirdparty-* thirdparty/palo-thirdparty || tee
   - bash build.sh --fe --be
 
