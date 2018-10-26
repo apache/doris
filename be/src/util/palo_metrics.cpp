@@ -13,12 +13,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <sys/types.h>
+#include <unistd.h>
+
 #include "util/palo_metrics.h"
 
 #include "util/debug_util.h"
+#include "util/file_utils.h"
 #include "util/system_metrics.h"
 
 namespace palo {
+
+const char* PaloMetrics::_s_hook_name = "palo_metrics";
 
 PaloMetrics PaloMetrics::_s_palo_metrics;
 
@@ -74,6 +80,10 @@ IntCounter PaloMetrics::cumulative_compaction_request_failed;
 
 // gauges
 IntGauge PaloMetrics::memory_pool_bytes_total;
+IntGauge PaloMetrics::process_thread_num;
+IntGauge PaloMetrics::process_fd_num_used;
+IntGauge PaloMetrics::process_fd_num_limit_soft;
+IntGauge PaloMetrics::process_fd_num_limit_hard;
 
 PaloMetrics::PaloMetrics() : _metrics(nullptr), _system_metrics(nullptr) {
 }
@@ -162,11 +172,95 @@ void PaloMetrics::initialize(const std::string& name,
 
     // Gauge
     REGISTER_PALO_METRIC(memory_pool_bytes_total);
+    REGISTER_PALO_METRIC(process_thread_num);
+    REGISTER_PALO_METRIC(process_fd_num_used);
+    REGISTER_PALO_METRIC(process_fd_num_limit_soft);
+    REGISTER_PALO_METRIC(process_fd_num_limit_hard);
+
+    _metrics->register_hook(_s_hook_name, std::bind(&PaloMetrics::update, this));
 
     if (init_system_metrics) {
         _system_metrics = new SystemMetrics();
         _system_metrics->install(_metrics, disk_devices, network_interfaces);
     }
+}
+
+void PaloMetrics::update() {
+    _update_process_thread_num();
+    _update_process_fd_num();
+}
+
+// get num of thread of palo_be process
+// from /proc/pid/task
+void PaloMetrics::_update_process_thread_num() {
+    int64_t pid = getpid();
+    std::stringstream ss;
+    ss << "/proc/" << pid << "/task/";
+
+    int64_t count = 0;
+    Status st = FileUtils::scan_dir(ss.str(), nullptr, &count);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to count thread num from: " << ss.str();
+        process_thread_num.set_value(0);
+        return;
+    }
+
+    process_thread_num.set_value(count);
+}
+
+// get num of file descriptor of palo_be process
+void PaloMetrics::_update_process_fd_num() {
+    int64_t pid = getpid();
+
+    // fd used
+    std::stringstream ss;
+    ss << "/proc/" << pid << "/fd/";
+    int64_t count = 0;
+    Status st = FileUtils::scan_dir(ss.str(), nullptr, &count);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to count fd from: " << ss.str();
+        process_fd_num_used.set_value(0);
+        return;
+    }
+    process_fd_num_used.set_value(count);
+
+    // fd limits
+    std::stringstream ss2;
+    ss2 << "/proc/" << pid << "/limits";
+    FILE* fp = fopen(ss2.str().c_str(), "r");
+    if (fp == nullptr) {
+        char buf[64];
+        LOG(WARNING) << "open " << ss2.str() << " failed, errno=" << errno
+            << ", message=" << strerror_r(errno, buf, 64);
+        return;
+    }
+
+    // /proc/pid/limits
+    // Max open files            65536                65536                files
+    int64_t values[2];
+    size_t line_buf_size = 0;
+    char* line_ptr = nullptr;
+    while (getline(&line_ptr, &line_buf_size, fp) > 0) {
+        memset(values, 0, sizeof(values));
+        int num = sscanf(line_ptr, "Max open files %" PRId64 " %" PRId64,
+                         &values[0], &values[1]);
+        if (num == 2) {
+            process_fd_num_limit_soft.set_value(values[0]);
+            process_fd_num_limit_hard.set_value(values[1]);
+            break;
+        }
+    }
+
+    if (line_ptr != nullptr) {
+        free(line_ptr);
+    }
+
+    if (ferror(fp) != 0) {
+        char buf[64];
+        LOG(WARNING) << "getline failed, errno=" << errno
+            << ", message=" << strerror_r(errno, buf, 64);
+    }
+    fclose(fp);
 }
 
 }

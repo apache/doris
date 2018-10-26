@@ -84,7 +84,10 @@ Status FileUtils::remove_all(const std::string& file_path) {
     return Status::OK;
 }
 
-Status FileUtils::scan_dir(const std::string& dir_path, std::vector<std::string>* files) {
+Status FileUtils::scan_dir(
+        const std::string& dir_path, std::vector<std::string>* files,
+        int64_t* file_count) {
+
     DIR* dir = opendir(dir_path.c_str());
     if (dir == nullptr) {
         char buf[64];
@@ -96,6 +99,7 @@ Status FileUtils::scan_dir(const std::string& dir_path, std::vector<std::string>
 
     struct dirent entry;
     struct dirent* result = nullptr;
+    int64_t count = 0;
     while (true) {
         int ret = readdir_r(dir, &entry, &result);
         if (ret != 0) {
@@ -112,8 +116,17 @@ Status FileUtils::scan_dir(const std::string& dir_path, std::vector<std::string>
         if (file_name == "." || file_name == "..") {
             continue; 
         }
-        files->push_back(file_name);
+
+        if (files != nullptr) {
+            files->emplace_back(std::move(file_name));
+        }
+        count++; 
     }
+
+    if (file_count != nullptr) {
+        *file_count = count;
+    }
+
     return Status::OK;
 }
 

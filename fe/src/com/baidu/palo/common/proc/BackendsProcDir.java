@@ -55,7 +55,7 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("BackendId").add("Cluster").add("IP").add("HostName").add("HeartbeatPort")
             .add("BePort").add("HttpPort").add("brpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
-            .add("DataUsedCapacity").add("TotalCapacity").add("UsedSpace")
+            .add("DataUsedCapacity").add("TotalCapacity").add("UsedSpace").add("ErrMsg")
             .build();
 
     public static final int IP_INDEX = 2;
@@ -169,6 +169,9 @@ public class BackendsProcDir implements ProcDirInterface {
                 used = (double) backend.getDataUsedCapacityB() * 100 / backend.getTotalCapacityB();
             }
             backendInfo.add(String.format("%.2f", used) + " %");
+
+            backendInfo.add(backend.getHeartbeatErrMsg());
+
             comparableBackendInfos.add(backendInfo);
         }
 
@@ -218,4 +221,5 @@ public class BackendsProcDir implements ProcDirInterface {
     }
 
 }
+
 

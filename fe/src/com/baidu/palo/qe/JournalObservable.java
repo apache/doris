@@ -15,16 +15,13 @@
 
 package com.baidu.palo.qe;
 
-import java.util.concurrent.TimeUnit;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.DdlException;
 
 import com.google.common.collect.Multiset;
 import com.google.common.collect.TreeMultiset;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class JournalObservable {
     private static final Logger LOG = LogManager.getLogger(JournalObservable.class);
@@ -33,42 +30,31 @@ public class JournalObservable {
     public JournalObservable() {
         obs = TreeMultiset.create();
     }
-    
+
     private synchronized void addObserver(JournalObserver o) {
         if (o == null) {
             throw new NullPointerException();
         }
 
         obs.add(o);
-        LOG.debug("JournalObservable addObserver=[" + o + "] the size is " + obs.size());
+        LOG.debug("JournalObservable addObserver=[{}], the size is {}", o, obs.size());
     }
 
     private synchronized void deleteObserver(JournalObserver o) {
         obs.remove(o);
-        LOG.debug("JournalObservable deleteObserver=[" + o + "] the size is " + obs.size());
-    } 
-    
-    public void waitOn(Long journalVersion, int timeoutMs) throws DdlException {
-        long replayedJournalId = Catalog.getInstance().getReplayedJournalId();
-        if (replayedJournalId >= journalVersion || timeoutMs <= 0) {
-            LOG.debug("follower no need to sync getReplayedJournalId={}, journalVersion={}, timeoutMs={}",
-                      replayedJournalId, journalVersion, timeoutMs);
-            return;
-        } else {
-            LOG.info("waiting observer to replay journal from {} to {}", replayedJournalId, journalVersion);
-            JournalObserver observer = new JournalObserver(journalVersion);
-            addObserver(observer);
-            try {
-                boolean ok = observer.getLatch().await(timeoutMs, TimeUnit.MILLISECONDS);
-                if (!ok) {
-                    throw new DdlException("Execute timeout, the command may be succeed, you'd better retry");
-                }
-            } catch (InterruptedException e) {
-                throw new DdlException("Interrupted exception happens, "
-                        + "the command may be succeed, you'd better retry");
-            } finally {
-                deleteObserver(observer);
-            }
+        LOG.debug("JournalObservable deleteObserver=[{}], the size is {}", o, obs.size());
+    }
+
+    public void waitOn(Long expectedJournalVersion, int timeoutMs) throws DdlException {
+        LOG.info("waiting for the observer to replay journal to {} with timeout: {} ms",
+                 expectedJournalVersion, timeoutMs);
+  
+        JournalObserver observer = new JournalObserver(expectedJournalVersion);
+        addObserver(observer);
+        try {
+            observer.waitForReplay(timeoutMs);
+        } finally {
+            deleteObserver(observer);
         }
     }
     

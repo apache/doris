@@ -20,8 +20,12 @@
 #include "thrift/TProcessor.h"
 #include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/Status_types.h"
+
+#include "common/status.h"
 #include "olap/olap_rootpath.h"
+#include "olap/olap_engine.h"
 #include "olap/utils.h"
+#include "service/backend_options.h"
 
 using std::fstream;
 using std::nothrow;
@@ -44,16 +48,38 @@ void HeartbeatServer::init_cluster_id() {
 void HeartbeatServer::heartbeat(
         THeartbeatResult& heartbeat_result,
         const TMasterInfo& master_info) {
-    AgentStatus status = PALO_SUCCESS;
-    TStatusCode::type status_code = TStatusCode::OK;
-    vector<string> error_msgs;
-    TStatus heartbeat_status;
+
     //print heartbeat in every minute
     LOG_EVERY_N(INFO, 12) << "get heartbeat from FE."
         << "host:" << master_info.network_address.hostname << ", "
         << "port:" << master_info.network_address.port << ", "
         << "cluster id:" << master_info.cluster_id << ", "
         << "counter:" << google::COUNTER;
+
+    // do heartbeat
+    Status st = _heartbeat(master_info); 
+    st.to_thrift(&heartbeat_result.status);
+
+    if (st.ok()) {
+        heartbeat_result.backend_info.__set_be_port(config::be_port);
+        heartbeat_result.backend_info.__set_http_port(config::webserver_port);
+        heartbeat_result.backend_info.__set_be_rpc_port(-1);
+        heartbeat_result.backend_info.__set_brpc_port(config::brpc_port);
+    }
+}
+
+Status HeartbeatServer::_heartbeat(
+        const TMasterInfo& master_info) {
+
+    if (master_info.__isset.backend_ip) {
+        if (master_info.backend_ip != BackendOptions::get_localhost()) {
+            LOG(WARNING) << "backend ip saved in master does not equal to backend local ip"
+                    << master_info.backend_ip << " vs. " << BackendOptions::get_localhost();
+            std::stringstream ss;
+            ss << "actual backend local ip: " << BackendOptions::get_localhost();
+            return Status(ss.str());
+        }
+    }
 
     // Check cluster id
     if (_master_info->cluster_id == -1) {
@@ -62,8 +88,7 @@ void HeartbeatServer::heartbeat(
         OLAPStatus res = _olap_rootpath_instance->set_cluster_id(master_info.cluster_id);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to set cluster id. [res=%d]", res);
-            error_msgs.push_back("fail to set cluster id.");
-            status = PALO_ERROR;
+            return Status("fail to set cluster id.");
         } else {
             _master_info->cluster_id = master_info.cluster_id;
             OLAP_LOG_INFO("record cluster id."
@@ -75,60 +100,42 @@ void HeartbeatServer::heartbeat(
     } else {
         if (_master_info->cluster_id != master_info.cluster_id) {
             OLAP_LOG_WARNING("invalid cluster id: %d. ignore.", master_info.cluster_id);
-            error_msgs.push_back("invalid cluster id. ignore.");
-            status = PALO_ERROR;
+            return Status("invalid cluster id. ignore.");
         }
     }
 
-    if (status == PALO_SUCCESS) {
-        if (_master_info->network_address.hostname != master_info.network_address.hostname
-                || _master_info->network_address.port != master_info.network_address.port) {
-            if (master_info.epoch > _epoch) {
-                _master_info->network_address.hostname = master_info.network_address.hostname;
-                _master_info->network_address.port = master_info.network_address.port;
-                _epoch = master_info.epoch;
-                OLAP_LOG_INFO("master change, new master host: %s, port: %d, epoch: %ld",
-                               _master_info->network_address.hostname.c_str(),
-                               _master_info->network_address.port,
-                               _epoch);
-            } else {
-                OLAP_LOG_WARNING("epoch is not greater than local. ignore heartbeat."
-                        "host: %s, port: %d, local epoch: %ld, received epoch: %ld",
-                        _master_info->network_address.hostname.c_str(),
-                        _master_info->network_address.port,
-                        _epoch, master_info.epoch);
-                error_msgs.push_back("epoch is not greater than local. ignore heartbeat.");
-                status = PALO_ERROR;
-            }
+    if (_master_info->network_address.hostname != master_info.network_address.hostname
+            || _master_info->network_address.port != master_info.network_address.port) {
+        if (master_info.epoch > _epoch) {
+            _master_info->network_address.hostname = master_info.network_address.hostname;
+            _master_info->network_address.port = master_info.network_address.port;
+            _epoch = master_info.epoch;
+            OLAP_LOG_INFO("master change, new master host: %s, port: %d, epoch: %ld",
+                           _master_info->network_address.hostname.c_str(),
+                           _master_info->network_address.port,
+                           _epoch);
+        } else {
+            OLAP_LOG_WARNING("epoch is not greater than local. ignore heartbeat."
+                    "host: %s, port: %d, local epoch: %ld, received epoch: %ld",
+                    _master_info->network_address.hostname.c_str(),
+                    _master_info->network_address.port,
+                    _epoch, master_info.epoch);
+            return Status("epoch is not greater than local. ignore heartbeat.");
         }
     }
 
-    if (status == PALO_SUCCESS && master_info.__isset.token) {
+    if (master_info.__isset.token) {
         if (!_master_info->__isset.token) {
             _master_info->__set_token(master_info.token);
             OLAP_LOG_INFO("get token.  token: %s", _master_info->token.c_str());
         } else if (_master_info->token != master_info.token) {
-            OLAP_LOG_WARNING("invalid token. local_token:%s, token:%s",
-                    _master_info->token.c_str(),
-                    master_info.token.c_str());
-            error_msgs.push_back("invalid token.");
-            status = PALO_ERROR;
+            LOG(WARNING) << "invalid token. local_token:" << _master_info->token
+                         << ". token:" << master_info.token;
+            return Status("invalid token.");
         }
     }
 
-    TBackendInfo backend_info;
-    if (status == PALO_SUCCESS) {
-        backend_info.__set_be_port(config::be_port);
-        backend_info.__set_http_port(config::webserver_port);
-        backend_info.__set_be_rpc_port(-1);
-        backend_info.__set_brpc_port(config::brpc_port);
-    } else {
-        status_code = TStatusCode::RUNTIME_ERROR;
-    }
-    heartbeat_status.__set_status_code(status_code);
-    heartbeat_status.__set_error_msgs(error_msgs);
-    heartbeat_result.__set_status(heartbeat_status);
-    heartbeat_result.__set_backend_info(backend_info);
+    return Status::OK;
 }
 
 AgentStatus create_heartbeat_server(

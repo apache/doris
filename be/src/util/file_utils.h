@@ -42,7 +42,11 @@ public:
 
     // Scan dir path and return all files in this path without '.' and '..'
     // Item in files is the filename in 'dir_path', which is not absolute path
-    static Status scan_dir(const std::string& dir_path, std::vector<std::string>* files);
+    // if files == nullptr, no file names will be returned.
+    // if file_count != nullptr, it will save the number of files.
+    static Status scan_dir(
+            const std::string& dir_path, std::vector<std::string>* files,
+            int64_t* file_count = nullptr);
 
     // If the file_path is not exist, or is not a dir, return false.
     static bool is_dir(const std::string& file_path);

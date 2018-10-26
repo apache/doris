@@ -578,6 +578,8 @@ public class SchemaTable extends Table {
                                     .column("EXTRA", ColumnType.createVarchar(27))
                                     .column("PRIVILEGES", ColumnType.createVarchar(80))
                                     .column("COLUMN_COMMENT", ColumnType.createVarchar(255))
+                                    .column("COLUMN_SIZE", ColumnType.createType(PrimitiveType.BIGINT))
+                                    .column("DECIMAL_DIGITS", ColumnType.createType(PrimitiveType.BIGINT))
                                     .build()))
                     .put("character_sets", new SchemaTable(
                             SystemIdGenerator.getNextId(),

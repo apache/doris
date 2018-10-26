@@ -23,6 +23,7 @@ class CpuMetrics;
 class MemoryMetrics;
 class DiskMetrics;
 class NetMetrics;
+class FileDescriptorMetrics;
 
 class SystemMetrics {
 public:
@@ -54,6 +55,10 @@ private:
                               const std::vector<std::string>& interfaces);
     void _update_net_metrics();
 
+    void _install_fd_metrics(MetricRegistry* registry);
+
+    void _update_fd_metrics();
+
 private:
     static const char* _s_hook_name;
 
@@ -61,6 +66,7 @@ private:
     std::unique_ptr<MemoryMetrics> _memory_metrics;
     std::map<std::string, DiskMetrics*> _disk_metrics;
     std::map<std::string, NetMetrics*> _net_metrics;
+    std::unique_ptr<FileDescriptorMetrics> _fd_metrics;
     int _proc_net_dev_version = 0;
 
     char* _line_ptr = nullptr;

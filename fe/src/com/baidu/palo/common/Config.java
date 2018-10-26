@@ -72,7 +72,7 @@ public class Config extends ConfigBase {
      * If a load job stay in QUORUM_FINISHED state longer than *quorum_load_job_max_second*,
      * a clone job will be triggered to help finishing this load job.
      */
-    @ConfField public static int quorum_load_job_max_second = 24 * 3600; // 1 days
+    @ConfField public static int quorum_load_job_max_second = 4 * 3600; // 4 hours
 
     // Configurations for meta data durability
     /*
@@ -332,6 +332,11 @@ public class Config extends ConfigBase {
      * Balance threshold of num of replicas in Backends.
      */
     @ConfField public static double clone_distribution_balance_threshold = 0.2;
+     /*
+     * The high water of disk capacity used percent.
+     * This is used for calculating load score of a backend.
+     */
+    @ConfField public static double capacity_used_percent_high_water = 0.75;
     /*
      * Maximal timeout of ALTER TABEL request. Set long enough to fit your table data size.
      */

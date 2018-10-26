@@ -96,6 +96,9 @@ public abstract class QueryStmt extends StatementBase {
 
     protected boolean needToSql = false;
 
+    // used by hll
+    protected boolean fromInsert = false;
+
     /////////////////////////////////////////
     // END: Members that need to be reset()
 
@@ -517,6 +520,10 @@ public abstract class QueryStmt extends StatementBase {
         ambiguousAliasList.clear();
         sortInfo = null;
         evaluateOrderBy = false;
+    }
+
+    public void setFromInsert(boolean value) {
+        this.fromInsert = value;
     }
 
     @Override

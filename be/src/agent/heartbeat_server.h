@@ -17,6 +17,7 @@
 #define BDG_PALO_BE_SRC_AGENT_HEARTBEAT_SERVER_H
 
 #include "thrift/transport/TTransportUtils.h"
+
 #include "agent/status.h"
 #include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/Status_types.h"
@@ -27,6 +28,9 @@
 namespace palo {
 
 const uint32_t HEARTBEAT_INTERVAL = 10;
+
+class OLAPEngine;
+class Status;
 
 class HeartbeatServer : public HeartbeatServiceIf {
 public:
@@ -44,6 +48,10 @@ public:
     // * heartbeat_result: The result of heartbeat set
     virtual void heartbeat(THeartbeatResult& heartbeat_result, const TMasterInfo& master_info);
 private:
+
+    Status _heartbeat(
+        const TMasterInfo& master_info);
+
     TMasterInfo* _master_info;
     OLAPRootPath* _olap_rootpath_instance;
     int64_t _epoch;

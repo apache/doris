@@ -81,6 +81,8 @@ public class Backend implements Writable {
     // rootPath -> DiskInfo
     private AtomicReference<ImmutableMap<String, DiskInfo>> disksRef;
 
+    private String heartbeatErrMsg = "";
+
     public Backend() {
         this.host = "";
         this.lastUpdateMs = new AtomicLong();
@@ -146,6 +148,10 @@ public class Backend implements Writable {
         return brpcPort.get();
     }
 
+    public String getHeartbeatErrMsg() {
+        return heartbeatErrMsg;
+    }
+
     // back compatible with unit test
     public void updateOnce(int bePort, int httpPort, int beRpcPort) {
         updateOnce(bePort, httpPort, beRpcPort, -1);
@@ -185,6 +191,8 @@ public class Backend implements Writable {
         if (isChanged) {
             Catalog.getInstance().getEditLog().logBackendStateChange(this);
         }
+
+        heartbeatErrMsg = "";
     }
 
     public boolean setDecommissioned(boolean isDecommissioned) {
@@ -195,13 +203,14 @@ public class Backend implements Writable {
         return false;
     }
 
-    public void setBad(EventBus eventBus) {
+    public void setBad(EventBus eventBus, String errMsg) {
         if (isAlive.compareAndSet(true, false)) {
             Catalog.getInstance().getEditLog().logBackendStateChange(this);
             LOG.warn("{} is dead", this.toString());
         }
 
         eventBus.post(new BackendEvent(BackendEventType.BACKEND_DOWN, "missing heartbeat", Long.valueOf(id)));
+        heartbeatErrMsg = errMsg;
     }
 
     public void setBackendState(BackendState state) {
@@ -523,3 +532,4 @@ public class Backend implements Writable {
     }
 
 }
+

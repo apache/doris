@@ -1105,10 +1105,12 @@ public class SingleNodePlanner {
      * Checks if conjuncts can be migrated into an inline view.
      */
     private boolean canMigrateConjuncts(InlineViewRef inlineViewRef) {
-        return !inlineViewRef.getViewStmt().hasLimit()
+        // TODO chenhao16, remove 'false' when SubQuery's default limit is removed.
+        return inlineViewRef.getViewStmt().evaluateOrderBy() ? false :
+                (!inlineViewRef.getViewStmt().hasLimit()
                 && !inlineViewRef.getViewStmt().hasOffset()
                 && (!(inlineViewRef.getViewStmt() instanceof SelectStmt)
-                || !((SelectStmt) inlineViewRef.getViewStmt()).hasAnalyticInfo());
+                || !((SelectStmt) inlineViewRef.getViewStmt()).hasAnalyticInfo()));
     }
 
     /**

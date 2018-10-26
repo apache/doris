@@ -42,6 +42,7 @@
 
 #include "olap/file_helper.h"
 #include "olap/olap_engine.h"
+#include "olap/utils.h"
 
 using boost::filesystem::canonical;
 using boost::filesystem::file_size;
@@ -245,7 +246,10 @@ void OLAPRootPath::get_all_available_root_path(RootPathVec* all_available_root_p
     _mutex.unlock();
 }
 
-OLAPStatus OLAPRootPath::get_all_root_path_info(vector<RootPathInfo>* root_paths_info) {
+OLAPStatus OLAPRootPath::get_all_root_path_info(
+        vector<RootPathInfo>* root_paths_info,
+        bool need_capacity) {
+
     OLAPStatus res = OLAP_SUCCESS;
     root_paths_info->clear();
 
@@ -259,13 +263,15 @@ OLAPStatus OLAPRootPath::get_all_root_path_info(vector<RootPathInfo>* root_paths
     }
     _mutex.unlock();
 
-    for (auto& info: *root_paths_info) {
-        if (info.is_used) {
-            _get_root_path_capacity(info.path, &info.data_used_capacity, &info.available);
-        } else {
-            info.capacity = 1;
-            info.data_used_capacity = 0;
-            info.available = 0;
+    if (need_capacity) {
+        for (auto& info: *root_paths_info) {
+            if (info.is_used) {
+                _get_root_path_capacity(info.path, &info.data_used_capacity, &info.available);
+            } else {
+                info.capacity = 1;
+                info.data_used_capacity = 0;
+                info.available = 0;
+            }
         }
     }
 
@@ -694,6 +700,7 @@ OLAPStatus OLAPRootPath::_get_root_path_capacity(
     OLAPStatus res = OLAP_SUCCESS;
     int64_t used = 0;
 
+    OlapStopWatch watch;
     try {
         path boost_root_path(root_path + DATA_PREFIX);
         for (recursive_directory_iterator it(boost_root_path);
@@ -712,6 +719,7 @@ OLAPStatus OLAPRootPath::_get_root_path_capacity(
         return OLAP_ERR_STL_ERROR;
     }
 
+    OLAP_LOG_INFO("get all root path capacity cost: %ld us", watch.get_elapse_time_us());
     return res;
 }
 
@@ -1094,7 +1102,7 @@ OLAPStatus OLAPRootPath::_get_cluster_id_path_vec(
     OLAPStatus res = OLAP_SUCCESS;
 
     vector<RootPathInfo> root_path_info_vec;
-    res = get_all_root_path_info(&root_path_info_vec);
+    res = get_all_root_path_info(&root_path_info_vec, false);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to get root path info. [res=%d]", res);
         return res;

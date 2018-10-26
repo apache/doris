@@ -1556,7 +1556,6 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
 #endif
 
         vector<RootPathInfo> root_paths_info;
-
         worker_pool_this->_command_executor->get_all_root_path_info(&root_paths_info);
 
         map<string, TDisk> disks;

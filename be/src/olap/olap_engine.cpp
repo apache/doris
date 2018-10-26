@@ -262,7 +262,7 @@ OLAPStatus OLAPEngine::init() {
 
     // 初始化CE调度器
     vector<RootPathInfo> all_root_paths_info;
-    OLAPRootPath::get_instance()->get_all_root_path_info(&all_root_paths_info);
+    OLAPRootPath::get_instance()->get_all_root_path_info(&all_root_paths_info, false);
     _cumulative_compaction_disk_stat.reserve(all_root_paths_info.size());
     for (uint32_t i = 0; i < all_root_paths_info.size(); i++) {
         const RootPathInfo& info = all_root_paths_info[i];
@@ -1034,7 +1034,8 @@ void OLAPEngine::_select_candidate() {
             }
 
             j->obtain_header_rdlock();
-            const uint32_t curr_nice = j->get_compaction_nice_estimate();
+            // const uint32_t curr_nice = j->get_compaction_nice_estimate();
+            const uint32_t curr_nice = j->file_version_size();
             j->release_header_lock();
             nice = curr_nice > nice ? curr_nice : nice;
             tablet = j;
@@ -1105,7 +1106,7 @@ void OLAPEngine::start_cumulative_priority() {
     // determine whether to select candidate or not 
     bool is_select = false;
     vector<RootPathInfo> all_root_paths_info;
-    OLAPRootPath::get_instance()->get_all_root_path_info(&all_root_paths_info);
+    OLAPRootPath::get_instance()->get_all_root_path_info(&all_root_paths_info, false);
     for (uint32_t i = 0; i < all_root_paths_info.size(); i++) {
         uint32_t disk_id = _disk_id_map[all_root_paths_info[i].path];
         _cumulative_compaction_disk_stat[disk_id].is_used = all_root_paths_info[i].is_used;
@@ -1122,6 +1123,7 @@ void OLAPEngine::start_cumulative_priority() {
     }
 
     // traverse _cumulative_compaction_candidate to start cumulative compaction
+    OLAP_LOG_INFO("begin to traverse cumulative_compaction_candidate. size: %d", _cumulative_compaction_candidate.size());
     CumulativeCompaction cumulative_compaction;
     for (auto it_cand = _cumulative_compaction_candidate.rbegin(); it_cand != _cumulative_compaction_candidate.rend(); ++it_cand) {
         CompactionCandidate candidate = *it_cand;
@@ -1148,6 +1150,7 @@ void OLAPEngine::start_cumulative_priority() {
             }
 
             if (cumulative_compaction.init(j) == OLAP_SUCCESS) {
+                OLAP_LOG_INFO("begin to do cumulative for tablet: %s, version num: %d", j->full_name().c_str(), j->file_version_size());
                 _cumulative_compaction_candidate.erase(it_cand.base() - 1);
                 --_cumulative_compaction_disk_stat[candidate.disk_index].task_remaining;
                 ++_cumulative_compaction_disk_stat[candidate.disk_index].task_running;

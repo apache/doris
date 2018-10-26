@@ -24,6 +24,7 @@ import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.catalog.PrimitiveType;
+import com.baidu.palo.catalog.ScalarType;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
@@ -31,6 +32,7 @@ import com.baidu.palo.common.InternalException;
 import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -83,32 +85,41 @@ public class CreateViewStmt extends DdlStmt {
         return inlineViewDef;
     }
 
+    private Column createScalarColumn(String name, ScalarType scalarType) {
+        final ColumnType columnType = ColumnType.createType(scalarType.getPrimitiveType());
+        final Integer precision = scalarType.getPrecision();
+        if (precision != null) {
+            columnType.setPrecision(precision);
+        }
+        final Integer digits = scalarType.getDecimalDigits();
+        if (digits != null) {
+            columnType.setScale(digits);
+        }
+        return new Column(name, columnType);
+    }
+
     /**
      * Sets the originalViewDef and the expanded inlineViewDef based on viewDefStmt.
      * If columnNames were given, checks that they do not contain duplicate column names
      * and throws an exception if they do.
      */
     private void createColumnAndViewDefs(Analyzer analyzer) throws AnalysisException, InternalException {
-        if (columnNames != null) {
-            if (columnNames.size() != viewDefStmt.getColLabels().size()) {
+
+        List<String> newColumnNames = columnNames;
+        if (newColumnNames != null) {
+            if (newColumnNames.size() != viewDefStmt.getColLabels().size()) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_VIEW_WRONG_LIST);
             }
-            // TODO(zc): type
-            for (int i = 0; i < columnNames.size(); ++i) {
-                PrimitiveType type = viewDefStmt.getBaseTblResultExprs().get(i).getType().getPrimitiveType();
-                finalCols.add(new Column(
-                        columnNames.get(i),
-                        ColumnType.createType(type)));
-            }
         } else {
-            // TODO(zc): type
-            for (int i = 0; i < viewDefStmt.getBaseTblResultExprs().size(); ++i) {
-                PrimitiveType type = viewDefStmt.getBaseTblResultExprs().get(i).getType().getPrimitiveType();
-                finalCols.add(new Column(
-                        viewDefStmt.getColLabels().get(i),
-                        ColumnType.createType(type)));
-            }
+            newColumnNames = viewDefStmt.getColLabels();
         }
+
+        for (int i = 0; i < viewDefStmt.getBaseTblResultExprs().size(); ++i) {
+            Preconditions.checkState(viewDefStmt.getBaseTblResultExprs().get(i).getType() instanceof ScalarType);
+            final ScalarType scalarType = (ScalarType)viewDefStmt.getBaseTblResultExprs().get(i).getType();
+            finalCols.add(createScalarColumn(newColumnNames.get(i), scalarType));
+        }
+
         // Set for duplicate columns
         Set<String> colSets = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (Column col : finalCols) {
