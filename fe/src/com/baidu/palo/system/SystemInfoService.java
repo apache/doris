@@ -1161,7 +1161,10 @@ public class SystemInfoService extends Daemon {
             boolean ok = false;
             try {
                 client = ClientPool.heartbeatPool.borrowObject(address);
-                THeartbeatResult result = client.heartbeat(masterInfo.get());
+                TMasterInfo copiedMasterInfo = new TMasterInfo(masterInfo.get());
+                copiedMasterInfo.setBackend_ip(backend.getHost());
+                THeartbeatResult result = client.heartbeat(copiedMasterInfo);
+
                 if (result.getStatus().getStatus_code() == TStatusCode.OK) {
                     TBackendInfo tBackendInfo = result.getBackend_info();
                     int bePort = tBackendInfo.getBe_port();
@@ -1174,13 +1177,14 @@ public class SystemInfoService extends Daemon {
                     backend.updateOnce(bePort, httpPort, beRpcPort, brpcPort);
                 } else {
                     LOG.warn("failed to heartbeat backend[" + backendId + "]: " + result.getStatus().toString());
-                    backend.setBad(eventBus);
+                    backend.setBad(eventBus, result.getStatus().getError_msgs().isEmpty() ? "Unknown error"
+                            : result.getStatus().getError_msgs().get(0));
                 }
                 ok = true;
                 LOG.debug("backend[{}] host: {}, port: {}", backendId, backend.getHost(), backend.getHeartbeatPort());
             } catch (Exception e) {
                 LOG.warn("backend[" + backendId + "] got Exception: ", e);
-                backend.setBad(eventBus);
+                backend.setBad(eventBus, e.getMessage());
             } finally {
                 if (ok) {
                     ClientPool.heartbeatPool.returnObject(address, client);
@@ -1212,3 +1216,4 @@ public class SystemInfoService extends Daemon {
         return selectedBackends.get(0).getId();
     }
 }
+

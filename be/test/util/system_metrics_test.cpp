@@ -81,6 +81,7 @@ private:
 extern const char* k_ut_stat_path;
 extern const char* k_ut_diskstats_path;
 extern const char* k_ut_net_dev_path;
+extern const char* k_ut_fd_path;
 
 TEST_F(SystemMetricsTest, normal) {
     MetricRegistry registry("test");
@@ -98,6 +99,9 @@ TEST_F(SystemMetricsTest, normal) {
         std::string net_dev_path(dir_path);
         net_dev_path += "/test_data/net_dev_normal";
         k_ut_net_dev_path = net_dev_path.c_str();
+        std::string fd_path(dir_path);
+        fd_path += "/test_data/fd_file_nr";
+        k_ut_fd_path = fd_path.c_str();
 
         std::set<std::string> disk_devices;
         disk_devices.emplace("sda");
@@ -202,6 +206,16 @@ TEST_F(SystemMetricsTest, normal) {
             "disk_io_time_weigthed", MetricLabels().add("device", "sda"));
         ASSERT_TRUE(write_time_ms != nullptr);
         ASSERT_STREQ("1912122964", io_time_weigthed->to_string().c_str());
+
+        // fd
+        SimpleMetric* fd_metric = (SimpleMetric*)registry.get_metric(
+            "fd_num_limit");
+        ASSERT_TRUE(fd_metric != nullptr);
+        ASSERT_STREQ("13052138", fd_metric->to_string().c_str());
+        fd_metric = (SimpleMetric*)registry.get_metric(
+            "fd_num_used");
+        ASSERT_TRUE(fd_metric != nullptr);
+        ASSERT_STREQ("19520", fd_metric->to_string().c_str());
     }
     {
         TestMetricsVisitor visitor;

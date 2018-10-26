@@ -271,6 +271,7 @@ public class InsertStmt extends DdlStmt {
     }
 
     public void analyzeSubquery(Analyzer analyzer) throws AnalysisException, InternalException {
+        queryStmt.setFromInsert(true);
         // parse query statement
         queryStmt.analyze(analyzer);
         List<Expr> selectList = Expr.cloneList(queryStmt.getBaseTblResultExprs());
@@ -329,15 +330,20 @@ public class InsertStmt extends DdlStmt {
     private Expr checkTypeCompatibility(Column col, Expr expr) throws AnalysisException {
         // TargeTable's hll column must be hll_hash's result
         if (col.getType().equals(Type.HLL)) {
-            final String hllAnalysisErrorLog = "Column's type is HLL,"
-                    + " it must be hll_hash function's result, column=" + col.getName(); 
-            if (!(expr instanceof FunctionCallExpr)) {
-                throw new AnalysisException(hllAnalysisErrorLog);
-            }
-
-            final FunctionCallExpr functionExpr = (FunctionCallExpr) expr;
-            if (!functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_hash")) {
-                throw new AnalysisException(hllAnalysisErrorLog);
+            final String hllMismatchLog = "Column's type is HLL,"
+                    + " SelectList must contains HLL or hll_hash function's result, column=" + col.getName(); 
+            if (expr instanceof SlotRef) {
+                final SlotRef slot = (SlotRef)expr;
+                if (!slot.getType().equals(Type.HLL)) {
+                    throw new AnalysisException(hllMismatchLog);
+                }
+            } else if (expr instanceof FunctionCallExpr) {
+                final FunctionCallExpr functionExpr = (FunctionCallExpr) expr;
+                if (!functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_hash")) {
+                    throw new AnalysisException(hllMismatchLog);
+                }
+            } else {
+                throw new AnalysisException(hllMismatchLog);
             }
         }
 

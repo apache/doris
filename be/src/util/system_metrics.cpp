@@ -57,6 +57,11 @@ struct NetMetrics {
     IntLockCounter send_packets;
 };
 
+struct FileDescriptorMetrics {
+    IntGauge fd_num_limit;
+    IntGauge fd_num_used;
+};
+
 SystemMetrics::SystemMetrics() {
 }
 
@@ -72,7 +77,7 @@ SystemMetrics::~SystemMetrics() {
     for (auto& it : _net_metrics) {
         delete it.second;
     }
-    if (_line_ptr != 0) {
+    if (_line_ptr != nullptr) {
         free(_line_ptr);
     }
 }
@@ -88,6 +93,7 @@ void SystemMetrics::install(MetricRegistry* registry,
     _install_memory_metrics(registry);
     _install_disk_metrics(registry, disk_devices);
     _install_net_metrics(registry, network_interfaces);
+    _install_fd_metrics(registry);
     _registry = registry;
 }
 
@@ -96,6 +102,7 @@ void SystemMetrics::update() {
     _update_memory_metrics();
     _update_disk_metrics();
     _update_net_metrics();
+    _update_fd_metrics();
 }
 
 void SystemMetrics::_install_cpu_metrics(MetricRegistry* registry) {
@@ -112,6 +119,7 @@ void SystemMetrics::_install_cpu_metrics(MetricRegistry* registry) {
 const char* k_ut_stat_path;
 const char* k_ut_diskstats_path;
 const char* k_ut_net_dev_path;
+const char* k_ut_fd_path;
 #endif
 
 void SystemMetrics::_update_cpu_metrics() {
@@ -195,7 +203,7 @@ void SystemMetrics::_install_disk_metrics(MetricRegistry* registry,
 
 void SystemMetrics::_update_disk_metrics() {
 #ifdef BE_TEST
-    FILE* fp = fopen(k_ut_diskstats_path, "r");
+    FILE* fp = fopen(k_ut_fd_path, "r");
 #else
     FILE* fp = fopen("/proc/diskstats", "r");
 #endif
@@ -267,7 +275,6 @@ void SystemMetrics::_update_disk_metrics() {
         char buf[64];
         LOG(WARNING) << "getline failed, errno=" << errno
             << ", message=" << strerror_r(errno, buf, 64);
-        return;
     }
     fclose(fp);
 }
@@ -379,7 +386,49 @@ void SystemMetrics::_update_net_metrics() {
         char buf[64];
         LOG(WARNING) << "getline failed, errno=" << errno
             << ", message=" << strerror_r(errno, buf, 64);
+    }
+    fclose(fp);
+}
+
+void SystemMetrics::_install_fd_metrics(MetricRegistry* registry) {
+    _fd_metrics.reset(new FileDescriptorMetrics());
+    registry->register_metric("fd_num_limit", &_fd_metrics->fd_num_limit);
+    registry->register_metric("fd_num_used", &_fd_metrics->fd_num_used);
+}
+
+void SystemMetrics::_update_fd_metrics() {
+#ifdef BE_TEST
+    FILE* fp = fopen(k_ut_diskstats_path, "r");
+#else
+    FILE* fp = fopen("/proc/sys/fs/file-nr", "r");
+#endif
+    if (fp == nullptr) {
+        char buf[64];
+        LOG(WARNING) << "open /proc/sys/fs/file-nr failed, errno=" << errno
+            << ", message=" << strerror_r(errno, buf, 64);
         return;
+    }
+
+    // /proc/sys/fs/file-nr: https://www.kernel.org/doc/Documentation/sysctl/fs.txt
+    // 1 - the number of allocated file handles
+    // 2 - the number of allocated but unused file handles
+    // 3 - the maximum number of file handles
+
+    int64_t values[3];
+    if (getline(&_line_ptr, &_line_buf_size, fp) > 0) {
+        memset(values, 0, sizeof(values));
+        int num = sscanf(_line_ptr, "%" PRId64 " %" PRId64 " %" PRId64,
+                         &values[0], &values[1], &values[2]);
+        if (num == 3) {
+            _fd_metrics->fd_num_limit.set_value(values[2]);
+            _fd_metrics->fd_num_used.set_value(values[0] - values[1]);
+        }
+    }
+
+    if (ferror(fp) != 0) {
+        char buf[64];
+        LOG(WARNING) << "getline failed, errno=" << errno
+            << ", message=" << strerror_r(errno, buf, 64);
     }
     fclose(fp);
 }

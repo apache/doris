@@ -139,7 +139,7 @@ public class PrometheusMetricVisitor extends PaloMetricVisitor {
         final String fullName = prefix + "_" + metric.getName();
         StringBuilder sb = new StringBuilder();
         sb.append(HELP).append(fullName).append(" ").append(metric.getDescription()).append("\n");
-        sb.append(TYPE).append(fullName).append(" ").append(metric.getType().name()).append("\n");
+        sb.append(TYPE).append(fullName).append(" ").append(metric.getType().name().toLowerCase()).append("\n");
         sb.append(fullName);
 
         // name
@@ -193,3 +193,4 @@ public class PrometheusMetricVisitor extends PaloMetricVisitor {
         return sb.toString();
     }
 }
+

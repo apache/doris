@@ -18,6 +18,7 @@ package com.baidu.palo.clone;
 import com.baidu.palo.catalog.DiskInfo;
 import com.baidu.palo.catalog.TabletInvertedIndex;
 import com.baidu.palo.clone.BalanceStatus.ErrCode;
+import com.baidu.palo.common.Config;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.SystemInfoService;
 
@@ -101,20 +102,21 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
 
     public void calcScore(double avgClusterUsedCapacityPercent, double avgClusterReplicaNumPerBackend) {
         double usedCapacityPercent = (totalUsedCapacityB / (double) totalCapacityB);
-        double capacityProportion = usedCapacityPercent / avgClusterReplicaNumPerBackend;
+        double capacityProportion = usedCapacityPercent / avgClusterUsedCapacityPercent;
         double replicaNumProportion = totalReplicaNum / avgClusterReplicaNumPerBackend;
         
         // If this backend's capacity used percent < 50%, set capacityCoefficient to 0.5.
         // Else if capacity used percent > 75%, set capacityCoefficient to 1.
         // Else, capacityCoefficient changed smoothly from 0.5 to 1 with used capacity increasing
-        // Function: (0.02 * usedCapacityPercent - 0.5)
+        // Function: (2 * usedCapacityPercent - 0.5)
         capacityCoefficient = usedCapacityPercent < 0.5 ? 0.5
-                : (usedCapacityPercent > 0.75 ? 1.0 : (0.02 * usedCapacityPercent - 0.5));
-        replicaNumCoefficient = 1 - capacityProportion;
+                : (usedCapacityPercent > Config.capacity_used_percent_high_water ? 1.0
+                        : (2 * usedCapacityPercent - 0.5));
+        replicaNumCoefficient = 1 - capacityCoefficient;
 
-        loadScore = capacityProportion * capacityCoefficient + replicaNumCoefficient * replicaNumProportion;
+        loadScore = capacityProportion * capacityCoefficient + replicaNumProportion * replicaNumCoefficient;
         LOG.debug("backend {}, used capacity percent: {}, capacity proportion: {}, replica proportion: {},"
-                + " capacity coefficient, replica coefficient: {}, load score: {}",
+                + " capacity coefficient: {}, replica coefficient: {}, load score: {}",
                   beId, usedCapacityPercent, capacityProportion, replicaNumProportion,
                   capacityCoefficient, replicaNumCoefficient, loadScore);
     }

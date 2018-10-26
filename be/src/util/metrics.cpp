@@ -22,22 +22,22 @@ MetricLabels MetricLabels::EmptyLabels;
 std::ostream& operator<<(std::ostream& os, MetricType type) {
     switch (type) {
     case MetricType::COUNTER:
-        os << "COUNTER";
+        os << "counter";
         break;
     case MetricType::GAUGE:
-        os << "GAUGE";
+        os << "guage";
         break;
     case MetricType::HISTOGRAM:
-        os << "HISTOGRAM";
+        os << "histogram";
         break;
     case MetricType::SUMMARY:
-        os << "SUMMARY";
+        os << "summary";
         break;
     case MetricType::UNTYPED:
-        os << "UNTYPED";
+        os << "untyped";
         break;
     default:
-        os << "UNKNOWN";
+        os << "unknown";
         break;
     }
     return os;

@@ -49,6 +49,8 @@ SchemaScanner::ColumnDesc SchemaColumnsScanner::_s_col_columns[] = {
     { "EXTRA",              TYPE_VARCHAR, sizeof(StringValue),   false },
     { "PRIVILEGES",         TYPE_VARCHAR, sizeof(StringValue),   false },
     { "COLUMN_COMMENT",     TYPE_VARCHAR, sizeof(StringValue),   false },
+    { "COLUMN_SIZE",        TYPE_BIGINT,  sizeof(int64_t),   true },
+    { "DECIMAL_DIGITS",     TYPE_BIGINT,  sizeof(int64_t),   true },
 };
 
 SchemaColumnsScanner::SchemaColumnsScanner() : 
@@ -107,6 +109,12 @@ std::string SchemaColumnsScanner::type_to_string(TColumnDesc &desc) {
                 return "varchar(" + std::to_string(desc.columnLength) +")";
             } else {
                 return "varchar(20)";
+            }
+        case TPrimitiveType::CHAR:
+            if (desc.__isset.columnLength) {
+                return "char(" + std::to_string(desc.columnLength) +")";
+            } else {
+                return "char(20)";
             }
         case TPrimitiveType::DATE:
             return "date";
@@ -203,15 +211,38 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
     }
     // CHARACTER_OCTET_LENGTH
     {
-        tuple->set_null(_tuple_desc->slots()[9]->null_indicator_offset());
+        int data_type = _desc_result.columns[_column_index].columnDesc.columnType;
+        if (data_type == TPrimitiveType::VARCHAR || data_type == TPrimitiveType::CHAR) {
+            void *slot = tuple->get_slot(_tuple_desc->slots()[9]->tuple_offset());
+            int64_t* str_slot = reinterpret_cast<int64_t*>(slot);
+            if (_desc_result.columns[_column_index].columnDesc.__isset.columnLength) {
+                *str_slot = _desc_result.columns[_column_index].columnDesc.columnLength;
+            } else {
+                tuple->set_null(_tuple_desc->slots()[9]->null_indicator_offset());
+            }     
+        } else {
+            tuple->set_null(_tuple_desc->slots()[9]->null_indicator_offset());
+        }
     }
     // NUMERIC_PRECISION
     {
-        tuple->set_null(_tuple_desc->slots()[10]->null_indicator_offset());
+        void *slot = tuple->get_slot(_tuple_desc->slots()[10]->tuple_offset());
+        int64_t* str_slot = reinterpret_cast<int64_t*>(slot);
+        if (_desc_result.columns[_column_index].columnDesc.__isset.columnPrecision) {
+            *str_slot = _desc_result.columns[_column_index].columnDesc.columnPrecision;
+        } else {
+            tuple->set_null(_tuple_desc->slots()[10]->null_indicator_offset());
+        }
     }
     // NUMERIC_SCALE
     {
-        tuple->set_null(_tuple_desc->slots()[11]->null_indicator_offset());
+        void *slot = tuple->get_slot(_tuple_desc->slots()[11]->tuple_offset());
+        int64_t* str_slot = reinterpret_cast<int64_t*>(slot);
+        if (_desc_result.columns[_column_index].columnDesc.__isset.columnScale) {
+            *str_slot = _desc_result.columns[_column_index].columnDesc.columnScale;
+        } else {
+            tuple->set_null(_tuple_desc->slots()[11]->null_indicator_offset());
+        }
     }
     // CHARACTER_SET_NAME
     {
@@ -262,6 +293,26 @@ Status SchemaColumnsScanner::fill_one_row(Tuple *tuple, MemPool *pool) {
             (char *)pool->allocate(_desc_result.columns[_column_index].comment.length());
         str_slot->len = _desc_result.columns[_column_index].comment.length();
         memcpy(str_slot->ptr, _desc_result.columns[_column_index].comment.c_str(), str_slot->len);
+    }
+    // COLUMN_SIZE
+    {
+        void *slot = tuple->get_slot(_tuple_desc->slots()[19]->tuple_offset());
+        int64_t* str_slot = reinterpret_cast<int64_t*>(slot);
+        if (_desc_result.columns[_column_index].columnDesc.__isset.columnLength) {
+            *str_slot = _desc_result.columns[_column_index].columnDesc.columnLength;
+        } else {
+            tuple->set_null(_tuple_desc->slots()[19]->null_indicator_offset());
+        }
+    }
+    // DECIMAL_DIGITS
+    {
+        void *slot = tuple->get_slot(_tuple_desc->slots()[20]->tuple_offset());
+        int64_t* str_slot = reinterpret_cast<int64_t*>(slot);
+        if (_desc_result.columns[_column_index].columnDesc.__isset.columnScale) {
+            *str_slot = _desc_result.columns[_column_index].columnDesc.columnScale;
+        } else {
+            tuple->set_null(_tuple_desc->slots()[20]->null_indicator_offset());
+        }
     }
     _column_index++;
     return Status::OK;

@@ -222,7 +222,12 @@ public class ExportStmt extends StatementBase {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("EXPORT TABLE ").append(tblName.toSql());
+        sb.append("EXPORT TABLE ");
+        if (tblName == null) {
+            sb.append("non-exist");
+        } else {
+            sb.append(tblName.toSql());
+        }
         if (partitions != null && !partitions.isEmpty()) {
             sb.append(" PARTITION (");
             Joiner.on(", ").appendTo(sb, partitions);

@@ -106,7 +106,7 @@ public class TablePrivEntry extends DbPrivEntry {
 
         TablePrivEntry otherEntry = (TablePrivEntry) other;
         if (origHost.equals(otherEntry.origHost) && origUser.equals(otherEntry.origUser)
-                && origDb.equals(otherEntry.origDb) && origTbl.equals(origTbl)) {
+                && origDb.equals(otherEntry.origDb) && origTbl.equals(otherEntry.origTbl)) {
             return true;
         }
         return false;

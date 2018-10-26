@@ -89,6 +89,8 @@ public class ColumnType implements Writable {
     // used for limiting varchar size
     private boolean varcharLimit = true;
 
+    private volatile Type typeDesc;
+
     public ColumnType() {
         this.type = PrimitiveType.NULL_TYPE;
     }
@@ -165,6 +167,27 @@ public class ColumnType implements Writable {
 
     public PrimitiveType getType() {
         return type;
+    }
+
+    public Type getTypeDesc() {
+        if (typeDesc != null) {
+            return typeDesc;
+        }
+        switch (type) {
+            case VARCHAR:
+                typeDesc = ScalarType.createVarcharType(len);
+                break;
+            case CHAR:
+                typeDesc = ScalarType.createCharType(len);
+                break;
+            case DECIMAL:
+                typeDesc = ScalarType.createDecimalType(precision, scale);
+                break;
+            default:
+                typeDesc = ScalarType.createType(type);
+                break;
+        }
+        return typeDesc;
     }
 
     public int getLen() {

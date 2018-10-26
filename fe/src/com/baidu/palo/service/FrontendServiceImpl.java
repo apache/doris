@@ -247,8 +247,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 Table table = db.getTable(params.getTable_name());
                 if (table != null) {
                     for (Column column : table.getBaseSchema()) {
-                        TColumnDef colDef = new TColumnDef(
-                                new TColumnDesc(column.getName(), column.getDataType().toThrift()));
+                        final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
+                        final Integer precision = column.getColumnType().getTypeDesc().getPrecision();
+                        if (precision != null) {
+                            desc.setColumnPrecision(precision);
+                        }
+                        final Integer columnLength = column.getColumnType().getTypeDesc().getColumnSize();
+                        if (columnLength != null) {
+                            desc.setColumnLength(columnLength);
+                        }
+                        final Integer decimalDigits = column.getColumnType().getTypeDesc().getDecimalDigits();
+                        if (decimalDigits != null) {
+                            desc.setColumnScale(decimalDigits);
+                        }
+                        final TColumnDef colDef = new TColumnDef(desc);
                         columns.add(colDef);
                     }
                 }

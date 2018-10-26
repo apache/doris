@@ -100,10 +100,10 @@ protected:
 };
 
 template<typename T>
-class CoreLocalCouter : public SimpleMetric {
+class CoreLocalCounter : public SimpleMetric {
 public:
-    CoreLocalCouter() :SimpleMetric(MetricType::COUNTER), _value() { }
-    virtual ~CoreLocalCouter() { }
+    CoreLocalCounter() :SimpleMetric(MetricType::COUNTER), _value() { }
+    virtual ~CoreLocalCounter() { }
 
     std::string to_string() const override {
         std::stringstream ss;
@@ -318,9 +318,9 @@ private:
     std::map<std::string, std::function<void()>> _hooks;
 };
 
-using IntCounter = CoreLocalCouter<int64_t>;
+using IntCounter = CoreLocalCounter<int64_t>;
 using IntLockCounter = LockCounter<int64_t>;
-using UIntCounter = CoreLocalCouter<uint64_t>;
+using UIntCounter = CoreLocalCounter<uint64_t>;
 using DoubleCounter = LockCounter<double>;
 using IntGauge = LockGauge<int64_t>;
 using UIntGauge = LockGauge<uint64_t>;

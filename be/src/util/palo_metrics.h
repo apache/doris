@@ -84,6 +84,10 @@ public:
 
     // Gauges
     static IntGauge memory_pool_bytes_total;
+    static IntGauge process_thread_num;
+    static IntGauge process_fd_num_used;
+    static IntGauge process_fd_num_limit_soft;
+    static IntGauge process_fd_num_limit_hard;
 
     ~PaloMetrics();
     // call before calling metrics
@@ -98,7 +102,14 @@ public:
 private:
     // Don't allow constrctor
     PaloMetrics();
+
+    void update();
+    void _update_process_thread_num();
+    void _update_process_fd_num();
+
 private:
+    static const char* _s_hook_name;
+
     static PaloMetrics _s_palo_metrics;
 
     MetricRegistry* _metrics;

@@ -29,6 +29,7 @@ struct TMasterInfo {
     2: required Types.TClusterId cluster_id
     3: required Types.TEpoch epoch
     4: optional string token 
+    5: optional string backend_ip
 }
 
 struct TBackendInfo {

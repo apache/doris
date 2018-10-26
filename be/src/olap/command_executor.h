@@ -211,7 +211,9 @@ public:
     //
     // @param root_paths_stat each root path stat including total/used/available capacity
     // @return error code
-    virtual OLAPStatus get_all_root_path_info(std::vector<RootPathInfo>* root_paths_info);
+    virtual OLAPStatus get_all_root_path_info(
+            std::vector<RootPathInfo>* root_paths_info,
+            bool need_capacity = true);
 
 private:
     // Create initial base and delta version.

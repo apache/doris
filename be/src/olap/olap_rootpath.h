@@ -93,7 +93,9 @@ public:
     void get_all_available_root_path(RootPathVec* all_available_root_path);
     
     // @brief 获取所有root_path信息
-    OLAPStatus get_all_root_path_info(std::vector<RootPathInfo>* root_paths_info);
+    OLAPStatus get_all_root_path_info(
+            std::vector<RootPathInfo>* root_paths_info,
+            bool need_capacity = true);
 
     // @brief 重新加载root_paths信息，全量操作。
     // 对于新增的root_path，同init操作

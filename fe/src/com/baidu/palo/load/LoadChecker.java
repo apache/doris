@@ -17,13 +17,13 @@ package com.baidu.palo.load;
 
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
-import com.baidu.palo.catalog.Replica;
-import com.baidu.palo.catalog.Replica.ReplicaState;
+import com.baidu.palo.catalog.MaterializedIndex;
 import com.baidu.palo.catalog.MaterializedIndex.IndexState;
 import com.baidu.palo.catalog.OlapTable;
-import com.baidu.palo.catalog.Tablet;
-import com.baidu.palo.catalog.MaterializedIndex;
 import com.baidu.palo.catalog.Partition;
+import com.baidu.palo.catalog.Replica;
+import com.baidu.palo.catalog.Replica.ReplicaState;
+import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.clone.Clone;
 import com.baidu.palo.clone.CloneJob.JobPriority;
 import com.baidu.palo.clone.CloneJob.JobType;
@@ -39,12 +39,12 @@ import com.baidu.palo.task.AgentTask;
 import com.baidu.palo.task.AgentTaskExecutor;
 import com.baidu.palo.task.AgentTaskQueue;
 import com.baidu.palo.task.HadoopLoadEtlTask;
-import com.baidu.palo.task.MiniLoadEtlTask;
-import com.baidu.palo.task.MiniLoadPendingTask;
 import com.baidu.palo.task.HadoopLoadPendingTask;
 import com.baidu.palo.task.InsertLoadEtlTask;
 import com.baidu.palo.task.MasterTask;
 import com.baidu.palo.task.MasterTaskExecutor;
+import com.baidu.palo.task.MiniLoadEtlTask;
+import com.baidu.palo.task.MiniLoadPendingTask;
 import com.baidu.palo.task.PullLoadEtlTask;
 import com.baidu.palo.task.PullLoadPendingTask;
 import com.baidu.palo.task.PushTask;
@@ -54,8 +54,8 @@ import com.baidu.palo.thrift.TPushType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashSet;
 import java.util.List;
@@ -431,8 +431,15 @@ public class LoadChecker extends Daemon {
                                         || state == ReplicaState.SCHEMA_CHANGE);
                                 long replicaVersion = replica.getVersion();
                                 long replicaVersionHash = replica.getVersionHash();
-                                boolean checkByVersion = (replicaVersion == version - 1
-                                        || (replicaVersion == version && replicaVersionHash != versionHash));
+                                // rules:
+                                // 1. replica's version is the previous version of this load, and version hash is valid
+                                // ATTN: we don't save the previous committed version hash,
+                                //       so... there is no way we can handle this situation...
+                                //       will fix it in trunk
+                                // or
+                                // 2. replica's version is equal to load version, but version hash is not equal.
+                                boolean checkByVersion = (replicaVersion == version - 1)
+                                        || (replicaVersion == version && replicaVersionHash != versionHash);
 
                                 if (checkByState && checkByVersion) {
                                     if (!tabletLoadInfo.isReplicaSent(replicaId)) {

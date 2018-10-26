@@ -59,7 +59,7 @@ AgentServer::AgentServer(ExecEnv* exec_env,
     // clean dpp download dir
     _command_executor = new CommandExecutor();
     vector<RootPathInfo> root_paths_info;
-    _command_executor->get_all_root_path_info(&root_paths_info);
+    _command_executor->get_all_root_path_info(&root_paths_info, false);
     for (auto root_path_info: root_paths_info) {
         try {
             string dpp_download_path_str = root_path_info.path + DPP_PREFIX;
