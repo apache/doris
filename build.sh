@@ -44,11 +44,11 @@ if [ $JAVA_VER -lt 18 ]; then
     exit 1
 fi
 
-ANT=ant
-# Check ant
-if ! ${ANT} -version; then
-    echo "ant is not found, use thirdparty/installed/ant"
-    ANT=${PALO_HOME}/thirdparty/installed/ant/bin/ant
+MVN=mvn
+# Check maven
+if ! ${MVN} --version; then
+    echo "mvn is not found"
+    exit 1
 fi
 
 # check python
@@ -170,9 +170,9 @@ if [ ${BUILD_FE} -eq 1 ] ; then
     echo "Build Frontend"
     cd ${PALO_HOME}/fe
     if [ ${CLEAN} -eq 1 ]; then
-        ${ANT} clean
+        ${MVN} clean
     fi
-    ${ANT} install
+    ${MVN} package -DskipTests
     cd ${PALO_HOME}
 fi
 
@@ -185,10 +185,12 @@ if [ ${BUILD_FE} -eq 1 ]; then
     install -d ${PALO_OUTPUT}/fe/bin ${PALO_OUTPUT}/fe/conf \
                ${PALO_OUTPUT}/fe/webroot/ ${PALO_OUTPUT}/fe/lib/
 
-    cp -r -p ${PALO_HOME}/fe/output/bin/* ${PALO_OUTPUT}/fe/bin/
-    cp -r -p ${PALO_HOME}/fe/output/conf/* ${PALO_OUTPUT}/fe/conf/
-    cp -r -p ${PALO_HOME}/fe/output/lib/* ${PALO_OUTPUT}/fe/lib/
-    cp -r -p ${PALO_HOME}/fe/output/webroot/* ${PALO_OUTPUT}/fe/webroot/
+    cp -r -p ${PALO_HOME}/bin/*_fe.sh ${PALO_OUTPUT}/fe/bin/
+    cp -r -p ${PALO_HOME}/conf/fe.conf ${PALO_OUTPUT}/fe/conf/
+    cp -r -p ${PALO_HOME}/fe/target/lib/* ${PALO_OUTPUT}/fe/lib/
+    cp -r -p ${PALO_HOME}/fe/target/palo-fe.jar ${PALO_OUTPUT}/fe/lib/
+    cp -r -p ${PALO_HOME}/docs/build/help-resource.zip ${PALO_OUTPUT}/fe/lib/
+    cp -r -p ${PALO_HOME}/webroot/* ${PALO_OUTPUT}/fe/webroot/
 fi
 if [ ${BUILD_BE} -eq 1 ]; then
     install -d ${PALO_OUTPUT}/be/bin ${PALO_OUTPUT}/be/conf \
