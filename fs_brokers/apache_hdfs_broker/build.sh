@@ -33,14 +33,32 @@ fi
 
 export BROKER_HOME=$ROOT
 
-# Every time, build deps
-DEPS_DIR=${BROKER_HOME}/deps
-cd ${DEPS_DIR} && sh build.sh
-cd ${BROKER_HOME}
+MVN=mvn
+# Check ant
+if ! ${MVN} --version; then
+    echo "mvn is not found"
+    exit 1
+fi
 
-# export all variable need by other module
-export PATH=${DEPS_DIR}/bin:$PATH
-ANT_HOME=${DEPS_DIR}/ant
-export PATH=${ANT_HOME}/bin:$PATH
-ant output
-exit
+# prepare thrift
+mkdir -p ${BROKER_HOME}/src/main/resources/thrift
+mkdir -p ${BROKER_HOME}/src/main/thrift
+
+cp ${BROKER_HOME}/../../gensrc/thrift/PaloBrokerService.thrift ${BROKER_HOME}/src/main/resources/thrift/
+
+$MVN package -DskipTests
+
+echo "Install broker..."
+BROKER_OUTPUT=${BROKER_HOME}/output/apache_hdfs_broker/
+rm -rf ${BROKER_OUTPUT}
+
+install -d ${BROKER_OUTPUT}/bin ${BROKER_OUTPUT}/conf \
+           ${BROKER_OUTPUT}lib/
+
+cp -r -p ${BROKER_HOME}/bin/*.sh ${BROKER_OUTPUT}/bin/
+cp -r -p ${BROKER_HOME}/conf/*.conf ${BROKER_OUTPUT}/conf/
+cp -r -p ${BROKER_HOME}/conf/log4j.properties ${BROKER_OUTPUT}/conf/
+cp -r -p ${BROKER_HOME}/target/lib/* ${BROKER_OUTPUT}/lib/
+cp -r -p ${BROKER_HOME}/target/apache_hdfs_broker.jar ${BROKER_OUTPUT}/lib/
+
+echo "Finished"

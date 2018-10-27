@@ -21,7 +21,7 @@ all: subdirs
 .PHONY: all
 
 # build all subdir
-SUBDIR = script proto thrift parser
+SUBDIR = script proto thrift
 subdirs: ${SUBDIR}
 .PHONY: subdirs ${SUBDIR}
 ${SUBDIR}:
