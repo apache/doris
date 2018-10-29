@@ -1,6 +1,6 @@
 # Introduction to Palo
 
-Palo is an MPP-based interactive SQL data warehousing for reporting and analysis. Palo mainly integrates the technology of Google Mesa and Apache Impala. Unlike other popular SQL-on-Hadoop systems, Palo is designed to be a simple and single tightly coupled system, not depending on other systems. Palo not only provides high concurrent low latency point query performance, but also provides high throughput queries of ad-hoc analysis. Palo not only provides batch data loading, but also provides near real-time mini-batch data loading. Palo also provides high availability, reliability, fault tolerance, and scalability. The simplicity (of developing, deploying and using) and meeting many data serving requirements in single system are the main features of Palo.
+Palo is a MPP-based interactive SQL data warehousing for reporting and analysis. Palo mainly integrates the technology of Google Mesa and Apache Impala. Unlike other popular SQL-on-Hadoop systems, Palo is designed to be a simple and single tightly coupled system, not depending on other systems. Palo not only provides high concurrent low latency point query performance, but also provides high throughput queries of ad-hoc analysis. Palo not only provides batch data loading, but also provides near real-time mini-batch data loading. Palo also provides high availability, reliability, fault tolerance, and scalability. The simplicity (of developing, deploying and using) and meeting many data serving requirements in single system are the main features of Palo.
 
 ## 1. Background
 
