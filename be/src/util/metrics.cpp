@@ -25,7 +25,7 @@ std::ostream& operator<<(std::ostream& os, MetricType type) {
         os << "counter";
         break;
     case MetricType::GAUGE:
-        os << "guage";
+        os << "gauge";
         break;
     case MetricType::HISTOGRAM:
         os << "histogram";

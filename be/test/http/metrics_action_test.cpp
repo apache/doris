@@ -50,9 +50,9 @@ TEST_F(MetricsActionTest, prometheus_output) {
                              MetricLabels().add("type", "put").add("path", "/sports"),
                              &put_requests_total);
     s_expect_response =
-        "# TYPE test_cpu_idle GAUGE\n"
+        "# TYPE test_cpu_idle gauge\n"
         "test_cpu_idle 50\n"
-        "# TYPE test_requests_total COUNTER\n"
+        "# TYPE test_requests_total counter\n"
         "test_requests_total{path=\"/sports\",type=\"put\"} 2345\n";
     HttpRequest request(nullptr);
     MetricsAction action(&registry);
@@ -65,7 +65,7 @@ TEST_F(MetricsActionTest, prometheus_no_prefix) {
     cpu_idle.set_value(50);
     registry.register_metric("cpu_idle", &cpu_idle);
     s_expect_response =
-        "# TYPE cpu_idle GAUGE\n"
+        "# TYPE cpu_idle gauge\n"
         "cpu_idle 50\n";
     HttpRequest request(nullptr);
     MetricsAction action(&registry);
