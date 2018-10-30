@@ -47,7 +47,7 @@ void set_up() {
     getcwd(buffer, MAX_PATH_LEN);
     config::storage_root_path = string(buffer) + "/data_test";
     remove_all_dir(config::storage_root_path);
-    remove_all_dir(string(getenv("PALO_HOME")) + UNUSED_PREFIX);
+    remove_all_dir(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
     create_dir(config::storage_root_path);
     touch_all_singleton();    
 }
@@ -57,7 +57,7 @@ void tear_down() {
     getcwd(buffer, MAX_PATH_LEN);
     config::storage_root_path = string(buffer) + "/data_test";
     remove_all_dir(config::storage_root_path);
-    remove_all_dir(string(getenv("PALO_HOME")) + UNUSED_PREFIX);
+    remove_all_dir(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
 }
 
 void set_default_create_tablet_request(TCreateTabletReq* request) {
@@ -1121,7 +1121,7 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
 }  // namespace palo
 
 int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
+    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     if (!palo::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;

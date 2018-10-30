@@ -37,22 +37,22 @@ hostname=`hostname`
 
 cwd=`pwd`
 
-if [ -z ${PALO_HOME+x} ]
+if [ -z ${DORIS_HOME+x} ]
 then
     ROOT=`dirname "$0"`
     ROOT=`cd "$ROOT"; pwd`
-    PALO_HOME=${ROOT}/../..
-    echo "PALO_HOME: ${PALO_HOME}"
+    DORIS_HOME=${ROOT}/../..
+    echo "DORIS_HOME: ${DORIS_HOME}"
 fi
 
 if [[ -z ${PALO_TEST_BINARY_DIR} ]]; then
-    if [ -e ${PALO_HOME}/gensrc/build/java/com/baidu/palo/common/Version.java \
-         -a -e ${PALO_HOME}/gensrc/build/gen_cpp/version.h ]; then
+    if [ -e ${DORIS_HOME}/gensrc/build/java/com/baidu/palo/common/Version.java \
+         -a -e ${DORIS_HOME}/gensrc/build/gen_cpp/version.h ]; then
         exit
     fi
 fi
 
-cd ${PALO_HOME}
+cd ${DORIS_HOME}
 if [ -d .svn ]; then
     revision=`svn info | sed -n -e 's/Last Changed Rev: \(.*\)/\1/p'`
     url=`svn info | sed -n -e 's/^URL: \(.*\)/\1/p'`
@@ -62,10 +62,10 @@ if [ -d .svn ]; then
     fi
 elif [ -d .git ]; then
     revision=`git log -1 --pretty=format:"%H"`
-    url="git://${hostname}${PALO_HOME}"
+    url="git://${hostname}${DORIS_HOME}"
 else
     revision="Unknown"
-    url="file://${PALO_HOME}"
+    url="file://${DORIS_HOME}"
 fi
 
 cd ${cwd}
@@ -74,7 +74,7 @@ build_hash="${url}@${revision}"
 build_time="${date}"
 build_info="${user}@${hostname}"
 
-VERSION_PACKAGE="${PALO_HOME}/gensrc/build/java/com/baidu/palo/common"
+VERSION_PACKAGE="${DORIS_HOME}/gensrc/build/java/com/baidu/palo/common"
 mkdir -p ${VERSION_PACKAGE}
 cat >"${VERSION_PACKAGE}/Version.java" <<EOF
 // Modifications copyright (C) 2017, Baidu.com, Inc.
@@ -120,7 +120,7 @@ public class Version {
 }
 EOF
 
-GEN_CPP_DIR=${PALO_HOME}/gensrc/build/gen_cpp/
+GEN_CPP_DIR=${DORIS_HOME}/gensrc/build/gen_cpp/
 mkdir -p ${GEN_CPP_DIR}
 cat >"${GEN_CPP_DIR}/version.h" <<EOF
 // Modifications copyright (C) 2017, Baidu.com, Inc.

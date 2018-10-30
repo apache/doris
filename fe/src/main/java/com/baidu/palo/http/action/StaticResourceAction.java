@@ -114,7 +114,7 @@ public class StaticResourceAction extends WebBaseAction {
     }
 
     public static void registerAction(ActionController controller) throws IllegalArgException {
-        String httpDir = System.getenv("PALO_HOME") + "/webroot";
+        String httpDir = System.getenv("DORIS_HOME") + "/webroot";
         StaticResourceAction action = new StaticResourceAction(controller, httpDir + "/static");
         controller.registerHandler(HttpMethod.GET, "/static/js", action);
         controller.registerHandler(HttpMethod.GET, "/static/css", action);

@@ -15,7 +15,7 @@
 # under the License.
 
 ##############################################################
-# This script is used to compile Palo.
+# This script is used to compile Apache Doris(incubating)
 # Usage:
 #    sh build.sh        build both Backend and Frontend.
 #    sh build.sh -clean clean previous output and build.
@@ -25,16 +25,17 @@
 ##############################################################
 
 set -eo pipefail
+
 ROOT=`dirname "$0"`
 ROOT=`cd "$ROOT"; pwd`
-export PALO_HOME=$ROOT
+export DORIS_HOME=$ROOT
 
-PARALLEL=2
+PARALLEL=8
 
 # Check java version
-if [ -z $JAVA_HOME ]; then
+if [ -z ${JAVA_HOME} ]; then
     echo "Error: JAVA_HOME is not set, use thirdparty/installed/jdk1.8.0_131"
-    export JAVA_HOME=${PALO_HOME}/thirdparty/installed/jdk1.8.0_131
+    export JAVA_HOME=${DORIS_HOME}/thirdparty/installed/jdk1.8.0_131
 fi
 
 JAVA=${JAVA_HOME}/bin/java
@@ -59,6 +60,10 @@ if ! ${PYTHON} --version; then
         echo "python is not found"
         exit
     fi
+fi
+
+if [ -z ${DORIS_THIRDPARTY} ]; then
+    export DORIS_THIRDPARTY=${DORIS_HOME}/thirdparty
 fi
 
 # Check args
@@ -134,71 +139,71 @@ echo "Get params:
 
 # Clean and build generated code
 echo "Build generated code"
-cd ${PALO_HOME}/gensrc
+cd ${DORIS_HOME}/gensrc
 if [ ${CLEAN} -eq 1 ]; then
    make clean
 fi 
 make
-cd ${PALO_HOME}
+cd ${DORIS_HOME}
 
 # Clean and build Backend
 if [ ${BUILD_BE} -eq 1 ] ; then
     echo "Build Backend"
     if [ ${CLEAN} -eq 1 ]; then
-        rm ${PALO_HOME}/be/build/ -rf
-        rm ${PALO_HOME}/be/output/ -rf
+        rm ${DORIS_HOME}/be/build/ -rf
+        rm ${DORIS_HOME}/be/output/ -rf
     fi
-    mkdir -p ${PALO_HOME}/be/build/
-    cd ${PALO_HOME}/be/build/
+    mkdir -p ${DORIS_HOME}/be/build/
+    cd ${DORIS_HOME}/be/build/
     cmake ../
     make -j${PARALLEL}
     make install
-    cd ${PALO_HOME}
+    cd ${DORIS_HOME}
 fi
 
 # Build docs, should be built before Frontend
 echo "Build docs"
-cd ${PALO_HOME}/docs
+cd ${DORIS_HOME}/docs
 if [ ${CLEAN} -eq 1 ]; then
     make clean
 fi
 make
-cd ${PALO_HOME}
+cd ${DORIS_HOME}
 
 # Clean and build Frontend
 if [ ${BUILD_FE} -eq 1 ] ; then
     echo "Build Frontend"
-    cd ${PALO_HOME}/fe
+    cd ${DORIS_HOME}/fe
     if [ ${CLEAN} -eq 1 ]; then
         ${MVN} clean
     fi
     ${MVN} package -DskipTests
-    cd ${PALO_HOME}
+    cd ${DORIS_HOME}
 fi
 
 # Clean and prepare output dir
-PALO_OUTPUT=${PALO_HOME}/output/
-mkdir -p ${PALO_OUTPUT}
+DORIS_OUTPUT=${DORIS_HOME}/output/
+mkdir -p ${DORIS_OUTPUT}
 
 #Copy Frontend and Backend
 if [ ${BUILD_FE} -eq 1 ]; then
-    install -d ${PALO_OUTPUT}/fe/bin ${PALO_OUTPUT}/fe/conf \
-               ${PALO_OUTPUT}/fe/webroot/ ${PALO_OUTPUT}/fe/lib/
+    install -d ${DORIS_OUTPUT}/fe/bin ${DORIS_OUTPUT}/fe/conf \
+               ${DORIS_OUTPUT}/fe/webroot/ ${DORIS_OUTPUT}/fe/lib/
 
-    cp -r -p ${PALO_HOME}/bin/*_fe.sh ${PALO_OUTPUT}/fe/bin/
-    cp -r -p ${PALO_HOME}/conf/fe.conf ${PALO_OUTPUT}/fe/conf/
-    cp -r -p ${PALO_HOME}/fe/target/lib/* ${PALO_OUTPUT}/fe/lib/
-    cp -r -p ${PALO_HOME}/fe/target/palo-fe.jar ${PALO_OUTPUT}/fe/lib/
-    cp -r -p ${PALO_HOME}/docs/build/help-resource.zip ${PALO_OUTPUT}/fe/lib/
-    cp -r -p ${PALO_HOME}/webroot/* ${PALO_OUTPUT}/fe/webroot/
+    cp -r -p ${DORIS_HOME}/bin/*_fe.sh ${DORIS_OUTPUT}/fe/bin/
+    cp -r -p ${DORIS_HOME}/conf/fe.conf ${DORIS_OUTPUT}/fe/conf/
+    cp -r -p ${DORIS_HOME}/fe/target/lib/* ${DORIS_OUTPUT}/fe/lib/
+    cp -r -p ${DORIS_HOME}/fe/target/palo-fe.jar ${DORIS_OUTPUT}/fe/lib/
+    cp -r -p ${DORIS_HOME}/docs/build/help-resource.zip ${DORIS_OUTPUT}/fe/lib/
+    cp -r -p ${DORIS_HOME}/webroot/* ${DORIS_OUTPUT}/fe/webroot/
 fi
 if [ ${BUILD_BE} -eq 1 ]; then
-    install -d ${PALO_OUTPUT}/be/bin ${PALO_OUTPUT}/be/conf \
-               ${PALO_OUTPUT}/be/lib/
+    install -d ${DORIS_OUTPUT}/be/bin ${DORIS_OUTPUT}/be/conf \
+               ${DORIS_OUTPUT}/be/lib/
 
-    cp -r -p ${PALO_HOME}/be/output/bin/* ${PALO_OUTPUT}/be/bin/ 
-    cp -r -p ${PALO_HOME}/be/output/conf/* ${PALO_OUTPUT}/be/conf/
-    cp -r -p ${PALO_HOME}/be/output/lib/* ${PALO_OUTPUT}/be/lib/
+    cp -r -p ${DORIS_HOME}/be/output/bin/* ${DORIS_OUTPUT}/be/bin/ 
+    cp -r -p ${DORIS_HOME}/be/output/conf/* ${DORIS_OUTPUT}/be/conf/
+    cp -r -p ${DORIS_HOME}/be/output/lib/* ${DORIS_OUTPUT}/be/lib/
 fi
 
 echo "***************************************"

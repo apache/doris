@@ -35,7 +35,7 @@ if [ ! -f $curdir/vars.sh ]; then
     exit 1
 fi
 
-export PALO_HOME=$curdir/../
+export DORIS_HOME=$curdir/../
 export TP_DIR=$curdir
 
 source $curdir/vars.sh
@@ -50,7 +50,7 @@ mkdir -p $TP_DIR/src
 mkdir -p $TP_DIR/installed
 export LD_LIBRARY_PATH=$TP_DIR/installed/lib:$LD_LIBRARY_PATH
 
-if [ -f $PALO_HOME/palo-toolchain/gcc730/bin/gcc ]; then
+if [ -f $DORIS_HOME/palo-toolchain/gcc730/bin/gcc ]; then
     GCC_HOME=$curdir/../palo-toolchain/gcc730
     export CC=${GCC_HOME}/bin/gcc
     export CPP=${GCC_HOME}/bin/cpp

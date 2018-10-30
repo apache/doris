@@ -39,26 +39,26 @@ under the License.
     </properties>
 
     <profiles>
-        <!-- for baidu internal repository -->
+        <!-- for custom internal repository -->
         <profile>
-            <id>baidu-env</id>
+            <id>custom-env</id>
             <activation>
                 <property>
-                    <name>env.THIRDPARTY_REPO</name>
+                    <name>env.CUSTOM_MAVEN_REPO</name>
                 </property>
             </activation>
 
             <repositories>
                 <repository>
-                    <id>baidu-nexus</id>
-                    <url>${env.THIRDPARTY_REPO}</url>
+                    <id>custom-nexus</id>
+                    <url>${env.CUSTOM_MAVEN_REPO}</url>
                 </repository>
             </repositories>
 
             <pluginRepositories>
                 <pluginRepository>
-                    <id>baidu-nexus</id>
-                    <url>${env.THIRDPARTY_REPO}</url>
+                    <id>custom-nexus</id>
+                    <url>${env.CUSTOM_MAVEN_REPO}</url>
                 </pluginRepository>
             </pluginRepositories>
         </profile>

@@ -32,7 +32,7 @@ void PathBuilder::load_palo_home() {
         return;
     }
 
-    _s_palo_home = getenv("PALO_HOME");
+    _s_palo_home = getenv("DORIS_HOME");
 }
 
 void PathBuilder::get_full_path(const std::string& path, std::string* full_path) {

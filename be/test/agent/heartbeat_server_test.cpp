@@ -31,7 +31,7 @@ using std::vector;
 namespace palo {
 
 TEST(HeartbeatTest, TestHeartbeat){
-    setenv("PALO_HOME", "./", 1);
+    setenv("DORIS_HOME", "./", 1);
     THeartbeatResult heartbeat_result;
     TMasterInfo ori_master_info;
     ori_master_info.cluster_id = -1;
@@ -99,7 +99,7 @@ TEST(HeartbeatTest, TestHeartbeat){
 }  // namespace palo
 
 int main(int argc, char **argv) {
-    std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
+    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     if (!palo::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;

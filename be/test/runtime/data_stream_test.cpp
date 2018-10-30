@@ -691,7 +691,7 @@ TEST_F(DataStreamTest, BasicTest) {
 }
 
 int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
+    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     // if (!palo::config::init(conffile.c_str(), false)) {
     //     fprintf(stderr, "error read config file. conffile path= %s\n", conffile.c_str());
     //     return -1;

@@ -47,7 +47,7 @@ void set_up() {
 
 void tear_down() {
     system("rm -rf ./test_run");
-    remove_all_dir(string(getenv("PALO_HOME")) + UNUSED_PREFIX);
+    remove_all_dir(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
 }
 
 void set_default_create_tablet_request(TCreateTabletReq* request) {
@@ -1567,7 +1567,7 @@ TEST_F(TestOLAPReaderColumnDeleteCondition, next_tuple) {
 }  // namespace palo
 
 int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
+    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     if (!palo::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
