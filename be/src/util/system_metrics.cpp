@@ -203,7 +203,7 @@ void SystemMetrics::_install_disk_metrics(MetricRegistry* registry,
 
 void SystemMetrics::_update_disk_metrics() {
 #ifdef BE_TEST
-    FILE* fp = fopen(k_ut_fd_path, "r");
+    FILE* fp = fopen(k_ut_diskstats_path, "r");
 #else
     FILE* fp = fopen("/proc/diskstats", "r");
 #endif
@@ -398,7 +398,7 @@ void SystemMetrics::_install_fd_metrics(MetricRegistry* registry) {
 
 void SystemMetrics::_update_fd_metrics() {
 #ifdef BE_TEST
-    FILE* fp = fopen(k_ut_diskstats_path, "r");
+    FILE* fp = fopen(k_ut_fd_path, "r");
 #else
     FILE* fp = fopen("/proc/sys/fs/file-nr", "r");
 #endif

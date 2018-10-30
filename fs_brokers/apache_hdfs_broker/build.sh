@@ -16,29 +16,15 @@
 # under the License.
 
 set -e
+
 ROOT=`dirname "$0"`
 ROOT=`cd "$ROOT"; pwd`
 
-# check java version
-if [ -z $JAVA_HOME ]; then
-    echo "Error: JAVA_HOME is not set, use thirdparty/installed/jdk1.8.0_131"
-    export JAVA_HOME=${ROOT}/../../thirdparty/installed/jdk1.8.0_131
-fi
-JAVA=${JAVA_HOME}/bin/java
-JAVA_VER=$(${JAVA} -version 2>&1 | sed 's/.* version "\(.*\)\.\(.*\)\..*"/\1\2/; 1q' | cut -f1 -d " ")
-if [ $JAVA_VER -lt 18 ]; then
-    echo "Error: java version is too old" $JAVA_VER" need jdk 1.8."
-    exit 1
-fi
+export DORIS_HOME=${ROOT}/../..
+
+. ${DORIS_HOME}/env.sh
 
 export BROKER_HOME=$ROOT
-
-MVN=mvn
-# Check ant
-if ! ${MVN} --version; then
-    echo "mvn is not found"
-    exit 1
-fi
 
 # prepare thrift
 mkdir -p ${BROKER_HOME}/src/main/resources/thrift

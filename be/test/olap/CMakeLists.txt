@@ -19,9 +19,9 @@ ADD_BE_TEST(in_list_predicate_test)
 ADD_BE_TEST(null_predicate_test)
 ADD_BE_TEST(file_helper_test)
 ADD_BE_TEST(file_utils_test)
-ADD_BE_TEST(delete_handler_test)
-ADD_BE_TEST(column_reader_test)
-ADD_BE_TEST(row_cursor_test)
+# ADD_BE_TEST(delete_handler_test)
+# ADD_BE_TEST(column_reader_test)
+# ADD_BE_TEST(row_cursor_test)
 
 ## deleted
 # ADD_BE_TEST(olap_reader_test)

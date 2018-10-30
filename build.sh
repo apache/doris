@@ -28,43 +28,12 @@ set -eo pipefail
 
 ROOT=`dirname "$0"`
 ROOT=`cd "$ROOT"; pwd`
-export DORIS_HOME=$ROOT
+
+export DORIS_HOME=${ROOT}
+
+. ${DORIS_HOME}/env.sh
 
 PARALLEL=8
-
-# Check java version
-if [ -z ${JAVA_HOME} ]; then
-    echo "Error: JAVA_HOME is not set, use thirdparty/installed/jdk1.8.0_131"
-    export JAVA_HOME=${DORIS_HOME}/thirdparty/installed/jdk1.8.0_131
-fi
-
-JAVA=${JAVA_HOME}/bin/java
-JAVA_VER=$(${JAVA} -version 2>&1 | sed 's/.* version "\(.*\)\.\(.*\)\..*"/\1\2/; 1q' | cut -f1 -d " ")
-if [ $JAVA_VER -lt 18 ]; then
-    echo "Require JAVA with JDK version at least 1.8"
-    exit 1
-fi
-
-MVN=mvn
-# Check maven
-if ! ${MVN} --version; then
-    echo "mvn is not found"
-    exit 1
-fi
-
-# check python
-export PYTHON=python
-if ! ${PYTHON} --version; then
-    export PYTHON=python2.7
-    if ! ${PYTHON} --version; then
-        echo "python is not found"
-        exit
-    fi
-fi
-
-if [ -z ${DORIS_THIRDPARTY} ]; then
-    export DORIS_THIRDPARTY=${DORIS_HOME}/thirdparty
-fi
 
 # Check args
 usage() {
@@ -209,5 +178,9 @@ fi
 echo "***************************************"
 echo "Successfully build Palo."
 echo "***************************************"
+
+if [[ ! -z ${DORIS_POST_BUILD_HOOK} ]]; then
+    eval ${DORIS_POST_BUILD_HOOK}
+fi
 
 exit 0
