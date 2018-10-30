@@ -28,14 +28,14 @@ namespace palo {
 // Utility class to construct full paths relative to the palo_home path.
 class PathBuilder {
 public:
-    // Sets full_path to <PALO_HOME>/path
+    // Sets full_path to <DORIS_HOME>/path
     static void get_full_path(const std::string& path, std::string* full_path);
 
-    // Sets full_path to <PALO_HOME>/<build><debug OR release>/path
+    // Sets full_path to <DORIS_HOME>/<build><debug OR release>/path
     static void get_full_build_path(const std::string& path, std::string* full_path);
 
 private:
-    // Cache of env['PALO_HOME']
+    // Cache of env['DORIS_HOME']
     static const char* _s_palo_home;
 
     // Load _s_palo_home if it is not already loaded

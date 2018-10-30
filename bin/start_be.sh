@@ -17,15 +17,15 @@
 curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
 
-export PALO_HOME=`cd "$curdir/.."; pwd`
+export DORIS_HOME=`cd "$curdir/.."; pwd`
 
 # export env variables from be.conf
 #
 # UDF_RUNTIME_DIR
 # LOG_DIR
 # PID_DIR
-export UDF_RUNTIME_DIR=${PALO_HOME}/lib/udf-runtime
-export LOG_DIR=${PALO_HOME}/log
+export UDF_RUNTIME_DIR=${DORIS_HOME}/lib/udf-runtime
+export LOG_DIR=${DORIS_HOME}/log
 export PID_DIR=`cd "$curdir"; pwd`
 
 while read line; do
@@ -34,10 +34,10 @@ while read line; do
     if [[ $envline == *"="* ]]; then
         eval 'export "$envline"'
     fi
-done < $PALO_HOME/conf/be.conf
+done < $DORIS_HOME/conf/be.conf
 
-if [ -e $PALO_HOME/bin/palo_env.sh ]; then
-    source $PALO_HOME/bin/palo_env.sh
+if [ -e $DORIS_HOME/bin/palo_env.sh ]; then
+    source $DORIS_HOME/bin/palo_env.sh
 fi
 
 if [ ! -d $LOG_DIR ]; then
@@ -61,7 +61,7 @@ if [ -f $pidfile ]; then
     fi
 fi
  
-chmod 755 ${PALO_HOME}/lib/palo_be
+chmod 755 ${DORIS_HOME}/lib/palo_be
 echo "start time: "$(date) >> $LOG_DIR/be.out
 
 if [ ! -f /bin/limit3 ]; then
@@ -70,4 +70,4 @@ else
     LIMIT="/bin/limit3 -c 0 -n 65536"
 fi
 
-nohup $LIMIT ${PALO_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 </dev/null &
+nohup $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 </dev/null &

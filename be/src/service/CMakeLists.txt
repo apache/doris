@@ -34,7 +34,7 @@ add_executable(palo_be
 # set_target_properties(palo_be PROPERTIES LINK_FLAGS -pthread)
 
 target_link_libraries(palo_be
-    ${PALO_LINK_LIBS}
+    ${DORIS_LINK_LIBS}
 )
 
 install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)

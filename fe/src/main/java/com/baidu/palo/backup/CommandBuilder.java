@@ -35,8 +35,8 @@ import java.util.Map;
 public class CommandBuilder implements Writable {
     private static final Logger LOG = LogManager.getLogger(CommandBuilder.class);
     
-    private static final String PALO_HOME = System.getenv("PALO_HOME");
-    private static final String BACKUP_PLUGIN_CMD = PALO_HOME + Config.backup_plugin_path;
+    private static final String DORIS_HOME = System.getenv("DORIS_HOME");
+    private static final String BACKUP_PLUGIN_CMD = DORIS_HOME + Config.backup_plugin_path;
 
     private static final String ACTION_UPLOAD = "upload";
     private static final String ACTION_DOWNLOAD = "download";

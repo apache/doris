@@ -22,7 +22,7 @@ public class Config extends ConfigBase {
      * fe.log:      all logs of FE process.
      * fe.warn.log  all WARNING and ERROR log of FE process.
      */
-    @ConfField public static String sys_log_dir = System.getenv("PALO_HOME") + "/log";
+    @ConfField public static String sys_log_dir = System.getenv("DORIS_HOME") + "/log";
     @ConfField public static String sys_log_level = "INFO"; // INFO, WARNING, ERROR, FATAL
     /*
      * The roll mode of FE log files.
@@ -49,7 +49,7 @@ public class Config extends ConfigBase {
      * This specifies FE audit log dir.
      * Audit log fe.audit.log contains all SQL queries with related infos such as user, host, cost, status, etc.
      */
-    @ConfField public static String audit_log_dir = System.getenv("PALO_HOME") + "/log";
+    @ConfField public static String audit_log_dir = System.getenv("DORIS_HOME") + "/log";
     /*
      * Slow query contains all queries which cost exceed *qe_slow_log_ms*
      */
@@ -81,13 +81,13 @@ public class Config extends ConfigBase {
      * 1. High write performance (SSD)
      * 2. Safe (RAID)
      */
-    @ConfField public static String meta_dir = System.getenv("PALO_HOME") + "/palo-meta";
+    @ConfField public static String meta_dir = System.getenv("DORIS_HOME") + "/palo-meta";
     
     /*
      * temp dir is used to save intermediate results of some process, such as backup and restore process.
      * file in this dir will be cleaned after these process is finished.
      */
-    @ConfField public static String tmp_dir = System.getenv("PALO_HOME") + "/temp_dir";
+    @ConfField public static String tmp_dir = System.getenv("DORIS_HOME") + "/temp_dir";
     
     /*
      * Edit log type.

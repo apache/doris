@@ -88,18 +88,18 @@ add_custom_target(compile_to_ir_no_sse DEPENDS ${IR_NO_SSE_OUTPUT_FILE})
 # Convert LLVM bytecode to C array.
 add_custom_command(
   OUTPUT ${IR_SSE_C_FILE}
-  COMMAND $ENV{PALO_HOME}/gensrc/script/file2array.sh -n -v palo_sse_llvm_ir ${IR_SSE_OUTPUT_FILE} > ${IR_SSE_TMP_C_FILE}
+  COMMAND $ENV{DORIS_HOME}/gensrc/script/file2array.sh -n -v palo_sse_llvm_ir ${IR_SSE_OUTPUT_FILE} > ${IR_SSE_TMP_C_FILE}
   COMMAND mv ${IR_SSE_TMP_C_FILE} ${IR_SSE_C_FILE}
-  DEPENDS $ENV{PALO_HOME}/gensrc/script/file2array.sh
+  DEPENDS $ENV{DORIS_HOME}/gensrc/script/file2array.sh
   DEPENDS ${IR_SSE_OUTPUT_FILE}
 )
 
 # Convert LLVM bytecode to C array.
 add_custom_command(
   OUTPUT ${IR_NO_SSE_C_FILE}
-  COMMAND $ENV{PALO_HOME}/gensrc/script/file2array.sh -n -v palo_no_sse_llvm_ir ${IR_NO_SSE_OUTPUT_FILE} > ${IR_NO_SSE_TMP_C_FILE}
+  COMMAND $ENV{DORIS_HOME}/gensrc/script/file2array.sh -n -v palo_no_sse_llvm_ir ${IR_NO_SSE_OUTPUT_FILE} > ${IR_NO_SSE_TMP_C_FILE}
   COMMAND mv ${IR_NO_SSE_TMP_C_FILE} ${IR_NO_SSE_C_FILE}
-  DEPENDS $ENV{PALO_HOME}/gensrc/script/file2array.sh
+  DEPENDS $ENV{DORIS_HOME}/gensrc/script/file2array.sh
   DEPENDS ${IR_NO_SSE_OUTPUT_FILE}
 )
 

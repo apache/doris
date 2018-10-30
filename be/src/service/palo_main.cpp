@@ -67,8 +67,8 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (getenv("PALO_HOME") == nullptr) {
-        fprintf(stderr, "you need set PALO_HOME environment variable.\n");
+    if (getenv("DORIS_HOME") == nullptr) {
+        fprintf(stderr, "you need set DORIS_HOME environment variable.\n");
         exit(-1);
     }
 
@@ -97,7 +97,7 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
-    string conffile = string(getenv("PALO_HOME")) + "/conf/be.conf";
+    string conffile = string(getenv("DORIS_HOME")) + "/conf/be.conf";
     if (!palo::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;

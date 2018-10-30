@@ -170,7 +170,7 @@ names_epilogue = '\
 \n\
 #endif\n'
 
-BE_PATH = os.environ['PALO_HOME'] + "/gensrc/build/palo_ir/"
+BE_PATH = os.environ['DORIS_HOME'] + "/gensrc/build/palo_ir/"
 if not os.path.exists(BE_PATH):
     os.makedirs(BE_PATH)
 

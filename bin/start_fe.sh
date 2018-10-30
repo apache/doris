@@ -17,7 +17,7 @@
 curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
 
-export PALO_HOME=`cd "$curdir/.."; pwd`
+export DORIS_HOME=`cd "$curdir/.."; pwd`
 
 # export env variables from fe.conf
 #
@@ -25,7 +25,7 @@ export PALO_HOME=`cd "$curdir/.."; pwd`
 # LOG_DIR
 # PID_DIR
 export JAVA_OPTS="-Xmx1024m"
-export LOG_DIR="$PALO_HOME/log"
+export LOG_DIR="$DORIS_HOME/log"
 export PID_DIR=`cd "$curdir"; pwd`
 
 while read line; do
@@ -34,10 +34,10 @@ while read line; do
     if [[ $envline == *"="* ]]; then
         eval 'export "$envline"'
     fi
-done < $PALO_HOME/conf/fe.conf
+done < $DORIS_HOME/conf/fe.conf
 
-if [ -e $PALO_HOME/bin/palo_env.sh ]; then
-    source $PALO_HOME/bin/palo_env.sh
+if [ -e $DORIS_HOME/bin/palo_env.sh ]; then
+    source $DORIS_HOME/bin/palo_env.sh
 fi
 
 # java
@@ -48,16 +48,16 @@ fi
 JAVA=$JAVA_HOME/bin/java
 
 # add libs to CLASSPATH
-for f in $PALO_HOME/lib/*.jar; do
+for f in $DORIS_HOME/lib/*.jar; do
   CLASSPATH=$f:${CLASSPATH};
 done
-for f in $PALO_HOME/lib/kudu-client/*.jar; do
+for f in $DORIS_HOME/lib/kudu-client/*.jar; do
   CLASSPATH=$f:${CLASSPATH};
 done
-for f in $PALO_HOME/lib/k8s-client/*.jar; do
+for f in $DORIS_HOME/lib/k8s-client/*.jar; do
   CLASSPATH=$f:${CLASSPATH};
 done
-export CLASSPATH=${CLASSPATH}:${PALO_HOME}/lib
+export CLASSPATH=${CLASSPATH}:${DORIS_HOME}/lib
 
 if [ ! -d $LOG_DIR ]; then
     mkdir -p $LOG_DIR

@@ -16,7 +16,7 @@
 # This file used to compile all thrift files.
 BUILD_DIR = ${CURDIR}/../build/
 
-THRIFT = ${CURDIR}/../../thirdparty/installed/bin/thrift
+THRIFT = ${DORIS_THIRDPARTY}/installed/bin/thrift
 
 SOURCES = $(shell find ${CURDIR} -name "*.thrift")
 OBJECTS = $(patsubst ${CURDIR}/%.thrift, ${BUILD_DIR}/gen_cpp/%_types.cpp, ${SOURCES})

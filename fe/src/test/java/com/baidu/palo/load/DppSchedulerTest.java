@@ -51,7 +51,7 @@ public class DppSchedulerTest {
     public void setUp() {
         // mock palo home env
         PowerMock.mockStatic(System.class);
-        EasyMock.expect(System.getenv("PALO_HOME")).andReturn(".").anyTimes();
+        EasyMock.expect(System.getenv("DORIS_HOME")).andReturn(".").anyTimes();
         EasyMock.expect(System.currentTimeMillis()).andReturn(1000L).anyTimes();
         PowerMock.replay(System.class);
 

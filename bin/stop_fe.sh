@@ -17,7 +17,7 @@
 curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
 
-export PALO_HOME=`cd "$curdir/.."; pwd`
+export DORIS_HOME=`cd "$curdir/.."; pwd`
 export PID_DIR=`cd "$curdir"; pwd`
 
 while read line; do
@@ -26,7 +26,7 @@ while read line; do
     if [[ $envline == *"="* ]]; then
         eval 'export "$envline"'
     fi
-done < $PALO_HOME/conf/fe.conf
+done < $DORIS_HOME/conf/fe.conf
 
 pidfile=$PID_DIR/fe.pid
 

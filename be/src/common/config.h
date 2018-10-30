@@ -112,12 +112,12 @@ namespace config {
     // sleep time for five seconds
     CONF_Int32(sleep_five_seconds, "5");
     // trans file tools dir
-    CONF_String(trans_file_tool_path, "${PALO_HOME}/tools/trans_file_tool/trans_files.sh");
+    CONF_String(trans_file_tool_path, "${DORIS_HOME}/tools/trans_file_tool/trans_files.sh");
     // agent tmp dir
-    CONF_String(agent_tmp_dir, "${PALO_HOME}/tmp");
+    CONF_String(agent_tmp_dir, "${DORIS_HOME}/tmp");
 
     // log dir
-    CONF_String(sys_log_dir, "${PALO_HOME}/log");
+    CONF_String(sys_log_dir, "${DORIS_HOME}/log");
     // INFO, WARNING, ERROR, FATAL
     CONF_String(sys_log_level, "INFO");
     // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
@@ -130,7 +130,7 @@ namespace config {
     CONF_String(log_buffer_level, "");
 
     // Pull load task dir
-    CONF_String(pull_load_task_dir, "${PALO_HOME}/var/pull_load");
+    CONF_String(pull_load_task_dir, "${DORIS_HOME}/var/pull_load");
 
     // the maximum number of bytes to display on the debug webserver's log page
     CONF_Int64(web_log_bytes, "1048576");
@@ -204,7 +204,7 @@ namespace config {
     CONF_Int32(file_descriptor_cache_clean_interval, "3600");
     CONF_Int32(disk_stat_monitor_interval, "5");
     CONF_Int32(unused_index_monitor_interval, "30");
-    CONF_String(storage_root_path, "${PALO_HOME}/storage");
+    CONF_String(storage_root_path, "${DORIS_HOME}/storage");
     CONF_Int32(min_percentage_of_error_disk, "50");
     CONF_Int32(default_num_rows_per_data_block, "1024");
     CONF_Int32(default_num_rows_per_column_file_block, "1024");
@@ -245,7 +245,7 @@ namespace config {
     CONF_Int32(webserver_port, "8040");
     // Interface to start debug webserver on. If blank, webserver binds to 0.0.0.0
     CONF_String(webserver_interface, "");
-    CONF_String(webserver_doc_root, "${PALO_HOME}");
+    CONF_String(webserver_doc_root, "${DORIS_HOME}");
     CONF_Int32(webserver_num_workers, "5");
     // If true, webserver may serve static files from the webserver_doc_root
     CONF_Bool(enable_webserver_doc_root, "true");
@@ -265,7 +265,7 @@ namespace config {
 
     // Spill to disk when query
     // Writable scratch directories, splitted by ";"
-    CONF_String(query_scratch_dirs, "${PALO_HOME}");
+    CONF_String(query_scratch_dirs, "${DORIS_HOME}");
 
     // Control the number of disks on the machine.  If 0, this comes from the system settings.
     CONF_Int32(num_disks, "0");
@@ -289,7 +289,7 @@ namespace config {
     CONF_Bool(enable_quadratic_probing, "false");
 
     // for pprof
-    CONF_String(pprof_profile_dir, "${PALO_HOME}/log")
+    CONF_String(pprof_profile_dir, "${DORIS_HOME}/log")
 
     // for partition
     CONF_Bool(enable_partitioned_hash_join, "false")

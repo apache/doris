@@ -58,9 +58,9 @@ public class PaloFe {
         System.out.println(cmdLineOpts.toString());
 
         try {
-            final String paloHome = System.getenv("PALO_HOME");
+            final String paloHome = System.getenv("DORIS_HOME");
             if (Strings.isNullOrEmpty(paloHome)) {
-                System.out.println("env PALO_HOME is not set.");
+                System.out.println("env DORIS_HOME is not set.");
                 return;
             }
 

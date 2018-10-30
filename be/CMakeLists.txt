@@ -16,15 +16,15 @@
 cmake_minimum_required(VERSION 2.8.10)
 
 # set CMAKE_C_COMPILER, this must set before project command
-if (DEFINED ENV{PALO_GCC_HOME})
-    set(CMAKE_C_COMPILER "$ENV{PALO_GCC_HOME}/bin/gcc")
-    set(CMAKE_CXX_COMPILER "$ENV{PALO_GCC_HOME}/bin/g++")
-    set(GCC_HOME $ENV{PALO_GCC_HOME})
+if (DEFINED ENV{DORIS_GCC_HOME})
+    set(CMAKE_C_COMPILER "$ENV{DORIS_GCC_HOME}/bin/gcc")
+    set(CMAKE_CXX_COMPILER "$ENV{DORIS_GCC_HOME}/bin/g++")
+    set(GCC_HOME $ENV{DORIS_GCC_HOME})
 else()
     set(GCC_HOME "/usr")
 endif()
 
-project(palo CXX C)
+project(doris CXX C)
 
 # set CMAKE_BUILD_TYPE
 if (DEFINED ENV{BUILD_TYPE})
@@ -39,17 +39,17 @@ message(STATUS "Build type is ${CMAKE_BUILD_TYPE}")
 
 # Set dirs
 set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-set(ENV{PALO_HOME} "${BASE_DIR}/../")
+set(ENV{DORIS_HOME} "${BASE_DIR}/../")
 set(BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}")
-set(THIRDPARTY_DIR "${BASE_DIR}/../thirdparty/installed/")
+set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed/")
 set(GENSRC_DIR "${BASE_DIR}/../gensrc/build/")
 set(SRC_DIR "${BASE_DIR}/src/")
 set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
 set(OUTPUT_DIR "${BASE_DIR}/output")
 
 # LLVM
-if (DEFINED ENV{PALO_LLVM_HOME})
-    set(LLVM_HOME "$ENV{PALO_LLVM_HOME}")
+if (DEFINED ENV{DORIS_LLVM_HOME})
+    set(LLVM_HOME "$ENV{DORIS_LLVM_HOME}")
 else()
     set(LLVM_HOME "${THIRDPARTY_DIR}/llvm")
 endif()
@@ -430,8 +430,8 @@ include_directories(
 set(WL_START_GROUP "-Wl,--start-group")
 set(WL_END_GROUP "-Wl,--end-group")
 
-# Set Palo libraries
-set(PALO_LINK_LIBS
+# Set doris libraries
+set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
     Agent
     CodeGen
@@ -451,7 +451,7 @@ set(PALO_LINK_LIBS
 )
 
 # Set thirdparty libraries
-set(PALO_DEPENDENCIES
+set(DORIS_DEPENDENCIES
     lzo
     snappy
     ${Boost_LIBRARIES}
@@ -477,41 +477,41 @@ set(PALO_DEPENDENCIES
     leveldb
 )
 
-# Add all external dependencies. They should come after the palo libs.
+# Add all external dependencies. They should come after the doris libs.
 # static link gcc's lib
-set(PALO_LINK_LIBS ${PALO_LINK_LIBS}
-    ${PALO_DEPENDENCIES}
+set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+    ${DORIS_DEPENDENCIES}
     -static-libstdc++
     -static-libgcc
 )
 
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "BCC")
-    set(PALO_LINK_LIBS ${PALO_LINK_LIBS}
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
         -Wl,--dynamic-linker=/lib64/ld-linux-x86-64.so.2
     )
 endif()
 
 # Add sanitize static link flags or tcmalloc
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE" OR "${CMAKE_BUILD_TYPE}" STREQUAL "BCC")
-    set(PALO_LINK_LIBS ${PALO_LINK_LIBS} tcmalloc)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} tcmalloc)
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
-    set(PALO_LINK_LIBS ${PALO_LINK_LIBS} -static-libasan)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -static-libasan)
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "LSAN")
-    set(PALO_LINK_LIBS ${PALO_LINK_LIBS} -static-liblsan)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -static-liblsan)
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "UBSAN")
-    set(PALO_LINK_LIBS ${PALO_LINK_LIBS} -static-libubsan tcmalloc)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -static-libubsan tcmalloc)
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "TSAN")
-    set(PALO_LINK_LIBS ${PALO_LINK_LIBS} -static-libtsan)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -static-libtsan)
 else()
     message(FATAL_ERROR "Unknown build type: ${CMAKE_BUILD_TYPE}")
 endif()
 
-set(PALO_LINK_LIBS ${PALO_LINK_LIBS}
-    -lrt -lbfd -liberty -lc -lm -ldl -pthread -lz
+set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+    -lrt -lbfd -liberty -lc -lm -ldl -pthread
 )
 
 # Set libraries for test
-set (TEST_LINK_LIBS ${PALO_LINK_LIBS} 
+set (TEST_LINK_LIBS ${DORIS_LINK_LIBS} 
     ${WL_START_GROUP}
     gmock
     gtest

@@ -27,7 +27,7 @@ curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
 REPOSITORY_URL=$1
 
-export PALO_HOME=$curdir/../
+export DORIS_HOME=$curdir/../
 source $curdir/vars.sh
 
 mkdir -p $TP_DIR/src
