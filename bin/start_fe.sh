@@ -51,12 +51,6 @@ JAVA=$JAVA_HOME/bin/java
 for f in $DORIS_HOME/lib/*.jar; do
   CLASSPATH=$f:${CLASSPATH};
 done
-for f in $DORIS_HOME/lib/kudu-client/*.jar; do
-  CLASSPATH=$f:${CLASSPATH};
-done
-for f in $DORIS_HOME/lib/k8s-client/*.jar; do
-  CLASSPATH=$f:${CLASSPATH};
-done
 export CLASSPATH=${CLASSPATH}:${DORIS_HOME}/lib
 
 if [ ! -d $LOG_DIR ]; then
@@ -79,6 +73,6 @@ else
 fi
 
 echo `date` >> $LOG_DIR/fe.out
-nohup $LIMIT $JAVA $JAVA_OPTS com.baidu.palo.PaloFe "$@" >> $LOG_DIR/fe.out 2>&1 </dev/null &
+nohup $LIMIT $JAVA $JAVA_OPTS org.apache.doris.PaloFe "$@" >> $LOG_DIR/fe.out 2>&1 </dev/null &
 
 echo $! > $pidfile
