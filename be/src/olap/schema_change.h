@@ -55,11 +55,11 @@ public:
     typedef std::vector<ColumnMapping> SchemaMapping;
 
     RowBlockChanger(const std::vector<FieldInfo>& tablet_schema,
-                    const SmartOLAPTable& ref_olap_table,
+                    const OLAPTablePtr& ref_olap_table,
                     const DeleteHandler& delete_handler);
 
     RowBlockChanger(const std::vector<FieldInfo>& tablet_schema,
-                    const SmartOLAPTable& ref_olap_table);
+                    const OLAPTablePtr& ref_olap_table);
     
     virtual ~RowBlockChanger();
 
@@ -117,7 +117,7 @@ private:
 
 class RowBlockMerger {
 public:
-    explicit RowBlockMerger(SmartOLAPTable olap_table);
+    explicit RowBlockMerger(OLAPTablePtr olap_table);
     virtual ~RowBlockMerger();
 
     bool merge(
@@ -139,7 +139,7 @@ private:
     bool _make_heap(const std::vector<RowBlock*>& row_block_arr);
     bool _pop_heap();
 
-    SmartOLAPTable _olap_table;
+    OLAPTablePtr _olap_table;
     std::priority_queue<MergeElement> _heap;
 };
 
@@ -148,7 +148,7 @@ public:
     SchemaChange() : _filted_rows(0), _merged_rows(0) {}
     virtual ~SchemaChange() {}
 
-    virtual bool process(IData* olap_data, OLAPIndex* new_olap_index) = 0;
+    virtual bool process(IData* olap_data, Rowset* new_olap_index) = 0;
 
     void add_filted_rows(uint64_t filted_rows) {
         _filted_rows += filted_rows;
@@ -179,7 +179,7 @@ public:
             TSchemaHash schema_hash,
             Version version,
             VersionHash version_hash,
-            OLAPIndex* olap_index);
+            Rowset* olap_index);
 
 private:
     uint64_t _filted_rows;
@@ -189,14 +189,14 @@ private:
 class LinkedSchemaChange : public SchemaChange {
 public:
     explicit LinkedSchemaChange(
-                SmartOLAPTable base_olap_table, 
-                SmartOLAPTable new_olap_table);
+                OLAPTablePtr base_olap_table, 
+                OLAPTablePtr new_olap_table);
     ~LinkedSchemaChange() {}
 
-    bool process(IData* olap_data, OLAPIndex* new_olap_index);
+    bool process(IData* olap_data, Rowset* new_olap_index);
 private:
-    SmartOLAPTable _base_olap_table;
-    SmartOLAPTable _new_olap_table;
+    OLAPTablePtr _base_olap_table;
+    OLAPTablePtr _new_olap_table;
     DISALLOW_COPY_AND_ASSIGN(LinkedSchemaChange);
 };
 
@@ -206,14 +206,14 @@ public:
     // @params olap_table           the instance of table which has new schema.
     // @params row_block_changer    changer to modifiy the data of RowBlock
     explicit SchemaChangeDirectly(
-            SmartOLAPTable olap_table,
+            OLAPTablePtr olap_table,
             const RowBlockChanger& row_block_changer);
     virtual ~SchemaChangeDirectly();
 
-    virtual bool process(IData* olap_data, OLAPIndex* new_olap_index);
+    virtual bool process(IData* olap_data, Rowset* new_olap_index);
 
 private:
-    SmartOLAPTable _olap_table;
+    OLAPTablePtr _olap_table;
     const RowBlockChanger& _row_block_changer;
     RowBlockAllocator* _row_block_allocator;
     RowCursor* _src_cursor;
@@ -228,24 +228,24 @@ private:
 class SchemaChangeWithSorting : public SchemaChange {
 public:
     explicit SchemaChangeWithSorting(
-            SmartOLAPTable olap_table,
+            OLAPTablePtr olap_table,
             const RowBlockChanger& row_block_changer,
             size_t memory_limitation);
     virtual ~SchemaChangeWithSorting();
 
-    virtual bool process(IData* olap_data, OLAPIndex* new_olap_index);
+    virtual bool process(IData* olap_data, Rowset* new_olap_index);
 
 private:
     bool _internal_sorting(
             const std::vector<RowBlock*>& row_block_arr,
             const Version& temp_delta_versions,
-            OLAPIndex** temp_olap_index);
+            Rowset** temp_olap_index);
 
     bool _external_sorting(
-            std::vector<OLAPIndex*>& src_olap_index_arr,
-            OLAPIndex* olap_index);
+            std::vector<Rowset*>& src_olap_index_arr,
+            Rowset* olap_index);
 
-    SmartOLAPTable _olap_table;
+    OLAPTablePtr _olap_table;
     const RowBlockChanger& _row_block_changer;
     size_t _memory_limitation;
     Version _temp_delta_versions;
@@ -262,10 +262,10 @@ public:
     OLAPStatus process_alter_table(AlterTabletType alter_table_type,
                                    const TAlterTabletReq& request);
 
-    OLAPStatus schema_version_convert(SmartOLAPTable ref_olap_table,
-                                      SmartOLAPTable new_olap_table,
-                                      std::vector<OLAPIndex*>* ref_olap_indices,
-                                      std::vector<OLAPIndex*>* new_olap_indices);
+    OLAPStatus schema_version_convert(OLAPTablePtr ref_olap_table,
+                                      OLAPTablePtr new_olap_table,
+                                      std::vector<Rowset*>* ref_olap_indices,
+                                      std::vector<Rowset*>* new_olap_indices);
 
     // 清空一个table下的schema_change信息：包括split_talbe以及其他schema_change信息
     //  这里只清理自身的out链，不考虑related的table
@@ -288,7 +288,7 @@ public:
                                                       bool only_one,
                                                       bool check_only);
 
-    static OLAPStatus clear_schema_change_single_info(SmartOLAPTable olap_table,
+    static OLAPStatus clear_schema_change_single_info(OLAPTablePtr olap_table,
                                                       AlterTabletType* alter_table_type,
                                                       bool only_one,
                                                       bool check_only);
@@ -300,21 +300,21 @@ private:
     // Returns:
     //  成功：如果存在历史信息，没有问题的就清空；或者没有历史信息
     //  失败：否则如果有历史信息且无法清空的（有version还没有完成）
-    OLAPStatus _check_and_clear_schema_change_info(SmartOLAPTable olap_table,
+    OLAPStatus _check_and_clear_schema_change_info(OLAPTablePtr olap_table,
                                                    const TAlterTabletReq& request);
 
-    OLAPStatus _get_versions_to_be_changed(SmartOLAPTable ref_olap_table,
+    OLAPStatus _get_versions_to_be_changed(OLAPTablePtr ref_olap_table,
                                            std::vector<Version>& versions_to_be_changed);
 
     OLAPStatus _do_alter_table(AlterTabletType type,
-                               SmartOLAPTable ref_olap_table,
+                               OLAPTablePtr ref_olap_table,
                                const TAlterTabletReq& request);
 
     struct SchemaChangeParams {
         // 为了让calc_split_key也可使用普通schema_change的线程，才设置了此type
         AlterTabletType alter_table_type;
-        SmartOLAPTable ref_olap_table;
-        SmartOLAPTable new_olap_table;
+        OLAPTablePtr ref_olap_table;
+        OLAPTablePtr new_olap_table;
         std::vector<IData*> ref_olap_data_arr;
         std::string debug_message;
         DeleteHandler delete_handler;
@@ -324,25 +324,23 @@ private:
     };
 
     // 根据给定的table_desc，创建OLAPTable，并挂接到OLAPEngine中
-    OLAPStatus _create_new_olap_table(const SmartOLAPTable ref_olap_table,
+    OLAPStatus _create_new_olap_table(const OLAPTablePtr ref_olap_table,
                                       const TCreateTabletReq& create_tablet_req,
                                       const std::string* ref_root_path,
-                                      SmartOLAPTable* out_new_olap_table);
-    
-    OLAPStatus _copy_table_attributes(SmartOLAPTable ref_olap_table, SmartOLAPTable new_olap_table);
+                                      OLAPTablePtr* out_new_olap_table);
 
     // 增加A->(B|C|...) 的schema_change信息
     //  在split table时，增加split-table status相关的信息
     //  其他的都增加在schema-change status中
     OLAPStatus _save_schema_change_info(AlterTabletType alter_table_type,
-                                        SmartOLAPTable ref_olap_table,
-                                        SmartOLAPTable new_olap_table,
+                                        OLAPTablePtr ref_olap_table,
+                                        OLAPTablePtr new_olap_table,
                                         const std::vector<Version>& versions_to_be_changed);
 
     static OLAPStatus _alter_table(SchemaChangeParams* sc_params);
 
-    static OLAPStatus _parse_request(SmartOLAPTable ref_olap_table,
-                                     SmartOLAPTable new_olap_table,
+    static OLAPStatus _parse_request(OLAPTablePtr ref_olap_table,
+                                     OLAPTablePtr new_olap_table,
                                      RowBlockChanger* rb_changer,
                                      bool* sc_sorting, 
                                      bool* sc_directly);

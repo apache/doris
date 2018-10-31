@@ -132,6 +132,11 @@ public class DeleteInfo implements Writable {
     public DeleteState getState() {
         return asyncDeleteJob == null ? DeleteState.FINISHED : asyncDeleteJob.getState();
     }
+    
+    public void updatePartitionVersionInfo(long newVersion, long newVersionHash) {
+        this.partitionVersion = newVersion;
+        this.partitionVersionHash = newVersionHash;
+    }
 
     @Override
     public void write(DataOutput out) throws IOException {

@@ -138,8 +138,11 @@ void RunLengthIntegerWriter::_determined_encoding() {
     }
 
     // use DIRECT for delta overflows
-    _zz_bits_90p = ser::percentile_bits(_zig_zag_literals, _num_literals, 0.9);
-    _zz_bits_100p = ser::percentile_bits(_zig_zag_literals, _num_literals, 1.0);
+    uint16_t hists[65];
+    ser::compute_hists(_zig_zag_literals, _num_literals, hists);
+
+    _zz_bits_90p = ser::percentile_bits_with_hist(hists, _num_literals, 0.9);
+    _zz_bits_100p = ser::percentile_bits_with_hist(hists, _num_literals, 1.0);
     if (!ser::is_safe_subtract(max, _min)) {
         _encoding = DIRECT;
         return;
@@ -179,12 +182,13 @@ void RunLengthIntegerWriter::_determined_encoding() {
             _base_reduced_literals[i] = _literals[i] - _min;
         }
 
+        ser::compute_hists(_base_reduced_literals, _num_literals, hists);
         // 95th percentile width is used to determine max allowed value
         // after which patching will be done
-        _br_bits_95p = ser::percentile_bits(_base_reduced_literals, _num_literals, 0.95);
+        _br_bits_95p = ser::percentile_bits_with_hist(hists, _num_literals, 0.95);
 
         // 100th percentile is used to compute the max patch width
-        _br_bits_100p = ser::percentile_bits(_base_reduced_literals, _num_literals, 1.0);
+        _br_bits_100p = ser::percentile_bits_with_hist(hists, _num_literals, 1.0);
 
         // after base reducing the values, if the difference in bits between
         // 95th percentile and 100th percentile value is zero then there

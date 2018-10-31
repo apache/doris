@@ -21,24 +21,18 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.catalog.Database;
-import com.baidu.palo.catalog.Type;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.rewrite.ExprRewriter;
 
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import java.util.ArrayList;
 import java.util.List;
-import java.util.ListIterator;
 import java.util.Map;
 
 /**
@@ -190,7 +184,7 @@ public class UnionStmt extends QueryStmt {
      * union operands are union compatible, adding implicit casts if necessary.
      */
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         if (isAnalyzed()) return;
         super.analyze(analyzer);
         Preconditions.checkState(operands.size() > 0);
@@ -258,7 +252,7 @@ public class UnionStmt extends QueryStmt {
      * Throws an AnalysisException if that is not the case, or if analyzing
      * an operand fails.
      */
-    private void analyzeOperands(Analyzer analyzer) throws AnalysisException, InternalException {
+    private void analyzeOperands(Analyzer analyzer) throws AnalysisException, UserException {
         for (int i = 0; i < operands.size(); ++i) {
             operands.get(i).analyze(analyzer);
             QueryStmt firstQuery = operands.get(0).getQueryStmt();
@@ -599,7 +593,7 @@ public class UnionStmt extends QueryStmt {
 
     @Override
     public void substituteSelectList(Analyzer analyzer, List<String> newColLabels)
-            throws AnalysisException, InternalException {
+            throws AnalysisException, UserException {
         QueryStmt firstQuery = operands.get(0).getQueryStmt();
         firstQuery.substituteSelectList(analyzer, newColLabels);
         // substitute order by
@@ -638,7 +632,7 @@ public class UnionStmt extends QueryStmt {
             smap_ = new ExprSubstitutionMap();
         }
 
-        public void analyze(Analyzer parent) throws AnalysisException, InternalException {
+        public void analyze(Analyzer parent) throws AnalysisException, UserException {
             if (isAnalyzed()) return;
             analyzer = new Analyzer(parent);
             queryStmt.analyze(analyzer);

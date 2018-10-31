@@ -64,6 +64,7 @@ public class RangePartitionPruner implements PartitionPruner {
                                    PartitionKey maxKey,
                                    int complex)
             throws AnalysisException {
+        LOG.debug("column id {}, column filters {}", columnId, partitionColumnFilters);
         // the last column in partition Key
         if (columnId == partitionColumns.size()) {
             try {

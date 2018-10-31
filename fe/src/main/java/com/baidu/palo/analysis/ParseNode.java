@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 public interface ParseNode {
 
@@ -32,7 +32,7 @@ public interface ParseNode {
      * @param analyzer
      * @throws AnalysisException, InternalException
      */
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException;
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException;
 
     /**
      * @return SQL syntax corresponding to this node.

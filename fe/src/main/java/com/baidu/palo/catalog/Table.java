@@ -21,7 +21,7 @@
 package com.baidu.palo.catalog;
 
 import com.baidu.palo.analysis.CreateTableStmt;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.io.Writable;
 import com.baidu.palo.thrift.TTableDescriptor;
@@ -49,7 +49,8 @@ public class Table extends MetaObject implements Writable {
         INLINE_VIEW,
         VIEW,
         KUDU,
-        BROKER
+        BROKER,
+        ELASTICSEARCH
     }
 
     protected long id;
@@ -148,6 +149,8 @@ public class Table extends MetaObject implements Writable {
             table = new KuduTable();
         } else if (type == TableType.BROKER) {
             table = new BrokerTable();
+        } else if (type == TableType.ELASTICSEARCH) {
+            table = new EsTable();
         } else {
             throw new IOException("Unknown table type: " + type.name());
         }
@@ -158,7 +161,7 @@ public class Table extends MetaObject implements Writable {
             View view = (View) table;
             try {
                 view.init();
-            } catch (InternalException e) {
+            } catch (UserException e) {
                 throw new IOException(e.getMessage());
             }
         }
@@ -253,5 +256,10 @@ public class Table extends MetaObject implements Writable {
     @Override
     public int getSignature(int signatureVersion) {
         throw new NotImplementedException();
+    }
+
+    @Override
+    public String toString() {
+        return "Table [id=" + id + ", name=" + name + ", type=" + type + "]";
     }
 }

@@ -30,7 +30,7 @@ import com.baidu.palo.analysis.SetVar;
 import com.baidu.palo.analysis.UserIdentity;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.DdlException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.mysql.privilege.PrivPredicate;
 
@@ -82,7 +82,7 @@ public class SetExecutorTest {
     }
 
     @Test
-    public void testNormal() throws InternalException, AnalysisException, DdlException {
+    public void testNormal() throws UserException, AnalysisException, DdlException {
         List<SetVar> vars = Lists.newArrayList();
         vars.add(new SetPassVar(new UserIdentity("testUser", "%"), "*88EEBA7D913688E7278E2AD071FDB5E76D76D34B"));
         vars.add(new SetNamesVar("utf8"));
@@ -93,9 +93,5 @@ public class SetExecutorTest {
         SetExecutor executor = new SetExecutor(ctx, stmt);
 
         executor.execute();
-    }
-
-    @Test
-    public void testEmpty() {
     }
 }

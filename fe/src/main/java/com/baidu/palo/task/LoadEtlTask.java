@@ -37,15 +37,12 @@ import com.baidu.palo.load.TabletLoadInfo;
 import com.baidu.palo.thrift.TEtlState;
 
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Random;
-import java.util.Set;
 
 public abstract class LoadEtlTask extends MasterTask {
     private static final Logger LOG = LogManager.getLogger(LoadEtlTask.class);
@@ -155,20 +152,6 @@ public abstract class LoadEtlTask extends MasterTask {
     private void tryUpdateLoading() {
         // check job has loading partitions
         Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
-        Set<Long> partitionIds = Sets.newHashSet();
-        for (TableLoadInfo tableLoadInfo : idToTableLoadInfo.values()) {
-            Map<Long, PartitionLoadInfo> idToPartitionLoadInfo = tableLoadInfo.getIdToPartitionLoadInfo();
-            for (Entry<Long, PartitionLoadInfo> entry : idToPartitionLoadInfo.entrySet()) {
-                PartitionLoadInfo partitionLoadInfo = entry.getValue();
-                if (partitionLoadInfo.isNeedLoad()) {
-                    partitionIds.add(entry.getKey());
-                }
-            }
-        }
-        if (!load.addLoadingPartitions(partitionIds)) {
-            LOG.info("load job has unfinished loading partitions. job: {}, job partitions: {}", job, partitionIds);
-            return;
-        }
         
         // new version and version hash
         try {
@@ -200,9 +183,7 @@ public abstract class LoadEtlTask extends MasterTask {
                         if (partition == null) {
                             throw new MetaNotFoundException("partition does not exist. id: " + partitionId);
                         } 
-                        
-                        partitionLoadInfo.setVersion(partition.getCommittedVersion() + 1);
-                        partitionLoadInfo.setVersionHash(Math.abs(new Random().nextLong()));
+                        // yiguolei: real time load do not need get version here
                     } finally {
                         db.readUnlock();
                     }
@@ -213,7 +194,9 @@ public abstract class LoadEtlTask extends MasterTask {
             }
         } catch (MetaNotFoundException e) {
             // remove loading partitions
-            load.removeLoadingPartitions(partitionIds);
+            // yiguolei: partitionids is only used to check if there is a loading job running on a partition
+            // it is useless in real time load since it could run concurrently
+            // load.removeLoadingPartitions(partitionIds);
             load.cancelLoadJob(job, CancelType.ETL_RUN_FAIL, e.getMessage());
             return;
         }
@@ -223,7 +206,12 @@ public abstract class LoadEtlTask extends MasterTask {
             LOG.info("update job state to loading success. job: {}", job);
         } else {
             // remove loading partitions
-            load.removeLoadingPartitions(partitionIds);
+            // yiguolei: do not need remove any more, since we have not add it into
+            // load.removeLoadingPartitions(partitionIds);
+            LOG.warn("update job state to loading failed. job: {}", job);
+            if (job.getTransactionId() > 0) {
+                LOG.warn("there maybe remaining transactionid {} in transaction table", job.getTransactionId());
+            }
         }
     }
     
@@ -277,6 +265,7 @@ public abstract class LoadEtlTask extends MasterTask {
                         throw new LoadException("unknown distribution type. type: " + distributionType.name());
                     }
                     
+                    // yiguolei: how to deal with filesize == -1?
                     for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
                         long indexId = materializedIndex.getId();
                         int tabletIndex = 0;

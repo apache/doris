@@ -23,7 +23,7 @@
 #include "olap/delete_handler.h"
 #include "olap/olap_common.h"
 #include "olap/olap_cond.h"
-#include "olap/olap_index.h"
+#include "olap/rowset.h"
 #include "util/runtime_profile.h"
 
 #include "olap/column_predicate.h"
@@ -31,7 +31,7 @@
 namespace palo {
 
 class OLAPTable;
-class OLAPIndex;
+class Rowset;
 class RowBlock;
 class RowCursor;
 class Conditions;
@@ -42,7 +42,7 @@ class RuntimeState;
 class IData {
 public:
     // 工厂方法, 生成IData对象, 调用者获得新建的对象, 并负责delete释放
-    static IData* create(OLAPIndex* olap_index);
+    static IData* create(Rowset* olap_index);
     virtual ~IData() {}
 
     // 为了与之前兼容, 暴露部分index的接口
@@ -57,9 +57,6 @@ public:
     }
     uint32_t num_segments() const {
         return _olap_index->num_segments();
-    }
-    time_t max_timestamp() const {
-        return _olap_index->max_timestamp();
     }
 
     // 查询数据文件类型
@@ -141,6 +138,10 @@ public:
         return _olap_index->empty();
     }
 
+    bool zero_num_rows() const {
+        return _olap_index->zero_num_rows();
+    }
+
     bool delta_pruning_filter();
 
     int delete_pruning_filter();
@@ -149,11 +150,11 @@ public:
         return 0;
     }
 
-    OLAPIndex* olap_index() const {
+    Rowset* olap_index() const {
         return _olap_index;
     }
 
-    void set_olap_index(OLAPIndex* olap_index) {
+    void set_olap_index(Rowset* olap_index) {
         _olap_index = olap_index;
     }
 
@@ -166,8 +167,8 @@ public:
     virtual OLAPStatus unpickle() = 0;
 
 protected:
-    // 基类必须指定data_file_type, 也必须关联一个OLAPIndex
-    IData(DataFileType data_file_type, OLAPIndex* olap_index):
+    // 基类必须指定data_file_type, 也必须关联一个Rowset
+    IData(DataFileType data_file_type, Rowset* olap_index):
         _data_file_type(data_file_type),
         _olap_index(olap_index),
         _eof(false),
@@ -179,7 +180,7 @@ protected:
 
 protected:
     DataFileType _data_file_type;
-    OLAPIndex* _olap_index;
+    Rowset* _olap_index;
     // 当到达文件末尾或者到达end key时设置此标志
     bool _eof;
     const Conditions* _conditions;

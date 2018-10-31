@@ -361,7 +361,7 @@ public class Repository implements Writable {
     // upload the local file to specified remote file with checksum
     // remoteFilePath should be FULL path
     public Status upload(String localFilePath, String remoteFilePath) {
-        Preconditions.checkArgument(remoteFilePath.startsWith(location), remoteFilePath);
+        // Preconditions.checkArgument(remoteFilePath.startsWith(location), remoteFilePath);
         // get md5usm of local file
         File file = new File(localFilePath);
         String md5sum = null;

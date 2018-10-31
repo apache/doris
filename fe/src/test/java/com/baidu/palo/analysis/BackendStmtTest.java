@@ -73,12 +73,6 @@ public class BackendStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void initBackendsTest2() throws Exception {
-        BackendClause stmt = createStmt(2);
-        stmt.analyze(analyzer);
-    }
-
-    @Test(expected = AnalysisException.class)
     public void initBackendsTest3() throws Exception {
         BackendClause stmt = createStmt(3);
         stmt.analyze(analyzer);

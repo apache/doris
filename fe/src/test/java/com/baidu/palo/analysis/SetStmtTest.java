@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.MockedAuth;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
@@ -57,7 +57,7 @@ public class SetStmtTest {
     }
 
     @Test
-    public void testNormal() throws InternalException, AnalysisException {
+    public void testNormal() throws UserException, AnalysisException {
         List<SetVar> vars = Lists.newArrayList(new SetVar("times", new IntLiteral(100L)),
                 new SetVar(SetType.GLOBAL, "names", new StringLiteral("utf-8")));
         SetStmt stmt = new SetStmt(vars);
@@ -69,7 +69,7 @@ public class SetStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoVar() throws InternalException, AnalysisException {
+    public void testNoVar() throws UserException, AnalysisException {
         SetStmt stmt = new SetStmt(Lists.<SetVar>newArrayList());
 
         stmt.analyze(analyzer);
@@ -77,7 +77,7 @@ public class SetStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNullVar() throws InternalException, AnalysisException {
+    public void testNullVar() throws UserException, AnalysisException {
         SetStmt stmt = new SetStmt(null);
 
         stmt.analyze(analyzer);

@@ -57,6 +57,7 @@ import com.baidu.palo.persist.TableInfo;
 import com.baidu.palo.qe.SessionVariable;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.Frontend;
+import com.baidu.palo.transaction.TransactionState;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -108,6 +109,10 @@ public class JournalEntity implements Writable {
                 data = new Text();
                 break;
             }
+            case OperationType.OP_SAVE_TRANSACTION_ID: {
+                data = new Text();
+                break;
+            }
             case OperationType.OP_CREATE_DB: {
                 data = new Database();
                 break;
@@ -154,6 +159,8 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_START_ROLLUP:
+            case OperationType.OP_FINISHING_ROLLUP:
+            case OperationType.OP_FINISHING_SCHEMA_CHANGE:
             case OperationType.OP_FINISH_ROLLUP:
             case OperationType.OP_CANCEL_ROLLUP:
             case OperationType.OP_START_SCHEMA_CHANGE:
@@ -298,7 +305,8 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_CREATE_CLUSTER: {
-                data = new Cluster();
+                data = Cluster.read(in);
+                needRead = false;
                 break;
             }
             case OperationType.OP_DROP_CLUSTER: {
@@ -340,6 +348,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_UPDATE_CLUSTER_AND_BACKENDS: {
                 data = new BackendIdsUpdateInfo();
+                break;
+            }
+            case OperationType.OP_UPSERT_TRANSACTION_STATE:
+            case OperationType.OP_DELETE_TRANSACTION_STATE: {
+                data = new TransactionState();
                 break;
             }
             case OperationType.OP_CREATE_REPOSITORY: {

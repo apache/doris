@@ -39,8 +39,8 @@ void HllSetResolver::parse() {
             // first byte : type
             // second～five byte : hash values's number
             // five byte later : hash value
-            _expliclit_num = (ExpliclitLengthValueType) (pdata[sizeof(SetTypeValueType)]);
-            _expliclit_value = (uint64_t*)(pdata + sizeof(SetTypeValueType)
+            _explicit_num = (ExpliclitLengthValueType) (pdata[sizeof(SetTypeValueType)]);
+            _explicit_value = (uint64_t*)(pdata + sizeof(SetTypeValueType)
                     + sizeof(ExpliclitLengthValueType));
             break;
         case HLL_DATA_SPRASE:
@@ -70,8 +70,8 @@ void HllSetResolver::parse() {
 
 void HllSetResolver::fill_registers(char* registers, int len) {
     if (_set_type == HLL_DATA_EXPLICIT) {
-        for (int i = 0; i < get_expliclit_count(); ++i) {
-            uint64_t hash_value = get_expliclit_value(i);
+        for (int i = 0; i < get_explicit_count(); ++i) {
+            uint64_t hash_value = get_explicit_value(i);
             int idx = hash_value % len;
             uint8_t first_one_bit = __builtin_ctzl(hash_value >> HLL_COLUMN_PRECISION) + 1;
             registers[idx] = std::max((uint8_t)registers[idx], first_one_bit);
@@ -96,8 +96,8 @@ void HllSetResolver::fill_registers(char* registers, int len) {
 
 void HllSetResolver::fill_index_to_value_map(std::map<int, uint8_t>* index_to_value, int len) {
     if (_set_type == HLL_DATA_EXPLICIT) {
-        for (int i = 0; i < get_expliclit_count(); ++i) {
-            uint64_t hash_value = get_expliclit_value(i);
+        for (int i = 0; i < get_explicit_count(); ++i) {
+            uint64_t hash_value = get_explicit_value(i);
             int idx = hash_value % len;
             uint8_t first_one_bit = __builtin_ctzl(hash_value >> HLL_COLUMN_PRECISION) + 1;
             if (index_to_value->find(idx) != index_to_value->end()) {
@@ -136,8 +136,8 @@ void HllSetResolver::fill_index_to_value_map(std::map<int, uint8_t>* index_to_va
 
 void HllSetResolver::fill_hash64_set(std::set<uint64_t>* hash_set) {
     if (_set_type == HLL_DATA_EXPLICIT) {
-        for (int i = 0; i < get_expliclit_count(); ++i) {
-            uint64_t hash_value = get_expliclit_value(i);
+        for (int i = 0; i < get_explicit_count(); ++i) {
+            uint64_t hash_value = get_explicit_value(i);
             hash_set->insert(hash_value);
         }
     }
@@ -161,7 +161,7 @@ void HllSetHelper::set_sparse(
     *(int*)(result + 1) = registers_count;
 }
 
-void HllSetHelper::set_expliclit(char* result, const std::set<uint64_t>& hash_value_set, int& len) {
+void HllSetHelper::set_explicit(char* result, const std::set<uint64_t>& hash_value_set, int& len) {
     result[0] = HLL_DATA_EXPLICIT;
     result[1] = (HllSetResolver::ExpliclitLengthValueType)(hash_value_set.size());
     len = sizeof(HllSetResolver::SetTypeValueType)

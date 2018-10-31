@@ -677,7 +677,7 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
                 continue;
             }
 
-            if (pred->get_child(0)->type() != slot->type()) {
+            if (pred->get_child(0)->type().type != slot->type().type) {
                 if (!ignore_cast(slot, pred->get_child(0))) {
                     continue;
                 }
@@ -759,7 +759,7 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
                         != TExprNodeType::SLOT_REF) {
                     continue;
                 }
-                if (pred->get_child(child_idx)->type() != slot->type()) {
+                if (pred->get_child(child_idx)->type().type != slot->type().type) {
                     if (!ignore_cast(slot, pred->get_child(child_idx))) {
                         continue;
                     }
@@ -866,7 +866,7 @@ Status OlapScanNode::normalize_binary_predicate(SlotDescriptor* slot, ColumnValu
             if (Expr::type_without_cast(pred->get_child(child_idx)) != TExprNodeType::SLOT_REF) {
                 continue;
             }
-            if (pred->get_child(child_idx)->type() != slot->type()) {
+            if (pred->get_child(child_idx)->type().type != slot->type().type) {
                 if (!ignore_cast(slot, pred->get_child(child_idx))) {
                     continue;
                 }

@@ -37,18 +37,18 @@ typedef int64_t VersionHash;
 typedef __int128 int128_t;
 typedef unsigned __int128 uint128_t;
 
-struct TableInfo {
-    TableInfo(
+struct TabletInfo {
+    TabletInfo(
             TTabletId in_tablet_id,
             TSchemaHash in_schema_hash) :
             tablet_id(in_tablet_id),
             schema_hash(in_schema_hash) {}
 
-    bool operator<(const TableInfo& other) const {
-        if (tablet_id < other.tablet_id) {
-            return true;
+    bool operator<(const TabletInfo& right) const {
+        if (tablet_id != right.tablet_id) {
+            return tablet_id < right.tablet_id;
         } else {
-            return false;
+            return schema_hash < right.schema_hash;
         }
     }
 
@@ -142,7 +142,7 @@ enum AlterTabletType {
 enum AlterTableStatus {
     ALTER_TABLE_WAITING = 0,
     ALTER_TABLE_RUNNING = 1,
-    ALTER_TABLE_DONE = 2,
+    ALTER_TABLE_FINISHED = 2,
     ALTER_TABLE_FAILED = 3,
 };
 
@@ -153,7 +153,7 @@ enum PushType {
 };
 
 enum ReaderType {
-    READER_FETCH = 0,
+    READER_QUERY = 0,
     READER_ALTER_TABLE = 1,
     READER_BASE_COMPACTION = 2,
     READER_CUMULATIVE_COMPACTION = 3,
@@ -161,7 +161,8 @@ enum ReaderType {
 };
 
 // <start_version_id, end_version_id>, such as <100, 110>
-typedef std::pair<int32_t, int32_t> Version;
+//using Version = std::pair<TupleVersion, TupleVersion>;
+typedef std::pair<int64_t, int64_t> Version;
 typedef std::vector<Version> Versions;
 
 // It is used to represent Graph vertex.
@@ -172,54 +173,38 @@ struct Vertex {
 
 class Field;
 class WrapperField;
-// 包含Version，对应的version_hash和num_segments，一般指代OLAP中存在的实体Version
-struct VersionEntity {
-    VersionEntity(Version v,
-                  VersionHash hash,
-                  uint32_t num_seg,
-                  int32_t ref_count,
-                  int64_t num_rows,
-                  size_t data_size,
-                  size_t index_size,
-                  bool empty) :
-            version(v),
-            version_hash(hash),
-            num_segments(num_seg),
-            ref_count(ref_count),
-            num_rows(num_rows),
-            data_size(data_size),
-            index_size(index_size),
-            empty(empty),
-            column_statistics(0) {}
+using KeyRange = std::pair<WrapperField*, WrapperField*>;
+struct RowSetEntity {
+    RowSetEntity(int32_t rowset_id, int32_t num_segments,
+                int64_t num_rows, size_t data_size, size_t index_size,
+                bool empty, const std::vector<KeyRange>* column_statistics)
+        : rowset_id(rowset_id), num_segments(num_segments), num_rows(num_rows),
+          data_size(data_size), index_size(index_size), empty(empty)
+    {
+        if (column_statistics != nullptr) {
+            key_ranges = *column_statistics;
+        }
+    }
 
-    VersionEntity(Version v,
-                  VersionHash hash,
-                  uint32_t num_seg,
-                  int32_t ref_count,
-                  int64_t num_rows,
-                  size_t data_size,
-                  size_t index_size,
-                  bool empty,
-                  const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistics) :
-            version(v),
-            version_hash(hash),
-            num_segments(num_seg),
-            ref_count(ref_count),
-            num_rows(num_rows),
-            data_size(data_size),
-            index_size(index_size),
-            empty(empty),
-            column_statistics(column_statistics) {}
-
-    Version version;
-    VersionHash version_hash;
-    uint32_t num_segments;
-    int32_t ref_count;
+    int32_t rowset_id;
+    int32_t num_segments;
     int64_t num_rows;
     size_t data_size;
     size_t index_size;
     bool empty;
-    std::vector<std::pair<WrapperField*, WrapperField*>> column_statistics;
+    std::vector<KeyRange> key_ranges;
+};
+
+struct VersionEntity {
+    VersionEntity(Version v, VersionHash version_hash)
+        : version(v), version_hash(version_hash) { }
+    void add_rowset_entity(const RowSetEntity& rowset) {
+        rowset_vec.push_back(rowset);
+    }
+
+    Version version;
+    VersionHash version_hash;
+    std::vector<RowSetEntity> rowset_vec;
 };
 
 // ReaderStatistics used to collect statistics when scan data from storage

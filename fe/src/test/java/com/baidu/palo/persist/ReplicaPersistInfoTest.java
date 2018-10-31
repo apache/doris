@@ -36,9 +36,6 @@ public class ReplicaPersistInfoTest {
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
         
-        ReplicaPersistInfo info1 = new ReplicaPersistInfo();
-        info1.write(dos);
-        
         ReplicaPersistInfo info2 = ReplicaPersistInfo.createForLoad(1, 2, 3, 4, 5, 6, 7, 8, 9);
         info2.write(dos);
 
@@ -47,17 +44,9 @@ public class ReplicaPersistInfoTest {
         
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        
-        ReplicaPersistInfo rInfo1 = new ReplicaPersistInfo();
-        rInfo1.readFields(dis);
-        Assert.assertTrue(info1.equals(rInfo1));
-        Assert.assertTrue(info1.equals(info1));
-        Assert.assertFalse(info1.equals(this));
-        
+
         ReplicaPersistInfo rInfo2 = new ReplicaPersistInfo();
         rInfo2.readFields(dis);
-        Assert.assertTrue(info2.equals(rInfo2));
-        Assert.assertFalse(info1.equals(info2));
 
         // 3. delete files
         dis.close();

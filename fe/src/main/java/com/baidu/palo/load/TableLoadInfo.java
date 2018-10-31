@@ -37,6 +37,13 @@ public class TableLoadInfo implements Writable {
         this.idToPartitionLoadInfo = idToPartitionLoadInfo;
         this.indexIdToSchemaHash = Maps.newHashMap();
     }
+    
+    public boolean containsIndex(long indexId) {
+        if (indexIdToSchemaHash.containsKey(indexId)) {
+            return true;
+        }
+        return false;
+    }
 
     public Map<Long, PartitionLoadInfo> getIdToPartitionLoadInfo() {
         return idToPartitionLoadInfo;

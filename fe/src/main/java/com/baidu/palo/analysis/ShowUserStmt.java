@@ -3,7 +3,6 @@ package com.baidu.palo.analysis;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.proc.AuthProcDir;
 import com.baidu.palo.qe.ShowResultSetMetaData;
 
@@ -29,7 +28,7 @@ public class ShowUserStmt extends ShowStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws AnalysisException {
         user = analyzer.getQualifiedUser();
     }
 

@@ -115,17 +115,6 @@ public class TabletMeta {
         }
     }
 
-    // XXX
-    public void forceSetSchema(int schemaHash) {
-        lock.writeLock().lock();
-        try {
-            this.oldSchemaHash = schemaHash;
-            this.newSchemaHash = -1;
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
-
     @Override
     public String toString() {
         lock.readLock().lock();

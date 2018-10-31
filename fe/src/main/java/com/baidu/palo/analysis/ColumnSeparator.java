@@ -22,6 +22,8 @@ package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
 
+import com.google.common.base.Strings;
+
 import java.io.StringWriter;
 
 public class ColumnSeparator {
@@ -60,8 +62,8 @@ public class ColumnSeparator {
     }
 
     public static String convertSeparator(String originStr) throws AnalysisException {
-        if (originStr == null) {
-            throw new AnalysisException("Column separator is null");
+        if (Strings.isNullOrEmpty(originStr)) {
+            throw new AnalysisException("Column separator is null or empty");
         }
 
         if (originStr.toUpperCase().startsWith("\\X")) {

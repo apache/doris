@@ -36,6 +36,10 @@ typedef i64 TSize
 typedef i32 TClusterId
 typedef i64 TEpoch
 
+// add for real time load, partitionid is not defined previously, define it here
+typedef i64 TTransactionId
+typedef i64 TPartitionId
+
 enum TStorageType {
     ROW,
     COLUMN,
@@ -150,6 +154,11 @@ enum TTaskType {
     DOWNLOAD,
     CLEAR_REMOTE_FILE,
     MOVE
+    REALTIME_PUSH,
+    PUBLISH_VERSION,
+    CLEAR_ALTER_TASK,
+    CLEAR_TRANSACTION_TASK,
+    RECOVER_TABLET
 }
 
 enum TStmtType {
@@ -300,7 +309,8 @@ enum TTableType {
     OLAP_TABLE,
     SCHEMA_TABLE,
     KUDU_TABLE,
-    BROKER_TABLE
+    BROKER_TABLE,
+    ES_TABLE
 }
 
 enum TKeysType {
@@ -336,6 +346,11 @@ enum TExportState {
 enum TFileType {
     FILE_LOCAL,
     FILE_BROKER,
+    FILE_STREAM,    // file content is streaming in the buffer
 }
 
+struct TTabletCommitInfo {
+    1: required i64 tabletId
+    2: required i64 backendId
+}
 

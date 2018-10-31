@@ -20,10 +20,7 @@
 
 package com.baidu.palo.common;
 
-/**
- * Created by zhaochun on 14/11/12.
- */
-public class DdlException extends Exception {
+public class DdlException extends UserException {
     public DdlException(String msg) {
         super(msg);
     }

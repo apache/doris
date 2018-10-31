@@ -34,8 +34,8 @@ public class SnapshotTask extends AgentTask {
     public SnapshotTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId,
             long dbId, long tableId, long partitionId, long indexId, long tabletId,
             long version, long versionHash, int schemaHash, long timeout, boolean isRestoreTask) {
-        super(resourceInfo, backendId, signature, TTaskType.MAKE_SNAPSHOT, dbId, tableId, partitionId, indexId,
-                tabletId);
+        super(resourceInfo, backendId, TTaskType.MAKE_SNAPSHOT, dbId, tableId, partitionId, indexId, tabletId,
+                signature);
 
         this.jobId = jobId;
 

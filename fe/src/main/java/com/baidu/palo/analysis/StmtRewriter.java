@@ -29,7 +29,7 @@ import org.slf4j.LoggerFactory;
 
 import com.baidu.palo.catalog.Type;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
@@ -373,7 +373,7 @@ public class StmtRewriter {
         inlineView.reset();
         try {
             inlineView.analyze(analyzer);
-        } catch (InternalException e) {
+        } catch (UserException e) {
             throw new AnalysisException(e.getMessage());
         }
         inlineView.setLeftTblRef(stmt.fromClause_.get(stmt.fromClause_.size() - 1));

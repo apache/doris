@@ -18,16 +18,16 @@ package com.baidu.palo.alter;
 import com.baidu.palo.alter.AlterJob.JobState;
 import com.baidu.palo.alter.DecommissionBackendJob.DecommissionType;
 import com.baidu.palo.analysis.AddBackendClause;
-import com.baidu.palo.analysis.AddObserverClause;
 import com.baidu.palo.analysis.AddFollowerClause;
+import com.baidu.palo.analysis.AddObserverClause;
 import com.baidu.palo.analysis.AlterClause;
 import com.baidu.palo.analysis.AlterLoadErrorUrlClause;
 import com.baidu.palo.analysis.CancelAlterSystemStmt;
 import com.baidu.palo.analysis.CancelStmt;
 import com.baidu.palo.analysis.DecommissionBackendClause;
 import com.baidu.palo.analysis.DropBackendClause;
-import com.baidu.palo.analysis.DropObserverClause;
 import com.baidu.palo.analysis.DropFollowerClause;
+import com.baidu.palo.analysis.DropObserverClause;
 import com.baidu.palo.analysis.ModifyBrokerClause;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
@@ -50,12 +50,11 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -81,54 +80,51 @@ public class SystemHandler extends AlterHandler {
     protected void runOneCycle() {
         super.runOneCycle();
 
-        List<AlterJob> cancelledJobs = new LinkedList<AlterJob>();
-        this.jobsLock.writeLock().lock();
-        try {
-            Iterator<Entry<Long, AlterJob>> iterator = this.alterJobs.entrySet().iterator();
-            while (iterator.hasNext()) {
-                Entry<Long, AlterJob> entry = iterator.next();
-                AlterJob decommissionBackendJob = entry.getValue();
+        List<AlterJob> cancelledJobs = Lists.newArrayList();
+        List<AlterJob> finishedJobs = Lists.newArrayList();
 
-                JobState state = decommissionBackendJob.getState();
-                switch (state) {
-                    case PENDING: {
-                        // send tasks
-                        decommissionBackendJob.sendTasks();
-                        break;
-                    }
-                    case RUNNING: {
-                        // no timeout
-    
-                        // send tasks
-                        decommissionBackendJob.sendTasks();
-    
-                        // try finish job
-                        decommissionBackendJob.tryFinishJob();
-    
-                        break;
-                    }
-                    case FINISHED: {
-                        // remove from alterJobs
-                        iterator.remove();
-                        addFinishedOrCancelledAlterJob(decommissionBackendJob);
-                        break;
-                    }
-                    case CANCELLED: {
-                        Preconditions.checkState(false);
-                        break;
-                    }
-                    default:
-                        Preconditions.checkState(false);
-                        break;
+        for (AlterJob alterJob : alterJobs.values()) {
+            AlterJob decommissionBackendJob = (DecommissionBackendJob) alterJob;
+            JobState state = decommissionBackendJob.getState();
+            switch (state) {
+                case PENDING: {
+                    // send tasks
+                    decommissionBackendJob.sendTasks();
+                    break;
                 }
-            } // end for jobs
-        } finally {
-            this.jobsLock.writeLock().unlock();
-        }
+                case RUNNING: {
+                    // no timeout
+
+                    // send tasks
+                    decommissionBackendJob.sendTasks();
+                    // try finish job
+                    decommissionBackendJob.tryFinishJob();
+                    break;
+                }
+                case FINISHED: {
+                    // remove from alterJobs
+                    finishedJobs.add(decommissionBackendJob);
+                    break;
+                }
+                case CANCELLED: {
+                    Preconditions.checkState(false);
+                    break;
+                }
+                default:
+                    Preconditions.checkState(false);
+                    break;
+            }
+        } // end for jobs
 
         // handle cancelled jobs
         for (AlterJob dropBackendJob : cancelledJobs) {
-            cancelInternal(dropBackendJob, null, null);
+            dropBackendJob.cancel(null, "cancelled");
+            jobDone(dropBackendJob);
+        }
+
+        // handle finished jobs
+        for (AlterJob dropBackendJob : finishedJobs) {
+            jobDone(dropBackendJob);
         }
     }
 

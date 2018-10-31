@@ -217,7 +217,7 @@ public class CatalogTest {
 
         catalog.addCluster(cluster);
         catalog.unprotectCreateDb(db1);
-        SchemaChangeJob job1 = new SchemaChangeJob(db1.getId(), table.getId(), null, table.getName());
+        SchemaChangeJob job1 = new SchemaChangeJob(db1.getId(), table.getId(), null, table.getName(), -1);
         
         catalog.getSchemaChangeHandler().replayInitJob(job1, catalog);
         long checksum1 = catalog.saveAlterJob(dos, 0, JobType.SCHEMA_CHANGE);

@@ -19,7 +19,6 @@
 #include <boost/scoped_ptr.hpp>
 
 #include "http/http_handler.h"
-#include "olap/command_executor.h"
 #include "gen_cpp/AgentService_types.h"
 
 namespace palo {
@@ -30,11 +29,7 @@ class ReloadTabletAction : public HttpHandler {
 public:
     ReloadTabletAction(ExecEnv* exec_env);
 
-    virtual ~ReloadTabletAction() {
-        if (_command_executor != NULL) {
-            delete _command_executor;
-        }
-    }
+    virtual ~ReloadTabletAction() { }
 
     void handle(HttpRequest *req) override;
 private:
@@ -42,7 +37,6 @@ private:
                 HttpRequest *req);
 
     ExecEnv* _exec_env;
-    CommandExecutor* _command_executor;
 
 }; // end class ReloadTabletAction
 

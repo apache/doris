@@ -21,7 +21,7 @@ import com.baidu.palo.analysis.TupleDescriptor;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.OlapTable;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.LoadException;
 import com.baidu.palo.common.Pair;
 import com.baidu.palo.load.MiniEtlTaskInfo;
@@ -160,7 +160,7 @@ public class MiniLoadPendingTask extends LoadPendingTask {
         desc.computeMemLayout();
         try {
             csvScanNode.finalize(null);
-        } catch (InternalException e) {
+        } catch (UserException e) {
             LOG.warn("csvScanNode finalize failed[err={}]", e);
             throw new LoadException("CSV scan finalize failed.", e);
         }

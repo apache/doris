@@ -29,6 +29,9 @@
 
 namespace palo {
 
+// Row Storage Table is deprecated.
+// This file will be removed in succedent release.
+
 class OLAPTable;
 class RowBlock;
 class RowCursor;
@@ -48,7 +51,7 @@ class RowCursor;
 // the original RAW_COLUMN_MIXED.
 class OLAPData: public IData {
 public:
-    explicit OLAPData(OLAPIndex* index);
+    explicit OLAPData(Rowset* index);
     virtual ~OLAPData();
 
     // 初始化, 和unpickle统一到同一流程上
@@ -143,15 +146,11 @@ public:
         return olap_index()->num_segments();
     }
     
-    time_t max_timestamp() const {
-        return olap_index()->max_timestamp();
-    }
-
 private:
     // RowBlock代理,内部类，可以代理指定position的RowBlock，为RowBlock提供类似Iterator服务。
     class RowBlockBroker {
     public:
-        RowBlockBroker(OLAPTable* olap_table, OLAPIndex* olap_index, RuntimeState* runtime_state);
+        RowBlockBroker(OLAPTable* olap_table, Rowset* olap_index, RuntimeState* runtime_state);
         ~RowBlockBroker();
 
         OLAPStatus init();
@@ -244,7 +243,7 @@ private:
         bool _is_set_end_row;
 
         OLAPTable* _olap_table;
-        OLAPIndex* _olap_index;
+        Rowset* _olap_index;
 
         uint64_t _data_read_buf_size;
         bool _is_end_block;
@@ -310,7 +309,7 @@ class OLAPDataComparator {
 public:
     OLAPDataComparator(RowBlockPosition position,
                        OLAPData* olap_data,
-                       const OLAPIndex* index,
+                       const Rowset* index,
                        RowCursor* helper_cursor) :
             _start_block_position(position),
             _olap_data(olap_data),
@@ -361,7 +360,7 @@ private:
 
     const RowBlockPosition _start_block_position;
     OLAPData* _olap_data;
-    const OLAPIndex* _index;
+    const Rowset* _index;
     RowCursor* _helper_cursor;
 };
 

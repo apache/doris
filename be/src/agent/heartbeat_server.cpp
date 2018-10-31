@@ -22,7 +22,6 @@
 #include "gen_cpp/Status_types.h"
 
 #include "common/status.h"
-#include "olap/olap_rootpath.h"
 #include "olap/olap_engine.h"
 #include "olap/utils.h"
 #include "service/backend_options.h"
@@ -38,11 +37,11 @@ namespace palo {
 HeartbeatServer::HeartbeatServer(TMasterInfo* master_info) :
         _master_info(master_info),
         _epoch(0) {
-    _olap_rootpath_instance = OLAPRootPath::get_instance();
+    _olap_engine = OLAPEngine::get_instance();
 }
 
 void HeartbeatServer::init_cluster_id() {
-    _master_info->cluster_id = _olap_rootpath_instance->effective_cluster_id();
+    _master_info->cluster_id = _olap_engine->effective_cluster_id();
 }
 
 void HeartbeatServer::heartbeat(
@@ -85,17 +84,14 @@ Status HeartbeatServer::_heartbeat(
     if (_master_info->cluster_id == -1) {
         OLAP_LOG_INFO("get first heartbeat. update cluster id");
         // write and update cluster id
-        OLAPStatus res = _olap_rootpath_instance->set_cluster_id(master_info.cluster_id);
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to set cluster id. [res=%d]", res);
+        auto st = _olap_engine->set_cluster_id(master_info.cluster_id);
+        if (!st.ok()) {
+            LOG(WARNING) << "fail to set cluster id. status=" << st.get_error_msg();
             return Status("fail to set cluster id.");
         } else {
             _master_info->cluster_id = master_info.cluster_id;
-            OLAP_LOG_INFO("record cluster id."
-                          "host: %s, port: %d, cluster id: %d",
-                          master_info.network_address.hostname.c_str(),
-                          master_info.network_address.port,
-                          master_info.cluster_id);
+            LOG(INFO) << "record cluster id. host: " << master_info.network_address.hostname
+                      << ". port: " << master_info.network_address.port << ". cluster id: " << master_info.cluster_id;
         }
     } else {
         if (_master_info->cluster_id != master_info.cluster_id) {
@@ -110,16 +106,13 @@ Status HeartbeatServer::_heartbeat(
             _master_info->network_address.hostname = master_info.network_address.hostname;
             _master_info->network_address.port = master_info.network_address.port;
             _epoch = master_info.epoch;
-            OLAP_LOG_INFO("master change, new master host: %s, port: %d, epoch: %ld",
-                           _master_info->network_address.hostname.c_str(),
-                           _master_info->network_address.port,
-                           _epoch);
+            LOG(INFO) << "master change. new master host: " << _master_info->network_address.hostname
+                      << ". port: " << _master_info->network_address.port << ". epoch: " << _epoch;
         } else {
-            OLAP_LOG_WARNING("epoch is not greater than local. ignore heartbeat."
-                    "host: %s, port: %d, local epoch: %ld, received epoch: %ld",
-                    _master_info->network_address.hostname.c_str(),
-                    _master_info->network_address.port,
-                    _epoch, master_info.epoch);
+            LOG(WARNING) << "epoch is not greater than local. ignore heartbeat. host: "
+                         << _master_info->network_address.hostname
+                         << " port: " <<  _master_info->network_address.port
+                         << " local epoch: " << _epoch << " received epoch: " << master_info.epoch;
             return Status("epoch is not greater than local. ignore heartbeat.");
         }
     }
@@ -127,7 +120,7 @@ Status HeartbeatServer::_heartbeat(
     if (master_info.__isset.token) {
         if (!_master_info->__isset.token) {
             _master_info->__set_token(master_info.token);
-            OLAP_LOG_INFO("get token.  token: %s", _master_info->token.c_str());
+            LOG(INFO) << "get token.  token: " << _master_info->token;
         } else if (_master_info->token != master_info.token) {
             LOG(WARNING) << "invalid token. local_token:" << _master_info->token
                          << ". token:" << master_info.token;

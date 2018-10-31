@@ -30,6 +30,7 @@
 namespace palo {
 
 class MetricRegistry;
+class ExecEnv;
 
 // TmpFileMgr creates and manages temporary files and directories on the local
 // filesystem. It can manage multiple temporary directories across multiple devices.
@@ -116,7 +117,8 @@ public:
         bool _blacklisted;
     };
 
-    TmpFileMgr();
+    TmpFileMgr(ExecEnv* exec_env);
+    TmpFileMgr() { }
 
     ~TmpFileMgr(){
         // do nothing.
@@ -187,6 +189,7 @@ private:
 
     bool is_blacklisted(DeviceId device_id);
 
+    ExecEnv* _exec_env;
     bool _initialized;
 
     // Protects the status of tmp dirs (i.e. whether they're blacklisted).

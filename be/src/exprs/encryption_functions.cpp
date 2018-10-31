@@ -21,6 +21,7 @@
 #include "exprs/encryption_functions.h"
 
 #include <openssl/md5.h>
+#include "aes/my_aes.h"
 #include "exprs/anyval_util.h"
 #include "exprs/expr.h"
 #include "util/debug_util.h"
@@ -31,6 +32,43 @@
 
 namespace palo {
 void EncryptionFunctions::init() {
+}
+
+StringVal EncryptionFunctions::aes_encrypt(FunctionContext* ctx,
+        const StringVal &src, const StringVal &key) {
+    if (src.len == 0) {
+        return StringVal::null();
+    }
+
+    // cipher_len = (clearLen/16 + 1) * 16;
+    int cipher_len = src.len + 16;
+    boost::scoped_array<char> p;
+    p.reset(new char[cipher_len]);
+
+    int ret_code = my_aes_encrypt((unsigned char *)src.ptr, src.len,
+            (unsigned char*)p.get(), (unsigned char *)key.ptr, key.len, my_aes_128_ecb, NULL);
+    if (ret_code < 0) {
+        return StringVal::null();
+    }
+    return AnyValUtil::from_buffer_temp(ctx, p.get(), ret_code);
+}
+
+StringVal EncryptionFunctions::aes_decrypt(FunctionContext* ctx,
+        const StringVal &src, const StringVal &key) {
+    if (src.len == 0) {
+        return StringVal::null();
+    }
+
+    int cipher_len = src.len;
+    boost::scoped_array<char> p;
+    p.reset(new char[cipher_len]);
+
+    int ret_code = my_aes_decrypt((unsigned char *)src.ptr, src.len, (unsigned char*)p.get(),
+            (unsigned char *)key.ptr, key.len, my_aes_128_ecb, NULL);
+    if (ret_code < 0) {
+        return StringVal::null();
+    }
+    return AnyValUtil::from_buffer_temp(ctx, p.get(), ret_code);
 }
 
 StringVal EncryptionFunctions::from_base64(FunctionContext* ctx, const StringVal &src) {

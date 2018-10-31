@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.MockedAuth;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
@@ -57,9 +57,9 @@ public class SetUserPropertyStmtTest {
     }
 
     @Test
-    public void testNormal() throws InternalException, AnalysisException {
+    public void testNormal() throws UserException, AnalysisException {
         List<SetVar> propertyVarList = Lists.newArrayList();
-        propertyVarList.add(new SetUserPropertyVar("load_cluster.palo-dpp", null));
+        propertyVarList.add(new SetUserPropertyVar("load_cluster.palo-dpp", ""));
         propertyVarList.add(new SetUserPropertyVar("quota.normal", "100"));
 
         SetUserPropertyStmt stmt = new SetUserPropertyStmt("testUser", propertyVarList);
@@ -68,7 +68,7 @@ public class SetUserPropertyStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoProperty() throws InternalException, AnalysisException {
+    public void testNoProperty() throws UserException, AnalysisException {
         SetUserPropertyStmt stmt = new SetUserPropertyStmt("testUser", null);
         stmt.analyze(analyzer);
         Assert.fail("No exception throws");

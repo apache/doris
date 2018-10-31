@@ -24,13 +24,12 @@
 #include <boost/regex.hpp>
 #include <gtest/gtest.h>
 
-#include "olap/command_executor.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_define.h"
 #include "olap/olap_engine.h"
-#include "olap/olap_main.cpp"
 #include "olap/push_handler.h"
 #include "olap/utils.h"
+#include "olap/options.h"
 #include "util/logging.h"
 
 using namespace std;
@@ -41,6 +40,7 @@ using google::protobuf::RepeatedPtrField;
 namespace palo {
 
 static const uint32_t MAX_PATH_LEN = 1024;
+static OLAPEngine* k_engine = nullptr;
 
 void set_up() {
     char buffer[MAX_PATH_LEN];
@@ -49,7 +49,12 @@ void set_up() {
     remove_all_dir(config::storage_root_path);
     remove_all_dir(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
     create_dir(config::storage_root_path);
-    touch_all_singleton();    
+    std::vector<StorePath> paths;
+    paths.emplace_back(config::storage_root_path, -1);
+
+    palo::EngineOptions options;
+    options.store_paths = paths;
+    palo::OLAPEngine::open(options, &k_engine);
 }
 
 void tear_down() {
@@ -67,7 +72,7 @@ void set_default_create_tablet_request(TCreateTabletReq* request) {
     request->tablet_schema.schema_hash = 270068375;
     request->tablet_schema.short_key_column_count = 2;
     request->tablet_schema.keys_type = TKeysType::AGG_KEYS;
-    request->tablet_schema.storage_type = TStorageType::ROW;
+    request->tablet_schema.storage_type = TStorageType::COLUMN;
 
     TColumn k1;
     k1.column_name = "k1";
@@ -161,21 +166,18 @@ protected:
         ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
 
         // Initialize all singleton object.
-        OLAPRootPath::get_instance()->reload_root_paths(config::storage_root_path.c_str());
-
-        _command_executor = new(nothrow) CommandExecutor();
-        ASSERT_TRUE(_command_executor != NULL);
+        // OLAPRootPath::get_instance()->reload_root_paths(config::storage_root_path.c_str());
 
         // 1. Prepare for query split key.
         // create base tablet
         OLAPStatus res = OLAP_SUCCESS;
         set_default_create_tablet_request(&_create_tablet);
-        res = _command_executor->create_table(_create_tablet);
+        res = k_engine->create_table(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        _olap_table = _command_executor->get_table(
+        _olap_table = k_engine->get_table(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(_olap_table.get() != NULL);
-        _header_file_name = _olap_table->header_file_name();
+        _tablet_path = _olap_table->tablet_path();
     }
 
     OLAPStatus push_empty_delta(int32_t version) {
@@ -185,7 +187,7 @@ protected:
         push_req.version = version;
         push_req.version_hash = version;
         std::vector<TTabletInfo> tablets_info;
-        return _command_executor->push(push_req, &tablets_info);
+        return k_engine->push(push_req, &tablets_info);
     }
 
     void TearDown() {
@@ -193,20 +195,17 @@ protected:
         _olap_table.reset();
         OLAPEngine::get_instance()->drop_table(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        while (0 == access(_header_file_name.c_str(), F_OK)) {
+        while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
         }
         ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
-
-        SAFE_DELETE(_command_executor);
     }
 
-    typedef RepeatedPtrField<DeleteDataConditionMessage> del_cond_array;
+    typedef RepeatedPtrField<DeleteConditionMessage> del_cond_array;
 
-    std::string _header_file_name;
-    SmartOLAPTable _olap_table;
+    std::string _tablet_path;
+    OLAPTablePtr _olap_table;
     TCreateTabletReq _create_tablet;
-    CommandExecutor* _command_executor;
     DeleteConditionHandler _delete_condition_handler;
 };
 
@@ -478,21 +477,18 @@ protected:
         ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
 
         // Initialize all singleton object.
-        OLAPRootPath::get_instance()->reload_root_paths(config::storage_root_path.c_str());
-
-        _command_executor = new(nothrow) CommandExecutor();
-        ASSERT_TRUE(_command_executor != NULL);
+        // OLAPRootPath::get_instance()->reload_root_paths(config::storage_root_path.c_str());
 
         // 1. Prepare for query split key.
         // create base tablet
         OLAPStatus res = OLAP_SUCCESS;
         set_default_create_tablet_request(&_create_tablet);
-        res = _command_executor->create_table(_create_tablet);
+        res = k_engine->create_table(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        _olap_table = _command_executor->get_table(
+        _olap_table = k_engine->get_table(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(_olap_table.get() != NULL);
-        _header_file_name = _olap_table->header_file_name();
+        _tablet_path = _olap_table->tablet_path();
     }
 
     void TearDown() {
@@ -500,20 +496,17 @@ protected:
         _olap_table.reset();
         OLAPEngine::get_instance()->drop_table(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        while (0 == access(_header_file_name.c_str(), F_OK)) {
+        while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
         }
         ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
-
-        SAFE_DELETE(_command_executor);
     }
 
-    typedef RepeatedPtrField<DeleteDataConditionMessage> del_cond_array;
+    typedef RepeatedPtrField<DeleteConditionMessage> del_cond_array;
 
-    std::string _header_file_name;
-    SmartOLAPTable _olap_table;
+    std::string _tablet_path;
+    OLAPTablePtr _olap_table;
     TCreateTabletReq _create_tablet;
-    CommandExecutor* _command_executor;
 };
 
 TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
@@ -793,21 +786,18 @@ protected:
         ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
 
         // Initialize all singleton object.
-        OLAPRootPath::get_instance()->reload_root_paths(config::storage_root_path.c_str());
-
-        _command_executor = new(nothrow) CommandExecutor();
-        ASSERT_TRUE(_command_executor != NULL);
+        // OLAPRootPath::get_instance()->reload_root_paths(config::storage_root_path.c_str());
 
         // 1. Prepare for query split key.
         // create base tablet
         OLAPStatus res = OLAP_SUCCESS;
         set_default_create_tablet_request(&_create_tablet);
-        res = _command_executor->create_table(_create_tablet);
+        res = k_engine->create_table(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        _olap_table = _command_executor->get_table(
+        _olap_table = k_engine->get_table(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(_olap_table.get() != NULL);
-        _header_file_name = _olap_table->header_file_name();
+        _tablet_path = _olap_table->tablet_path();
 
         _data_row_cursor.init(_olap_table->tablet_schema());
         _data_row_cursor.allocate_memory_for_string_type(_olap_table->tablet_schema());
@@ -820,7 +810,7 @@ protected:
         push_req.version = version;
         push_req.version_hash = version;
         std::vector<TTabletInfo> tablets_info;
-        return _command_executor->push(push_req, &tablets_info);
+        return k_engine->push(push_req, &tablets_info);
     }
 
     void TearDown() {
@@ -829,22 +819,19 @@ protected:
         _delete_handler.finalize();
         OLAPEngine::get_instance()->drop_table(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        while (0 == access(_header_file_name.c_str(), F_OK)) {
+        while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
         }
         ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
-
-        SAFE_DELETE(_command_executor);
     }
 
-    typedef RepeatedPtrField<DeleteDataConditionMessage> del_cond_array;
+    typedef RepeatedPtrField<DeleteConditionMessage> del_cond_array;
 
-    std::string _header_file_name;
+    std::string _tablet_path;
     RowCursor _data_row_cursor;
-    SmartOLAPTable _olap_table;
+    OLAPTablePtr _olap_table;
     TCreateTabletReq _create_tablet;
     DeleteHandler _delete_handler;
-    CommandExecutor* _command_executor;
 };
 
 TEST_F(TestDeleteHandler, InitSuccess) {
@@ -968,13 +955,15 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     data_str.push_back("YWFH");
     data_str.push_back("YWFH==");
     data_str.push_back("1");
-    res = _data_row_cursor.from_string(data_str);
+    OlapTuple tuple1(data_str);
+    res = _data_row_cursor.from_tuple(tuple1);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_TRUE(_delete_handler.is_filter_data(1, _data_row_cursor));
 
     // 构造一行测试数据
     data_str[1] = "4";
-    res = _data_row_cursor.from_string(data_str);
+    OlapTuple tuple2(data_str);
+    res = _data_row_cursor.from_tuple(tuple2);
     ASSERT_EQ(OLAP_SUCCESS, res);
     // 不满足子条件：k2!=4
     ASSERT_FALSE(_delete_handler.is_filter_data(1, _data_row_cursor));
@@ -1047,7 +1036,8 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     data_str.push_back("YWFH");
     data_str.push_back("YWFH==");
     data_str.push_back("1");
-    res = _data_row_cursor.from_string(data_str);
+    OlapTuple tuple(data_str);
+    res = _data_row_cursor.from_tuple(tuple);
     ASSERT_EQ(OLAP_SUCCESS, res);
     // 这行数据会因为过滤条件3而被过滤
     ASSERT_TRUE(_delete_handler.is_filter_data(1, _data_row_cursor));
@@ -1108,7 +1098,8 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     data_str.push_back("YWFH");
     data_str.push_back("YWFH==");
     data_str.push_back("1");
-    res = _data_row_cursor.from_string(data_str);
+    OlapTuple tuple(data_str);
+    res = _data_row_cursor.from_tuple(tuple);
     ASSERT_EQ(OLAP_SUCCESS, res);
     // 如果数据版本小于6，则过滤条件1生效，这条数据被过滤
     ASSERT_TRUE(_delete_handler.is_filter_data(1, _data_row_cursor));

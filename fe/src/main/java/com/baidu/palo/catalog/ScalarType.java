@@ -150,8 +150,8 @@ public class ScalarType extends Type {
     }
 
     public static ScalarType createDecimalType(int precision, int scale) {
-        Preconditions.checkState(precision >= 0); // Enforced by parser
-        Preconditions.checkState(scale >= 0); // Enforced by parser.
+        // Preconditions.checkState(precision >= 0); // Enforced by parser
+        // Preconditions.checkState(scale >= 0); // Enforced by parser.
         ScalarType type = new ScalarType(PrimitiveType.DECIMAL);
         type.precision = precision;
         type.scale = scale;

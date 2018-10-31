@@ -33,13 +33,13 @@ TestEnv::TestEnv() {
         _s_static_metrics.reset(new MetricRegistry("test_env"));
         // PaloMetrics::create_metrics(_s_static_metrics.get());
     }
-    _exec_env.reset(new ExecEnv);
+    _exec_env.reset(new ExecEnv());
     _exec_env->init_for_tests();
     _io_mgr_tracker.reset(new MemTracker(-1));
     _block_mgr_parent_tracker.reset(new MemTracker(-1));
     _exec_env->disk_io_mgr()->init(_io_mgr_tracker.get());
     init_metrics();
-    _tmp_file_mgr.reset(new TmpFileMgr);
+    _tmp_file_mgr.reset(new TmpFileMgr());
     _tmp_file_mgr->init(_metrics.get());
 }
 
@@ -51,7 +51,7 @@ void TestEnv::init_tmp_file_mgr(const std::vector<std::string>& tmp_dirs,
         bool one_dir_per_device) {
     // Need to recreate metrics to avoid error when registering metric twice.
     init_metrics();
-    _tmp_file_mgr.reset(new TmpFileMgr);
+    _tmp_file_mgr.reset(new TmpFileMgr());
     _tmp_file_mgr->init_custom(tmp_dirs, one_dir_per_device, _metrics.get());
 }
 

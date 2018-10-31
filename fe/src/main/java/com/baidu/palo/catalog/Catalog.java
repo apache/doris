@@ -91,9 +91,9 @@ import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.FeConstants;
 import com.baidu.palo.common.FeMetaVersion;
-import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.MarkedCountDownLatch;
 import com.baidu.palo.common.Pair;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.util.Daemon;
 import com.baidu.palo.common.util.KuduUtil;
@@ -105,6 +105,7 @@ import com.baidu.palo.deploy.DeployManager;
 import com.baidu.palo.deploy.impl.AmbariDeployManager;
 import com.baidu.palo.deploy.impl.K8sDeployManager;
 import com.baidu.palo.deploy.impl.LocalFileDeployManager;
+import com.baidu.palo.external.EsStateStore;
 import com.baidu.palo.ha.BDBHA;
 import com.baidu.palo.ha.FrontendNodeType;
 import com.baidu.palo.ha.HAProtocol;
@@ -160,6 +161,8 @@ import com.baidu.palo.task.PullLoadJobMgr;
 import com.baidu.palo.thrift.TStorageMedium;
 import com.baidu.palo.thrift.TStorageType;
 import com.baidu.palo.thrift.TTaskType;
+import com.baidu.palo.transaction.GlobalTransactionMgr;
+import com.baidu.palo.transaction.PublishVersionDaemon;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Joiner.MapJoiner;
@@ -204,9 +207,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class Catalog {
     private static final Logger LOG = LogManager.getLogger(Catalog.class);
@@ -224,11 +229,18 @@ public class Catalog {
     private int journalVersion = 0;
     private long epoch = 0;
 
-    private Map<Long, Database> idToDb;
-    private Map<String, Database> fullNameToDb;
+    // Lock to perform atomic modification on map like 'idToDb' and 'fullNameToDb'.
+    // These maps are all thread safe, we only use lock to perform atomic operations.
+    // Operations like Get or Put do not need lock.
+    // We use fair ReentrantLock to avoid starvation. Do not use this lock in critical code pass
+    // because fair lock has poor performance.
+    private ReentrantLock lock;
 
-    private Map<Long, Cluster> idToCluster;
-    private Map<String, Cluster> nameToCluster;
+    private ConcurrentHashMap<Long, Database> idToDb;
+    private ConcurrentHashMap<String, Database> fullNameToDb;
+
+    private ConcurrentHashMap<Long, Cluster> idToCluster;
+    private ConcurrentHashMap<String, Cluster> nameToCluster;
 
     private Load load;
     private ExportMgr exportMgr;
@@ -236,16 +248,18 @@ public class Catalog {
     private Alter alter;
     private ConsistencyChecker consistencyChecker;
     private BackupHandler backupHandler;
+    private PublishVersionDaemon publishVersionDaemon;
 
     @Deprecated
     private UserPropertyMgr userPropertyMgr;
 
     private Daemon cleaner; // To clean old LabelInfo, ExportJobInfos
+    private Daemon txnCleaner; // To clean aborted or timeout txns
     private Daemon replayer;
     private Daemon timePrinter;
     private Daemon listener;
+    private EsStateStore esStateStore;  // it is a daemon, so add it here
 
-    private ReentrantReadWriteLock lock;
     private boolean isFirstTimeStartUp = false;
     private boolean isMaster;
     private boolean isElectable;
@@ -280,12 +294,11 @@ public class Catalog {
     private Checkpoint checkpointer;
     private List<Pair<String, Integer>> helperNodes = Lists.newArrayList();
     private Pair<String, Integer> selfNode = null;
-    private Pair<String, Integer> selfHostname = null;
 
     // node name -> Frontend
-    private Map<String, Frontend> frontends;
+    private ConcurrentHashMap<String, Frontend> frontends;
     // removed frontends' name. used for checking if name is duplicated in bdbje
-    private List<String> removedFrontends;
+    private ConcurrentLinkedQueue<String> removedFrontends;
 
     private HAProtocol haProtocol = null;
 
@@ -301,40 +314,35 @@ public class Catalog {
 
     private PullLoadJobMgr pullLoadJobMgr;
     private BrokerMgr brokerMgr;
+    
+    private GlobalTransactionMgr globalTransactionMgr;
 
     private DeployManager deployManager;
+
+    private TabletStatMgr tabletStatMgr;
 
     private PaloAuth auth;
 
     private DomainResolver domainResolver;
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
+        if (nodeType == null) {
+            // get all
+            return Lists.newArrayList(frontends.values());
+        }
+
         List<Frontend> result = Lists.newArrayList();
-        readLock();
-        try {
-            if (nodeType == null) {
-                // get all
-                return Lists.newArrayList(frontends.values());
+        for (Frontend frontend : frontends.values()) {
+            if (frontend.getRole() == nodeType) {
+                result.add(frontend);
             }
-            for (Frontend frontend : frontends.values()) {
-                if (frontend.getRole() == nodeType) {
-                    result.add(frontend);
-                }
-            }
-        } finally {
-            readUnlock();
         }
 
         return result;
     }
 
     public List<String> getRemovedFrontendNames() {
-        readLock();
-        try {
-            return Lists.newArrayList(removedFrontends);
-        } finally {
-            readUnlock();
-        }
+        return Lists.newArrayList(removedFrontends);
     }
 
     public JournalObservable getJournalObservable() {
@@ -345,7 +353,7 @@ public class Catalog {
         return this.systemInfo;
     }
 
-    private TabletInvertedIndex getTabletInvertedIndex() {
+    public TabletInvertedIndex getTabletInvertedIndex() {
         return this.tabletInvertedIndex;
     }
 
@@ -362,17 +370,18 @@ public class Catalog {
     }
 
     private Catalog() {
-        this.idToDb = new HashMap<Long, Database>();
-        this.fullNameToDb = new HashMap<String, Database>();
+        this.idToDb = new ConcurrentHashMap<>();
+        this.fullNameToDb = new ConcurrentHashMap<>();
         this.load = new Load();
         this.exportMgr = new ExportMgr();
         this.clone = new Clone();
         this.alter = new Alter();
         this.consistencyChecker = new ConsistencyChecker();
+        this.lock = new ReentrantLock(true);
         this.backupHandler = new BackupHandler(this);
-        this.lock = new ReentrantReadWriteLock(true);
         this.metaDir = Config.meta_dir;
         this.userPropertyMgr = new UserPropertyMgr();
+        this.publishVersionDaemon = new PublishVersionDaemon();
 
         this.canWrite = false;
         this.canRead = false;
@@ -383,8 +392,8 @@ public class Catalog {
         this.feType = FrontendNodeType.INIT;
 
         this.role = FrontendNodeType.UNKNOWN;
-        this.frontends = Maps.newHashMap();
-        this.removedFrontends = Lists.newArrayList();
+        this.frontends = new ConcurrentHashMap<>();
+        this.removedFrontends = new ConcurrentLinkedQueue<>();
 
         this.journalObservable = new JournalObservable();
         this.formerFeType = FrontendNodeType.INIT;
@@ -400,16 +409,21 @@ public class Catalog {
 
         this.metaReplayState = new MetaReplayState();
 
-        this.idToCluster = new HashMap<Long, Cluster>();
-        this.nameToCluster = new HashMap<String, Cluster>();
+        this.idToCluster = new ConcurrentHashMap<>();
+        this.nameToCluster = new ConcurrentHashMap<>();
 
         this.isDefaultClusterCreated = false;
 
         this.pullLoadJobMgr = new PullLoadJobMgr();
         this.brokerMgr = new BrokerMgr();
 
+        this.globalTransactionMgr = new GlobalTransactionMgr(this);
+        this.tabletStatMgr = new TabletStatMgr();
+
         this.auth = new PaloAuth();
         this.domainResolver = new DomainResolver(auth);
+        
+        this.esStateStore = new EsStateStore();
     }
 
     public static void destroyCheckpoint() {
@@ -446,6 +460,14 @@ public class Catalog {
     public BrokerMgr getBrokerMgr() {
         return brokerMgr;
     }
+    
+    public static GlobalTransactionMgr getCurrentGlobalTransactionMgr() {
+        return getCurrentCatalog().globalTransactionMgr;
+    }
+    
+    public GlobalTransactionMgr getGlobalTransactionMgr() {
+        return globalTransactionMgr;
+    }
 
     public PaloAuth getAuth() {
         return auth;
@@ -474,20 +496,33 @@ public class Catalog {
         return Thread.currentThread().getId() == checkpointThreadId;
     }
 
-    public void readLock() {
-        this.lock.readLock().lock();
+    // Use tryLock to avoid potential dead lock
+    private boolean tryLock(boolean mustLock) {
+        while (true) {
+            try {
+                if (!lock.tryLock(Config.catalog_try_lock_timeout_ms, TimeUnit.MILLISECONDS)) {
+                    if (mustLock) {
+                        continue;
+                    } else {
+                        return false;
+                    }
+                }
+                return true;
+            } catch (InterruptedException e) {
+                LOG.warn("got exception while getting catalog lock", e);
+                if (mustLock) {
+                    continue;
+                } else {
+                    return lock.isHeldByCurrentThread();
+                }
+            }
+        }
     }
 
-    public void readUnlock() {
-        this.lock.readLock().unlock();
-    }
-
-    private void writeLock() {
-        this.lock.writeLock().lock();
-    }
-
-    private void writeUnlock() {
-        this.lock.writeLock().unlock();
+    private void unlock() {
+        if (lock.isHeldByCurrentThread()) {
+            this.lock.unlock();
+        }
     }
 
     public void initialize(String[] args) throws Exception {
@@ -521,6 +556,7 @@ public class Catalog {
         this.editLog = new EditLog(nodeName);
         loadImage(IMAGE_DIR); // load image file
         editLog.open(); // open bdb env or local output stream
+        this.globalTransactionMgr.setEditLog(editLog);
 
         // 4. start load label cleaner thread
         createCleaner();
@@ -528,11 +564,23 @@ public class Catalog {
         cleaner.setInterval(Config.label_clean_interval_second * 1000L);
         cleaner.start();
 
-        // 5. start state listener thread
+        // 5. create es state store
+        esStateStore.loadTableFromCatalog();
+        esStateStore.start();
+        
+        // 6. start state listener thread
         createStateListener();
         listener.setName("stateListener");
         listener.setInterval(STATE_CHANGE_CHECK_INTERVAL_MS);
         listener.start();
+        
+        // 7. start txn cleaner thread
+        createTxnCleaner();
+        txnCleaner.setName("txnCleaner");
+        // the clear threads runs every min(transaction_clean_interval_second,stream_load_default_timeout_second)/10
+        txnCleaner.setInterval(Math.min(Config.transaction_clean_interval_second, 
+                Config.stream_load_default_timeout_second) * 100L);
+        
     }
 
     private void getClusterIdAndRole() throws IOException {
@@ -791,8 +839,7 @@ public class Catalog {
 
     private void getSelfHostPort() {
         selfNode = new Pair<String, Integer>(FrontendOptions.getLocalHostAddress(), Config.edit_log_port);
-        selfHostname = new Pair<String, Integer>(FrontendOptions.getHostname(), Config.edit_log_port);
-        LOG.debug("get self node: {}, self hostname: {}", selfNode, selfHostname);
+        LOG.debug("get self node: {}", selfNode);
     }
 
     private void getHelperNodes(String[] args) throws AnalysisException {
@@ -950,6 +997,12 @@ public class Catalog {
         // Clone checker
         CloneChecker.getInstance().setInterval(Config.clone_checker_interval_second * 1000L);
         CloneChecker.getInstance().start();
+        
+        // Publish Version Daemon
+        publishVersionDaemon.start();
+        
+        // Start txn cleaner
+        txnCleaner.start();
 
         // Alter
         getAlterInstance().start();
@@ -979,6 +1032,8 @@ public class Catalog {
         }
 
         domainResolver.start();
+
+        tabletStatMgr.start();
         MetricRepo.init();
     }
 
@@ -1014,7 +1069,10 @@ public class Catalog {
         }
 
         formerFeType = feType;
+
         domainResolver.start();
+
+        tabletStatMgr.start();
         MetricRepo.init();
     }
 
@@ -1158,6 +1216,9 @@ public class Catalog {
             checksum = loadExportJob(dis, checksum);
             checksum = loadBackupHandler(dis, checksum);
             checksum = loadPaloAuth(dis, checksum);
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_45) {
+                checksum = loadTransactionState(dis, checksum);
+            }
 
             long remoteChecksum = dis.readLong();
             Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
@@ -1168,7 +1229,7 @@ public class Catalog {
         long loadImageEndTime = System.currentTimeMillis();
         LOG.info("finished load image in " + (loadImageEndTime - loadImageStartTime) + " ms");
     }
-
+    
     private void recreateTabletInvertIndex() {
         if (isCheckpointThread()) {
             return;
@@ -1324,6 +1385,32 @@ public class Catalog {
             param.readFields(dis);
             load.setLoadErrorHubInfo(param);
         }
+        
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_45) {
+            // 4. load delete jobs
+            int deleteJobSize = dis.readInt();
+            newChecksum ^= deleteJobSize;
+            for (int i = 0; i < deleteJobSize; i++) {
+                long dbId = dis.readLong();
+                newChecksum ^= dbId;
+    
+                int deleteJobCount = dis.readInt();
+                newChecksum ^= deleteJobCount;
+                for (int j = 0; j < deleteJobCount; j++) {
+                    LoadJob job = new LoadJob();
+                    job.readFields(dis);
+                    long currentTimeMs = System.currentTimeMillis();
+    
+                    // Delete the history load jobs that are older than
+                    // LABEL_KEEP_MAX_MS
+                    // This job must be FINISHED or CANCELLED
+                    if ((currentTimeMs - job.getCreateTimeMs()) / 1000 <= Config.label_keep_max_second
+                            || (job.getState() != JobState.FINISHED && job.getState() != JobState.CANCELLED)) {
+                        load.unprotectAddLoadJob(job, true /* replay */);
+                    }
+                }
+            }
+        }
 
         return newChecksum;
     }
@@ -1361,7 +1448,7 @@ public class Catalog {
 
     public long loadAlterJob(DataInputStream dis, long checksum, JobType type) throws IOException {
         Map<Long, AlterJob> alterJobs = null;
-        List<AlterJob> finishedOrCancelledAlterJobs = null;
+        ConcurrentLinkedQueue<AlterJob> finishedOrCancelledAlterJobs = null;
         if (type == JobType.ROLLUP) {
             alterJobs = this.getRollupHandler().unprotectedGetAlterJobs();
             finishedOrCancelledAlterJobs = this.getRollupHandler().unprotectedGetFinishedOrCancelledAlterJobs();
@@ -1385,8 +1472,10 @@ public class Catalog {
 
             // init job
             Database db = getDb(job.getDbId());
-            if (db != null) {
-                job.unprotectedReplayInitJob(db);
+            // should check job state here because the job is finished but not removed from alter jobs list
+            if (db != null && (job.getState() == com.baidu.palo.alter.AlterJob.JobState.PENDING 
+                    || job.getState() == com.baidu.palo.alter.AlterJob.JobState.RUNNING)) {
+                job.replayInitJob(db);
             }
         }
 
@@ -1505,6 +1594,13 @@ public class Catalog {
         }
         return checksum;
     }
+    
+    public long loadTransactionState(DataInputStream dis, long checksum) throws IOException {
+        int size = dis.readInt();
+        long newChecksum = checksum ^ size;
+        globalTransactionMgr.readFields(dis);
+        return newChecksum;
+    }
 
     public long loadRecycleBin(DataInputStream dis, long checksum) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_10) {
@@ -1539,38 +1635,36 @@ public class Catalog {
             curFile.createNewFile();
         }
 
+        // save image does not need any lock. because only checkpoint thread will call this method.
         LOG.info("start save image to {}. is ckpt: {}", curFile.getAbsolutePath(), Catalog.isCheckpointThread());
 
         long checksum = 0;
         long saveImageStartTime = System.currentTimeMillis();
-        readLock();
+        DataOutputStream dos = new DataOutputStream(new FileOutputStream(curFile));
         try {
-            DataOutputStream dos = new DataOutputStream(new FileOutputStream(curFile));
-            try {
-                checksum = saveHeader(dos, replayedJournalId, checksum);
-                checksum = saveMasterInfo(dos, checksum);
-                checksum = saveFrontends(dos, checksum);
-                checksum = Catalog.getCurrentSystemInfo().saveBackends(dos, checksum);
-                checksum = saveDb(dos, checksum);
-                checksum = saveLoadJob(dos, checksum);
-                checksum = saveAlterJob(dos, checksum);
-                checksum = saveRecycleBin(dos, checksum);
-                checksum = saveGlobalVariable(dos, checksum);
-                checksum = saveCluster(dos, checksum);
-                checksum = saveBrokers(dos, checksum);
-                checksum = saveExportJob(dos, checksum);
-                checksum = saveBackupHandler(dos, checksum);
-                checksum = savePaloAuth(dos, checksum);
-                dos.writeLong(checksum);
-            } finally {
-                dos.close();
-            }
+            checksum = saveHeader(dos, replayedJournalId, checksum);
+            checksum = saveMasterInfo(dos, checksum);
+            checksum = saveFrontends(dos, checksum);
+            checksum = Catalog.getCurrentSystemInfo().saveBackends(dos, checksum);
+            checksum = saveDb(dos, checksum);
+            checksum = saveLoadJob(dos, checksum);
+            checksum = saveAlterJob(dos, checksum);
+            checksum = saveRecycleBin(dos, checksum);
+            checksum = saveGlobalVariable(dos, checksum);
+            checksum = saveCluster(dos, checksum);
+            checksum = saveBrokers(dos, checksum);
+            checksum = saveExportJob(dos, checksum);
+            checksum = saveBackupHandler(dos, checksum);
+            checksum = savePaloAuth(dos, checksum);
+            checksum = saveTransactionState(dos, checksum);
+            dos.writeLong(checksum);
         } finally {
-            readUnlock();
+            dos.close();
         }
 
         long saveImageEndTime = System.currentTimeMillis();
-        LOG.info("finished save image in {} ms. checksum is {}", (saveImageEndTime - saveImageStartTime), checksum);
+        LOG.info("finished save image {} in {} ms. checksum is {}",
+                 curFile.getAbsolutePath(), (saveImageEndTime - saveImageStartTime), checksum);
     }
 
     public long saveHeader(DataOutputStream dos, long replayedJournalId, long checksum) throws IOException {
@@ -1686,6 +1780,25 @@ public class Catalog {
         // 3. load error hub info
         LoadErrorHub.Param param = load.getLoadErrorHubInfo();
         param.write(dos);
+        
+        // 4. save delete load job info
+        Map<Long, List<LoadJob>> dbToDeleteJobs = load.getDbToDeleteJobs();
+        int deleteJobSize = dbToDeleteJobs.size();
+        checksum ^= deleteJobSize;
+        dos.writeInt(deleteJobSize);
+        for (Entry<Long, List<LoadJob>> entry : dbToDeleteJobs.entrySet()) {
+            long dbId = entry.getKey();
+            checksum ^= dbId;
+            dos.writeLong(dbId);
+
+            List<LoadJob> deleteJobs = entry.getValue();
+            int deleteJobCount = deleteJobs.size();
+            checksum ^= deleteJobCount;
+            dos.writeInt(deleteJobCount);
+            for (LoadJob job : deleteJobs) {
+                job.write(dos);
+            }
+        }
 
         return checksum;
     }
@@ -1714,7 +1827,7 @@ public class Catalog {
 
     public long saveAlterJob(DataOutputStream dos, long checksum, JobType type) throws IOException {
         Map<Long, AlterJob> alterJobs = null;
-        List<AlterJob> finishedOrCancelledAlterJobs = null;
+        ConcurrentLinkedQueue<AlterJob> finishedOrCancelledAlterJobs = null;
         if (type == JobType.ROLLUP) {
             alterJobs = this.getRollupHandler().unprotectedGetAlterJobs();
             finishedOrCancelledAlterJobs = this.getRollupHandler().unprotectedGetFinishedOrCancelledAlterJobs();
@@ -1755,6 +1868,14 @@ public class Catalog {
         auth.write(dos);
         return checksum;
     }
+    
+    public long saveTransactionState(DataOutputStream dos, long checksum) throws IOException {
+        int size = globalTransactionMgr.getTransactionNum();
+        checksum ^= size;
+        dos.writeInt(size);
+        globalTransactionMgr.write(dos);
+        return checksum;
+    }
 
     public long saveRecycleBin(DataOutputStream dos, long checksum) throws IOException {
         CatalogRecycleBin recycleBin = Catalog.getCurrentRecycleBin();
@@ -1785,6 +1906,14 @@ public class Catalog {
                 load.removeOldLoadJobs();
                 load.removeOldDeleteJobs();
                 exportMgr.removeOldExportJobs();
+            }
+        };
+    }
+    
+    public void createTxnCleaner() {
+        txnCleaner = new Daemon() {
+            protected void runOneCycle() {
+                globalTransactionMgr.removeOldTransactions();
             }
         };
     }
@@ -2019,7 +2148,9 @@ public class Catalog {
     }
 
     public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
-        writeLock();
+        if (!tryLock(false)) {
+            throw new DdlException("Failed to acquire catalog lock. Try again");
+        }
         try {
             Frontend fe = checkFeExist(host, editLogPort);
             if (fe != null) {
@@ -2039,7 +2170,7 @@ public class Catalog {
             }
             editLog.logAddFrontend(fe);
         } finally {
-            writeUnlock();
+            unlock();
         }
     }
 
@@ -2047,7 +2178,9 @@ public class Catalog {
         if (host.equals(selfNode.first) && port == selfNode.second && isMaster) {
             throw new DdlException("can not drop current master node.");
         }
-        writeLock();
+        if (!tryLock(false)) {
+            throw new DdlException("Failed to acquire catalog lock. Try again");
+        }
         try {
             Frontend fe = checkFeExist(host, port);
             if (fe == null) {
@@ -2064,44 +2197,37 @@ public class Catalog {
             }
             editLog.logRemoveFrontend(fe);
         } finally {
-            writeUnlock();
+            unlock();
         }
     }
 
     public Frontend checkFeExist(String host, int port) {
-        readLock();
-        try {
-            for (Frontend fe : frontends.values()) {
-                if (fe.getHost().equals(host) && fe.getEditLogPort() == port) {
-                    return fe;
-                }
+        for (Frontend fe : frontends.values()) {
+            if (fe.getHost().equals(host) && fe.getEditLogPort() == port) {
+                return fe;
             }
-        } finally {
-            readUnlock();
         }
         return null;
     }
 
     public Frontend getFeByHost(String host) {
-        readLock();
-        try {
-            for (Frontend fe : frontends.values()) {
-                if (fe.getHost().equals(host)) {
-                    return fe;
-                }
+        for (Frontend fe : frontends.values()) {
+            if (fe.getHost().equals(host)) {
+                return fe;
             }
-        } finally {
-            readUnlock();
         }
         return null;
     }
+
 
     // The interface which DdlExecutor needs.
     public void createDb(CreateDbStmt stmt) throws DdlException {
         final String clusterName = stmt.getClusterName();
         String fullDbName = stmt.getFullDbName();
         long id = 0L;
-        writeLock();
+        if (!tryLock(false)) {
+            throw new DdlException("Failed to acquire catalog lock. Try again");
+        }
         try {
             if (!nameToCluster.containsKey(clusterName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER, clusterName);
@@ -2121,7 +2247,7 @@ public class Catalog {
                 editLog.logCreateDb(db);
             }
         } finally {
-            writeUnlock();
+            unlock();
         }
         LOG.info("createDb dbName = " + fullDbName + ", id = " + id);
     }
@@ -2140,13 +2266,12 @@ public class Catalog {
         idToCluster.put(cluster.getId(), cluster);
     }
 
-
     public void replayCreateDb(Database db) {
-        writeLock();
+        tryLock(true);
         try {
             unprotectCreateDb(db);
         } finally {
-            writeUnlock();
+            unlock();
         }
     }
 
@@ -2154,7 +2279,9 @@ public class Catalog {
         String dbName = stmt.getDbName();
 
         // 1. check if database exists
-        writeLock();
+        if (!tryLock(false)) {
+            throw new DdlException("Failed to acquire catalog lock. Try again");
+        }
         try {
             if (!fullNameToDb.containsKey(dbName)) {
                 if (stmt.isSetIfExists()) {
@@ -2170,6 +2297,7 @@ public class Catalog {
             db.writeLock();
             try {
                 if (db.getDbState() == DbState.LINK && dbName.equals(db.getAttachDb())) {
+                    // We try to drop a hard link.
                     final DropLinkDbAndUpdateDbInfo info = new DropLinkDbAndUpdateDbInfo();
                     fullNameToDb.remove(db.getAttachDb());
                     db.setDbState(DbState.NORMAL);
@@ -2187,7 +2315,9 @@ public class Catalog {
                     return;
                 }
 
-                if (dbName.equals(db.getFullName()) && db.getDbState() == DbState.LINK) {
+                if (db.getDbState() == DbState.LINK && dbName.equals(db.getFullName())) {
+                    // We try to drop a db which other dbs attach to it,
+                    // which is not allowed.
                     ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_DB_STATE_LINK_OR_MIGRATE,
                             ClusterNamespace.getNameFromFullName(dbName));
                     return;
@@ -2214,7 +2344,7 @@ public class Catalog {
             cluster.removeDb(dbName, db.getId());
             editLog.logDropDb(dbName);
         } finally {
-            writeUnlock();
+            unlock();
         }
 
         LOG.info("finish drop database[{}]", dbName);
@@ -2227,7 +2357,7 @@ public class Catalog {
     }
 
     public void replayDropLinkDb(DropLinkDbAndUpdateDbInfo info) {
-        writeLock();
+        tryLock(true);
         try {
             final Database db = this.fullNameToDb.remove(info.getDropDbName());
             db.setDbState(info.getUpdateDbState());
@@ -2238,12 +2368,12 @@ public class Catalog {
             param.addLongParam(db.getId());
             cluster.removeLinkDb(param);
         } finally {
-            writeUnlock();
+            unlock();
         }
     }
 
     public void replayDropDb(String dbName) throws DdlException {
-        writeLock();
+        tryLock(true);
         try {
             Database db = fullNameToDb.get(dbName);
             db.writeLock();
@@ -2260,7 +2390,7 @@ public class Catalog {
             final Cluster cluster = nameToCluster.get(db.getClusterName());
             cluster.removeDb(dbName, db.getId());
         } finally {
-            writeUnlock();
+            unlock();
         }
     }
 
@@ -2273,7 +2403,9 @@ public class Catalog {
         Database db = Catalog.getCurrentRecycleBin().recoverDatabase(recoverStmt.getDbName());
 
         // add db to catalog
-        writeLock();
+        if (!tryLock(false)) {
+            throw new DdlException("Failed to acquire catalog lock. Try again");
+        }
         try {
             if (fullNameToDb.containsKey(db.getFullName())) {
                 throw new DdlException("Database[" + db.getFullName() + "] already exist.");
@@ -2283,13 +2415,14 @@ public class Catalog {
 
             fullNameToDb.put(db.getFullName(), db);
             idToDb.put(db.getId(), db);
+
+            // log
+            RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L);
+            Catalog.getInstance().getEditLog().logRecoverDb(recoverInfo);
         } finally {
-            writeUnlock();
+            unlock();
         }
 
-        // log
-        RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L);
-        Catalog.getInstance().getEditLog().logRecoverDb(recoverInfo);
         LOG.info("recover database[{}]", db.getId());
     }
 
@@ -2383,58 +2516,58 @@ public class Catalog {
     }
 
     public void renameDatabase(AlterDatabaseRename stmt) throws DdlException {
-        String dbName = stmt.getDbName();
-        String newDbName = stmt.getNewDbName();
+        String fullDbName = stmt.getDbName();
+        String newFullDbName = stmt.getNewDbName();
         String clusterName = stmt.getClusterName();
 
-        if (dbName.equals(newDbName)) {
+        if (fullDbName.equals(newFullDbName)) {
             throw new DdlException("Same database name");
         }
 
         Database db = null;
         Cluster cluster = null;
-        writeLock();
+        if (!tryLock(false)) {
+            throw new DdlException("Failed to acquire catalog lock. Try again");
+        }
         try {
             cluster = nameToCluster.get(clusterName);
             if (cluster == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_NO_EXISTS, clusterName);
             }
-            final String dbNameWithoutPrefix = ClusterNamespace.getNameFromFullName(dbName);
             // check if db exists
-            db = fullNameToDb.get(dbName);
+            db = fullNameToDb.get(fullDbName);
             if (db == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbNameWithoutPrefix);
+                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, fullDbName);
             }
 
             if (db.getDbState() == DbState.LINK || db.getDbState() == DbState.MOVE) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_RENAME_DB_ERR, dbNameWithoutPrefix);
+                ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_RENAME_DB_ERR, fullDbName);
             }
-            final String newDbNameWithoutPrefix = ClusterNamespace.getNameFromFullName(newDbName);
             // check if name is already used
-            if (fullNameToDb.get(newDbName) != null) {
-                throw new DdlException("Database name[" + newDbNameWithoutPrefix + "] is already used");
+            if (fullNameToDb.get(newFullDbName) != null) {
+                throw new DdlException("Database name[" + newFullDbName + "] is already used");
             }
 
             cluster.removeDb(db.getFullName(), db.getId());
-            cluster.addDb(newDbName, db.getId());
+            cluster.addDb(newFullDbName, db.getId());
             // 1. rename db
-            db.setNameWithLock(newDbName);
+            db.setNameWithLock(newFullDbName);
 
             // 2. add to meta. check again
-            fullNameToDb.remove(dbName);
-            fullNameToDb.put(newDbName, db);
+            fullNameToDb.remove(fullDbName);
+            fullNameToDb.put(newFullDbName, db);
 
-            DatabaseInfo dbInfo = new DatabaseInfo(dbName, newDbName, -1L);
+            DatabaseInfo dbInfo = new DatabaseInfo(fullDbName, newFullDbName, -1L);
             editLog.logDatabaseRename(dbInfo);
         } finally {
-            writeUnlock();
+            unlock();
         }
 
-        LOG.info("rename database[{}] to [{}]", dbName, newDbName);
+        LOG.info("rename database[{}] to [{}]", fullDbName, newFullDbName);
     }
 
     public void replayRenameDatabase(String dbName, String newDbName) {
-        writeLock();
+        tryLock(true);
         try {
             Database db = fullNameToDb.get(dbName);
             Cluster cluster = nameToCluster.get(db.getClusterName());
@@ -2444,7 +2577,7 @@ public class Catalog {
             fullNameToDb.remove(dbName);
             fullNameToDb.put(newDbName, db);
         } finally {
-            writeUnlock();
+            unlock();
         }
 
         LOG.info("replay rename database {} to {}", dbName, newDbName);
@@ -2465,10 +2598,13 @@ public class Catalog {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
 
-        // check cluster capacity
-        Catalog.getCurrentSystemInfo().checkClusterCapacity(stmt.getClusterName());
-        // check db quota
-        db.checkQuota();
+        // only internal table should check quota and cluster capacity
+        if (!stmt.isExternal()) {
+            // check cluster capacity
+            Catalog.getCurrentSystemInfo().checkClusterCapacity(stmt.getClusterName());
+            // check db quota
+            db.checkQuota();
+        }
 
         // check if table exists in db
         if (!isRestore) {
@@ -2495,6 +2631,8 @@ public class Catalog {
             return createKuduTable(db, stmt);
         } else if (engineName.equals("broker")) {
             return createBrokerTable(db, stmt, isRestore);
+        } else if (engineName.equalsIgnoreCase("elasticsearch") || engineName.equalsIgnoreCase("es")) {
+            return createEsTable(db, stmt);
         } else {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
         }
@@ -2697,7 +2835,6 @@ public class Catalog {
                     rangePartitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId);
 
                     olapTable.addPartition(partition);
-
                     // log
                     PartitionPersistInfo info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
                             rangePartitionInfo.getRange(partitionId), dataProperty,
@@ -2951,8 +3088,7 @@ public class Catalog {
 
         // version and version hash
         if (versionInfo != null) {
-            partition.setCommittedVersion(versionInfo.first);
-            partition.setCommittedVersionHash(versionInfo.second);
+            partition.updateCommitVersionAndVersionHash(versionInfo.first, versionInfo.second);
         }
         long version = partition.getCommittedVersion();
         long versionHash = partition.getCommittedVersionHash();
@@ -3033,7 +3169,6 @@ public class Catalog {
                 partition.createRollupIndex(index);
             }
         } // end for indexMap
-
         return partition;
     }
 
@@ -3269,6 +3404,36 @@ public class Catalog {
 
         return returnTable;
     }
+    
+    private Table createEsTable(Database db, CreateTableStmt stmt) throws DdlException {
+        String tableName = stmt.getTableName();
+
+        // create columns
+        List<Column> baseSchema = stmt.getColumns();
+        validateColumns(baseSchema);
+        
+        // create partition info
+        PartitionDesc partitionDesc = stmt.getPartitionDesc();
+        PartitionInfo partitionInfo = null;
+        Map<String, Long> partitionNameToId = Maps.newHashMap();
+        if (partitionDesc != null) {
+            partitionInfo = partitionDesc.toPartitionInfo(baseSchema, partitionNameToId);
+        } else {
+            long partitionId = getNextId();
+            // use table name as single partition name
+            partitionNameToId.put(tableName, partitionId);
+            partitionInfo = new SinglePartitionInfo();
+        }
+
+        long tableId = Catalog.getInstance().getNextId();
+        EsTable esTable = new EsTable(tableId, tableName, baseSchema, stmt.getProperties(), partitionInfo);
+
+        if (!db.createTableWithLock(esTable, false, stmt.isSetIfNotExists())) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
+        }
+        LOG.info("successfully create table{} with id {}", tableName, tableId);
+        return esTable;
+    }
 
     private Table createKuduTable(Database db, CreateTableStmt stmt) throws DdlException {
         String tableName = stmt.getTableName();
@@ -3395,7 +3560,8 @@ public class Catalog {
 
         // 1.2 other table type
         sb.append("CREATE ");
-        if (table.getType() == TableType.KUDU || table.getType() == TableType.MYSQL) {
+        if (table.getType() == TableType.KUDU || table.getType() == TableType.MYSQL 
+                || table.getType() == TableType.ELASTICSEARCH) {
             sb.append("EXTERNAL ");
         }
         sb.append("TABLE ");
@@ -3535,6 +3701,33 @@ public class Catalog {
             }
 
             sb.append(";");
+        } else if (table.getType() == TableType.ELASTICSEARCH) {
+            EsTable esTable = (EsTable) table;
+            
+            // partition
+            PartitionInfo partitionInfo = esTable.getPartitionInfo();
+            if (partitionInfo.getType() == PartitionType.RANGE) {
+                sb.append("\n");
+                sb.append("PARTITION BY RANGE(");
+                idx = 0;
+                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
+                for (Column column : rangePartitionInfo.getPartitionColumns()) {
+                    if (idx != 0) {
+                        sb.append(", ");
+                    }
+                    sb.append("`").append(column.getName()).append("`");
+                }
+                sb.append(")\n()");
+            }
+            
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            sb.append("\"host\" = \"").append(esTable.getHosts()).append("\",\n");
+            sb.append("\"user\" = \"").append(esTable.getUserName()).append("\",\n");
+            sb.append("\"password\" = \"").append(hidePassword ? "" : esTable.getPasswd()).append("\",\n");
+            sb.append("\"index\" = \"").append(esTable.getIndexName()).append("\"\n");
+            sb.append("\"type\" = \"").append(esTable.getMappingType()).append("\"\n");
+            sb.append(");");
         }
 
         createTableStmt.add(sb.toString());
@@ -3662,19 +3855,13 @@ public class Catalog {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
 
-        Database db = null;
-        Table table = null;
-        readLock();
-        try {
-            // check database
-            db = this.fullNameToDb.get(dbName);
-            if (db == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-            }
-        } finally {
-            readUnlock();
+        // check database
+        Database db = this.fullNameToDb.get(dbName);
+        if (fullNameToDb.get(dbName) == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
-
+       
+        Table table = null;
         db.writeLock();
         try {
             table = db.getTable(tableName);
@@ -3699,14 +3886,14 @@ public class Catalog {
             }
 
             unprotectDropTable(db, table.getId());
+
+            DropInfo info = new DropInfo(db.getId(), table.getId(), -1L);
+            editLog.logDropTable(info);
         } finally {
             db.writeUnlock();
         }
 
-        DropInfo info = new DropInfo(db.getId(), table.getId(), -1L);
-        editLog.logDropTable(info);
-
-        LOG.info("finish drop table[{}] from db[{}]", tableName, dbName);
+        LOG.info("finished dropping table: {} from db: {}", tableName, dbName);
     }
 
     public boolean unprotectDropTable(Database db, long tableId) {
@@ -3716,10 +3903,7 @@ public class Catalog {
             return false;
         }
 
-        if (table.getType() == TableType.OLAP) {
-            OlapTable olapTable = (OlapTable) table;
-            cancelJobsWithTable(db, olapTable);
-        } else if (table.getType() == TableType.KUDU) {
+        if (table.getType() == TableType.KUDU) {
             KuduTable kuduTable = (KuduTable) table;
             KuduClient client = KuduUtil.createKuduClient(kuduTable.getMasterAddrs());
             try {
@@ -3733,6 +3917,8 @@ public class Catalog {
             } catch (KuduException e) {
                 LOG.warn("failed to delete kudu table {} when replay", kuduTable.getName(), e);
             }
+        } else if (table.getType() == TableType.ELASTICSEARCH) {
+            esStateStore.deRegisterTable(tableId);
         }
 
         db.dropTable(table.getName());
@@ -3766,16 +3952,6 @@ public class Catalog {
         }
     }
 
-    private void cancelJobsWithTable(Database db, OlapTable olapTable) {
-        // remove related jobs
-        RollupHandler rollupHandler = Catalog.getInstance().getRollupHandler();
-        rollupHandler.cancelWithTable(olapTable);
-        SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
-        schemaChangeHandler.cancelWithTable(olapTable);
-        Clone clone = Catalog.getInstance().getCloneInstance();
-        clone.cancelCloneJob(olapTable);
-    }
-
     public void handleJobsWhenDeleteReplica(long tableId, long partitionId, long indexId, long tabletId, long replicaId,
             long backendId) {
         // rollup
@@ -3789,13 +3965,18 @@ public class Catalog {
     }
 
     public void unprotectAddReplica(ReplicaPersistInfo info) {
+        LOG.debug("replay add a replica {}", info);
         Database db = getDb(info.getDbId());
         OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
         Partition partition = olapTable.getPartition(info.getPartitionId());
         MaterializedIndex materializedIndex = partition.getIndex(info.getIndexId());
         Tablet tablet = materializedIndex.getTablet(info.getTabletId());
         Replica replica = new Replica(info.getReplicaId(), info.getBackendId(), info.getVersion(),
-                info.getVersionHash(), info.getDataSize(), info.getRowCount(), ReplicaState.NORMAL);
+                info.getVersionHash(), info.getDataSize(), info.getRowCount(), ReplicaState.NORMAL, 
+                info.getLastFailedVersion(), 
+                info.getLastFailedVersionHash(),
+                info.getLastSuccessVersion(), 
+                info.getLastSuccessVersionHash());
         tablet.addReplica(replica);
     }
 
@@ -3829,7 +4010,7 @@ public class Catalog {
     }
 
     public void addFrontendWithCheck(Frontend fe) {
-        writeLock();
+        tryLock(true);
         try {
             Frontend existFe = checkFeExist(fe.getHost(), fe.getEditLogPort());
             if (existFe != null) {
@@ -3855,12 +4036,12 @@ public class Catalog {
                 // helper sockets will be added after start BDBHA
             }
         } finally {
-            writeUnlock();
+            unlock();
         }
     }
 
     public void replayDropFrontend(Frontend frontend) {
-        writeLock();
+        tryLock(true);
         try {
             Frontend removedFe = frontends.remove(frontend.getNodeName());
             if (removedFe == null) {
@@ -3869,7 +4050,7 @@ public class Catalog {
             }
             removedFrontends.add(removedFe.getNodeName());
         } finally {
-            writeUnlock();
+            unlock();
         }
     }
 
@@ -3878,37 +4059,24 @@ public class Catalog {
     }
 
     public Database getDb(String name) {
-        readLock();
-        try {
-            if (fullNameToDb.containsKey(name)) {
-                return fullNameToDb.get(name);
-            } else {
-                // This maybe a information_schema db request, and information_schema db name is case insensitive.
-                // So, we first extract db name to check if it is information_schema.
-                // Then we reassemble the origin cluster name with lower case db name,
-                // and finally get information_schema db from the name map.
-                String dbName = ClusterNamespace.getNameFromFullName(name);
-                if (dbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
-                    String clusterName = ClusterNamespace.getClusterNameFromFullName(name);
-                    return fullNameToDb.get(ClusterNamespace.getFullName(clusterName, dbName.toLowerCase()));
-                }
-            } 
-            return null;
-        } finally {
-            readUnlock();
-        }
+        if (fullNameToDb.containsKey(name)) {
+            return fullNameToDb.get(name);
+        } else {
+            // This maybe a information_schema db request, and information_schema db name is case insensitive.
+            // So, we first extract db name to check if it is information_schema.
+            // Then we reassemble the origin cluster name with lower case db name,
+            // and finally get information_schema db from the name map.
+            String dbName = ClusterNamespace.getNameFromFullName(name);
+            if (dbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
+                String clusterName = ClusterNamespace.getClusterNameFromFullName(name);
+                return fullNameToDb.get(ClusterNamespace.getFullName(clusterName, dbName.toLowerCase()));
+            }
+        } 
+        return null;
     }
 
     public Database getDb(long dbId) {
-        readLock();
-        try {
-            if (idToDb.containsKey(dbId)) {
-                return idToDb.get(dbId);
-            }
-            return null;
-        } finally {
-            readUnlock();
-        }
+        return idToDb.get(dbId);
     }
 
     public EditLog getEditLog() {
@@ -3923,37 +4091,19 @@ public class Catalog {
     }
 
     public List<String> getDbNames() {
-        readLock();
-        try {
-            List<String> dbNames = Lists.newArrayList(fullNameToDb.keySet());
-            return dbNames;
-        } finally {
-            readUnlock();
-        }
+        return Lists.newArrayList(fullNameToDb.keySet());
     }
 
     public List<String> getClusterDbNames(String clusterName) throws AnalysisException {
-        readLock();
-        try {
-            final Cluster cluster = nameToCluster.get(clusterName);
-            if (cluster == null) {
-                throw new AnalysisException("No cluster selected");
-            }
-            List<String> dbNames = Lists.newArrayList(cluster.getDbNames());
-            return dbNames;
-        } finally {
-            readUnlock();
+        final Cluster cluster = nameToCluster.get(clusterName);
+        if (cluster == null) {
+            throw new AnalysisException("No cluster selected");
         }
+        return Lists.newArrayList(cluster.getDbNames());
     }
 
     public List<Long> getDbIds() {
-        readLock();
-        try {
-            List<Long> dbIds = Lists.newArrayList(idToDb.keySet());
-            return dbIds;
-        } finally {
-            readUnlock();
-        }
+        return Lists.newArrayList(idToDb.keySet());
     }
 
     public HashMap<Long, TStorageMedium> getPartitionIdToStorageMediumMap() {
@@ -4133,10 +4283,6 @@ public class Catalog {
         return this.selfNode;
     }
 
-    public Pair<String, Integer> getSelfHostname() {
-        return this.selfHostname;
-    }
-
     public String getNodeName() {
         return this.nodeName;
     }
@@ -4168,6 +4314,10 @@ public class Catalog {
             return null;
         }
         return this.masterIp;
+    }
+    
+    public EsStateStore getEsStateStore() {
+        return this.esStateStore;
     }
 
     public void setMaster(MasterInfo info) {
@@ -4308,7 +4458,7 @@ public class Catalog {
      * used for handling AlterTableStmt (for client is the ALTER TABLE command).
      * including SchemaChangeHandler and RollupHandler
      */
-    public void alterTable(AlterTableStmt stmt) throws DdlException, InternalException {
+    public void alterTable(AlterTableStmt stmt) throws DdlException, UserException {
         this.alter.processAlterTable(stmt);
     }
 
@@ -4509,7 +4659,7 @@ public class Catalog {
      * used for handling AlterClusterStmt
      * (for client is the ALTER CLUSTER command).
      */
-    public void alterCluster(AlterSystemStmt stmt) throws DdlException, InternalException {
+    public void alterCluster(AlterSystemStmt stmt) throws DdlException, UserException {
         this.alter.processAlterCluster(stmt);
     }
 
@@ -4607,7 +4757,7 @@ public class Catalog {
         newView.setOriginalViewDef(stmt.getInlineViewDef());
         try {
             newView.init();
-        } catch (InternalException e) {
+        } catch (UserException e) {
             throw new DdlException(e.getMessage());
         }
 
@@ -4639,7 +4789,9 @@ public class Catalog {
      */
     public void createCluster(CreateClusterStmt stmt) throws DdlException {
         final String clusterName = stmt.getClusterName();
-        writeLock();
+        if (!tryLock(false)) {
+            throw new DdlException("Failed to acquire catalog lock. Try again");
+        }
         try {
             if (nameToCluster.containsKey(clusterName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_HAS_EXIST, clusterName);
@@ -4649,9 +4801,7 @@ public class Catalog {
                 // 2: BE returned is more than or equal to 0, succeeds.
                 if (backendList != null || stmt.getInstanceNum() == 0) {
                     final long id = getNextId();
-                    final Cluster cluster = new Cluster();
-                    cluster.setName(clusterName);
-                    cluster.setId(id);
+                    final Cluster cluster = new Cluster(clusterName, id);
                     cluster.setBackendIdList(backendList);
                     unprotectCreateCluster(cluster);
                     if (clusterName.equals(SystemInfoService.DEFAULT_CLUSTER)) {
@@ -4668,7 +4818,7 @@ public class Catalog {
                 }
             }
         } finally {
-            writeUnlock();
+            unlock();
         }
 
         // create super user for this cluster
@@ -4710,11 +4860,11 @@ public class Catalog {
      * @param cluster
      */
     public void replayCreateCluster(Cluster cluster) {
-        writeLock();
+        tryLock(true);
         try {
             unprotectCreateCluster(cluster);
         } finally {
-            writeUnlock();
+            unlock();
         }
     }
 
@@ -4725,7 +4875,9 @@ public class Catalog {
      * @throws DdlException
      */
     public void dropCluster(DropClusterStmt stmt) throws DdlException {
-        writeLock();
+        if (!tryLock(false)) {
+            throw new DdlException("Failed to acquire catalog lock. Try again");
+        }
         try {
             final String clusterName = stmt.getClusterName();
             final Cluster cluster = nameToCluster.get(clusterName);
@@ -4749,7 +4901,7 @@ public class Catalog {
             unprotectDropCluster(info, false /* is not replay */);
             editLog.logDropCluster(info);
         } finally {
-            writeUnlock();
+            unlock();
         }
 
         // drop user of this cluster
@@ -4767,18 +4919,18 @@ public class Catalog {
     }
 
     public void replayDropCluster(ClusterInfo info) {
-        writeLock();
+        tryLock(true);
         try {
             unprotectDropCluster(info, true/* is replay */);
         } finally {
-            writeUnlock();
+            unlock();
         }
 
         auth.dropUserOfCluster(info.getClusterName(), true /* is replay */);
     }
 
     public void replayExpandCluster(ClusterInfo info) {
-        writeLock();
+        tryLock(true);
         try {
             final Cluster cluster = nameToCluster.get(info.getClusterName());
             cluster.addBackends(info.getBackendIdList());
@@ -4792,7 +4944,7 @@ public class Catalog {
                 be.setBackendState(BackendState.using);
             }
         } finally {
-            writeUnlock();
+            unlock();
         }
     }
 
@@ -4805,7 +4957,9 @@ public class Catalog {
     public void processModifyCluster(AlterClusterStmt stmt) throws DdlException {
         final String clusterName = stmt.getAlterClusterName();
         final int newInstanceNum = stmt.getInstanceNum();
-        writeLock();
+        if (!tryLock(false)) {
+            throw new DdlException("Failed to acquire catalog lock. Try again");
+        }
         try {
             Cluster cluster = nameToCluster.get(clusterName);
             if (cluster == null) {
@@ -4865,7 +5019,7 @@ public class Catalog {
             }
 
         } finally {
-            writeUnlock();
+            unlock();
         }
     }
 
@@ -4889,7 +5043,7 @@ public class Catalog {
     }
 
     /**
-     * migrate db to link des cluster
+     * migrate db to link dest cluster
      *
      * @param stmt
      * @throws DdlException
@@ -4900,7 +5054,9 @@ public class Catalog {
         final String srcDbName = stmt.getSrcDb();
         final String destDbName = stmt.getDestDb();
 
-        writeLock();
+        if (!tryLock(false)) {
+            throw new DdlException("Failed to acquire catalog lock. Try again");
+        }
         try {
             if (!nameToCluster.containsKey(srcClusterName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_SRC_CLUSTER_NOT_EXIST, srcClusterName);
@@ -4926,7 +5082,7 @@ public class Catalog {
 
             // if the max replication num of the src db is larger then the backends num of the dest cluster,
             // the migration will not be processed.
-            final int maxReplicationNum = getDbMaxReplicationNum(db);
+            final int maxReplicationNum = db.getMaxReplicationNum();
             if (maxReplicationNum > destCluster.getBackendIdList().size()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_MIGRATE_BE_NOT_ENOUGH, destClusterName);
             }
@@ -4958,39 +5114,8 @@ public class Catalog {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_MIGRATION_NO_LINK, srcDbName, destDbName);
             }
         } finally {
-            writeUnlock();
+            unlock();
         }
-    }
-
-    /**
-     * return max replicationNum of a db
-     *
-     * @param db
-     * @return
-     */
-    private int getDbMaxReplicationNum(Database db) {
-        int ret = 0;
-        final Set<String> tableNames = db.getTableNamesWithLock();
-        db.readLock();
-        try {
-            for (String tableName : tableNames) {
-                Table table = db.getTable(tableName);
-                if (table == null || table.getType() != TableType.OLAP) {
-                    continue;
-                }
-                OlapTable olapTable = (OlapTable) table;
-                for (Partition partition : olapTable.getPartitions()) {
-                    short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
-                    if (ret < replicationNum) {
-                        ret = replicationNum;
-                    }
-                }
-
-            }
-        } finally {
-            db.readUnlock();
-        }
-        return ret;
     }
 
     public void replayMigrateDb(BaseParam param) {
@@ -4998,8 +5123,8 @@ public class Catalog {
         final String srcDbName = param.getStringParam(1);
         final String desClusterName = param.getStringParam(2);
         final String srcClusterName = param.getStringParam(3);
+        tryLock(true);
         try {
-            writeLock();
             final Cluster desCluster = this.nameToCluster.get(desClusterName);
             final Cluster srcCluster = this.nameToCluster.get(srcClusterName);
             final Database db = fullNameToDb.get(srcDbName);
@@ -5017,7 +5142,7 @@ public class Catalog {
                 db.writeUnlock();
             }
         } finally {
-            writeUnlock();
+            unlock();
         }
     }
 
@@ -5026,7 +5151,7 @@ public class Catalog {
         final String srcDbName = param.getStringParam(1);
         final String desDbName = param.getStringParam();
 
-        writeLock();
+        tryLock(true);
         try {
             final Cluster desCluster = this.nameToCluster.get(desClusterName);
             final Database srcDb = fullNameToDb.get(srcDbName);
@@ -5037,7 +5162,7 @@ public class Catalog {
             desCluster.addLinkDb(param);
             fullNameToDb.put(desDbName, srcDb);
         } finally {
-            writeUnlock();
+            unlock();
         }
     }
 
@@ -5052,7 +5177,10 @@ public class Catalog {
         final String destClusterName = stmt.getDestCluster();
         final String srcDbName = stmt.getSrcDb();
         final String destDbName = stmt.getDestDb();
-        writeLock();
+
+        if (!tryLock(false)) {
+            throw new DdlException("Failed to acquire catalog lock. Try again");
+        }
         try {
             if (!nameToCluster.containsKey(srcClusterName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_SRC_CLUSTER_NOT_EXIST, srcClusterName);
@@ -5103,17 +5231,12 @@ public class Catalog {
             fullNameToDb.put(destDbName, srcDb);
             editLog.logLinkCluster(param);
         } finally {
-            writeUnlock();
+            unlock();
         }
     }
 
     public Cluster getCluster(String clusterName) {
-        readLock();
-        try {
-            return nameToCluster.get(clusterName);
-        } finally {
-            readUnlock();
-        }
+        return nameToCluster.get(clusterName);
     }
 
     public List<String> getClusterNames() {
@@ -5127,14 +5250,15 @@ public class Catalog {
     public Set<BaseParam> getMigrations() {
         final Set<BaseParam> infos = Sets.newHashSet();
         for (Database db : fullNameToDb.values()) {
-            if (db.getDbState() == DbState.MOVE) {
-                int tabletTotal = 0;
-                int tabletQuorum = 0;
-                final Set<Long> ids = Sets.newHashSet(systemInfo.getClusterBackendIds(db.getClusterName()));
-                final Set<String> tableNames = db.getTableNamesWithLock();
-                for (String tableName : tableNames) {
-                    db.readLock();
-                    try {
+            db.readLock();
+            try {
+                if (db.getDbState() == DbState.MOVE) {
+                    int tabletTotal = 0;
+                    int tabletQuorum = 0;
+                    final Set<Long> beIds = Sets.newHashSet(systemInfo.getClusterBackendIds(db.getClusterName()));
+                    final Set<String> tableNames = db.getTableNamesWithLock();
+                    for (String tableName : tableNames) {
+
                         Table table = db.getTable(tableName);
                         if (table == null || table.getType() != TableType.OLAP) {
                             continue;
@@ -5153,7 +5277,7 @@ public class Catalog {
                                     int quorum = replicationNum / 2 + 1;
                                     for (Replica replica : tablet.getReplicas()) {
                                         if (replica.getState() != ReplicaState.CLONE
-                                                && ids.contains(replica.getBackendId())) {
+                                                && beIds.contains(replica.getBackendId())) {
                                             replicaNum++;
                                         }
                                     }
@@ -5166,18 +5290,17 @@ public class Catalog {
                                 }
                             }
                         }
-                    } finally {
-                        db.readUnlock();
                     }
+                    final BaseParam info = new BaseParam();
+                    info.addStringParam(db.getClusterName());
+                    info.addStringParam(db.getAttachDb());
+                    info.addStringParam(db.getFullName());
+                    final float percentage = tabletTotal > 0 ? (float) tabletQuorum / (float) tabletTotal : 0f;
+                    info.addFloatParam(percentage);
+                    infos.add(info);
                 }
-                final BaseParam info = new BaseParam();
-                info.addStringParam(db.getClusterName());
-                info.addStringParam(db.getAttachDb());
-                info.addStringParam(db.getFullName());
-                final float percentage = tabletTotal > 0 ? (float) tabletQuorum / (float) tabletTotal : 0f;
-                info.addFloatParam(percentage);
-                infos.add(info);
-                db.getDbState();
+            } finally {
+                db.readUnlock();
             }
         }
 
@@ -5189,8 +5312,7 @@ public class Catalog {
             int clusterCount = dis.readInt();
             checksum ^= clusterCount;
             for (long i = 0; i < clusterCount; ++i) {
-                final Cluster cluster = new Cluster();
-                cluster.readFields(dis);
+                final Cluster cluster = Cluster.read(dis);
                 checksum ^= cluster.getId();
 
                 List<Long> latestBackendIds = systemInfo.getClusterBackendIds(cluster.getName());
@@ -5216,7 +5338,7 @@ public class Catalog {
         return checksum;
     }
 
-    private void initDefaultCluster() {
+    public void initDefaultCluster() {
         final List<Long> backendList = Lists.newArrayList();
         final List<Backend> defaultClusterBackends = systemInfo.getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
         for (Backend backend : defaultClusterBackends) {
@@ -5224,9 +5346,7 @@ public class Catalog {
         }
 
         final long id = getNextId();
-        final Cluster cluster = new Cluster();
-        cluster.setName(SystemInfoService.DEFAULT_CLUSTER);
-        cluster.setId(id);
+        final Cluster cluster = new Cluster(SystemInfoService.DEFAULT_CLUSTER, id);
 
         // make sure one host hold only one backend.
         Set<String> beHost = Sets.newHashSet();
@@ -5319,17 +5439,57 @@ public class Catalog {
     public void replayUpdateClusterAndBackends(BackendIdsUpdateInfo info) {
         for (long id : info.getBackendList()) {
             final Backend backend = systemInfo.getBackend(id);
-            writeLock();
-            try {
-                final Cluster cluster = nameToCluster.get(backend.getOwnerClusterName());
-                cluster.removeBackend(id);
-            } finally {
-                writeUnlock();
-            }
+            final Cluster cluster = nameToCluster.get(backend.getOwnerClusterName());
+            cluster.removeBackend(id);
             backend.setDecommissioned(false);
             backend.clearClusterName();
             backend.setBackendState(BackendState.free);
         }
+    }
+
+    public String dumpImage() {
+        LOG.info("begin to dump meta data");
+        String dumpFilePath;
+        Map<Long, Database> lockedDbMap = Maps.newTreeMap();
+        tryLock(true);
+        try {
+            // sort all dbs
+            for (long dbId : getDbIds()) {
+                Database db = getDb(dbId);
+                Preconditions.checkNotNull(db);
+                lockedDbMap.put(dbId, db);
+            }
+
+            // lock all dbs
+            for (Database db : lockedDbMap.values()) {
+                db.readLock();
+            }
+            LOG.info("acquired all the dbs' read lock.");
+
+            load.readLock();
+
+            LOG.info("acquired all jobs' read lock.");
+            long journalId = getMaxJournalId();
+            File dumpFile = new File(Config.meta_dir, "image." + journalId);
+            dumpFilePath = dumpFile.getAbsolutePath();
+            try {
+                LOG.info("begin to dump {}", dumpFilePath);
+                saveImage(dumpFile, journalId);
+            } catch (IOException e) {
+                LOG.error("failed to dump image to {}", dumpFilePath, e);
+            }
+        } finally {
+            // unlock all
+            load.readUnlock();
+            for (Database db : lockedDbMap.values()) {
+                db.readUnlock();
+            }
+
+            unlock();
+        }
+
+        LOG.info("finished dumpping image to {}", dumpFilePath);
+        return dumpFilePath;
     }
 }
 

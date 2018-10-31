@@ -17,11 +17,12 @@
 #define BDG_PALO_BE_SRC_OLAP_WRITER_H
 
 #include "olap/olap_table.h"
+#include "olap/schema.h"
 #include "olap/wrapper_field.h"
 
 namespace palo {
 class OLAPData;
-class OLAPIndex;
+class Rowset;
 class OLAPTable;
 class RowBlock;
 class RowCursor;
@@ -31,7 +32,7 @@ class RowCursor;
 // 先attach出内部指针，再填入数据的方式并不可取，但兼容的考虑先继续使用
 class IWriter {
 public:
-    IWriter(bool is_push_write, SmartOLAPTable table) : 
+    IWriter(bool is_push_write, OLAPTablePtr table) : 
             _is_push_write(is_push_write), 
             _table(table),
             _column_statistics(
@@ -44,24 +45,17 @@ public:
         } 
     }
     virtual OLAPStatus init() {
-        OLAPStatus res = OLAP_SUCCESS;
         for (size_t i = 0; i < _column_statistics.size(); ++i) {
             _column_statistics[i].first = WrapperField::create(_table->tablet_schema()[i]);
-            if (_column_statistics[i].first == NULL) {
-                OLAP_LOG_FATAL("fail to create column statistics field. [field_id=%lu]", i);
-                return OLAP_ERR_MALLOC_ERROR;
-            }
+            DCHECK(_column_statistics[i].first != nullptr) << "fail to create column statistics field.";
             _column_statistics[i].first->set_to_max();
 
             _column_statistics[i].second = WrapperField::create(_table->tablet_schema()[i]);
-            if (_column_statistics[i].second == NULL) {
-                OLAP_LOG_FATAL("fail to create column statistics field. [field_id=%lu]", i);
-                return OLAP_ERR_MALLOC_ERROR;
-            }
+            DCHECK(_column_statistics[i].second != nullptr) << "fail to create column statistics field.";
             _column_statistics[i].second->set_null();
             _column_statistics[i].second->set_to_min();
         }
-        return res;
+        return OLAP_SUCCESS;
     }
     virtual OLAPStatus attached_by(RowCursor* row_cursor) = 0;
     void next(const RowCursor& row_cursor) {
@@ -78,32 +72,45 @@ public:
 
         ++_row_index;
     }
+    void next(const char* row, const Schema* schema) {
+        for (size_t i = 0; i < _table->num_key_fields(); ++i) {
+            char* right = const_cast<char*>(row + schema->get_col_offset(i));
+            if (_column_statistics[i].first->cmp(right) > 0) {
+                _column_statistics[i].first->copy(right);
+            }
+
+            if (_column_statistics[i].second->cmp(right) < 0) {
+                _column_statistics[i].second->copy(right);
+            }
+        }
+
+        ++_row_index;
+    }
+    virtual OLAPStatus write(const char* row) = 0;
     virtual OLAPStatus finalize() = 0;
-    virtual OLAPStatus write_row_block(RowBlock* row_block) = 0;
     virtual uint64_t written_bytes() = 0;
     virtual MemPool* mem_pool() = 0;
     // Factory function
     // 调用者获得新建的对象, 并负责delete释放
-    static IWriter* create(SmartOLAPTable table, OLAPIndex* index, bool is_push_write);
-
+    static IWriter* create(OLAPTablePtr table, Rowset* index, bool is_push_write);
 protected:
     bool _is_push_write;
-    SmartOLAPTable _table;
+    OLAPTablePtr _table;
     // first is min, second is max
     std::vector<std::pair<WrapperField*, WrapperField*>> _column_statistics;
     uint32_t _row_index;
 };
 
 // OLAPDataWriter writes rows into a new version, including data and indexes files.
-// OLAPDataWriter does not take OLAPIndex ownership.
+// OLAPDataWriter does not take Rowset ownership.
 // Common usage is:
-// 1.     index = new OLAPIndex(table, new_version...)
+// 1.     index = new Rowset(table, new_version...)
 // 2.     OLAPDataWriter writer(table, index)
 // 3.     writer.init()
 // ===========================================
 // 4.     loop:
 //          make row block...
-//          writer.write_row_block(row_block)
+//          writer.flush_row_block(row_block)
 // OR----------------------------------------
 // 4.     RowCursor* cursor
 //        loop:
@@ -112,7 +119,7 @@ protected:
 //          writer.next()
 // ===========================================
 // 5.     writer.finalize()
-// 6.     if errors happen in write_row_block() or finalize()
+// 6.     if errors happen in flush_row_block() or finalize()
 //          index->delete_all_files()
 //          delete index
 //
@@ -120,7 +127,7 @@ protected:
 // 8.     we use index now ...
 class OLAPDataWriter : public IWriter {
 public:
-    OLAPDataWriter(SmartOLAPTable table, OLAPIndex* index, bool is_push_write = false);
+    OLAPDataWriter(OLAPTablePtr table, Rowset* index, bool is_push_write = false);
 
     virtual ~OLAPDataWriter();
 
@@ -129,18 +136,12 @@ public:
     // Init with custom num rows of row block
     OLAPStatus init(uint32_t num_rows_per_row_block);
 
-    // Write one row_block into OLAPData and OLAPIndex, if the segment size
-    // exceeds max segment size, finalize the last segment, and add new segment.
-    OLAPStatus write_row_block(RowBlock* row_block);
-
     // In order to avoid memory copy while reading and writing, attach the
     // row_cursor to the row block being written.
     // If the number of rows reached maximum, the row_block will be added into
-    // OLAPData, and one index item will be added into OLAPIndex.
+    // OLAPData, and one index item will be added into Rowset.
     virtual OLAPStatus attached_by(RowCursor* row_cursor);
-
-    // Flush the row block written before to OLAPIndex
-    OLAPStatus flush();
+    virtual OLAPStatus write(const char* row);
 
     // sync data to disk, ignore error
     void sync();
@@ -150,9 +151,12 @@ public:
 
     virtual uint64_t written_bytes();
     virtual MemPool* mem_pool();
-
 private:
-    OLAPIndex* _index;
+    // Flush the row block written before to Rowset
+    OLAPStatus _flush_row_block();
+    OLAPStatus _flush_segment_with_verfication();
+
+    Rowset* _index;
     OLAPData* _data;
     // current OLAPData Segment size, it is used to prevent OLAPData Segment
     // size exceeding _max_segment_size(OLAP_MAX_SEGMENT_FILE_SIZE)

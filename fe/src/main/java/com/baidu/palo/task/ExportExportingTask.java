@@ -20,7 +20,7 @@ import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ClientPool;
 import com.baidu.palo.common.Config;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.Status;
 import com.baidu.palo.common.util.DebugUtil;
 import com.baidu.palo.common.util.ProfileManager;
@@ -179,7 +179,7 @@ public class ExportExportingTask extends MasterTask {
                         .registerQuery(queryId, coord);
             needUnregister = true;
             actualExecCoord(queryId, coord);
-        } catch (InternalException e) {
+        } catch (UserException e) {
             LOG.warn("export exporting internal error. {}", e.getMessage());
         } finally {
             if (needUnregister) {

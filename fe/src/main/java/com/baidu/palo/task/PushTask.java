@@ -57,12 +57,16 @@ public class PushTask extends AgentTask {
     private TPriority priority;
     private boolean isSyncDelete;
     private long asyncDeleteJobId;
-
+    
+    private long transactionId;
+    private boolean isSchemaChanging;
+    
     public PushTask(TResourceInfo resourceInfo, long backendId, long dbId, long tableId, long partitionId,
                     long indexId, long tabletId, long replicaId, int schemaHash, long version, long versionHash, 
                     String filePath, long fileSize, int timeoutSecond, long loadJobId, TPushType pushType,
-                    List<Predicate> conditions, boolean needDecompress, TPriority priority) {
-        super(resourceInfo, backendId, tabletId, TTaskType.PUSH, dbId, tableId, partitionId, indexId, tabletId);
+                    List<Predicate> conditions, boolean needDecompress, TPriority priority, TTaskType taskType, 
+                    long transactionId, long signature) {
+        super(resourceInfo, backendId, taskType, dbId, tableId, partitionId, indexId, tabletId, signature);
         this.replicaId = replicaId;
         this.schemaHash = schemaHash;
         this.version = version;
@@ -78,10 +82,26 @@ public class PushTask extends AgentTask {
         this.priority = priority;
         this.isSyncDelete = true;
         this.asyncDeleteJobId = -1;
+        this.transactionId = transactionId;
+    }
+
+    public PushTask(TResourceInfo resourceInfo, long backendId, long dbId, long tableId, long partitionId,
+            long indexId, long tabletId, long replicaId, int schemaHash, long version, long versionHash, 
+            String filePath, long fileSize, int timeoutSecond, long loadJobId, TPushType pushType,
+            List<Predicate> conditions, boolean needDecompress, TPriority priority) {
+        this(resourceInfo, backendId, dbId, tableId, partitionId, indexId, 
+             tabletId, replicaId, schemaHash, version, versionHash, filePath, 
+             fileSize, timeoutSecond, loadJobId, pushType, conditions, needDecompress, 
+             priority, TTaskType.PUSH, -1, tableId);
     }
 
     public TPushReq toThrift() {
         TPushReq request = new TPushReq(tabletId, schemaHash, version, versionHash, timeoutSecond, pushType);
+        if (taskType == TTaskType.REALTIME_PUSH) {
+            request.setPartition_id(partitionId);
+            request.setTransaction_id(transactionId);
+        }
+        request.setIs_schema_changing(isSchemaChanging);
         switch (pushType) {
             case LOAD:
             case LOAD_DELETE:
@@ -186,5 +206,9 @@ public class PushTask extends AgentTask {
 
     public long getAsyncDeleteJobId() {
         return asyncDeleteJobId;
+    }
+    
+    public void setIsSchemaChanging(boolean isSchemaChanging) {
+        this.isSchemaChanging = isSchemaChanging;
     }
 }

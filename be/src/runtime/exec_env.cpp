@@ -34,6 +34,7 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/thread_resource_mgr.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/tablet_writer_mgr.h"
 #include "runtime/tmp_file_mgr.h"
 #include "runtime/bufferpool/reservation_tracker.h"
 #include "util/metrics.h"
@@ -46,20 +47,23 @@
 #include "http/ev_http_server.h"
 #include "http/action/mini_load.h"
 #include "http/action/checksum_action.h"
-#include "http/action/compaction_action.h"
 #include "http/action/health_action.h"
 #include "http/action/reload_tablet_action.h"
+#include "http/action/restore_tablet_action.h"
 #include "http/action/snapshot_action.h"
 #include "http/action/pprof_actions.h"
 #include "http/action/metrics_action.h"
+#include "http/action/meta_action.h"
+#include "http/action/stream_load.h"
 #include "http/download_action.h"
 #include "http/monitor_action.h"
 #include "http/http_method.h"
-#include "olap/olap_rootpath.h"
+#include "olap/olap_engine.h"
 #include "util/network_util.h"
 #include "util/bfd_parser.h"
 #include "runtime/etl_job_mgr.h"
 #include "runtime/load_path_mgr.h"
+#include "runtime/load_stream_mgr.h"
 #include "runtime/pull_load_task_mgr.h"
 #include "runtime/snapshot_loader.h"
 #include "util/pretty_printer.h"
@@ -74,7 +78,15 @@ namespace palo {
 
 ExecEnv* ExecEnv::_exec_env = nullptr;
 
-ExecEnv::ExecEnv() :
+ExecEnv::ExecEnv()
+    : _thread_mgr(new ThreadResourceMgr),
+    _master_info(new TMasterInfo()),
+    _load_stream_mgr(new LoadStreamMgr()),
+    _brpc_stub_cache(new BrpcStubCache()) {
+}
+
+ExecEnv::ExecEnv(const std::vector<StorePath>& paths) :
+        _store_paths(paths),
         _stream_mgr(new DataStreamMgr()),
         _result_mgr(new ResultBufferMgr()),
         _client_cache(new BackendServiceClientCache()),
@@ -95,12 +107,14 @@ ExecEnv::ExecEnv() :
         _fragment_mgr(new FragmentMgr(this)),
         _master_info(new TMasterInfo()),
         _etl_job_mgr(new EtlJobMgr(this)),
-        _load_path_mgr(new LoadPathMgr()),
+        _load_path_mgr(new LoadPathMgr(this)),
         _disk_io_mgr(new DiskIoMgr()),
-        _tmp_file_mgr(new TmpFileMgr),
+        _tmp_file_mgr(new TmpFileMgr(this)),
         _bfd_parser(BfdParser::create()),
         _pull_load_task_mgr(new PullLoadTaskMgr(config::pull_load_task_dir)),
         _broker_mgr(new BrokerMgr(this)),
+        _tablet_writer_mgr(new TabletWriterMgr(this)),
+        _load_stream_mgr(new LoadStreamMgr()),
         _snapshot_loader(new SnapshotLoader(this)),
         _brpc_stub_cache(new BrpcStubCache()),
         _enable_webserver(true),
@@ -204,9 +218,14 @@ Status ExecEnv::start_webserver() {
     _ev_http_server->register_handler(HttpMethod::PUT,
                                  "/api/{db}/{table}/_load",
                                  new MiniLoadAction(this));
+    _ev_http_server->register_handler(HttpMethod::PUT,
+                                 "/api/{db}/{table}/_stream_load",
+                                 new StreamLoadAction(this));
 
     std::vector<std::string> allow_paths;
-    OLAPRootPath::get_instance()->get_all_available_root_path(&allow_paths);
+    for (auto& path : _store_paths) {
+        allow_paths.emplace_back(path.path);
+    }
     DownloadAction* download_action = new DownloadAction(this, allow_paths);
     // = new DownloadAction(this, config::mini_load_download_path);
     _ev_http_server->register_handler(HttpMethod::GET, "/api/_download_load", download_action);
@@ -245,22 +264,24 @@ Status ExecEnv::start_webserver() {
         _ev_http_server->register_handler(HttpMethod::GET, "/metrics", action);
     }
 
+    MetaAction* meta_action = new MetaAction(HEADER);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/meta/header/{tablet_id}/{schema_hash}", meta_action);
+
 #ifndef BE_TEST
     // Register BE checksum action
     ChecksumAction* checksum_action = new ChecksumAction(this);
-    _ev_http_server->register_handler(HttpMethod::POST, "/api/checksum", checksum_action);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/checksum", checksum_action);
 
     // Register BE reload tablet action
     ReloadTabletAction* reload_tablet_action = new ReloadTabletAction(this);
-    _ev_http_server->register_handler(HttpMethod::POST, "/api/reload_tablet", reload_tablet_action);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/reload_tablet", reload_tablet_action);
+
+    RestoreTabletAction* restore_tablet_action = new RestoreTabletAction(this);
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/restore_tablet", restore_tablet_action);
 
     // Register BE snapshot action
     SnapshotAction* snapshot_action = new SnapshotAction(this);
-    _ev_http_server->register_handler(HttpMethod::POST, "/api/snapshot", snapshot_action);
-
-    // Register BE compaction action
-    CompactionAction* compaction_action = new CompactionAction();
-    _ev_http_server->register_handler(HttpMethod::POST, "/api/compaction", compaction_action);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/snapshot", snapshot_action);
 #endif
 
     RETURN_IF_ERROR(_ev_http_server->start());
@@ -268,7 +289,7 @@ Status ExecEnv::start_webserver() {
 }
 
 uint32_t ExecEnv::cluster_id() {
-    return OLAPRootPath::get_instance()->effective_cluster_id();
+    return OLAPEngine::get_instance()->effective_cluster_id();
 }
 
 void ExecEnv::init_buffer_pool(int64_t min_page_size, int64_t capacity, int64_t clean_pages_limit) {

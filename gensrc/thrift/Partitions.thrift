@@ -85,3 +85,4 @@ struct TDataPartition {
   3: optional list<TRangePartition> partition_infos
 }
 
+

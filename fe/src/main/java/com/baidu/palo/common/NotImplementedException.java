@@ -23,7 +23,7 @@ package com.baidu.palo.common;
 /**
  * Thrown for SQL statements that require as yet unimplemented functionality.
  */
-public class NotImplementedException extends Exception {
+public class NotImplementedException extends UserException {
     public NotImplementedException(String msg) {
         super(msg);
     }

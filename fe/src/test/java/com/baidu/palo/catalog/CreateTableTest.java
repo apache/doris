@@ -26,6 +26,7 @@ import com.baidu.palo.analysis.KeysDesc;
 import com.baidu.palo.analysis.RandomDistributionDesc;
 import com.baidu.palo.analysis.TableName;
 import com.baidu.palo.common.DdlException;
+import com.baidu.palo.common.FeMetaVersion;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.SystemInfoService;
 
@@ -262,6 +263,7 @@ public class CreateTableTest {
         EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
         EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfoService).anyTimes();
         EasyMock.expect(Catalog.getCurrentInvertedIndex()).andReturn(invertedIndex).anyTimes();
+        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeMetaVersion.VERSION_45).anyTimes();
         EasyMock.expect(Catalog.isCheckpointThread()).andReturn(false).anyTimes();
         EasyMock.expect(Catalog.calcShortKeyColumnCount(EasyMock.anyObject(List.class), EasyMock.anyObject(Map.class)))
                 .andReturn((short) 2).anyTimes();

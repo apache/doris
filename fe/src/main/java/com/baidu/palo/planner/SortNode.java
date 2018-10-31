@@ -27,7 +27,7 @@ import com.baidu.palo.analysis.SlotDescriptor;
 import com.baidu.palo.analysis.SlotId;
 import com.baidu.palo.analysis.SlotRef;
 import com.baidu.palo.analysis.SortInfo;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.thrift.TExplainLevel;
 import com.baidu.palo.thrift.TPlanNode;
 import com.baidu.palo.thrift.TPlanNodeType;
@@ -198,7 +198,7 @@ public class SortNode extends PlanNode {
         return children.get(0).getNumInstances();
     }
 
-    public void init(Analyzer analyzer) throws InternalException {
+    public void init(Analyzer analyzer) throws UserException {
         // Compute the memory layout for the generated tuple.
         computeStats(analyzer);
         // createDefaultSmap(analyzer);

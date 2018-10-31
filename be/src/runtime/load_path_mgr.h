@@ -25,12 +25,13 @@
 namespace palo {
 
 class TUniqueId;
+class ExecEnv;
 
 // In every directory, '.trash' directory is used to save data need to delete
 // daemon thread is check no used directory to delete
 class LoadPathMgr {
 public:
-    LoadPathMgr();
+    LoadPathMgr(ExecEnv* env);
 
     ~LoadPathMgr() {
     }
@@ -46,7 +47,7 @@ public:
             const std::string&label,
             const TUniqueId& fragment_instance_id,
             std::string* error_path);
-    std::string get_load_error_absolute_path(const std::string& file_name);
+    std::string get_load_error_absolute_path(const std::string& file_path);
     const std::string& get_load_error_file_dir() const {
         return _error_log_dir;
     }
@@ -56,10 +57,11 @@ private:
     void clean_one_path(const std::string& path);
     void clean_error_log();
     void clean();
-    void process_label_dir(time_t now, const std::string& label_dir);
+    void process_path(time_t now, const std::string& path);
 
     static void* cleaner(void* param);
 
+    ExecEnv* _exec_env;
     std::mutex _lock;
     std::vector<std::string> _path_vec;
     int _idx;
@@ -67,6 +69,7 @@ private:
     pthread_t _cleaner_id;
     std::string _error_log_dir;
     uint32_t _next_shard;
+    uint32_t _error_path_next_shard;
 };
 
 }

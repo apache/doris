@@ -28,6 +28,7 @@ import com.baidu.palo.catalog.Replica;
 import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.util.UnitTestUtil;
+import com.baidu.palo.load.FailMsg.CancelType;
 import com.baidu.palo.load.LoadJob.JobState;
 import com.baidu.palo.persist.EditLog;
 import com.baidu.palo.task.AgentTaskQueue;
@@ -264,8 +265,10 @@ public class LoadCheckerTest {
 
         // mock load
         load = EasyMock.createMock(Load.class);
-        EasyMock.expect(load.getLoadJobs(JobState.LOADING)).andReturn(etlJobs).times(2);
-        EasyMock.expect(load.updateLoadJobState(job, JobState.QUORUM_FINISHED)).andReturn(true).times(1);
+        EasyMock.expect(load.getLoadJobs(JobState.LOADING)).andReturn(etlJobs).anyTimes();
+        EasyMock.expect(load.updateLoadJobState(job, JobState.QUORUM_FINISHED)).andReturn(true).anyTimes();
+        EasyMock.expect(load.cancelLoadJob((LoadJob) EasyMock.anyObject(), (CancelType) EasyMock.anyObject(),
+                                           EasyMock.anyString())).andReturn(true).anyTimes();
         EasyMock.replay(load);
         EasyMock.expect(catalog.getLoadInstance()).andReturn(load).times(4);
         EasyMock.replay(catalog);
@@ -279,7 +282,7 @@ public class LoadCheckerTest {
         Map<JobState, LoadChecker> checkers = (Map<JobState, LoadChecker>) checkersField.get(LoadChecker.class);
         Method runLoadingJobs = UnitTestUtil.getPrivateMethod(LoadChecker.class, "runLoadingJobs", new Class[] {});
         runLoadingJobs.invoke(checkers.get(JobState.LOADING), new Object[] {});
-        Assert.assertEquals(replicaNum, AgentTaskQueue.getTaskNum());
+        Assert.assertEquals(0, AgentTaskQueue.getTaskNum());
 
         // update replica to new version
         for (MaterializedIndex olapIndex : partition.getMaterializedIndices()) {

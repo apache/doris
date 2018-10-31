@@ -36,11 +36,11 @@ namespace palo {
 
 class TypeInfo {
 public:
-    inline int equal(char* left, char* right) const {
+    inline int equal(const char* left, const char* right) const {
         return _equal(left, right);
     }
 
-    inline int cmp(char* left, char* right) const {
+    inline int cmp(const char* left, const char* right) const {
         return _cmp(left, right);
     }
 
@@ -88,16 +88,6 @@ private:
 };
 
 extern TypeInfo* get_type_info(FieldType field_type);
-
-// TODO: NullOffset
-struct NullOffset {
-    int byte_offset;
-    uint8_t bit_mask;  // to extract null
-
-    NullOffset(int byte_offset, int bit_offset)
-        : byte_offset(byte_offset),
-          bit_mask(bit_offset == -1 ? 0 : 1 << (7 - bit_offset)) {}
-};
 
 template<FieldType field_type> struct FieldTypeTraits {};
 

@@ -24,11 +24,11 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 public class ShowDbStmtTest {
     @Test
-    public void testNormal() throws InternalException, AnalysisException  {
+    public void testNormal() throws UserException, AnalysisException  {
         final Analyzer analyzer =  AccessTestUtil.fetchBlockAnalyzer();
         ShowDbStmt stmt = new ShowDbStmt(null);
         stmt.analyze(analyzer);

@@ -22,7 +22,7 @@ import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.proc.ProcNodeInterface;
 import com.baidu.palo.common.proc.ProcService;
 import com.baidu.palo.common.proc.RollupProcDir;
@@ -71,7 +71,7 @@ public class ShowAlterStmt extends ShowStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
@@ -89,7 +89,7 @@ public class ShowAlterStmt extends ShowStmt {
         handleShowAlterTable(analyzer);
     }
 
-    private void handleShowAlterTable(Analyzer analyzer) throws AnalysisException, InternalException {
+    private void handleShowAlterTable(Analyzer analyzer) throws AnalysisException, UserException {
         final String dbNameWithoutPrefix = ClusterNamespace.getNameFromFullName(dbName);
         Database db = analyzer.getCatalog().getDb(dbName);
         if (db == null) {
@@ -105,7 +105,7 @@ public class ShowAlterStmt extends ShowStmt {
         } else if (type == AlterType.ROLLUP) {
             sb.append("/rollup");
         } else {
-            throw new InternalException("SHOW " + type.name() + " does not implement yet");
+            throw new UserException("SHOW " + type.name() + " does not implement yet");
         }
 
         LOG.debug("process SHOW PROC '{}';", sb.toString());

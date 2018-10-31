@@ -74,6 +74,7 @@ public:
 
     // 返回-1，0，1，分别代表当前field小于，等于，大于传入参数中的field
     inline int cmp(char* left, char* right) const;
+    inline int cmp(char* left, bool r_null, char* right) const;
     inline int index_cmp(char* left, char* right) const;
     inline bool equal(char* left, char* right);
 
@@ -82,6 +83,7 @@ public:
 
     inline void copy_with_pool(char* dest, const char* src, MemPool* mem_pool);
     inline void copy_without_pool(char* dest, const char* src);
+    inline void copy_without_pool(char* dest, bool is_null, const char* src);
     inline void agg_init(char* dest, const char* src);
 
     // copy filed content from src to dest without nullbyte
@@ -124,6 +126,15 @@ inline int Field::cmp(char* left, char* right) const {
         return l_null ? -1 : 1;
     } else {
         return l_null ? 0 : (_type_info->cmp(left + 1, right + 1));
+    }
+}
+
+inline int Field::cmp(char* left, bool r_null, char* right) const {
+    bool l_null = *reinterpret_cast<bool*>(left);
+    if (l_null != r_null) {
+        return l_null ? -1 : 1;
+    } else {
+        return l_null ? 0 : (_type_info->cmp(left + 1, right));
     }
 }
 
@@ -170,7 +181,7 @@ inline bool Field::equal(char* left, char* right) {
 }
 
 inline void Field::aggregate(char* dest, char* src) {
-    _aggregate_func(dest, src);
+    _aggregate_func(dest, src, nullptr);
 }
 
 inline void Field::finalize(char* data) {
@@ -196,6 +207,14 @@ inline void Field::copy_without_pool(char* dest, const char* src) {
         return;
     }
     return _type_info->copy_without_pool(dest + 1, src + 1);
+}
+
+inline void Field::copy_without_pool(char* dest, bool is_null, const char* src) {
+    *reinterpret_cast<bool*>(dest) = is_null;
+    if (is_null) {
+        return;
+    }
+    return _type_info->copy_without_pool(dest + 1, src);
 }
 
 inline void Field::agg_init(char* dest, const char* src) {

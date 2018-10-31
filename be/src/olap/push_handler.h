@@ -25,14 +25,14 @@
 #include "olap/file_helper.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
-#include "olap/olap_index.h"
+#include "olap/rowset.h"
 #include "olap/row_cursor.h"
 #include "olap/writer.h"
 
 namespace palo {
 
 typedef std::vector<IData*> DataSources;
-typedef std::vector<OLAPIndex*> Indices;
+typedef std::vector<Rowset*> Indices;
 
 class BinaryFile;
 class BinaryReader;
@@ -40,7 +40,7 @@ class ColumnMapping;
 class RowCursor;
 
 struct TableVars {
-    SmartOLAPTable olap_table;
+    OLAPTablePtr olap_table;
     Versions unused_versions;
     Indices unused_indices;
     Indices added_indices;
@@ -55,17 +55,24 @@ public:
 
     // Load local data file into specified tablet.
     OLAPStatus process(
-            SmartOLAPTable olap_table,
+            OLAPTablePtr olap_table,
             const TPushReq& request,
             PushType push_type,
             std::vector<TTabletInfo>* tablet_info_vec);
+
+    OLAPStatus process_realtime_push(
+            OLAPTablePtr olap_table,
+            const TPushReq& request,
+            PushType push_type,
+            std::vector<TTabletInfo>* tablet_info_vec);
+
     int64_t write_bytes() const { return _write_bytes; }
     int64_t write_rows() const { return _write_rows; }
 private:
     // Validate request, mainly data version check.
     OLAPStatus _validate_request(
-            SmartOLAPTable olap_table_for_raw,
-            SmartOLAPTable olap_table_for_schema_change,
+            OLAPTablePtr olap_table_for_raw,
+            OLAPTablePtr olap_table_for_schema_change,
             bool is_rollup_new_table,
             PushType push_type);
 
@@ -73,23 +80,23 @@ private:
     // user submit a push job and cancel it soon, but some 
     // tablets already push success.
     OLAPStatus _get_versions_reverted(
-            SmartOLAPTable olap_table,
+            OLAPTablePtr olap_table,
             bool is_schema_change_tablet,
             PushType push_type,
             Versions* unused_versions);
 
     // Convert local data file to internal formatted delta,
-    // return new delta's OLAPIndex
+    // return new delta's Rowset
     OLAPStatus _convert(
-            SmartOLAPTable curr_olap_table,
-            SmartOLAPTable new_olap_table_vec,
+            OLAPTablePtr curr_olap_table,
+            OLAPTablePtr new_olap_table_vec,
             Indices* curr_olap_indices,
             Indices* new_olap_indices,
             AlterTabletType alter_table_type);
 
     // Update header info when new version add or dirty version removed.
     OLAPStatus _update_header(
-            SmartOLAPTable olap_table,
+            OLAPTablePtr olap_table,
             Versions* unused_versions,
             Indices* new_indices,
             Indices* unused_indices);
@@ -99,15 +106,15 @@ private:
 
     // Clear schema change information.
     OLAPStatus _clear_alter_table_info(
-            SmartOLAPTable olap_table,
-            SmartOLAPTable related_olap_table);
+            OLAPTablePtr olap_table,
+            OLAPTablePtr related_olap_table);
 
     // Only for debug
     std::string _debug_version_list(const Versions& versions) const;
 
     // Lock tablet header before read header info.
     void _obtain_header_rdlock() {
-        for (std::list<SmartOLAPTable>::iterator it = _olap_table_arr.begin();
+        for (std::list<OLAPTablePtr>::iterator it = _olap_table_arr.begin();
                 it != _olap_table_arr.end(); ++it) {
             OLAP_LOG_DEBUG("obtain all header locks rd. [table='%s']",
                            (*it)->full_name().c_str());
@@ -119,7 +126,7 @@ private:
 
     // Locak tablet header before write header info.
     void _obtain_header_wrlock() {
-        for (std::list<SmartOLAPTable>::iterator it = _olap_table_arr.begin();
+        for (std::list<OLAPTablePtr>::iterator it = _olap_table_arr.begin();
                 it != _olap_table_arr.end(); ++it) {
             OLAP_LOG_DEBUG(
                     "obtain all header locks wr. [table='%s']", (*it)->full_name().c_str());
@@ -132,7 +139,7 @@ private:
     // Release tablet header lock.
     void _release_header_lock() {
         if (_header_locked) {
-            for (std::list<SmartOLAPTable>::reverse_iterator it = _olap_table_arr.rbegin();
+            for (std::list<OLAPTablePtr>::reverse_iterator it = _olap_table_arr.rbegin();
                     it != _olap_table_arr.rend(); ++it) {
                 OLAP_LOG_DEBUG(
                         "release all header locks. [table='%s']", (*it)->full_name().c_str());
@@ -152,7 +159,7 @@ private:
 
     // maily contains specified tablet object
     // contains related tables also if in schema change, tablet split or rollup
-    std::list<SmartOLAPTable> _olap_table_arr;
+    std::list<OLAPTablePtr> _olap_table_arr;
 
     // lock tablet header before modify tabelt header
     bool _header_locked;
@@ -196,7 +203,7 @@ public:
     static IBinaryReader* create(bool need_decompress);
     virtual ~IBinaryReader() {}
 
-    virtual OLAPStatus init(SmartOLAPTable table, BinaryFile* file) = 0;
+    virtual OLAPStatus init(OLAPTablePtr table, BinaryFile* file) = 0;
     virtual OLAPStatus finalize() = 0;
 
     virtual OLAPStatus next(RowCursor* row, MemPool* mem_pool) = 0;
@@ -218,7 +225,7 @@ protected:
     }
 
     BinaryFile* _file;
-    SmartOLAPTable _table;
+    OLAPTablePtr _table;
     size_t _content_len;
     size_t _curr;
     uint32_t _adler_checksum;
@@ -233,7 +240,7 @@ public:
         finalize();
     }
 
-    virtual OLAPStatus init(SmartOLAPTable table, BinaryFile* file);
+    virtual OLAPStatus init(OLAPTablePtr table, BinaryFile* file);
     virtual OLAPStatus finalize();
 
     virtual OLAPStatus next(RowCursor* row, MemPool* mem_pool);
@@ -254,7 +261,7 @@ public:
         finalize();
     }
 
-    virtual OLAPStatus init(SmartOLAPTable table, BinaryFile* file);
+    virtual OLAPStatus init(OLAPTablePtr table, BinaryFile* file);
     virtual OLAPStatus finalize();
 
     virtual OLAPStatus next(RowCursor* row, MemPool* mem_pool);

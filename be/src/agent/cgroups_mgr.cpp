@@ -25,7 +25,8 @@
 #include <sys/vfs.h>
 #include "boost/filesystem.hpp"
 #include "common/logging.h"
-#include "olap/olap_rootpath.h"
+#include "olap/store.h"
+#include "olap/olap_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_path_mgr.h"
 
@@ -185,29 +186,26 @@ AgentStatus CgroupsMgr::_config_disk_throttle(std::string user_name,
     }
    
     // add olap engine data path here
-    vector<string> data_paths(0);
-    OLAPRootPath::get_instance()->get_table_data_path(&data_paths);
+    auto stores = OLAPEngine::get_instance()->get_stores();
     // buld load data path, it is alreay in data path
     // _exec_env->load_path_mgr()->get_load_data_path(&data_paths);
    
     stringstream ctrl_cmd;
-    for (vector<string>::iterator it = data_paths.begin();
-        it != data_paths.end();
-        ++it) {
+    for (auto store : stores) {
         // check disk type
         int64_t read_iops = hdd_read_iops;
         int64_t write_iops = hdd_write_iops;
         int64_t read_mbps = hdd_read_mbps;
         int64_t write_mbps = hdd_write_mbps;
         // if user set hdd not ssd, then use hdd for ssd
-        if (OLAPRootPath::is_ssd_disk(*it)) {
+        if (store->is_ssd_disk()) {
             read_iops = ssd_read_iops == -1 ? hdd_read_iops : ssd_read_iops;
             write_iops = ssd_write_iops == -1 ? hdd_write_iops : ssd_write_iops;
             read_mbps = ssd_read_mbps == -1 ? hdd_read_mbps : ssd_read_mbps;
             write_mbps = ssd_write_mbps == -1 ? hdd_write_mbps : ssd_write_mbps;
         }
         struct stat file_stat;
-        if (stat(it->c_str(), &file_stat) != 0) {
+        if (stat(store->path().c_str(), &file_stat) != 0) {
             continue;
         }
         int major_number = major(file_stat.st_dev);

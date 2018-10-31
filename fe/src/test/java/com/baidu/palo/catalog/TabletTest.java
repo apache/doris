@@ -64,9 +64,9 @@ public class TabletTest {
         tablet = new Tablet(1);
         TabletMeta tabletMeta = new TabletMeta(10, 20, 30, 40, 1);
         invertedIndex.addTablet(1, tabletMeta);
-        replica1 = new Replica(1L, 1L, 100L, 0L, 200000L, 3000L, ReplicaState.NORMAL);
-        replica2 = new Replica(2L, 2L, 100L, 0L, 200000L, 3000L, ReplicaState.NORMAL);
-        replica3 = new Replica(3L, 3L, 100L, 0L, 200000L, 3000L, ReplicaState.NORMAL);
+        replica1 = new Replica(1L, 1L, 100L, 0L, 200000L, 3000L, ReplicaState.NORMAL, 0, 0, 0, 0);
+        replica2 = new Replica(2L, 2L, 100L, 0L, 200000L, 3000L, ReplicaState.NORMAL, 0, 0, 0, 0);
+        replica3 = new Replica(3L, 3L, 100L, 0L, 200000L, 3000L, ReplicaState.NORMAL, 0, 0, 0, 0);
         tablet.addReplica(replica1);
         tablet.addReplica(replica2);
         tablet.addReplica(replica3);
@@ -134,9 +134,9 @@ public class TabletTest {
         Assert.assertFalse(rTablet1.equals(this));
         
         Tablet tablet2 = new Tablet(1);
-        Replica replica1 = new Replica(1L, 1L, 100L, 0L, 200000L, 3000L, ReplicaState.NORMAL);
-        Replica replica2 = new Replica(2L, 2L, 100L, 0L, 200000L, 3000L, ReplicaState.NORMAL);
-        Replica replica3 = new Replica(3L, 3L, 100L, 0L, 200000L, 3000L, ReplicaState.NORMAL);
+        Replica replica1 = new Replica(1L, 1L, 100L, 0L, 200000L, 3000L, ReplicaState.NORMAL, 0, 0, 0, 0);
+        Replica replica2 = new Replica(2L, 2L, 100L, 0L, 200000L, 3000L, ReplicaState.NORMAL, 0, 0, 0, 0);
+        Replica replica3 = new Replica(3L, 3L, 100L, 0L, 200000L, 3000L, ReplicaState.NORMAL, 0, 0, 0, 0);
         tablet2.addReplica(replica1);
         tablet2.addReplica(replica2);
         Assert.assertFalse(tablet2.equals(tablet));
@@ -146,7 +146,7 @@ public class TabletTest {
         Tablet tablet3 = new Tablet(1);
         tablet3.addReplica(replica1);
         tablet3.addReplica(replica2);
-        tablet3.addReplica(new Replica(4L, 4L, 100L, 0L, 200000L, 3000L, ReplicaState.NORMAL));
+        tablet3.addReplica(new Replica(4L, 4L, 100L, 0L, 200000L, 3000L, ReplicaState.NORMAL, 0, 0, 0, 0));
         Assert.assertFalse(tablet3.equals(tablet));
         
         dis.close();

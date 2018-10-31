@@ -84,6 +84,7 @@ public:
         return _port;
     }
 
+    void stop();
     // Blocks until the server stops and exits its main thread.
     void join();
 

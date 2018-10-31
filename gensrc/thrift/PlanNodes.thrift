@@ -42,10 +42,11 @@ enum TPlanNodeType {
   META_SCAN_NODE,
   ANALYTIC_EVAL_NODE,
   OLAP_REWRITE_NODE,
-  KUDU_SCAN_NODE
-  BROKER_SCAN_NODE
-  EMPTY_SET_NODE    
-  UNION_NODE
+  KUDU_SCAN_NODE,
+  BROKER_SCAN_NODE,
+  EMPTY_SET_NODE, 
+  UNION_NODE,
+  ES_SCAN_NODE
 }
 
 // phases of an execution node
@@ -90,7 +91,8 @@ struct TPaloScanRange {
 }
 
 enum TFileFormatType {
-    FORMAT_CSV_PLAIN,
+    FORMAT_UNKNOWN = -1,
+    FORMAT_CSV_PLAIN = 0,
     FORMAT_CSV_GZ,
     FORMAT_CSV_LZO,
     FORMAT_CSV_BZ2,
@@ -109,6 +111,8 @@ struct TBrokerRangeDesc {
     5: required i64 start_offset;
     // Size of this range, if size = -1, this means that will read to then end of file
     6: required i64 size
+    // used to get stream for this load
+    7: optional Types.TUniqueId load_id
 }
 
 struct TBrokerScanRangeParams {
@@ -143,13 +147,24 @@ struct TBrokerScanRange {
     3: required list<Types.TNetworkAddress> broker_addresses
 }
 
+// Es scan range
+struct TEsScanRange {
+  1: required list<Types.TNetworkAddress> es_hosts  //  es hosts is used by be scan node to connect to es
+  // has to set index and type here, could not set it in scannode
+  // because on scan node maybe scan an es alias then it contains one or more indices
+  2: required string index   
+  3: optional string type
+  4: required i32 shard_id
+}
+
 // Specification of an individual data range which is held in its entirety
 // by a storage server
 struct TScanRange {
   // one of these must be set for every TScanRange2
   4: optional TPaloScanRange palo_scan_range
   5: optional binary kudu_scan_token
-    6: optional TBrokerScanRange broker_scan_range
+  6: optional TBrokerScanRange broker_scan_range
+  7: optional TEsScanRange es_scan_range
 }
 
 struct TMySQLScanNode {
@@ -165,6 +180,11 @@ struct TBrokerScanNode {
     // Partition info used to process partition select in broker load
     2: optional list<Exprs.TExpr> partition_exprs
     3: optional list<Partitions.TRangePartition> partition_infos
+}
+
+struct TEsScanNode {
+    1: required Types.TTupleId tuple_id
+    2: optional map<string,string> properties
 }
 
 struct TMiniLoadEtlFunction {
@@ -550,6 +570,7 @@ struct TPlanNode {
   27: optional TKuduScanNode kudu_scan_node
   28: optional TUnionNode union_node
   29: optional TBackendResourceProfile resource_profile
+  30: optional TEsScanNode es_scan_node
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

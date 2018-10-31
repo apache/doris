@@ -24,7 +24,7 @@ import com.baidu.palo.catalog.Type;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
@@ -66,7 +66,7 @@ public abstract class StatementBase implements ParseNode {
      * It is up to the analysis() implementation to ensure the maximum number of missing
      * tables/views get collected in the Analyzer before failing analyze().
      */
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         if (isAnalyzed()) return;
         if (isExplain) analyzer.setIsExplain();
         this.analyzer = analyzer;

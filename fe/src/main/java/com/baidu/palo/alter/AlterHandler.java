@@ -26,176 +26,125 @@ import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.MetaNotFoundException;
 import com.baidu.palo.common.util.Daemon;
 import com.baidu.palo.common.util.TimeUtils;
-import com.baidu.palo.system.Backend;
-import com.baidu.palo.system.BackendEvent;
-import com.baidu.palo.system.BackendEvent.BackendEventType;
-import com.baidu.palo.system.SystemInfoObserver;
 import com.baidu.palo.task.AgentTask;
 import com.baidu.palo.thrift.TTabletInfo;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashMap;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.locks.ReentrantLock;
 
 public abstract class AlterHandler extends Daemon {
     private static final Logger LOG = LogManager.getLogger(AlterHandler.class);
 
     // tableId -> AlterJob
-    protected Map<Long, AlterJob> alterJobs;
-
-    protected List<AlterJob> finishedOrCancelledAlterJobs;
-
-    // observe cluster changed
-    protected AlterHandlerSystemInfoObserver clusterInfoObserver;
-
-    /*
-     * ATTN:
-     *      lock order is:
-     *      db lock
-     *      jobs lock
-     *      synchronized
-     *      
-     * if reversal is inevitable. use db.tryLock() instead to avoid dead lock
-     */
-    protected ReentrantReadWriteLock jobsLock;
+    protected ConcurrentHashMap<Long, AlterJob> alterJobs = new ConcurrentHashMap<Long, AlterJob>();
     
-    public void readLock() {
-        jobsLock.readLock().lock();
+    protected ConcurrentLinkedQueue<AlterJob> finishedOrCancelledAlterJobs = new ConcurrentLinkedQueue<AlterJob>();
+    
+    /*
+     * lock to perform atomic operations.
+     * eg.
+     *  When job is finished, it will be moved from alterJobs to finishedOrCancelledAlterJobs,
+     *  and this requires atomic operations. So the lock must be held to do this operations.
+     *  Operations like Get or Put do not need lock.
+     */
+    protected ReentrantLock lock = new ReentrantLock();
+    
+    protected void lock() {
+        lock.lock();
     }
     
-    public void readUnLock() {
-        jobsLock.readLock().unlock();
+    protected void unlock() {
+        lock.unlock();
     }
     
     public AlterHandler(String name) {
         super(name);
-        alterJobs = new HashMap<Long, AlterJob>();
-        finishedOrCancelledAlterJobs = new LinkedList<AlterJob>();
-        jobsLock = new ReentrantReadWriteLock();
-
-        clusterInfoObserver = new AlterHandlerSystemInfoObserver(name);
     }
 
     protected void addAlterJob(AlterJob alterJob) {
-        this.jobsLock.writeLock().lock();
-        try {
-            LOG.info("add {} job[{}]", alterJob.getType(), alterJob.getTableId());
-            this.alterJobs.put(alterJob.getTableId(), alterJob);
-        } finally {
-            this.jobsLock.writeLock().unlock();
-        }
+        this.alterJobs.put(alterJob.getTableId(), alterJob);
+        LOG.info("add {} job[{}]", alterJob.getType(), alterJob.getTableId());
     }
 
     public AlterJob getAlterJob(long tableId) {
-        this.jobsLock.readLock().lock();
-        try {
-            return this.alterJobs.get(tableId);
-        } finally {
-            this.jobsLock.readLock().unlock();
-        }
+        return this.alterJobs.get(tableId);
+    }
+    
+    public boolean hasUnfinishedAlterJob(long tableId) {
+        return this.alterJobs.containsKey(tableId);
     }
 
     public int getAlterJobNum(JobState state, long dbId) {
         int jobNum = 0;
-        this.jobsLock.readLock().lock();
-        try {
-            switch (state) {
-                case PENDING:
-                    for (AlterJob alterJob : alterJobs.values()) {
-                        if (alterJob.getState() == JobState.PENDING && alterJob.getDbId() == dbId) {
-                            ++jobNum;
-                        }
+        if (state == JobState.PENDING || state == JobState.RUNNING || state == JobState.FINISHING) {
+            for (AlterJob alterJob : alterJobs.values()) {
+                if (alterJob.getState() == state && alterJob.getDbId() == dbId) {
+                    ++jobNum;
+                }
+            }
+        } else if (state == JobState.FINISHED) {
+            // lock to perform atomically
+            lock();
+            try {
+                for (AlterJob alterJob : alterJobs.values()) {
+                    if (alterJob.getState() == JobState.FINISHED && alterJob.getDbId() == dbId) {
+                        ++jobNum;
                     }
-                    break;
-                case RUNNING:
-                    for (AlterJob alterJob : alterJobs.values()) {
-                        if (alterJob.getState() == JobState.RUNNING && alterJob.getDbId() == dbId) {
-                            ++jobNum;
-                        }
-                    }
-                    break;
-                case FINISHED:
-                    for (AlterJob alterJob : alterJobs.values()) {
-                        if (alterJob.getState() == JobState.FINISHED && alterJob.getDbId() == dbId) {
-                            ++jobNum;
-                        }
-                    }
+                }
 
-                    for (AlterJob alterJob : finishedOrCancelledAlterJobs) {
-                        if (alterJob.getState() == JobState.FINISHED && alterJob.getDbId() == dbId) {
-                            ++jobNum;
-                        }
+                for (AlterJob alterJob : finishedOrCancelledAlterJobs) {
+                    if (alterJob.getState() == JobState.FINISHED && alterJob.getDbId() == dbId) {
+                        ++jobNum;
                     }
-
-                    if (this instanceof SchemaChangeHandler) {
-                        jobNum += ((SchemaChangeHandler) this).getDelayDeletingJobNum(dbId);
-                    }
-
-                    break;
-                case CANCELLED:
-                    for (AlterJob alterJob : finishedOrCancelledAlterJobs) {
-                        if (alterJob.getState() == JobState.CANCELLED && alterJob.getDbId() == dbId) {
-                            ++jobNum;
-                        }
-                    }
-                    break;
-                default:
-                    break;
+                }
+            } finally {
+                unlock();
             }
 
-            return jobNum;
-        } finally {
-            this.jobsLock.readLock().unlock();
+        } else if (state == JobState.CANCELLED) {
+            for (AlterJob alterJob : finishedOrCancelledAlterJobs) {
+                if (alterJob.getState() == JobState.CANCELLED && alterJob.getDbId() == dbId) {
+                    ++jobNum;
+                }
+            }
         }
+
+        return jobNum;
     }
 
     public Map<Long, AlterJob> unprotectedGetAlterJobs() {
         return this.alterJobs;
     }
 
-    public List<AlterJob> unprotectedGetFinishedOrCancelledAlterJobs() {
+    public ConcurrentLinkedQueue<AlterJob> unprotectedGetFinishedOrCancelledAlterJobs() {
         return this.finishedOrCancelledAlterJobs;
     }
-
+    
     public void addFinishedOrCancelledAlterJob(AlterJob alterJob) {
         alterJob.clear();
-        this.jobsLock.writeLock().lock();
-        try {
-            LOG.info("add {} job[{}] to finished or cancel list", alterJob.getType(), alterJob.getTableId());
-            this.finishedOrCancelledAlterJobs.add(alterJob);
-        } finally {
-            this.jobsLock.writeLock().unlock();
-        }
+        LOG.info("add {} job[{}] to finished or cancel list", alterJob.getType(), alterJob.getTableId());
+        this.finishedOrCancelledAlterJobs.add(alterJob);
     }
 
     protected AlterJob removeAlterJob(long tableId) {
-        this.jobsLock.writeLock().lock();
-        try {
-            return this.alterJobs.remove(tableId);
-        } finally {
-            this.jobsLock.writeLock().unlock();
-        }
+        return this.alterJobs.remove(tableId);
     }
 
     public void removeDbAlterJob(long dbId) {
-        this.jobsLock.writeLock().lock();
-        try {
-            Iterator<Map.Entry<Long, AlterJob>> iterator = alterJobs.entrySet().iterator();
-            while (iterator.hasNext()) {
-                Map.Entry<Long, AlterJob> entry = iterator.next();
-                AlterJob alterJob = entry.getValue();
-                if (alterJob.getDbId() == dbId) {
-                    iterator.remove();
-                }
+        Iterator<Map.Entry<Long, AlterJob>> iterator = alterJobs.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<Long, AlterJob> entry = iterator.next();
+            AlterJob alterJob = entry.getValue();
+            if (alterJob.getDbId() == dbId) {
+                iterator.remove();
             }
-        } finally {
-            this.jobsLock.writeLock().unlock();
         }
     }
 
@@ -221,87 +170,79 @@ public abstract class AlterHandler extends Daemon {
      */
     public void cancelWithTable(OlapTable olapTable) {
         // make sure to hold to db write lock before calling this
-        this.jobsLock.writeLock().lock();
-        try {
-            if (alterJobs.containsKey(olapTable.getId())) {
-                AlterJob alterJob = alterJobs.remove(olapTable.getId());
-                alterJob.cancel(olapTable, "table is dropped");
-                this.finishedOrCancelledAlterJobs.add(alterJob);
-                LOG.info("cancel {} job in table[{}] finished", alterJob.getType(), olapTable.getId());
-            }
-        } finally {
-            this.jobsLock.writeLock().unlock();
+        AlterJob alterJob = getAlterJob(olapTable.getId());
+        if (alterJob == null) {
+            return;
         }
-    }
+        alterJob.cancel(olapTable, "table is dropped");
 
-    /*
-     * when backend is removed or dead, handle related replicas
-     * backendId:
-     *      id of backend which is removed or dead
-     */
-    private void handleBackendRemoveEvent(long backendId) {
-        this.jobsLock.readLock().lock();
+        // remove from alterJobs and add to finishedOrCancelledAlterJobs operation should be perform atomically
+        lock();
         try {
-            Iterator<Map.Entry<Long, AlterJob>> iterator = this.alterJobs.entrySet().iterator();
-            while (iterator.hasNext()) {
-                AlterJob job = iterator.next().getValue();
-                job.handleBackendRemoveEvent(backendId);
+            alterJob = alterJobs.remove(olapTable.getId());
+            if (alterJob != null) {
+                alterJob.clear();
+                finishedOrCancelledAlterJobs.add(alterJob);
             }
         } finally {
-            this.jobsLock.readLock().unlock();
+            unlock();
         }
     }
 
     protected void cancelInternal(AlterJob alterJob, OlapTable olapTable, String msg) {
-        // remove job
-        removeAlterJob(alterJob.getTableId());
-
         // cancel
         alterJob.cancel(olapTable, msg);
+        jobDone(alterJob);
+    }
 
-        // add to finishedOrCancelledAlterJobs
-        addFinishedOrCancelledAlterJob(alterJob);
+    protected void jobDone(AlterJob alterJob) {
+        lock();
+        try {
+            // remove job
+            AlterJob alterJobRemoved  = removeAlterJob(alterJob.getTableId());
+            // add to finishedOrCancelledAlterJobs
+            if (alterJobRemoved != null) {
+                // add alterjob not alterJobRemoved, because the alterjob maybe a new object 
+                // deserialized from journal, and the finished state is set to the new object
+                addFinishedOrCancelledAlterJob(alterJob);
+            }
+        } finally {
+            unlock();
+        }
     }
 
     public void replayInitJob(AlterJob alterJob, Catalog catalog) {
         Database db = catalog.getDb(alterJob.getDbId());
-        db.writeLock();
-        try {
-            alterJob.unprotectedReplayInitJob(db);
-            // add rollup job
-            addAlterJob(alterJob);
-        } finally {
-            db.writeUnlock();
-        }
+        alterJob.replayInitJob(db);
+        // add rollup job
+        addAlterJob(alterJob);
+    }
+    
+    public void replayFinishing(AlterJob alterJob, Catalog catalog) {
+        Database db = catalog.getDb(alterJob.getDbId());
+        alterJob.replayFinishing(db);
+        alterJob.setState(JobState.FINISHING);
+        // !!! the alter job should add to the cache again, because the alter job is deserialized from journal
+        // it is a different object compared to the cache
+        addAlterJob(alterJob);
     }
 
     public void replayFinish(AlterJob alterJob, Catalog catalog) {
         Database db = catalog.getDb(alterJob.getDbId());
-        db.writeLock();
-        try {
-            removeAlterJob(alterJob.getTableId());
-            alterJob.unprotectedReplayFinish(db);
-            alterJob.setState(JobState.FINISHED);
-            addFinishedOrCancelledAlterJob(alterJob);
-        } finally {
-            db.writeUnlock();
-        }
+        alterJob.replayFinish(db);
+        alterJob.setState(JobState.FINISHED);
+
+        jobDone(alterJob);
     }
 
     public void replayCancel(AlterJob alterJob, Catalog catalog) {
         removeAlterJob(alterJob.getTableId());
-
         alterJob.setState(JobState.CANCELLED);
         Database db = catalog.getDb(alterJob.getDbId());
         if (db != null) {
             // we log rollup job cancelled even if db is dropped.
             // so check db != null here
-            db.writeLock();
-            try {
-                alterJob.unprotectedReplayCancel(db);
-            } finally {
-                db.writeUnlock();
-            }
+            alterJob.replayCancel(db);
         }
 
         addFinishedOrCancelledAlterJob(alterJob);
@@ -310,26 +251,20 @@ public abstract class AlterHandler extends Daemon {
     @Override
     protected void runOneCycle() {
         // clean history job
-        this.jobsLock.writeLock().lock();
-        try {
-            Iterator<AlterJob> iter = finishedOrCancelledAlterJobs.iterator();
-            while (iter.hasNext()) {
-                AlterJob historyJob = iter.next();
-                if ((System.currentTimeMillis() - historyJob.getCreateTimeMs()) / 1000 > Config.label_keep_max_second) {
-                    iter.remove();
-                    LOG.info("remove history {} job[{}]. created at {}", historyJob.getType(),
-                             historyJob.getTableId(), TimeUtils.longToTimeString(historyJob.getCreateTimeMs()));
-                }
+        Iterator<AlterJob> iter = finishedOrCancelledAlterJobs.iterator();
+        while (iter.hasNext()) {
+            AlterJob historyJob = iter.next();
+            if ((System.currentTimeMillis() - historyJob.getCreateTimeMs()) / 1000 > Config.label_keep_max_second) {
+                iter.remove();
+                LOG.info("remove history {} job[{}]. created at {}", historyJob.getType(),
+                         historyJob.getTableId(), TimeUtils.longToTimeString(historyJob.getCreateTimeMs()));
             }
-        } finally {
-            this.jobsLock.writeLock().unlock();
         }
     }
 
     @Override
     public void start() {
         // register observer
-        Catalog.getCurrentSystemInfo().registerObserver(clusterInfoObserver);
         super.start();
     }
 
@@ -352,58 +287,13 @@ public abstract class AlterHandler extends Daemon {
      */
     public abstract void cancel(CancelStmt stmt) throws DdlException;
 
-    private class AlterHandlerSystemInfoObserver extends SystemInfoObserver {
-
-        public AlterHandlerSystemInfoObserver(String name) {
-            super(name);
-        }
-
-        @Override
-        public void listen(BackendEvent backendEvent) {
-            BackendEventType type = backendEvent.getType();
-            Long[] backendIds = backendEvent.getBackendIds();
-            LOG.info("catch backend event: {}", backendEvent.toString());
-            switch (type) {
-                case BACKEND_DROPPED:
-                case BACKEND_DECOMMISSION:
-                    for (int i = 0; i < backendIds.length; i++) {
-                        handleBackendRemoveEvent(backendIds[i]);
-                    }
-                    break;
-                case BACKEND_DOWN:
-                    for (int i = 0; i < backendIds.length; i++) {
-                        Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds[i]);
-                        if (backend != null) {
-                            long currentTime = System.currentTimeMillis();
-                            if (currentTime - backend.getLastUpdateMs() > Config.max_backend_down_time_second * 1000) {
-                                // this backend is done for a long time and not restart automatically.
-                                // we consider it as dead
-                                LOG.warn("backend[{}-{}] is down for a long time. last heartbeat: {}",
-                                         backendIds[i], backend.getHost(),
-                                         TimeUtils.longToTimeString(backend.getLastUpdateMs()));
-                                handleBackendRemoveEvent(backendIds[i]);
-                            }
-                        }
-                    }
-                    break;
-                default:
-                    break;
-            }
-        }
-    }
-
     public Integer getAlterJobNumByState(JobState state) {
         int jobNum = 0;
-        this.jobsLock.readLock().lock();
-        try {
-            for (AlterJob alterJob : alterJobs.values()) {
-                if (alterJob.getState() == state) {
-                    ++jobNum;
-                }
+        for (AlterJob alterJob : alterJobs.values()) {
+            if (alterJob.getState() == state) {
+                ++jobNum;
             }
-            return jobNum;
-        } finally {
-            this.jobsLock.readLock().unlock();
         }
+        return jobNum;
     }
 }

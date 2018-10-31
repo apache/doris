@@ -27,7 +27,7 @@ import java.util.Iterator;
 import java.util.List;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -76,7 +76,7 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         if (analyzed_) return;
 
         if (tableRefs_.isEmpty()) {

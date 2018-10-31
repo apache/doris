@@ -24,7 +24,7 @@ import com.baidu.palo.analysis.Analyzer;
 import com.baidu.palo.analysis.Expr;
 import com.baidu.palo.analysis.SortInfo;
 import com.baidu.palo.analysis.TupleId;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.thrift.TExchangeNode;
 import com.baidu.palo.thrift.TPlanNode;
 import com.baidu.palo.thrift.TPlanNodeType;
@@ -92,7 +92,7 @@ public class ExchangeNode extends PlanNode {
     }
 
     @Override
-    public void init(Analyzer analyzer) throws InternalException {
+    public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
         Preconditions.checkState(conjuncts.isEmpty());
     }

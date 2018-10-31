@@ -16,7 +16,6 @@
 package com.baidu.palo.http.meta;
 
 import com.baidu.palo.catalog.Catalog;
-import com.baidu.palo.catalog.Database;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.ha.FrontendNodeType;
 import com.baidu.palo.http.ActionController;
@@ -29,9 +28,7 @@ import com.baidu.palo.persist.Storage;
 import com.baidu.palo.persist.StorageInfo;
 import com.baidu.palo.system.Frontend;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 
 import org.apache.logging.log4j.LogManager;
@@ -41,8 +38,6 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.util.List;
-import java.util.Map;
 
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
@@ -326,61 +321,10 @@ public class MetaService {
              */
 
             // TODO: Still need to lock ClusterInfoService to prevent add or drop Backends
-            LOG.info("begin to dump meta data.");
-            Catalog catalog = Catalog.getInstance();
-            Map<String, Database> lockedDbMap = Maps.newTreeMap();
-
-            String dumpFilePath;
-            catalog.readLock();
-            try {
-                List<String> dbNames = catalog.getDbNames();
-                if (dbNames == null || dbNames.isEmpty()) {
-                    return;
-                }
-
-                // sort all dbs
-                for (String dbName : dbNames) {
-                    Database db = catalog.getDb(dbName);
-                    Preconditions.checkNotNull(db);
-                    lockedDbMap.put(dbName, db);
-                }
-
-                // lock all dbs
-                for (Database db : lockedDbMap.values()) {
-                    db.readLock();
-                }
-                LOG.info("acquired all the dbs' read lock.");
-
-                catalog.getAlterInstance().getRollupHandler().readLock();
-                catalog.getAlterInstance().getSchemaChangeHandler().readLock();
-                catalog.getLoadInstance().readLock();
-
-                LOG.info("acquired all jobs' read lock.");
-                long journalId = catalog.getMaxJournalId();
-                File dumpFile = new File(Config.meta_dir, "image." + journalId);
-                dumpFilePath = dumpFile.getAbsolutePath();
-                try {
-                    LOG.info("begin to dump {}", dumpFilePath);
-                    catalog.saveImage(dumpFile, journalId);
-                } catch (IOException e) {
-                    LOG.error(e);
-                }
-
-            } finally {
-                // unlock all
-
-                catalog.getLoadInstance().readUnlock();
-                catalog.getAlterInstance().getSchemaChangeHandler().readUnLock();
-                catalog.getAlterInstance().getRollupHandler().readUnLock();
-
-                for (Database db : lockedDbMap.values()) {
-                    db.readUnlock();
-                }
-
-                catalog.readUnlock();
+            String dumpFilePath = Catalog.getInstance().dumpImage();
+            if (dumpFilePath == null) {
+                response.appendContent("dump failed. " + dumpFilePath);
             }
-
-            LOG.info("dump finished.");
 
             response.appendContent("dump finished. " + dumpFilePath);
             writeResponse(request, response);

@@ -15,6 +15,8 @@
 
 package com.baidu.palo.qe;
 
+import com.baidu.palo.common.ClientPool;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.Status;
 import com.baidu.palo.rpc.BackendServiceProxy;
 import com.baidu.palo.rpc.PFetchDataRequest;
@@ -58,7 +60,7 @@ public class ResultReceiver {
         if (isDone) {
             return null;
         }
-
+        
         try {
             while (!isDone && !isCancel) {
                 PFetchDataRequest request = new PFetchDataRequest(finstId);
@@ -93,7 +95,7 @@ public class ResultReceiver {
                     status.setRpcStatus("receive error packet");
                     return null;
                 }
-
+    
                 packetIdx++;
                 isDone = pResult.eos;
 
@@ -126,7 +128,7 @@ public class ResultReceiver {
                 currentThread = null;
             }
         }
-
+        
         if (isCancel) {
             status.setStatus(Status.CANCELLED);
         }

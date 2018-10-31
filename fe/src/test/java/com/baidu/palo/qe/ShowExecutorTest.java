@@ -48,8 +48,8 @@ import com.baidu.palo.catalog.SinglePartitionInfo;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.catalog.Table.TableType;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.PatternMatcher;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.MysqlCommand;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.mysql.privilege.PrivPredicate;
@@ -445,7 +445,7 @@ public class ShowExecutorTest {
     }
 
     @Test
-    public void testHelp() throws AnalysisException, IOException, InternalException {
+    public void testHelp() throws AnalysisException, IOException, UserException {
         HelpModule module = new HelpModule();
         URL help = getClass().getClassLoader().getResource("test-help-resource-show-help.zip");
         module.setUpByZip(help.getPath());

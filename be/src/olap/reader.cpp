@@ -177,7 +177,7 @@ OLAPStatus CollectIterator::init(Reader* reader) {
     _reader = reader;
     // when aggregate is enabled or key_type is DUP_KEYS, we don't merge
     // multiple data to aggregate for performance in user fetch
-    if (_reader->_reader_type == READER_FETCH &&
+    if (_reader->_reader_type == READER_QUERY &&
             (_reader->_aggregation ||
              _reader->_olap_table->keys_type() == KeysType::DUP_KEYS)) {
         _merge = false;
@@ -285,7 +285,7 @@ Reader::Reader()
         : _next_key_index(0),
         _aggregation(false),
         _version_locked(false),
-        _reader_type(READER_FETCH),
+        _reader_type(READER_QUERY),
         _next_delete_flag(false),
         _next_key(NULL),
         _merged_rows(0) {
@@ -487,10 +487,8 @@ OLAPStatus Reader::_acquire_data_sources(const ReaderParams& read_params) {
         _olap_table->release_header_lock();
 
         if (_own_data_sources.size() < 1) {
-            OLAP_LOG_WARNING("fail to acquire data sources. [table_name='%s' version=%d-%d]",
-                             _olap_table->full_name().c_str(),
-                             _version.first,
-                             _version.second);
+            LOG(WARNING) << "fail to acquire data sources. [table_name='" << _olap_table->full_name()
+                         << "' version=" << _version.first << "-" << _version.second << "]";
             return OLAP_ERR_VERSION_NOT_EXIST;
         }
         data_sources = &_own_data_sources;
@@ -499,13 +497,13 @@ OLAPStatus Reader::_acquire_data_sources(const ReaderParams& read_params) {
     // do not use index stream cache when be/ce/alter/checksum,
     // to avoid bringing down lru cache hit ratio
     bool is_using_cache = true;
-    if (read_params.reader_type != READER_FETCH) {
+    if (read_params.reader_type != READER_QUERY) {
         is_using_cache = false;
     }
 
     for (auto i_data: *data_sources) {
         // skip empty version
-        if (i_data->empty()) {
+        if (i_data->empty() || i_data->zero_num_rows()) {
             continue;
         }
         i_data->set_delete_handler(_delete_handler);
@@ -588,7 +586,7 @@ OLAPStatus Reader::_init_params(const ReaderParams& read_params) {
 }
 
 OLAPStatus Reader::_init_return_columns(const ReaderParams& read_params) {
-    if (read_params.reader_type == READER_FETCH) {
+    if (read_params.reader_type == READER_QUERY) {
         _return_columns = read_params.return_columns;
         if (_delete_handler.conditions_num() != 0 && read_params.aggregation) {
             set<uint32_t> column_set(_return_columns.begin(), _return_columns.end());

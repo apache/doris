@@ -19,10 +19,10 @@ import com.baidu.palo.analysis.Analyzer;
 import com.baidu.palo.analysis.DescriptorTable;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.Config;
-import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.Pair;
 import com.baidu.palo.common.Reference;
 import com.baidu.palo.common.Status;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.util.DebugUtil;
 import com.baidu.palo.common.util.RuntimeProfile;
 import com.baidu.palo.planner.DataPartition;
@@ -47,6 +47,7 @@ import com.baidu.palo.system.Backend;
 import com.baidu.palo.task.LoadEtlTask;
 import com.baidu.palo.thrift.PaloInternalServiceVersion;
 import com.baidu.palo.thrift.TDescriptorTable;
+import com.baidu.palo.thrift.TEsScanRange;
 import com.baidu.palo.thrift.TExecPlanFragmentParams;
 import com.baidu.palo.thrift.TNetworkAddress;
 import com.baidu.palo.thrift.TPaloScanRange;
@@ -64,6 +65,7 @@ import com.baidu.palo.thrift.TScanRangeLocation;
 import com.baidu.palo.thrift.TScanRangeLocations;
 import com.baidu.palo.thrift.TScanRangeParams;
 import com.baidu.palo.thrift.TStatusCode;
+import com.baidu.palo.thrift.TTabletCommitInfo;
 import com.baidu.palo.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
@@ -162,6 +164,8 @@ public class Coordinator {
 
     // for export
     private List<String> exportFiles;
+
+    private List<TTabletCommitInfo> commitInfos = Lists.newArrayList();
 
     // Input parameter
     private TUniqueId queryId;
@@ -262,6 +266,10 @@ public class Coordinator {
         } finally {
             lock.unlock();
         }
+    }
+
+    public List<TTabletCommitInfo> getCommitInfos() {
+        return commitInfos;
     }
 
     // Initiate
@@ -437,12 +445,12 @@ public class Coordinator {
                         cancelInternal();
                         switch (code) {
                             case TIMEOUT:
-                                throw new InternalException("query timeout. backend id: " + pair.first.systemBackendId);
+                                throw new UserException("query timeout. backend id: " + pair.first.systemBackendId);
                             case THRIFT_RPC_ERROR:
                                 SimpleScheduler.updateBlacklistBackends(pair.first.systemBackendId);
                                 throw new RpcException("rpc failed. backend id: " + pair.first.systemBackendId);
                             default:
-                                throw new InternalException(errMsg);
+                                throw new UserException(errMsg);
                         }
                     }
                 }
@@ -509,6 +517,15 @@ public class Coordinator {
         }
     }
 
+    private void updateCommitInfos(List<TTabletCommitInfo> commitInfos) {
+        lock.lock();
+        try {
+            this.commitInfos.addAll(commitInfos);
+        } finally {
+            lock.unlock();
+        }
+    }
+
     void updateStatus(Status status) {
         lock.lock();
         try {
@@ -537,7 +554,7 @@ public class Coordinator {
 
     TResultBatch getNext() throws Exception {
         if (receiver == null) {
-            throw new InternalException("There is no receiver.");
+            throw new UserException("There is no receiver.");
         }
 
         TResultBatch resultBatch;
@@ -568,7 +585,7 @@ public class Coordinator {
                 if (hostIndex != -1) {
                     errMsg = errMsg.substring(0, hostIndex);
                 }
-                throw new InternalException(errMsg);
+                throw new UserException(errMsg);
             }
         }
 
@@ -716,7 +733,7 @@ public class Coordinator {
         Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(
                 host.getHostname(), host.getPort());
         if (backend == null) {
-            throw new InternalException("there is no scanNode Backend");
+            throw new UserException("there is no scanNode Backend");
         }
         TNetworkAddress dest = new TNetworkAddress(backend.getHost(), backend.getBeRpcPort());
         return dest;
@@ -726,7 +743,7 @@ public class Coordinator {
         Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(
                 host.getHostname(), host.getPort());
         if (backend == null) {
-            throw new InternalException("there is no scanNode Backend");
+            throw new UserException("there is no scanNode Backend");
         }
         if (backend.getBrpcPort() < 0) {
             return null;
@@ -768,7 +785,7 @@ public class Coordinator {
                 TNetworkAddress execHostport = SimpleScheduler.getHost(this.idToBackend, backendIdRef);
                 if (execHostport == null) {
                     LOG.warn("DataPartition UNPARTITIONED, no scanNode Backend");
-                    throw new InternalException("there is no scanNode Backend");
+                    throw new UserException("there is no scanNode Backend");
                 }
                 this.addressToBackendID.put(execHostport, backendIdRef.getRef());
                 FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, 
@@ -821,7 +838,7 @@ public class Coordinator {
                 Reference<Long> backendIdRef = new Reference<Long>();
                 TNetworkAddress execHostport = SimpleScheduler.getHost(this.idToBackend, backendIdRef);
                 if (execHostport == null) {
-                    throw new InternalException("there is no scanNode Backend");
+                    throw new UserException("there is no scanNode Backend");
                 }
                 this.addressToBackendID.put(execHostport, backendIdRef.getRef());
                 FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, 
@@ -830,7 +847,7 @@ public class Coordinator {
             }
         }
     }
-
+    
     private void computeFragmentExecParamsForParallelExec() throws Exception {
         // create exec params and set instance_id, host, per_node_scan_ranges
         computeFragmentInstances(fragmentExecParamsMap.get(fragments.get(0).getFragmentId()));
@@ -890,7 +907,7 @@ public class Coordinator {
             TNetworkAddress execHostport = SimpleScheduler.getHost(this.idToBackend, backendIdRef);
             if (execHostport == null) {
                 LOG.warn("DataPartition UNPARTITIONED, no scanNode Backend");
-                throw new InternalException("there is no scanNode Backend");
+                throw new UserException("there is no scanNode Backend");
             }
             TUniqueId instanceId = getNextInstanceId();
             FInstanceExecParam instanceParam = new FInstanceExecParam(instanceId, execHostport, 
@@ -958,7 +975,7 @@ public class Coordinator {
     }
 
     public void createScanInstance(PlanNodeId leftMostScanId, FragmentExecParams fragmentExecParams) 
-         throws InternalException {
+         throws UserException {
         int maxNumInstance = queryOptions.mt_dop;
         if (maxNumInstance == 0) {
             maxNumInstance = 1;
@@ -969,7 +986,7 @@ public class Coordinator {
             Reference<Long> backendIdRef = new Reference<Long>();
             TNetworkAddress execHostport = SimpleScheduler.getHost(this.idToBackend, backendIdRef);
             if (execHostport == null) {
-                throw new InternalException("there is no scanNode Backend");
+                throw new UserException("there is no scanNode Backend");
             }
             FInstanceExecParam instanceParam = new FInstanceExecParam(getNextInstanceId(), execHostport, 0,
                     fragmentExecParams);
@@ -1200,7 +1217,7 @@ public class Coordinator {
             TNetworkAddress execHostPort = SimpleScheduler.getHost(minLocation.backend_id,
                     scanRangeLocations.getLocations(), this.idToBackend, backendIdRef);
             if (execHostPort == null) {
-                throw new InternalException("there is no scanNode Backend");
+                throw new UserException("there is no scanNode Backend");
             }
             this.addressToBackendID.put(execHostPort, backendIdRef.getRef());
 
@@ -1270,6 +1287,9 @@ public class Coordinator {
             }
             if (params.isSetExport_files()) {
                 updateExportFiles(params.export_files);
+            }
+            if (params.isSetCommitInfos()) {
+                updateCommitInfos(params.getCommitInfos());
             }
             profileDoneSignal.countDown();
         }
@@ -1456,6 +1476,7 @@ public class Coordinator {
 
                 params.params.setDestinations(destinations);
                 params.params.setSender_id(i);
+                params.params.setNum_senders(instanceExecParams.size());
                 params.setCoord(coordAddress);
                 params.setBackend_num(backendNum++);
                 params.setQuery_globals(queryGlobals);
@@ -1479,6 +1500,12 @@ public class Coordinator {
                     }
                     sb.append("{tid=").append(paloScanRange.getTablet_id())
                             .append(",ver=").append(paloScanRange.getVersion()).append("}");
+                }
+                TEsScanRange esScanRange = range.getScan_range().getEs_scan_range();
+                if (esScanRange != null) {
+                    sb.append("{ index=").append(esScanRange.getIndex())
+                        .append(", shardid=").append(esScanRange.getShard_id())
+                        .append("}");
                 }
             }
             sb.append("]");

@@ -72,6 +72,7 @@ set(SRC_FILES
     ${GEN_CPP_DIR}/olap_file.pb.cc
     ${GEN_CPP_DIR}/column_data_file.pb.cc
     ${GEN_CPP_DIR}/data.pb.cc
+    ${GEN_CPP_DIR}/descriptors.pb.cc
     ${GEN_CPP_DIR}/internal_service.pb.cc
     ${GEN_CPP_DIR}/types.pb.cc
     ${GEN_CPP_DIR}/status.pb.cc

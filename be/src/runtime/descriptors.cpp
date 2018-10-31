@@ -30,6 +30,7 @@
 #include "codegen/llvm_codegen.h"
 #include "common/object_pool.h"
 #include "gen_cpp/Descriptors_types.h"
+#include "gen_cpp/descriptors.pb.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "exprs/expr.h"
 
@@ -64,6 +65,36 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
       _is_null_fn(NULL),
       _set_not_null_fn(NULL),
       _set_null_fn(NULL) {
+}
+
+SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
+        : _id(pdesc.id()),
+        _type(TypeDescriptor::from_protobuf(pdesc.slot_type())),
+        _parent(pdesc.parent()),
+        _col_pos(pdesc.column_pos()),
+        _tuple_offset(pdesc.byte_offset()),
+        _null_indicator_offset(pdesc.null_indicator_byte(), pdesc.null_indicator_bit()),
+        _col_name(pdesc.col_name()),
+        _slot_idx(pdesc.slot_idx()),
+        _slot_size(_type.get_slot_size()),
+        _field_idx(-1),
+        _is_materialized(pdesc.is_materialized()),
+        _is_null_fn(NULL),
+        _set_not_null_fn(NULL),
+        _set_null_fn(NULL) {
+}
+
+void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
+    pslot->set_id(_id);
+    pslot->set_parent(_parent);
+    _type.to_protobuf(pslot->mutable_slot_type());
+    pslot->set_column_pos(_col_pos);
+    pslot->set_byte_offset(_tuple_offset);
+    pslot->set_null_indicator_byte(_null_indicator_offset.byte_offset);
+    pslot->set_null_indicator_bit(_null_indicator_offset.bit_offset);
+    pslot->set_col_name(_col_name);
+    pslot->set_slot_idx(_slot_idx);
+    pslot->set_is_materialized(_is_materialized);
 }
 
 std::string SlotDescriptor::debug_string() const {
@@ -177,6 +208,23 @@ TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc) :
       }
 }
 
+TupleDescriptor::TupleDescriptor(const PTupleDescriptor& pdesc)
+        : _id(pdesc.id()),
+        _table_desc(NULL),
+        _byte_size(pdesc.byte_size()),
+        _num_null_bytes(pdesc.num_null_bytes()),
+        _num_materialized_slots(0),
+        _slots(),
+        _has_varlen_slots(false),
+        _llvm_struct(NULL) {
+    if (!pdesc.has_num_null_slots()) {
+        //be compatible for existing tables with no NULL value
+        _num_null_slots = 0;
+    } else {
+        _num_null_slots = pdesc.num_null_slots();
+    }
+}
+
 void TupleDescriptor::add_slot(SlotDescriptor* slot) {
     _slots.push_back(slot);
 
@@ -210,6 +258,15 @@ bool TupleDescriptor::layout_equals(const TupleDescriptor& other_desc) const {
       if (!slots[i]->layout_equals(*other_slots[i])) return false;
     }
     return true;
+}
+
+void TupleDescriptor::to_protobuf(PTupleDescriptor* ptuple) const {
+    ptuple->Clear();
+    ptuple->set_id(_id);
+    ptuple->set_byte_size(_byte_size);
+    ptuple->set_num_null_bytes(_num_null_bytes);
+    ptuple->set_table_id(-1);
+    ptuple->set_num_null_slots(_num_null_slots);
 }
 
 std::string TupleDescriptor::debug_string() const {
@@ -511,7 +568,7 @@ void DescriptorTbl::get_tuple_descs(std::vector<TupleDescriptor*>* descs) const 
 }
 
 bool SlotDescriptor::layout_equals(const SlotDescriptor& other_desc) const {
-    if (type() != other_desc.type()) return false;
+    if (type().type != other_desc.type().type) return false;
     if (is_nullable() != other_desc.is_nullable()) return false;
     if (slot_size() != other_desc.slot_size()) return false;
     if (tuple_offset() != other_desc.tuple_offset()) return false;

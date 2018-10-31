@@ -30,7 +30,7 @@ import com.baidu.palo.catalog.ArrayType;
 import com.baidu.palo.catalog.StructField;
 import com.baidu.palo.catalog.StructType;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 
 import com.baidu.palo.thrift.TExprNode;
@@ -89,7 +89,7 @@ public class Subquery extends Expr {
         analyzer.setIsSubquery();
         try {
             stmt.analyze(analyzer);
-        } catch (InternalException e) {
+        } catch (UserException e) {
             throw new AnalysisException(e.getMessage());
         }
         // Check whether the stmt_ contains an illegal mix of un/correlated table refs.

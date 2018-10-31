@@ -19,7 +19,6 @@
 #include <boost/scoped_ptr.hpp>
 
 #include "http/http_handler.h"
-#include "olap/command_executor.h"
 
 namespace palo {
 
@@ -29,7 +28,7 @@ class ChecksumAction : public HttpHandler {
 public:
     explicit ChecksumAction(ExecEnv* exec_env);
 
-    virtual ~ChecksumAction();
+    virtual ~ChecksumAction() { }
 
     void handle(HttpRequest *req) override;
 private:
@@ -37,7 +36,6 @@ private:
             int32_t schema_hash, HttpRequest *req);
 
     ExecEnv* _exec_env;
-    CommandExecutor* _command_executor;
 
 }; // end class ChecksumAction
 

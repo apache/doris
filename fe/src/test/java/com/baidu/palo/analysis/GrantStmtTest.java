@@ -23,7 +23,7 @@ package com.baidu.palo.analysis;
 import com.baidu.palo.catalog.AccessPrivilege;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
 
@@ -79,7 +79,7 @@ public class GrantStmtTest {
     }
 
     @Test
-    public void testNormal() throws AnalysisException, InternalException {
+    public void testNormal() throws AnalysisException, UserException {
         GrantStmt stmt;
 
         List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.ALL);
@@ -94,7 +94,7 @@ public class GrantStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testUserFail() throws AnalysisException, InternalException {
+    public void testUserFail() throws AnalysisException, UserException {
         GrantStmt stmt;
 
         List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.ALL);

@@ -35,7 +35,6 @@
 #include "olap/olap_cond.h"
 #include "olap/olap_define.h"
 #include "olap/olap_engine.h"
-#include "olap/olap_index.h"
 #include "olap/olap_table.h"
 #include "olap/row_cursor.h"
 #include "runtime/runtime_state.h"
@@ -44,6 +43,9 @@
 #include "olap/column_predicate.h"
 
 namespace palo {
+
+class Rowset;
+
 namespace column_file {
 
 class ColumnReader;
@@ -53,7 +55,7 @@ class SegmentReader {
 public:
     explicit SegmentReader(const std::string file,
             OLAPTable* table,
-            OLAPIndex* index,
+            Rowset* index,
             uint32_t segment_id,
             const std::vector<uint32_t>& return_columns,
             const std::set<uint32_t>& load_bf_columns,
@@ -275,7 +277,7 @@ private:
     palo::FileHandler _file_handler;             // 文件handler
 
     OLAPTable* _table;
-    OLAPIndex* _olap_index;
+    Rowset* _olap_index;
     uint32_t _segment_id;
 
     const Conditions* _conditions;         // 列过滤条件

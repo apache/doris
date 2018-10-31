@@ -69,7 +69,7 @@ FieldType FieldInfo::get_field_type_by_string(const string& type_str) {
     } else if (0 == upper_type_str.compare("MAP")) {
         type = OLAP_FIELD_TYPE_MAP;
     } else {
-        OLAP_LOG_WARNING("invalid type string. [type='%s']", type_str.c_str());
+        LOG(WARNING) << "invalid type string. [type='" << type_str << "']";
         type = OLAP_FIELD_TYPE_UNKNOWN;
     }
 
@@ -94,7 +94,7 @@ FieldAggregationMethod FieldInfo::get_aggregation_type_by_string(const string& s
     } else if (0 == upper_str.compare("HLL_UNION")) {
         aggregation_type = OLAP_FIELD_AGGREGATION_HLL_UNION;
     } else {
-        OLAP_LOG_WARNING("invalid aggregation type string. [aggregation='%s']", str.c_str());
+        LOG(WARNING) << "invalid aggregation type string. [aggregation='" << str << "']";
         aggregation_type = OLAP_FIELD_AGGREGATION_UNKNOWN;
     }
 

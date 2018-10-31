@@ -25,7 +25,6 @@
 #include "olap_scanner.h"
 #include "olap_scan_node.h"
 #include "olap_utils.h"
-#include "olap/olap_table.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/mem_pool.h"
@@ -42,7 +41,8 @@ Status EngineMetaReader::get_hints(
         RuntimeProfile* profile) {
     auto tablet_id = scan_range->scan_range().tablet_id;
     int32_t schema_hash = strtoul(scan_range->scan_range().schema_hash.c_str(), NULL, 10);
-    auto table = OLAPEngine::get_instance()->get_table(tablet_id, schema_hash);
+    OLAPTablePtr table = OLAPEngine::get_instance()->get_table(
+        tablet_id, schema_hash);
     if (table.get() == NULL) {
         LOG(WARNING) << "tablet does not exist. tablet_id=" << tablet_id << ", schema_hash="
             << schema_hash;

@@ -23,7 +23,7 @@ import com.baidu.palo.catalog.Table;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.util.PrintableMap;
 import com.baidu.palo.common.util.PropertyAnalyzer;
 import com.baidu.palo.mysql.privilege.PrivPredicate;
@@ -104,6 +104,7 @@ public class ExportStmt extends StatementBase {
         return this.lineDelimiter;
     }
 
+    @Override
     public boolean needAuditEncryption() {
         if (brokerDesc != null) {
             return true;
@@ -112,7 +113,7 @@ public class ExportStmt extends StatementBase {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
 
         tableRef = analyzer.resolveTableRef(tableRef);

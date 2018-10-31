@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.MockedAuth;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
@@ -53,7 +53,7 @@ public class SetVarTest {
     }
 
     @Test
-    public void testNormal() throws InternalException, AnalysisException {
+    public void testNormal() throws UserException, AnalysisException {
         SetVar var = new SetVar(SetType.DEFAULT, "names", new StringLiteral("utf-8"));
         var.analyze(analyzer);
 
@@ -71,7 +71,7 @@ public class SetVarTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoVariable() throws InternalException, AnalysisException {
+    public void testNoVariable() throws UserException, AnalysisException {
         SetVar var = new SetVar(SetType.DEFAULT, "", new StringLiteral("utf-8"));
         var.analyze(analyzer);
         Assert.fail("No exception throws.");

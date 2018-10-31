@@ -90,7 +90,7 @@ Status EvHttpServer::start() {
     RETURN_IF_ERROR(_bind());
     for (int i = 0; i < _num_workers; ++i) {
         auto worker = [this, i] () {
-            LOG(INFO) << "EvHttpSerer worker start, id=" << i;
+            LOG(INFO) << "EvHttpServer worker start, id=" << i;
             std::shared_ptr<event_base> base(
                 event_base_new(), [] (event_base* base) { event_base_free(base); });
             if (base == nullptr) {
@@ -116,6 +116,7 @@ Status EvHttpServer::start() {
             event_base_dispatch(base.get());
         };
         _workers.emplace_back(worker);
+        _workers[i].detach();
     }
     return Status::OK;
 }

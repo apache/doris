@@ -24,7 +24,7 @@ import com.baidu.palo.analysis.Analyzer;
 import com.baidu.palo.analysis.TupleDescriptor;
 import com.baidu.palo.catalog.SchemaTable;
 import com.baidu.palo.common.Config;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.service.FrontendOptions;
 import com.baidu.palo.thrift.TPlanNode;
@@ -70,7 +70,7 @@ public class SchemaScanNode extends ScanNode {
     }
 
     @Override
-    public void finalize(Analyzer analyzer) throws InternalException {
+    public void finalize(Analyzer analyzer) throws UserException {
         // Convert predicates to MySQL columns and filters.
         schemaDb = analyzer.getSchemaDb();
         schemaTable = analyzer.getSchemaTable();

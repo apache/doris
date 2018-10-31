@@ -1066,6 +1066,7 @@ Value* LlvmCodeGen::codegen_array_at(
 void LlvmCodeGen::codegen_assign(LlvmBuilder* builder,
                                 llvm::Value* dst, llvm::Value* src, PrimitiveType type) {
     switch (type) {
+    case TYPE_CHAR:
     case TYPE_VARCHAR: 
     case TYPE_HLL:  {
         codegen_memcpy(builder, dst, src, sizeof(StringValue));

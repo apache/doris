@@ -21,51 +21,31 @@
 
 namespace palo {
 
-class OLAPIndex;
+class Rowset;
 class IData;
 
 class Merger {
 public:
     // parameter index is created by caller, and it is empty.
-    Merger(SmartOLAPTable table, OLAPIndex* index, ReaderType type);
+    Merger(OLAPTablePtr table, Rowset* index, ReaderType type);
 
     virtual ~Merger() {};
 
-    // @brief read from multiple OLAPData and OLAPIndex, then write into single OLAPData and
-    // OLAPIndex. When use_simple_merge is true, check weather to create hard link.
+    // @brief read from multiple OLAPData and Rowset, then write into single OLAPData and Rowset
     // @return  OLAPStatus: OLAP_SUCCESS or FAIL
     // @note it will take long time to finish.
-    OLAPStatus merge(
-            const std::vector<IData*>& olap_data_arr,
-            bool use_simple_merge,
-            uint64_t* merged_rows,
-            uint64_t* filted_rows);
+    OLAPStatus merge(const std::vector<IData*>& olap_data_arr, 
+                     uint64_t* merged_rows, uint64_t* filted_rows);
 
     // 获取在做merge过程中累积的行数
     uint64_t row_count() {
         return _row_count;
     }
-    // 获取前缀组合的selectivity
-    const std::vector<uint32_t>& selectivities() {
-        return _selectivities;
-    }
-
 private:
-    OLAPStatus _merge(
-            const std::vector<IData*>& olap_data_arr,
-            uint64_t* merged_rows,
-            uint64_t* filted_rows);
-
-    bool _check_simple_merge(const std::vector<IData*>& olap_data_arr);
-
-    OLAPStatus _create_hard_link();
-
-    SmartOLAPTable _table;
-    OLAPIndex* _index;
+    OLAPTablePtr _table;
+    Rowset* _index;
     ReaderType _reader_type;
     uint64_t _row_count;
-    std::vector<uint64_t> _uniq_keys;      // 存储每一种前缀组合的独特值个数
-    std::vector<uint32_t> _selectivities;  // 保存每一种前缀组合的selectivity
     Version _simple_merge_version;
 
     DISALLOW_COPY_AND_ASSIGN(Merger);

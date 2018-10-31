@@ -42,12 +42,12 @@ TEST(PusherTest, TestInit) {
     TPushReq push_req;
     push_req.tablet_id = 1;
     push_req.schema_hash = 12345;
-    Pusher pusher(push_req);
+    Pusher pusher(nullptr, push_req);
 
-    CommandExecutor* tmp = NULL;
+    OLAPEngine* tmp = NULL;
     MockCommandExecutor mock_command_executor;
-    tmp = pusher._command_executor;
-    pusher._command_executor = &mock_command_executor;
+    tmp = pusher._engine;
+    pusher._engine = &mock_command_executor;
 
     OLAPTable* olap_table = NULL;
     // not init, can not get olap table
@@ -58,7 +58,7 @@ TEST(PusherTest, TestInit) {
     EXPECT_EQ(PALO_PUSH_INVALID_TABLE, ret);
 
     // not init, can get olap table, and empty remote path
-    olap_table = new OLAPTable(new OLAPHeader("./test_data/header"));
+    olap_table = new OLAPTable(new OLAPHeader("./test_data/header"), nullptr);
     EXPECT_CALL(mock_command_executor, get_table(1, 12345))
             .Times(1)
             .WillOnce(Return(std::shared_ptr<OLAPTable>(olap_table)));
@@ -69,16 +69,16 @@ TEST(PusherTest, TestInit) {
     // has inited
     ret = pusher.init();
     EXPECT_EQ(PALO_SUCCESS, ret);
-    pusher._command_executor = tmp;
+    pusher._engine = tmp;
 
     // not inited, remote path not empty
     string http_file_path = "http://xx";
     string root_path_name = "./test_data/data";
-    olap_table = new OLAPTable(new OLAPHeader("./test_data/header"));
+    olap_table = new OLAPTable(new OLAPHeader("./test_data/header"), nullptr);
     push_req.__set_http_file_path(http_file_path);
-    Pusher pusher2(push_req);
-    tmp = pusher2._command_executor;
-    pusher2._command_executor = &mock_command_executor;
+    Pusher pusher2(nullptr, push_req);
+    tmp = pusher2._engine;
+    pusher2._engine = &mock_command_executor;
     olap_table->_storage_root_path = root_path_name;
     EXPECT_CALL(mock_command_executor, get_table(1, 12345))
             .Times(1)
@@ -92,12 +92,12 @@ TEST(PusherTest, TestInit) {
             root_path_name.c_str(),
             strlen(root_path_name.c_str())));
 
-    pusher2._command_executor = tmp;
+    pusher2._engine = tmp;
 }
 
 TEST(PusherTest, TestGetTmpFileDir) {
     TPushReq push_req;
-    Pusher pusher(push_req);
+    Pusher pusher(nullptr, push_req);
 
     // download path not exist
     string root_path = "./test_data/dpp_download_file";
@@ -113,7 +113,7 @@ TEST(PusherTest, TestGetTmpFileDir) {
 
 TEST(PusherTest, TestDownloadFile){
     TPushReq push_req;
-    Pusher pusher(push_req);
+    Pusher pusher(nullptr, push_req);
 
     // download success
     FileDownloader::FileDownloaderParam param;
@@ -135,7 +135,7 @@ TEST(PusherTest, TestDownloadFile){
 
 TEST(PusherTest, TestGetFileNameFromPath) {
     TPushReq push_req;
-    Pusher pusher(push_req);
+    Pusher pusher(nullptr, push_req);
 
     string file_path = "/file_path/file_name";
     string file_name;
@@ -145,7 +145,7 @@ TEST(PusherTest, TestGetFileNameFromPath) {
 
 TEST(PusherTest, TestProcess) {
     TPushReq push_req;
-    Pusher pusher(push_req);
+    Pusher pusher(nullptr, push_req);
     vector<TTabletInfo> tablet_infos;
 
     // not init
@@ -156,9 +156,9 @@ TEST(PusherTest, TestProcess) {
     pusher._is_init = true;
     pusher._downloader_param.local_file_path = "./test_data/download_file";
     MockCommandExecutor mock_command_executor;
-    CommandExecutor* tmp;
-    tmp = pusher._command_executor;
-    pusher._command_executor = &mock_command_executor;
+    OLAPEngine* tmp;
+    tmp = pusher._engine;
+    pusher._engine = &mock_command_executor;
     EXPECT_CALL(mock_command_executor, push(push_req, &tablet_infos))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
@@ -191,11 +191,11 @@ TEST(PusherTest, TestProcess) {
     EXPECT_EQ(PALO_ERROR, ret);
     EXPECT_FALSE(boost::filesystem::exists(download_file_path));
 
-    pusher._command_executor = tmp;
+    pusher._engine = tmp;
 
     // init, remote file not empty, not set file length
     push_req.__set_http_file_path("http://xxx");
-    Pusher pusher2(push_req);
+    Pusher pusher2(nullptr, push_req);
     pusher2._is_init = true;
     FileDownloader::FileDownloaderParam param;
     MockFileDownloader mock_file_downloader(param);
@@ -236,8 +236,8 @@ TEST(PusherTest, TestProcess) {
     fputs("palo be test", fp);
     fclose(fp);
     now = time(NULL);
-    tmp = pusher2._command_executor;
-    pusher2._command_executor = &mock_command_executor;
+    tmp = pusher2._engine;
+    pusher2._engine = &mock_command_executor;
     pusher2._push_req.timeout = now + 100;
     pusher2._push_req.__set_http_file_size(local_file_size);
     EXPECT_CALL(mock_command_executor, push(_, &tablet_infos))
@@ -259,7 +259,7 @@ TEST(PusherTest, TestProcess) {
     ret = pusher2.process(&tablet_infos);
     EXPECT_EQ(PALO_SUCCESS, ret);
 
-    pusher2._command_executor = tmp;
+    pusher2._engine = tmp;
 }
 
 }  // namespace palo

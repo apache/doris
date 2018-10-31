@@ -20,7 +20,6 @@
 
 package com.baidu.palo.planner;
 
-import com.baidu.palo.analysis.AnalyticInfo;
 import com.baidu.palo.analysis.Analyzer;
 import com.baidu.palo.analysis.Expr;
 import com.baidu.palo.analysis.InsertStmt;
@@ -30,23 +29,21 @@ import com.baidu.palo.analysis.SlotDescriptor;
 import com.baidu.palo.analysis.SlotId;
 import com.baidu.palo.analysis.StatementBase;
 import com.baidu.palo.analysis.TupleDescriptor;
-import com.baidu.palo.analysis.TupleId;
 import com.baidu.palo.catalog.PrimitiveType;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.NotImplementedException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.thrift.TExplainLevel;
 import com.baidu.palo.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 
 /**
@@ -73,11 +70,14 @@ public class Planner {
     }
 
     public List<ScanNode> getScanNodes() {
+        if (singleNodePlanner == null) {
+            return Lists.newArrayList();
+        }
         return singleNodePlanner.getScanNodes();
     }
 
     public void plan(StatementBase queryStmt, Analyzer analyzer, TQueryOptions queryOptions)
-            throws NotImplementedException, InternalException, AnalysisException {
+            throws NotImplementedException, UserException, AnalysisException {
         createPlanFragments(queryStmt, analyzer, queryOptions);
     }
 
@@ -129,7 +129,7 @@ public class Planner {
      * a list such that element i of that list can only consume output of the following fragments j > i.
      */
     public void createPlanFragments(StatementBase statment, Analyzer analyzer, TQueryOptions queryOptions)
-            throws NotImplementedException, InternalException, AnalysisException {
+            throws NotImplementedException, UserException, AnalysisException {
         QueryStmt queryStmt;
         if (statment instanceof InsertStmt) {
             queryStmt = ((InsertStmt) statment).getQueryStmt();
@@ -151,7 +151,7 @@ public class Planner {
             }
  
             InsertStmt insertStmt = (InsertStmt) statment;
-            if (insertStmt.getOlapTuple() != null) {
+            if (insertStmt.getOlapTuple() != null && !insertStmt.isStreaming()) {
                 singleNodePlan = new OlapRewriteNode(plannerContext.getNextNodeId(), singleNodePlan, insertStmt);
                 singleNodePlan.init(analyzer);
                 resultExprs = insertStmt.getResultExprs();
@@ -184,9 +184,10 @@ public class Planner {
             InsertStmt insertStmt = (InsertStmt) statment;
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
             rootFragment.setSink(insertStmt.createDataSink());
+            insertStmt.finalize();
             ArrayList<Expr> exprs = ((InsertStmt) statment).getResultExprs();
             List<Expr> resExprs = Expr.substituteList(
-                    exprs, rootFragment.getPlanRoot().getOutputSmap(), analyzer, false);
+                    exprs, rootFragment.getPlanRoot().getOutputSmap(), analyzer, true);
             rootFragment.setOutputExprs(resExprs);
         } else {
             List<Expr> resExprs = Expr.substituteList(queryStmt.getBaseTblResultExprs(),
@@ -218,7 +219,7 @@ public class Planner {
      * returns root unchanged.
      */
     private PlanNode addUnassignedConjuncts(Analyzer analyzer, PlanNode root)
-            throws InternalException {
+            throws UserException {
         Preconditions.checkNotNull(root);
         // List<Expr> conjuncts = analyzer.getUnassignedConjuncts(root.getTupleIds());
 

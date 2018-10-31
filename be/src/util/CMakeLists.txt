@@ -25,6 +25,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/util")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/util")
 
 add_library(Util STATIC
+  arena.cc
   bfd_parser.cpp
   bitmap.cpp
   codec.cpp
@@ -35,6 +36,7 @@ add_library(Util STATIC
   decompress.cpp
   disk_info.cpp
   hash_util.hpp
+  json_util.cpp
   palo_metrics.cpp
   mem_info.cpp
   metrics.cpp
@@ -69,6 +71,7 @@ add_library(Util STATIC
 #  coding_util.cpp
   cidr.cpp
   core_local.cpp
+  uid_util.cpp
 )
 
 #ADD_BE_TEST(integer-array-test)

@@ -65,6 +65,12 @@ namespace config {
     CONF_Int32(push_worker_count_normal_priority, "3");
     // the count of thread to high priority batch load
     CONF_Int32(push_worker_count_high_priority, "3");
+    // the count of thread to publish version
+    CONF_Int32(publish_version_worker_count, "2");
+    // the count of thread to clear alter task
+    CONF_Int32(clear_alter_task_worker_count, "1");
+    // the count of thread to clear transaction task
+    CONF_Int32(clear_transaction_task_worker_count, "1");
     // the count of thread to delete
     CONF_Int32(delete_worker_count, "3");
     // the count of thread to alter table
@@ -209,6 +215,10 @@ namespace config {
     CONF_Int32(default_num_rows_per_data_block, "1024");
     CONF_Int32(default_num_rows_per_column_file_block, "1024");
     CONF_Int32(max_tablet_num_per_shard, "1024");
+    // pending data policy
+    CONF_Int32(pending_data_expire_time_sec, "1800");
+    // incremental delta policy
+    CONF_Int32(incremental_delta_expire_time_sec, "1800");
     // garbage sweep policy
     CONF_Int32(max_garbage_sweep_interval, "86400");
     CONF_Int32(min_garbage_sweep_interval, "200");
@@ -240,7 +250,6 @@ namespace config {
     CONF_Int64(cumulative_compaction_budgeted_bytes, "104857600");
     CONF_Int32(cumulative_compaction_write_mbytes_per_sec, "100");
 
-    CONF_Int32(delete_delta_expire_time, "1440");
     // Port to start debug webserver on
     CONF_Int32(webserver_port, "8040");
     // Interface to start debug webserver on. If blank, webserver binds to 0.0.0.0
@@ -255,6 +264,9 @@ namespace config {
     // Used for mini Load
     CONF_Int64(load_data_reserve_hours, "24");
     CONF_Int64(mini_load_max_mb, "2048");
+    CONF_Int32(number_tablet_writer_threads, "16");
+
+    CONF_Int64(streaming_load_max_mb, "10240");
 
     // Fragment thread pool
     CONF_Int32(fragment_pool_thread_num, "64");
@@ -365,8 +377,17 @@ namespace config {
     // Aligement
     CONF_Int32(FLAGS_MEMORY_MAX_ALIGNMENT, "16");
 
+    // write buffer size before flush
+    CONF_Int32(write_buffer_size, "104857600");
+
+    // update interval of tablet stat cache
+    CONF_Int32(tablet_stat_cache_update_interval_second, "300");
+
     // result buffer cancelled time (unit: second)
     CONF_Int32(result_buffer_cancelled_interval_time, "5");
+
+    // can perform recovering tablet
+    CONF_Bool(force_recovery, "false");
 } // namespace config
 
 } // namespace palo

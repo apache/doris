@@ -958,8 +958,8 @@ void AggregateFunctions::hll_union_parse_and_cal(HllSetResolver& resolver, Strin
         return;
     }    
     if (resolver.get_hll_data_type() == HLL_DATA_EXPLICIT) {
-        for (int i = 0; i < resolver.get_expliclit_count(); i++) {
-            uint64_t hash_value = resolver.get_expliclit_value(i);
+        for (int i = 0; i < resolver.get_explicit_count(); i++) {
+            uint64_t hash_value = resolver.get_explicit_value(i);
             int idx = hash_value % dst->len;
             uint8_t first_one_bit = __builtin_ctzl(hash_value >> HLL_PRECISION) + 1; 
             dst->ptr[idx] = std::max(dst->ptr[idx], first_one_bit);

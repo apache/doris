@@ -21,9 +21,12 @@
 #ifndef BDG_PALO_BE_SRC_UTIL_JSON_UTIL_H
 #define BDG_PALO_BE_SRC_UTIL_JSON_UTIL_H
 
+#include <string>
+
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/document.h>
 
+#include "common/status.h"
 #include "util/pretty_printer.h"
 #include "util/template_util.h"
 
@@ -61,6 +64,7 @@ ToJsonValue(const T& value, const TUnit::type unit, rapidjson::Document* documen
     }
 }
 
+std::string to_json(const Status& status);
 }
 
 #endif

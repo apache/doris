@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.MockedAuth;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
@@ -54,7 +54,7 @@ public class LinkDbStmtTest {
     }
 
     @Test
-    public void testNormal() throws InternalException, AnalysisException {
+    public void testNormal() throws UserException, AnalysisException {
         final ClusterName cn1 = new ClusterName("testCluster1", "testDb1");
         final ClusterName cn2 = new ClusterName("testCluster2", "testDb2");
         final LinkDbStmt stmt = new LinkDbStmt(cn1, cn2);
@@ -65,7 +65,7 @@ public class LinkDbStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testParamError() throws InternalException, AnalysisException {
+    public void testParamError() throws UserException, AnalysisException {
         final ClusterName cn1 = new ClusterName("testCluster1", "");
         final ClusterName cn2 = new ClusterName("testCluster2", "testDb2");
         final LinkDbStmt stmt = new LinkDbStmt(cn1, cn2);

@@ -19,7 +19,12 @@
 #include <map>
 #include <string>
 
+#include <boost/algorithm/string.hpp>
+
+#include "http/http_common.h"
+#include "http/http_headers.h"
 #include "http/http_method.h"
+#include "util/string_util.h"
 
 struct mg_connection;
 struct evhttp_request;
@@ -30,6 +35,9 @@ class HttpHandler;
 
 class HttpRequest {
 public:
+    // Only used for unit test
+    HttpRequest() { }
+    
     HttpRequest(evhttp_request* ev_req);
 
     ~HttpRequest();
@@ -55,7 +63,7 @@ public:
     const std::string& param(const std::string& key) const;
 
     // return params
-    const std::map<std::string, std::string>& headers() {
+    const StringCaseUnorderedMap<std::string>& headers() {
         return _headers;
     }
 
@@ -88,7 +96,8 @@ private:
     HttpMethod _method;
     std::string _uri;
     std::string _raw_path;
-    std::map<std::string, std::string> _headers;
+
+    StringCaseUnorderedMap<std::string> _headers;
     std::map<std::string, std::string> _params;
     std::map<std::string, std::string> _query_params;
 

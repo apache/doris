@@ -185,6 +185,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     print_volume_ids(params.per_node_scan_ranges);
 
     _runtime_state->set_per_fragment_instance_idx(params.sender_id);
+    _runtime_state->set_num_per_fragment_instances(params.num_senders);
+
     // set up sink, if required
     if (request.fragment.__isset.output_sink) {
         RETURN_IF_ERROR(DataSink::create_data_sink(obj_pool(),
@@ -533,14 +535,18 @@ void PlanFragmentExecutor::close() {
         }
 
         if (_sink.get() != NULL) {
-            _sink->close(runtime_state(), _status);
+            if (_prepared) {
+                _sink->close(runtime_state(), _status);
+            } else {
+                _sink->close(runtime_state(), Status("prepare failed"));
+            }
         }
 
         _exec_env->thread_mgr()->unregister_pool(_runtime_state->resource_pool());
 
         {
             std::stringstream ss;
-            profile()->pretty_print(&ss);
+            _runtime_state->runtime_profile()->pretty_print(&ss);
             LOG(INFO) << ss.str();
         }
     }

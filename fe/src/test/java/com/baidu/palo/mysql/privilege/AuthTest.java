@@ -30,7 +30,7 @@ import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.DomainResolver;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.DdlException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.persist.EditLog;
 import com.baidu.palo.persist.PrivInfo;
 import com.baidu.palo.qe.ConnectContext;
@@ -147,7 +147,7 @@ public class AuthTest {
         CreateUserStmt userStmt = new CreateUserStmt(false, userDesc, null);
         try {
             userStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -170,7 +170,7 @@ public class AuthTest {
         userStmt = new CreateUserStmt(false, userDesc, null);
         try {
             userStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -194,7 +194,7 @@ public class AuthTest {
         userStmt = new CreateUserStmt(false, userDesc, null);
         try {
             userStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -214,7 +214,7 @@ public class AuthTest {
         userStmt = new CreateUserStmt(false, userDesc, null);
         try {
             userStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -233,7 +233,7 @@ public class AuthTest {
         userStmt = new CreateUserStmt(false, userDesc, null);
         try {
             userStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -260,7 +260,7 @@ public class AuthTest {
         userStmt = new CreateUserStmt(false, userDesc, null);
         try {
             userStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -280,7 +280,7 @@ public class AuthTest {
         userStmt = new CreateUserStmt(false, userDesc, null);
         try {
             userStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -317,7 +317,7 @@ public class AuthTest {
 
         try {
             grantStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -349,7 +349,7 @@ public class AuthTest {
 
         try {
             grantStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -370,7 +370,7 @@ public class AuthTest {
 
         try {
             grantStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -391,7 +391,7 @@ public class AuthTest {
 
         try {
             grantStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -421,7 +421,7 @@ public class AuthTest {
 
         try {
             grantStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -451,7 +451,7 @@ public class AuthTest {
 
         try {
             grantStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -483,7 +483,7 @@ public class AuthTest {
 
         try {
             grantStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -737,7 +737,7 @@ public class AuthTest {
         hasException = false;
         try {
             roleStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e1) {
+        } catch (UserException e1) {
             e1.printStackTrace();
             hasException = true;
         }
@@ -748,7 +748,7 @@ public class AuthTest {
         hasException = false;
         try {
             roleStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e1) {
+        } catch (UserException e1) {
             e1.printStackTrace();
             hasException = true;
         }
@@ -758,7 +758,7 @@ public class AuthTest {
         roleStmt = new CreateRoleStmt("rolo1");
         try {
             roleStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e1) {
+        } catch (UserException e1) {
             e1.printStackTrace();
             Assert.fail();
         }
@@ -775,7 +775,7 @@ public class AuthTest {
         grantStmt = new GrantStmt(null, "role2", new TablePattern("*", "*"), privileges);
         try {
             grantStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e1) {
+        } catch (UserException e1) {
             e1.printStackTrace();
             Assert.fail();
         }
@@ -792,7 +792,7 @@ public class AuthTest {
         grantStmt = new GrantStmt(null, "role1", new TablePattern("*", "*"), privileges);
         try {
             grantStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e1) {
+        } catch (UserException e1) {
             e1.printStackTrace();
             Assert.fail();
         }
@@ -809,7 +809,7 @@ public class AuthTest {
         userStmt = new CreateUserStmt(false, userDesc, "role1");
         try {
             userStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -832,7 +832,7 @@ public class AuthTest {
         userStmt = new CreateUserStmt(false, userDesc, "role1");
         try {
             userStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -899,7 +899,7 @@ public class AuthTest {
         DropRoleStmt dropRoleStmt = new DropRoleStmt("role1");
         try {
             dropRoleStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }
@@ -918,7 +918,7 @@ public class AuthTest {
         DropUserStmt dropUserStmt = new DropUserStmt(new UserIdentity("cmy", "%"));
         try {
             dropUserStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             e.printStackTrace();
             Assert.fail();
         }

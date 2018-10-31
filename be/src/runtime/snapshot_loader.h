@@ -80,6 +80,7 @@ public:
     Status move(
         const std::string& snapshot_path,
         const std::string& tablet_path,
+        const std::string& store_path,
         int64_t job_id,
         bool overwrite);
 

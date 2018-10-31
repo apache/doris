@@ -23,7 +23,6 @@
 #include "agent/utils.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/Types_types.h"
-#include "olap/command_executor.h"
 #include "olap/olap_define.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
@@ -91,11 +90,13 @@ public:
 private:
     ExecEnv* _exec_env;
     const TMasterInfo& _master_info;
-    CommandExecutor* _command_executor;
 
     TaskWorkerPool* _create_table_workers;
     TaskWorkerPool* _drop_table_workers;
     TaskWorkerPool* _push_workers;
+    TaskWorkerPool* _publish_version_workers;
+    TaskWorkerPool* _clear_alter_task_workers;
+    TaskWorkerPool* _clear_transaction_task_workers;
     TaskWorkerPool* _delete_workers;
     TaskWorkerPool* _alter_table_workers;
     TaskWorkerPool* _clone_workers;
@@ -110,6 +111,7 @@ private:
     TaskWorkerPool* _make_snapshot_workers;
     TaskWorkerPool* _release_snapshot_workers;
     TaskWorkerPool* _move_dir_workers;
+    TaskWorkerPool* _recover_tablet_workers;
 
     DISALLOW_COPY_AND_ASSIGN(AgentServer);
     

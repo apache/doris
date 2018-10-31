@@ -171,7 +171,7 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
             return Status("no match column for this column.");
         }
 
-        if (_src_tuple_desc->slots()[j]->type() != _dest_tuple_desc->slots()[i]->type()) {
+        if (_src_tuple_desc->slots()[j]->type().type != _dest_tuple_desc->slots()[i]->type().type) {
             LOG(WARNING) << "schema not match. input is " << _src_tuple_desc->slots()[j]->type()
                          << " and output is " << _dest_tuple_desc->slots()[i]->type();
             return Status("schema not match.");
@@ -314,6 +314,7 @@ Status SchemaScanNode::close(RuntimeState* state) {
         COUNTER_UPDATE(memory_used_counter(), _tuple_pool->peak_allocated_bytes());
     }
 
+    _tuple_pool.reset();
     return ExecNode::close(state);
 }
 

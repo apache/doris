@@ -21,6 +21,10 @@ import com.baidu.palo.system.SystemInfoService;
 
 import java.util.List;
 
+/*
+ * LoadBalancer run at a fix interval.
+ * Each run will re-calculate the load score of all backends
+ */
 public class LoadBalancer extends Daemon {
 
     private ClusterLoadStatistic clusterLoadStatistic;

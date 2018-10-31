@@ -19,7 +19,7 @@ import com.baidu.palo.analysis.BrokerDesc;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.common.Config;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.Status;
 import com.baidu.palo.load.BrokerFileGroup;
 import com.baidu.palo.qe.Coordinator;
@@ -88,7 +88,7 @@ public class PullLoadTask {
         this.execMemLimit = execMemLimit;
     }
 
-    public void init(List<List<TBrokerFileStatus>> fileStatusList, int fileNum) throws InternalException {
+    public void init(List<List<TBrokerFileStatus>> fileStatusList, int fileNum) throws UserException {
         planner = new PullLoadTaskPlanner(this);
         planner.plan(fileStatusList, fileNum);
     }
@@ -192,10 +192,10 @@ public class PullLoadTask {
         }
     }
 
-    public void executeOnce() throws InternalException {
+    public void executeOnce() throws UserException {
         synchronized (this) {
             if (curThread != null) {
-                throw new InternalException("Task already executing.");
+                throw new UserException("Task already executing.");
             }
             curThread = Thread.currentThread();
             executeState = State.RUNNING;
@@ -217,7 +217,7 @@ public class PullLoadTask {
                      .registerQuery(executeId, curCoordinator);
             actualExecute();
             needUnregister = true;
-        } catch (InternalException e) {
+        } catch (UserException e) {
             onFailed(executeId, new Status(TStatusCode.INTERNAL_ERROR, e.getMessage()));
         } finally {
             if (needUnregister) {

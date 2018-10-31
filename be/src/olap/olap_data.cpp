@@ -28,7 +28,7 @@
 // #include <ul_string.h>
 
 #include "olap/olap_engine.h"
-#include "olap/olap_index.h"
+#include "olap/rowset.h"
 #include "olap/olap_table.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
@@ -46,7 +46,7 @@ using std::vector;
 
 namespace palo {
 
-OLAPData::OLAPData(OLAPIndex* index) :
+OLAPData::OLAPData(Rowset* index) :
         IData(OLAP_DATA_FILE, index),
         _olap_table(NULL),
         _is_pickled(true),
@@ -96,7 +96,7 @@ OLAPStatus OLAPData::get_first_row_block(RowBlock** row_block,
         set_eof(true);
         return res;
     } else if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("Fail to find first row block with OLAPIndex.");
+        OLAP_LOG_WARNING("Fail to find first row block with Rowset.");
         return res;
     }
 
@@ -135,7 +135,7 @@ OLAPStatus OLAPData::get_next_row_block(RowBlock** row_block,
     RowBlockPosition row_block_pos = _row_block_broker->position();
     res = olap_index()->find_next_row_block(&row_block_pos, eof_ptr());
     if (eof()) {
-        OLAP_LOG_DEBUG("Got EOF from OLAPIndex. [segment=%d, data_offset=%d]",
+        OLAP_LOG_DEBUG("Got EOF from Rowset. [segment=%d, data_offset=%d]",
                        row_block_pos.segment,
                        row_block_pos.data_offset);
         // 当到达eof的时候不需要把结果带出来
@@ -241,11 +241,11 @@ const RowCursor* OLAPData::get_first_row() {
         set_eof(true);
         return NULL;
     } else if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("Fail to find first row block with OLAPIndex.");
+        OLAP_LOG_WARNING("Fail to find first row block with Rowset.");
         return NULL;
     }
 
-    OLAP_LOG_DEBUG("RowBlockPosition='%s'", row_block_pos.to_string().c_str());
+    VLOG(3) << "RowBlockPosition='" << row_block_pos.to_string() << "'";
 
     if ((res = _row_block_broker->change_to(row_block_pos)) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("Fail to get row block. "
@@ -429,7 +429,7 @@ const RowCursor* OLAPData::find_row(const RowCursor& key, bool find_last_key, bo
         return row_cursor;
     } else if (eof || data_eof) {
         // 此处找不到，是由于设置了end_key，超找超过了end_key对应行
-        OLAP_LOG_TRACE("key can't be found, Search over end_key![key=%s]", key.to_string().c_str());
+        VLOG(3) << "key can't be found, Search over end_key![key=" << key.to_string() << "]";
         set_eof(true);
         return NULL;
     } else {
@@ -551,13 +551,11 @@ OLAPStatus OLAPData::add_segment() {
     data_header->set_segment(_write_descriptor->segment);
 
     // file for new segment
-    file_name = _olap_table->construct_data_file_path(olap_index()->version(),
-                                                      olap_index()->version_hash(),
-                                                      _write_descriptor->segment);
+    file_name = olap_index()->construct_data_file_path(olap_index()->rowset_id(), _write_descriptor->segment);
     res = _write_descriptor->file_handle.open_with_mode(
             file_name, O_CREAT | O_EXCL | O_WRONLY , S_IRUSR | S_IWUSR);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("Fail to open file. [file_name=%s]", file_name.c_str());
+        LOG(WARNING) << "Fail to open file. [file_name=" << file_name << "]";
         goto ADD_SEGMENT_ERR;
     }
 
@@ -796,7 +794,7 @@ void OLAPData::_check_io_error(OLAPStatus res) {
 }
 
 OLAPData::RowBlockBroker::RowBlockBroker(
-        OLAPTable* olap_table, OLAPIndex* olap_index, RuntimeState* runtime_state) :
+        OLAPTable* olap_table, Rowset* olap_index, RuntimeState* runtime_state) :
         _file_handler(),
         _row_block_pos(),
         _read_buffer(NULL),
@@ -888,7 +886,7 @@ const RowCursor* OLAPData::RowBlockBroker::find_row(const RowCursor& key,
                                                     bool find_last_key,
                                                     bool* end_of_row_block) {
     if (_row_block->find_row(key, find_last_key, &_row_index) != OLAP_SUCCESS) {
-        OLAP_LOG_TRACE("fail to find row from row block. [key='%s']", key.to_string().c_str());
+        VLOG(3) << "fail to find row from row block. [key='" << key.to_string() << "']";
         return NULL;
     }
 
@@ -1009,12 +1007,10 @@ OLAPStatus OLAPData::RowBlockBroker::_get_row_block(const RowBlockPosition& row_
         }
     }
 
-    file_name = _olap_table->construct_data_file_path(_olap_index->version(),
-                                                      _olap_index->version_hash(),
-                                                      row_block_pos.segment);
+    file_name = _olap_index->construct_data_file_path(_olap_index->rowset_id(), row_block_pos.segment);
 
     if ((res = _file_handler.open_with_cache(file_name, O_RDONLY)) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to open file. [file_name=%s]", file_name.c_str());
+        LOG(WARNING) << "fail to open file. [file_name=" << file_name << "]";
         goto GET_ROW_BLOCK_ERROR;
     }
     

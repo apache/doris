@@ -173,6 +173,15 @@ set_target_properties(leveldb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(brpc STATIC IMPORTED)
 set_target_properties(brpc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbrpc.a)
 
+add_library(rocksdb STATIC IMPORTED)
+set_target_properties(rocksdb PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/librocksdb.a)
+
+add_library(librdkafka STATIC IMPORTED)
+set_target_properties(librdkafka PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/librdkafka.a)
+
+add_library(librdkafka_cpp STATIC IMPORTED)
+set_target_properties(librdkafka_cpp PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/librdkafka++.a)
+
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
 # llvm-config
@@ -430,7 +439,7 @@ include_directories(
 set(WL_START_GROUP "-Wl,--start-group")
 set(WL_END_GROUP "-Wl,--end-group")
 
-# Set doris libraries
+# Set Palo libraries
 set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
     Agent
@@ -447,11 +456,15 @@ set(DORIS_LINK_LIBS
     PaloGen
     Webserver
     TestUtil
+    AES
     ${WL_END_GROUP}
 )
 
 # Set thirdparty libraries
 set(DORIS_DEPENDENCIES
+    rocksdb
+    librdkafka
+    librdkafka_cpp
     lzo
     snappy
     ${Boost_LIBRARIES}
@@ -477,7 +490,7 @@ set(DORIS_DEPENDENCIES
     leveldb
 )
 
-# Add all external dependencies. They should come after the doris libs.
+# Add all external dependencies. They should come after the palo libs.
 # static link gcc's lib
 set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     ${DORIS_DEPENDENCIES}
@@ -542,6 +555,8 @@ add_subdirectory(${SRC_DIR}/exprs)
 add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/testutil)
+add_subdirectory(${SRC_DIR}/aes)
+add_subdirectory(${SRC_DIR}/tools)
 
 # Utility CMake function to make specifying tests and benchmarks less verbose
 FUNCTION(ADD_BE_TEST TEST_NAME)

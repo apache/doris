@@ -27,7 +27,7 @@ import java.util.Map;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.View;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -72,7 +72,7 @@ public class WithClause implements ParseNode {
      * TableRefs to simplify the analysis of view references.
      */
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         // Create a new analyzer for the WITH clause with a new global state (IMPALA-1357)
         // but a child of 'analyzer' so that the global state for 'analyzer' is not polluted
         // during analysis of the WITH clause. withClauseAnalyzer is a child of 'analyzer' so

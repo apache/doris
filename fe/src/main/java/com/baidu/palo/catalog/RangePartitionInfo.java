@@ -170,10 +170,12 @@ public class RangePartitionInfo extends PartitionInfo {
         }
     }
 
-    public void handleNewSinglePartitionDesc(SingleRangePartitionDesc desc, long partitionId) throws DdlException {
+    public Range<PartitionKey> handleNewSinglePartitionDesc(SingleRangePartitionDesc desc, 
+            long partitionId) throws DdlException {
         Preconditions.checkArgument(desc.isAnalyzed());
+        Range<PartitionKey> range = null;
         try {
-            Range<PartitionKey> range = checkAndCreateRange(desc);
+            range = checkAndCreateRange(desc);
             idToRange.put(partitionId, range);
         } catch (IllegalArgumentException e) {
             // Range.closedOpen may throw this if (lower > upper)
@@ -181,6 +183,7 @@ public class RangePartitionInfo extends PartitionInfo {
         }
         idToDataProperty.put(partitionId, desc.getPartitionDataProperty());
         idToReplicationNum.put(partitionId, desc.getReplicationNum());
+        return range;
     }
 
     // for catalog restore

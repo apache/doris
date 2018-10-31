@@ -221,7 +221,7 @@ void LRUCache::_lru_append(LRUHandle* list, LRUHandle* e) {
 }
 
 Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
-    AutoMutexLock l(&_mutex);
+    MutexLock l(&_mutex);
     ++_lookup_count;
     LRUHandle* e = _table.lookup(key, hash);
 
@@ -234,14 +234,14 @@ Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
 }
 
 void LRUCache::release(Cache::Handle* handle) {
-    AutoMutexLock l(&_mutex);
+    MutexLock l(&_mutex);
     _unref(reinterpret_cast<LRUHandle*>(handle));
 }
 
 Cache::Handle* LRUCache::insert(
         const CacheKey& key, uint32_t hash, void* value, size_t charge,
         void (*deleter)(const CacheKey& key, void* value)) {
-    AutoMutexLock l(&_mutex);
+    MutexLock l(&_mutex);
 
     LRUHandle* e = reinterpret_cast<LRUHandle*>(
             malloc(sizeof(LRUHandle)-1 + key.size()));
@@ -288,12 +288,12 @@ bool LRUCache::_finish_erase(LRUHandle* e) {
 }
 
 void LRUCache::erase(const CacheKey& key, uint32_t hash) {
-    AutoMutexLock l(&_mutex);
+    MutexLock l(&_mutex);
     _finish_erase(_table.remove(key, hash));
 }
 
 int LRUCache::prune() {
-    AutoMutexLock l(&_mutex);
+    MutexLock l(&_mutex);
     int num_prune = 0;
     while (_lru.next != &_lru) {
         LRUHandle* e = _lru.next;
@@ -353,7 +353,7 @@ void* ShardedLRUCache::value(Handle* handle) {
 }
 
 uint64_t ShardedLRUCache::new_id() {
-    AutoMutexLock l(&_id_mutex);
+    MutexLock l(&_id_mutex);
     return ++(_last_id);
 }
 

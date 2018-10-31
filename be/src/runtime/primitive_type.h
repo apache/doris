@@ -215,6 +215,13 @@ inline int get_slot_size(PrimitiveType type) {
     return 0;
 }
 
+inline bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs) {
+    if (lhs == TYPE_CHAR || lhs == TYPE_VARCHAR || lhs == TYPE_HLL) {
+        return rhs == TYPE_CHAR || rhs == TYPE_VARCHAR || rhs == TYPE_HLL;
+    }
+    return lhs == rhs;
+}
+
 TExprOpcode::type to_in_opcode(PrimitiveType t);
 PrimitiveType thrift_to_type(TPrimitiveType::type ttype);
 TPrimitiveType::type to_thrift(PrimitiveType ptype);

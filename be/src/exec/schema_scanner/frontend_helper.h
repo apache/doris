@@ -58,6 +58,12 @@ public:
             TShowVariableResult *var_result);
 
     static std::string extract_db_name(const std::string& full_name);
+
+    static Status rpc(
+        const std::string& ip,
+        const int32_t port,
+        std::function<void (FrontendServiceConnection&)> callback,
+        int timeout_ms = 5000);
 private:
     static ExecEnv* _s_exec_env;
 };

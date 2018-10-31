@@ -41,6 +41,10 @@ import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/*
+ * save all load statistic of backends.
+ * Statistics will be re-calculated at a fix interval.
+ */
 public class ClusterLoadStatistic {
     private static final Logger LOG = LogManager.getLogger(ClusterLoadStatistic.class);
 

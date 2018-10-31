@@ -68,6 +68,8 @@ public:
 
     // calc md5sum of a local file
     static Status md5sum(const std::string& file, std::string* md5sum);
+
+    static bool check_exist(const std::string& path);
 };
 
 }

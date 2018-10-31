@@ -90,6 +90,7 @@ const std::string LABEL_KEY = "label";
 const std::string SUB_LABEL_KEY = "sub_label";
 const std::string FILE_PATH_KEY = "file_path";
 const char* k_100_continue = "100-continue";
+const int64_t THRIFT_RPC_TIMEOUT_MS = 3000; // 3 sec
 
 MiniLoadAction::MiniLoadAction(ExecEnv* exec_env) :
         _exec_env(exec_env) {
@@ -100,7 +101,7 @@ static bool is_name_valid(const std::string& name) {
 }
 
 static Status check_request(HttpRequest* req) {
-    std::map<std::string, std::string>& params = *req->params();
+    auto& params = *req->params();
 
     // check params
     if (!is_name_valid(params[DB_KEY])) {
@@ -151,7 +152,7 @@ Status MiniLoadAction::_load(
     const TNetworkAddress& master_address = _exec_env->master_info()->network_address;
     Status status;
     FrontendServiceConnection client(
-            _exec_env->frontend_client_cache(), master_address, 500, &status);
+            _exec_env->frontend_client_cache(), master_address, THRIFT_RPC_TIMEOUT_MS, &status);
     if (!status.ok()) {
         std::stringstream ss;
         ss << "Connect master failed, with address("
@@ -189,12 +190,32 @@ Status MiniLoadAction::_load(
             LOG(WARNING) << "Retrying mini load from master("
                     << master_address.hostname << ":" << master_address.port
                     << ") because: " << e.what();
-            status = client.reopen(500);
+            status = client.reopen(THRIFT_RPC_TIMEOUT_MS);
             if (!status.ok()) {
                 LOG(WARNING) << "Client repoen failed. with address("
                     << master_address.hostname << ":" << master_address.port << ")";
                 return status;
             }
+            // we may get timeout exception and the load job may already be summitted.
+            // set this request as 'retry', and Frontend will return success if job has been
+            // summitted.
+            req.__set_is_retry(true);
+            client->miniLoad(res, req);
+        } catch (apache::thrift::TApplicationException& e) {
+            LOG(WARNING) << "mini load request from master("
+                    << master_address.hostname << ":" << master_address.port
+                    << ") got unknown result: " << e.what();
+
+            status = client.reopen(THRIFT_RPC_TIMEOUT_MS);
+            if (!status.ok()) {
+                LOG(WARNING) << "Client repoen failed. with address("
+                    << master_address.hostname << ":" << master_address.port << ")";
+                return status;
+            }
+            // we may get timeout exception and the load job may already be summitted.
+            // set this request as 'retry', and Frontend will return success if job has been
+            // summitted.
+            req.__set_is_retry(true);
             client->miniLoad(res, req);
         }
     } catch (apache::thrift::TException& e) {
@@ -210,7 +231,7 @@ Status MiniLoadAction::_load(
     return Status(res.status);
 }
 
-static bool parse_auth(const std::string& auth, std::string* user, 
+static bool parse_auth(const std::string& auth, std::string* user,
                            std::string* passwd, std::string* cluster) {
     std::string decoded_auth;
 
@@ -238,7 +259,7 @@ Status MiniLoadAction::check_auth(
     const TNetworkAddress& master_address = _exec_env->master_info()->network_address;
     Status status;
     FrontendServiceConnection client(
-            _exec_env->frontend_client_cache(), master_address, 500, &status);
+            _exec_env->frontend_client_cache(), master_address, THRIFT_RPC_TIMEOUT_MS, &status);
     if (!status.ok()) {
         std::stringstream ss;
         ss << "Connect master failed, with address("
@@ -255,7 +276,19 @@ Status MiniLoadAction::check_auth(
             LOG(WARNING) << "Retrying mini load from master("
                     << master_address.hostname << ":" << master_address.port
                     << ") because: " << e.what();
-            status = client.reopen(500);
+            status = client.reopen(THRIFT_RPC_TIMEOUT_MS);
+            if (!status.ok()) {
+                LOG(WARNING) << "Client repoen failed. with address("
+                    << master_address.hostname << ":" << master_address.port << ")";
+                return status;
+            }
+            client->loadCheck(res, check_load_req);
+        } catch (apache::thrift::TApplicationException& e) {
+            LOG(WARNING) << "load check request from master("
+                    << master_address.hostname << ":" << master_address.port
+                    << ") got unknown result: " << e.what();
+
+            status = client.reopen(THRIFT_RPC_TIMEOUT_MS);
             if (!status.ok()) {
                 LOG(WARNING) << "Client repoen failed. with address("
                     << master_address.hostname << ":" << master_address.port << ")";
@@ -409,15 +442,19 @@ void MiniLoadAction::handle(HttpRequest *http_req) {
     }
     auto st = _load(
         http_req, ctx->file_path, ctx->load_check_req.user, ctx->load_check_req.cluster);
+
+    std::string status_str = "Success";
+    std::string msg = "OK";
     if (!st.ok()) {
-        HttpChannel::send_reply(http_req, HttpStatus::INTERNAL_SERVER_ERROR, st.get_error_msg());
-        return;
+        // we do not send 500 reply to client, send 200 with error msg
+        status_str = "FAILED";
+        msg = st.get_error_msg();
     }
 
     std::stringstream ss;
     ss << "{\n";
-    ss << "\t\"status\": \"Success\",\n";
-    ss << "\t\"msg\": \"OK\"\n";
+    ss << "\t\"status\": \"" << status_str << "\",\n";
+    ss << "\t\"msg\": \"" << msg << "\"\n";
     ss << "}\n";
     std::string str = ss.str();
     HttpChannel::send_reply(http_req, str);

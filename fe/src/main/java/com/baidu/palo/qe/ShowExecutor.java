@@ -15,6 +15,8 @@
 
 package com.baidu.palo.qe;
 
+import com.baidu.palo.analysis.AdminShowReplicaDistributionStmt;
+import com.baidu.palo.analysis.AdminShowReplicaStatusStmt;
 import com.baidu.palo.analysis.DescribeStmt;
 import com.baidu.palo.analysis.HelpStmt;
 import com.baidu.palo.analysis.ShowAlterStmt;
@@ -59,6 +61,7 @@ import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.MaterializedIndex;
+import com.baidu.palo.catalog.MetadataViewer;
 import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.catalog.Partition;
 import com.baidu.palo.catalog.Table;
@@ -69,6 +72,7 @@ import com.baidu.palo.cluster.BaseParam;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.CaseSensibility;
+import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.PatternMatcher;
@@ -95,6 +99,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.lang.annotation.AnnotationFormatError;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -187,6 +192,10 @@ public class ShowExecutor {
             handleShowGrants();
         } else if (stmt instanceof ShowRolesStmt) {
             handleShowRoles();
+        } else if (stmt instanceof AdminShowReplicaStatusStmt) {
+            handleAdminShowTabletStatus();
+        } else if (stmt instanceof AdminShowReplicaDistributionStmt) {
+            handleAdminShowTabletDistribution();
         } else {
             handleEmtpy();
         }
@@ -658,9 +667,13 @@ public class ShowExecutor {
         String label = null;
         if (showWarningsStmt.isFindByLabel()) {
             label = showWarningsStmt.getLabel();
-            job = load.getLatestJobIdByLabel(dbId, showWarningsStmt.getLabel());
+            jobId = load.getLatestJobIdByLabel(dbId, showWarningsStmt.getLabel());
+            job = load.getLoadJob(jobId);
+            if (job == null) {
+                throw new AnalysisException("job is not exist.");
+            }
         } else {
-            LOG.info("load_job_id={}", jobId);
+            LOG.debug("load_job_id={}", jobId);
             jobId = showWarningsStmt.getJobId();
             job = load.getLoadJob(jobId);
             if (job == null) {
@@ -1039,6 +1052,28 @@ public class ShowExecutor {
         ShowRolesStmt showStmt = (ShowRolesStmt) stmt;
         List<List<String>> infos = Catalog.getCurrentCatalog().getAuth().getRoleInfo();
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
+    }
+
+    private void handleAdminShowTabletStatus() {
+        AdminShowReplicaStatusStmt showStmt = (AdminShowReplicaStatusStmt) stmt;
+        List<List<String>> results;
+        try {
+            results = MetadataViewer.getTabletStatus(showStmt);
+        } catch (DdlException e) {
+            throw new AnnotationFormatError(e.getMessage());
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+    }
+
+    private void handleAdminShowTabletDistribution() {
+        AdminShowReplicaDistributionStmt showStmt = (AdminShowReplicaDistributionStmt) stmt;
+        List<List<String>> results;
+        try {
+            results = MetadataViewer.getTabletDistribution(showStmt);
+        } catch (DdlException e) {
+            throw new AnnotationFormatError(e.getMessage());
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 
 }

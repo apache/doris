@@ -165,7 +165,7 @@ Status NewPartitionedAggregationNode::init(const TPlanNode& tnode, RuntimeState*
   // Construct build exprs from intermediate_row_desc_
   for (int i = 0; i < grouping_exprs_.size(); ++i) {
     SlotDescriptor* desc = intermediate_tuple_desc_->slots()[i];
-    DCHECK(desc->type().type == TYPE_NULL || desc->type() == grouping_exprs_[i]->type());
+    //DCHECK(desc->type().type == TYPE_NULL || desc->type() == grouping_exprs_[i]->type());
     // Hack to avoid TYPE_NULL SlotRefs.
     SlotRef* build_expr = _pool->add(desc->type().type != TYPE_NULL ?
         new SlotRef(desc) : new SlotRef(desc, TYPE_BOOLEAN));
@@ -229,7 +229,7 @@ Status NewPartitionedAggregationNode::prepare(RuntimeState* state) {
   const RowDescriptor& row_desc = child(0)->row_desc();
   RETURN_IF_ERROR(NewAggFnEvaluator::Create(agg_fns_, state, _pool, agg_fn_pool_.get(),
       &agg_fn_evals_, expr_mem_tracker(), row_desc));
- 
+  
   expr_results_pool_.reset(new MemPool(_expr_mem_tracker.get()));
   if (!grouping_exprs_.empty()) {
     RowDescriptor build_row_desc(intermediate_tuple_desc_, false);
@@ -695,7 +695,7 @@ Status NewPartitionedAggregationNode::close(RuntimeState* state) {
 
   // Close all the agg-fn-evaluators
   NewAggFnEvaluator::Close(agg_fn_evals_, state);
-  
+
   if (expr_results_pool_.get() != nullptr) {
       expr_results_pool_->free_all();
   }

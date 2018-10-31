@@ -24,7 +24,7 @@ import com.baidu.palo.analysis.ParseNode;
 import com.baidu.palo.analysis.QueryStmt;
 import com.baidu.palo.analysis.SqlParser;
 import com.baidu.palo.analysis.SqlScanner;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.io.Text;
 
 import com.google.common.collect.Lists;
@@ -123,7 +123,7 @@ public class View extends Table {
      * Throws a TableLoadingException if there was any error parsing the
      * the SQL or if the view definition did not parse into a QueryStmt.
      */
-    public void init() throws InternalException {
+    public void init() throws UserException {
         // Parse the expanded view definition SQL-string into a QueryStmt and
         // populate a view definition.
         SqlScanner input = new SqlScanner(new StringReader(inlineViewDef));
@@ -137,12 +137,12 @@ public class View extends Table {
             LOG.info("msg is {}", inlineViewDef);
             // Do not pass e as the exception cause because it might reveal the existence
             // of tables that the user triggering this load may not have privileges on.
-            throw new InternalException(
+            throw new UserException(
                     String.format("Failed to parse view-definition statement of view: %s", name));
         }
         // Make sure the view definition parses to a query statement.
         if (!(node instanceof QueryStmt)) {
-            throw new InternalException(String.format("View definition of %s " +
+            throw new UserException(String.format("View definition of %s " +
                     "is not a query statement", name));
         }
         queryStmt = (QueryStmt) node;

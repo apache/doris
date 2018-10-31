@@ -38,9 +38,10 @@ public class FrontendOptions {
     private static String PRIORITY_CIDR_SEPARATOR = ";";
 
     private static List<CIDR> priorityCidrs = Lists.newArrayList();
-    private static InetAddress localAddr;
+    private static InetAddress localAddr = InetAddress.getLoopbackAddress();
 
     public static void init() throws UnknownHostException {
+        localAddr = null;
         if (!Config.frontend_address.equals("0.0.0.0")) {
             if (!InetAddressValidator.getInstance().isValidInet4Address(Config.frontend_address)) {
                 throw new UnknownHostException("invalid frontend_address: " + Config.frontend_address);

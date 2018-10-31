@@ -23,7 +23,7 @@ package com.baidu.palo.analysis;
 import com.baidu.palo.analysis.BinaryPredicate.Operator;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 import org.easymock.EasyMock;
 import org.junit.Assert;
@@ -59,7 +59,7 @@ public class ShowAlterStmtTest {
     }
 
     @Test
-    public void testNormal() throws InternalException, AnalysisException {
+    public void testNormal() throws UserException, AnalysisException {
         ShowLoadStmt stmt = new ShowLoadStmt(null, null, null, null);
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW LOAD FROM `testDb`", stmt.toString());
@@ -79,7 +79,7 @@ public class ShowAlterStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoDb() throws InternalException, AnalysisException {
+    public void testNoDb() throws UserException, AnalysisException {
         analyzer = EasyMock.createMock(Analyzer.class);
         EasyMock.expect(analyzer.getDefaultDb()).andReturn("").anyTimes();
         EasyMock.expect(analyzer.getClusterName()).andReturn("testCluster").anyTimes();

@@ -30,10 +30,11 @@
 // #include <gutil/strings/substitute.h>
 // #include <gutil/strings/join.h>
 
-#include "olap/olap_rootpath.h"
+#include "olap/olap_engine.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/filesystem_util.h"
+#include "runtime/exec_env.h"
 
 using boost::algorithm::is_any_of;
 using boost::algorithm::join;
@@ -55,16 +56,16 @@ const uint64_t _s_available_space_threshold_mb = 1024;
 const std::string TMP_FILE_MGR_ACTIVE_SCRATCH_DIRS = "tmp_file_mgr.active_scratch_dirs";
 const std::string TMP_FILE_MGR_ACTIVE_SCRATCH_DIRS_LIST = "tmp_file_mgr.active_scratch_dirs.list";
 
-TmpFileMgr::TmpFileMgr() :
-        _initialized(false), _dir_status_lock(), _tmp_dirs() { }
+TmpFileMgr::TmpFileMgr(ExecEnv* exec_env) :
+        _exec_env(exec_env), _initialized(false), _dir_status_lock(), _tmp_dirs() { }
         // _num_active_scratch_dirs_metric(NULL), _active_scratch_dirs_metric(NULL) {}
 
 Status TmpFileMgr::init(MetricRegistry* metrics) {
     std::string tmp_dirs_spec = config::storage_root_path;
     vector<string> all_tmp_dirs;
-
-    // we already paser the config::storage_root_path in OLAPRootPath, use it.
-    OLAPRootPath::get_instance()->get_all_available_root_path(&all_tmp_dirs);
+    for (auto& path : _exec_env->store_paths()) {
+        all_tmp_dirs.emplace_back(path.path);
+    }
     return init_custom(all_tmp_dirs, true, metrics);
 }
 

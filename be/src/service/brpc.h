@@ -53,3 +53,4 @@
 #include <butil/macros.h>
 #include <brpc/controller.h>
 #include <brpc/server.h>
+#include <brpc/closure_guard.h>

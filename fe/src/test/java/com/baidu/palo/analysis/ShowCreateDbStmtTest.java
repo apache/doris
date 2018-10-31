@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.MockedAuth;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
@@ -51,7 +51,7 @@ public class ShowCreateDbStmtTest {
     }
 
     @Test
-    public void testNormal() throws AnalysisException, InternalException {
+    public void testNormal() throws AnalysisException, UserException {
         ShowCreateDbStmt stmt = new ShowCreateDbStmt("testDb");
         stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(true));
         Assert.assertEquals("testCluster:testDb", stmt.getDb());
@@ -60,7 +60,7 @@ public class ShowCreateDbStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testEmptyDb() throws AnalysisException, InternalException {
+    public void testEmptyDb() throws AnalysisException, UserException {
         ShowCreateDbStmt stmt = new ShowCreateDbStmt("");
         stmt.analyze(AccessTestUtil.fetchAdminAnalyzer(false));
         Assert.fail("No exception throws.");

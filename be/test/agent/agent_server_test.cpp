@@ -34,9 +34,10 @@ TEST(SubmitTasksTest, TestSubmitTasks){
     TAgentResult return_value;
     vector<TAgentTaskRequest> tasks;
     
+    ExecEnv env;
     TMasterInfo master_info;
     TNetworkAddress network_address;
-    AgentServer agent_server(NULL, master_info);
+    AgentServer agent_server(&env, master_info);
     
     // Master info not init
     agent_server.submit_tasks(return_value, tasks);
@@ -114,9 +115,10 @@ TEST(MakeSnapshotTest, TestMakeSnapshot) {
     string snapshot_path;
     TMasterInfo master_info;
 
+    ExecEnv env;
     CommandExecutor* tmp;    
     MockCommandExecutor mock_command_executor;
-    AgentServer agent_server(NULL, master_info);
+    AgentServer agent_server(&env, master_info);
     tmp = agent_server._command_executor;
     agent_server._command_executor = &mock_command_executor;
 
@@ -146,7 +148,8 @@ TEST(ReleaseSnapshotTest, TestReleaseSnapshot) {
 
     CommandExecutor* tmp;    
     MockCommandExecutor mock_command_executor;
-    AgentServer agent_server(NULL, master_info);
+    ExecEnv env;
+    AgentServer agent_server(&env, master_info);
     tmp = agent_server._command_executor;
     agent_server._command_executor = &mock_command_executor;
 

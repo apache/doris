@@ -841,12 +841,6 @@ TEST_F(TestRunLengthSignInteger, DirectEncodingForDeltaOverflows2) {
 }
 
 int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    palo::init_glog("be-test");
     int ret = palo::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
     ret = RUN_ALL_TESTS();

@@ -139,11 +139,6 @@ RAPIDJSON_DOWNLOAD="https://github.com/miloyip/rapidjson/archive/v1.1.0.tar.gz"
 RAPIDJSON_NAME=rapidjson-1.1.0.tar.gz
 RAPIDJSON_SOURCE=rapidjson-1.1.0
 
-# ncurses
-NCURSES_DOWNLOAD="https://ftp.gnu.org/gnu/ncurses/ncurses-6.0.tar.gz"
-NCURSES_NAME=ncurses-6.0.tar.gz
-NCURSES_SOURCE=ncurses-6.0
-
 # curl
 CURL_DOWNLOAD="https://curl.haxx.se/download/curl-7.54.0.tar.gz"
 CURL_NAME=curl-7.54.0.tar.gz
@@ -184,10 +179,15 @@ JDK_DOWNLOAD="http://mirror.cnop.net/jdk/linux/jdk-8u131-linux-x64.tar.gz"
 JDK_NAME=jdk-8u131-linux-x64.tar.gz
 JDK_SOURCE=jdk1.8.0_131
 
-# ant
-ANT_DOWNLOAD="https://archive.apache.org/dist/ant/binaries/apache-ant-1.7.0-bin.tar.gz"
-ANT_NAME=apache-ant-1.7.0-bin.tar.gz
-ANT_SOURCE=apache-ant-1.7.0
+# rocksdb
+ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
+ROCKSDB_NAME=rocksdb-5.14.2.tar.gz
+ROCKSDB_SOURCE=rocksdb-5.14.2
+
+# librdkafka
+LIBRDKAFKA_DOWNLOAD="https://github.com/edenhill/librdkafka/archive/v0.11.6-RC5.tar.gz"
+LIBRDKAFKA_NAME=librdkafka-0.11.6-RC5.tar.gz
+LIBRDKAFKA_SOURCE=librdkafka-0.11.6-RC5
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
-export TP_ARCHIVES="LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 NCURSES CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL LEVELDB BRPC JDK ANT"
+export TP_ARCHIVES="LIBEVENT OPENSSL THRIFT LLVM CLANG COMPILER_RT PROTOBUF GFLAGS GLOG GTEST RAPIDJSON SNAPPY GPERFTOOLS ZLIB LZ4 BZIP LZO2 CURL RE2 BOOST MYSQL BOOST_FOR_MYSQL LEVELDB BRPC JDK ROCKSDB LIBRDKAFKA"

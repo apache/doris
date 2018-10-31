@@ -28,6 +28,8 @@
 
 namespace palo {
 
+class Rowset;
+
 class CumulativeCompaction {
 public:
     CumulativeCompaction() :
@@ -50,7 +52,7 @@ public:
     // 返回值：
     // - 如果触发cumulative compaction，返回OLAP_SUCCESS
     // - 否则，返回对应错误码
-    OLAPStatus init(SmartOLAPTable table);
+    OLAPStatus init(OLAPTablePtr table);
 
     // 执行cumulative compaction
     //
@@ -60,12 +62,6 @@ public:
     OLAPStatus run();
     
 private:
-    // 检查是否满足cumulative compaction触发策略
-    //
-    // 返回值：
-    // - 如果满足，返回OLAP_SUCCESS
-    // - 如果不满足，返回OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS
-    OLAPStatus _check_whether_satisfy_policy();
 
     // 计算可以合并的delta文件，以及新的cumulative层标识点
     //
@@ -112,13 +108,13 @@ private:
     // 返回值：
     // - 如果成功，返回OLAP_SUCCESS
     // - 如果不成功，返回相应错误码
-    OLAPStatus _update_header(std::vector<OLAPIndex*>* unused_indices);
+    OLAPStatus _update_header(std::vector<Rowset*>* unused_indices);
 
     // 删除不再使用的delta文件
     //
     // 输入输出参数
     // - unused_indices: 待删除的不再使用的delta文件对应的olap index
-    void _delete_unused_delta_files(std::vector<OLAPIndex*>* unused_indices);
+    void _delete_unused_delta_files(std::vector<Rowset*>* unused_indices);
 
     // 验证得到的m_need_merged_versions是否正确
     //
@@ -135,7 +131,7 @@ private:
     OLAPStatus _validate_delete_file_action();
 
     // 恢复header头文件的文件版本和table的data source
-    OLAPStatus _roll_back(const std::vector<OLAPIndex*>& old_olap_indices);
+    OLAPStatus _roll_back(const std::vector<Rowset*>& old_olap_indices);
 
     void _obtain_header_rdlock() {
         _table->obtain_header_rdlock();
@@ -166,13 +162,13 @@ private:
     // 当delta文件的大小超过该值时，我们认为该delta文件是cumulative文件
     size_t _max_delta_file_size;
     // 待执行cumulative compaction的olap table
-    SmartOLAPTable _table;
+    OLAPTablePtr _table;
     // 新cumulative文件的版本
     Version _cumulative_version;
     // 新cumulative文件的version hash
     VersionHash _cumulative_version_hash;
     // 新cumulative文件对应的olap index
-    OLAPIndex* _new_cumulative_index;
+    Rowset* _new_cumulative_index;
     // 可合并的delta文件的data文件
     std::vector<IData*> _data_source;
     // 可合并的delta文件的版本

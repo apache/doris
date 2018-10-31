@@ -80,8 +80,6 @@ public class DatabaseTest {
         db.readLock();
         try {
             Assert.assertFalse(db.tryWriteLock(0, TimeUnit.SECONDS));
-            Assert.assertTrue(db.tryReadLock(0, TimeUnit.SECONDS));
-            db.readUnlock();
         } finally {
             db.readUnlock();
         }
@@ -89,7 +87,6 @@ public class DatabaseTest {
         db.writeLock();
         try {
             Assert.assertTrue(db.tryWriteLock(0, TimeUnit.SECONDS));
-            Assert.assertTrue(db.tryReadLock(0, TimeUnit.SECONDS));
         } finally {
             db.writeUnlock();
         }
@@ -178,7 +175,6 @@ public class DatabaseTest {
         db2.createTable(table);
         db2.write(dos);
         
-
         dos.flush();
         dos.close();
         

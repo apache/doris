@@ -20,12 +20,12 @@ import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.catalog.Replica;
 import com.baidu.palo.common.Config;
+import com.baidu.palo.common.FeMetaVersion;
 import com.baidu.palo.common.MetaNotFoundException;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.io.Writable;
 import com.baidu.palo.system.Backend;
-import com.baidu.palo.system.BackendEvent;
-import com.baidu.palo.system.BackendEvent.BackendEventType;
+import com.baidu.palo.task.AgentBatchTask;
 import com.baidu.palo.task.AgentTask;
 import com.baidu.palo.thrift.TResourceInfo;
 import com.baidu.palo.thrift.TTabletInfo;
@@ -33,7 +33,6 @@ import com.baidu.palo.thrift.TTabletInfo;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
-import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -41,7 +40,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Set;
+import java.util.List;
 
 public abstract class AlterJob implements Writable {
     private static final Logger LOG = LogManager.getLogger(AlterJob.class);
@@ -49,6 +48,7 @@ public abstract class AlterJob implements Writable {
     public enum JobState {
         PENDING,
         RUNNING,
+        FINISHING,
         FINISHED,
         CANCELLED
     }
@@ -79,6 +79,10 @@ public abstract class AlterJob implements Writable {
 
     protected long dbId;
     protected long tableId;
+    protected long transactionId = -1;
+    // not serialize it
+    protected boolean hasPreviousLoadFinished = false;
+    protected AgentBatchTask batchClearAlterTask = null;
 
     protected long createTime;
     protected long finishedTime;
@@ -86,7 +90,7 @@ public abstract class AlterJob implements Writable {
     protected String cancelMsg;
 
     protected TResourceInfo resourceInfo;
-
+    
     // backendId -> replicaIds
     // this map show which replica is still alive
     // if backend is down, replica is not reachable in BE, remove replica from this map
@@ -95,12 +99,12 @@ public abstract class AlterJob implements Writable {
     public AlterJob(JobType type) {
         // for persist
         this.type = type;
-        this.backendIdToReplicaIds = HashMultimap.create();
 
         this.state = JobState.PENDING;
 
         this.createTime = System.currentTimeMillis();
         this.finishedTime = -1L;
+        this.backendIdToReplicaIds = HashMultimap.create();
     }
 
     public AlterJob(JobType type, long dbId, long tableId, TResourceInfo resourceInfo) {
@@ -115,7 +119,6 @@ public abstract class AlterJob implements Writable {
         this.finishedTime = -1L;
 
         this.cancelMsg = "";
-
         this.backendIdToReplicaIds = HashMultimap.create();
     }
 
@@ -138,6 +141,10 @@ public abstract class AlterJob implements Writable {
     public final long getTableId() {
         return tableId;
     }
+    
+    public final long getTransactionId() {
+        return transactionId;
+    }
 
     public final long getCreateTimeMs() {
         return this.createTime;
@@ -153,18 +160,6 @@ public abstract class AlterJob implements Writable {
 
     public final synchronized String getMsg() {
         return this.cancelMsg;
-    }
-
-    public synchronized void handleBackendRemoveEvent(long backendId) {
-        if (this.backendIdToReplicaIds.containsKey(backendId)) {
-            LOG.warn("{} job[{}] is handling backend[{}] removed event", type, tableId, backendId);
-            Set<Long> replicaIds = Sets.newHashSet(this.backendIdToReplicaIds.get(backendId));
-            for (Long replicaId : replicaIds) {
-                LOG.debug("remove replica[{}] from {} job[{}] cause backend[{}] removed",
-                          replicaId, type, tableId, backendId);
-                directRemoveReplicaTask(replicaId, backendId);
-            }
-        }
     }
     
     public boolean isTimeout() {
@@ -183,24 +178,22 @@ public abstract class AlterJob implements Writable {
      * otherwise,
      * alter job will not perceived backend's down event during job created and first handle round.
      */
-    public boolean checkBackendState(Replica replica) {
+    protected boolean checkBackendState(Replica replica) {
         LOG.debug("check backend[{}] state for replica[{}]", replica.getBackendId(), replica.getId());
         Backend backend = Catalog.getCurrentSystemInfo().getBackend(replica.getBackendId());
+        // not send event to event bus because there is a dead lock, job --> check state --> bus lock --> handle backend down
+        // backenddown --> bus lock --> handle backend down --> job.lock 
         if (backend == null) {
-            Catalog.getCurrentSystemInfo().getEventBus()
-                    .post(new BackendEvent(BackendEventType.BACKEND_DROPPED, "does not found",
-                                           Long.valueOf(replica.getBackendId())));
             return false;
         } else if (!backend.isAlive()) {
-            Catalog.getCurrentSystemInfo().getEventBus()
-                    .post(new BackendEvent(BackendEventType.BACKEND_DOWN, "is not alive",
-                                           Long.valueOf(replica.getBackendId())));
-            return false;
+            long currentTime = System.currentTimeMillis();
+            if (currentTime - backend.getLastUpdateMs() > Config.max_backend_down_time_second * 1000) {
+                // this backend is done for a long time and not restart automatically.
+                // we consider it as dead
+                return false;
+            }
+            return true;
         } else if (backend.isDecommissioned()) {
-            Catalog.getCurrentSystemInfo().getEventBus()
-                    .post(new BackendEvent(BackendEventType.BACKEND_DECOMMISSION,
-                                           "is decommissioned",
-                                           Long.valueOf(replica.getBackendId())));
             return false;
         }
         
@@ -251,11 +244,6 @@ public abstract class AlterJob implements Writable {
     public abstract void removeReplicaRelatedTask(long parentId, long tabletId, long replicaId, long backendId);
     
     /*
-     * remove task directly
-     */ 
-    public abstract void directRemoveReplicaTask(long replicaId, long backendId);
-    
-    /*
      * handle replica finish task report 
      */
     public abstract void handleFinishedReplica(AgentTask task, TTabletInfo finishTabletInfo, long reportVersion)
@@ -278,12 +266,26 @@ public abstract class AlterJob implements Writable {
      * replay methods
      *   corresponding to start/finished/cancelled
      */
-    public abstract void unprotectedReplayInitJob(Database db);
+    public abstract void replayInitJob(Database db);
+    
+    public abstract void replayFinishing(Database db);
 
-    public abstract void unprotectedReplayFinish(Database db);
+    public abstract void replayFinish(Database db);
 
-    public abstract void unprotectedReplayCancel(Database db);
+    public abstract void replayCancel(Database db);
 
+    public abstract void getJobInfo(List<List<Comparable>> jobInfos, OlapTable tbl);
+
+    public boolean checkPreviousLoadFinished() {
+        if (hasPreviousLoadFinished) {
+            return true;
+        } else {
+            hasPreviousLoadFinished = Catalog.getCurrentGlobalTransactionMgr()
+                    .hasPreviousTransactionsFinished(transactionId, dbId);
+            return hasPreviousLoadFinished;
+        }
+    }
+    
     @Override
     public synchronized void readFields(DataInput in) throws IOException {
         // read common members as write in AlterJob.write().
@@ -306,6 +308,9 @@ public abstract class AlterJob implements Writable {
             String user = Text.readString(in);
             String group = Text.readString(in);
             resourceInfo = new TResourceInfo(user, group);
+        }
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_45) {
+            transactionId = in.readLong();
         }
     }
 
@@ -332,5 +337,8 @@ public abstract class AlterJob implements Writable {
             Text.writeString(out, resourceInfo.getUser());
             Text.writeString(out, resourceInfo.getGroup());
         }
+        
+        out.writeLong(transactionId);
+        
     }
 }

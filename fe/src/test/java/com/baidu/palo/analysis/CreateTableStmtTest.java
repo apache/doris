@@ -26,7 +26,7 @@ import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.catalog.KeysType;
 import com.baidu.palo.catalog.PrimitiveType;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.MockedAuth;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
@@ -98,7 +98,7 @@ public class CreateTableStmtTest {
     }
     
     @Test
-    public void testNormal() throws InternalException, AnalysisException {
+    public void testNormal() throws UserException, AnalysisException {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null,
                 new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null);
@@ -109,7 +109,7 @@ public class CreateTableStmtTest {
     }
     
     @Test
-    public void testDefaultDbNormal() throws InternalException, AnalysisException {
+    public void testDefaultDbNormal() throws UserException, AnalysisException {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null,
                 new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null);
@@ -121,7 +121,7 @@ public class CreateTableStmtTest {
     }
     
     @Test(expected = AnalysisException.class)
-    public void testNoDb() throws InternalException, AnalysisException {
+    public void testNoDb() throws UserException, AnalysisException {
         // make defalut db return empty;
         analyzer = EasyMock.createMock(Analyzer.class);
         EasyMock.expect(analyzer.getDefaultDb()).andReturn("").anyTimes();
@@ -134,7 +134,7 @@ public class CreateTableStmtTest {
     }
     
     @Test(expected = AnalysisException.class)
-    public void testEmptyCol() throws InternalException, AnalysisException {
+    public void testEmptyCol() throws UserException, AnalysisException {
         // make defalut db return empty;
         List<Column> emptyCols = Lists.newArrayList();
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, emptyCols, "olap",
@@ -144,12 +144,11 @@ public class CreateTableStmtTest {
     }
     
     @Test(expected = AnalysisException.class)
-    public void testDupCol() throws InternalException, AnalysisException {
+    public void testDupCol() throws UserException, AnalysisException {
         // make defalut db return empty;
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, invalidCols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, invalidColsName), null,
                 new RandomDistributionDesc(10), null, null);
         stmt.analyze(analyzer);
     }
-    
 }

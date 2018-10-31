@@ -20,12 +20,16 @@
 
 #include "boost/lexical_cast.hpp"
 
+#include "common/logging.h"
 #include "agent/cgroups_mgr.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_response.h"
 #include "http/http_status.h"
+#include "olap/olap_define.h"
+#include "olap/olap_engine.h"
+#include "runtime/exec_env.h"
 
 namespace palo {
 
@@ -38,7 +42,6 @@ const std::string SCHEMA_HASH = "schema_hash";
 
 ChecksumAction::ChecksumAction(ExecEnv* exec_env) :
         _exec_env(exec_env) {
-    _command_executor = new CommandExecutor();
 }
 
 void ChecksumAction::handle(HttpRequest *req) {
@@ -122,7 +125,7 @@ int64_t ChecksumAction::do_checksum(int64_t tablet_id, int64_t version, int64_t 
 
     OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
     uint32_t checksum;
-    res = _command_executor->compute_checksum(
+    res = _exec_env->olap_engine()->compute_checksum(
             tablet_id, schema_hash, version, version_hash, &checksum);
     if (res != OLAPStatus::OLAP_SUCCESS) {
         LOG(WARNING) << "checksum failed. status: " << res
@@ -135,11 +138,5 @@ int64_t ChecksumAction::do_checksum(int64_t tablet_id, int64_t version, int64_t 
 
     return static_cast<int64_t>(checksum);
 } 
-
-ChecksumAction::~ChecksumAction() {
-    if (_command_executor != NULL) {
-        delete _command_executor;
-    }
-}
 
 } // end namespace palo

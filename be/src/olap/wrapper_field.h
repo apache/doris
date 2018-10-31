@@ -43,8 +43,7 @@ public:
     // 从传入的字符串反序列化field的值
     // 参数必须是一个\0结尾的字符串
     OLAPStatus from_string(const std::string& value_string) {
-        _rep->from_string(_buf, value_string);
-        return OLAP_SUCCESS;
+        return _rep->from_string(_buf, value_string);
     }
 
     // attach到一段buf
@@ -116,12 +115,20 @@ public:
         return _rep->cmp(_field_buf, right);
     }
 
+    int cmp(bool r_null, char* right) const {
+        return _rep->cmp(_field_buf, r_null, right);
+    }
+
     void copy(const WrapperField* field) {
         _rep->copy_without_pool(_field_buf, field->field_ptr());
     }
 
     void copy(char* src) {
         _rep->copy_without_pool(_field_buf, src);
+    }
+
+    void copy(bool is_null, char* src) {
+        _rep->copy_without_pool(_field_buf, is_null, src);
     }
 
     uint32_t hash_code() const {

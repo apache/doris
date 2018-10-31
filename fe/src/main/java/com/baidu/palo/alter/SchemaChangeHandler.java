@@ -52,7 +52,6 @@ import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.FeConstants;
 import com.baidu.palo.common.util.ListComparator;
 import com.baidu.palo.common.util.PropertyAnalyzer;
-import com.baidu.palo.common.util.TimeUtils;
 import com.baidu.palo.common.util.Util;
 import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.qe.ConnectContext;
@@ -79,12 +78,8 @@ import java.util.Set;
 public class SchemaChangeHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeHandler.class);
 
-    // delay delete SchemaChangeJob list
-    private List<SchemaChangeJob> delayDeleteSchemaChangeJobs;
-
     public SchemaChangeHandler() {
         super("schema change");
-        delayDeleteSchemaChangeJobs = new LinkedList<SchemaChangeJob>();
     }
 
     private void processAddColumn(AddColumnClause alterClause, OlapTable olapTable,
@@ -680,28 +675,16 @@ public class SchemaChangeHandler extends AlterHandler {
         if (olapTable.getState() == OlapTableState.ROLLUP) {
             throw new DdlException("Table[" + olapTable.getName() + "]'s is doing ROLLUP job");
         }
-
-        // check delay deleting old schema
-        this.jobsLock.readLock().lock();
-        try {
-            for (SchemaChangeJob schemaChangeJob : delayDeleteSchemaChangeJobs) {
-                if (schemaChangeJob.getTableId() == olapTable.getId()) {
-                    long delayTime = System.currentTimeMillis() - schemaChangeJob.getFinishedTime();
-                    // add ' + this.getInterval() ' because there will be a delay causing by thread running interval
-                    long leftTime = Config.alter_delete_base_delay_second * 1000 + this.getInterval() - delayTime;
-                    throw new DdlException("Old schema is not deleted. wait " + (leftTime / 1000)
-                            + " second(s) and try again");
-                }
-            }
-        } finally {
-            this.jobsLock.readLock().unlock();
+        
+        if (this.hasUnfinishedAlterJob(olapTable.getId())) {
+            throw new DdlException("Table[" + olapTable.getName() + "]'s is doing ALTER job");
         }
 
         // for now table's state can only be NORMAL
         Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL, olapTable.getState().name());
 
         // process properties first
-        // for now. properties has 2 option
+        // for now. properties has 2 options
         // property 1. to specify short key column count.
         // eg.
         //     "indexname1#short_key" = "3"
@@ -800,9 +783,10 @@ public class SchemaChangeHandler extends AlterHandler {
             resourceInfo = ConnectContext.get().toResourceCtx();
         }
 
+        long transactionId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
         // create job
         SchemaChangeJob schemaChangeJob = new SchemaChangeJob(dbId, olapTable.getId(), resourceInfo,
-                                                              olapTable.getName());
+                                                              olapTable.getName(), transactionId);
         schemaChangeJob.setTableBloomFilterInfo(hasBfChange, bfColumns, bfFpp);
         // begin checking each table
         // ATTN: DO NOT change any meta in this loop 
@@ -973,7 +957,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 for (Tablet tablet : alterIndex.getTablets()) {
                     int replicaNum = 0;
                     for (Replica replica : tablet.getReplicas()) {
-                        if (replica.getState() == ReplicaState.CLONE) {
+                        if (replica.getState() == ReplicaState.CLONE 
+                                || replica.getLastFailedVersion() > 0) {
                             // just skip it (replica cloned from old schema will be deleted)
                             continue;
                         }
@@ -1025,6 +1010,7 @@ public class SchemaChangeHandler extends AlterHandler {
         // to avoid partial check success
 
         // 1. create schema change job
+        int newSchemaHash = -1;
         for (Partition onePartition : olapTable.getPartitions()) {
             for (Map.Entry<Long, List<Column>> entry : schemaChangeJob.getChangedIndexToSchema().entrySet()) {
                 long indexId = entry.getKey();
@@ -1035,14 +1021,26 @@ public class SchemaChangeHandler extends AlterHandler {
                 int currentSchemaVersion = olapTable.getSchemaVersionByIndexId(indexId);
                 int newSchemaVersion = currentSchemaVersion + 1;
                 List<Column> alterColumns = entry.getValue();
-                int newSchemaHash = Util.schemaHash(newSchemaVersion, alterColumns, bfColumns, bfFpp);
+                // int newSchemaHash = Util.schemaHash(newSchemaVersion, alterColumns, bfColumns, bfFpp);
+                // new schema hash should only be generate one time, or the schema hash will differenent from each other in different partitions
+                if (newSchemaHash == -1) {
+                    newSchemaHash = Util.generateSchemaHash();
+                    int currentSchemaHash = olapTable.getSchemaHashByIndexId(indexId);
+                    // has to generate a new schema hash not equal to current schema hash
+                    while (currentSchemaHash == newSchemaHash) {
+                        newSchemaHash = Util.generateSchemaHash();
+                    }
+                }
                 short newShortKeyColumnCount = indexIdToShortKeyColumnCount.get(indexId);
                 schemaChangeJob.setNewSchemaInfo(indexId, newSchemaVersion, newSchemaHash, newShortKeyColumnCount);
 
                 // set replica state
                 for (Tablet tablet : alterIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
-                        if (replica.getState() == ReplicaState.CLONE) {
+                        // has to check last failed version here
+                        // if the replica has version 1,2,3,5,6 not has 4
+                        // then fe will send schema change job to it and it will finish with missing 4
+                        if (replica.getState() == ReplicaState.CLONE || replica.getLastFailedVersion() > 0) {
                             // just skip it (replica cloned from old schema will be deleted)
                             continue;
                         }
@@ -1092,46 +1090,26 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
-    public int getDelayDeletingJobNum(long dbId) {
-        int jobNum = 0;
-        this.jobsLock.readLock().lock();
-        try {
-            for (AlterJob alterJob : delayDeleteSchemaChangeJobs) {
-                if (alterJob.getDbId() == dbId) {
-                    ++jobNum;
-                }
-            }
-            return jobNum;
-        } finally {
-            this.jobsLock.readLock().unlock();
-        }
-    }
-
     @Override
     protected void runOneCycle() {
         super.runOneCycle();
-
         List<AlterJob> cancelledJobs = Lists.newArrayList();
-        // copied all jobs out of alterJobs to avoid lock problems
-        List<AlterJob> copiedAlterJobs = Lists.newArrayList();
-        Set<Long> removedIds = Sets.newHashSet();
+        List<AlterJob> finishedJobs = Lists.newArrayList();
 
-        this.jobsLock.readLock().lock();
-        try {
-            copiedAlterJobs.addAll(alterJobs.values());
-        } finally {
-            this.jobsLock.readLock().unlock();
-        }
-
-        // handle all alter jobs
-        for (AlterJob alterJob : copiedAlterJobs) {
+        for (AlterJob alterJob : alterJobs.values()) {
+            SchemaChangeJob schemaChangeJob = (SchemaChangeJob) alterJob;
+            // it means this is an old type job and current version is real time load version
+            // then kill this job
+            if (alterJob.getTransactionId() < 0) {
+                cancelledJobs.add(alterJob);
+                continue;
+            }
             JobState state = alterJob.getState();
             switch (state) {
                 case PENDING: {
                     if (!alterJob.sendTasks()) {
                         cancelledJobs.add(alterJob);
-                        LOG.warn("sending schema change job[" + alterJob.getTableId()
-                                + "] tasks failed. cancel it.");
+                        LOG.warn("sending schema change job {} tasks failed. cancel it.", alterJob.getTableId());
                     }
                     break;
                 }
@@ -1143,21 +1121,42 @@ public class SchemaChangeHandler extends AlterHandler {
                         if (res == -1) {
                             cancelledJobs.add(alterJob);
                             LOG.warn("cancel bad schema change job[{}]", alterJob.getTableId());
-                        } else if (res == 1) {
-                            // finished
-                            removedIds.add(alterJob.getTableId());
+                        }
+                    }
+                    break;
+                }
+                case FINISHING: {
+                    // check previous load job finished
+                    if (alterJob.checkPreviousLoadFinished()) {
+                        LOG.info("schema change job has finished, send clear tasks to all be {}", alterJob);
+                        // if all previous load job finished, then send clear alter tasks to all related be
+                        int res = schemaChangeJob.checkOrResendClearTasks();
+                        if (res != 0) {
+                            if (res == -1) {
+                                LOG.warn("schema change job is in finishing state,but could not finished, " 
+                                        + "just finish it, maybe a fatal error {}", alterJob);
+                            } else {
+                                LOG.info("send clear tasks to all be for job [{}] successfully, "
+                                        + "set status to finished", alterJob);
+                            }
+                            
+                            finishedJobs.add(alterJob);
                         }
                     }
                     break;
                 }
                 case FINISHED: {
-                    // FINISHED state should be handled in RUNNING case
-                    Preconditions.checkState(false);
                     break;
                 }
                 case CANCELLED: {
-                    // all CANCELLED state should be handled immediately
-                    Preconditions.checkState(false);
+                    // the alter job could be cancelled in 3 ways
+                    // 1. the table or db is dropped
+                    // 2. user cancels the job
+                    // 3. the job meets errors when running
+                    // for the previous 2 scenarios, user will call jobdone to finish the job and set its state to cancelled
+                    // so that there exists alter job whose state is cancelled
+                    // for the third scenario, the thread will add to cancelled job list and will be dealt by call jobdone
+                    // Preconditions.checkState(false);
                     break;
                 }
                 default:
@@ -1166,99 +1165,76 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         } // end for jobs
 
-        // remove job from alterJobs and add to delayDeleteSchemaChangeJobs
-        copiedAlterJobs.clear();
-        this.jobsLock.writeLock().lock();
-        try {
-            for (Long tblId : removedIds) {
-                AlterJob job = alterJobs.remove(tblId);
-                if (job != null) {
-                    delayDeleteSchemaChangeJobs.add((SchemaChangeJob) job);
-                }
-            }
-            copiedAlterJobs.addAll(delayDeleteSchemaChangeJobs);
-        } finally {
-            this.jobsLock.writeLock().unlock();
-        }
-
-        // handle delay delete jobs
-        removedIds.clear();
-        for (AlterJob alterJob : copiedAlterJobs) {
-            SchemaChangeJob job = (SchemaChangeJob) alterJob;
-            Preconditions.checkState(job.getFinishedTime() > 0L);
-            if (job.tryDeleteAllTableHistorySchema()) {
-                addFinishedOrCancelledAlterJob(job);
-                removedIds.add(alterJob.getTableId());
-            }
-        }
-
-        this.jobsLock.writeLock().lock();
-        try {
-            for (Long tblId : removedIds) {
-                Iterator<SchemaChangeJob> iter = delayDeleteSchemaChangeJobs.iterator();
-                while (iter.hasNext()) {
-                    SchemaChangeJob job = iter.next();
-                    if (job.getTableId() == tblId) {
-                        iter.remove();
-                    }
-                }
-            }
-        } finally {
-            this.jobsLock.writeLock().unlock();
-        }
-
-        // handle cancelled rollup jobs
+        // handle cancelled schema change jobs
         for (AlterJob alterJob : cancelledJobs) {
             Database db = Catalog.getInstance().getDb(alterJob.getDbId());
             if (db == null) {
                 cancelInternal(alterJob, null, null);
+                continue;
             }
+
             db.writeLock();
             try {
                 OlapTable olapTable = (OlapTable) db.getTable(alterJob.getTableId());
-                if (olapTable == null) {
-                    cancelInternal(alterJob, null, null);
-                }
-                cancelInternal(alterJob, olapTable, null);
+                alterJob.cancel(olapTable, "cancelled");
             } finally {
                 db.writeUnlock();
             }
+            jobDone(alterJob);
+        }
+
+        // handle finished schema change jobs
+        for (AlterJob alterJob : finishedJobs) {
+            alterJob.setState(JobState.FINISHED);
+            // has to remove here, because check is running every interval, it maybe finished but also in job list
+            // some check will failed
+            ((SchemaChangeJob) alterJob).deleteAllTableHistorySchema();
+            jobDone(alterJob);
+            Catalog.getInstance().getEditLog().logFinishSchemaChange((SchemaChangeJob) alterJob);
         }
     }
 
     @Override
     public List<List<Comparable>> getAlterJobInfosByDb(Database db) {
         List<List<Comparable>> schemaChangeJobInfos = new LinkedList<List<Comparable>>();
+        List<AlterJob> selectedJobs = Lists.newArrayList();
+
+        lock();
+        try {
+            // init or running
+            for (AlterJob alterJob : this.alterJobs.values()) {
+                if (alterJob.getDbId() == db.getId()) {
+                    selectedJobs.add(alterJob);
+                }
+            }
+
+            // finished or cancelled
+            for (AlterJob alterJob : this.finishedOrCancelledAlterJobs) {
+                if (alterJob.getDbId() == db.getId()) {
+                    selectedJobs.add(alterJob);
+                }
+            }
+
+        } finally {
+            unlock();
+        }
+
         db.readLock();
         try {
-            this.jobsLock.readLock().lock();
-            try {
-                // init or running
-                for (AlterJob alterJob : this.alterJobs.values()) {
-                    getJobInfo(schemaChangeJobInfos, (SchemaChangeJob) alterJob, db, false);
+            for (AlterJob selectedJob : selectedJobs) {
+                OlapTable olapTable = (OlapTable) db.getTable(selectedJob.getTableId());
+                if (olapTable == null) {
+                    continue;
                 }
-
-                // delay deleting
-                for (AlterJob alterJob : this.delayDeleteSchemaChangeJobs) {
-                    getJobInfo(schemaChangeJobInfos, (SchemaChangeJob) alterJob, db, true);
-                }
-
-                // finished or cancelled
-                for (AlterJob alterJob : this.finishedOrCancelledAlterJobs) {
-                    getJobInfo(schemaChangeJobInfos, (SchemaChangeJob) alterJob, db, true);
-                }
-
-                // sort by "JobId", "PartitionName", "CreateTime", "FinishTime", "IndexName", "IndexState"
-                ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4, 5);
-                Collections.sort(schemaChangeJobInfos, comparator);
-            } catch (Exception e) {
-                LOG.warn("failed to get schema change job info", e);
-            } finally {
-                this.jobsLock.readLock().unlock();
+                selectedJob.getJobInfo(schemaChangeJobInfos, olapTable);
             }
         } finally {
             db.readUnlock();
         }
+
+        // sort by "JobId", "PartitionName", "CreateTime", "FinishTime", "IndexName", "IndexState"
+        ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4, 5);
+        Collections.sort(schemaChangeJobInfos, comparator);
         return schemaChangeJobInfos;
     }
 
@@ -1314,7 +1290,6 @@ public class SchemaChangeHandler extends AlterHandler {
 
         String dbName = cancelAlterTableStmt.getDbName();
         String tableName = cancelAlterTableStmt.getTableName();
-        final String clusterName = cancelAlterTableStmt.getClusterName();
         Preconditions.checkState(!Strings.isNullOrEmpty(dbName));
         Preconditions.checkState(!Strings.isNullOrEmpty(tableName));
 
@@ -1323,134 +1298,31 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException("Database[" + dbName + "] does not exist");
         }
 
+        AlterJob alterJob = null;
         db.writeLock();
         try {
-            this.jobsLock.writeLock().lock();
-            try {
-                // 1. get table
-                OlapTable olapTable = (OlapTable) db.getTable(tableName);
-                if (olapTable == null) {
-                    throw new DdlException("Table[" + tableName + "] does not exist");
-                }
-
-                // 2. find schema change job
-                AlterJob alterJob = null;
-                Iterator<Map.Entry<Long, AlterJob>> iterator = this.alterJobs.entrySet().iterator();
-                while (iterator.hasNext()) {
-                    alterJob = iterator.next().getValue();
-                    if (alterJob.getTableId() == olapTable.getId()) {
-                        break;
-                    }
-                }
-                if (alterJob == null) {
-                    throw new DdlException("Table[" + tableName + "] is not under SCHEMA CHANGE");
-                }
-
-                // 3. cancel schema change job
-                cancelInternal(alterJob, olapTable, "user cancelled");
-
-                // 4. remove from job list
-                this.alterJobs.remove(alterJob.getTableId());
-            } finally {
-                this.jobsLock.writeLock().unlock();
+            // 1. get table
+            OlapTable olapTable = (OlapTable) db.getTable(tableName);
+            if (olapTable == null) {
+                throw new DdlException("Table[" + tableName + "] does not exist");
             }
+
+            // 2. find schema change job
+            alterJob = alterJobs.get(olapTable.getId());
+            if (alterJob == null) {
+                throw new DdlException("Table[" + tableName + "] is not under SCHEMA CHANGE");
+            }
+
+            if (alterJob.getState() == JobState.FINISHING) {
+                throw new DdlException("The schemachange job related with table[" + olapTable.getName()
+                        + "] is under finishing state, it could not be cancelled");
+            }
+            // 3. cancel schema change job
+            alterJob.cancel(olapTable, "user cancelled");
         } finally {
             db.writeUnlock();
         }
-    }
 
-    private void getJobInfo(List<List<Comparable>> schemaChangeJobInfos,
-                            SchemaChangeJob schemaChangeJob, Database db, boolean isFinished) {
-        if (schemaChangeJob.getDbId() != db.getId()) {
-            return;
-        }
-
-        long tableId = schemaChangeJob.getTableId();
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
-        if (olapTable == null) {
-            return;
-        }
-        
-        // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), db.getFullName(),
-                                                                olapTable.getName(),
-                                                                PrivPredicate.ALTER)) {
-            // no priv, return
-            LOG.debug("No priv for user {} to table {}.{}", ConnectContext.get().getQualifiedUser(),
-                      ConnectContext.get().getRemoteIP(), db.getFullName(), olapTable.getName());
-            return;
-        }
-
-        // create time
-        long createTime = schemaChangeJob.getCreateTimeMs();
-        String createTimeStr = TimeUtils.longToTimeString(createTime);
-
-        // finish time
-        long finishTime = schemaChangeJob.getFinishedTime();
-        String finishTimeStr = TimeUtils.longToTimeString(finishTime);
-
-        if (isFinished) {
-            List<Comparable> jobInfo = new ArrayList<Comparable>();
-            jobInfo.add(tableId);
-            jobInfo.add(olapTable.getName());
-            jobInfo.add(createTimeStr);
-            jobInfo.add(finishTimeStr);
-            jobInfo.add("N/A");
-            jobInfo.add("N/A");
-            jobInfo.add(schemaChangeJob.getState().name());
-            jobInfo.add(schemaChangeJob.getMsg());
-            jobInfo.add("N/A");
-
-            schemaChangeJobInfos.add(jobInfo);
-            return;
-        }
-
-        // calc progress and state for each table
-        Map<Long, String> indexProgress = new HashMap<Long, String>();
-        Map<Long, String> indexState = new HashMap<Long, String>();
-        for (Long indexId : schemaChangeJob.getChangedIndexToSchema().keySet()) {
-            int totalReplicaNum = 0;
-            int finishedReplicaNum = 0;
-            String state = IndexState.NORMAL.name();
-            for (Partition partition : olapTable.getPartitions()) {
-                MaterializedIndex index = partition.getIndex(indexId);
-                int tableReplicaNum = schemaChangeJob.getTotalReplicaNumByIndexId(indexId);
-                int tableFinishedReplicaNum = schemaChangeJob.getFinishedReplicaNumByIndexId(indexId);
-                Preconditions.checkState(!(tableReplicaNum == 0 && tableFinishedReplicaNum == -1));
-                Preconditions.checkState(tableFinishedReplicaNum <= tableReplicaNum,
-                                         tableFinishedReplicaNum + "/" + tableReplicaNum);
-                totalReplicaNum += tableReplicaNum;
-                finishedReplicaNum += tableFinishedReplicaNum;
-
-                if (index.getState() != IndexState.NORMAL) {
-                    state = index.getState().name();
-                }
-            }
-            if (Catalog.getInstance().isMaster()
-                    && (schemaChangeJob.getState() == JobState.RUNNING
-                    || schemaChangeJob.getState() == JobState.FINISHED)) {
-                indexProgress.put(indexId, (finishedReplicaNum * 100 / totalReplicaNum) + "%");
-                indexState.put(indexId, state);
-            } else {
-                indexProgress.put(indexId, "0%");
-                indexState.put(indexId, state);
-            }
-        }
-
-        for (Long indexId : schemaChangeJob.getChangedIndexToSchema().keySet()) {
-            List<Comparable> jobInfo = new ArrayList<Comparable>();
-
-            jobInfo.add(tableId);
-            jobInfo.add(olapTable.getName());
-            jobInfo.add(createTimeStr);
-            jobInfo.add(finishTimeStr);
-            jobInfo.add(olapTable.getIndexNameById(indexId));
-            jobInfo.add(indexState.get(indexId));
-            jobInfo.add(schemaChangeJob.getState().name());
-            jobInfo.add(schemaChangeJob.getMsg());
-            jobInfo.add(indexProgress.get(indexId));
-
-            schemaChangeJobInfos.add(jobInfo);
-        } // end for indexIds
+        jobDone(alterJob);
     }
 }

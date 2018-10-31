@@ -61,7 +61,7 @@ public class CreateReplicaTask extends AgentTask {
                              KeysType keysType, TStorageType storageType,
                              TStorageMedium storageMedium, List<Column> columns,
                              Set<String> bfColumns, double bfFpp, MarkedCountDownLatch latch) {
-        super(null, backendId, tabletId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
+        super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.shortKeyColumnCount = shortKeyColumnCount;
         this.schemaHash = schemaHash;

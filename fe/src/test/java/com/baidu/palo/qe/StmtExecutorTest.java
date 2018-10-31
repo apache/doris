@@ -118,6 +118,9 @@ public class StmtExecutorTest {
         EasyMock.expect(ctx.getDatabase()).andReturn("testDb").anyTimes();
         SessionVariable sessionVariable = new SessionVariable();
         EasyMock.expect(ctx.getSessionVariable()).andReturn(sessionVariable).anyTimes();
+        ctx.setStmtId(EasyMock.anyLong());
+        EasyMock.expectLastCall().anyTimes();
+        EasyMock.expect(ctx.getStmtId()).andReturn(1L).anyTimes();
         EasyMock.replay(ctx);
     }
 

@@ -30,7 +30,7 @@ import com.baidu.palo.analysis.SlotRef;
 import com.baidu.palo.analysis.TableRef;
 import com.baidu.palo.catalog.ColumnStats;
 import com.baidu.palo.common.Pair;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 import com.baidu.palo.thrift.TEqJoinCondition;
 import com.baidu.palo.thrift.TExplainLevel;
@@ -115,7 +115,7 @@ public class HashJoinNode extends PlanNode {
     }
 
     @Override
-    public void init(Analyzer analyzer) throws InternalException {
+    public void init(Analyzer analyzer) throws UserException {
         assignConjuncts(analyzer);
 
         // Set smap to the combined childrens' smaps and apply that to all conjuncts_.

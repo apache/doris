@@ -22,7 +22,6 @@
 
 namespace palo {
 
-class FileHandlerWithBuf;
 class ExprContext;
 class TupleRow;
 class RowBatch;

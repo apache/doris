@@ -40,7 +40,7 @@ import com.baidu.palo.catalog.Table;
 import com.baidu.palo.catalog.Type;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.Config;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.util.BrokerUtil;
 import com.baidu.palo.load.BrokerFileGroup;
 import com.baidu.palo.system.Backend;
@@ -138,7 +138,7 @@ public class BrokerScanNode extends ScanNode {
     }
 
     @Override
-    public void init(Analyzer analyzer) throws InternalException {
+    public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
 
         this.analyzer = analyzer;
@@ -147,7 +147,7 @@ public class BrokerScanNode extends ScanNode {
             try {
                 fileGroups = Lists.newArrayList(new BrokerFileGroup(brokerTable));
             } catch (AnalysisException e) {
-                throw new InternalException(e.getMessage());
+                throw new UserException(e.getMessage());
             }
             brokerDesc = new BrokerDesc(brokerTable.getBrokerName(), brokerTable.getBrokerProperties());
             targetTable = brokerTable;
@@ -164,7 +164,7 @@ public class BrokerScanNode extends ScanNode {
             try {
                 initParams(context);
             } catch (AnalysisException e) {
-                throw new InternalException(e.getMessage());
+                throw new UserException(e.getMessage());
             }
             paramCreateContexts.add(context);
         }
@@ -198,7 +198,7 @@ public class BrokerScanNode extends ScanNode {
                 (OlapTable) targetTable, exprByName, null, partitionExprs);
     }
 
-    private void parseExprMap(Map<String, Expr> exprMap) throws InternalException {
+    private void parseExprMap(Map<String, Expr> exprMap) throws UserException {
         if (exprMap == null) {
             return;
         }
@@ -208,7 +208,7 @@ public class BrokerScanNode extends ScanNode {
 
             Column column = targetTable.getColumn(colName);
             if (column == null) {
-                throw new InternalException("Unknown column(" + colName + ")");
+                throw new UserException("Unknown column(" + colName + ")");
             }
 
             // To compatible with older load version
@@ -233,7 +233,7 @@ public class BrokerScanNode extends ScanNode {
                             if (column.isAllowNull()) {
                                 exprs.add(NullLiteral.create(Type.VARCHAR));
                             } else {
-                                throw new InternalException("Column(" + colName + ") has no default value.");
+                                throw new UserException("Column(" + colName + ") has no default value.");
                             }
                         }
                     }
@@ -275,7 +275,7 @@ public class BrokerScanNode extends ScanNode {
                     } else if (precision.getStringValue().equalsIgnoreCase("hour")) {
                         format = new StringLiteral("%Y-%m-%d %H:00:00");
                     } else {
-                        throw new InternalException("Unknown precision(" + precision.getStringValue() + ")");
+                        throw new UserException("Unknown precision(" + precision.getStringValue() + ")");
                     }
                     FunctionName dateFormatName = new FunctionName("DATE_FORMAT");
                     List<Expr> dateFormatArgs = Lists.newArrayList(fromUnixFunc, format);
@@ -297,7 +297,7 @@ public class BrokerScanNode extends ScanNode {
     }
 
     // Called from init, construct source tuple information
-    private void initParams(ParamCreateContext context) throws AnalysisException, InternalException {
+    private void initParams(ParamCreateContext context) throws AnalysisException, UserException {
         TBrokerScanRangeParams params = new TBrokerScanRangeParams();
         context.params = params;
 
@@ -344,7 +344,7 @@ public class BrokerScanNode extends ScanNode {
         params.setSrc_tuple_id(srcTupleDesc.getId().asInt());
     }
 
-    private void finalizeParams(ParamCreateContext context) throws InternalException, AnalysisException {
+    private void finalizeParams(ParamCreateContext context) throws UserException, AnalysisException {
         Map<String, SlotDescriptor> slotDescByName = context.slotDescByName;
         Map<String, Expr> exprMap = context.exprMap;
         // Analyze expr map
@@ -358,7 +358,7 @@ public class BrokerScanNode extends ScanNode {
                 for (SlotRef slot : slots) {
                     SlotDescriptor slotDesc = slotDescByName.get(slot.getColumnName());
                     if (slotDesc == null) {
-                        throw new InternalException("Unknown slot");
+                        throw new UserException("Unknown slot");
                     }
                     smap.getLhs().add(slot);
                     smap.getRhs().add(new SlotRef(slotDesc));
@@ -394,7 +394,7 @@ public class BrokerScanNode extends ScanNode {
                         if (column.isAllowNull()) {
                             expr = NullLiteral.create(column.getType());
                         } else {
-                            throw new InternalException("Unknown slot ref("
+                            throw new UserException("Unknown slot ref("
                                     + destSlotDesc.getColumn().getName() + ") in source file");
                         }
                     }
@@ -431,7 +431,7 @@ public class BrokerScanNode extends ScanNode {
     }
 
     private TScanRangeLocations newLocations(TBrokerScanRangeParams params, String brokerName)
-            throws InternalException {
+            throws UserException {
         List<Backend> candidateBes = Lists.newArrayList();
         // Get backend
         int numBe = Math.min(3, backends.size());
@@ -454,7 +454,7 @@ public class BrokerScanNode extends ScanNode {
                 brokerAddress = Catalog.getInstance().getBrokerMgr().getBroker(
                         brokerName, candidateBes.get(i).getHost());
             } catch (AnalysisException e) {
-                throw new InternalException(e.getMessage());
+                throw new UserException(e.getMessage());
             }
             brokerScanRange.addToBroker_addresses(new TNetworkAddress(brokerAddress.ip, brokerAddress.port));
         }
@@ -480,7 +480,7 @@ public class BrokerScanNode extends ScanNode {
         return locations.scan_range.broker_scan_range;
     }
 
-    private void getFileStatusAndCalcInstance() throws InternalException {
+    private void getFileStatusAndCalcInstance() throws UserException {
         if (fileStatusesList == null || filesAdded == -1) {
             // FIXME(cmy): fileStatusesList and filesAdded can be set out of db lock when doing pull load,
             // but for now it is very difficult to set them out of db lock when doing broker query.
@@ -503,7 +503,7 @@ public class BrokerScanNode extends ScanNode {
         Preconditions.checkState(fileStatusesList.size() == fileGroups.size());
 
         if (isLoad() && filesAdded == 0) {
-            throw new InternalException("No source file in this table(" + targetTable.getName() + ").");
+            throw new UserException("No source file in this table(" + targetTable.getName() + ").");
         }
 
         totalBytes = 0;
@@ -522,12 +522,12 @@ public class BrokerScanNode extends ScanNode {
         bytesPerInstance = totalBytes / numInstances + 1;
         
         if (bytesPerInstance > Config.max_bytes_per_broker_scanner) {
-            throw new InternalException(
+            throw new UserException(
                     "Scan bytes per broker scanner exceed limit: " + Config.max_bytes_per_broker_scanner);
         }
     }
 
-    private void assignBackends() throws InternalException {
+    private void assignBackends() throws UserException {
         backends = Lists.newArrayList();
         for (Backend be : Catalog.getCurrentSystemInfo().getIdToBackend().values()) {
             if (be.isAlive()) {
@@ -535,7 +535,7 @@ public class BrokerScanNode extends ScanNode {
             }
         }
         if (backends.isEmpty()) {
-            throw new InternalException("No Alive backends");
+            throw new UserException("No Alive backends");
         }
         Collections.shuffle(backends, random);
     }
@@ -558,7 +558,7 @@ public class BrokerScanNode extends ScanNode {
     private void processFileGroup(
             TBrokerScanRangeParams params,
             List<TBrokerFileStatus> fileStatuses)
-            throws InternalException {
+            throws UserException {
         if (fileStatuses == null || fileStatuses.isEmpty()) {
             return;
         }
@@ -628,7 +628,7 @@ public class BrokerScanNode extends ScanNode {
     }
 
     @Override
-    public void finalize(Analyzer analyzer) throws InternalException {
+    public void finalize(Analyzer analyzer) throws UserException {
         locationsList = Lists.newArrayList();
 
         for (int i = 0; i < fileGroups.size(); ++i) {
@@ -640,7 +640,7 @@ public class BrokerScanNode extends ScanNode {
             try {
                 finalizeParams(context);
             } catch (AnalysisException e) {
-                throw new InternalException(e.getMessage());
+                throw new UserException(e.getMessage());
             }
             processFileGroup(context.params, fileStatuses);
         }

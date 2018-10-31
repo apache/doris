@@ -15,6 +15,8 @@
 
 #include "service/internal_service.h"
 
+#include "common/config.h"
+#include "runtime/tablet_writer_mgr.h"
 #include "gen_cpp/BackendService.h"
 #include "runtime/exec_env.h"
 #include "runtime/data_stream_mgr.h"
@@ -26,7 +28,9 @@
 
 namespace palo {
 
-PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env) : _exec_env(exec_env) {
+PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
+        : _exec_env(exec_env),
+        _tablet_worker_pool(config::number_tablet_writer_threads, 10240) {
 }
 
 PInternalServiceImpl::~PInternalServiceImpl() {
@@ -57,6 +61,23 @@ void PInternalServiceImpl::transmit_data(google::protobuf::RpcController* cntl_b
     }
 }
 
+void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* controller,
+                                              const PTabletWriterOpenRequest* request,
+                                              PTabletWriterOpenResult* response,
+                                              google::protobuf::Closure* done) {
+    VLOG_RPC << "tablet writer open, id=" << request->id()
+        << ", index_id=" << request->index_id() << ", txn_id=" << request->txn_id();
+    brpc::ClosureGuard closure_guard(done);
+    auto st = _exec_env->tablet_writer_mgr()->open(*request);
+    if (!st.ok()) {
+        LOG(WARNING) << "tablet writer open failed, message=" << st.get_error_msg()
+            << ", id=" << request->id()
+            << ", index_id=" << request->index_id()
+            << ", txn_id=" << request->txn_id();
+    }
+    st.to_protobuf(response->mutable_status());
+}
+
 void PInternalServiceImpl::exec_plan_fragment(
         google::protobuf::RpcController* cntl_base,
         const PExecPlanFragmentRequest* request,
@@ -69,6 +90,46 @@ void PInternalServiceImpl::exec_plan_fragment(
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st.get_error_msg();
     }
     st.to_protobuf(response->mutable_status());
+}
+
+void PInternalServiceImpl::tablet_writer_add_batch(google::protobuf::RpcController* controller,
+                                                   const PTabletWriterAddBatchRequest* request,
+                                                   PTabletWriterAddBatchResult* response,
+                                                   google::protobuf::Closure* done) {
+    VLOG_RPC << "tablet writer add batch, id=" << request->id()
+        << ", index_id=" << request->index_id()
+        << ", sender_id=" << request->sender_id();
+    // add batch maybe cost a lot of time, and this callback thread will be held.
+    // this will influence query execute, because of no bthread. So, we put this to 
+    // a local thread pool to process
+    _tablet_worker_pool.offer(
+        [request, response, done, this] () {
+            brpc::ClosureGuard closure_guard(done);
+            auto st = _exec_env->tablet_writer_mgr()->add_batch(*request, response->mutable_tablet_vec());
+            if (!st.ok()) {
+                LOG(WARNING) << "tablet writer add batch failed, message=" << st.get_error_msg()
+                    << ", id=" << request->id()
+                    << ", index_id=" << request->index_id()
+                    << ", sender_id=" << request->sender_id();
+            }
+            st.to_protobuf(response->mutable_status());
+        });
+}
+
+void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController* controller,
+                                                const PTabletWriterCancelRequest* request,
+                                                PTabletWriterCancelResult* response,
+                                                google::protobuf::Closure* done) {
+    VLOG_RPC << "tablet writer cancel, id=" << request->id()
+        << ", index_id=" << request->index_id()
+        << ", sender_id=" << request->sender_id();
+    brpc::ClosureGuard closure_guard(done);
+    auto st = _exec_env->tablet_writer_mgr()->cancel(*request);
+    if (!st.ok()) {
+        LOG(WARNING) << "tablet writer cancel failed, id=" << request->id()
+        << ", index_id=" << request->index_id()
+        << ", sender_id=" << request->sender_id();
+    }
 }
 
 Status PInternalServiceImpl::_exec_plan_fragment(brpc::Controller* cntl) {

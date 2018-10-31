@@ -18,7 +18,7 @@ package com.baidu.palo.task;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.common.DdlException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.util.BrokerUtil;
 import com.baidu.palo.load.BrokerFileGroup;
 import com.baidu.palo.load.EtlSubmitResult;
@@ -103,7 +103,7 @@ public class PullLoadPendingTask extends LoadPendingTask {
 
     private void getAllFileStatus(Map<Long, List<List<TBrokerFileStatus>>> fileStatusMap,
             Map<Long, Integer> fileNumMap)
-            throws InternalException {
+            throws UserException {
         for (Map.Entry<Long, List<BrokerFileGroup>> entry : job.getPullLoadSourceInfo().getIdToFileGroups().entrySet()) {
             long tableId = entry.getKey();
 

@@ -54,8 +54,7 @@ public class CreateRollupTask extends AgentTask {
                             long baseTabletId, long rollupReplicaId, short shortKeyColumnCount,
                             int rollupSchemaHash, int baseSchemaHash, TStorageType storageType,
                             List<Column> rollupColumns, Set<String> bfColumns, double bfFpp, TKeysType keysType) {
-        super(resourceInfo, backendId, rollupTabletId, TTaskType.ROLLUP, dbId, tableId, partitionId, rollupIndexId,
-                rollupTabletId);
+        super(resourceInfo, backendId, TTaskType.ROLLUP, dbId, tableId, partitionId, rollupIndexId, rollupTabletId);
 
         this.baseTableId = baseIndexId;
         this.baseTabletId = baseTabletId;

@@ -18,14 +18,19 @@
 #include <string>
 #include <sstream>
 
-#include "boost/lexical_cast.hpp"
+#include <boost/lexical_cast.hpp>
 
 #include "agent/cgroups_mgr.h"
+#include "common/logging.h"
+#include "gen_cpp/AgentService_types.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_response.h"
 #include "http/http_status.h"
+#include "runtime/exec_env.h"
+#include "olap/olap_define.h"
+#include "olap/olap_engine.h"
 
 namespace palo {
 
@@ -34,7 +39,6 @@ const std::string SCHEMA_HASH = "schema_hash";
 
 SnapshotAction::SnapshotAction(ExecEnv* exec_env) :
         _exec_env(exec_env) {
-    _command_executor = new CommandExecutor();
 }
 
 void SnapshotAction::handle(HttpRequest *req) {
@@ -93,9 +97,12 @@ void SnapshotAction::handle(HttpRequest *req) {
 
 int64_t SnapshotAction::make_snapshot(int64_t tablet_id, int32_t schema_hash,
                                       std::string* snapshot_path) {
+    TSnapshotRequest request;
+    request.tablet_id = tablet_id;
+    request.schema_hash = schema_hash;
 
     OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
-    res = _command_executor->make_snapshot(tablet_id, schema_hash, snapshot_path);
+    res = _exec_env->olap_engine()->make_snapshot(request, snapshot_path);
     if (res != OLAPStatus::OLAP_SUCCESS) {
         LOG(WARNING) << "make snapshot failed. status: " << res
                      << ", signature: " << tablet_id;
@@ -107,11 +114,5 @@ int64_t SnapshotAction::make_snapshot(int64_t tablet_id, int32_t schema_hash,
 
     return 0L;
 } 
-
-SnapshotAction::~SnapshotAction() {
-    if (_command_executor != NULL) {
-        delete _command_executor;
-    }
-}
 
 } // end namespace palo

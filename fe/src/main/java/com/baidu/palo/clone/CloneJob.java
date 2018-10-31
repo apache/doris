@@ -15,6 +15,8 @@
 
 package com.baidu.palo.clone;
 
+import com.baidu.palo.task.CloneTask;
+
 public class CloneJob {
     public enum JobPriority {
         HIGH,
@@ -31,7 +33,8 @@ public class CloneJob {
     
     public enum JobType {
         SUPPLEMENT,
-        MIGRATION 
+        MIGRATION,
+        CATCHUP
     }
     
     private long dbId;
@@ -48,6 +51,7 @@ public class CloneJob {
     private long cloneFinishTimeMs;
     private long timeoutMs;
     private String failMsg;
+    private CloneTask cloneTask;
 
     public CloneJob(long dbId, long tableId, long partitionId, long indexId, long tabletId,
                     long destBackendId, JobType type, JobPriority priority, long timeoutMs) {
@@ -145,6 +149,14 @@ public class CloneJob {
 
     public void setFailMsg(String failMsg) {
         this.failMsg = failMsg;
+    }
+    
+    public void setCloneTask(CloneTask task) {
+        this.cloneTask = task;
+    }
+    
+    public CloneTask getCloneTask() {
+        return this.cloneTask;
     }
 
     @Override

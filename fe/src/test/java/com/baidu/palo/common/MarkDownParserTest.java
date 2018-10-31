@@ -30,7 +30,7 @@ import java.util.Map;
 public class MarkDownParserTest {
 
     @Test
-    public void testNormal() throws InternalException {
+    public void testNormal() throws UserException {
         List<String> lines = Lists.newArrayList();
         lines.add("# SHOW TABLES");
         lines.add("## name");
@@ -58,7 +58,7 @@ public class MarkDownParserTest {
     }
 
     @Test
-    public void testMultiDoc() throws InternalException {
+    public void testMultiDoc() throws UserException {
         List<String> lines = Lists.newArrayList();
         lines.add(" name");
         lines.add("# SHOW TABLES");
@@ -88,7 +88,7 @@ public class MarkDownParserTest {
     }
 
     @Test
-    public void testNoDoc() throws InternalException {
+    public void testNoDoc() throws UserException {
         List<String> lines = Lists.newArrayList();
         lines.add(" SHOW TABLES");
         lines.add(" name");
@@ -111,8 +111,8 @@ public class MarkDownParserTest {
         Assert.assertNull(map.get("DATABASES abc"));
     }
 
-    @Test(expected = InternalException.class)
-    public void testNoFirst() throws InternalException {
+    @Test(expected = UserException.class)
+    public void testNoFirst() throws UserException {
         List<String> lines = Lists.newArrayList();
         lines.add("## SHOW TABLES");
         MarkDownParser parser = new MarkDownParser(lines);
@@ -120,8 +120,8 @@ public class MarkDownParserTest {
         Assert.fail("No exception throws.");
     }
 
-    @Test(expected = InternalException.class)
-    public void testErrorState() throws InternalException {
+    @Test(expected = UserException.class)
+    public void testErrorState() throws UserException {
         List<String> lines = Lists.newArrayList();
         lines.add("# SHOW TABLES");
         lines.add("## name");
@@ -132,7 +132,7 @@ public class MarkDownParserTest {
     }
 
     @Test
-    public void testEmptyTitle() throws InternalException {
+    public void testEmptyTitle() throws UserException {
         List<String> lines = Lists.newArrayList();
         lines.add("#");
         lines.add("## ");
@@ -155,7 +155,7 @@ public class MarkDownParserTest {
     }
 
     @Test
-    public void testOneName() throws InternalException {
+    public void testOneName() throws UserException {
         List<String> lines = Lists.newArrayList();
         lines.add("# TABLES");
         lines.add("# TABLE");

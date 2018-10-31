@@ -25,7 +25,7 @@ import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.NotImplementedException;
 import com.baidu.palo.planner.BrokerScanNode;
 import com.baidu.palo.planner.DataPartition;
@@ -72,7 +72,7 @@ public class PullLoadTaskPlanner {
     }
 
     // NOTE: DB lock need hold when call this function.
-    public void plan(List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) throws InternalException {
+    public void plan(List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) throws UserException {
         // Tuple descriptor used for all nodes in plan.
         OlapTable table = task.table;
 
@@ -122,7 +122,7 @@ public class PullLoadTaskPlanner {
             splitSink = new DataSplitSink(table, tupleDesc);
         } catch (AnalysisException e) {
             LOG.info("New DataSplitSink failed.{}", e);
-            throw new InternalException(e.getMessage());
+            throw new UserException(e.getMessage());
         }
         PlanFragment sinkFragment = new PlanFragment(new PlanFragmentId(1), exchangeNode, splitSink.getOutputPartition());
         scanFragment.setDestination(exchangeNode);
@@ -137,7 +137,7 @@ public class PullLoadTaskPlanner {
                 fragment.finalize(analyzer, false);
             } catch (NotImplementedException e) {
                 LOG.info("Fragment finalize failed.{}", e);
-                throw new InternalException("Fragment finalize failed.");
+                throw new UserException("Fragment finalize failed.");
             }
         }
         Collections.reverse(fragments);

@@ -32,7 +32,7 @@ import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ColumnAliasGenerator;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.Pair;
 import com.baidu.palo.common.TableAliasGenerator;
 import com.baidu.palo.common.TreeNode;
@@ -266,7 +266,7 @@ public class SelectStmt extends QueryStmt {
         return tableAliasGenerator;
     }
 
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         if (isAnalyzed()) return;
         super.analyze(analyzer);
 
@@ -1254,7 +1254,7 @@ public class SelectStmt extends QueryStmt {
 
     @Override
     public void substituteSelectList(Analyzer analyzer, List<String> newColLabels)
-            throws AnalysisException, InternalException {
+            throws AnalysisException, UserException {
         // start out with table refs to establish aliases
         TableRef leftTblRef = null;  // the one to the left of tblRef
         for (int i = 0; i < fromClause_.size(); ++i) {

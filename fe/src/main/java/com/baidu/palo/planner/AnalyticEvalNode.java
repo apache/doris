@@ -31,7 +31,7 @@ import com.baidu.palo.analysis.Expr;
 import com.baidu.palo.analysis.ExprSubstitutionMap;
 import com.baidu.palo.analysis.OrderByElement;
 import com.baidu.palo.analysis.TupleDescriptor;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.thrift.TAnalyticNode;
 import com.baidu.palo.thrift.TExplainLevel;
 import com.baidu.palo.thrift.TPlanNode;
@@ -109,7 +109,7 @@ public class AnalyticEvalNode extends PlanNode {
     }
 
     @Override
-    public void init(Analyzer analyzer) throws InternalException {
+    public void init(Analyzer analyzer) throws UserException {
         analyzer.getDescTbl().computeMemLayout();
         intermediateTupleDesc.computeMemLayout();
         // we add the analyticInfo's smap to the combined smap of our child

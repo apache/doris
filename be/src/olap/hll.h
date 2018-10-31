@@ -47,8 +47,8 @@ public:
                        _buf_len(0),
                        _set_type(HLL_DATA_EMPTY),
                        _full_value_position(nullptr),
-                       _expliclit_value(nullptr),
-                       _expliclit_num(0) {}
+                       _explicit_value(nullptr),
+                       _explicit_num(0) {}
 
     ~HllSetResolver() {}
 
@@ -69,22 +69,22 @@ public:
         return _set_type;
     };
 
-    // expliclit value num
-    int get_expliclit_count() {
-        return (int)_expliclit_num;
+    // explicit value num
+    int get_explicit_count() {
+        return (int)_explicit_num;
     };
 
-    // get expliclit index value 64bit
-    uint64_t get_expliclit_value(int index) {
-        if (index >= _expliclit_num) {
+    // get explicit index value 64bit
+    uint64_t get_explicit_value(int index) {
+        if (index >= _explicit_num) {
             return -1;
         }
-        return _expliclit_value[index];
+        return _explicit_value[index];
     };
 
-    // get expliclit index value 64bit
-    char* get_expliclit_value() {
-        return (char*)_expliclit_value;
+    // get explicit index value 64bit
+    char* get_explicit_value() {
+        return (char*)_explicit_value;
     };
 
     // get full register value
@@ -119,8 +119,8 @@ private :
     int _buf_len;      // set len
     HllDataType _set_type;        //set type
     char* _full_value_position;
-    uint64_t* _expliclit_value;
-    ExpliclitLengthValueType _expliclit_num;
+    uint64_t* _explicit_value;
+    ExpliclitLengthValueType _explicit_num;
     std::map<SparseIndexType, SparseValueType> _sparse_map;
     SparseLengthValueType* _sparse_count;
 };
@@ -128,16 +128,16 @@ private :
 // 通过varchar的变长编码方式实现hll集合
 // 实现hll列中间计算结果的处理
 // empty 空集合
-// expliclit 存储64位hash值的集合
+// explicit 存储64位hash值的集合
 // sparse 存储hll非0的register
 // full  存储全部的hll register
-// empty -> expliclit -> sparse -> full 四种类型的转换方向不可逆
-// 第一个字节存放hll集合的类型 0:empty 1:expliclit 2:sparse 3:full
+// empty -> explicit -> sparse -> full 四种类型的转换方向不可逆
+// 第一个字节存放hll集合的类型 0:empty 1:explicit 2:sparse 3:full
 // 已决定后面的数据怎么解析
 class HllSetHelper {
 public:
     static void set_sparse(char *result, const std::map<int, uint8_t>& index_to_value, int& len);
-    static void set_expliclit(char* result, const std::set<uint64_t>& hash_value_set, int& len);
+    static void set_explicit(char* result, const std::set<uint64_t>& hash_value_set, int& len);
     static void set_full(char* result, const char* registers, const int set_len, int& len);
     static void set_full(char* result, const std::map<int, uint8_t>& index_to_value,
                          const int set_len, int& len);

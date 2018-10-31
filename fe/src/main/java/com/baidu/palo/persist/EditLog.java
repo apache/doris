@@ -53,6 +53,7 @@ import com.baidu.palo.mysql.privilege.UserPropertyInfo;
 import com.baidu.palo.qe.SessionVariable;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.Frontend;
+import com.baidu.palo.transaction.TransactionState;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -126,6 +127,12 @@ public class EditLog {
                     String idString = ((Text) journal.getData()).toString();
                     long id = Long.parseLong(idString);
                     catalog.setNextId(id + 1);
+                    break;
+                }
+                case OperationType.OP_SAVE_TRANSACTION_ID: {
+                    String idString = ((Text) journal.getData()).toString();
+                    long id = Long.parseLong(idString);
+                    catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().initTransactionId(id + 1);
                     break;
                 }
                 case OperationType.OP_CREATE_DB: {
@@ -261,6 +268,11 @@ public class EditLog {
                     catalog.getRollupHandler().replayInitJob(job, catalog);
                     break;
                 }
+                case OperationType.OP_FINISHING_ROLLUP: {
+                    RollupJob job = (RollupJob) journal.getData();
+                    catalog.getRollupHandler().replayFinishing(job, catalog);
+                    break;
+                }
                 case OperationType.OP_FINISH_ROLLUP: {
                     RollupJob job = (RollupJob) journal.getData();
                     catalog.getRollupHandler().replayFinish(job, catalog);
@@ -281,6 +293,13 @@ public class EditLog {
                     LOG.info("Begin to unprotect create schema change job. db = " + job.getDbId()
                             + " table = " + job.getTableId());
                     catalog.getSchemaChangeHandler().replayInitJob(job, catalog);
+                    break;
+                }
+                case OperationType.OP_FINISHING_SCHEMA_CHANGE: {
+                    SchemaChangeJob job = (SchemaChangeJob) journal.getData();
+                    LOG.info("Begin to unprotect replay finishing schema change job. db = " + job.getDbId()
+                            + " table = " + job.getTableId());
+                    catalog.getSchemaChangeHandler().replayFinishing(job, catalog);
                     break;
                 }
                 case OperationType.OP_FINISH_SCHEMA_CHANGE: {
@@ -556,6 +575,19 @@ public class EditLog {
                     catalog.replayUpdateClusterAndBackends(info);
                     break;
                 }
+                case OperationType.OP_UPSERT_TRANSACTION_STATE: {
+                    final TransactionState state = (TransactionState) journal.getData();
+                    catalog.getCurrentGlobalTransactionMgr().replayUpsertTransactionState(state);
+                    LOG.debug("opcode: {}, tid: {}", opCode, state.getTransactionId());
+
+                    break;
+                }
+                case OperationType.OP_DELETE_TRANSACTION_STATE: {
+                    final TransactionState state = (TransactionState) journal.getData();
+                    catalog.getCurrentGlobalTransactionMgr().replayDeleteTransactionState(state);
+                    LOG.debug("opcode: {}, tid: {}", opCode, state.getTransactionId());
+                    break;
+                }
                 case OperationType.OP_CREATE_REPOSITORY: {
                     Repository repository = (Repository) journal.getData();
                     catalog.getBackupHandler().getRepoMgr().addAndInitRepoIfNotExist(repository, true);
@@ -657,6 +689,10 @@ public class EditLog {
     public void logSaveNextId(long nextId) {
         logEdit(OperationType.OP_SAVE_NEXTID, new Text(Long.toString(nextId)));
     }
+    
+    public void logSaveTransactionId(long transactionId) {
+        logEdit(OperationType.OP_SAVE_TRANSACTION_ID, new Text(Long.toString(transactionId)));
+    }
 
     public void logCreateDb(Database db) {
         logEdit(OperationType.OP_CREATE_DB, db);
@@ -742,6 +778,10 @@ public class EditLog {
         logEdit(OperationType.OP_START_ROLLUP, rollupJob);
     }
 
+    public void logFinishingRollup(RollupJob rollupJob) {
+        logEdit(OperationType.OP_FINISHING_ROLLUP, rollupJob);
+    }
+    
     public void logFinishRollup(RollupJob rollupJob) {
         logEdit(OperationType.OP_FINISH_ROLLUP, rollupJob);
     }
@@ -760,6 +800,10 @@ public class EditLog {
 
     public void logStartSchemaChange(SchemaChangeJob schemaChangeJob) {
         logEdit(OperationType.OP_START_SCHEMA_CHANGE, schemaChangeJob);
+    }
+
+    public void logFinishingSchemaChange(SchemaChangeJob schemaChangeJob) {
+        logEdit(OperationType.OP_FINISHING_SCHEMA_CHANGE, schemaChangeJob);
     }
 
     public void logFinishSchemaChange(SchemaChangeJob schemaChangeJob) {
@@ -971,6 +1015,15 @@ public class EditLog {
 
     public void logUpdateClusterAndBackendState(BackendIdsUpdateInfo info) {
         logEdit(OperationType.OP_UPDATE_CLUSTER_AND_BACKENDS, info);
+    }
+
+    // for TransactionState
+    public void logInsertTransactionState(TransactionState transactionState) {
+        logEdit(OperationType.OP_UPSERT_TRANSACTION_STATE, transactionState);
+    }
+
+    public void logDeleteTransactionState(TransactionState transactionState) {
+        logEdit(OperationType.OP_DELETE_TRANSACTION_STATE, transactionState);
     }
     
     public void logBackupJob(BackupJob job) {

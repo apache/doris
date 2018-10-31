@@ -23,8 +23,8 @@ namespace palo {
 
 struct HttpChunkParseCtx {
     int state;  // Parse state
-    int64_t size;   // Chunk size
-    int64_t length;   // minimal length need to read
+    size_t size;   // Chunk size
+    size_t length;   // minimal length need to read
     HttpChunkParseCtx() : state(0), size(0), length(0) { }
 };
 

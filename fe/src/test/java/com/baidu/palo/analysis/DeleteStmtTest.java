@@ -20,9 +20,9 @@
 
 package com.baidu.palo.analysis;
 
+
 import com.baidu.palo.analysis.BinaryPredicate.Operator;
-import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.MockedAuth;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
@@ -76,7 +76,7 @@ public class DeleteStmtTest {
         DeleteStmt deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"), "partition", likePredicate, null);
         try {
             deleteStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("should be compound or binary predicate"));
         }
 
@@ -91,7 +91,7 @@ public class DeleteStmtTest {
 
         try {
             deleteStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("should be AND"));
         }
 
@@ -103,7 +103,7 @@ public class DeleteStmtTest {
         deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"), "partition", compoundPredicate, null);
         try {
             deleteStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("should be compound or binary predicate"));
         }
 
@@ -117,7 +117,7 @@ public class DeleteStmtTest {
         deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"), "partition", compoundPredicate, null);
         try {
             deleteStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("Right expr should be value"));
         }
 
@@ -131,7 +131,7 @@ public class DeleteStmtTest {
         deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"), "partition", compoundPredicate, null);
         try {
             deleteStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("Left expr should be column name"));
         }
         
@@ -145,7 +145,7 @@ public class DeleteStmtTest {
         deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"), null, compoundPredicate, null);
         try {
             deleteStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("Partition is not set"));
         }
 
@@ -163,7 +163,7 @@ public class DeleteStmtTest {
         deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"), "partition", compoundPredicate, null);
         try {
             deleteStmt.analyze(analyzer);
-        } catch (AnalysisException | InternalException e) {
+        } catch (UserException e) {
             Assert.fail();
         }
     }

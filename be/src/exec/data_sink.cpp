@@ -25,6 +25,7 @@
 #include <memory>
 
 #include "exec/exec_node.h"
+#include "exec/olap_table_sink.h"
 #include "exprs/expr.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/data_stream_sender.h"
@@ -103,6 +104,13 @@ Status DataSink::create_data_sink(
 
         std::unique_ptr<ExportSink> export_sink(new ExportSink(pool, row_desc, output_exprs));
         sink->reset(export_sink.release());
+        break;
+    }
+    case TDataSinkType::OLAP_TABLE_SINK: {
+        Status status;
+        DCHECK(thrift_sink.__isset.olap_table_sink);
+        sink->reset(new stream_load::OlapTableSink(pool, row_desc, output_exprs, &status));
+        RETURN_IF_ERROR(status);
         break;
     }
 

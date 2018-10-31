@@ -22,7 +22,7 @@ package com.baidu.palo.analysis;
 
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.qe.ConnectContext;
 
 import org.easymock.EasyMock;
@@ -64,7 +64,7 @@ public class DescribeStmtTest {
     }
 
     @Test
-    public void testNormal() throws AnalysisException, InternalException {
+    public void testNormal() throws AnalysisException, UserException {
         DescribeStmt stmt = new DescribeStmt(new TableName("", "testTbl"), false);
         stmt.analyze(analyzer);
         Assert.assertEquals("DESCRIBE `testCluster:testDb.testTbl`", stmt.toString());
@@ -74,7 +74,7 @@ public class DescribeStmtTest {
     }
 
     @Test
-    public void testAllNormal() throws AnalysisException, InternalException {
+    public void testAllNormal() throws AnalysisException, UserException {
         DescribeStmt stmt = new DescribeStmt(new TableName("", "testTbl"), true);
         stmt.analyze(analyzer);
         Assert.assertEquals("DESCRIBE `testCluster:testDb.testTbl` ALL", stmt.toString());

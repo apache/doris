@@ -58,7 +58,7 @@ void WebPageHandler::register_page(
 void WebPageHandler::handle(HttpRequest *req) {
     // Should we render with css styles?
     bool use_style = true;
-    std::map<std::string, std::string>& params = *req->params();
+    auto& params = *req->params();
     if (params.find("raw") != params.end()) {
         use_style = false;
     }

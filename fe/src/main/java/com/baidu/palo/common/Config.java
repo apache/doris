@@ -69,10 +69,14 @@ public class Config extends ConfigBase {
      */
     @ConfField public static int label_clean_interval_second = 4 * 3600; // 4 hours
     /*
+     * the transaction will be cleaned after transaction_clean_interval_second seconds if the transaction is visible or aborted
+     */
+    @ConfField public static int transaction_clean_interval_second = 1800; // 0.5 hours
+    /*
      * If a load job stay in QUORUM_FINISHED state longer than *quorum_load_job_max_second*,
      * a clone job will be triggered to help finishing this load job.
      */
-    @ConfField public static int quorum_load_job_max_second = 4 * 3600; // 4 hours
+    @ConfField public static int quorum_load_job_max_second = 24 * 3600; // 1 days
 
     // Configurations for meta data durability
     /*
@@ -179,6 +183,7 @@ public class Config extends ConfigBase {
     @ConfField public static int http_port = 8030;
     /*
      * FE thrift server port
+     * 
      */
     @ConfField public static int rpc_port = 9020;
     /*
@@ -209,6 +214,34 @@ public class Config extends ConfigBase {
      *      the create table request will run at most (m * n * tablet_create_timeout_second) before timeout.
      */
     @ConfField public static int tablet_create_timeout_second = 1;
+    
+    /*
+     * Maximal waiting time for publish version message to backend
+     */
+    @ConfField public static int publish_version_timeout_second = 3;
+    
+    /*
+     * minimal intervals between two publish version action
+     */
+    @ConfField public static int publish_version_interval_millis = 100;
+    
+    /*
+     * maximun concurrent running txn num including prepare, commit txns under a single db
+     * txn manager will reject coming txns
+     */
+    @ConfField public static int max_running_txn_num_per_db = 100;
+
+    /*
+     * Maximal wait seconds for straggler node in load
+     * eg.
+     *      there are 3 replicas A, B, C
+     *      load is already quorum finished(A,B) at t1 and C is not finished
+     *      if (current_time - t1) > 300s, then palo will treat C as a failure node
+     *      will call transaction manager to commit the transaction and tell transaction manager 
+     *      that C is failed
+     * TODO this parameter is the default value for all job and the DBA could specify it for separate job
+     */
+    @ConfField public static int load_straggler_wait_second = 300;
     
     /*
      * Maximal memory layout length of a row. default is 100 KB.
@@ -276,6 +309,11 @@ public class Config extends ConfigBase {
      * Default mini load timeout
      */
     @ConfField public static int mini_load_default_timeout_second = 3600; // 1 hour
+    
+    /*
+     * Default stream load timeout
+     */
+    @ConfField public static int stream_load_default_timeout_second = 300; // 300s
 
     /*
      * Default hadoop load timeout
@@ -320,6 +358,10 @@ public class Config extends ConfigBase {
      */
     @ConfField public static int clone_high_priority_delay_second = 0;
     /*
+     * the minimal delay seconds between a replica is failed and fe try to recovery it using clone.
+     */
+    @ConfField public static int replica_delay_recovery_second = 0;
+    /*
      * Balance threshold of data size in BE.
      * The balance algorithm is:
      * 1. Calculate the average used capacity(AUC) of the entire cluster. (total data size / total backends num)
@@ -332,7 +374,7 @@ public class Config extends ConfigBase {
      * Balance threshold of num of replicas in Backends.
      */
     @ConfField public static double clone_distribution_balance_threshold = 0.2;
-     /*
+    /*
      * The high water of disk capacity used percent.
      * This is used for calculating load score of a backend.
      */
@@ -528,6 +570,10 @@ public class Config extends ConfigBase {
     @ConfField public static double storage_high_watermark_usage_percent = 0.85;
     @ConfField public static double storage_min_left_capacity_bytes = 1000 * 1024 * 1024; // 1G
 
+    // update interval of tablet stat
+    // All frontends will get tablet stat from all backends at each interval
+    @ConfField public static int tablet_stat_update_interval_second = 300;  // 5 min
+
     // May be necessary to modify the following BRPC configurations in high concurrency scenarios. 
     // The number of concurrent requests BRPC can processed
     @ConfField public static int brpc_number_of_concurrent_requests_processed = 4096;
@@ -595,4 +641,10 @@ public class Config extends ConfigBase {
      * Set to true to disable this kind of load.
      */
     @ConfField public static boolean disable_hadoop_load = false;
+    
+    /*
+     * fe will call es api to get es index shard info every es_state_sync_interval_secs
+     */
+    @ConfField public static long es_state_sync_interval_secs = 10;
 }
+

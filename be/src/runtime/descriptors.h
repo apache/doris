@@ -54,6 +54,9 @@ class TTupleDescriptor;
 class Expr;
 class RuntimeState;
 class SchemaScanner;
+class OlapTableSchemaParam;
+class PTupleDescriptor;
+class PSlotDescriptor;
 
 struct LlvmTupleStruct {
     llvm::StructType* tuple_struct;
@@ -69,10 +72,12 @@ struct LlvmTupleStruct {
 struct NullIndicatorOffset {
     int byte_offset;
     uint8_t bit_mask;  // to extract null indicator
+    uint8_t bit_offset; // only used to serialize, from 1 to 8
 
-    NullIndicatorOffset(int byte_offset, int bit_offset)
+    NullIndicatorOffset(int byte_offset, int bit_offset_)
         : byte_offset(byte_offset),
-          bit_mask(bit_offset == -1 ? 0 : 1 << (7 - bit_offset)) {
+        bit_mask(bit_offset_ == -1 ? 0 : 1 << (7 - bit_offset_)),
+        bit_offset(bit_offset_) {
     }
  
     bool equals(const NullIndicatorOffset& o) const {
@@ -130,6 +135,8 @@ public:
     /// of other_desc, but not necessarily ids.
     bool layout_equals(const SlotDescriptor& other_desc) const;
 
+    void to_protobuf(PSlotDescriptor* pslot) const;
+
     std::string debug_string() const;
 
     // Codegen for: bool IsNull(Tuple* tuple)
@@ -144,6 +151,7 @@ private:
     friend class DescriptorTbl;
     friend class TupleDescriptor;
     friend class SchemaScanner;
+    friend class OlapTableSchemaParam;
 
     const SlotId _id;
     const TypeDescriptor _type;
@@ -173,6 +181,7 @@ private:
     llvm::Function* _set_null_fn;
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
+    SlotDescriptor(const PSlotDescriptor& pdesc);
 };
 
 // Base class for table descriptors.
@@ -331,6 +340,8 @@ public:
 
     std::string debug_string() const;
 
+    void to_protobuf(PTupleDescriptor* ptuple) const;
+
     // Creates a typed struct description for llvm.  The layout of the struct is computed
     // by the FE which includes the order of the fields in the resulting struct.
     // Returns the struct type or NULL if the type could not be created.
@@ -347,6 +358,7 @@ public:
 private:
     friend class DescriptorTbl;
     friend class SchemaScanner;
+    friend class OlapTableSchemaParam;
 
     const TupleId _id;
     TableDescriptor* _table_desc;
@@ -366,6 +378,7 @@ private:
     llvm::StructType* _llvm_struct; // cache for the llvm struct type for this tuple desc
 
     TupleDescriptor(const TTupleDescriptor& tdesc);
+    TupleDescriptor(const PTupleDescriptor& tdesc);
     void add_slot(SlotDescriptor* slot);
 
     /// Returns slots in their physical order.

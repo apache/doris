@@ -26,7 +26,6 @@ struct mg_connection;
 namespace palo {
 
 class HttpRequest;
-class HttpResponse;
 
 class HttpChannel {
 public:

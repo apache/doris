@@ -27,7 +27,7 @@ import com.baidu.palo.analysis.JoinOperator;
 import com.baidu.palo.analysis.QueryStmt;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.Pair;
 import com.baidu.palo.thrift.TPartitionType;
 
@@ -65,7 +65,7 @@ public class DistributedPlanner {
      * the aggregation and analytic computation).
      */
     public ArrayList<PlanFragment> createPlanFragments(
-            PlanNode singleNodePlan) throws InternalException, AnalysisException {
+            PlanNode singleNodePlan) throws UserException, AnalysisException {
         Preconditions.checkState(!ctx_.isSingleNodeExec());
         // AnalysisContext.AnalysisResult analysisResult = ctx_.getAnalysisResult();
         QueryStmt queryStmt = ctx_.getQueryStmt();
@@ -99,11 +99,12 @@ public class DistributedPlanner {
 
     PlanFragment createInsertFragment(
             PlanFragment inputFragment, InsertStmt stmt, ArrayList<PlanFragment> fragments)
-            throws InternalException {
+            throws UserException {
         Table targetTable = stmt.getTargetTable();
         Boolean isRepart = stmt.isRepartition();
         // When inputFragment is partitioned:
         //      1. If target table is partitioned, we need repartitioned. Or a merge node if hint has "NOSHUFFLE"
+        //      1.a: If target table is random partitioned, return inputFragment
         //      2. If target table is not partitioned, we must have a merge node
         // When inputFragment is not partitioned:
         //      1. If target table is partitioned, we can return inputFragment; or repartition if hints has "SHUFFLE"
@@ -112,6 +113,9 @@ public class DistributedPlanner {
         boolean needMerge = false;
         if (isFragmentPartitioned(inputFragment)) {
             if (targetTable.isPartitioned()) {
+                if (stmt.getDataPartition().getType() == TPartitionType.RANDOM) {
+                    return inputFragment;
+                }
                 if (isRepart != null && !isRepart) {
                     needMerge = true;
                 } else {
@@ -166,7 +170,7 @@ public class DistributedPlanner {
      */
     private PlanFragment createPlanFragments(
             PlanNode root, boolean isPartitioned,
-            long perNodeMemLimit, ArrayList<PlanFragment> fragments) throws InternalException, AnalysisException {
+            long perNodeMemLimit, ArrayList<PlanFragment> fragments) throws UserException, AnalysisException {
         ArrayList<PlanFragment> childFragments = Lists.newArrayList();
         for (PlanNode child : root.getChildren()) {
             // allow child fragments to be partitioned, unless they contain a limit clause
@@ -213,7 +217,7 @@ public class DistributedPlanner {
         } else if (root instanceof EmptySetNode) {
             result = new PlanFragment(ctx_.getNextFragmentId(), root, DataPartition.UNPARTITIONED);
         } else {
-            throw new InternalException(
+            throw new UserException(
                     "Cannot create plan fragment for this node type: " + root.getExplainString());
         }
         // move 'result' to end, it depends on all of its children
@@ -234,7 +238,7 @@ public class DistributedPlanner {
      * Requires that input fragment be partitioned.
      */
     private PlanFragment createMergeFragment(PlanFragment inputFragment)
-            throws InternalException {
+            throws UserException {
         Preconditions.checkState(inputFragment.isPartitioned());
 
         // exchange node clones the behavior of its input, aside from the conjuncts
@@ -260,6 +264,7 @@ public class DistributedPlanner {
         } else if (node instanceof SchemaScanNode) {
             return new PlanFragment(ctx_.getNextFragmentId(), node, DataPartition.UNPARTITIONED);
         } else {
+            // es scan node, olap scan node are random partitioned
             return new PlanFragment(ctx_.getNextFragmentId(), node, DataPartition.RANDOM);
         }
     }
@@ -273,7 +278,7 @@ public class DistributedPlanner {
      */
     private PlanFragment createHashJoinFragment(HashJoinNode node, PlanFragment rightChildFragment,
                                                 PlanFragment leftChildFragment, long perNodeMemLimit)
-            throws InternalException {
+            throws UserException {
         // broadcast: send the rightChildFragment's output to each node executing
         // the leftChildFragment; the cost across all nodes is proportional to the
         // total amount of data sent
@@ -399,7 +404,7 @@ public class DistributedPlanner {
      */
     private PlanFragment createCrossJoinFragment(
             CrossJoinNode node, PlanFragment rightChildFragment, PlanFragment leftChildFragment)
-            throws InternalException {
+            throws UserException {
         // The rhs tree is going to send data through an exchange node which effectively
         // compacts the data. No reason to do it again at the rhs root node.
         rightChildFragment.getPlanRoot().setCompactData(false);
@@ -422,7 +427,7 @@ public class DistributedPlanner {
     private PlanFragment createMergeNodeFragment(MergeNode mergeNode,
                                                  ArrayList<PlanFragment> childFragments,
                                                  ArrayList<PlanFragment> fragments)
-            throws InternalException {
+            throws UserException {
         Preconditions.checkState(mergeNode.getChildren().size() == childFragments.size());
 
         // If the mergeNode only has constant exprs, return it in an unpartitioned fragment.
@@ -484,7 +489,7 @@ public class DistributedPlanner {
      */
     private PlanFragment createUnionNodeFragment(
             UnionNode unionNode, ArrayList<PlanFragment> childFragments, ArrayList<PlanFragment> fragments)
-            throws InternalException {
+            throws UserException {
         Preconditions.checkState(unionNode.getChildren().size() == childFragments.size());
 
         // A UnionNode could have no children or constant selects if all of its operands
@@ -582,7 +587,7 @@ public class DistributedPlanner {
     private void connectChildFragment(
             PlanNode node, int childIdx,
             PlanFragment parentFragment, PlanFragment childFragment)
-            throws InternalException {
+            throws UserException {
         ExchangeNode exchangeNode = new ExchangeNode(ctx_.getNextNodeId(), childFragment.getPlanRoot(), false);
         exchangeNode.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         exchangeNode.init(ctx_.getRootAnalyzer());
@@ -602,7 +607,7 @@ public class DistributedPlanner {
      * correct for the input).
      */
     private PlanFragment createParentFragment(PlanFragment childFragment, DataPartition parentPartition)
-            throws InternalException {
+            throws UserException {
         ExchangeNode exchangeNode = new ExchangeNode(ctx_.getNextNodeId(), childFragment.getPlanRoot(), false);
         exchangeNode.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         exchangeNode.init(ctx_.getRootAnalyzer());
@@ -623,7 +628,7 @@ public class DistributedPlanner {
      */
     private PlanFragment createAggregationFragment(
             AggregationNode node, PlanFragment childFragment, ArrayList<PlanFragment> fragments)
-            throws InternalException {
+            throws UserException {
         if (!childFragment.isPartitioned()) {
             // nothing to distribute; do full aggregation directly within childFragment
             childFragment.addPlanRoot(node);
@@ -660,7 +665,7 @@ public class DistributedPlanner {
      * aggregation.
      */
     private PlanFragment createMergeAggregationFragment(AggregationNode node, PlanFragment childFragment)
-            throws InternalException {
+            throws UserException {
         Preconditions.checkArgument(childFragment.isPartitioned());
         ArrayList<Expr> groupingExprs = node.getAggInfo().getGroupingExprs();
         boolean hasGrouping = !groupingExprs.isEmpty();
@@ -737,7 +742,7 @@ public class DistributedPlanner {
      */
     private PlanFragment createPhase2DistinctAggregationFragment(
             AggregationNode node,
-            PlanFragment childFragment, ArrayList<PlanFragment> fragments) throws InternalException {
+            PlanFragment childFragment, ArrayList<PlanFragment> fragments) throws UserException {
         ArrayList<Expr> groupingExprs = node.getAggInfo().getGroupingExprs();
         boolean hasGrouping = !groupingExprs.isEmpty();
 
@@ -840,7 +845,7 @@ public class DistributedPlanner {
      */
     private PlanFragment createAnalyticFragment(
             PlanNode node, PlanFragment childFragment, List<PlanFragment> fragments)
-            throws InternalException, AnalysisException {
+            throws UserException, AnalysisException {
         Preconditions.checkState(
                 node instanceof SortNode || node instanceof AnalyticEvalNode);
 
@@ -895,7 +900,7 @@ public class DistributedPlanner {
      */
     private PlanFragment createOrderByFragment(
             SortNode node, PlanFragment childFragment)
-            throws InternalException {
+            throws UserException {
         node.setChild(0, childFragment.getPlanRoot());
         childFragment.addPlanRoot(node);
         if (!childFragment.isPartitioned()) {

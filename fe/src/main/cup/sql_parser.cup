@@ -193,13 +193,13 @@ parser code {:
 :};
 
 // Total keywords of palo
-terminal String KW_ADD, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_AS, KW_ASC, KW_AUTHORS, 
+terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_AS, KW_ASC, KW_AUTHORS, 
     KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BOOLEAN, KW_BOTH, KW_BROKER, KW_BACKENDS, KW_BY,
     KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CLUSTER, KW_CLUSTERS,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED,
     KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_COUNT, KW_CREATE, KW_CROSS, KW_CURRENT, KW_CURRENT_USER,
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DECIMAL, KW_DECOMMISSION, KW_DEFAULT, KW_DESC, KW_DESCRIBE,
-    KW_DELETE, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
+    KW_DELETE, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
     KW_ELSE, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXISTS, KW_EXPORT, KW_EXTERNAL, KW_EXTRACT,
     KW_FALSE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FIRST, KW_FLOAT, KW_FOR, KW_FRONTENDS, KW_FULL, KW_FUNCTION,
     KW_GLOBAL, KW_GRANT, KW_GRANTS, KW_GROUP,
@@ -218,7 +218,7 @@ terminal String KW_ADD, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANT
     KW_PROC, KW_PROCEDURE, KW_PROCESSLIST, KW_PROPERTIES, KW_PROPERTY,
     KW_QUERY, KW_QUOTA,
     KW_RANDOM, KW_RANGE, KW_READ, KW_RECOVER, KW_REGEXP, KW_RELEASE, KW_RENAME,
-    KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_RESOURCE, KW_RESTORE, KW_REVOKE,
+    KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLICA, KW_RESOURCE, KW_RESTORE, KW_REVOKE,
     KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROW, KW_ROWS,
     KW_SCHEMAS, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SHOW,
     KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STORAGE, KW_STRING, 
@@ -245,7 +245,10 @@ terminal String COMMENTED_PLAN_HINTS;
 // Statement that the result of this parser.
 nonterminal StatementBase query, stmt, show_stmt, show_param, help_stmt, load_stmt, describe_stmt, alter_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
-    link_stmt, migrate_stmt, enter_stmt, unsupported_stmt, export_stmt;
+    link_stmt, migrate_stmt, enter_stmt, unsupported_stmt, export_stmt, admin_stmt, import_columns_stmt, import_where_stmt;
+
+nonterminal ImportColumnDesc import_column_desc;
+nonterminal List<ImportColumnDesc> import_column_descs;
 
 // unsupported statement
 nonterminal opt_with_consistent_snapshot, opt_work, opt_chain, opt_release;
@@ -381,7 +384,7 @@ nonterminal String opt_from_rollup, opt_to_rollup;
 nonterminal ColumnPosition opt_col_pos;
 
 // Alter statement
-nonterminal AlterClause alter_system_clause, alter_cluster_clause, alter_table_clause, alter_user_clause;
+nonterminal AlterClause alter_system_clause, alter_cluster_clause, alter_table_clause;
 nonterminal List<AlterClause> alter_table_clause_list;
 
 //
@@ -422,6 +425,51 @@ query ::=
     | stmt:stmt SEMICOLON
     {:
         RESULT = stmt;
+    :}
+    | import_columns_stmt:stmt
+    {:
+        RESULT = stmt;
+    :}
+    | import_where_stmt:stmt
+    {:
+        RESULT = stmt;
+    :}
+    ;
+
+import_columns_stmt ::=
+    KW_COLUMNS import_column_descs:columns
+    {:
+        RESULT = new ImportColumnsStmt(columns);
+    :}
+    ;
+
+import_column_descs ::=
+    import_column_desc:column
+    {:
+        RESULT = Lists.newArrayList(column);
+    :}
+    | import_column_descs:columns COMMA import_column_desc:column
+    {:
+        columns.add(column);
+        RESULT = columns;
+    :}
+    ;
+
+import_column_desc ::=
+    ident:name
+    {:
+        RESULT = new ImportColumnDesc(name, null);
+    :}
+    | ident:name EQUAL expr:expr
+    {:
+        RESULT = new ImportColumnDesc(name, expr);
+    :}
+    ;
+
+import_where_stmt ::=
+    KW_WHERE expr:expr
+    {:
+        RESULT = new ImportWhereStmt(expr);
     :}
     ;
 
@@ -475,6 +523,8 @@ stmt ::=
     | unsupported_stmt : stmt
     {: RESULT = stmt; :}
     | export_stmt : stmt
+    {: RESULT = stmt; :}
+    | admin_stmt : stmt
     {: RESULT = stmt; :}
     | /* empty: query only has comments */
     {:
@@ -543,10 +593,6 @@ alter_stmt ::=
     {:
         RESULT = new AlterDatabaseRename(dbName, newDbName);
     :}
-    | KW_ALTER KW_USER user_identity:userIdent alter_user_clause:clause
-    {:
-        RESULT = new AlterUserStmt(userIdent, clause);
-	:}
     ;
 
 opt_user ::=
@@ -749,16 +795,6 @@ alter_cluster_clause ::=
         RESULT = new AlterClusterClause(AlterClusterType.ALTER_CLUSTER_PROPERTIES, properties);
     :}
     ;
-alter_user_clause ::=
-	KW_ADD KW_WHITELIST string_list:hostPorts
-	{:
-		RESULT = new AlterUserClause(AlterUserType.ADD_USER_WHITELIST, hostPorts);
-	:}
-	| KW_DELETE KW_WHITELIST string_list:hostPorts
-	{:
-		RESULT = new AlterUserClause(AlterUserType.DELETE_USER_WHITELIST, hostPorts);
-	:}
-	;
 
 // Sync Stmt
 sync_stmt ::=
@@ -3477,6 +3513,17 @@ integer_list ::=
     | INTEGER_LITERAL:item
     {:
         RESULT = Lists.newArrayList(item);
+    :}
+    ;
+
+admin_stmt ::=
+    KW_ADMIN KW_SHOW KW_REPLICA KW_STATUS KW_FROM base_table_ref:table_ref opt_wild_where
+    {:
+        RESULT = new AdminShowReplicaStatusStmt(table_ref, parser.where);
+    :}
+    | KW_ADMIN KW_SHOW KW_REPLICA KW_DISTRIBUTION KW_FROM base_table_ref:table_ref
+    {:
+        RESULT = new AdminShowReplicaDistributionStmt(table_ref);
     :}
     ;
 

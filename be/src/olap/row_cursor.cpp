@@ -89,6 +89,7 @@ OLAPStatus RowCursor::_init(const std::vector<FieldInfo>& tablet_schema,
         } else if (type == OLAP_FIELD_TYPE_HLL) {
             _variable_len += HLL_COLUMN_DEFAULT_LEN + sizeof(HllContext*);
         }
+        _string_columns.push_back(cid);
     }
 
     _fixed_buf = new (nothrow) char[_fixed_len];

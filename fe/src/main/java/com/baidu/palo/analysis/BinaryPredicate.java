@@ -23,8 +23,8 @@ package com.baidu.palo.analysis;
 import com.baidu.palo.catalog.Function;
 import com.baidu.palo.catalog.FunctionSet;
 import com.baidu.palo.catalog.PrimitiveType;
-import com.baidu.palo.catalog.Type;
 import com.baidu.palo.catalog.ScalarFunction;
+import com.baidu.palo.catalog.Type;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.Pair;
 import com.baidu.palo.common.Reference;
@@ -35,10 +35,10 @@ import com.baidu.palo.thrift.TExprNodeType;
 import com.baidu.palo.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
-
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.Logger;
+
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;

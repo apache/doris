@@ -56,6 +56,16 @@ struct TExportTaskRequest {
     1: required PaloInternalService.TExecPlanFragmentParams params
 }
 
+struct TTabletStat {
+    1: required i64 tablet_id
+    2: optional i64 data_size
+    3: optional i64 row_num
+}
+
+struct TTabletStatResult {
+    1: required map<i64, TTabletStat> tablets_stats
+}
+
 service BackendService {
     // Called by coord to start asynchronous execution of plan fragment in backend.
     // Returns as soon as all incoming data streams have been set up.
@@ -110,4 +120,6 @@ service BackendService {
     PaloInternalService.TExportStatusResult get_export_status(1:Types.TUniqueId task_id);
 
     Status.TStatus erase_export_task(1:Types.TUniqueId task_id);
+
+    TTabletStatResult get_tablet_stat();
 }

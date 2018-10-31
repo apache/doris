@@ -21,12 +21,12 @@
 
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/olap_index.h"
 #include "olap/olap_table.h"
 
 namespace palo {
 
 class IData;
+class Rowset;
 
 // @brief 实现对START_BASE_COMPACTION命令的处理逻辑，并返回处理结果
 class BaseCompaction {
@@ -34,8 +34,7 @@ public:
     BaseCompaction() :
             _new_base_version(0, 0),
             _old_base_version(0, 0),
-            _base_compaction_locked(false),
-            _header_locked(false) {}
+            _base_compaction_locked(false) {}
 
     virtual ~BaseCompaction() {
         _release_base_compaction_lock();
@@ -54,7 +53,7 @@ public:
     // 返回值：
     // - 如果init执行成功，即可以执行BE，则返回OLAP_SUCCESS；
     // - 其它情况下，返回相应的错误码
-    OLAPStatus init(SmartOLAPTable table, bool is_manual_trigger);
+    OLAPStatus init(OLAPTablePtr table, bool is_manual_trigger = false);
 
     // 执行BaseCompaction, 可能会持续很长时间
     //
@@ -64,10 +63,6 @@ public:
     OLAPStatus run();
 
 private:
-    // 从need_merged_versions中剔除没过期的delete版本以及大于该delete版本的cumulative
-    OLAPStatus _exclude_not_expired_delete(const std::vector<Version>& need_merged_versions,
-                                           std::vector<Version>* candidate_versions);
-
     // 检验当前情况是否满足base compaction的触发策略
     //
     // 输入参数：
@@ -86,7 +81,6 @@ private:
     // 输入参数：
     // - new_base_version_hash: 新Base的VersionHash
     // - base_data_sources: 生成新Base需要的IData*
-    // - selectivities: 生成Base过程中产生的selectivities
     // - row_count: 生成Base过程中产生的row_count
     //
     // 返回值：
@@ -94,37 +88,30 @@ private:
     // - 其它情况下，返回相应的错误码
     OLAPStatus _do_base_compaction(VersionHash new_base_version_hash,
                                   std::vector<IData*>* base_data_sources,
-                                  std::vector<uint32_t>* selectivities,
                                   uint64_t* row_count);
    
     // 更新Header使得修改对外可见
-    // 
-    // 输入参数：
-    // - selectivities: 生成Base过程中产生的selectivities
-    // - row_count: 生成Base过程中产生的row_count
-    // 
     // 输出参数：
-    // - unused_olap_indices: 需要被物理删除的OLAPIndex*
+    // - unused_olap_indices: 需要被物理删除的Rowset*
     //
     // 返回值：
     // - 如果执行成功，则返回OLAP_SUCCESS；
     // - 其它情况下，返回相应的错误码
-    OLAPStatus _update_header(const std::vector<uint32_t>& selectivities,
-                              uint64_t row_count,
-                              std::vector<OLAPIndex*>* unused_olap_indices);
+    OLAPStatus _update_header(uint64_t row_count,
+                              std::vector<Rowset*>* unused_olap_indices);
 
-    // 删除不再使用的OLAPIndex文件
+    // 删除不再使用的Rowset文件
     // 
     // 输入参数：
-    // - unused_olap_indices: 需要被物理删除的OLAPIndex*
+    // - unused_olap_indices: 需要被物理删除的Rowset*
     //
     // 返回值：
     // - 如果执行成功，则返回OLAP_SUCCESS；
     // - 其它情况下，返回相应的错误码
-    void _delete_old_files(std::vector<OLAPIndex*>* unused_indices);
+    void _delete_old_files(std::vector<Rowset*>* unused_indices);
 
     // 其它函数执行失败时，调用该函数进行清理工作
-    void _cleanup();
+    void _garbage_collection();
 
     // 验证得到的candidate_versions是否正确
     //
@@ -174,25 +161,8 @@ private:
         }
     }
 
-    void _obtain_header_rdlock() {
-        _table->obtain_header_rdlock();
-        _header_locked = true;
-    }
-
-    void _obtain_header_wrlock() {
-        _table->obtain_header_wrlock();
-        _header_locked = true;
-    }
-
-    void _release_header_lock() {
-        if (_header_locked) {
-            _table->release_header_lock();
-            _header_locked = false;
-        }
-    }
-
     // 需要进行操作的Table指针
-    SmartOLAPTable _table;
+    OLAPTablePtr _table;
     // 新base的version
     Version _new_base_version;
     // 现有base的version
@@ -201,11 +171,10 @@ private:
     Version _latest_cumulative;
     // 在此次base compaction执行过程中，将被合并的cumulative文件版本
     std::vector<Version> _need_merged_versions;
-    // 需要新增的版本对应的OLAPIndex
-    std::vector<OLAPIndex*> _new_olap_indices;
+    // 需要新增的版本对应的Rowset
+    std::vector<Rowset*> _new_olap_indices;
 
     bool _base_compaction_locked;
-    bool _header_locked;
 
     DISALLOW_COPY_AND_ASSIGN(BaseCompaction);
 };

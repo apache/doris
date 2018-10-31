@@ -26,7 +26,7 @@ import com.baidu.palo.thrift.TExplainLevel;
 import com.baidu.palo.thrift.TOlapRewriteNode;
 import com.baidu.palo.thrift.TPlanNode;
 import com.baidu.palo.thrift.TPlanNodeType;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 import com.google.common.collect.Lists;
 import com.google.common.base.Preconditions;
@@ -65,7 +65,7 @@ public class OlapRewriteNode extends PlanNode {
     }
 
     @Override
-    public void init(Analyzer analyzer) throws InternalException {
+    public void init(Analyzer analyzer) throws UserException {
         assignConjuncts(analyzer);
       
         // Set smap to the combined childrens' smaps and apply that to all conjuncts_.

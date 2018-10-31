@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
 
@@ -72,7 +72,7 @@ public class LoadStmtTest {
     }
 
     @Test
-    public void testNormal() throws InternalException, AnalysisException {
+    public void testNormal() throws UserException, AnalysisException {
         desc.analyze(EasyMock.anyString());
         EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(desc);
@@ -88,7 +88,7 @@ public class LoadStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoData() throws InternalException, AnalysisException {
+    public void testNoData() throws UserException, AnalysisException {
         desc.analyze(EasyMock.anyString());
         EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(desc);

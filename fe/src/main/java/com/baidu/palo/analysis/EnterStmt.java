@@ -23,7 +23,7 @@ package com.baidu.palo.analysis;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.google.common.base.Strings;
 
 public class EnterStmt extends DdlStmt {
@@ -35,7 +35,7 @@ public class EnterStmt extends DdlStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         if (Strings.isNullOrEmpty(name)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NAME_NULL);
         }

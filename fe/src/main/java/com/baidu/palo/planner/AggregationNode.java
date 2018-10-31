@@ -31,7 +31,7 @@ import com.baidu.palo.thrift.TAggregationNode;
 import com.baidu.palo.thrift.TExplainLevel;
 import com.baidu.palo.thrift.TPlanNode;
 import com.baidu.palo.thrift.TPlanNodeType;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
@@ -118,7 +118,7 @@ public class AggregationNode extends PlanNode {
     }
 
     @Override
-    public void init(Analyzer analyzer) throws InternalException {
+    public void init(Analyzer analyzer) throws UserException {
         // Assign predicates to the top-most agg in the single-node plan that can evaluate
         // them, as follows: For non-distinct aggs place them in the 1st phase agg node. For
         // distinct aggs place them in the 2nd phase agg node. The conjuncts are

@@ -23,28 +23,28 @@
 #include <boost/algorithm/string/join.hpp>
 
 #include "olap/olap_define.h"
-#include "olap/olap_rootpath.h"
+#include "olap/olap_engine.h"
 #include "util/file_utils.h"
 #include "gen_cpp/Types_types.h"
+#include "runtime/exec_env.h"
 
 namespace palo {
 
 static const uint32_t MAX_SHARD_NUM = 1024;
 static const std::string SHARD_PREFIX = "__shard_";
 
-LoadPathMgr::LoadPathMgr() : _idx(0), _next_shard(0) { }
+LoadPathMgr::LoadPathMgr(ExecEnv* exec_env) : _exec_env(exec_env),
+        _idx(0), _next_shard(0), _error_path_next_shard(0) { }
 
 Status LoadPathMgr::init() {
-    OLAPRootPath::RootPathVec all_available_root_path;
-    OLAPRootPath::get_instance()->get_all_available_root_path(&all_available_root_path);
     _path_vec.clear();
-    for (auto& one_path : all_available_root_path) {
-        _path_vec.push_back(one_path + MINI_PREFIX);
+    for (auto& path : _exec_env->store_paths()) {
+        _path_vec.push_back(path.path + MINI_PREFIX);
     }
     LOG(INFO) << "Load path configured to [" << boost::join(_path_vec, ",") << "]";
 
     // error log is saved in first root path
-    _error_log_dir = all_available_root_path[0] + ERROR_LOG_PREFIX;
+    _error_log_dir = _exec_env->store_paths()[0].path + ERROR_LOG_PREFIX;
     // check and make dir
     RETURN_IF_ERROR(FileUtils::create_dir(_error_log_dir));
 
@@ -126,31 +126,43 @@ Status LoadPathMgr::get_load_error_file_name(
         const TUniqueId& fragment_instance_id,
         std::string* error_path) {
     std::stringstream ss;
-    ss << ERROR_FILE_NAME << "_" << db << "_" << label
+    std::string shard = "";
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        shard = SHARD_PREFIX + std::to_string(_error_path_next_shard++ % MAX_SHARD_NUM);
+    }
+    std::string shard_path = _error_log_dir + "/" + shard;
+    // check and create shard path
+    Status status = FileUtils::create_dir(shard_path);
+    if (!status.ok()) {
+        LOG(WARNING) << "create error sub path failed. path=" << shard_path;
+    }
+    // add shard sub dir to file path
+    ss << shard << "/" << ERROR_FILE_NAME << "_" << db << "_" << label
         << "_" << std::hex << fragment_instance_id.hi
         << "_" << fragment_instance_id.lo;
     *error_path = ss.str();
     return Status::OK;
 }
 
-std::string LoadPathMgr::get_load_error_absolute_path(const std::string& file_name) {
+std::string LoadPathMgr::get_load_error_absolute_path(const std::string& file_path) {
     std::string path;
     path.append(_error_log_dir);
     path.append("/");
-    path.append(file_name);
+    path.append(file_path);
     return path;
 }
 
-void LoadPathMgr::process_label_dir(time_t now, const std::string& label_dir) {
-    if (!is_too_old(now, label_dir)) {
+void LoadPathMgr::process_path(time_t now, const std::string& path) {
+    if (!is_too_old(now, path)) {
         return;
     }
-    LOG(INFO) << "Going to remove load directory. path=" << label_dir;
-    Status status = FileUtils::remove_all(label_dir);
+    LOG(INFO) << "Going to remove path. path=" << path;
+    Status status = FileUtils::remove_all(path);
     if (status.ok()) {
-        LOG(INFO) << "Remove load directory success. path=" << label_dir;
+        LOG(INFO) << "Remove path success. path=" << path;
     } else {
-        LOG(WARNING) << "Remove load directory failed. path=" << label_dir;
+        LOG(WARNING) << "Remove path failed. path=" << path;
     }
 }
 
@@ -181,16 +193,16 @@ void LoadPathMgr::clean_one_path(const std::string& path) {
                 std::vector<std::string> labels;
                 Status status = FileUtils::scan_dir(sub_path, &labels);
                 if (!status.ok()) {
-                    LOG(WARNING) << "scan one path to delete directory failed. path=" << path;
+                    LOG(WARNING) << "scan one path to delete directory failed. path=" << sub_path;
                     continue;
                 }
                 for (auto& label : labels) {
                     std::string label_dir = sub_path + "/" + label;
-                    process_label_dir(now, label_dir);
+                    process_path(now, label_dir);
                 }
             } else {
                 // process label dir
-                process_label_dir(now, sub_path);
+                process_path(now, sub_path);
             }
         }
     }
@@ -205,24 +217,32 @@ void LoadPathMgr::clean() {
 
 void LoadPathMgr::clean_error_log() {
     time_t now = time(nullptr);
-    std::vector<std::string> error_logs;
-    Status status = FileUtils::scan_dir(_error_log_dir, &error_logs);
+    std::vector<std::string> sub_dirs;
+    Status status = FileUtils::scan_dir(_error_log_dir, &sub_dirs);
     if (!status.ok()) {
         LOG(WARNING) << "scan error_log dir failed. dir=" << _error_log_dir;
         return;
     }
 
-    for (auto& error_log : error_logs) {
-        std::string log_path = _error_log_dir + "/" + error_log;
-        if (!is_too_old(now, log_path)) {
-            continue;
-        }
-        LOG(INFO) << "Going to remove error log file. path=" << log_path;
-        status = FileUtils::remove_all(log_path);
-        if (status.ok()) {
-            LOG(INFO) << "Remove load directory success. path=" << log_path;
+    for (auto& sub_dir : sub_dirs) {
+        std::string sub_path = _error_log_dir + "/" + sub_dir;
+        // for compatible
+        if (sub_dir.find(SHARD_PREFIX) == 0) {
+            // sub_dir starts with SHARD_PREFIX
+            // process shard sub dir
+            std::vector<std::string> error_log_files;
+            Status status = FileUtils::scan_dir(sub_path, &error_log_files);
+            if (!status.ok()) {
+                LOG(WARNING) << "scan one path to delete directory failed. path=" << sub_path;
+                continue;
+            }
+            for (auto& error_log : error_log_files) {
+                std::string error_log_path = sub_path + "/" + error_log;
+                process_path(now, error_log_path);
+            }
         } else {
-            LOG(WARNING) << "Remove load directory failed. path=" << log_path;
+            // process error log file
+            process_path(now, sub_path);
         }
     }
 }

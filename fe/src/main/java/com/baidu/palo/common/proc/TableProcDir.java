@@ -21,6 +21,7 @@
 package com.baidu.palo.common.proc;
 
 import com.baidu.palo.catalog.Database;
+import com.baidu.palo.catalog.EsTable;
 import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.catalog.Table.TableType;
@@ -82,10 +83,13 @@ public class TableProcDir implements ProcDirInterface {
         }
 
         if (entryName.equals(PARTITIONS)) {
-            if (table.getType() != TableType.OLAP) {
-                throw new AnalysisException("Table[" + table.getName() + "] is not a OLAP table");
+            if (table.getType() == TableType.OLAP) {
+                return new PartitionsProcDir(db, (OlapTable) table);
+            } else if (table.getType() == TableType.ELASTICSEARCH) {
+                return new EsPartitionsProcDir(db, (EsTable) table);
+            } else {
+                throw new AnalysisException("Table[" + table.getName() + "] is not a OLAP or ELASTICSEARCH table");
             }
-            return new PartitionsProcDir(db, (OlapTable) table);
         } else if (entryName.equals(INDEX_SCHEMA)) {
             return new IndexInfoProcDir(db, table);
         } else {

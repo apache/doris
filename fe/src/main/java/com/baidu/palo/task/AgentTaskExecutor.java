@@ -25,6 +25,9 @@ public class AgentTaskExecutor {
     }
     
     public static void submit(AgentBatchTask task) {
+        if (task == null) {
+            return;
+        }
         EXECUTOR.submit(task);
     }
 

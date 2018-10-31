@@ -25,6 +25,7 @@
 #include <thrift/protocol/TDebugProtocol.h>
 #include <thrift/concurrency/PosixThreadFactory.h>
 
+#include "olap/olap_engine.h"
 #include "service/backend_options.h"
 #include "util/network_util.h"
 #include "util/thrift_util.h"
@@ -224,6 +225,10 @@ void BackendService::erase_export_task(TStatus& t_status, const TUniqueId& task_
 //        VLOG_RPC << "delete export task successful with task_id " << task_id;
 //    }
 //    status.to_thrift(&t_status);
+}
+
+void BackendService::get_tablet_stat(TTabletStatResult& result) {
+    OLAPEngine::get_instance()->get_tablet_stat(result);
 }
 
 } // namespace palo

@@ -45,6 +45,14 @@
 
 namespace palo {
 
+std::string to_load_error_http_path(const std::string& file_name) {
+    std::stringstream url;
+    url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
+        << "/api/_load_error_log?"
+        << "file=" << file_name;
+    return url.str();
+}
+
 using apache::thrift::TException;
 using apache::thrift::TProcessor;
 using apache::thrift::transport::TTransportException;
@@ -68,7 +76,6 @@ public:
     void callback(const Status& status, RuntimeProfile* profile, bool done);
 
     std::string to_http_path(const std::string& file_name);
-    std::string to_load_error_http_path(const std::string& file_name);
 
     Status execute();
 
@@ -220,14 +227,6 @@ std::string FragmentExecState::to_http_path(const std::string& file_name) {
     return url.str();
 }
 
-std::string FragmentExecState::to_load_error_http_path(const std::string& file_name) {
-    std::stringstream url;
-    url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
-        << "/api/_load_error_log?"
-        << "file=" << file_name;
-    return url.str();
-}
-
 // There can only be one of these callbacks in-flight at any moment, because
 // it is only invoked from the executor's reporting thread.
 // Also, the reported status will always reflect the most recent execution status,
@@ -285,6 +284,13 @@ void FragmentExecState::coordinator_callback(
     if (!runtime_state->export_output_files().empty()) {
         params.__isset.export_files = true;
         params.export_files = runtime_state->export_output_files();
+    }
+    if (!runtime_state->tablet_commit_infos().empty()) {
+        params.__isset.commitInfos = true;
+        params.commitInfos.reserve(runtime_state->tablet_commit_infos().size());
+        for (auto& info : runtime_state->tablet_commit_infos()) {
+            params.commitInfos.push_back(info);
+        }
     }
     DCHECK(runtime_state != NULL);
 
@@ -438,11 +444,18 @@ Status FragmentMgr::exec_plan_fragment(
         }
     } else {
         pthread_t id;
-        pthread_create(&id,
+        int ret = pthread_create(&id,
                        nullptr,
                        fragment_executor,
                        new ThreadPool::WorkFunction(
                            std::bind<void>(&FragmentMgr::exec_actual, this, exec_state, cb)));
+        if (ret != 0) {
+            std::string err_msg("Could not create thread.");
+            err_msg.append(strerror(ret));
+            err_msg.append(",");
+            err_msg.append(std::to_string(ret));
+            return Status(err_msg);
+        }
         pthread_detach(id);
     }
 

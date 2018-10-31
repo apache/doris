@@ -22,7 +22,7 @@ package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.DdlException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.util.PrintableMap;
 import com.baidu.palo.qe.ConnectContext;
 
@@ -41,7 +41,7 @@ import java.util.Map.Entry;
 //      LOAD LABEL load_label
 //          (data_desc, ...)
 //          [BY cluster]
-//          [PROPERTIES (key1=value1, )]
+//      [PROPERTIES (key1=value1, )]
 //
 //      load_label:
 //          db_name.label_name
@@ -179,7 +179,7 @@ public class LoadStmt extends DdlStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         label.analyze(analyzer);
         if (dataDescriptions == null || dataDescriptions.isEmpty()) {

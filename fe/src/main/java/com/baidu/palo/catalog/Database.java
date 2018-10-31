@@ -20,6 +20,26 @@
 
 package com.baidu.palo.catalog;
 
+import com.baidu.palo.catalog.MaterializedIndex.IndexState;
+import com.baidu.palo.catalog.Replica.ReplicaState;
+import com.baidu.palo.catalog.Table.TableType;
+import com.baidu.palo.cluster.ClusterNamespace;
+import com.baidu.palo.common.DdlException;
+import com.baidu.palo.common.FeConstants;
+import com.baidu.palo.common.FeMetaVersion;
+import com.baidu.palo.common.Pair;
+import com.baidu.palo.common.io.Text;
+import com.baidu.palo.common.io.Writable;
+import com.baidu.palo.common.util.DebugUtil;
+import com.baidu.palo.persist.CreateTableInfo;
+import com.baidu.palo.system.SystemInfoService;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -34,24 +54,6 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.zip.Adler32;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import com.baidu.palo.catalog.MaterializedIndex.IndexState;
-import com.baidu.palo.catalog.Replica.ReplicaState;
-import com.baidu.palo.catalog.Table.TableType;
-import com.baidu.palo.cluster.ClusterNamespace;
-import com.baidu.palo.common.DdlException;
-import com.baidu.palo.common.FeConstants;
-import com.baidu.palo.common.FeMetaVersion;
-import com.baidu.palo.common.Pair;
-import com.baidu.palo.common.io.Text;
-import com.baidu.palo.common.io.Writable;
-import com.baidu.palo.common.util.DebugUtil;
-import com.baidu.palo.persist.CreateTableInfo;
-import com.baidu.palo.system.SystemInfoService;
-import com.google.common.base.Preconditions;
 
 /**
  * Internal representation of db-related metadata. Owned by Catalog instance.
@@ -77,6 +79,9 @@ public class Database extends MetaObject implements Writable {
     private String fullQualifiedName;
     private String clusterName;
     private ReentrantReadWriteLock rwLock;
+    
+    // temp for trace
+    private Map<String, Throwable> allLocks = Maps.newConcurrentMap();
 
     // table family group map
     private Map<Long, Table> idToTable;
@@ -112,28 +117,32 @@ public class Database extends MetaObject implements Writable {
 
     public void readLock() {
         this.rwLock.readLock().lock();
+        allLocks.put(Long.toString(Thread.currentThread().getId()), new Exception());
     }
 
-    public boolean tryReadLock(long timeout, TimeUnit unit) {
-        try {
-            return this.rwLock.readLock().tryLock(timeout, unit);
-        } catch (InterruptedException e) {
-            LOG.warn("failed to try read lock at db[" + id + "]", e);
-            return false;
+    public void printLocks() {
+        for (Throwable exception: allLocks.values()) {
+            LOG.debug("a lock in db [{}]", fullQualifiedName, exception);
         }
     }
 
     public void readUnlock() {
         this.rwLock.readLock().unlock();
+        allLocks.remove(Long.toString(Thread.currentThread().getId()));
     }
 
     public void writeLock() {
         this.rwLock.writeLock().lock();
+        allLocks.put(Long.toString(Thread.currentThread().getId()), new Exception());
     }
 
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
-            return this.rwLock.writeLock().tryLock(timeout, unit);
+            boolean result =  this.rwLock.writeLock().tryLock(timeout, unit);
+            if (result) {
+                allLocks.put(Long.toString(Thread.currentThread().getId()), new Exception());
+            }
+            return result;
         } catch (InterruptedException e) {
             LOG.warn("failed to try write lock at db[" + id + "]", e);
             return false;
@@ -142,6 +151,7 @@ public class Database extends MetaObject implements Writable {
 
     public void writeUnlock() {
         this.rwLock.writeLock().unlock();
+        allLocks.remove(Long.toString(Thread.currentThread().getId()));
     }
 
     public boolean isWriteLockHeldByCurrentThread() {
@@ -251,6 +261,9 @@ public class Database extends MetaObject implements Writable {
                     CreateTableInfo info = new CreateTableInfo(fullQualifiedName, table);
                     Catalog.getInstance().getEditLog().logCreateTable(info);
                 }
+                if (table.getType() == TableType.ELASTICSEARCH) {
+                    Catalog.getCurrentCatalog().getEsStateStore().registerTable((EsTable)table);
+                }
             }
             return result;
         } finally {
@@ -318,6 +331,28 @@ public class Database extends MetaObject implements Writable {
 
     public Table getTable(long tableId) {
         return idToTable.get(tableId);
+    }
+
+    public int getMaxReplicationNum() {
+        int ret = 0;
+        readLock();
+        try {
+            for (Table table : idToTable.values()) {
+                if (table.getType() != TableType.OLAP) {
+                    continue;
+                }
+                OlapTable olapTable = (OlapTable) table;
+                for (Partition partition : olapTable.getPartitions()) {
+                    short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                    if (ret < replicationNum) {
+                        ret = replicationNum;
+                    }
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+        return ret;
     }
 
     public static Database read(DataInput in) throws IOException {

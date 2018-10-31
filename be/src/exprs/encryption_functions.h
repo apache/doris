@@ -34,6 +34,10 @@ class TupleRow;
 class EncryptionFunctions {
 public:
     static void init();
+    static palo_udf::StringVal aes_encrypt(palo_udf::FunctionContext* context,
+            const palo_udf::StringVal& val1, const palo_udf::StringVal& val2);
+    static palo_udf::StringVal aes_decrypt(palo_udf::FunctionContext* context,
+            const palo_udf::StringVal& val1, const palo_udf::StringVal& val2);
     static palo_udf::StringVal from_base64(palo_udf::FunctionContext* context,
             const palo_udf::StringVal& val1);
     static palo_udf::StringVal to_base64(palo_udf::FunctionContext* context,
