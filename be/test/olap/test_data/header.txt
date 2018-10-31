@@ -1,0 +1,152 @@
+{
+    "num_rows_per_data_block": 1024,
+    "file_version": [
+        {
+            "num_segments": 1,
+            "start_version": 0,
+            "end_version": 1,
+            "version_hash": 0,
+            "max_timestamp": 0,
+            "index_size": 67,
+            "data_size": 477,
+            "num_rows": 0,
+            "creation_time": 1534750461,
+            "delta_pruning": {
+                "column_pruning": [
+                    {
+                        "min": "OTk5OS0xMi0zMQ==",
+                        "max": "MC0wMC0wMA==",
+                        "null_flag": false
+                    },
+                    {
+                        "min": "MjE0NzQ4MzY0Nw==",
+                        "max": "MA==",
+                        "null_flag": false
+                    },
+                    {
+                        "min": "MzI3Njc=",
+                        "max": "MA==",
+                        "null_flag": false
+                    },
+                    {
+                        "min": "/w==",
+                        "max": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                        "null_flag": false
+                    }
+                ]
+            }
+        },
+        {
+            "num_segments": 1,
+            "start_version": 2,
+            "end_version": 2,
+            "version_hash": 0,
+            "max_timestamp": 0,
+            "index_size": 67,
+            "data_size": 477,
+            "num_rows": 0,
+            "creation_time": 1534750461,
+            "delta_pruning": {
+                "column_pruning": [
+                    {
+                        "min": "OTk5OS0xMi0zMQ==",
+                        "max": "MC0wMC0wMA==",
+                        "null_flag": false
+                    },
+                    {
+                        "min": "MjE0NzQ4MzY0Nw==",
+                        "max": "MA==",
+                        "null_flag": false
+                    },
+                    {
+                        "min": "MzI3Njc=",
+                        "max": "MA==",
+                        "null_flag": false
+                    },
+                    {
+                        "min": "/w==",
+                        "max": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                        "null_flag": false
+                    }
+                ]
+            }
+        }
+    ],
+    "cumulative_layer_point": 2,
+    "num_short_key_fields": 4,
+    "column": [
+        {
+            "name": "event_day",
+            "type": "DATE",
+            "aggregation": "NONE",
+            "length": 3,
+            "is_key": true,
+            "index_length": 3,
+            "is_allow_null": true,
+            "unique_id": 0,
+            "is_root_column": true
+        },
+        {
+            "name": "siteid",
+            "type": "INT",
+            "aggregation": "NONE",
+            "length": 4,
+            "is_key": true,
+            "default_value": "10",
+            "index_length": 4,
+            "is_allow_null": true,
+            "unique_id": 1,
+            "is_root_column": true
+        },
+        {
+            "name": "citycode",
+            "type": "SMALLINT",
+            "aggregation": "NONE",
+            "length": 2,
+            "is_key": true,
+            "index_length": 2,
+            "is_allow_null": true,
+            "unique_id": 2,
+            "is_root_column": true
+        },
+        {
+            "name": "username",
+            "type": "VARCHAR",
+            "aggregation": "NONE",
+            "length": 34,
+            "is_key": true,
+            "default_value": "",
+            "index_length": 20,
+            "is_allow_null": true,
+            "unique_id": 3,
+            "is_root_column": true
+        },
+        {
+            "name": "pv",
+            "type": "BIGINT",
+            "aggregation": "SUM",
+            "length": 8,
+            "is_key": false,
+            "default_value": "0",
+            "index_length": 8,
+            "is_allow_null": true,
+            "unique_id": 4,
+            "is_root_column": true
+        }
+    ],
+    "creation_time": 1534750461,
+    "selectivity": [
+        1,
+        1,
+        1,
+        1
+    ],
+    "data_file_type": "COLUMN_ORIENTED_FILE",
+    "next_column_unique_id": 5,
+    "compress_kind": "COMPRESS_LZ4",
+    "segment_size": 268435456,
+    "keys_type": "AGG_KEYS",
+    "tablet_id": 20487,
+    "schema_hash": 1520686811,
+    "shard": 0
+}
