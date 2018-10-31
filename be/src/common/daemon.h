@@ -21,12 +21,16 @@
 #ifndef BDG_PALO_BE_SRC_COMMON_COMMON_DAEMON_H
 #define BDG_PALO_BE_SRC_COMMON_COMMON_DAEMON_H
 
+#include <vector>
+
 namespace palo {
+
+class StorePath;
 
 // Initialises logging, flags etc. Callers that want to override default gflags
 // variables should do so before calling this method; no logging should be
 // performed until after this method returns.
-void init_daemon(int argc, char** argv);
+void init_daemon(int argc, char** argv, const std::vector<StorePath>& paths);
 
 }
 

@@ -52,7 +52,7 @@ import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.MysqlTable;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.NotImplementedException;
 import com.baidu.palo.common.Pair;
 import com.baidu.palo.common.Reference;
@@ -62,6 +62,8 @@ import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import javassist.expr.NewArray;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -120,7 +122,7 @@ public class SingleNodePlanner {
      * - Apply combined expression substitution map of child plan nodes; if a plan node
      *   re-maps its input, set a substitution map to be applied by parents.
      */
-    public PlanNode createSingleNodePlan() throws InternalException, AnalysisException {
+    public PlanNode createSingleNodePlan() throws UserException, AnalysisException {
         QueryStmt queryStmt = ctx_.getQueryStmt();
         // Use the stmt's analyzer which is not necessarily the root analyzer
         // to detect empty result sets.
@@ -227,7 +229,7 @@ public class SingleNodePlanner {
      * Select/Project/Join/Union [All]/Group by/Having/Order by clauses of the query stmt.
      */
     private PlanNode createQueryPlan(QueryStmt stmt, Analyzer analyzer, long defaultOrderByLimit)
-            throws InternalException, AnalysisException {
+            throws UserException, AnalysisException {
         if (analyzer.hasEmptyResultSet()) return createEmptyNode(stmt, analyzer);
 
         long newDefaultOrderByLimit = defaultOrderByLimit;
@@ -306,7 +308,7 @@ public class SingleNodePlanner {
      * semantically correct
      */
     private PlanNode addUnassignedConjuncts(Analyzer analyzer, PlanNode root)
-            throws InternalException {
+            throws UserException {
         Preconditions.checkNotNull(root);
         // List<Expr> conjuncts = analyzer.getUnassignedConjuncts(root.getTupleIds());
 
@@ -322,7 +324,7 @@ public class SingleNodePlanner {
     }
 
     private PlanNode addUnassignedConjuncts(
-            Analyzer analyzer, List<TupleId> tupleIds, PlanNode root) throws InternalException {
+            Analyzer analyzer, List<TupleId> tupleIds, PlanNode root) throws UserException {
         // No point in adding SelectNode on top of an EmptyNode.
         if (root instanceof EmptySetNode) return root;
         Preconditions.checkNotNull(root);
@@ -628,7 +630,7 @@ public class SingleNodePlanner {
      * of the selectStmt query block.
      */
     private PlanNode createSelectPlan(SelectStmt selectStmt, Analyzer analyzer, long defaultOrderByLimit)
-            throws InternalException, AnalysisException {
+            throws UserException, AnalysisException {
         // no from clause -> nothing to plan
         if (selectStmt.getTableRefs().isEmpty()) {
             return createConstantSelectPlan(selectStmt, analyzer);
@@ -713,7 +715,7 @@ public class SingleNodePlanner {
      * Assigns conjuncts from the Having clause to the returned node.
      */
     private PlanNode createAggregationPlan(SelectStmt selectStmt, Analyzer analyzer,
-                                           PlanNode root) throws InternalException {
+                                           PlanNode root) throws UserException {
         // add Having clause
         root.assignConjuncts(analyzer);
         Preconditions.checkState(selectStmt.getAggInfo() != null);
@@ -743,7 +745,7 @@ public class SingleNodePlanner {
      * selectStmt with SlotRefs into the materialized tuple.
      */
     private PlanNode createConstantSelectPlan(SelectStmt selectStmt, Analyzer analyzer)
-            throws InternalException {
+            throws UserException {
         Preconditions.checkState(selectStmt.getTableRefs().isEmpty());
         ArrayList<Expr> resultExprs = selectStmt.getResultExprs();
         // Create tuple descriptor for materialized tuple.
@@ -927,7 +929,7 @@ public class SingleNodePlanner {
      *   complete picture)
      */
     private PlanNode createInlineViewPlan(Analyzer analyzer, InlineViewRef inlineViewRef)
-            throws InternalException, AnalysisException {
+            throws UserException, AnalysisException {
         // If possible, "push down" view predicates; this is needed in order to ensure
         // that predicates such as "x + y = 10" are evaluated in the view's plan tree
         // rather than a SelectNode grafted on top of that plan tree.
@@ -1117,7 +1119,7 @@ public class SingleNodePlanner {
      * Create node for scanning all data files of a particular table.
      */
     private PlanNode createScanNode(Analyzer analyzer, TableRef tblRef)
-            throws InternalException {
+            throws UserException {
         ScanNode scanNode = null;
 
         switch (tblRef.getTable().getType()) {
@@ -1134,10 +1136,13 @@ public class SingleNodePlanner {
                 scanNode = new BrokerScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "BrokerScanNode",
                         null, -1);
                 break;
+            case ELASTICSEARCH:
+                scanNode = new EsScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "EsScanNode");
+                break;
             default:
                 break;
         }
-        if (scanNode instanceof OlapScanNode) {
+        if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode) {
             Map<String, PartitionColumnFilter> columnFilters = Maps.newHashMap();
             List<Expr> conjuncts = analyzer.getUnassignedConjuncts(scanNode);
             for (Column column : tblRef.getTable().getBaseSchema()) {
@@ -1231,7 +1236,7 @@ public class SingleNodePlanner {
      * Throws if the JoinNode.init() fails.
      */
     private PlanNode createJoinNode(Analyzer analyzer, PlanNode outer, TableRef outerRef, TableRef innerRef)
-            throws InternalException, AnalysisException {
+            throws UserException, AnalysisException {
         materializeTableResultForCrossJoinOrCountStar(innerRef, analyzer);
         // the rows coming from the build node only need to have space for the tuple
         // materialized by that node
@@ -1294,14 +1299,14 @@ public class SingleNodePlanner {
      * table ref is not implemented.
      */
     private PlanNode createTableRefNode(Analyzer analyzer, TableRef tblRef)
-            throws InternalException,  AnalysisException {
+            throws UserException,  AnalysisException {
         if (tblRef instanceof BaseTableRef) {
             return createScanNode(analyzer, tblRef);
         }
         if (tblRef instanceof InlineViewRef) {
             return createInlineViewPlan(analyzer, (InlineViewRef) tblRef);
         }
-        throw new InternalException("unknown TableRef node");
+        throw new UserException("unknown TableRef node");
     }
 
     /**
@@ -1314,7 +1319,7 @@ public class SingleNodePlanner {
     private UnionNode createUnionPlan(
             Analyzer analyzer, UnionStmt unionStmt, List<UnionStmt.UnionOperand> unionOperands,
             PlanNode unionDistinctPlan, long defaultOrderByLimit)
-            throws InternalException, AnalysisException {
+            throws UserException, AnalysisException {
         UnionNode unionNode = new UnionNode(ctx_.getNextNodeId(), unionStmt.getTupleId(),
                 unionStmt.getUnionResultExprs(), false);
         for (UnionStmt.UnionOperand op: unionOperands) {
@@ -1365,7 +1370,7 @@ public class SingleNodePlanner {
      *       use a union node (this is tricky because a union materializes a new tuple).
      */
     private PlanNode createUnionPlan(UnionStmt unionStmt, Analyzer analyzer, long defaultOrderByLimit)
-            throws InternalException, AnalysisException {
+            throws UserException, AnalysisException {
         // TODO(zc): get unassigned conjuncts
         // List<Expr> conjuncts =
         //         analyzer.getUnassignedConjuncts(unionStmt.getTupleId().asList(), false);

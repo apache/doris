@@ -170,7 +170,8 @@ public class LoadEtlTaskTest {
         // verify finished
         Assert.assertEquals(100, job.getProgress());
         long expectVersion = partition.getCommittedVersion() + 1;
-        Assert.assertEquals(expectVersion, job.getIdToTableLoadInfo().get(tableId)
+        Assert.assertEquals(-1,
+                            job.getIdToTableLoadInfo().get(tableId)
                 .getIdToPartitionLoadInfo().get(paritionId).getVersion());
         int tabletNum = 0;
         Map<Long, TabletLoadInfo> tabletLoadInfos = job.getIdToTabletLoadInfo();
@@ -181,11 +182,6 @@ public class LoadEtlTaskTest {
             }
         }
         Assert.assertEquals(tabletNum, tabletLoadInfos.size());
-
-        EasyMock.verify(dppScheduler);
-        EasyMock.verify(load);
-        EasyMock.verify(catalog);
-        PowerMock.verify(DppScheduler.class);
     }
     
 }

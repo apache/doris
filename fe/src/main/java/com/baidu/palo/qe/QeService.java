@@ -17,7 +17,7 @@ package com.baidu.palo.qe;
 
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.Config;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.MysqlServer;
 
 import org.apache.logging.log4j.LogManager;
@@ -50,7 +50,7 @@ public class QeService {
     }
 
     @Deprecated
-    public void setup() throws IOException, InternalException {
+    public void setup() throws IOException, UserException {
         // Set up help module
         try {
             HelpModule.getInstance().setUpModule();

@@ -115,6 +115,7 @@ cc_registry_preamble = '\
 #include "gen_cpp/opcode/vector-functions.h"\n\
 #include "exprs/json_functions.h"\n\
 #include "exprs/encryption_functions.h"\n\
+#include "exprs/es_functions.h"\n\
 #include "exprs/hll_hash_function.h"\n\
 \n\
 using namespace boost::posix_time;\n\

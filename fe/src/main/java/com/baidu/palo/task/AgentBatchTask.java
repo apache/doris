@@ -24,14 +24,18 @@ import com.baidu.palo.thrift.TAgentTaskRequest;
 import com.baidu.palo.thrift.TAlterTabletReq;
 import com.baidu.palo.thrift.TCancelDeleteDataReq;
 import com.baidu.palo.thrift.TCheckConsistencyReq;
+import com.baidu.palo.thrift.TClearAlterTaskRequest;
+import com.baidu.palo.thrift.TClearTransactionTaskRequest;
 import com.baidu.palo.thrift.TCloneReq;
 import com.baidu.palo.thrift.TCreateTabletReq;
 import com.baidu.palo.thrift.TDownloadReq;
 import com.baidu.palo.thrift.TDropTabletReq;
 import com.baidu.palo.thrift.TMoveDirReq;
 import com.baidu.palo.thrift.TNetworkAddress;
+import com.baidu.palo.thrift.TPublishVersionRequest;
 import com.baidu.palo.thrift.TPushReq;
 import com.baidu.palo.thrift.TPushType;
+import com.baidu.palo.thrift.TRecoverTabletReq;
 import com.baidu.palo.thrift.TReleaseSnapshotRequest;
 import com.baidu.palo.thrift.TSnapshotRequest;
 import com.baidu.palo.thrift.TStorageMediumMigrateReq;
@@ -116,14 +120,12 @@ public class AgentBatchTask implements Runnable {
                     agentTaskRequests.add(toAgentTaskRequest(task));
                 }
                 client.submit_tasks(agentTaskRequests);
-
                 if (LOG.isDebugEnabled()) {
                     for (AgentTask task : tasks) {
                         LOG.debug("send task: type[{}], backend[{}], signature[{}]",
                                 task.getTaskType(), backendId, task.getSignature());
                     }
                 }
-
                 ok = true;
             } catch (Exception e) {
                 LOG.warn("task exec error. backend[{}]", backendId, e);
@@ -148,21 +150,28 @@ public class AgentBatchTask implements Runnable {
             case CREATE: {
                 CreateReplicaTask createReplicaTask = (CreateReplicaTask) task;
                 TCreateTabletReq request = createReplicaTask.toThrift();
-                LOG.debug(request.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
                 tAgentTaskRequest.setCreate_tablet_req(request);
                 return tAgentTaskRequest;
             }
             case DROP: {
                 DropReplicaTask dropReplicaTask = (DropReplicaTask) task;
                 TDropTabletReq request = dropReplicaTask.toThrift();
-                LOG.debug(request.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
                 tAgentTaskRequest.setDrop_tablet_req(request);
                 return tAgentTaskRequest;
             }
+            case REALTIME_PUSH:
             case PUSH: {
                 PushTask pushTask = (PushTask) task;
                 TPushReq request = pushTask.toThrift();
-                LOG.debug(request.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
                 tAgentTaskRequest.setPush_req(request);
                 if (pushTask.getPushType() == TPushType.LOAD || pushTask.getPushType() == TPushType.LOAD_DELETE) {
                     tAgentTaskRequest.setResource_info(pushTask.getResourceInfo());
@@ -173,14 +182,18 @@ public class AgentBatchTask implements Runnable {
             case CLONE: {
                 CloneTask cloneTask = (CloneTask) task;
                 TCloneReq request = cloneTask.toThrift();
-                LOG.debug(request.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
                 tAgentTaskRequest.setClone_req(request);
                 return tAgentTaskRequest;
             }
             case ROLLUP: {
                 CreateRollupTask rollupTask = (CreateRollupTask) task;
                 TAlterTabletReq request = rollupTask.toThrift();
-                LOG.debug(request.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
                 tAgentTaskRequest.setAlter_tablet_req(request);
                 tAgentTaskRequest.setResource_info(rollupTask.getResourceInfo());
                 return tAgentTaskRequest;
@@ -188,7 +201,9 @@ public class AgentBatchTask implements Runnable {
             case SCHEMA_CHANGE: {
                 SchemaChangeTask schemaChangeTask = (SchemaChangeTask) task;
                 TAlterTabletReq request = schemaChangeTask.toThrift();
-                LOG.debug(request.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
                 tAgentTaskRequest.setAlter_tablet_req(request);
                 tAgentTaskRequest.setResource_info(schemaChangeTask.getResourceInfo());
                 return tAgentTaskRequest;
@@ -196,60 +211,113 @@ public class AgentBatchTask implements Runnable {
             case CANCEL_DELETE: {
                 CancelDeleteTask cancelDeleteTask = (CancelDeleteTask) task;
                 TCancelDeleteDataReq request = cancelDeleteTask.toThrift();
-                LOG.debug(request.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
                 tAgentTaskRequest.setCancel_delete_data_req(request);
                 return tAgentTaskRequest;
             }
             case STORAGE_MEDIUM_MIGRATE: {
                 StorageMediaMigrationTask migrationTask = (StorageMediaMigrationTask) task;
                 TStorageMediumMigrateReq request = migrationTask.toThrift();
-                LOG.debug(request.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
                 tAgentTaskRequest.setStorage_medium_migrate_req(request);
                 return tAgentTaskRequest;
             }
             case CHECK_CONSISTENCY: {
                 CheckConsistencyTask checkConsistencyTask = (CheckConsistencyTask) task;
                 TCheckConsistencyReq request = checkConsistencyTask.toThrift();
-                LOG.debug(request.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
                 tAgentTaskRequest.setCheck_consistency_req(request);
                 return tAgentTaskRequest;
             }
             case MAKE_SNAPSHOT: {
                 SnapshotTask snapshotTask = (SnapshotTask) task;
                 TSnapshotRequest request = snapshotTask.toThrift();
-                LOG.debug(request.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
                 tAgentTaskRequest.setSnapshot_req(request);
                 return tAgentTaskRequest;
             }
             case RELEASE_SNAPSHOT: {
                 ReleaseSnapshotTask releaseSnapshotTask = (ReleaseSnapshotTask) task;
                 TReleaseSnapshotRequest request = releaseSnapshotTask.toThrift();
-                LOG.debug(request.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
                 tAgentTaskRequest.setRelease_snapshot_req(request);
                 return tAgentTaskRequest;
             }
             case UPLOAD: {
                 UploadTask uploadTask = (UploadTask) task;
                 TUploadReq request = uploadTask.toThrift();
-                LOG.debug(request.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
                 tAgentTaskRequest.setUpload_req(request);
                 return tAgentTaskRequest;
             }
             case DOWNLOAD: {
                 DownloadTask downloadTask = (DownloadTask) task;
                 TDownloadReq request = downloadTask.toThrift();
-                LOG.debug(request.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
                 tAgentTaskRequest.setDownload_req(request);
+                return tAgentTaskRequest;
+            }
+            case PUBLISH_VERSION: {
+                PublishVersionTask publishVersionTask = (PublishVersionTask) task;
+                TPublishVersionRequest request = publishVersionTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setPublish_version_req(request);
+                return tAgentTaskRequest;
+            }
+            case CLEAR_ALTER_TASK: {
+                ClearAlterTask clearAlterTask = (ClearAlterTask) task;
+                TClearAlterTaskRequest request = clearAlterTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setClear_alter_task_req(request);
+                return tAgentTaskRequest;
+            }
+            case CLEAR_TRANSACTION_TASK: {
+                ClearTransactionTask clearTransactionTask = (ClearTransactionTask) task;
+                TClearTransactionTaskRequest request = clearTransactionTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setClear_transaction_task_req(request);
                 return tAgentTaskRequest;
             }
             case MOVE: {
                 DirMoveTask dirMoveTask = (DirMoveTask) task;
                 TMoveDirReq request = dirMoveTask.toThrift();
-                LOG.debug(request.toString());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
                 tAgentTaskRequest.setMove_dir_req(request);
                 return tAgentTaskRequest;
             }
+            case RECOVER_TABLET: {
+                RecoverTabletTask recoverTabletTask = (RecoverTabletTask) task;
+                TRecoverTabletReq request = recoverTabletTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setRecover_tablet_req(request);
+                return tAgentTaskRequest;
+            }
             default:
+                LOG.debug("could not find task type for task [{}]", task);
                 return null;
         }
     }

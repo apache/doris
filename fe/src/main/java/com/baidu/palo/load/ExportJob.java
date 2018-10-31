@@ -35,9 +35,9 @@ import com.baidu.palo.catalog.Table;
 import com.baidu.palo.catalog.Type;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.FeMetaVersion;
-import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.Pair;
 import com.baidu.palo.common.Status;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.io.Writable;
 import com.baidu.palo.common.util.TimeUtils;
@@ -207,7 +207,7 @@ public class ExportJob implements Writable {
         }
     }
 
-    private ScanNode genScanNode() throws InternalException {
+    private ScanNode genScanNode() throws UserException {
         ScanNode scanNode = null;
         switch (exportTable.getType()) {
             case OLAP:
@@ -240,7 +240,7 @@ public class ExportJob implements Writable {
         return olapScanNode;
     }
 
-    private PlanFragment genPlanFragment(Table.TableType type, ScanNode scanNode) throws InternalException {
+    private PlanFragment genPlanFragment(Table.TableType type, ScanNode scanNode) throws UserException {
         PlanFragment fragment = null;
         switch (exportTable.getType()) {
             case OLAP:
@@ -262,7 +262,7 @@ public class ExportJob implements Writable {
             fragment.finalize(analyzer, false);
         } catch (Exception e) {
             LOG.info("Fragment finalize failed. e= {}", e);
-            throw new InternalException("Fragment finalize failed");
+            throw new UserException("Fragment finalize failed");
         }
 
         return fragment;

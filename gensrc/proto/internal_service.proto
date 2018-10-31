@@ -18,11 +18,13 @@ syntax="proto2";
 package palo;
 
 import "data.proto";
+import "descriptors.proto";
 import "status.proto";
 import "types.proto";
 
 option cc_generic_services = true;
 
+// Transmit data when process SQL query
 message PTransmitDataParams {
     // non-change member
     required PUniqueId finst_id = 1;
@@ -41,6 +43,64 @@ message PTransmitDataParams {
 
 message PTransmitDataResult {
     optional PStatus status = 1;
+};
+
+message PTabletWithPartition {
+    required int64 partition_id = 1;
+    required int64 tablet_id = 2;
+}
+
+message PTabletInfo {
+    required int64 tablet_id = 1;
+    required int32 schema_hash = 2;
+}
+
+// open a tablet writer
+message PTabletWriterOpenRequest {
+    required PUniqueId id = 1;
+    required int64 index_id = 2;
+    required int64 txn_id = 3;
+    required POlapTableSchemaParam schema = 4;
+    repeated PTabletWithPartition tablets = 5;
+    required int32 num_senders = 6;
+    required bool need_gen_rollup = 7;
+};
+
+message PTabletWriterOpenResult {
+    required PStatus status = 1;
+};
+
+// add batch to tablet writer
+message PTabletWriterAddBatchRequest {
+    required PUniqueId id = 1;
+    required int64 index_id = 2;
+    required int32 sender_id = 3;
+
+    // If this is the last batch from this sender
+    optional bool eos = 4;
+
+    required int64 packet_seq = 5;
+    repeated int64 tablet_ids = 6;
+    // unset if and only if when eos is true
+    optional PRowBatch row_batch = 7;
+    // only valid when eos is true
+    // valid partition ids that would write in this writer
+    repeated int64 partition_ids = 8;
+};
+
+message PTabletWriterAddBatchResult {
+    required PStatus status = 1;
+    repeated PTabletInfo tablet_vec = 2;
+};
+
+// tablet writer cancel
+message PTabletWriterCancelRequest {
+    required PUniqueId id = 1;
+    required int64 index_id = 2;
+    required int32 sender_id = 3;
+};
+
+message PTabletWriterCancelResult {
 };
 
 message PExecPlanFragmentRequest {
@@ -96,6 +156,9 @@ service PInternalService {
     rpc exec_plan_fragment(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
+    rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
+    rpc tablet_writer_add_batch(PTabletWriterAddBatchRequest) returns (PTabletWriterAddBatchResult);
+    rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);
     rpc fetch_fragment_exec_infos(PFetchFragmentExecInfoRequest) returns (PFetchFragmentExecInfosResult);
 };
 

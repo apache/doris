@@ -16,8 +16,6 @@
 #include "olap/column_file/column_writer.h"
 
 #include "olap/column_file/bit_field_writer.h"
-#include "olap/column_file/run_length_byte_writer.h"
-#include "olap/column_file/run_length_integer_writer.h"
 #include "olap/file_helper.h"
 
 namespace palo {
@@ -496,27 +494,6 @@ OLAPStatus ByteColumnWriter::init() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus ByteColumnWriter::write(RowCursor* row_cursor) {
-    OLAPStatus res = ColumnWriter::write(row_cursor);
-
-    if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
-        OLAP_LOG_WARNING("fail to write ColumnWriter.");
-        return res;
-    }
-
-    const Field* field = row_cursor->get_field_by_index(column_id());
-
-    bool is_null = row_cursor->is_null(column_id());
-    char* buf = field->get_field_ptr(row_cursor->get_buf());
-    _block_statistics.add(buf);
-    if (!is_null) {
-        char value = *reinterpret_cast<char*>(buf + 1);
-        return _writer->write(value);
-    }
-
-    return OLAP_SUCCESS;
-}
-
 OLAPStatus ByteColumnWriter::finalize(ColumnDataHeaderMessage* header) {
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -574,21 +551,6 @@ OLAPStatus IntegerColumnWriter::init() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus IntegerColumnWriter::write(int64_t data) {
-    return _writer->write(data);
-}
-
-OLAPStatus IntegerColumnWriter::finalize(ColumnDataHeaderMessage* header) {
-    return _writer->flush();
-}
-
-void IntegerColumnWriter::record_position(PositionEntryWriter* index_entry) {
-    _writer->get_position(index_entry, false);
-}
-
-OLAPStatus IntegerColumnWriter::flush() {
-    return _writer->flush();
-}
 ////////////////////////////////////////////////////////////////////////////////
 
 VarStringColumnWriter::VarStringColumnWriter(
@@ -639,26 +601,6 @@ OLAPStatus VarStringColumnWriter::init() {
     }
 
     record_position();
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus VarStringColumnWriter::write(RowCursor* row_cursor) {
-    OLAPStatus res = ColumnWriter::write(row_cursor);
-
-    if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
-        OLAP_LOG_WARNING("fail to write ColumnWriter.");
-        return res;
-    }
-
-    const Field* field = row_cursor->get_field_by_index(column_id());
-    bool is_null = row_cursor->is_null(column_id());
-    char* buf = field->get_ptr(row_cursor->get_buf());
-
-    if (!is_null) {
-        StringSlice* slice = reinterpret_cast<StringSlice*>(buf);
-        return write(slice->data, slice->size);
-    }
-
     return OLAP_SUCCESS;
 }
 
@@ -867,27 +809,6 @@ FixLengthStringColumnWriter::FixLengthStringColumnWriter(
 
 FixLengthStringColumnWriter::~FixLengthStringColumnWriter() {}
 
-OLAPStatus FixLengthStringColumnWriter::write(RowCursor* row_cursor) {
-    OLAPStatus res = ColumnWriter::write(row_cursor);
-
-    if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
-        OLAP_LOG_WARNING("fail to write ColumnWriter.");
-        return res;
-    }
-
-    const Field* field = row_cursor->get_field_by_index(column_id());
-    bool is_null = row_cursor->is_null(column_id());
-    char* buf = field->get_ptr(row_cursor->get_buf());
-
-    if (!is_null) {
-        //const char* str = reinterpret_cast<const char*>(buf);
-        StringSlice* slice = reinterpret_cast<StringSlice*>(buf);
-        return VarStringColumnWriter::write(slice->data, slice->size);
-    }
-
-    return OLAP_SUCCESS;
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 DecimalColumnWriter::DecimalColumnWriter(uint32_t column_id,
@@ -931,37 +852,6 @@ OLAPStatus DecimalColumnWriter::init() {
     }
 
     record_position();
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus DecimalColumnWriter::write(RowCursor* row_cursor) {
-    OLAPStatus res = ColumnWriter::write(row_cursor);
-
-    if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
-        OLAP_LOG_WARNING("fail to write ColumnWriter.");
-        return res;
-    }
-
-    const Field* field = row_cursor->get_field_by_index(column_id());
-    bool is_null = row_cursor->is_null(column_id());
-    char* buf = field->get_field_ptr(row_cursor->get_buf());
-    _block_statistics.add(buf);
-    if (!is_null) {
-        decimal12_t value = *reinterpret_cast<decimal12_t*>(buf + 1);
-
-        res = _int_writer->write(value.integer);
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to write integer of Decimal.");
-            return res;
-        }
-
-        res = _frac_writer->write(value.fraction);
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to write fraction of Decimal.");
-            return res;
-        }
-    }
-
     return OLAP_SUCCESS;
 }
 
@@ -1038,37 +928,6 @@ OLAPStatus LargeIntColumnWriter::init() {
     }
 
     record_position();
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus LargeIntColumnWriter::write(RowCursor* row_cursor) {
-    OLAPStatus res = ColumnWriter::write(row_cursor);
-
-    if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
-        OLAP_LOG_WARNING("fail to write ColumnWriter.");
-        return res;
-    }
-
-    const Field* field = row_cursor->get_field_by_index(column_id());
-    bool is_null = row_cursor->is_null(column_id());
-    char* buf = field->get_field_ptr(row_cursor->get_buf());
-    _block_statistics.add(buf);
-    if (!is_null) {
-
-        int64_t* value = reinterpret_cast<int64_t*>(buf + 1);
-        res = _high_writer->write(*value);
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to write integer of LargeInt.");
-            return res;
-        }
-
-        res = _low_writer->write(*(++value));
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to write fraction of LargeInt.");
-            return res;
-        }
-    }
-
     return OLAP_SUCCESS;
 }
 

@@ -85,6 +85,7 @@ add_library(Runtime STATIC
   buffered_tuple_stream3.cc
   #  export_task_mgr.cpp
   export_sink.cpp
+  tablet_writer_mgr.cpp
   bufferpool/buffer_allocator.cc
   bufferpool/buffer_pool.cc
   bufferpool/reservation_tracker.cc
@@ -93,6 +94,7 @@ add_library(Runtime STATIC
   bufferpool/system_allocator.cc
   initial_reservations.cc
   snapshot_loader.cpp
+  kafka_consumer_pipe.cpp
 )
 
 # This test runs forever so should not be part of 'make test'

@@ -35,10 +35,12 @@ import com.baidu.palo.http.meta.MetaService.PutAction;
 import com.baidu.palo.http.meta.MetaService.RoleAction;
 import com.baidu.palo.http.meta.MetaService.VersionAction;
 import com.baidu.palo.http.rest.BootstrapFinishAction;
+import com.baidu.palo.http.rest.CancelStreamLoad;
 import com.baidu.palo.http.rest.CheckDecommissionAction;
 import com.baidu.palo.http.rest.GetDdlStmtAction;
 import com.baidu.palo.http.rest.GetLoadInfoAction;
 import com.baidu.palo.http.rest.GetLogFileAction;
+import com.baidu.palo.http.rest.GetStreamLoadState;
 import com.baidu.palo.http.rest.HealthAction;
 import com.baidu.palo.http.rest.LoadAction;
 import com.baidu.palo.http.rest.MetaReplayerCheckAction;
@@ -102,6 +104,8 @@ public class HttpServer {
         GetDdlStmtAction.registerAction(controller);
         MigrationAction.registerAction(controller);
         StorageTypeCheckAction.registerAction(controller);
+        CancelStreamLoad.registerAction(controller);
+        GetStreamLoadState.registerAction(controller);
 
         // add web action
         IndexAction.registerAction(controller);

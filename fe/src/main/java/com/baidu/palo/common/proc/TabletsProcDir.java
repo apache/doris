@@ -1,6 +1,5 @@
 // Modifications copyright (C) 2017, Baidu.com, Inc.
 // Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -17,13 +16,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
 package com.baidu.palo.common.proc;
 
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
-import com.baidu.palo.catalog.MaterializedIndex;
 import com.baidu.palo.catalog.Replica;
+import com.baidu.palo.catalog.MaterializedIndex;
 import com.baidu.palo.catalog.Tablet;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.util.ListComparator;
@@ -46,9 +44,10 @@ import java.util.List;
 public class TabletsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TabletId").add("ReplicaId").add("BackendId").add("HostName").add("Version")
-            .add("VersionHash").add("DataSize").add("RowCount").add("State")
+            .add("VersionHash").add("LastSuccessVersion").add("LastSuccessVersionHash")
+            .add("LastFailedVersion").add("LastFailedTime").add("DataSize").add("RowCount").add("State")
             .add("LastConsistencyCheckTime").add("CheckVersion").add("CheckVersionHash")
-            .add("VersionCount")
+			.add("VersionCount")
             .build();
 
     private Database db;
@@ -79,6 +78,10 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(-1);
                     tabletInfo.add(-1);
                     tabletInfo.add(-1);
+                    tabletInfo.add(-1);
+                    tabletInfo.add("N/A");
+                    tabletInfo.add(-1);
+                    tabletInfo.add(-1);
                     tabletInfo.add("N/A");
                     tabletInfo.add("N/A");
                     tabletInfo.add(-1);
@@ -95,10 +98,10 @@ public class TabletsProcDir implements ProcDirInterface {
                         long backendId = replica.getBackendId();
                         tabletInfo.add(replica.getBackendId());
                         Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendId);
-                        // backend may be dropped concurrently, ignore it.
-                        if (backend == null) {
-                            continue;
-                        }
+						// backend may be dropped concurrently, ignore it.
+						if (backend == null) {
+							continue;
+						}
                         String hostName = null;
                         try {
                             InetAddress address = InetAddress.getByName(backend.getHost());
@@ -109,6 +112,10 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(hostName);
                         tabletInfo.add(replica.getVersion());
                         tabletInfo.add(replica.getVersionHash());
+                        tabletInfo.add(replica.getLastSuccessVersion());
+                        tabletInfo.add(replica.getLastSuccessVersionHash());
+                        tabletInfo.add(replica.getLastFailedVersion());
+                        tabletInfo.add(TimeUtils.longToTimeString(replica.getLastFailedTimestamp()));
                         tabletInfo.add(replica.getDataSize());
                         tabletInfo.add(replica.getRowCount());
                         tabletInfo.add(replica.getState());
@@ -116,7 +123,7 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(TimeUtils.longToTimeString(tablet.getLastCheckTime()));
                         tabletInfo.add(tablet.getCheckedVersion());
                         tabletInfo.add(tablet.getCheckedVersionHash());
-                        tabletInfo.add(replica.getVersionCount());
+						tabletInfo.add(replica.getVersionCount());
 
                         tabletInfos.add(tabletInfo);
                     }

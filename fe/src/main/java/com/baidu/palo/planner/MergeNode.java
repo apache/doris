@@ -26,7 +26,7 @@ import com.baidu.palo.analysis.SlotDescriptor;
 import com.baidu.palo.analysis.SlotId;
 import com.baidu.palo.analysis.TupleDescriptor;
 import com.baidu.palo.analysis.TupleId;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 import com.baidu.palo.thrift.TExplainLevel;
 import com.baidu.palo.thrift.TExpr;
@@ -99,7 +99,7 @@ public class MergeNode extends PlanNode {
      * tuple id
      */
     @Override
-    public void init(Analyzer analyzer) throws InternalException {
+    public void init(Analyzer analyzer) throws UserException {
         assignConjuncts(analyzer);
         //computeMemLayout(analyzer);
         computeStats(analyzer);

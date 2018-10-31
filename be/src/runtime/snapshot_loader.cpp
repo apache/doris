@@ -446,11 +446,13 @@ Status SnapshotLoader::download(
 Status SnapshotLoader::move(
     const std::string& snapshot_path,
     const std::string& tablet_path,
+    const std::string& store_path,
     int64_t job_id,
     bool overwrite) {
 
     LOG(INFO) << "begin to move snapshot files. from: "
-              << snapshot_path << ", to: " << tablet_path << ", job: " << job_id;
+              << snapshot_path << ", to: " << tablet_path
+              << ", store: " << store_path << ", job: " << job_id;
 
     Status status = Status::OK;
 
@@ -552,7 +554,7 @@ Status SnapshotLoader::move(
         // than we merge the 2 .hdr file before reloading it.
     
         // load header in tablet dir to get the base vesion
-        SmartOLAPTable tablet = OLAPEngine::get_instance()->get_table(
+        OLAPTablePtr tablet = OLAPEngine::get_instance()->get_table(
                 tablet_id, schema_hash);
         if (tablet.get() == NULL) {
             std::stringstream ss;
@@ -563,7 +565,7 @@ Status SnapshotLoader::move(
         }
         // get base version
         tablet->obtain_header_rdlock();
-        const FileVersionMessage* base_version = tablet->base_version();
+        const PDelta* base_version = tablet->base_version();
         tablet->release_header_lock();
         if (base_version == nullptr) {
             std::stringstream ss;
@@ -580,7 +582,7 @@ Status SnapshotLoader::move(
         std::string snapshot_header_file = hdr.str();
     
         OLAPHeader snapshot_header(snapshot_header_file);
-        OLAPStatus ost = snapshot_header.load();
+        OLAPStatus ost = snapshot_header.load_and_init();
         if (ost != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to load snapshot header: " << snapshot_header_file;
             return Status("failed to load snapshot header: " + snapshot_header_file);
@@ -643,7 +645,7 @@ Status SnapshotLoader::move(
             LOG(WARNING) << ss.str();
             return Status(ss.str());
         }
-        
+
         // merge 2 headers
         ost = tablet->merge_header(snapshot_header, end_version);
         if (ost != OLAP_SUCCESS) {
@@ -654,9 +656,17 @@ Status SnapshotLoader::move(
         }
     }
 
+    // fixme: there is no header now and can not call load_one_tablet here
     // reload header
+    OlapStore* store = OLAPEngine::get_instance()->get_store(store_path);
+    if (store == nullptr) {
+        std::stringstream ss;
+        ss << "failed to get store by path: " << store_path;
+        LOG(WARNING) << ss.str();
+        return Status(ss.str());
+    }
     OLAPStatus ost = OLAPEngine::get_instance()->load_one_tablet(
-            tablet_id, schema_hash, tablet_path, true);
+            store, tablet_id, schema_hash, tablet_path, true);
     if (ost != OLAP_SUCCESS) {
         std::stringstream ss;
         ss << "failed to reload header of tablet: " << tablet_id;

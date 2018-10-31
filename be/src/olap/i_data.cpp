@@ -17,10 +17,11 @@
 
 #include "olap/column_file/column_data.h"
 #include "olap/olap_data.h"
+#include "olap/rowset.h"
 
 namespace palo {
 
-IData* IData::create(OLAPIndex* index) {
+IData* IData::create(Rowset* index) {
     IData* data = NULL;
     DataFileType file_type = index->table()->data_file_type();
 
@@ -42,7 +43,7 @@ IData* IData::create(OLAPIndex* index) {
 }
 
 bool IData::delta_pruning_filter() {
-    if (empty()) {
+    if (empty() || zero_num_rows()) {
         return true;
     }
             
@@ -54,8 +55,7 @@ bool IData::delta_pruning_filter() {
 }
 
 int IData::delete_pruning_filter() {
-
-    if (empty()) {
+    if (empty() || zero_num_rows()) {
         // should return DEL_NOT_SATISFIED, because that when creating rollup table,
         // the delete version file should preserved for filter data.
         return DEL_NOT_SATISFIED;

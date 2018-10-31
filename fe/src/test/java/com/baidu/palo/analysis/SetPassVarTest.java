@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.MockedAuth;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
@@ -53,7 +53,7 @@ public class SetPassVarTest {
     }
 
     @Test
-    public void testNormal() throws InternalException, AnalysisException {
+    public void testNormal() throws UserException, AnalysisException {
         SetPassVar stmt;
 
         //  mode: SET PASSWORD FOR 'testUser' = 'testPass';
@@ -61,23 +61,23 @@ public class SetPassVarTest {
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:testUser", stmt.getUserIdent().getQualifiedUser());
         Assert.assertEquals("*88EEBA7D913688E7278E2AD071FDB5E76D76D34B", new String(stmt.getPassword()));
-        Assert.assertEquals("SET PASSWORD FOR 'testCluster:testUser'@'%' = '*88EEBA7D913688E7278E2AD071FDB5E76D76D34B'",
+        Assert.assertEquals("SET PASSWORD FOR 'testCluster:testUser'@'%' = '*XXX'",
                 stmt.toString());
 
         // empty password
         stmt = new SetPassVar(new UserIdentity("testUser", "%"), null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SET PASSWORD FOR 'testCluster:testUser'@'%' = ''", stmt.toString());
+        Assert.assertEquals("SET PASSWORD FOR 'testCluster:testUser'@'%' = '*XXX'", stmt.toString());
 
         // empty user
         // empty password
         stmt = new SetPassVar(null, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SET PASSWORD FOR 'testCluster:testUser'@'192.168.1.1' = ''", stmt.toString());
+        Assert.assertEquals("SET PASSWORD FOR 'testCluster:testUser'@'192.168.1.1' = '*XXX'", stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)
-    public void testBadPassword() throws InternalException, AnalysisException {
+    public void testBadPassword() throws UserException, AnalysisException {
         SetPassVar stmt;
         //  mode: SET PASSWORD FOR 'testUser' = 'testPass';
         stmt = new SetPassVar(new UserIdentity("testUser", "%"), "*88EEBAHD913688E7278E2AD071FDB5E76D76D34B");

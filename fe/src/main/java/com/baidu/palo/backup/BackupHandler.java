@@ -88,7 +88,7 @@ public class BackupHandler extends Daemon implements Writable {
 
     private Catalog catalog;
 
-    private BackupHandler() {
+    public BackupHandler() {
         // for persist
     }
 

@@ -15,48 +15,54 @@
 
 package com.baidu.palo.load;
 
+import com.baidu.palo.alter.RollupJob;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
-import com.baidu.palo.catalog.MaterializedIndex;
-import com.baidu.palo.catalog.MaterializedIndex.IndexState;
-import com.baidu.palo.catalog.OlapTable;
-import com.baidu.palo.catalog.Partition;
 import com.baidu.palo.catalog.Replica;
 import com.baidu.palo.catalog.Replica.ReplicaState;
+import com.baidu.palo.transaction.GlobalTransactionMgr;
+import com.baidu.palo.transaction.TabletCommitInfo;
+import com.baidu.palo.transaction.TransactionCommitFailedException;
+import com.baidu.palo.transaction.TransactionState;
+import com.baidu.palo.transaction.TransactionStatus;
+import com.baidu.palo.catalog.MaterializedIndex.IndexState;
+import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.catalog.Tablet;
+import com.baidu.palo.catalog.MaterializedIndex;
+import com.baidu.palo.catalog.Partition;
+import com.baidu.palo.catalog.TabletInvertedIndex;
 import com.baidu.palo.clone.Clone;
 import com.baidu.palo.clone.CloneJob.JobPriority;
 import com.baidu.palo.clone.CloneJob.JobType;
 import com.baidu.palo.common.Config;
+import com.baidu.palo.common.MetaNotFoundException;
 import com.baidu.palo.common.util.Daemon;
 import com.baidu.palo.load.AsyncDeleteJob.DeleteState;
 import com.baidu.palo.load.FailMsg.CancelType;
 import com.baidu.palo.load.LoadJob.EtlJobType;
 import com.baidu.palo.load.LoadJob.JobState;
-import com.baidu.palo.persist.ReplicaPersistInfo;
 import com.baidu.palo.task.AgentBatchTask;
-import com.baidu.palo.task.AgentTask;
 import com.baidu.palo.task.AgentTaskExecutor;
 import com.baidu.palo.task.AgentTaskQueue;
 import com.baidu.palo.task.HadoopLoadEtlTask;
+import com.baidu.palo.task.MiniLoadEtlTask;
+import com.baidu.palo.task.MiniLoadPendingTask;
 import com.baidu.palo.task.HadoopLoadPendingTask;
 import com.baidu.palo.task.InsertLoadEtlTask;
 import com.baidu.palo.task.MasterTask;
 import com.baidu.palo.task.MasterTaskExecutor;
-import com.baidu.palo.task.MiniLoadEtlTask;
-import com.baidu.palo.task.MiniLoadPendingTask;
 import com.baidu.palo.task.PullLoadEtlTask;
 import com.baidu.palo.task.PullLoadPendingTask;
 import com.baidu.palo.task.PushTask;
 import com.baidu.palo.thrift.TPriority;
 import com.baidu.palo.thrift.TPushType;
-
-import com.google.common.base.Preconditions;
+import com.baidu.palo.thrift.TTaskType;
 import com.google.common.collect.Maps;
 
-import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -231,11 +237,6 @@ public class LoadChecker extends Daemon {
     private void runOneLoadingJob(LoadJob job) {
         // check timeout
         Load load = Catalog.getInstance().getLoadInstance();
-        if (checkTimeout(job)) {
-            load.cancelLoadJob(job, CancelType.TIMEOUT, "loading timeout to cancel");
-            return;
-        }
- 
         // get db
         long dbId = job.getDbId();
         Database db = Catalog.getInstance().getDb(dbId);
@@ -244,6 +245,38 @@ public class LoadChecker extends Daemon {
             return;
         }
 
+        if (job.getTransactionId() < 0) {
+            LOG.warn("cancel load job {}  because it is an old type job, user should resubmit it", job);
+            load.cancelLoadJob(job, CancelType.UNKNOWN, "cancelled because system is during upgrade, user should resubmit it");
+            return;
+        }
+        // check if the job is aborted in transaction manager
+        TransactionState state = Catalog.getCurrentGlobalTransactionMgr()
+                .getTransactionState(job.getTransactionId());
+        if (state == null) {
+            LOG.warn("cancel load job {}  because could not find transaction state", job);
+            load.cancelLoadJob(job, CancelType.UNKNOWN, "transaction state lost");
+            return;
+        }
+        if (state.getTransactionStatus() == TransactionStatus.ABORTED) {
+            load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, 
+                    "job is aborted in transaction manager [" + state + "]");
+            return;
+        } else if (state.getTransactionStatus() == TransactionStatus.COMMITTED) {
+            // if job is committed and then fe restart, the progress is not persisted, so that set it here
+            job.setProgress(100);
+            LOG.debug("job {} is already committed, just wait it to be visiable, transaction state {}", job, state);
+            return;
+        } else if (state.getTransactionStatus() == TransactionStatus.VISIBLE) {
+            // if job is committed and then fe restart, the progress is not persisted, so that set it here
+            load.updateLoadJobState(job, JobState.FINISHED);
+            return;
+        }
+        
+        if (checkTimeout(job)) {
+            load.cancelLoadJob(job, CancelType.TIMEOUT, "loading timeout to cancel");
+            return;
+        }
         // submit push tasks to backends
         Set<Long> jobTotalTablets = submitPushTasks(job, db);
         if (jobTotalTablets == null) {
@@ -251,15 +284,55 @@ public class LoadChecker extends Daemon {
             return;
         }
         
-        // update load progress
-        Set<Long> quorumTablets = job.getQuorumTablets();
-        job.setProgress(quorumTablets.size() * 100 / jobTotalTablets.size());
-
-        // check job quorum finished
-        if (quorumTablets.containsAll(jobTotalTablets)) {
-            if (load.updateLoadJobState(job, JobState.QUORUM_FINISHED)) {
-                LOG.info("load job quorum finished. job: {}", job);
+        // yiguolei: for real time load we use full finished replicas
+        Set<Long> fullTablets = job.getFullTablets();
+        if (state.isRunning()) {
+            job.setProgress(fullTablets.size() * 100 / jobTotalTablets.size());
+        } else {
+            job.setProgress(100);
+        }
+        
+        long stragglerTimeout = job.isSyncDeleteJob() ? job.getDeleteJobTimeout() / 2 
+                                                    : Config.load_straggler_wait_second * 1000;
+        if (job.getQuorumTablets().containsAll(jobTotalTablets)) {
+            // commit the job to transaction manager and not care about the result
+            // if could not commit successfully and commit again until job is timeout
+            if (job.getQuorumFinishTimeMs() < 0) {
+                job.setQuorumFinishTimeMs(System.currentTimeMillis());
+            } else if (System.currentTimeMillis() - job.getQuorumFinishTimeMs() > stragglerTimeout 
+                    || job.getFullTablets().containsAll(jobTotalTablets)) {
+                tryCommitJob(job, db);
             }
+        }
+    }
+    
+    private void tryCommitJob(LoadJob job, Database db) {
+        // check transaction state
+        Load load = Catalog.getInstance().getLoadInstance();
+        GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
+        TransactionState transactionState = globalTransactionMgr.getTransactionState(job.getTransactionId());
+        List<TabletCommitInfo> tabletCommitInfos = new ArrayList<TabletCommitInfo>();
+        // when be finish load task, fe will update job's finish task info, use lock here to prevent
+        // concurrent problems
+        db.writeLock();
+        try {
+            TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+            for (Replica replica : job.getFinishedReplicas()) {
+                // the inverted index contains rolling up replica
+                Long tabletId = invertedIndex.getTabletIdByReplica(replica.getId());
+                if (tabletId == null) {
+                    LOG.warn("could not find tablet id for replica {}, the tablet maybe dropped", replica);
+                    continue;
+                }
+                tabletCommitInfos.add(new TabletCommitInfo(tabletId, replica.getBackendId()));
+            }
+            globalTransactionMgr.commitTransaction(job.getDbId(), job.getTransactionId(), tabletCommitInfos);
+        } catch (MetaNotFoundException | TransactionCommitFailedException e) {
+            LOG.warn("errors while commit transaction [{}], cancel the job {}, reason is {}", 
+                    transactionState.getTransactionId(), job, e);
+            load.cancelLoadJob(job, CancelType.UNKNOWN, transactionState.getReason());
+        } finally {
+            db.writeUnlock();
         }
     }
 
@@ -269,7 +342,6 @@ public class LoadChecker extends Daemon {
         AgentBatchTask batchTask = new AgentBatchTask();
         Set<Long> jobTotalTablets = new HashSet<Long>();
 
-        long currentTimeMs = System.currentTimeMillis();
         Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
         for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
             long tableId = tableEntry.getKey();
@@ -282,14 +354,20 @@ public class LoadChecker extends Daemon {
             }
             if (table == null) {
                 LOG.warn("table does not exist. id: {}", tableId);
-                if (job.getState() == JobState.QUORUM_FINISHED) {
-                    continue;
-                } else {
-                    return null;
+                // if table is dropped during load, the the job is failed
+                return null;
+            }
+            TableLoadInfo tableLoadInfo = tableEntry.getValue();
+            // check if the job is submit during rollup
+            RollupJob rollupJob = (RollupJob) Catalog.getInstance().getRollupHandler().getAlterJob(tableId);
+            boolean autoLoadToTwoTablet = true;
+            if (rollupJob != null && job.getTransactionId() > 0) {
+                long rollupIndexId = rollupJob.getRollupIndexId();
+                if (tableLoadInfo.containsIndex(rollupIndexId)) {
+                    autoLoadToTwoTablet = false;
                 }
             }
-
-            TableLoadInfo tableLoadInfo = tableEntry.getValue();
+            
             for (Entry<Long, PartitionLoadInfo> partitionEntry : tableLoadInfo.getIdToPartitionLoadInfo().entrySet()) {
                 long partitionId = partitionEntry.getKey();
                 PartitionLoadInfo partitionLoadInfo = partitionEntry.getValue();
@@ -302,119 +380,69 @@ public class LoadChecker extends Daemon {
                     Partition partition = table.getPartition(partitionId);
                     if (partition == null) {
                         LOG.warn("partition does not exist. id: {}", partitionId);
-                        if (job.getState() == JobState.QUORUM_FINISHED) {
-                            continue;
-                        } else {
-                            return null;
-                        }
+                        // if partition is 
+                        return null;
                     }
                     
                     short replicationNum = table.getPartitionInfo().getReplicationNum(partition.getId());
-                    long version = partitionLoadInfo.getVersion();
-                    long versionHash = partitionLoadInfo.getVersionHash();
                     // check all indices (base + roll up (not include ROLLUP state index))
                     List<MaterializedIndex> indices = partition.getMaterializedIndices();
                     for (MaterializedIndex index : indices) {
                         long indexId = index.getId();
+                        // if index is in rollup, then not load into it, be will automatically convert the data
                         if (index.getState() == IndexState.ROLLUP) {
-                            // XXX(cmy): this should not happend anymore. 
-                            // index with ROLLUP state is all in RollupJob instance
-                            // observe and then remove
                             LOG.error("skip table under rollup[{}]", indexId);
                             continue;
+                        }
+                        // 1. the load job's etl is started before rollup finished
+                        // 2. rollup job comes into finishing state, add rollup index to catalog
+                        // 3. load job's etl finished, begin to load
+                        // 4. load will send data to new rollup index, but could not get schema hash, load will failed
+                        if (!tableLoadInfo.containsIndex(indexId)) {
+                            if (rollupJob.getRollupIndexId() == indexId) {
+                                continue;
+                            } else {
+                                // if the index is not during rollup and not contained in table load info, it a fatal error
+                                // return null, will cancel the load job
+                                LOG.warn("could not find index {} in table load info, and could not find " 
+                                        + "it in rollup job, it is a fatal error", indexId);
+                                return null;
+                            }
                         }
                         
                         // add to jobTotalTablets first.
                         for (Tablet tablet : index.getTablets()) {
-                            jobTotalTablets.add(tablet.getId());
-                        }
-
-                        // after rollup finished, we should push the next version to rollup index first to clear the 
-                        // relationship between base and rollup index.
-                        // so here we check if rollup index is push finished before sending push task
-                        // to base index.
-                        long rollupIndexId = index.getRollupIndexId();
-                        if (rollupIndexId != -1L) {
-                            MaterializedIndex rollupIndex = partition.getIndex(rollupIndexId);
-                            if (rollupIndex != null) {
-                                long rollupFinishedVersion = index.getRollupFinishedVersion();
-                                Preconditions.checkState(rollupFinishedVersion != -1L);
-                                if (version == rollupFinishedVersion + 1) {
-                                    // this materializedIndex is a base index.
-                                    // and this push version is the next version after rollup finished.
-                                    // check if rollup index is push finished with this version
-                                    boolean pushFinished = true;
-                                    for (Tablet tablet : rollupIndex.getTablets()) {
-                                        for (Replica replica : tablet.getReplicas()) {
-                                            if (!replica.checkVersionCatchUp(version, versionHash)) {
-                                                LOG.debug("waiting for rollup replica[{}] push "
-                                                        + "next version[{}] version hash[{}]. "
-                                                        + "current version[{}] version hash[{}]. "
-                                                        + "tablet[{}]",
-                                                          replica.getId(), version, versionHash,
-                                                          replica.getVersion(), replica.getVersionHash(),
-                                                          tablet.getId());
-                                                pushFinished = false;
-                                                break;
-                                            }
-                                        } // end for replicas
-                                        if (!pushFinished) {
-                                            break;
-                                        }
-                                    } // end for tablets
-                                    
-                                    if (!pushFinished) {
-                                        // skip this base index
-                                        continue;
-                                    } else {
-                                        // rollup index is push finished
-                                        // clear rollup info in base index
-                                        LOG.info("clear rollup index[{}] info in base index[{}]"
-                                                + " after finished pushing version[{}] in partition[{}]",
-                                                 rollupIndex.getId(), indexId, version, partitionId);
-                                        index.clearRollupIndexInfo();
-                                        // log
-                                        ReplicaPersistInfo info =
-                                                ReplicaPersistInfo.createForClearRollupInfo(db.getId(),
-                                                                                            tableId,
-                                                                                            partitionId,
-                                                                                            indexId);
-                                        Catalog.getInstance().getEditLog().logClearRollupIndexInfo(info);
-                                    }
-                                } else {
-                                    // XXX(cmy): 
-                                    // this should not happend. add log to observe
-                                    LOG.error("base index[{}], rollup index[{}], push version[{}], rollup version[{}]",
-                                              indexId, rollupIndexId, version, rollupFinishedVersion);
-                                    index.clearRollupIndexInfo();
-                                    // log
-                                    ReplicaPersistInfo info =
-                                            ReplicaPersistInfo.createForClearRollupInfo(db.getId(),
-                                                                                        tableId,
-                                                                                        partitionId,
-                                                                                        indexId);
-                                    Catalog.getInstance().getEditLog().logClearRollupIndexInfo(info);
-                                }
-                            } else {
-                                // this can only happend when rollup index has been dropped.
-                                // do nothing
-                                Preconditions.checkState(true);
+                            // the job is submmitted before rollup finished and try to finish after rollup finished
+                            // then the job's tablet load info does not contain the new rollup index's tablet
+                            // not deal with this case because the finished replica will include new rollup index's replica
+                            // and check it at commit time 
+                            if (tabletLoadInfos.containsKey(tablet.getId())) {
+                                jobTotalTablets.add(tablet.getId());
                             }
-                        } // end for handling rollup
+                        }
                         
                         int schemaHash = tableLoadInfo.getIndexSchemaHash(indexId);
                         short quorumNum = (short) (replicationNum / 2 + 1);
                         for (Tablet tablet : index.getTablets()) {
                             long tabletId = tablet.getId();
-                            
                             // get tablet file path
                             TabletLoadInfo tabletLoadInfo = tabletLoadInfos.get(tabletId);
+                            // the tabletinfo maybe null, in this case:
+                            // the job is submmitted before rollup finished and try to finish after rollup finished
+                            // then the job's tablet load info does not contain the new rollup index's tablet
+                            // not deal with this case because the finished replica will include new rollup index's replica
+                            // and check it at commit time
+                            if (tabletLoadInfo == null) {
+                                continue;
+                            }
                             String filePath = tabletLoadInfo.getFilePath();
                             long fileSize = tabletLoadInfo.getFileSize();
 
                             // get push type
                             TPushType type = TPushType.LOAD;
-                            if (job.getDeleteFlag()) {
+                            if (job.isSyncDeleteJob()) {
+                                type = TPushType.DELETE;
+                            } else if (job.getDeleteFlag()) {
                                 type = TPushType.LOAD_DELETE;
                             }
                             
@@ -424,60 +452,31 @@ public class LoadChecker extends Daemon {
                             for (Replica replica : tablet.getReplicas()) {
                                 long replicaId = replica.getId();
                                 allReplicas.add(replicaId);
-                                
+                                // yiguolei: real time load do not need check replica state and version, version hashs
                                 // check replica state and replica version
-                                ReplicaState state = replica.getState();
-                                boolean checkByState = (state == ReplicaState.NORMAL 
-                                        || state == ReplicaState.SCHEMA_CHANGE);
-                                long replicaVersion = replica.getVersion();
-                                long replicaVersionHash = replica.getVersionHash();
-                                // rules:
-                                // 1. replica's version is the previous version of this load, and version hash is valid
-                                // ATTN: we don't save the previous committed version hash,
-                                //       so... there is no way we can handle this situation...
-                                //       will fix it in trunk
-                                // or
-                                // 2. replica's version is equal to load version, but version hash is not equal.
-                                boolean checkByVersion = (replicaVersion == version - 1)
-                                        || (replicaVersion == version && replicaVersionHash != versionHash);
-
-                                if (checkByState && checkByVersion) {
-                                    if (!tabletLoadInfo.isReplicaSent(replicaId)) {
-                                        AgentTask pushTask = new PushTask(job.getResourceInfo(),
-                                                                          replica.getBackendId(), db.getId(), tableId,
-                                                                          partitionId, indexId,
-                                                                          tabletId, replicaId, schemaHash,
-                                                                          version, versionHash, filePath, fileSize, 0,
-                                                                          job.getId(), type, null,
-                                                                          needDecompress, job.getPriority());
-                                        if (AgentTaskQueue.addTask(pushTask)) {
-                                            batchTask.addTask(pushTask);
-                                            job.addPushTask((PushTask) pushTask);
-                                            tabletLoadInfo.addSentReplica(replicaId);
-                                        }
+                                if (!tabletLoadInfo.isReplicaSent(replicaId)) {
+                                    PushTask pushTask = new PushTask(job.getResourceInfo(),
+                                                                      replica.getBackendId(), db.getId(), tableId,
+                                                                      partitionId, indexId,
+                                                                      tabletId, replicaId, schemaHash,
+                                                                      -1, 0, filePath, fileSize, 0,
+                                                                      job.getId(), type, job.getConditions(),
+                                                                      needDecompress, job.getPriority(), 
+                                                                      TTaskType.REALTIME_PUSH, 
+                                                                      job.getTransactionId(), 
+                                                                      Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId());
+                                    pushTask.setIsSchemaChanging(autoLoadToTwoTablet);
+                                    if (AgentTaskQueue.addTask(pushTask)) {
+                                        batchTask.addTask(pushTask);
+                                        job.addPushTask((PushTask) pushTask);
+                                        tabletLoadInfo.addSentReplica(replicaId);
                                     }
-                                } else if (replicaVersion > version 
-                                        || (replicaVersion == version && replicaVersionHash == versionHash)) {
+                                }
+                                // yiguolei: wait here to check if quorum finished, should exclude the replica that is in clone state
+                                // for example, there are 3 replicas, A normal  B normal C clone, if A and C finish loading, we should not commit
+                                // because commit will failed, then the job is failed
+                                if (job.isReplicaFinished(replicaId) && replica.getLastFailedVersion() < 0) {
                                     finishedReplicas.add(replicaId);
-                                    // add replica persist info
-                                    long dataSize = replica.getDataSize();
-                                    long rowCount = replica.getRowCount();
-                                    ReplicaPersistInfo info = ReplicaPersistInfo.createForLoad(tableId, partitionId,
-                                                                                               indexId, tabletId,
-                                                                                               replicaId,
-                                                                                               replicaVersion,
-                                                                                               replicaVersionHash,
-                                                                                               dataSize, rowCount);
-                                    job.addReplicaPersistInfos(info);
-                                } else {
-                                    if (replicaVersion != version || replicaVersionHash != versionHash) {
-                                        LOG.warn("replica version is lower than job. replica: {}-{}-{}-{}-{}, "
-                                                + "replica state: {}, replica version: {}, replica version hash: {},"
-                                                + " job version: {}, job version hash: {}, backend id: {}",
-                                                 db.getId(), tableId, partitionId, tabletId, replicaId,
-                                                 state, replicaVersion, replicaVersionHash,
-                                                 version, versionHash, replica.getBackendId());
-                                    }
                                 }
                             } // end for replicas
 
@@ -485,8 +484,9 @@ public class LoadChecker extends Daemon {
                                 LOG.error("invalid situation. tablet is empty. id: {}", tabletId);
                             }
 
-                            // check tablet push statis
-                            if (finishedReplicas.size() >= quorumNum) {
+                            // check tablet push states
+                            // quorum tablets and full tablets should be in tabletload infos or the process will > 100%
+                            if (finishedReplicas.size() >= quorumNum && tabletLoadInfos.containsKey(tabletId)) {
                                 job.addQuorumTablet(tabletId);
                                 if (finishedReplicas.size() == allReplicas.size()) {
                                     job.addFullTablet(tabletId);
@@ -540,194 +540,10 @@ public class LoadChecker extends Daemon {
             load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "db does not exist. id: " + dbId);
             return;
         }
-
-        // submit push tasks to backends
-        Set<Long> jobTotalTablets = submitPushTasks(job, db);
-        if (jobTotalTablets == null) {
-            LOG.warn("submit push tasks fail");
+        // if the job is quorum finished, just set it to finished and clear related etl job
+        if (load.updateLoadJobState(job, JobState.FINISHED)) {
+            load.clearJob(job, JobState.QUORUM_FINISHED);
             return;
-        }
-        
-        // check job finished
-        boolean isJobFinished = false;
-        if (job.getFullTablets().containsAll(jobTotalTablets)) {
-            // db lock and check
-            LOG.info("all tablets have been finished, check all replicas version. job id: {}", job.getId());
-            db.writeLock();
-            try {
-                boolean allReplicaFinished = true;
-                Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
-            OUTER_LOOP:
-                for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
-                    long tableId = tableEntry.getKey();
-                    OlapTable table = (OlapTable) db.getTable(tableId);
-                    if (table == null) {
-                        LOG.warn("table does not exist. id: {}", tableId);
-                        continue;
-                    }
-                    
-                    TableLoadInfo tableLoadInfo = tableEntry.getValue();
-                    for (Entry<Long, PartitionLoadInfo> partitionEntry : 
-                            tableLoadInfo.getIdToPartitionLoadInfo().entrySet()) {
-                        long partitionId = partitionEntry.getKey();
-                        PartitionLoadInfo partitionLoadInfo = partitionEntry.getValue();
-                        if (!partitionLoadInfo.isNeedLoad()) {
-                            LOG.debug("partition does not have data to load. table id: {}, partition id: {}", 
-                                    tableId, partitionId);
-                            continue;
-                        }
-
-                        long version = partitionLoadInfo.getVersion();
-                        long versionHash = partitionLoadInfo.getVersionHash();
-                        
-                        // all tables
-                        Partition partition = table.getPartition(partitionId);
-                        if (partition == null) {
-                            LOG.warn("partition does not exist. id: " + partitionId);
-                            continue;
-                        }
-                        List<MaterializedIndex> indices = partition.getMaterializedIndices();
-                        for (MaterializedIndex materializedIndex : indices) {
-                            if (materializedIndex.getState() == IndexState.ROLLUP) {
-                                LOG.debug("index state is rollup. id: {}", materializedIndex.getId());
-                                continue;
-                            }
-                            
-                            for (Tablet tablet : materializedIndex.getTablets()) {
-                                for (Replica replica : tablet.getReplicas()) {
-                                    // check version
-                                    long replicaVersion = replica.getVersion();
-                                    long replicaVersionHash = replica.getVersionHash();
-                                    if ((replicaVersion == version && replicaVersionHash != versionHash) 
-                                            || replicaVersion < version) {
-                                        LOG.warn("replica does not catch up job version. replica: {}-{}-{}-{}-{}"
-                                                + ". replica version: {}, replica version hash: {}" 
-                                                + ", partition version: {}, partition version hash: {},"
-                                                + " backend id: {}", dbId, tableId, partitionId, tablet.getId(),
-                                                 replica.getId(), replicaVersion, replicaVersionHash,
-                                                 version, versionHash, replica.getBackendId());
-                                        allReplicaFinished = false;
-                                        break OUTER_LOOP;
-                                    }
-                                } // end for replicas
-                            } // end for tablets
-                        } // end for indices
-                    } // end for partitions
-                } // end for tables
-
-                if (allReplicaFinished) {
-                    if (load.updateLoadJobState(job, JobState.FINISHED)) {
-                        isJobFinished = true;
-                        LOG.info("load job finished. job: {}", job);
-                    }
-                }
-            } finally {
-                db.writeUnlock();
-            }
-            
-            // clear
-            if (isJobFinished) {
-                load.clearJob(job, JobState.QUORUM_FINISHED);
-                return;
-            }
-        }
-
-        // handle if job is stay in QUORUM_FINISHED for a long time
-        // maybe this job cannot be done. try to use Clone to finish this job
-        long currentTimeMs = System.currentTimeMillis();
-        if ((currentTimeMs - job.getCreateTimeMs()) / 1000 > Config.quorum_load_job_max_second) {
-            LOG.warn("load job {} stay in QUORUM_FINISHED for a long time.", job.getId());
-
-            db.readLock();
-            try {
-                Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
-                for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
-                    long tableId = tableEntry.getKey();
-                    OlapTable table = (OlapTable) db.getTable(tableId);
-                    if (table == null) {
-                        continue;
-                    }
-
-                    TableLoadInfo tableLoadInfo = tableEntry.getValue();
-                    for (Entry<Long, PartitionLoadInfo> partitionEntry : tableLoadInfo.getIdToPartitionLoadInfo()
-                            .entrySet()) {
-                        long partitionId = partitionEntry.getKey();
-                        PartitionLoadInfo partitionLoadInfo = partitionEntry.getValue();
-                        if (!partitionLoadInfo.isNeedLoad()) {
-                            continue;
-                        }
-
-                        long version = partitionLoadInfo.getVersion();
-                        long versionHash = partitionLoadInfo.getVersionHash();
-
-                        // all tables
-                        Partition partition = table.getPartition(partitionId);
-                        if (partition == null) {
-                            continue;
-                        }
-                        List<MaterializedIndex> indices = partition.getMaterializedIndices();
-                        for (MaterializedIndex materializedIndex : indices) {
-                            if (materializedIndex.getState() == IndexState.ROLLUP) {
-                                continue;
-                            }
-
-                            Clone clone = Catalog.getInstance().getCloneInstance();
-                            for (Tablet tablet : materializedIndex.getTablets()) {
-                                if (clone.containsTablet(tablet.getId())) {
-                                    // this tablet already has a clone job
-                                    continue;
-                                }
-                                for (Replica replica : tablet.getReplicas()) {
-                                    // check version
-                                    long replicaVersion = replica.getVersion();
-                                    long replicaVersionHash = replica.getVersionHash();
-                                    boolean checkByState = (replica.getState() == ReplicaState.NORMAL
-                                            || replica.getState() == ReplicaState.SCHEMA_CHANGE);
-                                    boolean checkByVersion =
-                                            (replicaVersion == version - 1
-                                            || (replicaVersion == version && replicaVersionHash != versionHash));
-
-                                    if (checkByState && checkByVersion) {
-                                        // find a dest backend
-                                        Set<Long> tabletBeIds = tablet.getBackendIds();
-                                        List<Long> destBeId = null;
-                                        int tryTime = tabletBeIds.size() + 1;
-                                        LOG.debug("tryTime: {}, tablet be: {}", tryTime, tabletBeIds);
-                                        do {
-                                            destBeId = Catalog.getCurrentSystemInfo().seqChooseBackendIds(
-                                                                                 1, true, false, db.getClusterName());
-                                            LOG.debug("descBeId: {}", destBeId);
-                                            --tryTime;
-                                            if (destBeId == null) {
-                                                break;
-                                            }
-                                        } while (tabletBeIds.contains(destBeId.get(0)) && tryTime > 0);
-
-                                        if (destBeId != null && !tabletBeIds.contains(destBeId.get(0))) {
-                                            if (clone.addCloneJob(dbId, tableId, partitionId,
-                                                                  materializedIndex.getId(),
-                                                                  tablet.getId(), destBeId.get(0),
-                                                                  JobType.MIGRATION, JobPriority.HIGH,
-                                                                  Config.clone_job_timeout_second * 1000L)) {
-                                                LOG.info("try use Clone to finish load job: {}. Tablet: {}, desc be: {}"
-                                                                 + "lower version replica: {} "
-                                                                 + "with version {} in be: {}",
-                                                         job.getId(), tablet.getId(), destBeId.get(0),
-                                                         replica.getId(), replicaVersion, replica.getBackendId());
-                                            }
-                                        } else {
-                                            LOG.warn("failed to choose be to do Clone. Load job: {}. tablet: {}",
-                                                     job.getId(), tablet.getId());
-                                        }
-                                    }
-                                } // end for replicas
-                            } // end for tablets
-                        } // end for indices
-                    } // end for partitions
-                } // end for tables
-            } finally {
-                db.readUnlock();
-            }
         }
     }
     
@@ -741,91 +557,13 @@ public class LoadChecker extends Daemon {
         }
         db.readLock();
         try {
-            long tableId = job.getTableId();
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            if (olapTable == null) {
-                load.removeDeleteJobAndSetState(job);
-                return;
-            }
-
-            long partitionId = job.getPartitionId();
-            Partition partition = olapTable.getPartition(partitionId);
-            if (partition == null) {
-                load.removeDeleteJobAndSetState(job);
-                return;
-            }
-
-            boolean allReplicaFinished = true;
-            long jobId = job.getJobId();
-            long version = job.getPartitionVersion();
-            long versionHash = job.getPartitionVersionHash();
-            Set<Long> tabletIds = job.getTabletIds();
-            AgentBatchTask batchTask = new AgentBatchTask();
-            for (MaterializedIndex index : partition.getMaterializedIndices()) {
-                long indexId = index.getId();
-                int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
-                for (Tablet tablet : index.getTablets()) {
-                    long tabletId = tablet.getId();
-                    if (!tabletIds.contains(tabletId)) {
-                        continue;
-                    }
-                    for (Replica replica : tablet.getReplicas()) {
-                        // check version
-                        long replicaVersion = replica.getVersion();
-                        long replicaVersionHash = replica.getVersionHash();
-                        if ((replicaVersion == version && replicaVersionHash != versionHash)
-                                || replicaVersion < version) {
-                            LOG.warn("delete job:{}. replica does not catch up job version. replica: {}-{}-{}-{}-{}"
-                                    + ". replica version: {}, replica version hash: {}"
-                                    + ", partition version: {}, partition version hash: {},"
-                                    + " backend id: {}, replica state: {}",
-                                     jobId, dbId, tableId, partitionId, tabletId, replica.getId(),
-                                     replicaVersion, replicaVersionHash, version, versionHash,
-                                     replica.getBackendId(), replica.getState());
-                            allReplicaFinished = false;
-
-                            if (replica.getState() != ReplicaState.NORMAL) {
-                                allReplicaFinished = false;
-                                continue;
-                            }
-
-                            if (replicaVersion != version && replicaVersion != version - 1) {
-                                continue;
-                            }
-
-                            if (!job.hasSend(replica.getId())) {
-                                PushTask task = new PushTask(null, replica.getBackendId(),
-                                                             dbId, tableId, partitionId,
-                                                             indexId, tabletId, replica.getId(),
-                                                             schemaHash, version,
-                                                             versionHash, null, -1,
-                                                             -1, job.getJobId(), TPushType.DELETE,
-                                                             job.getConditions(), false, TPriority.HIGH);
-                                task.setIsSyncDelete(false);
-                                task.setAsyncDeleteJobId(job.getJobId());
-                                if (AgentTaskQueue.addTask(task)) {
-                                    batchTask.addTask(task);
-                                    job.setIsSend(replica.getId(), task);
-                                }
-                            }
-                        }
-                    }
-                }
-            } // end for indices
-
-            AgentTaskExecutor.submit(batchTask);
-
-            if (allReplicaFinished) {
-                // clear and finish delete job
-                job.clearTasks();
-                job.setState(DeleteState.FINISHED);
-
-                // log
-                Catalog.getInstance().getEditLog().logFinishAsyncDelete(job);
-                load.removeDeleteJobAndSetState(job);
-                LOG.info("delete job {} finished", job.getJobId());
-            }
-
+            // if the delete job is quorum finished, just set it to finished
+            job.clearTasks();
+            job.setState(DeleteState.FINISHED);
+            // log
+            Catalog.getInstance().getEditLog().logFinishAsyncDelete(job);
+            load.removeDeleteJobAndSetState(job);
+            LOG.info("delete job {} finished", job.getJobId());
         } finally {
             db.readUnlock();
         }

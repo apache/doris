@@ -21,7 +21,7 @@
 package com.baidu.palo.planner;
 
 import com.baidu.palo.analysis.Analyzer;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.analysis.Expr;
 
 import com.baidu.palo.thrift.TExplainLevel;
@@ -57,7 +57,7 @@ public class SelectNode extends PlanNode {
     }
 
     @Override
-    public void init(Analyzer analyzer) throws InternalException {
+    public void init(Analyzer analyzer) throws UserException {
       analyzer.markConjunctsAssigned(conjuncts);
       computeStats(analyzer);
       createDefaultSmap(analyzer);

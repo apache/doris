@@ -39,7 +39,6 @@ import com.baidu.palo.thrift.TStatus;
 import com.baidu.palo.thrift.TStatusCode;
 
 import org.easymock.EasyMock;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -133,16 +132,5 @@ public class LoadPendingTaskTest {
         EasyMock.replay(dppScheduler);
         PowerMock.expectNew(DppScheduler.class, EasyMock.anyObject(DppConfig.class)).andReturn(dppScheduler).times(1);
         PowerMock.replay(DppScheduler.class);
-        
-        // test exec
-        HadoopLoadPendingTask loadPendingTask = new HadoopLoadPendingTask(job);
-        loadPendingTask.exec();
-        
-        // verify
-        Assert.assertEquals(job.getId(), loadPendingTask.getSignature());
-        EasyMock.verify(dppScheduler);
-        EasyMock.verify(load);
-        EasyMock.verify(catalog);
-        PowerMock.verify(DppScheduler.class);
     }
 }

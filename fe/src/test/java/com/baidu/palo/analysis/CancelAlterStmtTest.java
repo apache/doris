@@ -20,10 +20,11 @@
 
 package com.baidu.palo.analysis;
 
+
 import com.baidu.palo.analysis.ShowAlterStmt.AlterType;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
 
@@ -76,7 +77,7 @@ public class CancelAlterStmtTest {
     }
 
     @Test
-    public void testNormal() throws InternalException, AnalysisException {
+    public void testNormal() throws UserException, AnalysisException {
         // cancel alter column
         CancelAlterTableStmt stmt = new CancelAlterTableStmt(AlterType.COLUMN, new TableName(null, "testTbl"));
         stmt.analyze(analyzer);

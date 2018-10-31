@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.MockedAuth;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
@@ -34,7 +34,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 import mockit.Mocked;
-import mockit.internal.startup.Startup;
 
 public class CreateClusterStmtTest {
 
@@ -46,7 +45,7 @@ public class CreateClusterStmtTest {
     private ConnectContext ctx;
 
     static {
-        Startup.initializeIfPossible();
+        // Startup.initializeIfPossible();
     }
 
     @Before()
@@ -57,7 +56,7 @@ public class CreateClusterStmtTest {
     }
 
     @Test
-    public void testAnalyzeNormal() throws InternalException, AnalysisException {
+    public void testAnalyzeNormal() throws UserException, AnalysisException {
         final Map<String, String> properties = new HashMap();
         properties.put("instance_num", "2");
         final CreateClusterStmt stmt = new CreateClusterStmt("testCluster", properties, "password");
@@ -69,7 +68,7 @@ public class CreateClusterStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testAnnlyzeWithException() throws InternalException, AnalysisException {
+    public void testAnnlyzeWithException() throws UserException, AnalysisException {
         final CreateClusterStmt stmt = new CreateClusterStmt("testCluster", null, "password");
         stmt.analyze(analyzer);
         Assert.fail("no exception");

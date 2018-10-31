@@ -16,7 +16,6 @@
 package com.baidu.palo.persist;
 
 public class OperationType {
-
     public static final short OP_INVALID = -1;
     public static final short OP_SAVE_NEXTID = 0;
     public static final short OP_CREATE_DB = 1;
@@ -126,9 +125,15 @@ public class OperationType {
     public static final short OP_ADD_BROKER = 85;
     public static final short OP_DROP_BROKER = 86;
     public static final short OP_DROP_ALL_BROKER = 87;
-
     public static final short OP_UPDATE_CLUSTER_AND_BACKENDS = 88;
-
     public static final short OP_CREATE_REPOSITORY = 89;
     public static final short OP_DROP_REPOSITORY = 90;
+
+    //real time load 100 -108
+    public static final short OP_UPSERT_TRANSACTION_STATE = 100;
+    public static final short OP_DELETE_TRANSACTION_STATE = 101;
+    public static final short OP_FINISHING_ROLLUP = 102;
+    public static final short OP_FINISHING_SCHEMA_CHANGE = 103;
+    public static final short OP_SAVE_TRANSACTION_ID = 104;
+
 }

@@ -15,7 +15,7 @@
 
 package com.baidu.palo.qe;
 
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.MarkDownParser;
 
 import com.google.common.base.Strings;
@@ -36,7 +36,7 @@ import java.util.Map;
 public abstract class HelpObjectLoader<HelpTypeT extends HelpObjectIface> {
     private static final Logger LOG = LogManager.getLogger(HelpObjectLoader.class);
 
-    public List<HelpTypeT> loadAll(List<String> lines) throws InternalException {
+    public List<HelpTypeT> loadAll(List<String> lines) throws UserException {
         if (lines == null) {
             LOG.error("Help object loader input lines is empty.");
             return null;
@@ -55,7 +55,7 @@ public abstract class HelpObjectLoader<HelpTypeT extends HelpObjectIface> {
     }
     
     // Load all Topics
-    public List<HelpTypeT> loadAll(String path) throws IOException, InternalException {
+    public List<HelpTypeT> loadAll(String path) throws IOException, UserException {
         if (Strings.isNullOrEmpty(path)) {
             LOG.error("Help object loader input file is empty.");
             return null;

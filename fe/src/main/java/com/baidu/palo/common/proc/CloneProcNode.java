@@ -34,7 +34,9 @@ public class CloneProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("DbId").add("TableId").add("PartitionId").add("IndexId")
             .add("TabletId").add("BackendId").add("State").add("Type")
-            .add("Priority").add("CreateTime").add("StartTime").add("FinishTime")
+            .add("Priority").add("CloneVersion").add("CloneVersionHash")
+            .add("TaskFailTimes")
+            .add("CreateTime").add("StartTime").add("FinishTime")
             .add("Timeout(s)").add("FailMsg")
             .build();
 

@@ -25,7 +25,7 @@ public class CancelDeleteTask extends AgentTask {
 
     public CancelDeleteTask(long backendId, long dbId, long tableId, long partitionId, long indexId,
                             long tabletId, int schemaHash, long version, long versionHash) {
-        super(null, backendId, tabletId, TTaskType.CANCEL_DELETE, dbId, tableId, partitionId, indexId, tabletId);
+        super(null, backendId, TTaskType.CANCEL_DELETE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.schemaHash = schemaHash;
         this.version = version;

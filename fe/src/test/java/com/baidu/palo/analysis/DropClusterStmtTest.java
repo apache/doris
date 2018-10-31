@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.qe.ConnectContext;
@@ -64,7 +64,7 @@ public class DropClusterStmtTest {
     }
 
     @Test
-    public void testNormal() throws InternalException, AnalysisException {
+    public void testNormal() throws UserException, AnalysisException {
         final DropClusterStmt stmt = new DropClusterStmt(true, "testCluster");
 
         stmt.analyze(analyzer);
@@ -73,7 +73,7 @@ public class DropClusterStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testFailed() throws InternalException, AnalysisException {
+    public void testFailed() throws UserException, AnalysisException {
         DropClusterStmt stmt = new DropClusterStmt(false, "");
 
         stmt.analyze(analyzer);

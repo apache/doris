@@ -31,11 +31,12 @@ import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.FeMetaVersion;
 import com.baidu.palo.common.FeNameFormat;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.io.Writable;
 import com.baidu.palo.common.util.KuduUtil;
 import com.baidu.palo.common.util.PrintableMap;
+import com.baidu.palo.external.EsUtil;
 import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.qe.ConnectContext;
 
@@ -78,6 +79,7 @@ public class CreateTableStmt extends DdlStmt implements Writable {
         engineNames.add("mysql");
         engineNames.add("kudu");
         engineNames.add("broker");
+        engineNames.add("elasticsearch");
     }
 
     // for backup. set to -1 for normal use
@@ -187,7 +189,7 @@ public class CreateTableStmt extends DdlStmt implements Writable {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
         tableName.analyze(analyzer);
         FeNameFormat.checkTableName(tableName.getTbl());
@@ -305,6 +307,8 @@ public class CreateTableStmt extends DdlStmt implements Writable {
             distributionDesc.analyze(columnSet);
         } else if (engineName.equals("kudu")) {
             KuduUtil.analyzePartitionAndDistributionDesc(keysDesc, partitionDesc, distributionDesc);
+        } else if (engineName.equalsIgnoreCase("elasticsearch")) {
+            EsUtil.analyzePartitionAndDistributionDesc(partitionDesc, distributionDesc);
         } else {
             if (partitionDesc != null || distributionDesc != null) {
                 throw new AnalysisException("Create " + engineName
@@ -323,7 +327,8 @@ public class CreateTableStmt extends DdlStmt implements Writable {
             throw new AnalysisException("Unknown engine name: " + engineName);
         }
 
-        if (engineName.equals("mysql") || engineName.equals("broker")) {
+        if (engineName.equals("mysql") || engineName.equals("broker") 
+                || engineName.equals("elasticsearch")) {
             if (!isExternal) {
                 // this is for compatibility
                 isExternal = true;

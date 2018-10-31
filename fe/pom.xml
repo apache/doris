@@ -68,7 +68,7 @@ under the License.
             <id>general-env</id>
             <activation>
                 <property>
-                    <name>!env.THIRDPARTY_REPO</name>
+                    <name>!env.CUSTOM_MAVEN_REPO</name>
                 </property>
             </activation>
 

@@ -72,7 +72,7 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
             }
         }
 
-        if (usedCapacityB + tabletSize / (double) capacityB > Config.storage_high_watermark_usage_percent
+        if ((usedCapacityB + tabletSize) / (double) capacityB > Config.storage_high_watermark_usage_percent
                 || capacityB - usedCapacityB - tabletSize < Config.storage_min_left_capacity_bytes) {
             return new BalanceStatus(ErrCode.COMMON_ERROR,
                     toString() + " does not fit tablet with size: " + tabletSize);

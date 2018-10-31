@@ -21,11 +21,11 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 public class SyncStmt extends DdlStmt {
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
 //         if (analyzer.getCatalog().isMaster()) {
 //             throw new AnalysisException("No need to Sync, for you are master");
 //         }

@@ -330,7 +330,7 @@ namespace palo {
             size_t _capacity;
 
             // _mutex protects the following state.
-            MutexLock _mutex;
+            Mutex _mutex;
             size_t _usage;
             uint64_t _last_id;
 
@@ -376,7 +376,7 @@ namespace palo {
             static uint32_t _shard(uint32_t hash);
 
             LRUCache _shards[kNumShards];
-            MutexLock _id_mutex;
+            Mutex _id_mutex;
             uint64_t _last_id;
     };
 

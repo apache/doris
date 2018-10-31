@@ -34,6 +34,7 @@
 #include "util/thread_pool.hpp"
 #include "util/priority_thread_pool.hpp"
 #include "util/thread_pool.hpp"
+#include "olap/options.h"
 
 namespace palo {
 
@@ -57,9 +58,12 @@ class BrokerMgr;
 class MetricRegistry;
 class BufferPool;
 class ReservationTracker;
+class TabletWriterMgr;
+class LoadStreamMgr;
 class ConnectionManager;
 class SnapshotLoader;
 class BrpcStubCache;
+class OLAPEngine;
 
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
@@ -67,6 +71,9 @@ class BrpcStubCache;
 // once to properly initialise service state.
 class ExecEnv {
 public:
+    ExecEnv(const std::vector<StorePath>& store_paths);
+
+    // only used for test
     ExecEnv();
 
     /// Returns the first created exec env instance. In a normal impalad, this is
@@ -177,8 +184,29 @@ public:
         return _buffer_pool.get(); 
     }
 
+    TabletWriterMgr* tablet_writer_mgr() {
+        return _tablet_writer_mgr.get();
+    }
+
+    LoadStreamMgr* load_stream_mgr() {
+        return _load_stream_mgr.get();
+    }
+
+    const std::vector<StorePath>& store_paths() const {
+        return _store_paths;
+    }
+
+    void set_store_paths(const std::vector<StorePath>& paths) {
+        _store_paths = paths;
+    }
+
+    OLAPEngine* olap_engine() { return _olap_engine; }
+
+    void set_olap_engine(OLAPEngine* olap_engine) { _olap_engine = olap_engine; }
+
 private:
     Status start_webserver();
+    std::vector<StorePath> _store_paths;
     // Leave protected so that subclasses can override
     boost::scoped_ptr<DataStreamMgr> _stream_mgr;
     boost::scoped_ptr<ResultBufferMgr> _result_mgr;
@@ -203,12 +231,16 @@ private:
     std::unique_ptr<BfdParser> _bfd_parser;
     std::unique_ptr<PullLoadTaskMgr> _pull_load_task_mgr;
     std::unique_ptr<BrokerMgr> _broker_mgr;
+    std::unique_ptr<TabletWriterMgr> _tablet_writer_mgr;
+    std::unique_ptr<LoadStreamMgr> _load_stream_mgr;
     std::unique_ptr<SnapshotLoader> _snapshot_loader;
     std::unique_ptr<BrpcStubCache> _brpc_stub_cache;
     bool _enable_webserver;
 
     boost::scoped_ptr<ReservationTracker> _buffer_reservation;
     boost::scoped_ptr<BufferPool> _buffer_pool;
+
+    OLAPEngine* _olap_engine = nullptr;
 
     ObjectPool _object_pool;
 private:

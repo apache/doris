@@ -24,7 +24,7 @@ import com.baidu.palo.analysis.CompoundPredicate.Operator;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
@@ -49,7 +49,7 @@ public class ShowSnapshotStmt extends ShowStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
         // analyze where clause if not null

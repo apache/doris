@@ -31,6 +31,7 @@
 //#include "runtime/mem_tracker.h"
 #include "gen_cpp/Data_types.h"
 #include "gen_cpp/data.pb.h"
+#include "util/debug_util.h"
 
 using std::vector;
 
@@ -143,17 +144,14 @@ RowBatch::RowBatch(const RowDescriptor& row_desc,
             if ((*desc)->string_slots().empty()) {
                 continue;
             }
-
             Tuple* tuple = row->get_tuple(j);
-            if (tuple == NULL) {
+            if (tuple == nullptr) {
                 continue;
             }
 
-            vector<SlotDescriptor*>::const_iterator slot = (*desc)->string_slots().begin();
-            for (; slot != (*desc)->string_slots().end(); ++slot) {
-                DCHECK((*slot)->type().is_string_type());
-                StringValue* string_val = tuple->get_string_slot((*slot)->tuple_offset());
-
+            for (auto slot : (*desc)->string_slots()) {
+                DCHECK(slot->type().is_string_type());
+                StringValue* string_val = tuple->get_string_slot(slot->tuple_offset());
                 int offset = reinterpret_cast<intptr_t>(string_val->ptr);
                 string_val->ptr = reinterpret_cast<char*>(tuple_data + offset);
             }
@@ -380,14 +378,12 @@ int RowBatch::serialize(PRowBatch* output_batch) {
         TupleRow* row = get_row(i);
         const vector<TupleDescriptor*>& tuple_descs = _row_desc.tuple_descriptors();
         vector<TupleDescriptor*>::const_iterator desc = tuple_descs.begin();
-
         for (int j = 0; desc != tuple_descs.end(); ++desc, ++j) {
-            if (row->get_tuple(j) == NULL) {
+            if (row->get_tuple(j) == nullptr) {
                 // NULLs are encoded as -1
                 output_batch->mutable_tuple_offsets()->Add(-1);
                 continue;
             }
-
             // Record offset before creating copy (which increments offset and tuple_data)
             output_batch->mutable_tuple_offsets()->Add(offset);
             row->get_tuple(j)->deep_copy(**desc, &tuple_data, &offset, /* convert_ptrs */ true);

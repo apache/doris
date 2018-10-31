@@ -16,6 +16,8 @@
 #ifndef BDG_PALO_BE_SRC_COMMON_UTIL_HTTP_HEADERS_H
 #define BDG_PALO_BE_SRC_COMMON_UTIL_HTTP_HEADERS_H
 
+#include <string>
+
 namespace palo {
 
 class HttpHeaders {
@@ -93,6 +95,8 @@ public:
     static const char* WEBSOCKET_ORIGIN;
     static const char* WEBSOCKET_PROTOCOL;
     static const char* WWW_AUTHENTICATE;
+
+    static const std::string JsonType;
 };
 
 }

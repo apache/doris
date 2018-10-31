@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.thrift.TExprNode;
 import com.baidu.palo.thrift.TExprNodeType;
 import com.baidu.palo.thrift.TTupleIsNullPredicate;
@@ -103,7 +103,7 @@ public class TupleIsNullPredicate extends Predicate {
      * Returns a new list with the nullable exprs.
      */
     public static List<Expr> wrapExprs(List<Expr> inputExprs,
-        List<TupleId> tids, Analyzer analyzer) throws InternalException {
+        List<TupleId> tids, Analyzer analyzer) throws UserException {
         // Assert that all tids are materialized.
         for (TupleId tid: tids) {
             TupleDescriptor tupleDesc = analyzer.getTupleDesc(tid);
@@ -122,7 +122,7 @@ public class TupleIsNullPredicate extends Predicate {
      * if required to make expr nullable. Otherwise, returns expr.
      */
     public static Expr wrapExpr(Expr expr, List<TupleId> tids, Analyzer analyzer)
-        throws InternalException {
+        throws UserException {
     if (!requiresNullWrapping(expr, analyzer)) {
         return expr;
     }
@@ -140,8 +140,7 @@ public class TupleIsNullPredicate extends Predicate {
      * SlotRefs evaluate to NULL, false otherwise.
      * Throws an InternalException if expr evaluation in the BE failed.
      */
-    private static boolean requiresNullWrapping(Expr expr, Analyzer analyzer)
-        throws InternalException {
+    private static boolean requiresNullWrapping(Expr expr, Analyzer analyzer) {
         if (expr.isConstant()) {
             return false;
         }

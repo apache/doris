@@ -15,7 +15,7 @@
 
 package com.baidu.palo.qe;
 
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -90,7 +90,7 @@ public class HelpModule {
     private static ReentrantLock lock = new ReentrantLock();
     
     // Files in zip is not recursive, so we only need to traverse it
-    public void setUpByZip(String path) throws IOException, InternalException {
+    public void setUpByZip(String path) throws IOException, UserException {
         initBuild();
         ZipFile zf = new ZipFile(path);
         Enumeration<? extends ZipEntry> entries = zf.entries();
@@ -141,10 +141,10 @@ public class HelpModule {
     }
     
     // for test only
-    public void setUp(String path) throws InternalException, IOException {
+    public void setUp(String path) throws UserException, IOException {
         File root = new File(path);
         if (!root.isDirectory()) {
-            throw new InternalException("Need help directory.");
+            throw new UserException("Need help directory.");
         }
         initBuild();
         for (File file : root.listFiles()) {
@@ -157,7 +157,7 @@ public class HelpModule {
     }
 
     // for test only
-    private void setUpDir(String parent, File dir) throws IOException, InternalException {
+    private void setUpDir(String parent, File dir) throws IOException, UserException {
         updateCategory(parent, dir.getName());
         for (File file : dir.listFiles()) {
             if (file.getName().startsWith(".")) {
@@ -256,7 +256,7 @@ public class HelpModule {
         return EMPTY_LIST;
     }
 
-    public void setUpModule() throws IOException, InternalException {
+    public void setUpModule() throws IOException, UserException {
         URL helpResource = instance.getClass().getClassLoader()
                 .getResource(HELP_ZIP_FILE_NAME);
         if (helpResource == null) {
@@ -270,7 +270,7 @@ public class HelpModule {
         lastModifyTime = now;
     }
     
-    public boolean needReloadZipFile(String zipPath) throws InternalException {
+    public boolean needReloadZipFile(String zipPath) throws UserException {
         if (!isloaded) {
             return false;
         }
@@ -284,7 +284,7 @@ public class HelpModule {
         // check zip file's last modify time
         File file = new File(zipPath);
         if (!file.exists()) {
-            throw new InternalException("zipfile of help module is not exist" + zipPath);
+            throw new UserException("zipfile of help module is not exist" + zipPath);
         }
         long lastModify = file.lastModified();
         if (lastModifyTime >= lastModify) {
@@ -311,14 +311,14 @@ public class HelpModule {
                         HelpModule newInstance = new HelpModule();
                         newInstance.setUpByZip(zipFilePath);
                         instance = newInstance;
-                    } catch (InternalException | IOException e) {
+                    } catch (UserException | IOException e) {
                         LOG.warn("Failed to reload help zip file: " + zipFilePath, e);
                     } finally {
                         lock.unlock();
                     }
                 }
             }
-        } catch (InternalException e) {
+        } catch (UserException e) {
             LOG.warn("Failed to reload help zip file: " + zipFilePath, e);
         }
         

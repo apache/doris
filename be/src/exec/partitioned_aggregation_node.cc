@@ -139,7 +139,7 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
     for (int i = 0; i < _probe_expr_ctxs.size(); ++i) {
         SlotDescriptor* desc = _intermediate_tuple_desc->slots()[i];
         DCHECK(desc->type().type == TYPE_NULL ||
-                desc->type() == _probe_expr_ctxs[i]->root()->type());
+                desc->type().type == _probe_expr_ctxs[i]->root()->type().type);
         // Hack to avoid TYPE_NULL SlotRefs.
         Expr* expr = desc->type().type != TYPE_NULL ?
             new SlotRef(desc) : new SlotRef(desc, TYPE_BOOLEAN);

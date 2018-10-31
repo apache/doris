@@ -23,7 +23,7 @@ package com.baidu.palo.common;
 /**
  * Exception for meta info is null, like db table partition tablet replica job
  */
-public class MetaNotFoundException extends Exception {
+public class MetaNotFoundException extends UserException {
     public MetaNotFoundException(String msg) {
         super(msg);
     }

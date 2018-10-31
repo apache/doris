@@ -441,6 +441,10 @@ visible_functions = [
     [['coalesce'], 'DATETIME', ['DATETIME', '...'], ''],
     [['coalesce'], 'DECIMAL', ['DECIMAL', '...'], ''],
 
+    [['match'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 
+        '_ZN4palo11ESFunctions5matchEPN'
+        '8palo_udf15FunctionContextERKNS1_9StringValES6_'],
+
     # String builtin functions
     [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT'],
         '_ZN4palo15StringFunctions9substringEPN'
@@ -549,6 +553,12 @@ visible_functions = [
         '_ZN4palo16HllHashFunctions8hll_hashEPN8palo_udf15FunctionContextERKNS1_9StringValE'],
     
     # aes and base64 function
+    [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
+        '_ZN4palo19EncryptionFunctions11aes_encryptEPN8palo_udf'
+        '15FunctionContextERKNS1_9StringValES6_'],
+    [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
+        '_ZN4palo19EncryptionFunctions11aes_decryptEPN8palo_udf'
+        '15FunctionContextERKNS1_9StringValES6_'],
     [['from_base64'], 'VARCHAR', ['VARCHAR'],
         '_ZN4palo19EncryptionFunctions11from_base64EPN8palo_udf'
         '15FunctionContextERKNS1_9StringValE'],

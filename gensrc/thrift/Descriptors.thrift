@@ -37,6 +37,14 @@ struct TSlotDescriptor {
   10: required bool isMaterialized
 }
 
+struct TTupleDescriptor {
+  1: required Types.TTupleId id
+  2: required i32 byteSize
+  3: required i32 numNullBytes
+  4: optional Types.TTableId tableId
+  5: optional i32 numNullSlots
+}
+
 enum THdfsFileFormat {
   TEXT,
   LZO_TEXT,
@@ -105,8 +113,82 @@ const map<string, THdfsCompression> COMPRESSION_MAP = {
   "snappy": THdfsCompression.SNAPPY
 }
 
+struct TOlapTableIndexTablets {
+    1: required i64 index_id
+    2: required list<i64> tablets
+}
+
+// its a closed-open range
+struct TOlapTablePartition {
+    1: required i64 id
+    2: optional Exprs.TExprNode start_key
+    3: optional Exprs.TExprNode end_key
+
+    // how many tablets in one partition
+    4: required i32 num_buckets
+
+    5: required list<TOlapTableIndexTablets> indexes
+}
+
+struct TOlapTablePartitionParam {
+    1: required i64 db_id
+    2: required i64 table_id
+    3: required i64 version
+
+    // used to split a logical table to multiple paritions
+    4: optional string partition_column
+
+    // used to split a partition to multiple tablets
+    5: optional list<string> distributed_columns
+
+    // partitions
+    6: required list<TOlapTablePartition> partitions
+}
+
+struct TOlapTableIndexSchema {
+    1: required i64 id
+    2: required list<string> columns
+    3: required i32 schema_hash
+}
+
+struct TOlapTableSchemaParam {
+    1: required i64 db_id
+    2: required i64 table_id
+    3: required i64 version
+
+    // Logical columns, contain all column that in logical table
+    4: required list<TSlotDescriptor> slot_descs
+    5: required TTupleDescriptor tuple_desc
+    6: required list<TOlapTableIndexSchema> indexes
+}
+
+struct TTabletLocation {
+    1: required i64 tablet_id
+    2: required list<i64> node_ids
+}
+
+struct TOlapTableLocationParam {
+    1: required i64 db_id
+    2: required i64 table_id
+    3: required i64 version
+    4: required list<TTabletLocation> tablets
+}
+
+struct TNodeInfo {
+    1: required i64 id
+    2: required i64 option
+    3: required string host
+    // used to transfer data between nodes
+    4: required i32 async_internal_port
+}
+
+struct TPaloNodesInfo {
+    1: required i64 version
+    2: required list<TNodeInfo> nodes
+}
+
 struct TOlapTable {
-  1: required string tableName
+    1: required string tableName
 }
 
 struct TMySQLTable {
@@ -157,6 +239,9 @@ struct TKuduTable {
   4: required list<TKuduPartitionParam> partition_by
 }
 
+struct TEsTable {
+}
+
 struct TSchemaTable {
   1: required TSchemaTableType tableType
 }
@@ -181,14 +266,7 @@ struct TTableDescriptor {
   12: optional TSchemaTable schemaTable
   13: optional TKuduTable kuduTable
   14: optional TBrokerTable BrokerTable
-}
-
-struct TTupleDescriptor {
-  1: required Types.TTupleId id
-  2: required i32 byteSize
-  3: required i32 numNullBytes
-  4: optional Types.TTableId tableId
-  5: optional i32 numNullSlots
+  15: optional TEsTable esTable
 }
 
 struct TDescriptorTable {

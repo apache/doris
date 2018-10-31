@@ -63,23 +63,29 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
 
     @Override
     protected void createEtlRequest() throws Exception {
-        EtlTaskConf taskConf = new EtlTaskConf();
-        // output path
-        taskConf.setOutputPath(getOutputPath());
-        // output file pattern
-        taskConf.setOutputFilePattern(job.getLabel() + ".%(table)s.%(view)s.%(bucket)s");
-        // tables (partitions)
-        Map<String, EtlPartitionConf> etlPartitions = createEtlPartitions();
-        Preconditions.checkNotNull(etlPartitions);
-        taskConf.setEtlPartitions(etlPartitions);
-
-        LoadErrorHub.Param info = load.getLoadErrorHubInfo();
-        if (info != null) {
-            taskConf.setHubInfo(new EtlErrorHubInfo(this.job.getId(), info));
+        // yiguolei: add a db read lock here? because the schema maybe changed during create etl task
+        db.readLock();
+        try {
+            EtlTaskConf taskConf = new EtlTaskConf();
+            // output path
+            taskConf.setOutputPath(getOutputPath());
+            // output file pattern
+            taskConf.setOutputFilePattern(job.getLabel() + ".%(table)s.%(view)s.%(bucket)s");
+            // tables (partitions)
+            Map<String, EtlPartitionConf> etlPartitions = createEtlPartitions();
+            Preconditions.checkNotNull(etlPartitions);
+            taskConf.setEtlPartitions(etlPartitions);
+    
+            LoadErrorHub.Param info = load.getLoadErrorHubInfo();
+            if (info != null) {
+                taskConf.setHubInfo(new EtlErrorHubInfo(this.job.getId(), info));
+            }
+    
+            etlTaskConf = taskConf.toDppTaskConf();
+            Preconditions.checkNotNull(etlTaskConf);
+        } finally {
+            db.readUnlock();
         }
-
-        etlTaskConf = taskConf.toDppTaskConf();
-        Preconditions.checkNotNull(etlTaskConf);
     }
 
     @Override

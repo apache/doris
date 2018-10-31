@@ -640,7 +640,7 @@ ColumnReader* ColumnReader::create(uint32_t column_id,
                         field_info.default_value, field_info.type, field_info.length);
             }
         } else if (field_info.is_allow_null) {
-            OLAP_LOG_DEBUG("create NullValueReader: %s", field_info.name.c_str());
+            LOG(WARNING) << "create NullValueReader: " << field_info.name;
             return new(std::nothrow) NullValueReader(column_id, column_unique_id);
         } else {
             OLAP_LOG_WARNING("not null field has no default value");
@@ -775,8 +775,8 @@ ColumnReader* ColumnReader::create(uint32_t column_id,
     case OLAP_FIELD_TYPE_LIST:
     case OLAP_FIELD_TYPE_MAP:
     default: {
-        OLAP_LOG_WARNING("unspported filed type. [field=%s type=%d]",
-                field_info.name.c_str(), field_info.type);
+        LOG(WARNING) << "unspported filed type. [field=" << field_info.name
+                     << " type=" << field_info.type << "]";
         break;
     }
     }

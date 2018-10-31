@@ -45,14 +45,17 @@
 #include "exprs/cast_functions.h"
 #include "exprs/math_functions.h"
 #include "exprs/encryption_functions.h"
+#include "exprs/es_functions.h"
 #include "exprs/timestamp_functions.h"
 #include "exprs/decimal_operators.h"
 #include "exprs/utility_functions.h"
 #include "exprs/json_functions.h"
 #include "exprs/hll_hash_function.h"
-#include "olap/olap_rootpath.h"
+#include "olap/options.h"
 
 namespace palo {
+
+bool k_palo_exit = false;
 
 void* tcmalloc_gc_thread(void* dummy) {
     while (1) {
@@ -105,19 +108,14 @@ void* memory_maintenance_thread(void* dummy) {
     return NULL;
 }
 
-static void init_palo_metrics() {
+static void init_palo_metrics(const std::vector<StorePath>& store_paths) {
     bool init_system_metrics = config::enable_system_metrics;
     std::set<std::string> disk_devices;
     std::vector<std::string> network_interfaces;
     if (init_system_metrics) {
         std::vector<std::string> paths;
-        std::vector<int64_t> capacities;
-        auto res = OLAPRootPath::parse_root_paths_from_string(
-            config::storage_root_path.c_str(), &paths, &capacities);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "parse storage_root_path failed, res=" << res
-                << ", path=" << config::storage_root_path;
-            return;
+        for (auto& store_path : store_paths) {
+            paths.emplace_back(store_path.path);
         }
         auto st = DiskInfo::get_disk_devices(paths, &disk_devices);
         if (!st.ok()) {
@@ -134,7 +132,37 @@ static void init_palo_metrics() {
         "palo_be", init_system_metrics, disk_devices, network_interfaces);
 }
 
-void init_daemon(int argc, char** argv) {
+void sigterm_handler(int signo) {
+    k_palo_exit = true;
+}
+
+int install_signal(int signo, void(*handler)(int)) {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(struct sigaction));
+    sa.sa_handler = handler;
+    sigemptyset(&sa.sa_mask);
+    auto ret = sigaction(signo, &sa, nullptr);
+    if (ret != 0) {
+        char buf[64];
+        LOG(ERROR) << "install signal failed, signo=" << signo
+            << ", errno=" << errno
+            << ", errmsg=" << strerror_r(errno, buf, sizeof(buf));
+    }
+    return ret;
+}
+
+void init_signals() {
+    auto ret = install_signal(SIGINT, sigterm_handler);
+    if (ret < 0) {
+        exit(-1);
+    }
+    ret = install_signal(SIGTERM, sigterm_handler);
+    if (ret < 0) {
+        exit(-1);
+    }
+}
+
+void init_daemon(int argc, char** argv, const std::vector<StorePath>& paths) {
     // google::SetVersionString(get_build_version(false));
     // google::ParseCommandLineFlags(&argc, &argv, true);
     google::ParseCommandLineFlags(&argc, &argv, true);
@@ -161,6 +189,7 @@ void init_daemon(int argc, char** argv) {
     CompoundPredicate::init();
     JsonFunctions::init();
     HllHashFunctions::init();
+    ESFunctions::init();
 
     pthread_t tc_malloc_pid;
     pthread_create(&tc_malloc_pid, NULL, tcmalloc_gc_thread, NULL);
@@ -171,7 +200,8 @@ void init_daemon(int argc, char** argv) {
     LOG(INFO) << CpuInfo::debug_string();
     LOG(INFO) << DiskInfo::debug_string();
     LOG(INFO) << MemInfo::debug_string();
-    init_palo_metrics();
+    init_palo_metrics(paths);
+    init_signals();
 }
 
 }

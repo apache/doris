@@ -26,7 +26,7 @@ import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
 import com.baidu.palo.common.FeNameFormat;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.MysqlPassword;
 import com.baidu.palo.mysql.privilege.PaloRole;
 import com.baidu.palo.mysql.privilege.PrivPredicate;
@@ -102,12 +102,13 @@ public class CreateUserStmt extends DdlStmt {
         return userIdent;
     }
 
+    @Override
     public boolean needAuditEncryption() {
         return true;
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
         userIdent.analyze(analyzer.getClusterName());
         // convert plain password to hashed password

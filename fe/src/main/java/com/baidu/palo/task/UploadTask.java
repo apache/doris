@@ -33,7 +33,7 @@ public class UploadTask extends AgentTask {
 
     public UploadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, Long dbId,
             Map<String, String> srcToDestPath, BrokerAddress brokerAddr, Map<String, String> brokerProperties) {
-        super(resourceInfo, backendId, signature, TTaskType.UPLOAD, dbId, -1, -1, -1, -1);
+        super(resourceInfo, backendId, TTaskType.UPLOAD, dbId, -1, -1, -1, -1, signature);
         this.jobId = jobId;
         this.srcToDestPath = srcToDestPath;
         this.brokerAddress = brokerAddr;

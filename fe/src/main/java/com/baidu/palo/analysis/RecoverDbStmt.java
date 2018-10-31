@@ -26,7 +26,7 @@ import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.PaloPrivilege;
 import com.baidu.palo.mysql.privilege.PrivBitSet;
 import com.baidu.palo.mysql.privilege.PrivPredicate;
@@ -46,7 +46,7 @@ public class RecoverDbStmt extends DdlStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);

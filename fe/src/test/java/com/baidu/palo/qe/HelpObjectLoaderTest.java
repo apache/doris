@@ -20,7 +20,7 @@
 
 package com.baidu.palo.qe;
 
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 import com.google.common.collect.Lists;
 
@@ -35,7 +35,7 @@ import java.util.List;
 public class HelpObjectLoaderTest {
     
     @Test
-    public void testTopicNormal() throws IOException, InternalException {
+    public void testTopicNormal() throws IOException, UserException {
         URL resource = getClass().getClassLoader().getResource("data/helpTopicNormal.md");
         HelpObjectLoader<HelpTopic> loader = HelpObjectLoader.createTopicLoader();
         List<HelpTopic> helpTopics = loader.loadAll(resource.getFile());
@@ -66,7 +66,7 @@ public class HelpObjectLoaderTest {
     }
 
     @Test
-    public void testCategoryNormal() throws IOException, InternalException {
+    public void testCategoryNormal() throws IOException, UserException {
         URL resource = getClass().getClassLoader().getResource("data/helpCategoryNormal.md");
 
         HelpObjectLoader<HelpCategory> loader = HelpObjectLoader.createCategoryLoader();

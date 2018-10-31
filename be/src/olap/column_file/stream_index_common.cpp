@@ -62,20 +62,6 @@ void ColumnStatistics::reset() {
     }
 }
 
-void ColumnStatistics::add(char* buf) {
-    if (_ignored) {
-        return;
-    }
-
-    if (_maximum->cmp(buf) < 0) {
-        _maximum->copy(buf);
-    }
-
-    if (_minimum->cmp(buf) > 0) {
-        _minimum->copy(buf);
-    }
-}
-
 void ColumnStatistics::merge(ColumnStatistics* other) {
     if (_ignored || other->ignored()) {
         return;

@@ -299,12 +299,13 @@ TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
     ASSERT_EQ(row.get_fixed_len(), 34);
     ASSERT_EQ(row.get_variable_len(), 39);
 
-    res = row.from_string(scan_keys);
+    OlapTuple tuple1(scan_keys);
+    res = row.from_tuple(tuple1);
     ASSERT_EQ(res, OLAP_SUCCESS);
 
-    std::vector<std::string> vec_string = row.to_string_vector();
-    ASSERT_TRUE(strncmp(vec_string[0].c_str(), "0&char_exceed_length", vec_string[0].size()));
-    ASSERT_TRUE(strncmp(vec_string[1].c_str(), "0&varchar_exceed_length", vec_string[1].size()));
+    OlapTuple tuple2 = row.to_tuple();
+    ASSERT_TRUE(strncmp(tuple2.get_value(0).c_str(), "0&char_exceed_length", 20));
+    ASSERT_TRUE(strncmp(tuple2.get_value(1).c_str(), "0&varchar_exceed_length", 23)); 
 }
 
 TEST_F(TestRowCursor, SetMinAndMaxKey) {

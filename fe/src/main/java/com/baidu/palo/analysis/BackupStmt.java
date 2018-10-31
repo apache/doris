@@ -23,7 +23,7 @@ package com.baidu.palo.analysis;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.util.PrintableMap;
 
 import com.google.common.base.Joiner;
@@ -54,7 +54,7 @@ public class BackupStmt extends AbstractBackupStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
         // tbl refs can not set alias in backup

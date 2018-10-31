@@ -23,7 +23,7 @@
 namespace palo {
 namespace column_file {
 
-ColumnData::ColumnData(OLAPIndex* olap_index) : 
+ColumnData::ColumnData(Rowset* olap_index) :
         IData(COLUMN_ORIENTED_FILE, olap_index),
         _is_using_cache(false),
         _segment_reader(NULL) {
@@ -114,9 +114,7 @@ OLAPStatus ColumnData::_seek_to_block(const RowBlockPosition& block_pos, bool wi
         }
         SAFE_DELETE(_segment_reader);
         std::string file_name;
-        file_name = _table->construct_data_file_path(olap_index()->version(),
-                    olap_index()->version_hash(),
-                    block_pos.segment);
+        file_name = olap_index()->construct_data_file_path(olap_index()->rowset_id(), block_pos.segment);
         _segment_reader = new(std::nothrow) SegmentReader(
                 file_name, _table, olap_index(),  block_pos.segment,
                 _seek_columns, _load_bf_columns, _conditions,
@@ -272,8 +270,8 @@ OLAPStatus ColumnData::_seek_to_row(const RowCursor& key, bool find_last_key, bo
     }
     if (res != OLAP_SUCCESS) {
         if (res != OLAP_ERR_DATA_EOF) {
-            OLAP_LOG_WARNING("Fail to find the key.[res=%d key=%s find_last_key=%d]", 
-                             res, key.to_string().c_str(), find_last_key);
+            LOG(WARNING) << "Fail to find the key.[res=" << res << " key=" << key.to_string()
+                         << " find_last_key=" << find_last_key << "]";
         }
         return res;
     }
@@ -290,8 +288,8 @@ OLAPStatus ColumnData::_seek_to_row(const RowCursor& key, bool find_last_key, bo
     res = _get_block(without_filter);
     if (res != OLAP_SUCCESS) {
         if (res != OLAP_ERR_DATA_EOF) {
-            OLAP_LOG_WARNING("Fail to find the key.[res=%d key=%s find_last_key=%d]", 
-                             res, key.to_string().c_str(), find_last_key);
+            LOG(WARNING) << "Fail to find the key.[res=" << res
+                         << " key=" << key.to_string() << " find_last_key=" << find_last_key << "]";
         }
         return res;
     }
@@ -478,7 +476,7 @@ OLAPStatus ColumnData::get_first_row_block(RowBlock** row_block) {
             _eof = true;
             return res;
         }
-        OLAP_LOG_WARNING("fail to find first row block with OLAPIndex.");
+        OLAP_LOG_WARNING("fail to find first row block with Rowset.");
         return res;
     }
 

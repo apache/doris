@@ -1,5 +1,4 @@
 // Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -12,9 +11,10 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
 package com.baidu.palo.catalog;
 
+import com.baidu.palo.alter.AlterJob.JobState;
+import com.baidu.palo.alter.RollupJob;
 import com.baidu.palo.analysis.AddPartitionClause;
 import com.baidu.palo.analysis.AddRollupClause;
 import com.baidu.palo.analysis.AlterClause;
@@ -194,7 +194,6 @@ public class OlapTable extends Table {
         indexIdToSchemaHash.put(indexId, schemaHash);
         indexIdToShortKeyColumnCount.put(indexId, shortKeyColumnCount);
     }
-
     public void setIndexStorageType(Long indexId, TStorageType newStorageType) {
         Preconditions.checkState(newStorageType == TStorageType.COLUMN);
         indexIdToStorageType.put(indexId, newStorageType);
@@ -518,6 +517,17 @@ public class OlapTable extends Table {
     public void setBloomFilterInfo(Set<String> bfColumns, double bfFpp) {
         this.bfColumns = bfColumns;
         this.bfFpp = bfFpp;
+    }
+    
+    // when the table is creating new rollup and enter finishing state, should tell be not auto load to new rollup
+    // it is used for stream load
+    // the caller should get db lock when call this method
+    public boolean shouldLoadToNewRollup() {
+        RollupJob rollupJob = (RollupJob) Catalog.getInstance().getRollupHandler().getAlterJob(id);
+        if (rollupJob != null && rollupJob.getState() == JobState.FINISHING) {
+            return false;
+        }
+        return true;
     }
 
     public TTableDescriptor toThrift() {
@@ -923,4 +933,3 @@ public class OlapTable extends Table {
         return copied;
     }
 }
-

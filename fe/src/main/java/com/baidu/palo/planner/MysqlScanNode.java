@@ -23,7 +23,7 @@ import com.baidu.palo.analysis.SlotRef;
 import com.baidu.palo.analysis.TupleDescriptor;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.MysqlTable;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.thrift.TMySQLScanNode;
 import com.baidu.palo.thrift.TPlanNode;
 import com.baidu.palo.thrift.TPlanNodeType;
@@ -63,7 +63,7 @@ public class MysqlScanNode extends ScanNode {
     }
 
     @Override
-    public void finalize(Analyzer analyzer) throws InternalException {
+    public void finalize(Analyzer analyzer) throws UserException {
         // Convert predicates to MySQL columns and filters.
         createMySQLColumns(analyzer);
         createMySQLFilters(analyzer);

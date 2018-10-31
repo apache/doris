@@ -25,9 +25,12 @@ import com.baidu.palo.thrift.TEtlState;
 import com.google.common.collect.Maps;
 
 import java.util.Map;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 // Used to process pull load etl task
 public class PullLoadEtlTask extends LoadEtlTask {
+    private static final Logger LOG = LogManager.getLogger(PullLoadEtlTask.class);
     private PullLoadJobMgr mgr;
 
     public PullLoadEtlTask(LoadJob job) {
@@ -54,6 +57,10 @@ public class PullLoadEtlTask extends LoadEtlTask {
     protected boolean updateJobEtlStatus() {
         PullLoadJob pullLoadJob = mgr.getJob(job.getId());
         EtlStatus etlStatus = job.getEtlJobStatus();
+        if (pullLoadJob == null) {
+            LOG.warn("pullLoadJob is null. JobId is {}", job.getId());
+            return false;
+        }
         switch (pullLoadJob.getState()) {
             case CANCELED:
             case FAILED:

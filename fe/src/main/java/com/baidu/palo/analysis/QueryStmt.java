@@ -24,7 +24,7 @@ import com.baidu.palo.catalog.Database;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -111,7 +111,7 @@ public abstract class QueryStmt extends StatementBase {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         if (isAnalyzed()) return;
         super.analyze(analyzer);
         analyzeLimit(analyzer);
@@ -520,6 +520,7 @@ public abstract class QueryStmt extends StatementBase {
         ambiguousAliasList.clear();
         sortInfo = null;
         evaluateOrderBy = false;
+        fromInsert = false;
     }
 
     public void setFromInsert(boolean value) {
@@ -530,5 +531,5 @@ public abstract class QueryStmt extends StatementBase {
     public abstract QueryStmt clone();
 
     public abstract void substituteSelectList(Analyzer analyzer, List<String> newColLabels)
-            throws AnalysisException, InternalException;
+            throws AnalysisException, UserException;
 }

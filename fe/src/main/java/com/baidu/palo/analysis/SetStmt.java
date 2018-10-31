@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 import java.util.List;
 
@@ -49,7 +49,7 @@ public class SetStmt extends StatementBase {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws UserException {
         if (setVars == null || setVars.isEmpty()) {
             throw new AnalysisException("Empty set statement.");
         }

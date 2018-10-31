@@ -16,7 +16,7 @@
 package com.baidu.palo.backup;
 
 import com.baidu.palo.common.Config;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.io.Writable;
 import com.baidu.palo.common.util.CommandResult;
 import com.baidu.palo.common.util.Util;
@@ -73,7 +73,7 @@ public class SaveManifestTask extends ResultfulTask {
         return null;
     }
 
-    private void saveAndUploadManifest() throws InternalException {
+    private void saveAndUploadManifest() throws UserException {
         String manifestPath = pathBuilder.manifest();
         DirSaver labelDir = pathBuilder.getRoot();
         Preconditions.checkState(labelDir.getName().equals(localDirName));
@@ -99,14 +99,14 @@ public class SaveManifestTask extends ResultfulTask {
         }
 
         if (!succeed) {
-            throw new InternalException(msg);
+            throw new UserException(msg);
         }
 
         uploadManifest(manifestPath, PathBuilder.MANIFEST_NAME);
     }
 
 
-    private void saveAndUploadReadableManifest() throws InternalException {
+    private void saveAndUploadReadableManifest() throws UserException {
         String localReadableManifest = pathBuilder.readableManifest();
 
         // get list
@@ -147,7 +147,7 @@ public class SaveManifestTask extends ResultfulTask {
         } // end for labels
 
         if (backupedObjs.isEmpty()) {
-            throw new InternalException("nothing backuped??!!, job: " + jobId);
+            throw new UserException("nothing backuped??!!, job: " + jobId);
         }
 
         // add last load label and last delete info
@@ -175,13 +175,13 @@ public class SaveManifestTask extends ResultfulTask {
 
         if (!succeed) {
             LOG.warn("Failed to save readable manifest. job: {}", jobId);
-            throw new InternalException(msg);
+            throw new UserException(msg);
         }
 
         uploadManifest(localReadableManifest, PathBuilder.READABLE_MANIFEST_NAME);
     }
 
-    private void uploadManifest(String manifestFile, String fileName) throws InternalException {
+    private void uploadManifest(String manifestFile, String fileName) throws UserException {
         String uploadCmd = null;
         String msg = null;
         boolean succeed = false;
@@ -219,7 +219,7 @@ public class SaveManifestTask extends ResultfulTask {
         }
 
         if (!succeed) {
-            throw new InternalException(msg);
+            throw new UserException(msg);
         }
     }
 }

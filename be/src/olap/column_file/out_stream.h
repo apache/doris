@@ -49,7 +49,29 @@ public:
     ~OutStream();
 
     // 向流输出一个字节
-    OLAPStatus write(char byte);
+    inline OLAPStatus write(char byte) {
+        OLAPStatus res = OLAP_SUCCESS;
+        if (_current == nullptr) {
+            res = _create_new_input_buffer();
+            if (res != OLAP_SUCCESS) {
+                return res;
+            }
+        }
+        if (_current->remaining() < 1) {
+            res = _spill();
+            if (res != OLAP_SUCCESS) {
+                OLAP_LOG_WARNING("fail to spill current buffer.");
+                return res;
+            }
+            if (_current == nullptr) {
+                res = _create_new_input_buffer();
+                if (res != OLAP_SUCCESS) {
+                    return res;
+                }
+            }
+        }
+        return _current->put(byte);
+    }
 
     // 向流输出一段数据
     OLAPStatus write(const char* buffer, uint64_t length);

@@ -31,18 +31,22 @@ add_library(Webserver STATIC
   http_channel.cpp
   http_status.cpp
   http_parser.cpp
+  message_body_sink.cpp
   web_page_handler.cpp
   monitor_action.cpp
   default_path_handlers.cpp
+  utils.cpp
   ev_http_server.cpp
-  action/compaction_action.cpp
   action/mini_load.cpp
   action/health_action.cpp
   action/checksum_action.cpp
   action/snapshot_action.cpp
   action/reload_tablet_action.cpp
+  action/restore_tablet_action.cpp
   action/pprof_actions.cpp
   action/metrics_action.cpp
+  action/stream_load.cpp
+  action/meta_action.cpp
   #  action/multi_start.cpp
   #  action/multi_show.cpp
   #  action/multi_commit.cpp

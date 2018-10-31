@@ -309,6 +309,17 @@ struct hash<__int128> {
 };
 #endif
 
+template<>
+struct hash<std::pair<palo::TUniqueId, int64_t>> {
+    size_t operator()(const std::pair<palo::TUniqueId, int64_t>& pair) const {
+        size_t seed = 0;
+        seed = palo::HashUtil::hash(&pair.first.lo, sizeof(pair.first.lo), seed);
+        seed = palo::HashUtil::hash(&pair.first.hi, sizeof(pair.first.hi), seed);
+        seed = palo::HashUtil::hash(&pair.second, sizeof(pair.second), seed);
+        return seed;
+    }
+};
+
 }
 
 #endif

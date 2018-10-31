@@ -21,7 +21,7 @@
 #include "agent/file_downloader.h"
 #include "agent/status.h"
 #include "gen_cpp/AgentService_types.h"
-#include "olap/command_executor.h"
+#include "gen_cpp/MasterService_types.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 
@@ -29,10 +29,11 @@ namespace palo {
 
 const uint32_t MAX_RETRY = 3;
 const uint32_t DEFAULT_DOWNLOAD_TIMEOUT = 3600;
+class OLAPEngine;
 
 class Pusher {
 public:
-    explicit Pusher(const TPushReq& push_req);
+    explicit Pusher(OLAPEngine* engine, const TPushReq& push_req);
     virtual ~Pusher();
     
     // The initial function of pusher
@@ -52,7 +53,7 @@ private:
     bool _is_init = false;
     TPushReq _push_req;
     FileDownloader::FileDownloaderParam _downloader_param;
-    CommandExecutor* _command_executor;
+    OLAPEngine* _engine;
     FileDownloader* _file_downloader;
     AgentStatus _download_status;
 

@@ -148,6 +148,8 @@ public:
 
     void erase_export_task(TStatus& t_status, const TUniqueId& task_id) override;
 
+    virtual void get_tablet_stat(TTabletStatResult& result) override;
+
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
 

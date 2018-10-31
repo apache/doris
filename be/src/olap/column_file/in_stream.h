@@ -46,8 +46,8 @@ public:
     // 上层使用者应该保证不读取ByteBuffer
     // 之间没有数据的空洞位置.
     //
-    // 当使用mmap的时候,这里会退化为只有一个ByteBuffer, 是�
-    // ��使用mmap取决于在性能
+    // 当使用mmap的时候,这里会退化为只有一个ByteBuffer, 是
+    // ??使用mmap取决于在性能
     // 调优阶段的测试结果
     //
     // Input:

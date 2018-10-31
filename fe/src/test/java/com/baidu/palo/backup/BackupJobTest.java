@@ -26,7 +26,7 @@ import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.common.Config;
-import com.baidu.palo.common.FeMetaVersion;
+import com.baidu.palo.common.FeConstants;
 import com.baidu.palo.common.util.UnitTestUtil;
 import com.baidu.palo.persist.EditLog;
 import com.baidu.palo.task.AgentBatchTask;
@@ -60,10 +60,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
-import mockit.Expectations;
+import mockit.Delegate;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
+import mockit.NonStrictExpectations;
 import mockit.internal.startup.Startup;
 
 public class BackupJobTest {
@@ -118,62 +119,62 @@ public class BackupJobTest {
 
     @Before
     public void setUp() {
-        new MockUp<Catalog>() {
-            @Mock
-            public BackupHandler getBackupHandler() {
-                return backupHandler;
-            }
 
-            @Mock
-            public Database getDb(long dbId) {
-                return db;
-            }
+        db = UnitTestUtil.createDb(dbId, tblId, partId, idxId, tabletId, backendId, version, versionHash);
 
-            @Mock
-            public int getCurrentCatalogJournalVersion() {
-                return FeMetaVersion.VERSION_42;
-            }
+        new NonStrictExpectations() {
+            {
+                catalog.getBackupHandler();
+                result = backupHandler;
 
-            @Mock
-            public long getNextId() {
-                return id.getAndIncrement();
-            }
+                catalog.getDb(anyLong);
+                result = db;
 
-            @Mock
-            public EditLog getEditLog() {
-                return editLog;
+                Catalog.getCurrentCatalogJournalVersion();
+                result = FeConstants.meta_version;
+
+                catalog.getNextId();
+                result = id.getAndIncrement();
+
+                catalog.getEditLog();
+                result = editLog;
             }
         };
 
-        new MockUp<BackupHandler>() {
-            @Mock
-            public RepositoryMgr getRepoMgr() {
-                return repoMgr;
+        new NonStrictExpectations() {
+            {
+                backupHandler.getRepoMgr();
+                result = repoMgr;
             }
         };
 
-        new MockUp<RepositoryMgr>() {
-            @Mock
-            public Repository getRepo(long repoId) {
-                return repo;
+        new NonStrictExpectations() {
+            {
+                repoMgr.getRepo(anyInt);
+                result = repo;
+                minTimes = 0;
             }
         };
 
-        new MockUp<EditLog>() {
-            @Mock
-            public void logBackupJob(BackupJob job) {
-                System.out.println("log backup job: " + job);
+        new NonStrictExpectations() {
+            {
+                editLog.logBackupJob((BackupJob) any);
+                result = new Delegate() {
+                    public void logBackupJob(BackupJob job) {
+                        System.out.println("log backup job: " + job);
+                    }
+                };
             }
         };
 
         new MockUp<AgentTaskExecutor>() {
             @Mock
             public void submit(AgentBatchTask task) {
-                return;
+
             }
         };
 
-        new Expectations(Repository.class) {
+        new NonStrictExpectations(Repository.class) {
             {
                 repo.upload(anyString, anyString);
                 minTimes = 0;
@@ -181,7 +182,6 @@ public class BackupJobTest {
             }
         };
 
-        db = UnitTestUtil.createDb(dbId, tblId, partId, idxId, tabletId, backendId, version, versionHash);
         List<TableRef> tableRefs = Lists.newArrayList();
         tableRefs.add(new TableRef(new TableName(UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME), null));
         job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, catalog, repo.getId());

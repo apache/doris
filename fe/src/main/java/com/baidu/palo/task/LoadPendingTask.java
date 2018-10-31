@@ -24,11 +24,12 @@ import com.baidu.palo.load.LoadChecker;
 import com.baidu.palo.load.LoadJob;
 import com.baidu.palo.load.LoadJob.JobState;
 import com.baidu.palo.thrift.TStatusCode;
+import com.baidu.palo.transaction.TransactionState.LoadJobSourceType;
 
 import com.google.common.base.Joiner;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -66,9 +67,17 @@ public abstract class LoadPendingTask extends MasterTask {
             load.cancelLoadJob(job, CancelType.ETL_SUBMIT_FAIL, "db does not exist. id: " + dbId);
             return;
         }
-        
-        // create etl request
+
         try {
+            // yiguolei: get transactionid here, because create etl request will get schema and partition info
+            // create etl request and make some guarantee for schema change and rollup
+            if (job.getTransactionId() < 0) {
+                long transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(dbId, 
+                        job.getLabel(),
+                        "fe", 
+                        LoadJobSourceType.FRONTEND);
+                job.setTransactionId(transactionId);
+            }
             createEtlRequest();
         } catch (Exception e) {
             LOG.info("create etl request failed.{}", e);

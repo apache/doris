@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.MockedAuth;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
@@ -53,7 +53,7 @@ public class ShowUserPropertyStmtTest {
     }
 
     @Test
-    public void testNormal() throws InternalException, AnalysisException {
+    public void testNormal() throws UserException, AnalysisException {
         ShowUserPropertyStmt stmt = new ShowUserPropertyStmt("testUser", "%load_cluster%");
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW PROPERTY FOR 'testCluster:testUser' LIKE '%load_cluster%'", stmt.toString());

@@ -27,7 +27,7 @@ import com.baidu.palo.analysis.TupleDescriptor;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.catalog.OlapTable;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.Pair;
 import com.baidu.palo.load.LoadJob;
 import com.baidu.palo.load.PartitionLoadInfo;
@@ -103,7 +103,7 @@ public class CsvScanNode extends ScanNode {
     }
 
     @Override
-    public void finalize(Analyzer analyzer) throws InternalException {
+    public void finalize(Analyzer analyzer) throws UserException {
         // get file paths
         // file paths in different partitions are same in mini load
         TableLoadInfo tableLoadInfo = job.getTableLoadInfo(table.getId());
@@ -146,7 +146,7 @@ public class CsvScanNode extends ScanNode {
             unspecifiedColumns.add(columnName);
             String defaultValue = column.getDefaultValue();
             if (defaultValue == null && false == column.isAllowNull()) {
-                throw new InternalException(
+                throw new UserException(
                         "Column [" + columnName + "] should be specified. "
                                 + "only columns have default values can be omitted");
             }

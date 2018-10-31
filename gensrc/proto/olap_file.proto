@@ -18,6 +18,7 @@
 package palo;
 
 import "olap_common.proto";
+import "types.proto";
 
 message ColumnPruning {
     required bytes min = 1;
@@ -34,7 +35,7 @@ message DeltaPruning {
 // Base Version: (start_version == 0 && end_version > start_version) || [0, 0]
 // Cumulative Version: (start_version >= 1 && end_version > start_version)
 // Delta Version: start_version == end_version
-message FileVersionMessage {
+message FileVersionMessage { // Deprecated, Use PDelta instead
     required uint32 num_segments = 1 [default = 0];
     required int32 start_version = 2;
     required int32 end_version = 3;
@@ -47,11 +48,50 @@ message FileVersionMessage {
     optional DeltaPruning delta_pruning = 10;
 }
 
+message PDelta {
+    required int64 start_version = 1;
+    required int64 end_version = 2;
+    required int64 version_hash = 3;
+    required int64 creation_time = 4;
+    repeated PRowSet rowset = 5;
+    optional DeleteConditionMessage delete_condition = 6;
+}
+
+message PRowSet {
+    required int32 rowset_id = 1;
+    required int32 num_segments = 2;
+    required int64 index_size = 3;
+    required int64 data_size = 4;
+    required int64 num_rows = 5;
+    repeated ColumnPruning column_pruning = 6;
+    optional bool empty = 7;
+}
+
+message PPendingDelta {
+    required int64 partition_id = 1;
+    required int64 transaction_id = 2;
+    required int64 creation_time = 3;
+    repeated PPendingRowSet pending_rowset = 4;
+    optional DeleteConditionMessage delete_condition = 5;
+}
+
+message PPendingRowSet {
+    required int32 pending_rowset_id = 1;
+    required int32 num_segments = 2;
+    required PUniqueId load_id = 3;
+    repeated ColumnPruning column_pruning = 4;
+    optional bool empty = 5;
+}
+
 message SchemaChangeStatusMessage {
     required int64 related_tablet_id = 1;
     required int32 related_schema_hash = 2;
-    repeated FileVersionMessage versions_to_be_changed = 3;
+
+    repeated FileVersionMessage versions_to_be_changed = 3; // Deprecated. Use PDelta instead 
+
     required int32 schema_change_type = 4;
+
+    repeated PDelta versions_to_changed = 5;
 }
 
 enum DataFileType {
@@ -65,37 +105,47 @@ enum KeysType {
     AGG_KEYS = 2;
 }
 
-message DeleteDataConditionMessage {
+message DeleteConditionMessage {
     required int32 version = 1;
     repeated string sub_conditions = 2;
 }
 
 message OLAPHeaderMessage {
     required uint32 num_rows_per_data_block = 1;
-    repeated FileVersionMessage file_version = 2;
+
+    repeated FileVersionMessage file_version = 2; // Deprecated. Use PDelta instead.
+
     required int32 cumulative_layer_point = 3;
     required uint32 num_short_key_fields = 4;
     repeated ColumnMessage column = 5;
     required int64 creation_time = 6;
-    repeated int32 selectivity = 7;
+    repeated int32 selectivity = 7; // Deprecated.
     optional SchemaChangeStatusMessage schema_change_status = 8;
     optional DataFileType data_file_type = 9 [default = OLAP_DATA_FILE];
     optional uint32 next_column_unique_id = 10 [default = 0];
     optional CompressKind compress_kind = 11 [default = COMPRESS_LZO];
     optional uint32 segment_size = 12 [default = 4292870144];
-    repeated DeleteDataConditionMessage delete_data_conditions = 13;
+    repeated DeleteConditionMessage delete_data_conditions = 13;
     // bloom filter false positive probability
     optional double bf_fpp = 14;
     optional KeysType keys_type = 15;
+    repeated PDelta delta = 16;
+    repeated PPendingDelta pending_delta = 17;
+    repeated PDelta incremental_delta = 18;
+
     // if true, this tablet will not do compaction,
     // and does not create init version
-    optional bool in_restore_mode = 16 [default = false];
+    optional bool in_restore_mode = 19 [default = false];
+    optional int64 tablet_id = 20;
+    optional int32 schema_hash = 21;
+    optional uint64 shard = 22;
 }
 
 message OLAPIndexHeaderMessage {
     required int32 start_version = 1;
     required int32 end_version = 2;
     required int64 cumulative_version_hash = 3;
+
     required uint32 segment = 4;
     required uint32 num_rows_per_block = 5;
     optional bool null_supported = 6;

@@ -370,6 +370,10 @@ Status ThriftServer::start() {
     return Status::OK;
 }
 
+void ThriftServer::stop() {
+    _server->stop();
+}
+
 void ThriftServer::join() {
     DCHECK(_server_thread != NULL);
     DCHECK(_started);

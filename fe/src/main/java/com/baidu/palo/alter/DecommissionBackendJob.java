@@ -15,19 +15,6 @@
 
 package com.baidu.palo.alter;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-import org.apache.commons.lang.NotImplementedException;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.catalog.MaterializedIndex;
@@ -43,21 +30,35 @@ import com.baidu.palo.catalog.TabletMeta;
 import com.baidu.palo.clone.Clone;
 import com.baidu.palo.clone.CloneJob.JobPriority;
 import com.baidu.palo.cluster.Cluster;
-import com.baidu.palo.persist.BackendIdsUpdateInfo;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.FeMetaVersion;
 import com.baidu.palo.common.MetaNotFoundException;
 import com.baidu.palo.common.io.Text;
+import com.baidu.palo.persist.BackendIdsUpdateInfo;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.system.Backend.BackendState;
 import com.baidu.palo.system.SystemInfoService;
 import com.baidu.palo.task.AgentTask;
 import com.baidu.palo.thrift.TTabletInfo;
+
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.commons.lang.NotImplementedException;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class DecommissionBackendJob extends AlterJob {
 
@@ -344,11 +345,6 @@ public class DecommissionBackendJob extends AlterJob {
     }
 
     @Override
-    public void directRemoveReplicaTask(long replicaId, long backendId) {
-        throw new NotImplementedException();
-    }
-
-    @Override
     public synchronized void handleFinishedReplica(AgentTask task, TTabletInfo finishTabletInfo, long reportVersion)
             throws MetaNotFoundException {
         throw new NotImplementedException();
@@ -533,17 +529,27 @@ public class DecommissionBackendJob extends AlterJob {
     }
 
     @Override
-    public void unprotectedReplayInitJob(Database db) {
+    public void replayInitJob(Database db) {
+        // do nothing
+    }
+    
+    @Override
+    public void replayFinishing(Database db) {
+        // do nothing
+    }
+    
+    @Override
+    public void replayFinish(Database db) {
         // do nothing
     }
 
     @Override
-    public void unprotectedReplayFinish(Database db) {
+    public void replayCancel(Database db) {
         // do nothing
     }
 
     @Override
-    public void unprotectedReplayCancel(Database db) {
+    public void getJobInfo(List<List<Comparable>> jobInfos, OlapTable tbl) {
         // do nothing
     }
 
@@ -617,5 +623,4 @@ public class DecommissionBackendJob extends AlterJob {
         decommissionBackendJob.readFields(in);
         return decommissionBackendJob;
     }
-
 }

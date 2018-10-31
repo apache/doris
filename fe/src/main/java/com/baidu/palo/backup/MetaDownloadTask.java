@@ -29,7 +29,7 @@ import com.baidu.palo.catalog.Table.TableType;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.DdlException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.util.CommandResult;
 import com.baidu.palo.common.util.Util;
 
@@ -122,11 +122,11 @@ public class MetaDownloadTask extends ResultfulTask {
         return null;
     }
 
-    private void checkRestoreObjs() throws InternalException {
+    private void checkRestoreObjs() throws UserException {
         try {
             Database db = Catalog.getInstance().getDb(dbName);
             if (db == null) {
-                throw new InternalException("Database[" + dbName + "] does not exist");
+                throw new UserException("Database[" + dbName + "] does not exist");
             }
             
             // 1.1 check restored objs exist
@@ -148,7 +148,7 @@ public class MetaDownloadTask extends ResultfulTask {
                 Preconditions.checkState(tableRenameMap.isEmpty());
                 DirSaver dbDir = (DirSaver) pathBuilder.getRoot().getChild(dbName);
                 if (dbDir == null) {
-                    throw new InternalException("Backup path does not contains database[" + dbName + "]");
+                    throw new UserException("Backup path does not contains database[" + dbName + "]");
                 }
                 Collection<FileSaverI> tableDirs = dbDir.getChildren();
                 for (FileSaverI child : tableDirs) {
@@ -213,7 +213,7 @@ public class MetaDownloadTask extends ResultfulTask {
                     // get all existed partitions
                     FileSaverI tableSaver = pathBuilder.getRoot().getChild(dbName).getChild(tableName);
                     if (!(tableSaver instanceof DirSaver)) {
-                        throw new InternalException("Table[" + tableName + "] dir does not exist");
+                        throw new UserException("Table[" + tableName + "] dir does not exist");
                     }
                     
                     List<AlterTableStmt> partitionStmts = Lists.newArrayList();
@@ -257,7 +257,7 @@ public class MetaDownloadTask extends ResultfulTask {
                         continue;
                     } else {
                         if (partitionNames.isEmpty()) {
-                            throw new InternalException("Table[" + newTableName + "]' already exist. "
+                            throw new UserException("Table[" + newTableName + "]' already exist. "
                                     + "Drop table first or restore to another table");
                         }
                     }
@@ -265,7 +265,7 @@ public class MetaDownloadTask extends ResultfulTask {
                     // table
                     CreateTableStmt stmt = tableToCreateTableStmt.get(newTableName);
                     if (table.getSignature(BackupVersion.VERSION_1) != stmt.getTableSignature()) {
-                        throw new InternalException("Table[" + newTableName + "]'s struct is not same");
+                        throw new UserException("Table[" + newTableName + "]'s struct is not same");
                     }
                     
                     // partition
@@ -279,7 +279,7 @@ public class MetaDownloadTask extends ResultfulTask {
                             checkRangeValid(olapTable, partitionName);
                         } else {
                             // do not allow overwrite a partition
-                            throw new InternalException("Partition[" + partitionName + "]' already exist in table["
+                            throw new UserException("Partition[" + partitionName + "]' already exist in table["
                                     + newTableName + "]. Drop partition first or restore to another table");
                         }
                     }
@@ -289,7 +289,7 @@ public class MetaDownloadTask extends ResultfulTask {
                 db.readUnlock();
             }
         } catch (Exception e) {
-            throw new InternalException(e.getMessage(), e);
+            throw new UserException(e.getMessage(), e);
         }
     }
 

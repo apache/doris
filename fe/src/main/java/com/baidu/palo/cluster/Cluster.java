@@ -15,20 +15,6 @@
 
 package com.baidu.palo.cluster;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.InfoSchemaDb;
 import com.baidu.palo.common.io.Text;
@@ -37,8 +23,19 @@ import com.baidu.palo.persist.LinkDbInfo;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * cluster only save db and user's id and name
@@ -52,45 +49,44 @@ public class Cluster implements Writable {
     private Long id;
     private String name;
     // backend which cluster own
-    private Set<Long> backendIdSet;
+    private Set<Long> backendIdSet = ConcurrentHashMap.newKeySet();
 
-    private Set<Long> userIdSet;
-    private Set<String> userNameSet;
+    private ConcurrentHashMap<String, LinkDbInfo> linkDbNames = new ConcurrentHashMap<>();
+    private ConcurrentHashMap<Long, LinkDbInfo> linkDbIds = new ConcurrentHashMap<>();
 
-    private Map<String, LinkDbInfo> linkDbNames;
-    private Map<Long, LinkDbInfo> linkDbIds;
+    private Set<Long> dbIds = ConcurrentHashMap.newKeySet();
+    private Set<String> dbNames = ConcurrentHashMap.newKeySet();
 
-    private Set<Long> dbIds;
-    private Set<String> dbNames;
+    // lock to perform atomic operations
+    private ReentrantLock lock = new ReentrantLock(true);
 
-    private ReentrantReadWriteLock rwLock;
-
-    public Cluster() {
-        this.rwLock = new ReentrantReadWriteLock(true);
-        this.backendIdSet = Sets.newHashSet();
-        this.userIdSet = Sets.newHashSet();
-        this.userNameSet = Sets.newHashSet();
-        this.linkDbNames = Maps.newHashMap();
-        this.linkDbIds = Maps.newHashMap();
-        this.dbIds = Sets.newHashSet();
-        this.dbNames = Sets.newHashSet();
+    private Cluster() {
+        // for persist
     }
 
     public Cluster(String name, long id) {
         this.name = name;
         this.id = id;
-        this.rwLock = new ReentrantReadWriteLock(true);
-        this.backendIdSet = Sets.newHashSet();
-        this.userIdSet = Sets.newHashSet();
-        this.userNameSet = Sets.newHashSet();
-        this.linkDbNames = Maps.newHashMap();
-        this.linkDbIds = Maps.newHashMap();
-        this.dbIds = Sets.newHashSet();
-        this.dbNames = Sets.newHashSet();
+    }
+
+    private void lock() {
+        this.lock.lock();
+    }
+
+    private void unlock() {
+        this.lock.unlock();
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public String getName() {
+        return name;
     }
 
     public void addLinkDb(BaseParam param) {
-        writeLock();
+        lock();
         try {
             if (Strings.isNullOrEmpty(param.getStringParam(1)) || param.getLongParam(1) <= 0) {
                 return;
@@ -99,139 +95,66 @@ public class Cluster implements Writable {
             linkDbNames.put(param.getStringParam(), info);
             linkDbIds.put(param.getLongParam(), info);
         } finally {
-            writeUnlock();
+            unlock();
         }
-
     }
 
     public void removeLinkDb(BaseParam param) {
-        writeLock();
+        lock();
         try {
             linkDbNames.remove(param.getStringParam());
             linkDbIds.remove(param.getLongParam());
         } finally {
-            writeUnlock();
+            unlock();
         }
 
     }
 
-    public boolean containLink(String des, String src) {
-        readLock();
-        try {
-            final LinkDbInfo info = linkDbNames.get(des);
-            if (info != null && info.getName().equals(src)) {
-                return true;
-            }
-        } finally {
-            readUnlock();
+    public boolean containLink(String dest, String src) {
+        final LinkDbInfo info = linkDbNames.get(dest);
+        if (info != null && info.getName().equals(src)) {
+            return true;
         }
         return false;
-    }
-
-    public void addUser(String name, long id) {
-        if (Strings.isNullOrEmpty(name)) {
-            return;
-        }
-        writeLock();
-        try {
-            userNameSet.add(name);
-            userIdSet.add(id);
-        } finally {
-            writeUnlock();
-        }
     }
 
     public void addDb(String name, long id) {
         if (Strings.isNullOrEmpty(name)) {
             return;
         }
-        writeLock();
+        lock();
         try {
             dbNames.add(name);
             dbIds.add(id);
         } finally {
-            writeUnlock();
+            unlock();
         }
     }
 
     public List<String> getDbNames() {
         final ArrayList<String> ret = new ArrayList<String>();
-        readLock();
+        lock();
         try {
             ret.addAll(dbNames);
             ret.addAll(linkDbNames.keySet());
         } finally {
-            readUnlock();
+            unlock();
         }
         return ret;
     }
 
     public void removeDb(String name, long id) {
-        writeLock();
+        lock();
         try {
             dbNames.remove(name);
             dbIds.remove(id);
         } finally {
-            writeUnlock();
+            unlock();
         }
-    }
-
-    public boolean containUser(String name) {
-        return userNameSet.contains(name);
-    }
-
-    public boolean containUser(long id) {
-        return userIdSet.contains(id);
     }
 
     public boolean containDb(String name) {
         return dbNames.contains(name);
-    }
-
-    public boolean containDb(long id) {
-        return dbIds.contains(id);
-    }
-
-    public void readLock() {
-        this.rwLock.readLock().lock();
-    }
-
-    public boolean tryReadLock(long timeout, TimeUnit unit) {
-        try {
-            return this.rwLock.readLock().tryLock(timeout, unit);
-        } catch (InterruptedException e) {
-            LOG.warn("failed to try read lock at cluster[" + id + "]", e);
-            return false;
-        }
-    }
-
-    public void readUnlock() {
-        this.rwLock.readLock().unlock();
-    }
-
-    public void writeLock() {
-        this.rwLock.writeLock().lock();
-    }
-
-    public boolean tryWriteLock(long timeout, TimeUnit unit) {
-        try {
-            return this.rwLock.writeLock().tryLock(timeout, unit);
-        } catch (InterruptedException e) {
-            LOG.warn("failed to try write lock at cluster[" + id + "]", e);
-            return false;
-        }
-    }
-
-    public void writeUnlock() {
-        this.rwLock.writeLock().unlock();
-    }
-
-    public boolean isWriteLockHeldByCurrentThread() {
-        return this.rwLock.writeLock().isHeldByCurrentThread();
-    }
-
-    public int getClusterCapacity() {
-        return backendIdSet.size();
     }
 
     public List<Long> getBackendIdList() {
@@ -242,46 +165,26 @@ public class Cluster implements Writable {
         if (backendIdList == null) {
             return;
         }
-        writeLock();
-        try {
-            this.backendIdSet = Sets.newHashSet(backendIdList);
-        } finally {
-            writeUnlock();
-        }
+        backendIdSet = ConcurrentHashMap.newKeySet();
+        backendIdSet.addAll(backendIdList);
     }
 
     public void addBackend(long backendId) {
-        writeLock();
-        try {
-            this.backendIdSet.add(backendId);
-        } finally {
-            writeUnlock();
-        }
+        backendIdSet.add(backendId);
     }
 
     public void addBackends(List<Long> backendIds) {
-        writeLock();
-        try {
-            this.backendIdSet.addAll(backendIds);
-       } finally {
-            writeUnlock();
-        }
+        backendIdSet.addAll(backendIds);
     }
 
-    public Long getId() {
-        return id;
+    public void removeBackend(long removedBackendId) {
+        backendIdSet.remove((Long) removedBackendId);
     }
 
-    public void setId(Long clusterId) {
-        this.id = clusterId;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String clusterName) {
-        this.name = clusterName;
+    public static Cluster read(DataInput in) throws IOException {
+        Cluster cluster = new Cluster();
+        cluster.readFields(in);
+        return cluster;
     }
 
     @Override
@@ -361,23 +264,4 @@ public class Cluster implements Writable {
             linkDbIds.put(key, value);
         }
     }
-    
-    public void removeBackend(long removedBackendId) {
-        writeLock();
-        try {
-            backendIdSet.remove((Long)removedBackendId);
-        } finally {
-            writeUnlock();
-        }
-    }
-    
-    public void removeBackends(List<Long> removedBackendIds) {
-        writeLock();
-        try {
-            backendIdSet.remove(removedBackendIds);
-        } finally {
-            writeUnlock();
-        }
-    }
-
 }

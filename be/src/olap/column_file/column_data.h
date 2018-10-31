@@ -33,7 +33,7 @@ class SegmentReader;
 // This class is column data reader. this class will be used in two case.
 class ColumnData : public IData {
 public:
-    explicit ColumnData(OLAPIndex* olap_index);
+    explicit ColumnData(Rowset* olap_index);
     virtual ~ColumnData();
 
     virtual OLAPStatus init();
@@ -144,7 +144,7 @@ public:
     ColumnDataComparator(
         RowBlockPosition position,
         ColumnData* olap_data,
-        const OLAPIndex* index)
+        const Rowset* index)
             : _start_block_position(position),
             _olap_data(olap_data),
             _index(index) {}
@@ -186,7 +186,7 @@ private:
 
     const RowBlockPosition _start_block_position;
     ColumnData* _olap_data;
-    const OLAPIndex* _index;
+    const Rowset* _index;
 };
 
 }  // namespace column_file

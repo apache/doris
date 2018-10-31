@@ -120,35 +120,35 @@ TEST_F(TestBloomFilter, bloom_filter_info) {
 
     bytes = "a";
     points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
-    OLAP_LOG_WARNING("bytes=%s points=%s", bytes.c_str(), points.c_str());
+    LOG(WARNING) << "bytes=" << bytes << " points=" << points;
 
     bytes = "ab";
     points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
-    OLAP_LOG_WARNING("bytes=%s points=%s", bytes.c_str(), points.c_str());
+    LOG(WARNING) << "bytes=" << bytes << " points=" << points;
 
     bytes = "b";
     points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
-    OLAP_LOG_WARNING("bytes=%s points=%s", bytes.c_str(), points.c_str());
+    LOG(WARNING) << "bytes=" << bytes << " points=" << points;
 
     bytes = "ba";
     points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
-    OLAP_LOG_WARNING("bytes=%s points=%s", bytes.c_str(), points.c_str());
+    LOG(WARNING) << "bytes=" << bytes << " points=" << points;
 
     bytes = "c";
     points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
-    OLAP_LOG_WARNING("bytes=%s points=%s", bytes.c_str(), points.c_str());
+    LOG(WARNING) << "bytes=" << bytes << " points=" << points;
 
     bytes = "bc";
     points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
-    OLAP_LOG_WARNING("bytes=%s points=%s", bytes.c_str(), points.c_str());
+    LOG(WARNING) << "bytes=" << bytes << " points=" << points;
 
     bytes = "ac";
     points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
-    OLAP_LOG_WARNING("bytes=%s points=%s", bytes.c_str(), points.c_str());
+    LOG(WARNING) << "bytes=" << bytes << " points=" << points;
 
     bytes = "abc";
     points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
-    OLAP_LOG_WARNING("bytes=%s points=%s", bytes.c_str(), points.c_str());
+    LOG(WARNING) << "bytes=" << bytes << " points=" << points;
 }
 
 } // namespace column_file

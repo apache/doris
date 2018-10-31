@@ -1144,8 +1144,7 @@ public class RestoreJob extends AbstractJob {
                     }
 
                     // update partition committed version
-                    part.setCommittedVersion(entry.getValue().first);
-                    part.setCommittedVersionHash(entry.getValue().second);
+                    part.updateCommitVersionAndVersionHash(entry.getValue().first, entry.getValue().second);
 
                     // we also need to update the replica version of these overwritten restored partitions
                     for (MaterializedIndex idx : part.getMaterializedIndices()) {

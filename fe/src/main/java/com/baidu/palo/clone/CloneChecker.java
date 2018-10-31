@@ -209,9 +209,12 @@ public class CloneChecker extends Daemon {
         Clone clone = Catalog.getInstance().getCloneInstance();
         LOG.info("start to check clone. job num: {}", clone.getJobNum());
 
+        // yiguolei: check whether the replica's version is less than last failed version
+        checkFailedReplicas();
+
         // 1. check tablet for supplement, migration and deletion
         checkTablets();
-
+        
         // 2. check timeout
         clone.checkTimeout();
 
@@ -224,6 +227,139 @@ public class CloneChecker extends Daemon {
 
         // 4. remove cancelled and finished jobs
         clone.removeCloneJobs();
+    }
+    
+    // check if a replica is failed during loading, add it as a clone job to catch up
+    private void checkFailedReplicas() {
+        Catalog catalog = Catalog.getInstance();
+        SystemInfoService clusterInfoService = Catalog.getCurrentSystemInfo();
+
+        // 1. get all tablets which are in Clone process.
+        // NOTICE: this is only a copy of tablet under Clone process.
+        // It will change any time during this method.
+        // So DO NOT severely depend on it to make any decision!
+        Set<Long> cloneTabletIds = catalog.getCloneInstance().getCloneTabletIds();
+
+        // check tablet database by database.
+        List<String> dbNames = catalog.getDbNames();
+        for (String dbName : dbNames) {
+            Database db = catalog.getDb(dbName);
+            if (db == null) {
+                LOG.debug("db does not exist. name: {}", dbName);
+                continue;
+            }
+
+            final String clusterName = db.getClusterName();
+
+            if (Strings.isNullOrEmpty(clusterName)) {
+                LOG.debug("database {} has no cluster name", dbName);
+                continue;
+            }
+
+            long dbId = db.getId();
+            Set<String> tableNames = db.getTableNamesWithLock();
+            // check table by table
+            for (String tableName : tableNames) {
+                long tableId = -1L;
+                db.readLock();
+                try {
+                    Table table = db.getTable(tableName);
+                    if (table == null || table.getType() != TableType.OLAP) {
+                        LOG.debug("table {} is null or is not olap table, skip repair process", table);
+                        continue;
+                    }
+
+                    OlapTable olapTable = (OlapTable) table;
+                    tableId = table.getId();
+                    for (Partition partition : olapTable.getPartitions()) {
+                        long partitionId = partition.getId();
+                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
+                            // only check NORMAL index
+                            if (materializedIndex.getState() != IndexState.NORMAL) {
+                                LOG.debug("index {} is not normal state, so that skip repair" 
+                                        + " all tablets belongs this index", materializedIndex);
+                                continue;
+                            }
+                            for (Tablet tablet : materializedIndex.getTablets()) {
+                                long tabletId = tablet.getId();
+                                if (cloneTabletIds.contains(tabletId)) {
+                                    LOG.debug("tablet {} is under clone, so that skip repair it", tablet);
+                                    continue;
+                                }
+                                Replica replicaToCatchup = null;
+                                for (Replica replica : tablet.getReplicas()) {
+                                    long backendId = replica.getBackendId();
+                                    Backend backend = clusterInfoService.getBackend(backendId);
+                                    if (backend == null) {
+                                        continue;
+                                    }
+                                    if (backend.isAlive() 
+                                            && replica.getState() != ReplicaState.CLONE
+                                            && replica.getLastFailedVersion() > 0) {
+
+                                        long elapsedAfterFailed = System.currentTimeMillis() - replica.getLastFailedTimestamp();
+                                        // if not check it, the replica may be failed at version 1,3,4,6,8, then we will run 5 clone jobs
+                                        // wait some seconds then the replica maybe stable, and we could run single clone job to repair the 
+                                        // replica
+                                        if (elapsedAfterFailed < Config.replica_delay_recovery_second * 1000L) {
+                                            LOG.info("{} is down at {}, less than minimal delay second {}, not clone", 
+                                                     replica, replica.getLastFailedTimestamp(), Config.replica_delay_recovery_second);
+                                            continue;
+                                        }
+
+                                        // check if there exists a replica in this tablet which have larger version
+                                        // if not any replica in this tablet has larger version then not clone, ignore it
+                                        boolean hasCloneSrcReplica = false;
+                                        for (Replica srcReplica : tablet.getReplicas()) {
+                                            // the src clone replica has to be normal
+                                            if (srcReplica.getLastFailedVersion() > 0) {
+                                                continue;
+                                            }
+                                            // the src clone replica's version >= current replica's version
+                                            if (srcReplica.getVersion() > replica.getVersion() 
+                                                    || srcReplica.getVersion() == replica.getVersion() 
+                                                        && srcReplica.getVersionHash() != replica.getVersionHash()) {
+                                                hasCloneSrcReplica = true;
+                                                break;
+                                            }
+                                        }
+                                        if (!hasCloneSrcReplica) {
+                                            LOG.info("{} could not find clone src replica meets the " 
+                                                    + "condition, ignore this replica", replica);
+                                            continue;
+                                        }
+                                        if (replicaToCatchup == null) {
+                                            replicaToCatchup = replica;
+                                        } else if (replica.getLastSuccessVersion() > replica.getLastFailedVersion()) {
+                                            // because there is only one catchup clone task for one tablet, so that we should 
+                                            // select one replica to catch up according to this priority
+                                            replicaToCatchup = replica;
+                                            // its perfect to select this replica, no need to check others
+                                            break;
+                                        } else if (replicaToCatchup.getLastFailedVersion() > replica.getLastFailedVersion()) {
+                                            // its better to select a low last failed version replica
+                                            replicaToCatchup = replica;
+                                        }
+                                    } 
+                                }
+                                if (replicaToCatchup != null) {
+                                    LOG.info("select replica [{}] to send clone task", replicaToCatchup);
+                                    Clone clone = Catalog.getInstance().getCloneInstance();
+                                    clone.addCloneJob(dbId, tableId, partitionId, materializedIndex.getId(), 
+                                                      tabletId, replicaToCatchup.getBackendId(), 
+                                                      JobType.CATCHUP, JobPriority.HIGH,
+                                                      Config.clone_job_timeout_second * 1000L);
+                                }
+                            }
+
+                        }
+                    }
+                } finally {
+                    db.readUnlock();
+                }
+            } // end for tables
+        } // end for dbs
+    
     }
 
     private void checkTablets() {
@@ -241,14 +377,14 @@ public class CloneChecker extends Daemon {
         for (String dbName : dbNames) {
             Database db = catalog.getDb(dbName);
             if (db == null) {
-                LOG.warn("db does not exist. name: {}", dbName);
+                LOG.debug("db does not exist. name: {}", dbName);
                 continue;
             }
 
             final String clusterName = db.getClusterName();
 
             if (Strings.isNullOrEmpty(clusterName)) {
-                LOG.error("database {} has no cluster name", dbName);
+                LOG.debug("database {} has no cluster name", dbName);
                 continue;
             }
 
@@ -293,6 +429,8 @@ public class CloneChecker extends Daemon {
                         for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
                             // only check NORMAL index
                             if (materializedIndex.getState() != IndexState.NORMAL) {
+                                LOG.debug("partition [{}] index [{}] state is {}, not normal, skip check tablets", 
+                                        partitionId, materializedIndex.getId(), materializedIndex.getState());
                                 continue;
                             }
 
@@ -329,6 +467,8 @@ public class CloneChecker extends Daemon {
                             List<Replica> replicas = tablet.getReplicas();
                             short onlineReplicaNum = 0;
                             short onlineReplicaNumInCluster = 0;
+                            short healthyReplicaNum = 0;
+                            short healthyReplicaNumInCluster = 0;
                             // choose the largest replica's size as this tablet's size
                             long tabletSizeB = 0L;
 
@@ -348,12 +488,20 @@ public class CloneChecker extends Daemon {
                                 }
 
                                 if (backend.isAlive() && replica.getState() != ReplicaState.CLONE) {
+                                    // has to check replica's last failed version, because a tablet may contains
+                                    // A,B,C,D 4 replica, A,B is normal, C,D is abnormal
+                                    // but replica num = 3, then it may drop B, the cluster will comes into fatal error state
                                     ++onlineReplicaNum;
-                                    // only if 
                                     if (backendInfosInCluster.containsKey(backendId)) {
                                         ++onlineReplicaNumInCluster;
                                     }
-                                }
+                                    if (replica.getLastFailedVersion() < 0) {
+                                        ++ healthyReplicaNum;
+                                        if (backendInfosInCluster.containsKey(backendId)) {
+                                            ++ healthyReplicaNumInCluster;
+                                        }
+                                    }
+                                } 
                             }
 
                             TabletInfo tabletInfo = new TabletInfo(dbId, tableId, partitionId, indexId, tabletId,
@@ -377,13 +525,19 @@ public class CloneChecker extends Daemon {
                             }
 
                             if (replicas.size() > replicationNum && onlineReplicaNum >= replicationNum) {
+                                LOG.debug("partition {} index {} tablet {} online replica num is {} > replica num {}, " 
+                                        + "should delete on replica", 
+                                        partitionId, index.getId(), tableId, onlineReplicaNum, replicationNum);
                                 // in Multi-Tenancy, we will have priority to
                                 // guarantee replica in cluster
                                 if (onlineReplicaNumInCluster < replicationNum && !cloneTabletIds.contains(tabletId)) {
                                     cloneTabletMap.put(tabletId, tabletInfo);
                                 } else {
-                                    // need delete tablet
-                                    deleteTabletSet.add(tabletInfo);
+                                    if (healthyReplicaNum >= replicationNum && healthyReplicaNumInCluster >= replicationNum) {
+                                        // need delete tablet
+                                        LOG.debug("add tablet {} to delete list", tabletInfo);
+                                        deleteTabletSet.add(tabletInfo);
+                                    }
                                 }
                             } else if (onlineReplicaNumInCluster < replicationNum
                                     && !cloneTabletIds.contains(tabletId)) {
@@ -506,8 +660,8 @@ public class CloneChecker extends Daemon {
         double avgUsedRatio = (double) (totalCapacityB - availableCapacityB) / totalCapacityB;
         double lowRatioThreshold = avgUsedRatio * (1 - Config.clone_capacity_balance_threshold);
         double highRatioThreshold = avgUsedRatio * (1 + Config.clone_capacity_balance_threshold);
-        LOG.debug("capacity ratio. average used ratio: {}, low ratio threshold: {}, high ratio threshold: {}",
-                  avgUsedRatio, lowRatioThreshold, highRatioThreshold);
+        // LOG.debug("capacity ratio. average used ratio: {}, low ratio threshold: {}, high ratio threshold: {}",
+        // avgUsedRatio, lowRatioThreshold, highRatioThreshold);
 
         // CapacityLevel -> ids of BE in same host
         Map<CapacityLevel, Set<List<Long>>> capacityLevelToHostBackendIds = Maps.newHashMap();
@@ -550,7 +704,7 @@ public class CloneChecker extends Daemon {
             }
         }
 
-        LOG.info("capacity level map: {}", capacityLevelToHostBackendIds);
+        // LOG.info("capacity level map: {}", capacityLevelToHostBackendIds);
         return capacityLevelToHostBackendIds;
     }
 
@@ -619,7 +773,7 @@ public class CloneChecker extends Daemon {
             }
 
         }
-        LOG.debug("backend distribution infos. level map: {}", distributionLevelToBackendIds);
+        // LOG.debug("backend distribution infos. level map: {}", distributionLevelToBackendIds);
         return distributionLevelToBackendIds;
     }
 
@@ -681,9 +835,9 @@ public class CloneChecker extends Daemon {
             // candidate backendIds:
             // low distribution and low capacity backends
             Set<List<Long>> candidateBackendIdsByDistribution = distributionLevelToBackendIds.get(CapacityLevel.LOW);
-            LOG.debug("candidate backends by distribution: {}", candidateBackendIdsByDistribution);
+            // LOG.debug("candidate backends by distribution: {}", candidateBackendIdsByDistribution);
             Set<List<Long>> candidateBackendIdsByCapacity = capacityLevelToBackendIds.get(CapacityLevel.LOW);
-            LOG.debug("candidate backends by capacity: {}", candidateBackendIdsByCapacity);
+            // LOG.debug("candidate backends by capacity: {}", candidateBackendIdsByCapacity);
 
             // select dest backendId from candidates
             // 2. check canCloneByCapacity && canCloneByDistribution from
@@ -758,8 +912,8 @@ public class CloneChecker extends Daemon {
             }
         }
 
-        LOG.debug("select backend for tablet: {}. type: {}, priority: {}, dest backend id: {}, step: {}", tabletInfo,
-                jobType.name(), priority.name(), candidateBackendId, step);
+        // LOG.debug("select backend for tablet: {}. type: {}, priority: {}, dest backend id: {}, step: {}", tabletInfo,
+        // jobType.name(), priority.name(), candidateBackendId, step);
 
         // decrease clone info
         if (candidateBackendId != -1) {
@@ -812,17 +966,27 @@ public class CloneChecker extends Daemon {
             short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
             int realReplicaNum = 0;
             for (Replica replica : replicas) {
-                if (replica.getState() != ReplicaState.CLONE) {
+                // also check if the replica is a health replica or we will drop a health replica 
+                // and the remaining replica is not quorum
+                if (replica.getState() != ReplicaState.CLONE 
+                        && replica.getLastFailedVersion() < 0
+                        && (replica.getVersion() == partition.getCommittedVersion() 
+                            && replica.getVersionHash() == partition.getCommittedVersionHash() 
+                            || replica.getVersion() > partition.getCommittedVersionHash())) {
                     ++realReplicaNum;
                 }
             }
 
-            if (realReplicaNum <= replicationNum) {
+            // if health replica num less than required num, then skip
+            // if health replica num == required num and == total num, then skip
+            if (realReplicaNum <= replicationNum
+                    || replicas.size() <= replicationNum) {
                 LOG.info("no redundant replicas in tablet[{}]", tabletId);
                 return;
             }
             final Map<Long, BackendInfo> backendInfos = initBackendInfos(clusterName);
             // out of cluster and in cluster
+            // out cluster replica rise to the top
             Collections.sort(replicas, new Comparator<Replica>() {
                 public int compare(Replica arg0, Replica arg1) {
                     if (backendInfos.containsKey(arg0.getBackendId())) {
@@ -834,7 +998,7 @@ public class CloneChecker extends Daemon {
 
             long committedVersion = partition.getCommittedVersion();
             long committedVersionHash = partition.getCommittedVersionHash();
-            int deleteNum = realReplicaNum - replicationNum;
+            int deleteNum = replicas.size() - replicationNum;
             Replica deletedReplica = null;
             while (deleteNum > 0) {
                 Iterator<Replica> replicaIterator = replicas.iterator();
@@ -876,8 +1040,31 @@ public class CloneChecker extends Daemon {
                         --deleteNum;
                         deletedReplica = replica;
 
+                        // actually should write edit log when it is a catchup clone, but we could not distinguish them
+                        // write edit for both
+                        ReplicaPersistInfo info = ReplicaPersistInfo.createForDelete(db.getId(), tableId, partitionId,
+                                indexId, tabletId, backendId);
+                        Catalog.getInstance().getEditLog().logDeleteReplica(info);
+                        
                         LOG.info("delete replica [clone], backendId: {}, tablet info: {}, replica: {}", backendId,
                                 tabletInfo, replica);
+                        break;
+                    }
+                    
+                    // delete unhealthy replica
+                    if (replica.getLastFailedVersion() > 0) {
+                        replicaIterator.remove();
+                        --deleteNum;
+                        deletedReplica = replica;
+
+                        // actually should write edit log when it is a catchup clone, but we could not distinguish them
+                        // write edit for both
+                        ReplicaPersistInfo info = ReplicaPersistInfo.createForDelete(db.getId(), tableId, partitionId,
+                                indexId, tabletId, backendId);
+                        Catalog.getInstance().getEditLog().logDeleteReplica(info);
+                        
+                        LOG.info("delete replica with last failed version > 0, backendId: {}, " 
+                                + "tablet info: {}, replica: {}", backendId, tabletInfo, replica);
                         break;
                     }
 
@@ -911,7 +1098,6 @@ public class CloneChecker extends Daemon {
                             deletedReplica.getId(), deletedReplica.getBackendId());
                     // delete from inverted index
                     Catalog.getCurrentInvertedIndex().deleteReplica(tabletId, deletedReplica.getBackendId());
-
                     continue;
                 }
 
@@ -1022,16 +1208,16 @@ public class CloneChecker extends Daemon {
         } else {
             priority = Clone.calculatePriority(onlineReplicaNum, replicationNum);
         }
-        LOG.debug("clone priority: {}, tablet: {}", priority.name(), tabletInfo);
+        // LOG.debug("clone priority: {}, tablet: {}", priority.name(), tabletInfo);
 
         // select dest backend
         long cloneReplicaBackendId = selectCloneReplicaBackendId(distributionLevelToBackendIds,
                 capacityLevelToBackendIds, backendInfos, tabletInfo, jobType, priority);
         if (cloneReplicaBackendId == -1) {
-            LOG.debug("fail to select clone replica backend. tablet: {}", tabletInfo);
+            // LOG.debug("fail to select clone replica backend. tablet: {}", tabletInfo);
             return;
         }
-        LOG.debug("select clone replica dest backend id[{}] for tablet[{}]", cloneReplicaBackendId, tabletInfo);
+        // LOG.debug("select clone replica dest backend id[{}] for tablet[{}]", cloneReplicaBackendId, tabletInfo);
 
         // add new clone job
         Clone clone = Catalog.getInstance().getCloneInstance();
@@ -1123,15 +1309,20 @@ public class CloneChecker extends Daemon {
                 }
 
                 ReplicaState replicaState = replica.getState();
+                // if rollup starts then base replcia has errors, the rollup replcia is dropped, then base replica could run clone job
+                // if schema change starts, replica state is schema change, will not run clone job
                 Preconditions.checkState(replicaState != ReplicaState.ROLLUP);
+                // yiguolei: schema change, clone, rollup could not run concurrently on a replica
+                Preconditions.checkState(replicaState != ReplicaState.SCHEMA_CHANGE);
                 // here we pass NORMAL / CLONE / SCHEMA_CHANGE
                 // ATTN(cmy): if adding other state, update here
-
-                if (replica.getBackendId() == job.getDestBackendId() && replicaState != ReplicaState.CLONE) {
-                    String failMsg = "backend[" + replica.getBackendId() + "] already exists in tablet[" + tabletId
-                            + "]. replica id: " + replica.getId() + ". state: " + replicaState;
-                    clone.cancelCloneJob(job, failMsg);
-                    return;
+                if (job.getType() != JobType.CATCHUP) {
+                    if (replica.getBackendId() == job.getDestBackendId() && replicaState != ReplicaState.CLONE) {
+                        String failMsg = "backend[" + replica.getBackendId() + "] already exists in tablet[" + tabletId
+                                + "]. replica id: " + replica.getId() + ". state: " + replicaState;
+                        clone.cancelCloneJob(job, failMsg);
+                        return;
+                    }
                 }
 
                 ++onlineReplicaNum;
@@ -1139,7 +1330,7 @@ public class CloneChecker extends Daemon {
                 if (clusterBackendInfos.containsKey(backend.getId())) {
                     onlineReplicaNumInCluster++;
                 }
-                if (replicaState == ReplicaState.CLONE) {
+                if (replica.getBackendId() == job.getDestBackendId()) {
                     cloneReplica = replica;
                 }
             }
@@ -1161,11 +1352,43 @@ public class CloneChecker extends Daemon {
                 if (backend == null || !backend.isAlive()) {
                     continue;
                 }
-
+                
+                // this is an abnormal replica, skip it
+                if (replica.getLastFailedVersion() > 0) {
+                    LOG.debug("replica's last failed version > 0, ignore this replica [{}]", replica);
+                    continue;
+                }
                 // DO NOT choose replica with stale version or invalid version hash
-                if (replica.getVersion() > committedVersion || (replica.getVersion() == committedVersion
+                if (job.getType() != JobType.CATCHUP) {
+                    if (replica.getVersion() > committedVersion || (replica.getVersion() == committedVersion
                             && replica.getVersionHash() == committedVersionHash)) {
-                    srcBackends.add(new TBackend(backend.getHost(), backend.getBePort(), backend.getHttpPort()));
+                        srcBackends.add(new TBackend(backend.getHost(), backend.getBePort(), backend.getHttpPort()));
+                    } else {
+                        LOG.debug("replica [{}] the version not equal to large than commit version {}" 
+                                + " or commit version hash {}, ignore this replica", 
+                                replica, committedVersion, committedVersionHash);
+                    }
+                } else {
+                    // deal with this case
+                    // A, B, C 3 replica, A,B verison is 10, C is done, its version is 5
+                    // A, B is normal during load for version 11
+                    // but B failed to publish and B is crashed, A is successful
+                    // then C comes up, the partition's committed version is 10, then C try to clone 10, then clone finished
+                    // but last failed version is 11, it is abnormal
+                    // the publish will still fail
+                    if (replica.getVersion() > committedVersion 
+                            || replica.getVersion() == committedVersion 
+                                && replica.getVersionHash() != committedVersionHash) {
+                        committedVersion = replica.getVersion();
+                        committedVersionHash = replica.getVersionHash();
+                    }
+                    // if this is a catchup job, then should exclude the dest backend id from src backends
+                    if (job.getDestBackendId() != backend.getId() 
+                            && (replica.getVersion() > cloneReplica.getVersion()
+                                    || replica.getVersion() == cloneReplica.getVersion()
+                                        && replica.getVersionHash() != cloneReplica.getVersionHash())) {
+                        srcBackends.add(new TBackend(backend.getHost(), backend.getBePort(), backend.getHttpPort()));
+                    }
                 }
             }
 
@@ -1174,15 +1397,32 @@ public class CloneChecker extends Daemon {
                 clone.cancelCloneJob(job, "no source backends");
                 return;
             }
-
-            if (cloneReplica != null) {
-                tablet.deleteReplica(cloneReplica);
+            
+            if (job.getType() != JobType.CATCHUP) {
+                // yiguolei: in catch up clone, the clone replica is not null
+                if (cloneReplica != null) {
+                    tablet.deleteReplica(cloneReplica);
+                    ReplicaPersistInfo info = ReplicaPersistInfo.createForDelete(dbId, tableId, partitionId,
+                            indexId, tabletId, cloneReplica.getBackendId());
+                    Catalog.getInstance().getEditLog().logDeleteReplica(info);
+                    LOG.info("remove clone replica. tablet id: {}, backend id: {}", 
+                            tabletId, cloneReplica.getBackendId());
+                }
+                // add clone replica in meta
+                long replicaId = catalog.getNextId();
+                // for a new replica to add to the tablet
+                // first set its state to clone and set last failed version to the largest version in the partition
+                // wait the catchup clone task to catch up.
+                // but send the clone task to partition's commit version, although the clone task maybe success but the replica is abnormal
+                // and another clone task will send to the replica to clone again
+                // not find a more sufficient method
+                cloneReplica = new Replica(replicaId, job.getDestBackendId(), -1, 0, 
+                        -1, -1, ReplicaState.CLONE, partition.getCurrentVersion(), 
+                        partition.getCurrentVersionHash(), -1, 0);
+                tablet.addReplica(cloneReplica);
             }
-
-            // add clone replica in meta
-            long replicaId = catalog.getNextId();
-            cloneReplica = new Replica(replicaId, job.getDestBackendId(), ReplicaState.CLONE);
-            tablet.addReplica(cloneReplica);
+            // set the replica's state to clone
+            cloneReplica.setState(ReplicaState.CLONE);
         } catch (MetaNotFoundException e) {
             clone.cancelCloneJob(job, e.getMessage());
             return;
@@ -1192,6 +1432,7 @@ public class CloneChecker extends Daemon {
 
         // add clone task
         AgentBatchTask batchTask = new AgentBatchTask();
+        // very important, it is partition's commit version here
         CloneTask task = new CloneTask(job.getDestBackendId(), dbId, tableId, partitionId, indexId, tabletId,
                                        schemaHash, srcBackends, storageMedium, committedVersion, committedVersionHash);
         batchTask.addTask(task);

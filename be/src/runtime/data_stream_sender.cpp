@@ -52,31 +52,10 @@
 
 #include "util/thrift_util.h"
 #include "util/brpc_stub_cache.h"
+#include "util/ref_count_closure.h"
 
 namespace palo {
  
-class TransmitDataClosure : public google::protobuf::Closure {
-public:
-    TransmitDataClosure() : _refs(0) { }
-    ~TransmitDataClosure() { }
-
-    void ref() { _refs.fetch_add(1, std::memory_order_relaxed); }
-
-    // If unref() returns true, this object should be delete
-    bool unref() { return _refs.fetch_sub(1, std::memory_order_relaxed) == 1; }
-
-    void Run() override {
-        if (unref()) {
-            delete this;
-        }
-    }
-
-    brpc::Controller cntl;
-    PTransmitDataResult result;
-private:
-    std::atomic<int> _refs;
-};
-
 // A channel sends data asynchronously via calls to transmit_data
 // to a single destination ipaddress/node.
 // It has a fixed-capacity buffer and allows the caller either to add rows to
@@ -184,7 +163,7 @@ private:
     PRowBatch _pb_batch;
     PTransmitDataParams _brpc_request;
     PInternalService_Stub* _brpc_stub = nullptr;
-    TransmitDataClosure* _closure = nullptr;
+    RefCountClosure<PTransmitDataResult>* _closure = nullptr;
     int32_t _brpc_timeout_ms = 500;
 };
 
@@ -218,7 +197,7 @@ Status DataStreamSender::Channel::init(RuntimeState* state) {
 
 Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
     if (_closure == nullptr) {
-        _closure = new TransmitDataClosure();
+        _closure = new RefCountClosure<PTransmitDataResult>();
         _closure->ref();
     } else {
         RETURN_IF_ERROR(_wait_last_brpc());
@@ -288,7 +267,7 @@ Status DataStreamSender::Channel::close_internal() {
     }
     VLOG_RPC << "Channel::close() instance_id=" << _fragment_instance_id
              << " dest_node=" << _dest_node_id
-             << " #rows= " << _batch->num_rows();
+             << " #rows= " << ((_batch == nullptr) ? 0 : _batch->num_rows());
     if (_batch != NULL && _batch->num_rows() > 0) {
         RETURN_IF_ERROR(send_current_batch(true));
     } else {

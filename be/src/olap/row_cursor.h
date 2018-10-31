@@ -171,6 +171,8 @@ public:
 
     char* get_field_ptr(uint32_t cid) const { return _fixed_buf + _field_offsets[cid]; }
     char* get_field_content_ptr(uint32_t cid) const { return _fixed_buf + _field_offsets[cid] + 1; }
+    size_t get_field_offset(uint32_t cid) const { return _field_offsets[cid] + 1; }
+    std::vector<uint32_t>& get_string_columns() { return _string_columns; }
 
     inline uint32_t hash_code(uint32_t seed) const;
 private:
@@ -184,6 +186,7 @@ private:
     size_t _key_column_num;              // key num in row_cursor
 
     std::vector<uint32_t> _columns;      // column_id in schema
+    std::vector<uint32_t> _string_columns;      // column_id in schema
     char* _fixed_buf = nullptr;          // point to fixed buf
     size_t _fixed_len;
     char* _owned_fixed_buf = nullptr;    // point to buf allocated in init function

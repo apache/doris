@@ -47,7 +47,8 @@ public class MultiUnload extends RestBaseAction {
     }
 
     @Override
-    public void execute(BaseRequest request, BaseResponse response) throws DdlException {
+    public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+            throws DdlException {
         String db = request.getSingleParameter(DB_KEY);
         if (Strings.isNullOrEmpty(db)) {
             throw new DdlException("No database selected");
@@ -61,7 +62,6 @@ public class MultiUnload extends RestBaseAction {
             throw new DdlException("No sub_label selected");
         }
 
-        AuthorizationInfo authInfo = getAuthorizationInfo(request);
         String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, db);
         checkDbAuth(authInfo, fullDbName, PrivPredicate.LOAD);
 

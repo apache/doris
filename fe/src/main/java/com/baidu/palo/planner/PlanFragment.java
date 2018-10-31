@@ -22,15 +22,13 @@ package com.baidu.palo.planner;
 
 import com.baidu.palo.analysis.Analyzer;
 import com.baidu.palo.analysis.Expr;
-import com.baidu.palo.analysis.TupleId;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.NotImplementedException;
 import com.baidu.palo.common.TreeNode;
 import com.baidu.palo.thrift.TExplainLevel;
 import com.baidu.palo.thrift.TPartitionType;
 import com.baidu.palo.thrift.TPlanFragment;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
@@ -136,7 +134,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
      * Finalize plan tree and create stream sink, if needed.
      */
     public void finalize(Analyzer analyzer, boolean validateFileFormats)
-            throws InternalException, NotImplementedException {
+            throws UserException, NotImplementedException {
         if (sink != null) {
             return;
         }

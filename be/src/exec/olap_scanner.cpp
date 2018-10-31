@@ -79,24 +79,32 @@ Status OlapScanner::_prepare(
     {
         _olap_table = OLAPEngine::get_instance()->get_table(tablet_id, schema_hash);
         if (_olap_table.get() == nullptr) {
-            OLAP_LOG_WARNING("table does not exists. [tablet_id=%ld schema_hash=%d]",
+            OLAP_LOG_WARNING("tablet does not exist. [tablet_id=%ld schema_hash=%d]",
                              tablet_id, schema_hash);
-            return Status("table does not exists");
+
+            std::stringstream ss;
+            ss << "tablet does not exist: " << tablet_id;
+            return Status(ss.str());
         }
         {
-            AutoRWLock auto_lock(_olap_table->get_header_lock_ptr(), true);
-            const FileVersionMessage* message = _olap_table->latest_version();
-            if (message == NULL) {
-                OLAP_LOG_WARNING("fail to get latest version. [tablet_id=%ld]", tablet_id);
-                return Status("fail to get latest version");
+            ReadLock rdlock(_olap_table->get_header_lock_ptr());
+            const PDelta* delta = _olap_table->lastest_version();
+            if (delta == NULL) {
+                std::stringstream ss;
+                ss << "fail to get latest version of tablet: " << tablet_id;
+                OLAP_LOG_WARNING(ss.str().c_str());
+                return Status(ss.str());
             }
 
-            if (message->end_version() == _version
-                && message->version_hash() != version_hash) {
+            if (delta->end_version() == _version
+                && delta->version_hash() != version_hash) {
                 OLAP_LOG_WARNING("fail to check latest version hash. "
                                  "[tablet_id=%ld version_hash=%ld request_version_hash=%ld]",
-                                 tablet_id, message->version_hash(), version_hash);
-                return Status("fail to check version hash");
+                                 tablet_id, delta->version_hash(), version_hash);
+
+                std::stringstream ss;
+                ss << "fail to check version hash of tablet: " << tablet_id;
+                return Status(ss.str());
             }
         }
     }
@@ -134,7 +142,7 @@ Status OlapScanner::_init_params(
     RETURN_IF_ERROR(_init_return_columns());
 
     _params.olap_table = _olap_table;
-    _params.reader_type = READER_FETCH;
+    _params.reader_type = READER_QUERY;
     _params.aggregation = _aggregation;
     _params.version = Version(0, _version);
 

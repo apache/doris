@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.MockedAuth;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
@@ -65,7 +65,7 @@ public class DropTableStmtTest {
     }
 
     @Test
-    public void testNormal() throws InternalException, AnalysisException {
+    public void testNormal() throws UserException, AnalysisException {
         DropTableStmt stmt = new DropTableStmt(false, tbl);
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:db1", stmt.getDbName());
@@ -74,7 +74,7 @@ public class DropTableStmtTest {
     }
 
     @Test
-    public void testDefaultNormal() throws InternalException, AnalysisException {
+    public void testDefaultNormal() throws UserException, AnalysisException {
         DropTableStmt stmt = new DropTableStmt(false, noDbTbl);
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:testDb", stmt.getDbName());
@@ -83,14 +83,14 @@ public class DropTableStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoDbFail() throws InternalException, AnalysisException {
+    public void testNoDbFail() throws UserException, AnalysisException {
         DropTableStmt stmt = new DropTableStmt(false, noDbTbl);
         stmt.analyze(noDbAnalyzer);
         Assert.fail("No Exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoTableFail() throws InternalException, AnalysisException {
+    public void testNoTableFail() throws UserException, AnalysisException {
         DropTableStmt stmt = new DropTableStmt(false, new TableName("db1", ""));
         stmt.analyze(noDbAnalyzer);
         Assert.fail("No Exception throws.");

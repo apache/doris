@@ -21,7 +21,7 @@ import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.proc.DeleteInfoProcDir;
 import com.baidu.palo.qe.ShowResultSetMetaData;
 
@@ -40,7 +40,7 @@ public class ShowDeleteStmt extends ShowStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
 
         if (Strings.isNullOrEmpty(dbName)) {

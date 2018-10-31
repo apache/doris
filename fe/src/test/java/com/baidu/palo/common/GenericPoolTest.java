@@ -20,19 +20,6 @@
 
 package com.baidu.palo.common;
 
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.List;
-
-import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
-import org.apache.thrift.TException;
-import org.apache.thrift.TProcessor;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
-
 import com.baidu.palo.thrift.BackendService;
 import com.baidu.palo.thrift.PaloInternalServiceVersion;
 import com.baidu.palo.thrift.TAgentPublishRequest;
@@ -57,9 +44,23 @@ import com.baidu.palo.thrift.TPullLoadSubTaskInfo;
 import com.baidu.palo.thrift.TResultBatch;
 import com.baidu.palo.thrift.TSnapshotRequest;
 import com.baidu.palo.thrift.TStatus;
+import com.baidu.palo.thrift.TTabletStatResult;
 import com.baidu.palo.thrift.TTransmitDataParams;
 import com.baidu.palo.thrift.TTransmitDataResult;
 import com.baidu.palo.thrift.TUniqueId;
+
+import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
+import org.apache.thrift.TException;
+import org.apache.thrift.TProcessor;
+import org.junit.AfterClass;
+import org.junit.Assert;
+import org.junit.BeforeClass;
+import org.junit.Test;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
 public class GenericPoolTest {
     static GenericPool<BackendService.Client> backendService;
@@ -207,6 +208,12 @@ public class GenericPoolTest {
 
         @Override
         public TStatus erase_export_task(TUniqueId task_id) throws TException {
+            // TODO Auto-generated method stub
+            return null;
+        }
+
+        @Override
+        public TTabletStatResult get_tablet_stat() throws TException {
             // TODO Auto-generated method stub
             return null;
         }

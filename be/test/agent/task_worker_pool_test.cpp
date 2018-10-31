@@ -79,6 +79,13 @@ TEST(TaskWorkerPoolTest, TestStart) {
     EXPECT_EQ(task_worker_pool_push._worker_count, config::push_worker_count_normal_priority
             + config::push_worker_count_high_priority);
 
+    TaskWorkerPool task_worker_pool_publish_version(
+            TaskWorkerPool::TaskWorkerType::PUBLISH_VERSION,
+            &env,
+            master_info);
+    task_worker_pool_publish_version.start();
+    EXPECT_EQ(task_worker_pool_publish_version._worker_count, config::publish_version_worker_count);
+
     TaskWorkerPool task_worker_pool_alter_table(
             TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
             &env,
@@ -379,6 +386,7 @@ TEST(TaskWorkerPoolTest, TestFinishTask) {
     task_worker_pool._master_client = original_master_server_client;
 }
 
+#if 0
 TEST(TaskWorkerPoolTest, TestCreateTable) {
     TMasterInfo master_info;
     ExecEnv env;
@@ -433,6 +441,7 @@ TEST(TaskWorkerPoolTest, TestCreateTable) {
     task_worker_pool._command_executor = original_command_executor;
     task_worker_pool._master_client = original_master_server_client;
 }
+#endif
 
 TEST(TaskWorkerPoolTest, TestDropTableTask) {
     TMasterInfo master_info;
@@ -597,7 +606,7 @@ TEST(TaskWorkerPoolTest, TestSchemaChange) {
             agent_task_request.alter_tablet_req.base_tablet_id,
             agent_task_request.alter_tablet_req.base_schema_hash))
             .Times(1)
-            .WillOnce(Return(ALTER_TABLE_DONE));
+            .WillOnce(Return(ALTER_TABLE_FINISHED));
     EXPECT_CALL(mock_command_executor, drop_table(_))
             .Times(0);
     EXPECT_CALL(mock_command_executor, schema_change(_))
@@ -652,7 +661,7 @@ TEST(TaskWorkerPoolTest, TestRollup) {
             agent_task_request.alter_tablet_req.base_tablet_id,
             agent_task_request.alter_tablet_req.base_schema_hash))
             .Times(1)
-            .WillOnce(Return(ALTER_TABLE_DONE));
+            .WillOnce(Return(ALTER_TABLE_FINISHED));
     EXPECT_CALL(mock_command_executor, drop_table(_))
             .Times(0);
     EXPECT_CALL(mock_command_executor, create_rollup_table(_))
@@ -792,6 +801,61 @@ TEST(TaskWorkerPoolTest, TestPush) {
     task_worker_pool._pusher = original_pusher;
 }
 
+TEST(TaskWorkerPoolTest, TestPublishVersionTask) {
+    TMasterInfo master_info;
+    ExecEnv env;
+    TAgentTaskRequest agent_task_request;
+    agent_task_request.task_type = TTaskType::PUBLISH_VERSION;
+    agent_task_request.signature = 123456;
+    TaskWorkerPool task_worker_pool(
+            TaskWorkerPool::TaskWorkerType::PUBLISH_VERSION,
+            &env,
+            master_info);
+
+    MockCommandExecutor mock_command_executor;
+    CommandExecutor* original_command_executor;
+    original_command_executor = task_worker_pool._command_executor;
+    task_worker_pool._command_executor = &mock_command_executor;
+    FrontendServiceClientCache* client_cache = new FrontendServiceClientCache();
+    MockMasterServerClient mock_master_server_client(master_info, client_cache);
+    MasterServerClient* original_master_server_client;
+    original_master_server_client = task_worker_pool._master_client;
+    task_worker_pool._master_client = &mock_master_server_client;
+
+    // publish version failed
+    EXPECT_CALL(mock_command_executor, publish_version(_, _))
+            .Times(3)
+            .WillRepeatedly(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
+    EXPECT_CALL(mock_master_server_client, finish_task(_, _))
+            .Times(1)
+            .WillOnce(Return(PALO_SUCCESS));
+
+    task_worker_pool.submit_task(agent_task_request);
+    EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
+    EXPECT_EQ(1, task_worker_pool._tasks.size());
+    task_worker_pool._publish_version_worker_thread_callback(&task_worker_pool);
+    EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
+    EXPECT_EQ(0, task_worker_pool._tasks.size());
+
+    // publish version success
+    EXPECT_CALL(mock_command_executor, publish_version(_, _))
+            .Times(1)
+            .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
+    EXPECT_CALL(mock_master_server_client, finish_task(_, _))
+            .Times(1)
+            .WillOnce(Return(PALO_SUCCESS));
+
+    task_worker_pool.submit_task(agent_task_request);
+    EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
+    EXPECT_EQ(1, task_worker_pool._tasks.size());
+    task_worker_pool._publish_version_worker_thread_callback(&task_worker_pool);
+    EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
+    EXPECT_EQ(0, task_worker_pool._tasks.size());
+
+    task_worker_pool._command_executor = original_command_executor;
+    task_worker_pool._master_client = original_master_server_client;
+}
+
 TEST(TaskWorkerPoolTest, TestClone) {
     TMasterInfo master_info;
     ExecEnv env;
@@ -827,20 +891,239 @@ TEST(TaskWorkerPoolTest, TestClone) {
     original_agent_utils = task_worker_pool._agent_utils;
     task_worker_pool._agent_utils = &mock_agent_utils;
 
-    // Tablet has exist, get tablet info failed
-    agent_task_request.clone_req.tablet_id = 123;
-    agent_task_request.clone_req.schema_hash = 456;
-    std::shared_ptr<OLAPTable> olap_table_ok(new OLAPTable(NULL));
+    // Tablet has exist
+    // incremental clone's make snapshot failed
+    // full clone's make snapshot failed
+    TCloneReq clone_req;
+    TBackend backend1;
+    TBackend backend2;
+    TBackend backend3;
+    clone_req.src_backends.push_back(backend1);
+    clone_req.src_backends.push_back(backend2);
+    clone_req.src_backends.push_back(backend3);
+    clone_req.tablet_id = 123;
+    clone_req.schema_hash = 456;
+
+    TAgentResult agent_result;
+    agent_result.status.status_code = TStatusCode::INTERNAL_ERROR;
+    agent_task_request.__set_clone_req(clone_req);
+
+    TSnapshotRequest snapshot_request;
+    snapshot_request.__set_tablet_id(agent_task_request.clone_req.tablet_id);
+    snapshot_request.__set_schema_hash(agent_task_request.clone_req.schema_hash);
+
+    TSnapshotRequest snapshot_request2;
+    snapshot_request2.__set_tablet_id(agent_task_request.clone_req.tablet_id);
+    snapshot_request2.__set_schema_hash(agent_task_request.clone_req.schema_hash);
+    std::vector<int64_t> missing_versions;
+    snapshot_request2.__set_missing_version(missing_versions);
+
+    std::shared_ptr<OLAPTable> olap_table_ok(new OLAPTable(NULL, nullptr));
     EXPECT_CALL(mock_command_executor, get_table(
             agent_task_request.clone_req.tablet_id,
             agent_task_request.clone_req.schema_hash))
             .Times(1)
             .WillOnce(Return(olap_table_ok));
-    EXPECT_CALL(mock_command_executor, obtain_shard_path(_, _))
+    EXPECT_CALL(mock_command_executor, get_info_before_incremental_clone(_, _, _))
+            .Times(1);
+    EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request2, _))
+            .Times(clone_req.src_backends.size())
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request, _))
+            .Times(clone_req.src_backends.size())
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_agent_server_client, release_snapshot(_, _))
             .Times(0);
+    EXPECT_CALL(mock_command_executor, finish_clone(_, _, _, _))
+            .Times(0);
+    EXPECT_CALL(mock_command_executor, report_tablet_info(_))
+            .Times(0);
+    EXPECT_CALL(mock_master_server_client, finish_task(_, _))
+            .Times(1)
+            .WillOnce(Return(PALO_SUCCESS));
+
+    task_worker_pool.submit_task(agent_task_request);
+    EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
+    EXPECT_EQ(1, task_worker_pool._tasks.size());
+    task_worker_pool._clone_worker_thread_callback(&task_worker_pool);
+    EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
+    EXPECT_EQ(0, task_worker_pool._tasks.size());
+
+    // Tablet has exist
+    // incremental clone's make snapshot success
+    // incremental clone failed
+    TAgentResult agent_result2;
+    agent_result2.__set_snapshot_path("path");
+    agent_result2.status.status_code = TStatusCode::OK;
+
+    EXPECT_CALL(mock_command_executor, get_table(
+            agent_task_request.clone_req.tablet_id,
+            agent_task_request.clone_req.schema_hash))
+            .Times(1)
+            .WillOnce(Return(olap_table_ok));
+    EXPECT_CALL(mock_command_executor, get_info_before_incremental_clone(_, _, _))
+            .Times(1)
+            .WillOnce(Return("./test_data/5/6"));
+    EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request2, _))
+            .Times(1)
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_file_downloader, list_file_dir(_))
+            .Times(1)
+            .WillOnce(
+                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(PALO_SUCCESS)));
+    uint64_t file_size = 4;
+    EXPECT_CALL(mock_file_downloader, get_length(_))
+            .Times(3)
+            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_file_downloader, download_file())
+            .Times(3)
+            .WillRepeatedly(Return(PALO_SUCCESS));
+    EXPECT_CALL(mock_agent_server_client, release_snapshot(_, _))
+            .Times(1)
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_command_executor, finish_clone(_, _, _, _))
+            .Times(1)
+            .WillOnce(Return(OLAP_ERR_OTHER_ERROR));
+    EXPECT_CALL(mock_command_executor, report_tablet_info(_))
+            .Times(0);
+    EXPECT_CALL(mock_master_server_client, finish_task(_, _))
+            .Times(1)
+            .WillOnce(Return(PALO_SUCCESS));
+
+    task_worker_pool.submit_task(agent_task_request);
+    EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
+    EXPECT_EQ(1, task_worker_pool._tasks.size());
+    task_worker_pool._clone_worker_thread_callback(&task_worker_pool);
+    EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
+    EXPECT_EQ(0, task_worker_pool._tasks.size());
+
+    // Tablet has exist
+    // incremental clone success
+    // get tablet info failed
+    EXPECT_CALL(mock_command_executor, get_table(
+            agent_task_request.clone_req.tablet_id,
+            agent_task_request.clone_req.schema_hash))
+            .Times(1)
+            .WillOnce(Return(olap_table_ok));
+    EXPECT_CALL(mock_command_executor, get_info_before_incremental_clone(_, _, _))
+            .Times(1)
+            .WillOnce(Return("./test_data/5/6"));
+    EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request2, _))
+            .Times(1)
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_file_downloader, list_file_dir(_))
+            .Times(1)
+            .WillOnce(
+                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_file_downloader, get_length(_))
+            .Times(3)
+            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_file_downloader, download_file())
+            .Times(3)
+            .WillRepeatedly(Return(PALO_SUCCESS));
+    EXPECT_CALL(mock_agent_server_client, release_snapshot(_, _))
+            .Times(1)
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_command_executor, finish_clone(_, _, _, _))
+            .Times(1)
+            .WillOnce(Return(OLAP_SUCCESS));
     EXPECT_CALL(mock_command_executor, report_tablet_info(_))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
+    EXPECT_CALL(mock_master_server_client, finish_task(_, _))
+            .Times(1)
+            .WillOnce(Return(PALO_SUCCESS));
+
+    task_worker_pool.submit_task(agent_task_request);
+    EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
+    EXPECT_EQ(1, task_worker_pool._tasks.size());
+    task_worker_pool._clone_worker_thread_callback(&task_worker_pool);
+    EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
+    EXPECT_EQ(0, task_worker_pool._tasks.size());
+
+    // Tablet has exist
+    // incremental clone's make snapshot failed
+    // full clone's make snapshot success
+    // full clone failed
+    EXPECT_CALL(mock_command_executor, get_table(
+            agent_task_request.clone_req.tablet_id,
+            agent_task_request.clone_req.schema_hash))
+            .Times(1)
+            .WillOnce(Return(olap_table_ok));
+    EXPECT_CALL(mock_command_executor, get_info_before_incremental_clone(_, _, _))
+            .Times(1)
+            .WillOnce(Return("./test_data/5/6"));
+    EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request2, _))
+            .Times(clone_req.src_backends.size())
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request, _))
+            .Times(1)
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_file_downloader, list_file_dir(_))
+            .Times(1)
+            .WillOnce(
+                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_file_downloader, get_length(_))
+            .Times(3)
+            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_file_downloader, download_file())
+            .Times(3)
+            .WillRepeatedly(Return(PALO_SUCCESS));
+    EXPECT_CALL(mock_agent_server_client, release_snapshot(_, _))
+            .Times(1)
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_command_executor, finish_clone(_, _, _, _))
+            .Times(1)
+            .WillOnce(Return(OLAP_ERR_OTHER_ERROR));
+    EXPECT_CALL(mock_command_executor, report_tablet_info(_))
+            .Times(0);
+    EXPECT_CALL(mock_master_server_client, finish_task(_, _))
+            .Times(1)
+            .WillOnce(Return(PALO_SUCCESS));
+
+    task_worker_pool.submit_task(agent_task_request);
+    EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
+    EXPECT_EQ(1, task_worker_pool._tasks.size());
+    task_worker_pool._clone_worker_thread_callback(&task_worker_pool);
+    EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
+    EXPECT_EQ(0, task_worker_pool._tasks.size());
+
+    // Tablet has exist
+    // incremental clone's make snapshot failed
+    // full clone's make snapshot success
+    // full clone success
+    EXPECT_CALL(mock_command_executor, get_table(
+            agent_task_request.clone_req.tablet_id,
+            agent_task_request.clone_req.schema_hash))
+            .Times(1)
+            .WillOnce(Return(olap_table_ok));
+    EXPECT_CALL(mock_command_executor, get_info_before_incremental_clone(_, _, _))
+            .Times(1)
+            .WillOnce(Return("./test_data/5/6"));
+    EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request2, _))
+            .Times(clone_req.src_backends.size())
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request, _))
+            .Times(1)
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_file_downloader, list_file_dir(_))
+            .Times(1)
+            .WillOnce(
+                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_file_downloader, get_length(_))
+            .Times(3)
+            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_file_downloader, download_file())
+            .Times(3)
+            .WillRepeatedly(Return(PALO_SUCCESS));
+    EXPECT_CALL(mock_agent_server_client, release_snapshot(_, _))
+            .Times(1)
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+    EXPECT_CALL(mock_command_executor, finish_clone(_, _, _, _))
+            .Times(1)
+            .WillOnce(Return(OLAP_SUCCESS));
+    EXPECT_CALL(mock_command_executor, report_tablet_info(_))
+            .Times(1);
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
             .WillOnce(Return(PALO_SUCCESS));
@@ -876,20 +1159,7 @@ TEST(TaskWorkerPoolTest, TestClone) {
     EXPECT_EQ(0, task_worker_pool._tasks.size());
 
     // Tablet not exist, obtain root path success, make snapshot failed
-    TCloneReq clone_req;
-    TBackend backend1;
-    TBackend backend2;
-    TBackend backend3;
-    clone_req.src_backends.push_back(backend1);
-    clone_req.src_backends.push_back(backend2);
-    clone_req.src_backends.push_back(backend3);
-    TAgentResult agent_result;
-    agent_result.status.status_code = TStatusCode::INTERNAL_ERROR;
-    TAgentResult agent_result2;
-    agent_result2.status.status_code = TStatusCode::OK;
     agent_result2.__isset.snapshot_path = false;
-    agent_task_request.__set_clone_req(clone_req);
-    
     EXPECT_CALL(mock_command_executor, get_table(
             agent_task_request.clone_req.tablet_id,
             agent_task_request.clone_req.schema_hash))
@@ -898,9 +1168,6 @@ TEST(TaskWorkerPoolTest, TestClone) {
     EXPECT_CALL(mock_command_executor, obtain_shard_path(_, _))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
-    TSnapshotRequest snapshot_request;
-    snapshot_request.__set_tablet_id(agent_task_request.clone_req.tablet_id);
-    snapshot_request.__set_schema_hash(agent_task_request.clone_req.schema_hash);
     EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request, _))
             .Times(clone_req.src_backends.size())
             .WillOnce(DoAll(SetArgPointee<1>(agent_result), Return(PALO_SUCCESS)))
@@ -1067,7 +1334,7 @@ TEST(TaskWorkerPoolTest, TestClone) {
             .Times(clone_req.src_backends.size())
             .WillRepeatedly(
                     DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(PALO_SUCCESS)));
-    uint64_t file_size = 5;
+    file_size = 5;
     EXPECT_CALL(mock_file_downloader, get_length(_))
             .Times(clone_req.src_backends.size())
             .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(PALO_SUCCESS)));

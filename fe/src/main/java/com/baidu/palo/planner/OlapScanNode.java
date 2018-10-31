@@ -38,7 +38,7 @@ import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.Config;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.service.FrontendOptions;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.thrift.TExplainLevel;
@@ -129,7 +129,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     @Override
-    public void finalize(Analyzer analyzer) throws InternalException {
+    public void finalize(Analyzer analyzer) throws UserException {
         if (isFinalized) {
             return;
         }
@@ -138,7 +138,7 @@ public class OlapScanNode extends ScanNode {
         try {
             getScanRangeLocations(analyzer);
         } catch (AnalysisException e) {
-            throw new InternalException(e.getMessage());
+            throw new UserException(e.getMessage());
         }
 
         isFinalized = true;
@@ -162,7 +162,7 @@ public class OlapScanNode extends ScanNode {
     //     }
     // }
 
-    private List<MaterializedIndex> selectRollupIndex(Partition partition) throws InternalException {
+    private List<MaterializedIndex> selectRollupIndex(Partition partition) throws UserException {
         if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
             isPreAggregation = true;
         }
@@ -199,7 +199,7 @@ public class OlapScanNode extends ScanNode {
         }
 
         if (containTupleIndexes.isEmpty()) {
-            throw new InternalException("Failed to select index, no match index");
+            throw new UserException("Failed to select index, no match index");
         }
 
         // 2. find all indexes which match the prefix most based on predicate/sort/in predicate columns
@@ -290,7 +290,7 @@ public class OlapScanNode extends ScanNode {
         return finalCandidateIndexes;
     }
 
-    private void normalizePredicate(Analyzer analyzer) throws InternalException {
+    private void normalizePredicate(Analyzer analyzer) throws UserException {
         // 1. Get Columns which has eqJoin on it
         List<Expr> eqJoinPredicate = analyzer.getEqJoinConjuncts(desc.getId(), null);
         if (null != eqJoinPredicate) {
@@ -391,7 +391,8 @@ public class OlapScanNode extends ScanNode {
                                        MaterializedIndex index,
                                        List<Tablet> tablets,
                                        long localBeId)
-            throws InternalException, AnalysisException {
+            throws UserException, AnalysisException {
+
         int logNum = 0;
         String schemaHashStr = String.valueOf(olapTable.getSchemaHashByIndexId(index.getId()));
         long committedVersion = partition.getCommittedVersion();
@@ -420,7 +421,7 @@ public class OlapScanNode extends ScanNode {
             if (allQueryableReplicas.isEmpty()) {
                 LOG.error("no queryable replica found in tablet[{}]. committed version[{}], committed version hash[{}]",
                          tabletId, committedVersion, committedVersionHash);
-                throw new InternalException("Failed to get scan range, no replica!");
+                throw new UserException("Failed to get scan range, no replica!");
             }
 
             List<Replica> replicas = null;
@@ -448,7 +449,7 @@ public class OlapScanNode extends ScanNode {
                 tabletIsNull = false;
             }
             if (tabletIsNull) {
-                throw new InternalException(tabletId + "have no alive replicas");
+                throw new UserException(tabletId + "have no alive replicas");
             }
             TScanRange scanRange = new TScanRange();
             scanRange.setPalo_scan_range(paloRange);
@@ -457,7 +458,7 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
-    private void getScanRangeLocations(Analyzer analyzer) throws InternalException, AnalysisException {
+    private void getScanRangeLocations(Analyzer analyzer) throws UserException, AnalysisException {
         normalizePredicate(analyzer);
 
         long start = System.currentTimeMillis();

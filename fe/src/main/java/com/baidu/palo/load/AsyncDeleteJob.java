@@ -28,7 +28,7 @@ import com.baidu.palo.common.io.Writable;
 import com.baidu.palo.persist.ReplicaPersistInfo;
 import com.baidu.palo.task.AgentTaskQueue;
 import com.baidu.palo.task.PushTask;
-
+import com.baidu.palo.thrift.TTaskType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -53,6 +53,8 @@ public class AsyncDeleteJob implements Writable {
     private long dbId;
     private long tableId;
     private long partitionId;
+    
+    private long transactionId;
 
     private long partitionVersion;
     private long partitionVersionHash;
@@ -69,6 +71,7 @@ public class AsyncDeleteJob implements Writable {
         tabletIds = Sets.newHashSet();
         sendReplicaIdToPushTask = Maps.newHashMap();
         replicaPersistInfos = Maps.newHashMap();
+        transactionId = -1;
     }
 
     public AsyncDeleteJob(long dbId, long tableId, long partitionId,
@@ -144,7 +147,8 @@ public class AsyncDeleteJob implements Writable {
     public void clearTasks() {
         for (PushTask task : sendReplicaIdToPushTask.values()) {
             AgentTaskQueue.removePushTask(task.getBackendId(), task.getSignature(),
-                                          task.getVersion(), task.getVersionHash(), task.getPushType());
+                                          task.getVersion(), task.getVersionHash(), 
+                                          task.getPushType(), TTaskType.PUSH);
         }
     }
 

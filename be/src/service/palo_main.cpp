@@ -43,7 +43,7 @@
 #include "agent/status.h"
 #include "agent/topic_subscriber.h"
 #include "util/palo_metrics.h"
-#include "olap/olap_main.h"
+#include "olap/options.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -54,6 +54,12 @@
 static void help(const char*);
 
 #include <dlfcn.h>
+
+extern "C" { void __lsan_do_leak_check(); }
+
+namespace palo {
+extern bool k_palo_exit;
+}
 
 int main(int argc, char** argv) {
     // check if print version or help
@@ -107,23 +113,36 @@ int main(int argc, char** argv) {
     MallocExtension::instance()->SetNumericProperty(
         "tcmalloc.aggressive_memory_decommit", 21474836480);
 #endif
+
+    std::vector<palo::StorePath> paths;
+    auto olap_res = palo::parse_conf_store_paths(palo::config::storage_root_path, &paths);
+    if (olap_res != palo::OLAP_SUCCESS) {
+        LOG(FATAL) << "parse config storage path failed, path=" << palo::config::storage_root_path;
+        exit(-1);
+    }
+
     palo::LlvmCodeGen::initialize_llvm();
-    palo::init_daemon(argc, argv);
+    palo::init_daemon(argc, argv, paths);
 
     palo::ResourceTls::init();
     if (!palo::BackendOptions::init()) {
         exit(-1);
     }
 
-    // initialize storage
-    if (0 != palo::olap_main(argc, argv)) {
-        LOG(ERROR) << "olap start error!";
-        palo::shutdown_logging();
-        exit(1);
+    // options
+    palo::EngineOptions options;
+    options.store_paths = paths;
+    palo::OLAPEngine* engine = nullptr;
+    auto st = palo::OLAPEngine::open(options, &engine);
+    if (!st.ok()) {
+        LOG(FATAL) << "fail to open OLAPEngine, res=" << st.get_error_msg();
+        exit(-1);
     }
 
     // start backend service for the coordinator on be_port
-    palo::ExecEnv exec_env;
+    palo::ExecEnv exec_env(paths);
+    exec_env.set_olap_engine(engine);
+
     palo::FrontendHelper::setup(&exec_env);
     palo::ThriftServer* be_server = nullptr;
 
@@ -168,7 +187,7 @@ int main(int argc, char** argv) {
         palo::shutdown_logging();
         exit(1);
     }
-    
+
     status = heartbeat_thrift_server->start();
     if (!status.ok()) {
         LOG(ERROR) << "Palo BE HeartBeat Service did not start correctly, exiting";
@@ -176,14 +195,16 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
+    while (!palo::k_palo_exit) {
 #if defined(LEAK_SANITIZER)
-    // __lsan_enable();
-    while (true) {
         __lsan_do_leak_check();
+#endif
         sleep(10);
     }
-#endif
-    brpc_service.join();
+    heartbeat_thrift_server->stop();
+    heartbeat_thrift_server->join();
+    be_server->stop();
+    be_server->join();
 
     delete be_server;
     return 0;

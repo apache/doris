@@ -34,7 +34,7 @@ public class DirMoveTask extends AgentTask {
     public DirMoveTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
             long tableId, long partitionId, long indexId, long tabletId, String src, int schemaHash,
             boolean overwrite) {
-        super(resourceInfo, backendId, signature, TTaskType.MOVE, dbId, tableId, partitionId, indexId, tabletId);
+        super(resourceInfo, backendId, TTaskType.MOVE, dbId, tableId, partitionId, indexId, tabletId, signature);
         this.jobId = jobId;
         this.src = src;
         this.schemaHash = schemaHash;

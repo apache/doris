@@ -260,5 +260,15 @@ Status FileUtils::md5sum(const std::string& file, std::string* md5sum) {
     return Status::OK;
 }
 
+bool FileUtils::check_exist(const std::string& path) {
+    boost::system::error_code errcode;
+    bool exist = boost::filesystem::exists(path, errcode);
+    if (errcode != boost::system::errc::success && errcode != boost::system::errc::no_such_file_or_directory) {
+        LOG(WARNING) << "error when check path:" << path << ", error code:" << errcode;
+        return false;
+    }
+    return exist;
+}
+
 }
 

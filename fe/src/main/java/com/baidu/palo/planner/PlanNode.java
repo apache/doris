@@ -27,7 +27,7 @@ import com.baidu.palo.analysis.SlotId;
 import com.baidu.palo.analysis.TupleDescriptor;
 import com.baidu.palo.analysis.TupleId;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.TreeNode;
 import com.baidu.palo.thrift.TExplainLevel;
 import com.baidu.palo.thrift.TPlan;
@@ -398,7 +398,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
      * Call this once on the root of the plan tree before calling toThrift().
      * Subclasses need to override this.
      */
-    public void finalize(Analyzer analyzer) throws InternalException {
+    public void finalize(Analyzer analyzer) throws UserException {
         for (PlanNode child : children) {
             child.finalize(analyzer);
         }
@@ -464,7 +464,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         analyzer.materializeSlots(exprs);
     }
 
-    public void init(Analyzer analyzer) throws InternalException {
+    public void init(Analyzer analyzer) throws UserException {
         assignConjuncts(analyzer);
         computeStats(analyzer);
         createDefaultSmap(analyzer);
@@ -525,7 +525,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
      * substitutes conjuncts_ using the combined child smap.
      * @throws AnalysisException
      */
-    protected void createDefaultSmap(Analyzer analyzer) throws InternalException {
+    protected void createDefaultSmap(Analyzer analyzer) throws UserException {
         ExprSubstitutionMap combinedChildSmap = getCombinedChildSmap();
         outputSmap =
             ExprSubstitutionMap.compose(outputSmap, combinedChildSmap, analyzer);

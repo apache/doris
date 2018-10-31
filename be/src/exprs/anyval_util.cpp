@@ -81,6 +81,7 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
     case TYPE_DOUBLE:
         return pool->add(new DoubleVal);
 
+    case TYPE_CHAR:
     case TYPE_HLL:
     case TYPE_VARCHAR:
         return pool->add(new StringVal);
@@ -93,7 +94,7 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
 
     case TYPE_DATETIME:
         return pool->add(new DateTimeVal);
-default:
+    default:
         DCHECK(false) << "Unsupported type: " << type.type;
         return NULL;
     }

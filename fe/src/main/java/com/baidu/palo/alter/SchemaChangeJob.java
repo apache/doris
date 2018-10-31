@@ -29,14 +29,17 @@ import com.baidu.palo.catalog.Replica;
 import com.baidu.palo.catalog.Replica.ReplicaState;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.catalog.Tablet;
-import com.baidu.palo.common.Config;
 import com.baidu.palo.common.FeMetaVersion;
 import com.baidu.palo.common.MetaNotFoundException;
 import com.baidu.palo.common.io.Text;
-import com.baidu.palo.load.Load;
+import com.baidu.palo.common.util.TimeUtils;
 import com.baidu.palo.persist.ReplicaPersistInfo;
+import com.baidu.palo.persist.ReplicaPersistInfo.ReplicaOperationType;
+import com.baidu.palo.task.AgentBatchTask;
 import com.baidu.palo.task.AgentTask;
+import com.baidu.palo.task.AgentTaskExecutor;
 import com.baidu.palo.task.AgentTaskQueue;
+import com.baidu.palo.task.ClearAlterTask;
 import com.baidu.palo.task.SchemaChangeTask;
 import com.baidu.palo.thrift.TKeysType;
 import com.baidu.palo.thrift.TResourceInfo;
@@ -48,6 +51,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.HashMultiset;
 import com.google.common.collect.LinkedHashMultimap;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
@@ -58,15 +62,14 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
 public class SchemaChangeJob extends AlterJob {
     private static final Logger LOG = LogManager.getLogger(SchemaChangeJob.class);
@@ -111,10 +114,10 @@ public class SchemaChangeJob extends AlterJob {
     private TStorageType newStorageType = null;
 
     private SchemaChangeJob() {
-        this(-1, -1, null, null);
+        this(-1, -1, null, null, -1);
     }
 
-    public SchemaChangeJob(long dbId, long tableId, TResourceInfo resourceInfo, String tableName) {
+    public SchemaChangeJob(long dbId, long tableId, TResourceInfo resourceInfo, String tableName, long transactionId) {
         super(JobType.SCHEMA_CHANGE, dbId, tableId, resourceInfo);
 
         this.tableName = tableName;
@@ -135,6 +138,8 @@ public class SchemaChangeJob extends AlterJob {
         this.hasBfChange = false;
         this.bfColumns = null;
         this.bfFpp = 0;
+        
+        this.transactionId = transactionId;
     }
 
     public final String getTableName() {
@@ -206,33 +211,19 @@ public class SchemaChangeJob extends AlterJob {
         return this.indexIdToFinishedReplicaNum.count(indexId);
     }
 
-    private synchronized boolean isDelayDeleting() {
-        if (System.currentTimeMillis() - this.finishedTime < Config.alter_delete_base_delay_second * 1000L) {
-            LOG.info("delay deleting old schema for querying. table[{}-{}]", dbId, tableId);
-            return true;
-        }
-        return false;
-    }
-
-    public boolean tryDeleteAllTableHistorySchema() {
-        if (isDelayDeleting()) {
-            return false;
-        }
-
+    public void deleteAllTableHistorySchema() {
         Database db = Catalog.getInstance().getDb(dbId);
         if (db == null) {
             LOG.warn("db[{}] does not exist", dbId);
-            return true;
+            return;
         }
 
-        if (!db.tryReadLock(Database.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-            return false;
-        }
+        db.readLock();
         try {
             OlapTable olapTable = (OlapTable) db.getTable(tableId);
             if (olapTable == null) {
                 LOG.warn("table[{}] does not exist in db[{}]", tableId, dbId);
-                return true;
+                return;
             }
             // drop all replicas with old schemaHash
             for (Partition partition : olapTable.getPartitions()) {
@@ -245,7 +236,7 @@ public class SchemaChangeJob extends AlterJob {
                         continue;
                     }
 
-                    // delele schema hash
+                    // delete schema hash
                     // the real drop task is handled by report process
                     // we call 'deleteNewSchemaHash' but we delete old one actually.
                     // cause schama hash is switched when job is finished.
@@ -257,7 +248,7 @@ public class SchemaChangeJob extends AlterJob {
         } finally {
             db.readUnlock();
         }
-        return true;
+        return;
     }
 
     @Override
@@ -289,6 +280,78 @@ public class SchemaChangeJob extends AlterJob {
             this.indexIdToFinishedReplicaNum.add(parentId);
         }
     }
+    
+    public int checkOrResendClearTasks() {
+        Preconditions.checkState(this.state == JobState.FINISHING);
+        // 1. check if all task finished
+        boolean clearFailed = false;
+        if (batchClearAlterTask != null) {
+            List<AgentTask> allTasks = batchClearAlterTask.getAllTasks();
+            for (AgentTask oneClearAlterTask : allTasks) {
+                ClearAlterTask clearAlterTask = (ClearAlterTask) oneClearAlterTask;
+                if (!clearAlterTask.isFinished()) {
+                    clearFailed = true;
+                }
+                AgentTaskQueue.removeTask(clearAlterTask.getBackendId(), 
+                        TTaskType.CLEAR_ALTER_TASK, clearAlterTask.getSignature());
+                // not remove the task from batch task, remove it by gc
+            }
+        }
+        if (!clearFailed && batchClearAlterTask != null) {
+            return 1;
+        }
+        Database db = Catalog.getInstance().getDb(dbId);
+        if (db == null) {
+            String msg = "db[" + dbId + "] does not exist";
+            setMsg(msg);
+            LOG.warn(msg);
+            return -1;
+        }
+
+        batchClearAlterTask = new AgentBatchTask();
+        db.readLock();
+        try {
+            OlapTable olapTable = (OlapTable) db.getTable(tableId);
+            if (olapTable == null) {
+                cancelMsg = "could not find table[" + tableId + "] in db [" + dbId + "]";
+                LOG.warn(cancelMsg);
+                return -1;
+            }
+            boolean allAddSuccess = true;
+            LOG.info("sending clear schema change job tasks for table [{}]", tableId);
+            OUTER_LOOP:
+            for (Partition partition : olapTable.getPartitions()) {
+                long partitionId = partition.getId();
+                for (MaterializedIndex index : partition.getMaterializedIndices()) {
+                    for (Tablet tablet : index.getTablets()) {
+                        List<Replica> replicas = tablet.getReplicas();
+                        for (Replica replica : replicas) {
+                            long backendId = replica.getBackendId();
+                            ClearAlterTask clearAlterTask = new ClearAlterTask(backendId, dbId, tableId,
+                                    partitionId, index.getId(), tablet.getId(),
+                                    olapTable.getSchemaHashByIndexId(index.getId()));
+                            if (AgentTaskQueue.addTask(clearAlterTask)) {
+                                batchClearAlterTask.addTask(clearAlterTask);
+                            } else {
+                                allAddSuccess = false;
+                                break OUTER_LOOP;
+                            }
+                        } // end for rollupReplicas
+                    } // end for rollupTablets
+                } // end for index
+            } // end for partition
+            if (!allAddSuccess) {
+                for (AgentTask task : batchClearAlterTask.getAllTasks()) {
+                    AgentTaskQueue.removeTask(task.getBackendId(), task.getTaskType(), task.getSignature());
+                }
+                batchClearAlterTask = null;
+            }
+        } finally {
+            db.readUnlock();
+        }
+        LOG.info("successfully sending clear schemachange job [{}]", tableId);
+        return 0;
+    }
 
     @Override
     public boolean sendTasks() {
@@ -306,9 +369,7 @@ public class SchemaChangeJob extends AlterJob {
             return false;
         }
 
-        if (!db.tryReadLock(Database.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-            return true;
-        }
+        db.readLock();
         try {
             synchronized (this) {
                 OlapTable olapTable = (OlapTable) db.getTable(tableId);
@@ -354,11 +415,9 @@ public class SchemaChangeJob extends AlterJob {
                             long tabletId = tablet.getId();
                             short replicaSendNum = 0;
                             for (Replica replica : tablet.getReplicas()) {
-                                if (replica.getState() == ReplicaState.CLONE) {
-                                    // There may be MIGRATION or SUPPLEMENT clone replica generated
-                                    // before starting this schema change job.
-                                    // And we cannot add schema change task to this clone replica.
-                                    // So here we skip it.
+                                if (replica.getState() != ReplicaState.SCHEMA_CHANGE) {
+                                    // yiguolei: if the replica is not in schema change, then skip send tasks, it maybe in clone
+                                    // why not do it in the past?
                                     continue;
                                 }
                                 long backendId = replica.getBackendId();
@@ -388,6 +447,7 @@ public class SchemaChangeJob extends AlterJob {
                     } // end for alter indices
                 } // end for partitions
 
+                AgentBatchTask batchTask = new AgentBatchTask();
                 // add all schemaChangeTask to AgentTaskQueue
                 for (AgentTask task : tasks) {
                     if (!AgentTaskQueue.addTask(task)) {
@@ -395,9 +455,14 @@ public class SchemaChangeJob extends AlterJob {
                                 + ":" + task.getBackendId() + "]";
                         LOG.warn(cancelMsg);
                         return false;
+                    } else {
+                        batchTask.addTask(task);
                     }
                 }
 
+                if (batchTask.getTaskNum() > 0) {
+                    AgentTaskExecutor.submit(batchTask);
+                }
                 // change schemaChangeJob's status
                 this.state = JobState.RUNNING;
             } // end synchronized block
@@ -457,22 +522,17 @@ public class SchemaChangeJob extends AlterJob {
 
         // 2. log
         Catalog.getInstance().getEditLog().logCancelSchemaChange(this);
-        LOG.info("cancel schema change job[" + olapTable.getId() + "] finished");
+        LOG.info("cancel schema change job[" + olapTable == null ? -1 : olapTable.getId() + "] finished");
     }
 
     @Override
     public synchronized void removeReplicaRelatedTask(long parentId, long tabletId, long replicaId, long backendId) {
         // parentId is unused here
-        directRemoveReplicaTask(replicaId, backendId);
-
+        setReplicaFinished(-1, replicaId);
+        
+        this.backendIdToReplicaIds.get(backendId).remove(replicaId);
         // remove task
         AgentTaskQueue.removeTask(backendId, TTaskType.SCHEMA_CHANGE, tabletId);
-    }
-
-    @Override
-    public synchronized void directRemoveReplicaTask(long replicaId, long backendId) {
-        setReplicaFinished(-1L, replicaId);
-        this.backendIdToReplicaIds.get(backendId).remove(replicaId);
     }
 
     @Override
@@ -536,6 +596,7 @@ public class SchemaChangeJob extends AlterJob {
             long versionHash = finishTabletInfo.getVersion_hash();
             long dataSize = finishTabletInfo.getData_size();
             long rowCount = finishTabletInfo.getRow_count();
+            // do not need check version > replica.getVersion, because the new replica's version is first set by sc
             replica.updateInfo(version, versionHash, dataSize, rowCount);
         } finally {
             db.writeUnlock();
@@ -549,6 +610,11 @@ public class SchemaChangeJob extends AlterJob {
                  replicaId, indexId, tabletId, task.getBackendId());
     }
 
+    /**
+     * should consider following cases:
+     * 1. replica is removed from this tablet, for example user changes the replica num
+     * 2. backend is dead or is dropped from system
+     */
     @Override
     public int tryFinishJob() {
         if (this.state != JobState.RUNNING) {
@@ -562,9 +628,7 @@ public class SchemaChangeJob extends AlterJob {
             return -1;
         }
 
-        if (!db.tryWriteLock(Database.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-            return 0;
-        }
+        db.writeLock();
         try {
             synchronized (this) {
                 Table table = db.getTable(tableId);
@@ -573,62 +637,67 @@ public class SchemaChangeJob extends AlterJob {
                     return -1;
                 }
 
-                Load load = Catalog.getInstance().getLoadInstance();
+                boolean hasUnfinishedPartition = false;
                 OlapTable olapTable = (OlapTable) table;
                 for (Partition partition : olapTable.getPartitions()) {
                     long partitionId = partition.getId();
-
-                    // check if all tablets finished load job
-                    // FIXME(cmy): this may cause endless check??
-                    if (!load.checkPartitionLoadFinished(partitionId, null)) {
-                        LOG.debug("partition[{}] has unfinished load job", partitionId);
-                        return 0;
-                    }
-
-                    short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
-                    long committedVersion = partition.getCommittedVersion();
-                    long committedVersionHash = partition.getCommittedVersionHash();
-
+                    short expectReplicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                    boolean hasUnfinishedIndex = false;
                     for (long indexId : this.changedIndexIdToSchema.keySet()) {
                         MaterializedIndex materializedIndex = partition.getIndex(indexId);
                         if (materializedIndex == null) {
-                            LOG.warn("index[{}] does not exist inp partition[{}]", indexId, partitionId);
+                            LOG.warn("index[{}] does not exist in partition[{}]", indexId, partitionId);
                             continue;
                         }
-
-                        int aliveReplica = 0;
                         for (Tablet tablet : materializedIndex.getTablets()) {
-                            Iterator<Replica> iterator = tablet.getReplicas().iterator();
-                            while (iterator.hasNext()) {
-                                Replica replica = iterator.next();
+                            List<Replica> replicas = tablet.getReplicas();
+                            List<Replica> errorReplicas = Lists.newArrayList();
+                            int healthNum = replicas.size();
+                            for (Replica replica : replicas) {
+                                // if this replica is not under schema change, then fe will not sent schema change task
+                                // ignore it when calculate health replica num
+                                // if a tablet has 3 replicas and 2 of them is under clone, 1 is under schema change
+                                // then schema change will fail
+                                if (replica.getState() != ReplicaState.SCHEMA_CHANGE) {
+                                    -- healthNum;
+                                    continue;
+                                }
                                 if (!this.backendIdToReplicaIds.get(replica.getBackendId()).contains(replica.getId())) {
                                     // replica is dead, skip  it
                                     LOG.warn("schema change job[{}] find dead replica[{}]. skip it",
                                              tableId, replica.getId());
+                                    -- healthNum;
                                     continue;
                                 }
-
-                                // if replica is still in backendIdToReplicaIds
-                                // we think this replica is still alive.
-                                // BackendEvent will handle dead replica
-                                ++aliveReplica;
-
                                 if (!checkBackendState(replica)) {
+                                    LOG.warn("backend {} state is abnormal, set replica {} as bad",
+                                             replica.getBackendId(), replica.getId());
+                                    errorReplicas.add(replica);
+                                    --healthNum;
                                     continue;
                                 }
-
-                                // check version and versionHash
-                                if (!replica.checkVersionCatchUp(committedVersion, committedVersionHash)) {
-                                    continue;
+                                if (replica.getLastFailedVersion() > 0) {
+                                    -- healthNum;
                                 }
                             }
-
-                            if (aliveReplica < (replicationNum / 2 + 1)) {
-                                cancelMsg = String.format("schema change job[%d] cancelled."
-                                        + " tablet[%d] has few replica. num: %d.",
-                                                          tableId, tablet.getId(), aliveReplica);
+                            if (healthNum < (expectReplicationNum / 2 + 1)) {
+                                cancelMsg = String.format("schema change job[%d] cancelled. " 
+                                        + "tablet[%d] has few health replica."
+                                        + " num: %d", tableId, tablet.getId(), healthNum);
                                 LOG.warn(cancelMsg);
                                 return -1;
+                            }
+
+                            for (Replica errReplica : errorReplicas) {
+                                // For now, err replicas are those replicas which the backends they belong to is dead.
+                                // We need to set these replicas as finished to let the schema change job
+                                // finished.
+                                setReplicaFinished(indexId, errReplica.getId());
+                                // remove the replica from backend to replica map
+                                backendIdToReplicaIds.get(errReplica.getBackendId()).remove(errReplica.getId());
+                                // remove error replica related task
+                                AgentTaskQueue.removeTask(errReplica.getBackendId(), TTaskType.SCHEMA_CHANGE,
+                                                          tablet.getId());
                             }
                         } // end for tablets
 
@@ -640,7 +709,9 @@ public class SchemaChangeJob extends AlterJob {
                             if (finishedReplicaNum < totalReplicaNum) {
                                 LOG.debug("index[{}] has unfinished replica. {}/{}", indexId,
                                           finishedReplicaNum, totalReplicaNum);
-                                return 0;
+                                hasUnfinishedIndex = true;
+                                // return 0;
+                                continue;
                             }
                         }
 
@@ -662,12 +733,21 @@ public class SchemaChangeJob extends AlterJob {
                         }
                     } // end for indices
 
+                    if (hasUnfinishedIndex) {
+                        hasUnfinishedPartition = true;
+                    }
+
                     // all table finished in this partition
                     LOG.debug("schema change finished in partition[" + partition.getId() + "]");
 
                 } // end for partitions
 
+                if (hasUnfinishedPartition) {
+                    return 0;
+                }
+
                 Preconditions.checkState(unfinishedReplicaIds.isEmpty());
+
 
                 // all partitions are finished
                 // update state and save replica info
@@ -680,8 +760,11 @@ public class SchemaChangeJob extends AlterJob {
                         Preconditions.checkState(materializedIndex.getState() == IndexState.SCHEMA_CHANGE);
                         for (Tablet tablet : materializedIndex.getTablets()) {
                             long tabletId = tablet.getId();
+                            ArrayList<Long> errorBackendIds = new ArrayList<>();
                             for (Replica replica : tablet.getReplicas()) {
-                                if (replica.getState() == ReplicaState.SCHEMA_CHANGE) {
+                                // the replica should in schema change and the replica's backend should contains this replica
+                                if (replica.getState() == ReplicaState.SCHEMA_CHANGE
+                                        && this.backendIdToReplicaIds.get(replica.getBackendId()).contains(replica.getId())) {
                                     replica.setState(ReplicaState.NORMAL);
                                     ReplicaPersistInfo replicaInfo =
                                             ReplicaPersistInfo.createForSchemaChange(partitionId, indexId, tabletId,
@@ -689,14 +772,30 @@ public class SchemaChangeJob extends AlterJob {
                                                                                      replica.getVersion(),
                                                                                      replica.getVersionHash(),
                                                                                      replica.getDataSize(),
-                                                                                     replica.getRowCount());
+                                                                                     replica.getRowCount(),
+                                                                                     replica.getLastFailedVersion(), 
+                                                                                     replica.getLastFailedVersionHash(),
+                                                                                     replica.getLastSuccessVersion(), 
+                                                                                     replica.getLastSuccessVersionHash());
                                     this.replicaInfos.put(partitionId, replicaInfo);
 
                                     // remove tasks for safety
                                     AgentTaskQueue.removeTask(replica.getBackendId(), TTaskType.SCHEMA_CHANGE,
                                                               tabletId);
+                                } else {
+                                    // if the replcia is not under schema change state, then the replica has not done schema change
+                                    // its schema is invalid, should remove it from replica group
+                                    // could only remove it here, because we should ensure that the health replica > quorum
+                                    // fe followers shoud check the replica info and remove the unhealthy replicas
+                                    ReplicaPersistInfo info = ReplicaPersistInfo.createForDelete(dbId, tableId, partitionId,
+                                            indexId, tabletId, replica.getBackendId());
+                                    this.replicaInfos.put(partitionId, info);
+                                    errorBackendIds.add(info.getBackendId());
                                 }
                             } // end for replicas
+                            for (Long errorBackend : errorBackendIds) {
+                                tablet.deleteReplicaByBackendId(errorBackend);
+                            }
                         } // end for tablets
 
                         // update schema hash
@@ -732,14 +831,15 @@ public class SchemaChangeJob extends AlterJob {
                 }
 
                 this.finishedTime = System.currentTimeMillis();
-                this.state = JobState.FINISHED;
+                this.state = JobState.FINISHING;
+                this.transactionId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
             }
         } finally {
             db.writeUnlock();
         }
 
         // log schema change done operation
-        Catalog.getInstance().getEditLog().logFinishSchemaChange(this);
+        Catalog.getInstance().getEditLog().logFinishingSchemaChange(this);
         LOG.info("schema change job done. table [{}]", tableId);
         return 1;
     }
@@ -755,140 +855,239 @@ public class SchemaChangeJob extends AlterJob {
         unfinishedReplicaIds = null;
         indexIdToTotalReplicaNum = null;
         indexIdToFinishedReplicaNum = null;
-        backendIdToReplicaIds = null;
         partitionIdToFinishedIndexIds = null;
+        backendIdToReplicaIds = null;
     }
 
     @Override
-    public void unprotectedReplayInitJob(Database db) {
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+    public void replayInitJob(Database db) {
+        db.writeLock();
+        try {
+            OlapTable olapTable = (OlapTable) db.getTable(tableId);
 
-        // change the state of table/partition and replica, then add object to related List and Set
-        for (Partition partition : olapTable.getPartitions()) {
-            for (Map.Entry<Long, Integer> entry : changedIndexIdToSchemaHash.entrySet()) {
-                MaterializedIndex index = partition.getIndex(entry.getKey());
-                // set state to SCHEMA_CHANGE
-                for (Tablet tablet : index.getTablets()) {
-                    for (Replica replica : tablet.getReplicas()) {
-                        if (replica.getState() == ReplicaState.CLONE) {
-                            // just skip it (old schema clone will be deleted)
-                            continue;
+            // change the state of table/partition and replica, then add object to related List and Set
+            for (Partition partition : olapTable.getPartitions()) {
+                for (Map.Entry<Long, Integer> entry : changedIndexIdToSchemaHash.entrySet()) {
+                    MaterializedIndex index = partition.getIndex(entry.getKey());
+                    // set state to SCHEMA_CHANGE
+                    for (Tablet tablet : index.getTablets()) {
+                        for (Replica replica : tablet.getReplicas()) {
+                            if (replica.getState() == ReplicaState.CLONE) {
+                                // just skip it (old schema clone will be deleted)
+                                continue;
+                            }
+                            replica.setState(ReplicaState.SCHEMA_CHANGE);
                         }
-                        replica.setState(ReplicaState.SCHEMA_CHANGE);
                     }
+                    index.setState(IndexState.SCHEMA_CHANGE);
+
+                    Catalog.getCurrentInvertedIndex().setNewSchemaHash(partition.getId(), entry.getKey(),
+                                                                       entry.getValue());
                 }
-                index.setState(IndexState.SCHEMA_CHANGE);
 
-                Catalog.getCurrentInvertedIndex().setNewSchemaHash(partition.getId(), entry.getKey(), entry.getValue());
-            }
+                partition.setState(PartitionState.SCHEMA_CHANGE);
+            } // end for partitions
 
-            partition.setState(PartitionState.SCHEMA_CHANGE);
-        } // end for partitions
+            olapTable.setState(OlapTableState.SCHEMA_CHANGE);
 
-        olapTable.setState(OlapTableState.SCHEMA_CHANGE);
-
-        // reset status to PENDING for resending the tasks in polling thread
-        this.state = JobState.PENDING;
+            // reset status to PENDING for resending the tasks in polling thread
+            this.state = JobState.PENDING;
+            LOG.info("just trace", new Exception());
+        } finally {
+            db.writeUnlock();
+        }
     }
 
     @Override
-    public void unprotectedReplayFinish(Database db) {
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
+    public void replayFinishing(Database db) {
+        db.writeLock();
+        try {
+            OlapTable olapTable = (OlapTable) db.getTable(tableId);
 
-        // set the status to normal
-        for (Partition partition : olapTable.getPartitions()) {
-            long partitionId = partition.getId();
-            for (Map.Entry<Long, Integer> entry : changedIndexIdToSchemaHash.entrySet()) {
-                MaterializedIndex index = partition.getIndex(entry.getKey());
-                for (Tablet tablet : index.getTablets()) {
-                    for (Replica replica : tablet.getReplicas()) {
-                        replica.setState(ReplicaState.NORMAL);
+            // set the status to normal
+            for (Partition partition : olapTable.getPartitions()) {
+                long partitionId = partition.getId();
+                for (Map.Entry<Long, Integer> entry : changedIndexIdToSchemaHash.entrySet()) {
+                    MaterializedIndex index = partition.getIndex(entry.getKey());
+                    for (Tablet tablet : index.getTablets()) {
+                        for (Replica replica : tablet.getReplicas()) {
+                            replica.setState(ReplicaState.NORMAL);
+                        }
+                    }
+
+                    index.setState(IndexState.NORMAL);
+
+                    // update to new schema hash in inverted index
+                    Catalog.getCurrentInvertedIndex().updateToNewSchemaHash(partitionId, index.getId());
+                    Catalog.getCurrentInvertedIndex().deleteNewSchemaHash(partitionId, index.getId());
+                }
+                partition.setState(PartitionState.NORMAL);
+
+                // update replica info
+                Collection<ReplicaPersistInfo> replicaInfo = replicaInfos.get(partition.getId());
+                if (replicaInfo != null) {
+                    for (ReplicaPersistInfo info : replicaInfo) {
+                        MaterializedIndex mIndex = (MaterializedIndex) partition.getIndex(info.getIndexId());
+                        Tablet tablet = mIndex.getTablet(info.getTabletId());
+                        if (info.getOpType() == ReplicaOperationType.SCHEMA_CHANGE) {
+                            Replica replica = tablet.getReplicaByBackendId(info.getBackendId());
+                            replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
+                                                      info.getLastFailedVersion(),
+                                                      info.getLastFailedVersionHash(),
+                                                      info.getLastSuccessVersion(),
+                                                      info.getLastSuccessVersionHash());
+                        } else if (info.getOpType() == ReplicaOperationType.DELETE) {
+                            // remove the replica from replica group
+                            tablet.deleteReplicaByBackendId(info.getBackendId());
+                        }
                     }
                 }
+            } // end for partitions
 
-                index.setState(IndexState.NORMAL);
+            // update schema
+            for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
+                long indexId = entry.getKey();
+                int schemaVersion = getSchemaVersionByIndexId(indexId);
+                int schemaHash = getSchemaHashByIndexId(indexId);
+                short shortKeyColumnCount = getShortKeyColumnCountByIndexId(indexId);
+                olapTable.setIndexSchemaInfo(indexId, null, entry.getValue(), schemaVersion, schemaHash,
+                                             shortKeyColumnCount);
 
-                // update to new schema hash in inverted index
-                Catalog.getCurrentInvertedIndex().updateToNewSchemaHash(partitionId, index.getId());
-                Catalog.getCurrentInvertedIndex().deleteNewSchemaHash(partitionId, index.getId());
-            }
-            partition.setState(PartitionState.NORMAL);
-
-            // update replica info
-            Collection<ReplicaPersistInfo> replicaInfo = replicaInfos.get(partition.getId());
-            if (replicaInfo != null) {
-                for (ReplicaPersistInfo info : replicaInfo) {
-                    MaterializedIndex mIndex = (MaterializedIndex) partition.getIndex(info.getIndexId());
-                    Tablet tablet = mIndex.getTablet(info.getTabletId());
-                    Replica replica = tablet.getReplicaByBackendId(info.getBackendId());
-                    replica.updateInfo(info.getVersion(), info.getVersionHash(),
-                                       info.getDataSize(), info.getRowCount());
+                if (newStorageType != null) {
+                    olapTable.setIndexStorageType(indexId, newStorageType);
+                }
+                if (indexId == olapTable.getId()) {
+                    olapTable.setNewBaseSchema(entry.getValue());
                 }
             }
-        } // end for partitions
 
-        // update schema
-        for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
-            long indexId = entry.getKey();
-            int schemaVersion = getSchemaVersionByIndexId(indexId);
-            int schemaHash = getSchemaHashByIndexId(indexId);
-            short shortKeyColumnCount = getShortKeyColumnCountByIndexId(indexId);
-            olapTable.setIndexSchemaInfo(indexId, null, entry.getValue(), schemaVersion, schemaHash,
-                                         shortKeyColumnCount);
-
-            if (newStorageType != null) {
-                olapTable.setIndexStorageType(indexId, newStorageType);
-            }
-
-            if (indexId == olapTable.getId()) {
-                olapTable.setNewBaseSchema(entry.getValue());
-            }
+            // bloom filter columns
+            if (hasBfChange) {
+                olapTable.setBloomFilterInfo(bfColumns, bfFpp);
+            } // end for partitions
+            olapTable.setState(OlapTableState.NORMAL);
+        } finally {
+            db.writeUnlock();
         }
-
-        // bloom filter columns
-        if (hasBfChange) {
-            olapTable.setBloomFilterInfo(bfColumns, bfFpp);
+    }
+    
+    @Override
+    public void replayFinish(Database db) {
+     // if this is an old job, then should also update table or replica state
+        if (transactionId < 0) {
+            replayFinishing(db);
         }
-
-        olapTable.setState(OlapTableState.NORMAL);
     }
 
     @Override
-    public void unprotectedReplayCancel(Database db) {
-        // restore partition's state
-        OlapTable olapTable = (OlapTable) db.getTable(tableId);
-        if (olapTable == null) {
+    public void replayCancel(Database db) {
+        db.writeLock();
+        try {
+            // restore partition's state
+            OlapTable olapTable = (OlapTable) db.getTable(tableId);
+            if (olapTable == null) {
+                return;
+            }
+            for (Partition partition : olapTable.getPartitions()) {
+                long partitionId = partition.getId();
+                for (Long indexId : this.changedIndexIdToSchema.keySet()) {
+                    MaterializedIndex index = partition.getIndex(indexId);
+                    if (index == null) {
+                        continue;
+                    }
+                    for (Tablet tablet : index.getTablets()) {
+                        for (Replica replica : tablet.getReplicas()) {
+                            if (replica.getState() == ReplicaState.CLONE || replica.getState() == ReplicaState.NORMAL) {
+                                continue;
+                            }
+                            replica.setState(ReplicaState.NORMAL);
+                        } // end for replicas
+                    } // end for tablets
+
+                    Preconditions.checkState(index.getState() == IndexState.SCHEMA_CHANGE, index.getState());
+                    index.setState(IndexState.NORMAL);
+
+                    // delete new schema hash in invered index
+                    Catalog.getCurrentInvertedIndex().deleteNewSchemaHash(partitionId, indexId);
+                } // end for indices
+
+                Preconditions.checkState(partition.getState() == PartitionState.SCHEMA_CHANGE,
+                                         partition.getState());
+                partition.setState(PartitionState.NORMAL);
+            } // end for partitions
+
+            olapTable.setState(OlapTableState.NORMAL);
+        } finally {
+            db.writeUnlock();
+        }
+    }
+
+    @Override
+    public void getJobInfo(List<List<Comparable>> jobInfos, OlapTable tbl) {
+        if (state == JobState.FINISHED || state == JobState.CANCELLED) {
+            List<Comparable> jobInfo = new ArrayList<Comparable>();
+            jobInfo.add(tableId);
+            jobInfo.add(tbl.getName());
+            jobInfo.add(transactionId);
+            jobInfo.add(TimeUtils.longToTimeString(createTime));
+            jobInfo.add(TimeUtils.longToTimeString(finishedTime));
+            jobInfo.add("N/A");
+            jobInfo.add("N/A");
+            jobInfo.add(state.name());
+            jobInfo.add(cancelMsg);
+            jobInfo.add("N/A");
+
+            jobInfos.add(jobInfo);
             return;
         }
-        for (Partition partition : olapTable.getPartitions()) {
-            long partitionId = partition.getId();
-            for (Long indexId : this.changedIndexIdToSchema.keySet()) {
+
+        // calc progress and state for each table
+        Map<Long, String> indexProgress = new HashMap<Long, String>();
+        Map<Long, String> indexState = new HashMap<Long, String>();
+        for (Long indexId : getChangedIndexToSchema().keySet()) {
+            int totalReplicaNum = 0;
+            int finishedReplicaNum = 0;
+            String idxState = IndexState.NORMAL.name();
+            for (Partition partition : tbl.getPartitions()) {
                 MaterializedIndex index = partition.getIndex(indexId);
-                if (index == null) {
-                    continue;
+                int tableReplicaNum = getTotalReplicaNumByIndexId(indexId);
+                int tableFinishedReplicaNum = getFinishedReplicaNumByIndexId(indexId);
+                Preconditions.checkState(!(tableReplicaNum == 0 && tableFinishedReplicaNum == -1));
+                Preconditions.checkState(tableFinishedReplicaNum <= tableReplicaNum,
+                                         tableFinishedReplicaNum + "/" + tableReplicaNum);
+                totalReplicaNum += tableReplicaNum;
+                finishedReplicaNum += tableFinishedReplicaNum;
+
+                if (index.getState() != IndexState.NORMAL) {
+                    idxState = index.getState().name();
                 }
-                for (Tablet tablet : index.getTablets()) {
-                    for (Replica replica : tablet.getReplicas()) {
-                        if (replica.getState() == ReplicaState.CLONE || replica.getState() == ReplicaState.NORMAL) {
-                            continue;
-                        }
-                        replica.setState(ReplicaState.NORMAL);
-                    } // end for replicas
-                } // end for tablets
+            }
+            if (Catalog.getInstance().isMaster()
+                    && (state == JobState.RUNNING || state == JobState.FINISHED)) {
+                indexProgress.put(indexId, (finishedReplicaNum * 100 / totalReplicaNum) + "%");
+                indexState.put(indexId, idxState);
+            } else {
+                indexProgress.put(indexId, "0%");
+                indexState.put(indexId, idxState);
+            }
+        }
 
-                Preconditions.checkState(index.getState() == IndexState.SCHEMA_CHANGE, index.getState());
-                index.setState(IndexState.NORMAL);
+        for (Long indexId : getChangedIndexToSchema().keySet()) {
+            List<Comparable> jobInfo = new ArrayList<Comparable>();
 
-                // delete new schema hash in invered index
-                Catalog.getCurrentInvertedIndex().deleteNewSchemaHash(partitionId, indexId);
-            } // end for indices
+            jobInfo.add(tableId);
+            jobInfo.add(tbl.getName());
+            jobInfo.add(transactionId);
+            jobInfo.add(TimeUtils.longToTimeString(createTime));
+            jobInfo.add(TimeUtils.longToTimeString(finishedTime));
+            jobInfo.add(tbl.getIndexNameById(indexId));
+            jobInfo.add(indexState.get(indexId));
+            jobInfo.add(state.name());
+            jobInfo.add(cancelMsg);
+            jobInfo.add(indexProgress.get(indexId));
 
-            Preconditions.checkState(partition.getState() == PartitionState.SCHEMA_CHANGE,
-                                     partition.getState());
-            partition.setState(PartitionState.NORMAL);
-        } // end for partitions
-
-        olapTable.setState(OlapTableState.NORMAL);
+            jobInfos.add(jobInfo);
+        } // end for indexIds
     }
 
     @Override
@@ -1033,5 +1232,12 @@ public class SchemaChangeJob extends AlterJob {
 
     public boolean equals(Object obj) {
         return true;
+    }
+
+    @Override
+    public String toString() {
+        return "SchemaChangeJob [tableName=" + tableName + ", type=" + type + ", state=" + state + ", dbId=" + dbId
+                + ", tableId=" + tableId + ", transactionId=" + transactionId + ", hasPreviousLoadFinished="
+                + hasPreviousLoadFinished + ", createTime=" + createTime + ", finishedTime=" + finishedTime + "]";
     }
 }

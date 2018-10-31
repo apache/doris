@@ -63,6 +63,7 @@ RuntimeState::RuntimeState(
             _root_node_id(-1),
             _num_rows_load_success(0),
             _num_rows_load_filtered(0),
+            _num_print_error_rows(0),
             _normal_row_number(0),
             _error_row_number(0),
             _error_log_file(nullptr),
@@ -134,6 +135,7 @@ RuntimeState::~RuntimeState() {
         _buffer_reservation->Close();
     }
 
+#ifndef BE_TEST
     // _query_mem_tracker must be valid as long as _instance_mem_tracker is so
     // delete _instance_mem_tracker first.
     // LogUsage() walks the MemTracker tree top-down when the memory limit is exceeded.
@@ -142,15 +144,16 @@ RuntimeState::~RuntimeState() {
     if (_instance_mem_tracker.get() != NULL) {
         // May be NULL if InitMemTrackers() is not called, for example from tests.
         _instance_mem_tracker->unregister_from_parent();
+        _instance_mem_tracker->close();
     }
 
-    _instance_mem_tracker->close();
+#endif
     _instance_mem_tracker.reset();
    
     if (_query_mem_tracker.get() != NULL) {
         _query_mem_tracker->unregister_from_parent();
+        _query_mem_tracker->close();
     }
-    _query_mem_tracker->close();
     _query_mem_tracker.reset();
 }
 
@@ -429,6 +432,10 @@ void RuntimeState::append_error_msg_to_file(
             }
             return;
         }
+    }
+
+    if (_num_print_error_rows.fetch_add(1, std::memory_order_relaxed) > MAX_ERROR_NUM) {
+        return;
     }
 
     std::stringstream out;

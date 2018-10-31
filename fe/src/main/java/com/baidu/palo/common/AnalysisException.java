@@ -23,7 +23,7 @@ package com.baidu.palo.common;
 /**
  * Thrown for errors encountered during analysis of a SQL statement.
  */
-public class AnalysisException extends Exception {
+public class AnalysisException extends UserException {
     public AnalysisException(String msg, Throwable cause) {
         super(msg, cause);
     }

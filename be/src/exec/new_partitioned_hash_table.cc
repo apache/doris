@@ -261,7 +261,10 @@ uint32_t NewPartitionedHashTableCtx::HashVariableLenRow(const uint8_t* expr_valu
   for (int i = 0; i < build_exprs_.size(); ++i) {
     // non-string and null slots are already part of 'expr_values'.
     // if (build_expr_ctxs_[i]->root()->type().type != TYPE_STRING
-      if (build_exprs_[i]->type().type != TYPE_VARCHAR) continue;
+    PrimitiveType type = build_exprs_[i]->type().type;
+    if (type != TYPE_CHAR && type != TYPE_VARCHAR) {
+      continue;
+    }
 
     const void* loc = expr_values_cache_.ExprValuePtr(expr_values, i);
     if (expr_values_null[i]) {

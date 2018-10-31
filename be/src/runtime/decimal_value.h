@@ -314,6 +314,10 @@ public:
     // to              - decimal where where the result will be stored
     //                  to->buf and to->len must be set.
     void to_max_decimal(int precision, int frac);
+    void to_min_decimal(int precision, int frac) {
+        to_max_decimal(precision, frac);
+        _sign = -1;
+    }
 
     // The maximum of fraction part is "scale".
     // If the length of fraction part is less than "scale", '0' will be filled.

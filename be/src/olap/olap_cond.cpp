@@ -175,7 +175,7 @@ OLAPStatus Cond::init(const TCondition& tcond, const FieldInfo& fi) {
             }
             auto insert_reslut = operand_set.insert(f.get());
             if (!insert_reslut.second) {
-                OLAP_LOG_WARNING("Duplicate operand in in-predicate.[condition=%s]", operand.c_str());
+                LOG(WARNING) << "Duplicate operand in in-predicate.[condition=" << operand << "]";
                 // Duplicated, let unique_ptr delete field
             } else {
                 // Normal case, release this unique_ptr

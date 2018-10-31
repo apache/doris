@@ -1,7 +1,5 @@
 // Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
 
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -17,17 +15,17 @@
 
 package com.baidu.palo.broker.hdfs;
 
+import com.baidu.palo.thrift.TBrokerFD;
+import com.baidu.palo.thrift.TBrokerFileStatus;
+import com.baidu.palo.thrift.TBrokerOperationStatusCode;
+
+import org.junit.Test;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import org.junit.Test;
-
-import com.baidu.palo.thrift.TBrokerFD;
-import com.baidu.palo.thrift.TBrokerFileStatus;
-import com.baidu.palo.thrift.TBrokerOperationStatusCode;
 
 import junit.framework.TestCase;
 
@@ -36,7 +34,6 @@ public class TestFileSystemManager extends TestCase {
     private final String testHdfsHost = "hdfs://host:port";
     
     private FileSystemManager fileSystemManager;
-    
     
     protected void setUp() throws Exception {
         fileSystemManager = new FileSystemManager();

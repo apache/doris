@@ -21,7 +21,6 @@ import com.baidu.palo.catalog.ColumnType;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
-import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.proc.AuthProcDir;
 import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.qe.ConnectContext;
@@ -68,7 +67,7 @@ public class ShowGrantsStmt extends ShowStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws AnalysisException {
         if (userIdent != null) {
             if (isAll) {
                 throw new AnalysisException("Can not specified keyword ALL when specified user");

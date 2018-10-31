@@ -28,6 +28,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -86,12 +87,12 @@ public class AgentTaskQueue {
      * add version, versionHash and TPushType to help
      */
     public static synchronized void removePushTask(long backendId, long signature, long version, long versionHash,
-                                                   TPushType pushType) {
-        if (!tasks.contains(backendId, TTaskType.PUSH)) {
+                                                   TPushType pushType, TTaskType taskType) {
+        if (!tasks.contains(backendId, taskType)) {
             return;
         }
 
-        Map<Long, AgentTask> signatureMap = tasks.get(backendId, TTaskType.PUSH);
+        Map<Long, AgentTask> signatureMap = tasks.get(backendId, taskType);
         AgentTask task = signatureMap.get(signature);
         if (task == null) {
             return;
@@ -104,7 +105,7 @@ public class AgentTaskQueue {
         }
 
         signatureMap.remove(signature);
-        LOG.debug("remove task: type[{}], backend[{}], signature[{}]", TTaskType.PUSH, backendId, signature);
+        LOG.debug("remove task: type[{}], backend[{}], signature[{}]", taskType, backendId, signature);
         --taskNum;
     }
 
@@ -152,7 +153,7 @@ public class AgentTaskQueue {
         return diffTasks;
     }
 
-    public static synchronized void removeReplicaRelatedTasks(long backendId, long signature) {
+    public static synchronized void removeReplicaRelatedTasks(long backendId, long tabletId) {
         if (!tasks.containsRow(backendId)) {
             return;
         }
@@ -161,10 +162,20 @@ public class AgentTaskQueue {
         for (TTaskType type : TTaskType.values()) {
             if (backendTasks.containsKey(type)) {
                 Map<Long, AgentTask> typeTasks = backendTasks.get(type);
-                if (typeTasks.containsKey(signature)) {
-                    typeTasks.remove(signature);
-                    LOG.debug("remove task: type[{}], backend[{}], signature[{}]", type, backendId, signature);
-                    --taskNum;
+                if (type == TTaskType.REALTIME_PUSH) {
+                    Iterator<AgentTask> taskIterator = typeTasks.values().iterator();
+                    while (taskIterator.hasNext()) {
+                        PushTask realTimePushTask = (PushTask) taskIterator.next();
+                        if (tabletId == realTimePushTask.getTabletId()) {
+                            taskIterator.remove();
+                        }
+                    }
+                } else {
+                    if (typeTasks.containsKey(tabletId)) {
+                        typeTasks.remove(tabletId);
+                        LOG.debug("remove task: type[{}], backend[{}], signature[{}]", type, backendId, tabletId);
+                        --taskNum;
+                    }
                 }
             }
         } // end for types

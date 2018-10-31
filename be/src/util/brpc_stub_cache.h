@@ -64,6 +64,15 @@ public:
         return get_stub(endpoint);
     }
 
+    PInternalService_Stub* get_stub(const std::string& host, int port) {
+        butil::EndPoint endpoint;
+        if (str2endpoint(host.c_str(), port, &endpoint)) {
+            LOG(WARNING) << "unknown endpoint, hostname=" << host;
+            return nullptr;
+        }
+        return get_stub(endpoint);
+    }
+
 private:
     SpinLock _lock;
     butil::FlatMap<butil::EndPoint, PInternalService_Stub*> _stub_map;

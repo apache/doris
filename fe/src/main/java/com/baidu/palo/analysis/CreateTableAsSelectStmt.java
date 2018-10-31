@@ -27,7 +27,7 @@ import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 import java.util.List;
 
@@ -53,7 +53,7 @@ public class CreateTableAsSelectStmt extends StatementBase {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws InternalException, AnalysisException {
+    public void analyze(Analyzer analyzer) throws UserException, AnalysisException {
         // first: we analyze queryStmt before create table.
         // To avoid duplicate registrations of table/colRefs,
         // create a new root analyzer and clone the query statement for this initial pass.

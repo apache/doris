@@ -15,18 +15,29 @@
 
 package com.baidu.palo.load;
 
+import com.baidu.palo.analysis.BinaryPredicate;
+import com.baidu.palo.analysis.BinaryPredicate.Operator;
 import com.baidu.palo.analysis.BrokerDesc;
+import com.baidu.palo.analysis.IsNullPredicate;
+import com.baidu.palo.analysis.LiteralExpr;
+import com.baidu.palo.analysis.Predicate;
+import com.baidu.palo.analysis.SlotRef;
+import com.baidu.palo.analysis.StringLiteral;
 import com.baidu.palo.catalog.Catalog;
+import com.baidu.palo.catalog.Replica;
+import com.baidu.palo.common.Config;
 import com.baidu.palo.common.FeMetaVersion;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.io.Writable;
 import com.baidu.palo.load.FailMsg.CancelType;
 import com.baidu.palo.persist.ReplicaPersistInfo;
 import com.baidu.palo.task.PushTask;
+import com.baidu.palo.thrift.TEtlState;
 import com.baidu.palo.thrift.TPriority;
 import com.baidu.palo.thrift.TResourceInfo;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
@@ -36,8 +47,10 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -59,7 +72,8 @@ public class LoadJob implements Writable {
         HADOOP,
         MINI,
         INSERT,
-        BROKER
+        BROKER,
+        DELETE
     }
 
     private static final int DEFAULT_TIMEOUT_S = 0;
@@ -69,6 +83,8 @@ public class LoadJob implements Writable {
     private long id;
     private long dbId;
     private String label;
+    // when this job is a real time load job, the job is attach with a transaction
+    private long transactionId = -1;
     long timestamp;
     private int timeoutSecond;
     private double maxFilterRatio;
@@ -90,6 +106,8 @@ public class LoadJob implements Writable {
     private long etlFinishTimeMs;
     private long loadStartTimeMs;
     private long loadFinishTimeMs;
+    // not serialize it
+    private long quorumFinishTimeMs;
     private FailMsg failMsg;
 
     private EtlJobType etlJobType;
@@ -101,6 +119,11 @@ public class LoadJob implements Writable {
     private Set<Long> fullTablets;
     private Set<PushTask> pushTasks;
     private Map<Long, ReplicaPersistInfo> replicaPersistInfos;
+    
+    private Map<Long, Replica> finishedReplicas;
+    
+    private List<Predicate> conditions = null;
+    private DeleteInfo deleteInfo;
 
     private TResourceInfo resourceInfo;
     
@@ -109,7 +132,7 @@ public class LoadJob implements Writable {
     private long execMemLimit;
 
     // save table names for auth check
-    private Set<String> tableNames;
+    private Set<String> tableNames = Sets.newHashSet();
 
     public LoadJob() {
         this("");
@@ -118,11 +141,65 @@ public class LoadJob implements Writable {
     public LoadJob(String label) {
         this(label, DEFAULT_TIMEOUT_S, DEFAULT_MAX_FILTER_RATIO);
     }
+    
+    // convert an async delete job to load job
+    public LoadJob(long id, long dbId, long tableId, long partitionId, String label, 
+            Map<Long, Integer> indexIdToSchemaHash, List<Predicate> deleteConditions, 
+            DeleteInfo deleteInfo) {
+        this.id = id;
+        this.dbId = dbId;
+        this.label = label; 
+        this.transactionId = -1;
+        this.timestamp = -1;
+        this.timeoutSecond = DEFAULT_TIMEOUT_S;
+        this.deleteFlag = true;
+        this.state = JobState.LOADING;
+        this.progress = 0;
+        this.createTimeMs = System.currentTimeMillis();
+        this.etlStartTimeMs = -1;
+        this.etlFinishTimeMs = -1;
+        this.loadStartTimeMs = -1;
+        this.loadFinishTimeMs = -1;
+        this.quorumFinishTimeMs = -1;
+        this.failMsg = new FailMsg(CancelType.UNKNOWN, "");
+        this.etlJobType = EtlJobType.DELETE;
+        EtlStatus etlStatus = new EtlStatus();
+        etlStatus.setState(TEtlState.FINISHED);
+        // has to use hadoop etl job info, because replay thread use hadoop job info
+        HadoopEtlJobInfo hadoopEtlJobInfo = new HadoopEtlJobInfo();
+        hadoopEtlJobInfo.setCluster("");
+        hadoopEtlJobInfo.setEtlOutputDir("");
+        this.etlJobInfo = hadoopEtlJobInfo;
+        this.etlJobInfo.setJobStatus(etlStatus);
+        this.idToTableLoadInfo = Maps.newHashMap();;
+        this.idToTabletLoadInfo = Maps.newHashMap();;
+        this.quorumTablets = new HashSet<Long>();
+        this.fullTablets = new HashSet<Long>();
+        this.pushTasks = new HashSet<PushTask>();
+        this.replicaPersistInfos = Maps.newHashMap();
+        this.resourceInfo = null;
+        this.priority = TPriority.NORMAL;
+        this.execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
+        this.finishedReplicas = Maps.newHashMap();
+        
+        // generate table load info
+        PartitionLoadInfo partitionLoadInfo = new PartitionLoadInfo(null);
+        Map<Long, PartitionLoadInfo> idToPartitionLoadInfo = new HashMap<>();
+        idToPartitionLoadInfo.put(partitionId, partitionLoadInfo);
+        TableLoadInfo tableLoadInfo = new TableLoadInfo(idToPartitionLoadInfo);
+        tableLoadInfo.addAllSchemaHash(indexIdToSchemaHash);
+        idToTableLoadInfo.put(tableId, tableLoadInfo);
+        
+        // add delete conditions to load job
+        this.conditions = deleteConditions;
+        this.deleteInfo = deleteInfo;
+    }
 
     public LoadJob(String label, int timeoutSecond, double maxFilterRatio) {
         this.id = -1;
         this.dbId = -1;
         this.label = label;
+        this.transactionId = -1;
         this.timestamp = -1;
         this.timeoutSecond = timeoutSecond;
         this.maxFilterRatio = maxFilterRatio;
@@ -134,6 +211,7 @@ public class LoadJob implements Writable {
         this.etlFinishTimeMs = -1;
         this.loadStartTimeMs = -1;
         this.loadFinishTimeMs = -1;
+        this.quorumFinishTimeMs = -1;
         this.failMsg = new FailMsg(CancelType.UNKNOWN, "");
         this.etlJobType = EtlJobType.HADOOP;
         this.etlJobInfo = new HadoopEtlJobInfo();
@@ -146,7 +224,7 @@ public class LoadJob implements Writable {
         this.resourceInfo = null;
         this.priority = TPriority.NORMAL;
         this.execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
-        this.tableNames = Sets.newHashSet();
+        this.finishedReplicas = Maps.newHashMap();
     }
     
     public void addTableName(String tableName) {
@@ -171,6 +249,14 @@ public class LoadJob implements Writable {
 
     public void setDbId(long dbId) {
         this.dbId = dbId;
+    }
+    
+    public long getTransactionId() {
+        return transactionId;
+    }
+    
+    public void setTransactionId(long transactionId) {
+        this.transactionId = transactionId;
     }
 
     public String getLabel() {
@@ -290,6 +376,14 @@ public class LoadJob implements Writable {
             default:
                 break;
         }
+    }
+    
+    public long getQuorumFinishTimeMs() {
+        return quorumFinishTimeMs;
+    }
+
+    public void setQuorumFinishTimeMs(long quorumFinishTimeMs) {
+        this.quorumFinishTimeMs = quorumFinishTimeMs;
     }
 
     public FailMsg getFailMsg() {
@@ -476,6 +570,10 @@ public class LoadJob implements Writable {
     public Set<Long> getQuorumTablets() {
         return quorumTablets;
     }
+    
+    public void clearQuorumTablets() {
+        quorumTablets.clear();
+    }
    
     public void addFullTablet(long tabletId) {
         fullTablets.add(tabletId);
@@ -510,7 +608,43 @@ public class LoadJob implements Writable {
     public TResourceInfo getResourceInfo() {
         return resourceInfo;
     }
+    
+    public boolean addFinishedReplica(Replica replica) {
+        finishedReplicas.put(replica.getId(), replica);
+        return true;
+    }
+    
+    public boolean isReplicaFinished(long replicaId) {
+        return finishedReplicas.containsKey(replicaId);
+    }
+    
+    public Collection<Replica> getFinishedReplicas() {
+        return finishedReplicas.values();
+    }
 
+    public List<Predicate> getConditions() {
+        return conditions;
+    }
+    
+    public boolean isSyncDeleteJob() {
+        if (conditions != null) {
+            return true;
+        }
+        return false;
+    }
+    
+    public DeleteInfo getDeleteInfo() {
+        return deleteInfo;
+    }
+    
+    public long getDeleteJobTimeout() {
+        long timeout = Math.max(idToTabletLoadInfo.size() 
+                * Config.tablet_delete_timeout_second * 1000L,
+                60000L);
+        timeout = Math.min(timeout, 300000L);
+        return timeout;
+    }
+    
     @Override
     public String toString() {
         return "LoadJob [id=" + id + ", dbId=" + dbId + ", label=" + label + ", timeoutSecond=" + timeoutSecond
@@ -518,7 +652,8 @@ public class LoadJob implements Writable {
                 + ", progress=" + progress + ", createTimeMs=" + createTimeMs + ", etlStartTimeMs=" + etlStartTimeMs
                 + ", etlFinishTimeMs=" + etlFinishTimeMs + ", loadStartTimeMs=" + loadStartTimeMs
                 + ", loadFinishTimeMs=" + loadFinishTimeMs + ", failMsg=" + failMsg + ", etlJobType=" + etlJobType
-                + ", etlJobInfo=" + etlJobInfo + ", priority=" + priority + "]";
+                + ", etlJobInfo=" + etlJobInfo + ", priority=" + priority + ", transactionId=" + transactionId 
+                + ", quorumFinishTimeMs=" + quorumFinishTimeMs +"]";
     }
 
     public void clearRedundantInfoForHistoryJob() {
@@ -657,6 +792,45 @@ public class LoadJob implements Writable {
         }
 
         out.writeLong(execMemLimit);
+        out.writeLong(transactionId);
+        
+        if (conditions != null) {
+            out.writeBoolean(true);
+            count = conditions.size();
+            out.writeInt(count);
+            for (Predicate predicate : conditions) {
+                if (predicate instanceof BinaryPredicate) {
+                    BinaryPredicate binaryPredicate = (BinaryPredicate) predicate;
+                    SlotRef slotRef = (SlotRef) binaryPredicate.getChild(0);
+                    String columnName = slotRef.getColumnName();
+                    Text.writeString(out, columnName);
+                    Text.writeString(out, binaryPredicate.getOp().name());
+                    String value = ((LiteralExpr) binaryPredicate.getChild(1)).getStringValue();
+                    Text.writeString(out, value);
+                } else if (predicate instanceof IsNullPredicate) {
+                    IsNullPredicate isNullPredicate = (IsNullPredicate) predicate;
+                    SlotRef slotRef = (SlotRef) isNullPredicate.getChild(0);
+                    String columnName = slotRef.getColumnName();
+                    Text.writeString(out, columnName);
+                    Text.writeString(out, "IS");
+                    String value = null;
+                    if (isNullPredicate.isNotNull()) {
+                        value = "NOT NULL";
+                    } else {
+                        value = "NULL";
+                    }
+                    Text.writeString(out, value);
+                }
+            }
+        } else {
+            out.writeBoolean(false);
+        }
+        if (deleteInfo != null) {
+            out.writeBoolean(true);
+            deleteInfo.write(out);
+        } else {
+            out.writeBoolean(false);
+        }
 
         out.writeInt(tableNames.size());
         for (String tableName : tableNames) {
@@ -776,6 +950,38 @@ public class LoadJob implements Writable {
             this.execMemLimit = in.readLong();
         }
         
+        if (version >= FeMetaVersion.VERSION_45) {
+            this.transactionId = in.readLong();
+            if (in.readBoolean()) {
+                count = in.readInt();
+                conditions = Lists.newArrayList();
+                for (int i = 0; i < count; i++) {
+                    String key = Text.readString(in);
+                    String opStr = Text.readString(in);
+                    if (opStr.equalsIgnoreCase("IS")) {
+                        String value = Text.readString(in);
+                        IsNullPredicate predicate;
+                        if (value.equalsIgnoreCase("NOT NULL")) {
+                            predicate = new IsNullPredicate(new SlotRef(null, key), true);
+                        } else {
+                            predicate = new IsNullPredicate(new SlotRef(null, key), true);
+                        }
+                        conditions.add(predicate);
+                    } else {
+                        Operator op = Operator.valueOf(opStr);
+                        String value = Text.readString(in);
+                        BinaryPredicate predicate = new BinaryPredicate(op, new SlotRef(null, key), 
+                                new StringLiteral(value));
+                        conditions.add(predicate);
+                    }
+                }
+            }
+            if (in.readBoolean()) {
+                this.deleteInfo = new DeleteInfo();
+                this.deleteInfo.readFields(in);
+            }
+        }
+
         if (version >= FeMetaVersion.VERSION_43) {
             int size = in.readInt();
             for (int i = 0; i < size; i++) {

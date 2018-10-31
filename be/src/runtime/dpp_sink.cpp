@@ -643,13 +643,13 @@ void HllDppSinkMerge::update_hll_set(TupleRow* agg_row, TupleRow* row,
         agg_row_resolver.init(agg_row_sv->ptr, agg_row_sv->len);
         agg_row_resolver.parse();
         if (agg_row_resolver.get_hll_data_type() == HLL_DATA_EXPLICIT) {
-            value->hash_set.insert(agg_row_resolver.get_expliclit_value(0));
+            value->hash_set.insert(agg_row_resolver.get_explicit_value(0));
         }
         if (row_resolver.get_hll_data_type() == HLL_DATA_EXPLICIT) {
-            value->hash_set.insert(row_resolver.get_expliclit_value(0));
+            value->hash_set.insert(row_resolver.get_explicit_value(0));
         }
     } else if (value->type == HLL_DATA_EXPLICIT) {
-        value->hash_set.insert(row_resolver.get_expliclit_value(0));
+        value->hash_set.insert(row_resolver.get_explicit_value(0));
         if (value->hash_set.size() > HLL_EXPLICLIT_INT64_NUM) {
             value->type = HLL_DATA_SPRASE;
             for (std::set<uint64_t>::iterator iter = value->hash_set.begin(); iter != value->hash_set.end(); iter++) {
@@ -664,7 +664,7 @@ void HllDppSinkMerge::update_hll_set(TupleRow* agg_row, TupleRow* row,
             }
         }   
     } else if (value->type == HLL_DATA_SPRASE) {
-        uint64_t hash = row_resolver.get_expliclit_value(0);
+        uint64_t hash = row_resolver.get_explicit_value(0);
         int idx = hash % REGISTERS_SIZE;
         uint8_t first_one_bit = __builtin_ctzl(hash >> HLL_COLUMN_PRECISION) + 1;
         if (value->index_to_value.find(idx) != value->index_to_value.end()) {
@@ -688,15 +688,15 @@ void HllDppSinkMerge::finalize_one_merge(TupleRow* agg_row, MemPool* pool,
         StringValue* agg_row_sv = static_cast<StringValue*>(SlotRef::get_value(ctx->root(), agg_row));
         if (rollup_schema.value_ops()[i] == TAggregationType::HLL_UNION) {
             HllMergeValue* value = _hll_last_row[index++];
-            // expliclit set
+            // explicit set
             if (value->type == HLL_DATA_EXPLICIT) {
                 int set_len = 1 + 1 + value->hash_set.size() * 8;
                 char *result = (char*)pool->allocate(set_len);
                 memset(result, 0, set_len);
-				HllSetHelper::set_expliclit(result, value->hash_set, set_len);
+				HllSetHelper::set_explicit(result, value->hash_set, set_len);
                 agg_row_sv->replace(result, set_len);
             } else if (value->type == HLL_DATA_SPRASE) {
-                 // full expliclit set 
+                 // full explicit set
                 if (value->index_to_value.size() * (sizeof(HllSetResolver::SparseIndexType) 
                        + sizeof(HllSetResolver::SparseValueType)) 
                        + sizeof(HllSetResolver::SparseLengthValueType) > REGISTERS_SIZE) {
@@ -706,7 +706,7 @@ void HllDppSinkMerge::finalize_one_merge(TupleRow* agg_row, MemPool* pool,
                     HllSetHelper::set_full(result, value->index_to_value, REGISTERS_SIZE, set_len);
                     agg_row_sv->replace(result, set_len);
                 } else {
-                     // sparse expliclit set
+                     // sparse explicit set
                     int set_len = 1 + sizeof(HllSetResolver::SparseLengthValueType) + 3 * value->index_to_value.size();
                     char *result = (char*)pool->allocate(set_len);
                     memset(result, 0, set_len);                    

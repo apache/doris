@@ -26,7 +26,7 @@ import com.baidu.palo.catalog.View;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
@@ -165,7 +165,7 @@ public class InlineViewRef extends TableRef {
      * then performs join clause analysis.
      */
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         if (isAnalyzed) {
             return;
         }
@@ -316,7 +316,7 @@ public class InlineViewRef extends TableRef {
     //     }
     // }
 
-    protected void makeOutputNullable(Analyzer analyzer) throws AnalysisException, InternalException {
+    protected void makeOutputNullable(Analyzer analyzer) throws AnalysisException, UserException {
         try {
             makeOutputNullableHelper(analyzer, sMap);
             makeOutputNullableHelper(analyzer, baseTblSmap);
@@ -359,7 +359,7 @@ public class InlineViewRef extends TableRef {
      * false otherwise.
      */
     private boolean requiresNullWrapping(Analyzer analyzer, Expr expr, ExprSubstitutionMap nullSMap)
-            throws InternalException {
+            throws UserException {
         // If the expr is already wrapped in an IF(TupleIsNull(), NULL, expr)
         // then do not try to execute it.
         if (expr.contains(TupleIsNullPredicate.class)) {

@@ -24,6 +24,7 @@
 #include "olap/column_file/out_stream.h"
 #include "olap/olap_cond.h"
 #include "olap/row_block.h"
+#include "olap/rowset.h"
 
 namespace palo {
 namespace column_file {
@@ -33,7 +34,7 @@ static const uint32_t MIN_FILTER_BLOCK_NUM = 10;
 SegmentReader::SegmentReader(
         const std::string file,
         OLAPTable* table,
-        OLAPIndex* index,
+        Rowset* index,
         uint32_t segment_id,
         const std::vector<uint32_t>& used_columns,
         const std::set<uint32_t>& load_bf_columns,
@@ -131,11 +132,11 @@ OLAPStatus SegmentReader::_load_segment_file() {
 
     res = _file_handler.open_with_cache(_file_name, O_RDONLY);
     if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to open segment file. [file='%s']", _file_name.c_str());
+        LOG(WARNING) << "fail to open segment file. [file='" << _file_name << "']";
         return res;
     }
 
-    //OLAP_LOG_DEBUG("seg file : %s", _file_name.c_str());
+    //VLOG(3) << "seg file : " << _file_name;
     // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
     _file_header = _olap_index->get_seg_pb(_segment_id);
     _null_supported = _olap_index->get_null_supported(_segment_id);
@@ -685,7 +686,7 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
             
             res = index_message->init(stream_buffer, stream_length, type, is_using_cache, _null_supported);
             if (OLAP_SUCCESS != res) {
-                OLAP_LOG_WARNING("init index from cahce fail");
+                OLAP_LOG_WARNING("init index from cache fail");
                 return res;
             }
 
@@ -717,6 +718,12 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
         if (_block_count != expected_blocks) {
             OLAP_LOG_WARNING("something wrong while reading index, expected=%lu, actual=%lu",
                     expected_blocks, _block_count);
+            OLAP_LOG_WARNING("_header_message().number_of_rows()=%d,"
+                             "_header_message().num_rows_per_block()=%d, table='%s', version='%d-%d'",
+                             _header_message().number_of_rows(), _header_message().num_rows_per_block(),
+                             _olap_index->table()->full_name().c_str(),
+                             _olap_index->version().first, _olap_index->version().second);
+            LOG(WARNING) << "version:" << _olap_index->version().first << "-" << _olap_index->version().second;
             return OLAP_ERR_FILE_FORMAT_ERROR;
         }
     }
@@ -917,8 +924,9 @@ OLAPStatus SegmentReader::_load_to_vectorized_row_batch(
         auto reader = _column_readers[cid];
         auto res = reader->next_vector(batch->column(cid), size, mem_pool);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to read next, res = %d, column = %u",
-                    res, reader->column_unique_id());
+            LOG(WARNING) << "fail to read next, res=" << res
+                << ", column=" << reader->column_unique_id()
+                << ", size=" << size;
             return res;
         }
     }

@@ -33,13 +33,16 @@ import com.baidu.palo.catalog.Type;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.ErrorCode;
 import com.baidu.palo.common.ErrorReport;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.planner.DataPartition;
 import com.baidu.palo.planner.DataSink;
 import com.baidu.palo.planner.DataSplitSink;
 import com.baidu.palo.planner.ExportSink;
+import com.baidu.palo.planner.OlapTableSink;
 import com.baidu.palo.qe.ConnectContext;
+import com.baidu.palo.thrift.TUniqueId;
+import com.baidu.palo.transaction.TransactionState.LoadJobSourceType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -52,6 +55,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 // InsertStmt used to
 public class InsertStmt extends DdlStmt {
@@ -59,6 +63,7 @@ public class InsertStmt extends DdlStmt {
 
     public static final String SHUFFLE_HINT = "SHUFFLE";
     public static final String NOSHUFFLE_HINT = "NOSHUFFLE";
+    public static final String STREAMING = "STREAMING";
 
     private final TableName tblName;
     private final Set<String> targetPartitions;
@@ -66,6 +71,9 @@ public class InsertStmt extends DdlStmt {
     private final QueryStmt queryStmt;
     private final List<String> planHints;
     private Boolean isRepartition;
+    private boolean isStreaming = false;
+    
+    private Map<Long, Integer> indexIdToSchemaHash = null;
 
     // set after parse all columns and expr in query statement
     // this result expr in the order of target table's columns
@@ -74,6 +82,9 @@ public class InsertStmt extends DdlStmt {
     private Map<String, Expr> exprByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     private Table targetTable;
+
+    private Database db;
+    private long transactionId;
 
     // we need a new TupleDesc for olap table.
     private TupleDescriptor olapTuple;
@@ -116,6 +127,14 @@ public class InsertStmt extends DdlStmt {
         this.targetTable = targetTable;
     }
 
+    public Map<Long, Integer> getIndexIdToSchemaHash() {
+        return this.indexIdToSchemaHash;
+    }
+    
+    public long getTransactionId() {
+        return this.transactionId;
+    }
+    
     public Boolean isRepartition() {
         return isRepartition;
     }
@@ -153,8 +172,21 @@ public class InsertStmt extends DdlStmt {
         return queryStmt;
     }
 
+    public boolean isStreaming() {
+        return isStreaming;
+    }
+
+    // Only valid when this statement is streaming
+    public OlapTableSink getOlapTableSink() {
+        return (OlapTableSink) dataSink;
+    }
+
+    public Database getDbObj() {
+        return db;
+    }
+
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
         if (targetTable == null) {
@@ -183,6 +215,27 @@ public class InsertStmt extends DdlStmt {
 
         // create data sink
         createDataSink();
+        
+        if (targetTable instanceof OlapTable) {
+            String dbName = tblName.getDb();
+            // check exist
+            db = analyzer.getCatalog().getDb(dbName);
+            // although the insert stmt maybe failed at next stage, but has to begin transaction here
+            // if get transactionid at add job stage, the transaction id maybe a little larger, it maybe error at alter job to check
+            // if all previous job finished
+            UUID uuid = UUID.randomUUID();
+            String jobLabel = "insert_" + uuid;
+            LoadJobSourceType sourceType = isStreaming ? LoadJobSourceType.INSERT_STREAMING 
+                    : LoadJobSourceType.FRONTEND;
+            transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
+                    jobLabel,
+                    "fe", sourceType);
+            if (isStreaming) {
+                OlapTableSink sink = (OlapTableSink) dataSink;
+                TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+                sink.init(loadId, transactionId, db.getId());
+            }
+        }
         LOG.info("analyzer is ", analyzer.getDescTbl().debugString());
     }
 
@@ -229,6 +282,8 @@ public class InsertStmt extends DdlStmt {
                     slotDesc.setIsNullable(false);
                 }
             }
+            // will use it during create load job
+            indexIdToSchemaHash = olapTable.getIndexIdToSchemaHash();
         } else if (targetTable instanceof MysqlTable) {
             if (targetPartitions != null) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
@@ -270,7 +325,7 @@ public class InsertStmt extends DdlStmt {
         }
     }
 
-    public void analyzeSubquery(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyzeSubquery(Analyzer analyzer) throws UserException {
         queryStmt.setFromInsert(true);
         // parse query statement
         queryStmt.analyze(analyzer);
@@ -307,20 +362,25 @@ public class InsertStmt extends DdlStmt {
         if (planHints == null) {
             return;
         }
-        if (!planHints.isEmpty() && !targetTable.isPartitioned()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_INSERT_HINT_NOT_SUPPORT);
-        }
         for (String hint : planHints) {
             if (SHUFFLE_HINT.equalsIgnoreCase(hint)) {
+                if (!targetTable.isPartitioned()) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_INSERT_HINT_NOT_SUPPORT);
+                }
                 if (isRepartition != null && !isRepartition) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_PLAN_HINT_CONFILT, hint);
                 }
                 isRepartition = Boolean.TRUE;
             } else if (NOSHUFFLE_HINT.equalsIgnoreCase(hint)) {
+                if (!targetTable.isPartitioned()) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_INSERT_HINT_NOT_SUPPORT);
+                }
                 if (isRepartition != null && isRepartition) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_PLAN_HINT_CONFILT, hint);
                 }
                 isRepartition = Boolean.FALSE;
+            } else if (STREAMING.equalsIgnoreCase(hint)) {
+                isStreaming = true;
             } else {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_PLAN_HINT, hint);
             }
@@ -345,6 +405,7 @@ public class InsertStmt extends DdlStmt {
             } else {
                 throw new AnalysisException(hllMismatchLog);
             }
+
         }
 
         if (col.getDataType().equals(expr.getType())) {
@@ -354,7 +415,7 @@ public class InsertStmt extends DdlStmt {
     }
 
     private void prepareExpressions(List<Column> targetCols, List<Expr> selectList, Analyzer analyzer)
-            throws AnalysisException {
+            throws UserException {
         // check type compatibility
         int numCols = targetCols.size();
         for (int i = 0; i < numCols; ++i) {
@@ -378,8 +439,13 @@ public class InsertStmt extends DdlStmt {
             return dataSink;
         }
         if (targetTable instanceof OlapTable) {
-            dataSink = new DataSplitSink((OlapTable) targetTable, olapTuple);
-            dataPartition = dataSink.getOutputPartition();
+            if (isStreaming) {
+                dataSink = new OlapTableSink((OlapTable) targetTable, olapTuple);
+                dataPartition = dataSink.getOutputPartition();
+            } else {
+                dataSink = new DataSplitSink((OlapTable) targetTable, olapTuple);
+                dataPartition = dataSink.getOutputPartition();
+            }
         } else if (targetTable instanceof BrokerTable) {
             BrokerTable table = (BrokerTable) targetTable;
             // TODO(lingbin): think use which one if have more than one path
@@ -397,6 +463,12 @@ public class InsertStmt extends DdlStmt {
             dataPartition = DataPartition.UNPARTITIONED;
         }
         return dataSink;
+    }
+
+    public void finalize() throws UserException {
+        if (isStreaming) {
+            ((OlapTableSink) dataSink).finalize();
+        }
     }
 
     public ArrayList<Expr> getResultExprs() {

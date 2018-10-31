@@ -34,11 +34,13 @@ import com.baidu.palo.planner.PlanFragmentId;
 import com.baidu.palo.planner.PlanNode;
 import com.baidu.palo.planner.PlanNodeId;
 import com.baidu.palo.planner.Planner;
+import com.baidu.palo.service.FrontendOptions;
 import com.baidu.palo.system.Backend;
 import com.baidu.palo.thrift.TNetworkAddress;
 import com.baidu.palo.thrift.TScanRange;
 import com.baidu.palo.thrift.TScanRangeLocation;
 import com.baidu.palo.thrift.TScanRangeLocations;
+import com.baidu.palo.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableMap;
 
@@ -61,10 +63,13 @@ import java.util.Map;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore({"org.apache.log4j.*", "javax.management.*"})
-@PrepareForTest(Catalog.class)
+@PrepareForTest({ Catalog.class, FrontendOptions.class })
 public class CoordinatorTest extends Coordinator {
     static Planner planner = new Planner();
     static ConnectContext context = new ConnectContext(null);
+    static {
+        context.setQueryId(new TUniqueId(1, 2));
+    }
     static Catalog catalog;
     static EditLog editLog;
     static Analyzer analyzer = new Analyzer(catalog, null);
@@ -101,6 +106,10 @@ public class CoordinatorTest extends Coordinator {
         PowerMock.mockStatic(Catalog.class);
         EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
         PowerMock.replay(Catalog.class);
+
+        PowerMock.mockStatic(FrontendOptions.class);
+        EasyMock.expect(FrontendOptions.getLocalHostAddress()).andReturn("127.0.0.1").anyTimes();
+        PowerMock.replay(FrontendOptions.class);
 
         FeConstants.heartbeat_interval_second = Integer.MAX_VALUE;
         backendA = new Backend(0, "machineA", 0);

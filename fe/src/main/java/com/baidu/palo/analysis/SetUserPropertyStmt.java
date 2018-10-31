@@ -22,8 +22,8 @@ package com.baidu.palo.analysis;
 
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
 import com.baidu.palo.common.Pair;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
 
@@ -60,7 +60,7 @@ public class SetUserPropertyStmt extends DdlStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(user)) {
             // If param 'user' is not set, use the login user name.

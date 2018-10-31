@@ -16,7 +16,7 @@
 package com.baidu.palo.qe;
 
 
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.util.DebugUtil;
 import com.baidu.palo.thrift.*;
 import com.google.common.collect.Maps;
@@ -41,16 +41,16 @@ public final class QeProcessorImpl implements QeProcessor {
     }
 
     @Override
-    public void registerQuery(TUniqueId queryId, Coordinator coord) throws InternalException {
+    public void registerQuery(TUniqueId queryId, Coordinator coord) throws UserException {
         registerQuery(queryId, new QueryInfo(coord));
     }
 
     @Override
-    public void registerQuery(TUniqueId queryId, QueryInfo info) throws InternalException {
+    public void registerQuery(TUniqueId queryId, QueryInfo info) throws UserException {
         LOG.info("register query id = " + queryId.toString());
         final QueryInfo result = coordinatorMap.putIfAbsent(queryId, info);
         if (result != null) {
-            throw new InternalException("queryId " + queryId + " already exists");
+            throw new UserException("queryId " + queryId + " already exists");
         }
     }
 

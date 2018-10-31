@@ -62,6 +62,8 @@ public class SlotDescriptor {
     private ColumnStats stats;  // only set if 'column' isn't set
     private boolean isAgg;
     private boolean isMultiRef;
+    // used for load to get more information of varchar and decimal
+    private Type originType;
 
     public SlotDescriptor(SlotId id, TupleDescriptor parent) {
         this.id = id;
@@ -144,6 +146,7 @@ public class SlotDescriptor {
     public void setColumn(Column column) {
         this.column = column;
         this.type = column.getType();
+        this.originType = column.getOriginType();
     }
 
     public boolean isMaterialized() {
@@ -241,9 +244,15 @@ public class SlotDescriptor {
 
     // TODO
     public TSlotDescriptor toThrift() {
-        return new TSlotDescriptor(id.asInt(), parent.getId().asInt(), type.toThrift(), -1,
-                byteOffset, nullIndicatorByte,
-                nullIndicatorBit, ((column != null) ? column.getName() : ""), slotIdx, isMaterialized);
+        if (originType != null) {
+            return new TSlotDescriptor(id.asInt(), parent.getId().asInt(), originType.toThrift(), -1,
+                    byteOffset, nullIndicatorByte,
+                    nullIndicatorBit, ((column != null) ? column.getName() : ""), slotIdx, isMaterialized);
+        } else {
+            return new TSlotDescriptor(id.asInt(), parent.getId().asInt(), type.toThrift(), -1,
+                    byteOffset, nullIndicatorByte,
+                    nullIndicatorBit, ((column != null) ? column.getName() : ""), slotIdx, isMaterialized);
+        }
     }
 
     public String debugString() {

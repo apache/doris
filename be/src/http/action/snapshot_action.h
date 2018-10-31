@@ -19,7 +19,6 @@
 #include <boost/scoped_ptr.hpp>
 
 #include "http/http_handler.h"
-#include "olap/command_executor.h"
 
 namespace palo {
 
@@ -31,14 +30,13 @@ class SnapshotAction : public HttpHandler {
 public:
     explicit SnapshotAction(ExecEnv* exec_env);
 
-    virtual ~SnapshotAction();
+    virtual ~SnapshotAction() { }
 
     void handle(HttpRequest *req) override;
 private:
     int64_t make_snapshot(int64_t tablet_id, int schema_hash, std::string* snapshot_path);
 
     ExecEnv* _exec_env;
-    CommandExecutor* _command_executor;
 
 }; // end class SnapshotAction
 

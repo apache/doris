@@ -152,9 +152,12 @@ public class Column implements Writable {
         return this.columnType.getType();
     }
 
-    // TODO(zc):
     public Type getType() {
         return ScalarType.createType(columnType.getType());
+    }
+
+    public Type getOriginType() {
+        return columnType.getTypeDesc();
     }
 
     public int getStrLen() {
@@ -184,6 +187,10 @@ public class Column implements Writable {
 
     public boolean isAllowNull() {
         return isAllowNull;
+    }
+
+    public void setIsAllowNull(boolean isAllowNull) {
+        this.isAllowNull = isAllowNull;
     }
 
     public String getDefaultValue() {

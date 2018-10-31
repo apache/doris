@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.MockedAuth;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
@@ -53,11 +53,11 @@ public class CreateUserStmtTest {
     }
 
     @Test
-    public void testToString() throws InternalException, AnalysisException {
+    public void testToString() throws UserException, AnalysisException {
         CreateUserStmt stmt = new CreateUserStmt(new UserDesc(new UserIdentity("user", "%"), "passwd", true));
         stmt.analyze(analyzer);
 
-        Assert.assertEquals("CREATE USER 'testCluster:user'@'%' IDENTIFIED BY 'passwd'", stmt.toString());
+        Assert.assertEquals("CREATE USER 'testCluster:user'@'%' IDENTIFIED BY '*XXX'", stmt.toString());
         Assert.assertEquals(new String(stmt.getPassword()), "*59C70DA2F3E3A5BDF46B68F5C8B8F25762BCCEF0");
 
         stmt = new CreateUserStmt(
@@ -65,8 +65,7 @@ public class CreateUserStmtTest {
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:user", stmt.getUserIdent().getQualifiedUser());
 
-        Assert.assertEquals(
-                            "CREATE USER 'testCluster:user'@'%' IDENTIFIED BY PASSWORD '*59c70da2f3e3a5bdf46b68f5c8b8f25762bccef0'",
+        Assert.assertEquals("CREATE USER 'testCluster:user'@'%' IDENTIFIED BY PASSWORD '*59c70da2f3e3a5bdf46b68f5c8b8f25762bccef0'",
                 stmt.toString());
         Assert.assertEquals(new String(stmt.getPassword()), "*59C70DA2F3E3A5BDF46B68F5C8B8F25762BCCEF0");
 
@@ -78,14 +77,14 @@ public class CreateUserStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testEmptyUser() throws InternalException, AnalysisException {
+    public void testEmptyUser() throws UserException, AnalysisException {
         CreateUserStmt stmt = new CreateUserStmt(new UserDesc(new UserIdentity("", "%"), "passwd", true));
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
-    public void testBadPass() throws InternalException, AnalysisException {
+    public void testBadPass() throws UserException, AnalysisException {
         CreateUserStmt stmt = new CreateUserStmt(new UserDesc(new UserIdentity("", "%"), "passwd", false));
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");

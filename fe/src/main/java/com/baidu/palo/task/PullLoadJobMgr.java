@@ -15,7 +15,7 @@
 
 package com.baidu.palo.task;
 
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.common.Status;
 import com.baidu.palo.thrift.TStatusCode;
 
@@ -135,11 +135,11 @@ public class PullLoadJobMgr {
 
     public class TaskExecutor implements Runnable {
 
-        private void processOneTask(PullLoadTask task, PullLoadJob job) throws InternalException {
+        private void processOneTask(PullLoadTask task, PullLoadJob job) throws UserException {
             int retryTime = 3;
             for (int i = 0; i < retryTime; ++i) {
                 if (!job.isRunning()) {
-                    throw new InternalException("Job has been cancelled.");
+                    throw new UserException("Job has been cancelled.");
                 }
                 task.executeOnce();
                 if (task.isFinished()) {

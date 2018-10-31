@@ -38,6 +38,7 @@ class BrokerScanNodeTest : public testing::Test {
 public:
     BrokerScanNodeTest() : _runtime_state("BrokerScanNodeTest") {
         init();
+        _runtime_state._instance_mem_tracker.reset(new MemTracker());
     }
     void init();
     static void SetUpTestCase() {
@@ -395,8 +396,9 @@ TEST_F(BrokerScanNodeTest, normal) {
     status = scan_node.open(&_runtime_state);
     ASSERT_TRUE(status.ok());
 
+    MemTracker tracker;
     // Get batch
-    RowBatch batch(scan_node.row_desc(), 1024, _runtime_state.instance_mem_tracker());
+    RowBatch batch(scan_node.row_desc(), _runtime_state.batch_size(), &tracker);
 
     bool eos = false;
     status = scan_node.get_next(&_runtime_state, &batch, &eos);

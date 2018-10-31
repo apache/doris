@@ -1,6 +1,7 @@
 // Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
 
 // Licensed under the Apache License, Version 2.0 (the "License");
+
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
 //
@@ -16,8 +17,10 @@
 package com.baidu.palo.catalog;
 
 import com.baidu.palo.catalog.DistributionInfo.DistributionInfoType;
+import com.baidu.palo.common.FeMetaVersion;
 import com.baidu.palo.common.io.Text;
 import com.baidu.palo.common.io.Writable;
+import com.baidu.palo.common.util.Util;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -50,23 +53,33 @@ public class Partition extends MetaObject implements Writable {
     private long committedVersion;
     private long committedVersionHash;
 
+    private long nextVersion;
+    private long nextVersionHash;
+    // not have currentVersion because currentVersion = nextVersion - 1
+    private long currentVersionHash;
+
     private DistributionInfo distributionInfo;
 
     public Partition() {
         this.idToRollupIndex = new HashMap<Long, MaterializedIndex>();
     }
 
-    public Partition(long id, String name, MaterializedIndex baseIndex, DistributionInfo distributionInfo) {
+    public Partition(long id, String name, 
+            MaterializedIndex baseIndex, DistributionInfo distributionInfo) {
         this.id = id;
         this.name = name;
         this.state = PartitionState.NORMAL;
-
+        
         this.baseIndex = baseIndex;
         this.idToRollupIndex = new HashMap<Long, MaterializedIndex>();
 
         this.committedVersion = PARTITION_INIT_VERSION;
         this.committedVersionHash = PARTITION_INIT_VERSION_HASH;
         this.distributionInfo = distributionInfo;
+        // PARTITION_INIT_VERSION == 1, so the first load version is 2 !!!
+        this.nextVersion = PARTITION_INIT_VERSION + 1;
+        this.nextVersionHash = Util.generateVersionHash();
+        this.currentVersionHash = PARTITION_INIT_VERSION_HASH;
     }
 
     public void setIdForRestore(long id) {
@@ -89,20 +102,30 @@ public class Partition extends MetaObject implements Writable {
         this.state = state;
     }
 
+    public void updateCommitVersionAndVersionHash(long committedVersion, long committedVersionHash) {
+        this.committedVersion = committedVersion;
+        this.committedVersionHash = committedVersionHash;
+        // if it is upgrade from old palo cluster, then should update next version info
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_45) {
+         // the partition is created and not import any data
+            if (committedVersion == PARTITION_INIT_VERSION + 1 && committedVersionHash == PARTITION_INIT_VERSION_HASH) {
+                this.nextVersion = PARTITION_INIT_VERSION + 1;
+                this.nextVersionHash = Util.generateVersionHash();
+                this.currentVersionHash = PARTITION_INIT_VERSION_HASH;
+            } else {
+                this.nextVersion = committedVersion + 1;
+                this.nextVersionHash = Util.generateVersionHash();
+                this.currentVersionHash = committedVersionHash;
+            }
+        }
+    }
+    
     public long getCommittedVersion() {
         return committedVersion;
     }
 
-    public void setCommittedVersion(long committedVersion) {
-        this.committedVersion = committedVersion;
-    }
-
     public long getCommittedVersionHash() {
         return committedVersionHash;
-    }
-
-    public void setCommittedVersionHash(long committedVersionHash) {
-        this.committedVersionHash = committedVersionHash;
     }
 
     public PartitionState getState() {
@@ -123,6 +146,31 @@ public class Partition extends MetaObject implements Writable {
 
     public MaterializedIndex getBaseIndex() {
         return baseIndex;
+    }
+
+    public long getNextVersion() {
+        return nextVersion;
+    }
+
+    public void setNextVersion(long nextVersion) {
+        this.nextVersion = nextVersion;
+    }
+
+    public long getNextVersionHash() {
+        return nextVersionHash;
+    }
+
+    public void setNextVersionHash(long nextVersionHash, long currentVersionHash) {
+        this.currentVersionHash = currentVersionHash;
+        this.nextVersionHash = nextVersionHash;
+    }
+    
+    public long getCurrentVersion() {
+        return Math.max(this.nextVersion - 1, 2);
+    }
+    
+    public long getCurrentVersionHash() {
+        return currentVersionHash;
     }
 
     public List<MaterializedIndex> getRollupIndices() {
@@ -164,6 +212,7 @@ public class Partition extends MetaObject implements Writable {
         out.writeLong(id);
         Text.writeString(out, name);
         Text.writeString(out, state.name());
+        
         baseIndex.write(out);
 
         int rollupCount = (idToRollupIndex != null) ? idToRollupIndex.size() : 0;
@@ -177,6 +226,10 @@ public class Partition extends MetaObject implements Writable {
         out.writeLong(committedVersion);
         out.writeLong(committedVersionHash);
 
+        out.writeLong(nextVersion);
+        out.writeLong(nextVersionHash);
+        out.writeLong(currentVersionHash);
+
         Text.writeString(out, distributionInfo.getType().name());
         distributionInfo.write(out);
     }
@@ -187,6 +240,7 @@ public class Partition extends MetaObject implements Writable {
         id = in.readLong();
         name = Text.readString(in);
         state = PartitionState.valueOf(Text.readString(in));
+        
         baseIndex = MaterializedIndex.read(in);
 
         int rollupCount = in.readInt();
@@ -197,7 +251,22 @@ public class Partition extends MetaObject implements Writable {
 
         committedVersion = in.readLong();
         committedVersionHash = in.readLong();
-
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_45) {
+            nextVersion = in.readLong();
+            nextVersionHash = in.readLong();
+            currentVersionHash = in.readLong();
+        } else {
+            // the partition is created and not import any data
+            if (committedVersion == PARTITION_INIT_VERSION + 1 && committedVersionHash == PARTITION_INIT_VERSION_HASH) {
+                this.nextVersion = PARTITION_INIT_VERSION + 1;
+                this.nextVersionHash = Util.generateVersionHash();
+                this.currentVersionHash = PARTITION_INIT_VERSION_HASH;
+            } else {
+                this.nextVersion = committedVersion + 1;
+                this.nextVersionHash = Util.generateVersionHash();
+                this.currentVersionHash = committedVersionHash;
+            }
+        }
         DistributionInfoType distriType = DistributionInfoType.valueOf(Text.readString(in));
         if (distriType == DistributionInfoType.HASH) {
             distributionInfo = HashDistributionInfo.read(in);

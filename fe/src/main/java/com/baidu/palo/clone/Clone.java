@@ -252,6 +252,16 @@ public class Clone {
                     jobInfo.add(job.getState().name());
                     jobInfo.add(job.getType().name());
                     jobInfo.add(job.getPriority().name());
+                    CloneTask cloneTask = job.getCloneTask();
+                    if (cloneTask != null) {
+                        jobInfo.add(cloneTask.getCommittedVersion());
+                        jobInfo.add(cloneTask.getCommittedVersionHash());
+                        jobInfo.add(cloneTask.getFailedTimes());
+                    } else {
+                        jobInfo.add(-1L);
+                        jobInfo.add(-1L);
+                        jobInfo.add(0);
+                    }
                     jobInfo.add(TimeUtils.longToTimeString(job.getCreateTimeMs()));
                     jobInfo.add(TimeUtils.longToTimeString(job.getCloneStartTimeMs()));
                     jobInfo.add(TimeUtils.longToTimeString(job.getCloneFinishTimeMs()));
@@ -283,6 +293,7 @@ public class Clone {
             if (AgentTaskQueue.addTask(task)) {
                 job.setState(JobState.RUNNING);
                 job.setCloneStartTimeMs(System.currentTimeMillis()); 
+                job.setCloneTask(task);
                 return true;
             } else {
                 return false;
@@ -446,12 +457,12 @@ public class Clone {
                         + ", backend id: " + backendId);
             }
             
-            // Here we do not check is clone version is equal to the commited version.
-            // Because in case of high frequency loading, clone version always lags behind the commited version,
+            // Here we do not check is clone version is equal to the committed version.
+            // Because in case of high frequency loading, clone version always lags behind the committed version,
             // so the clone job will never succeed, which cause accumulation of quorum finished load jobs.
 
             // But we will check if the cloned replica's version is larger than or equal to the task's version.
-            // We should dicard the cloned replica with stale version.
+            // We should discard the cloned replica with stale version.
             if (tabletInfo.getVersion() < taskVersion
                     || (tabletInfo.getVersion() == taskVersion && tabletInfo.getVersion_hash() != taskVersionHash)) {
                 throw new MetaNotFoundException(String.format("cloned replica's version info is stale. %ld-%ld,"
@@ -471,18 +482,34 @@ public class Clone {
                     LOG.warn("clone job state is not running. job: {}", job);
                     return;
                 }
+                
+                // if clone finished and report version == last failed version then last failed version hash should equal
+                if (replica.getLastFailedVersion() == version && replica.getLastFailedVersionHash() != versionHash) {
+                    throw new MetaNotFoundException(String.format("clone finshed and report version %ld, " 
+                            + "version hash %ld, but the replica's current failed version " 
+                            + "is %ld versionhash is %ld", 
+                            version, versionHash, replica.getLastFailedVersion(), 
+                            replica.getLastFailedVersionHash()));
+                }
  
                 replica.setState(ReplicaState.NORMAL);
                 replica.updateInfo(version, versionHash, dataSize, rowCount);
 
                 job.setCloneFinishTimeMs(System.currentTimeMillis());
                 job.setState(JobState.FINISHED);
-                LOG.info("finish clone job: {}", job);
-                
-                // Write edit log
+                // yiguolei:
+                // there are two types of clone job: catch up clone or new replica add to tablet
+                // for new replica add to tablet, set its last failed version to max commit version for the tablet
+                // and the new replica will try to clone, if clone finished and the version < last failed version
+                // the clone type is converted to catchup clone 
                 ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tableId, partitionId, indexId,
                                                                             tabletId, backendId, replica.getId(),
-                                                                            version, versionHash, dataSize, rowCount);
+                                                                            version, versionHash, dataSize, rowCount,
+                                                                            replica.getLastFailedVersion(),
+                                                                            replica.getLastFailedVersionHash(),
+                                                                            replica.getLastSuccessVersion(), 
+                                                                            replica.getLastSuccessVersionHash());
+                LOG.info("finish clone job: {}, add a replica {}", job, info);
                 Catalog.getInstance().getEditLog().logAddReplica(info);
             } finally {
                 writeUnlock();
@@ -560,12 +587,23 @@ public class Clone {
 
                 Replica replica = tablet.getReplicaByBackendId(backendId);
                 if (replica == null) {
-                    throw new MetaNotFoundException("replica does not exist in be: " + backendId
-                            + " . tablet id: " + tabletId);
+                    LOG.info("could not find replica on backend {} for tablet id {}, " 
+                            + "maybe clone not find src backends, ignore it", 
+                            backendId, tabletId);
+                    return;
                 }
+                
+                // 1. if this is a normal clone job, then should remove it from meta, not write log, because the clone replica 
+                // not exist on follower and observer
+                // 2. if this is a catch up clone job, should not delete it from meta because the catch up replica is a normal replica
+                // before clone and we will lost data if delete the catch up clone replica
                 if (replica.getState() == ReplicaState.CLONE) {
-                    if (tablet.deleteReplicaByBackendId(backendId)) {
-                        LOG.info("remove clone replica. tablet id: {}, backend id: {}", tabletId, backendId);
+                    if (job.getType() == JobType.CATCHUP) {
+                        replica.setState(ReplicaState.NORMAL);
+                    } else {
+                        if (tablet.deleteReplicaByBackendId(backendId)) {
+                            LOG.info("remove clone replica. tablet id: {}, backend id: {}", tabletId, backendId);
+                        }
                     }
                 }
             } catch (MetaNotFoundException e) {

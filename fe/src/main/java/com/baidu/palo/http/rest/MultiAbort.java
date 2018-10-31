@@ -39,14 +39,15 @@ public class MultiAbort extends RestBaseAction {
         this.execEnv = execEnv;
     }
 
-    public static void registerAction (ActionController controller) throws IllegalArgException {
+    public static void registerAction(ActionController controller) throws IllegalArgException {
         ExecuteEnv executeEnv = ExecuteEnv.getInstance();
         MultiAbort action = new MultiAbort(controller, executeEnv);
         controller.registerHandler(HttpMethod.POST, "/api/{db}/_multi_abort", action);
     }
 
     @Override
-    public void execute(BaseRequest request, BaseResponse response) throws DdlException {
+    public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+            throws DdlException {
         String db = request.getSingleParameter(DB_KEY);
         if (Strings.isNullOrEmpty(db)) {
             throw new DdlException("No database selected");
@@ -56,10 +57,10 @@ public class MultiAbort extends RestBaseAction {
             throw new DdlException("No label selected");
         }
 
-        AuthorizationInfo authInfo = getAuthorizationInfo(request);
         String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, db);
         checkDbAuth(authInfo, fullDbName, PrivPredicate.LOAD);
 
+        // only Master has these load info
         if (redirectToMaster(request, response)) {
             return;
         }
@@ -68,3 +69,4 @@ public class MultiAbort extends RestBaseAction {
         sendResult(request, response, RestBaseResult.getOk());
     }
 }
+

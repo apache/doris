@@ -82,10 +82,10 @@ public final class FeMetaVersion {
 
     // paralle exec param and batch size
     public static final int VERSION_38 = 38;
-
+    
     // schema change support row to column
     public static final int VERSION_39 = 39;
-
+    
     // persistent brpc port in Backend
     public static final int VERSION_40 = 40;
 
@@ -97,4 +97,7 @@ public final class FeMetaVersion {
 
     // new privilege management
     public static final int VERSION_43 = 43;
+
+    // streaming load
+    public static final int VERSION_45 = 45;
 }

@@ -47,10 +47,16 @@ public class LoadAction extends RestBaseAction {
     public static final String SUB_LABEL_NAME_PARAM = "sub_label";
 
     private ExecuteEnv execEnv;
+    private boolean isStreamLoad = false;
 
     public LoadAction(ActionController controller, ExecuteEnv execEnv) {
+        this(controller, execEnv, false);
+    }
+
+    public LoadAction(ActionController controller, ExecuteEnv execEnv, boolean isStreamLoad) {
         super(controller);
         this.execEnv = execEnv;
+        this.isStreamLoad = isStreamLoad;
     }
 
     public static void registerAction(ActionController controller) throws IllegalArgException {
@@ -58,11 +64,16 @@ public class LoadAction extends RestBaseAction {
         LoadAction action = new LoadAction(controller, execEnv);
         controller.registerHandler(HttpMethod.PUT,
                 "/api/{" + DB_NAME_PARAM + "}/{" + TABLE_NAME_PARAM + "}/_load", action);
+
+        controller.registerHandler(HttpMethod.PUT,
+                "/api/{" + DB_NAME_PARAM + "}/{" + TABLE_NAME_PARAM + "}/_stream_load",
+                new LoadAction(controller, execEnv, true));
     }
 
     @Override
-    public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
-            throws DdlException {
+    public void executeWithoutPassword(AuthorizationInfo authInfo,
+            BaseRequest request, BaseResponse response) throws DdlException {
+
         // A 'Load' request must have 100-continue header
         if (!request.getRequest().headers().contains(HttpHeaders.Names.EXPECT)) {
             throw new DdlException("There is no 100-continue header");
@@ -84,18 +95,23 @@ public class LoadAction extends RestBaseAction {
         }
         
         String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, dbName);
+
         String label = request.getSingleParameter(LABEL_NAME_PARAM);
-        String subLabel = request.getSingleParameter(SUB_LABEL_NAME_PARAM);
-        if (Strings.isNullOrEmpty(label)) {
-            throw new DdlException("No label selected.");
+        if (!isStreamLoad) {
+            if (Strings.isNullOrEmpty(label)) {
+                throw new DdlException("No label selected.");
+            }
         }
  
         // check auth
         checkTblAuth(authInfo, fullDbName, tableName, PrivPredicate.LOAD);
 
-        // Try to redirect to master
-        if (redirectToMaster(request, response)) {
-            return;
+        if (!isStreamLoad && !Strings.isNullOrEmpty(request.getSingleParameter(SUB_LABEL_NAME_PARAM))) {
+            // only multi mini load need to redirect to Master, because only Master has the info of table to
+            // the Backend which the file exists.
+            if (redirectToMaster(request, response)) {
+                return;
+            }
         }
 
         // Choose a backend sequentially.
@@ -110,11 +126,15 @@ public class LoadAction extends RestBaseAction {
         }
 
         TNetworkAddress redirectAddr = new TNetworkAddress(backend.getHost(), backend.getHttpPort());
-        if (!Strings.isNullOrEmpty(subLabel)) {
-            redirectAddr = execEnv.getMultiLoadMgr().redirectAddr(fullDbName, label, tableName, redirectAddr);
-        }
-        LOG.info("mini load redirect to backend: {}, label: {}", redirectAddr.toString(), label);
 
+        if (!isStreamLoad) {
+            String subLabel = request.getSingleParameter(SUB_LABEL_NAME_PARAM);
+            if (!Strings.isNullOrEmpty(subLabel)) {
+                redirectAddr = execEnv.getMultiLoadMgr().redirectAddr(fullDbName, label, tableName, redirectAddr);
+            }
+        }
+
+        LOG.info("redirect load action to destination={}", redirectAddr.toString());
         redirectTo(request, response, redirectAddr);
     }
 }

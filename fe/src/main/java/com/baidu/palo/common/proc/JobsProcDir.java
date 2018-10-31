@@ -120,9 +120,9 @@ public class JobsProcDir implements ProcDirInterface {
 
         // delete
         pendingNum = 0;
-        runningNum = 0;
-        finishedNum = load.getDeleteInfoNum(dbId);
-        cancelledNum = 0;
+        runningNum = load.getDeleteJobNumByState(dbId, com.baidu.palo.load.LoadJob.JobState.LOADING);
+        finishedNum = load.getDeleteJobNumByState(dbId, com.baidu.palo.load.LoadJob.JobState.FINISHED);
+        cancelledNum = load.getDeleteJobNumByState(dbId, com.baidu.palo.load.LoadJob.JobState.CANCELLED);
         totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
         result.addRow(Lists.newArrayList(DELETE, pendingNum.toString(), runningNum.toString(), finishedNum.toString(),
                                          cancelledNum.toString(), totalNum.toString()));
@@ -130,7 +130,8 @@ public class JobsProcDir implements ProcDirInterface {
         // rollup
         RollupHandler rollupHandler = Catalog.getInstance().getRollupHandler();
         pendingNum = rollupHandler.getAlterJobNum(com.baidu.palo.alter.AlterJob.JobState.PENDING, dbId);
-        runningNum = rollupHandler.getAlterJobNum(com.baidu.palo.alter.AlterJob.JobState.RUNNING, dbId);
+        runningNum = rollupHandler.getAlterJobNum(com.baidu.palo.alter.AlterJob.JobState.RUNNING, dbId)
+                + rollupHandler.getAlterJobNum(com.baidu.palo.alter.AlterJob.JobState.FINISHING, dbId);
         finishedNum = rollupHandler.getAlterJobNum(com.baidu.palo.alter.AlterJob.JobState.FINISHED, dbId);
         cancelledNum = rollupHandler.getAlterJobNum(com.baidu.palo.alter.AlterJob.JobState.CANCELLED, dbId);
         totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
@@ -140,7 +141,8 @@ public class JobsProcDir implements ProcDirInterface {
         // schema change
         SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
         pendingNum = schemaChangeHandler.getAlterJobNum(com.baidu.palo.alter.AlterJob.JobState.PENDING, dbId);
-        runningNum = schemaChangeHandler.getAlterJobNum(com.baidu.palo.alter.AlterJob.JobState.RUNNING, dbId);
+        runningNum = schemaChangeHandler.getAlterJobNum(com.baidu.palo.alter.AlterJob.JobState.RUNNING, dbId)
+                + schemaChangeHandler.getAlterJobNum(com.baidu.palo.alter.AlterJob.JobState.FINISHING, dbId);
         finishedNum = schemaChangeHandler.getAlterJobNum(com.baidu.palo.alter.AlterJob.JobState.FINISHED, dbId);
         cancelledNum = schemaChangeHandler.getAlterJobNum(com.baidu.palo.alter.AlterJob.JobState.CANCELLED, dbId);
         totalNum = pendingNum + runningNum + finishedNum + cancelledNum;

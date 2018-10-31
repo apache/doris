@@ -15,7 +15,7 @@
 
 package com.baidu.palo.qe;
 
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.thrift.TReportExecStatusParams;
 import com.baidu.palo.thrift.TReportExecStatusResult;
 import com.baidu.palo.thrift.TUniqueId;
@@ -26,9 +26,9 @@ public interface QeProcessor {
 
     TReportExecStatusResult reportExecStatus(TReportExecStatusParams params);
 
-    void registerQuery(TUniqueId queryId, Coordinator coord) throws InternalException;
+    void registerQuery(TUniqueId queryId, Coordinator coord) throws UserException;
 
-    void registerQuery(TUniqueId queryId, QeProcessorImpl.QueryInfo info) throws InternalException;
+    void registerQuery(TUniqueId queryId, QeProcessorImpl.QueryInfo info) throws UserException;
 
     void unregisterQuery(TUniqueId queryId);
 

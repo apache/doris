@@ -42,26 +42,28 @@ public class MultiList extends RestBaseAction {
         this.execEnv = execEnv;
     }
 
-    public static void registerAction (ActionController controller) throws IllegalArgException {
+    public static void registerAction(ActionController controller) throws IllegalArgException {
         ExecuteEnv executeEnv = ExecuteEnv.getInstance();
         MultiList action = new MultiList(controller, executeEnv);
         controller.registerHandler(HttpMethod.POST, "/api/{db}/_multi_list", action);
     }
 
     @Override
-    public void execute(BaseRequest request, BaseResponse response) throws DdlException {
+    public void executeWithoutPassword(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+            throws DdlException {
         String db = request.getSingleParameter(DB_KEY);
         if (Strings.isNullOrEmpty(db)) {
             throw new DdlException("No database selected");
         }
 
-        AuthorizationInfo authInfo = getAuthorizationInfo(request);
         String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, db);
         checkDbAuth(authInfo, fullDbName, PrivPredicate.LOAD);
 
+        // only Master has these load info
         if (redirectToMaster(request, response)) {
             return;
         }
+
         final List<String> labels = Lists.newArrayList();
         execEnv.getMultiLoadMgr().list(fullDbName, labels);
         sendResult(request, response, new Result(labels));
@@ -75,3 +77,4 @@ public class MultiList extends RestBaseAction {
         }
     }
 }
+

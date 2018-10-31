@@ -20,6 +20,14 @@
 
 package com.baidu.palo.common.proc;
 
+import com.baidu.palo.catalog.Database;
+import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.alter.SchemaChangeHandler;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+
+import java.util.ArrayList;
 import com.baidu.palo.alter.SchemaChangeHandler;
 import com.baidu.palo.catalog.Database;
 import com.baidu.palo.common.AnalysisException;
@@ -32,7 +40,7 @@ import java.util.List;
 
 public class SchemaChangeProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("JobId").add("TableName").add("CreateTime").add("FinishTime")
+            .add("JobId").add("TableName").add("TransactionId").add("CreateTime").add("FinishTime")
             .add("IndexName").add("IndexState").add("State").add("Msg")
             .add("Progress")
             .build();

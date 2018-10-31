@@ -196,6 +196,12 @@ public final class LocalJournalCursor implements JournalCursor {
                 ret.setData(text);
                 break;
             }
+            case OperationType.OP_SAVE_TRANSACTION_ID: {
+                Text text = new Text();
+                text.readFields(in);
+                ret.setData(text);
+                break;
+            }
             case OperationType.OP_CREATE_DB: {
                 Database db = new Database();
                 db.readFields(in);

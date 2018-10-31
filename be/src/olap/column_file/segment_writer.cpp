@@ -26,14 +26,13 @@ namespace column_file {
 
 SegmentWriter::SegmentWriter(
         const std::string& file_name,
-        SmartOLAPTable table,
+        OLAPTablePtr table,
         uint32_t stream_buffer_size) : 
         _file_name(file_name),
         _table(table),
         _stream_buffer_size(stream_buffer_size),
         _stream_factory(NULL),
         _row_count(0),
-        _row_in_block(0),
         _block_count(0) {}
 
 SegmentWriter::~SegmentWriter() {
@@ -59,7 +58,7 @@ OLAPStatus SegmentWriter::init(uint32_t write_mbytes_per_sec) {
     // 创建writer
     for (uint32_t i = 0; i < _table->tablet_schema().size(); i++) {
         if (_table->tablet_schema()[i].is_root_column) {
-            ColumnWriter* writer = ColumnWriter::create(i, _table->tablet_schema(), 
+            ColumnWriter* writer = ColumnWriter::create(i, _table->tablet_schema(),
                                                         _stream_factory,
                                                         _table->num_rows_per_row_block(),
                                                         _table->bloom_filter_fpp());
@@ -84,31 +83,25 @@ OLAPStatus SegmentWriter::init(uint32_t write_mbytes_per_sec) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus SegmentWriter::write(RowCursor* row_cursor) {
+OLAPStatus SegmentWriter::write_batch(RowBlock* block, RowCursor* cursor, bool is_finalize) {
+    DCHECK(block->row_block_info().row_num == _table->num_rows_per_row_block() || is_finalize)
+        << "write block not empty, num_rows=" << block->row_block_info().row_num
+        << ", table_num_rows=" << _table->num_rows_per_row_block();
     OLAPStatus res = OLAP_SUCCESS;
-
-    // OLAP_LOG_DEBUG("row_count = %lu, row_in_block = %lu, block = %lu",
-    //                _row_count, _row_in_block, _block_count);
-    if (_row_in_block == _table->num_rows_per_row_block()) {
-        res = create_row_index_entry();
-
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to create row index entry");
-        }
-    }
-
-    for (std::vector<ColumnWriter*>::iterator it = _root_writers.begin();
-            it != _root_writers.end(); ++it) {
-        res = (*it)->write(row_cursor);
-
-        if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
+    for (auto col_writer : _root_writers) {
+        res = col_writer->write_batch(block, cursor);
+        if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
             OLAP_LOG_WARNING("fail to write row. [res=%d]", res);
             return res;
         }
+        res = col_writer->create_row_index_entry();
+        if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
+            OLAP_LOG_WARNING("fail to create row index. [res=%d]", res);
+            return res;
+        }
     }
-
-    ++_row_count;
-    ++_row_in_block;
+    _row_count += block->row_block_info().row_num;
+    ++_block_count;
     return res;
 }
 
@@ -215,15 +208,8 @@ OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
 
     if (OLAP_SUCCESS != (res = file_handle.open_with_mode(
             _file_name, O_CREAT | O_EXCL | O_WRONLY , S_IRUSR | S_IWUSR))) {
-        OLAP_LOG_WARNING("fail to open file. [file_name=%s]", _file_name.c_str());
+        LOG(WARNING) << "fail to open file. [file_name=" << _file_name << "]";
         return res;
-    }
-
-    if (_row_in_block > 0) {
-        res = create_row_index_entry();
-        if (OLAP_SUCCESS != res) {
-            return res;
-        }
     }
 
     res = _make_file_header(file_header.mutable_message());
@@ -285,26 +271,6 @@ OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
         return res;
     }
 
-    return res;
-}
-
-OLAPStatus SegmentWriter::create_row_index_entry() {
-    OLAPStatus res = OLAP_SUCCESS;
-
-    for (std::vector<ColumnWriter*>::iterator it = _root_writers.begin();
-            it != _root_writers.end(); ++it) {
-        res = (*it)->create_row_index_entry();
-
-        if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
-            OLAP_LOG_WARNING("fail to create row index. [res=%d]", res);
-            return res;
-        }
-    }
-
-    OLAP_LOG_DEBUG("create row_index_entry, _block_count = %ld, _row_in_block = %ld",
-            _block_count, _row_in_block);
-    ++_block_count;
-    _row_in_block = 0;
     return res;
 }
 

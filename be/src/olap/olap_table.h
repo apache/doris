@@ -36,12 +36,13 @@ namespace palo {
 class FieldInfo;
 class IData;
 class OLAPHeader;
-class OLAPIndex;
+class Rowset;
 class OLAPTable;
 class RowBlockPosition;
+class OlapStore;
 
 // Define OLAPTable's shared_ptr. It is used for
-typedef std::shared_ptr<OLAPTable> SmartOLAPTable;
+typedef std::shared_ptr<OLAPTable> OLAPTablePtr;
 
 enum BaseCompactionStage {
     BASE_COMPACTION_WAITING = 0,
@@ -89,12 +90,19 @@ struct SchemaChangeStatus {
     int32_t version;
 };
 
-class OLAPTable {
+class OLAPTable : public std::enable_shared_from_this<OLAPTable> {
 public:
-    static OLAPTable* create_from_header_file(
+    static OLAPTablePtr create_from_header_file(
             TTabletId tablet_id,
             TSchemaHash schema_hash,
-            const std::string& header_file);
+            const std::string& header_file,
+            OlapStore* store = nullptr);
+
+    static OLAPTablePtr create_from_header(
+            OLAPHeader* header,
+            OlapStore* store = nullptr);
+
+    explicit OLAPTable(OLAPHeader* header, OlapStore* store);
 
     virtual ~OLAPTable();
 
@@ -108,13 +116,10 @@ public:
 
     OLAPStatus load_indices();
 
-    OLAPStatus save_header() {
-        OLAPStatus res = _header->save();
-        if (res != OLAP_SUCCESS && is_io_error(res)) {
-            set_io_error();
-        }
+    OLAPStatus save_header();
 
-        return res;
+    OLAPHeader* get_header() {
+        return _header;
     }
 
     OLAPStatus select_versions_to_span(const Version& version,
@@ -147,18 +152,58 @@ public:
 
     // Registers a newly created data source, making it available for
     // querying.  Adds a reference to the data source in the header file.
-    OLAPStatus register_data_source(OLAPIndex* index);
+    OLAPStatus register_data_source(const std::vector<Rowset*>& index_vec);
 
     // Unregisters the data source for given version, frees up resources.
     // resources include memory, files.
-    // After unregister, index will point to the associated OLAPIndex.
-    OLAPStatus unregister_data_source(const Version& version, OLAPIndex** index);
+    // After unregister, index will point to the associated Rowset.
+    OLAPStatus unregister_data_source(const Version& version, std::vector<Rowset*>* index_vec);
+
+    // if pending data is push_for_delete, delete conditions is not null
+    OLAPStatus add_pending_version(int64_t partition_id, int64_t transaction_id,
+                                 const std::vector<std::string>* delete_conditions);
+    OLAPStatus add_pending_rowset(Rowset* index);
+    int32_t current_pending_rowset_id(int64_t transaction_id);
+
+    OLAPStatus add_pending_data(Rowset* index, const std::vector<TCondition>* delete_conditions);
+
+    bool has_pending_data(int64_t transaction_id);
+
+    void delete_pending_data(int64_t transaction_id);
+
+    // check the pending data that still not publish version
+    void get_expire_pending_data(std::vector<int64_t>* transaction_ids);
+
+    void delete_expire_incremental_data();
+
+    // don't need header lock, because it occurs before loading tablet
+    void load_pending_data();
+
+    OLAPStatus publish_version(int64_t transaction_id, Version version, VersionHash version_hash);
+
+    const PDelta* get_incremental_delta(Version version) const {
+        return _header->get_incremental_version(version);
+    }
+
+    // calculate holes of version
+    // need header rdlock outside
+    void get_missing_versions_with_header_locked(
+            int64_t until_version, std::vector<Version>* missing_versions) const;
+
+    // check if pending data is push_for_delete
+    // need to obtain header rdlock outside
+    OLAPStatus is_push_for_delete(int64_t transaction_id, bool* is_push_for_delete) const;
+
+    // need to obtain header wrlock outside
+    OLAPStatus clone_data(const OLAPHeader& clone_header,
+                          const std::vector<const PDelta*>& clone_deltas,
+                          const std::vector<Version>& versions_to_delete);
 
     // Atomically replaces one set of data sources with another. Returns
     // true on success.
     OLAPStatus replace_data_sources(const std::vector<Version>* old_versions,
-                                const std::vector<OLAPIndex*>* new_data_sources,
-                                std::vector<OLAPIndex*>* old_data_sources);
+                                const std::vector<Rowset*>* new_data_sources,
+                                std::vector<Rowset*>* old_data_sources);
 
     // Computes the cumulative hash for given versions.
     // Only use Base file and Delta files to compute for simplicity and
@@ -171,15 +216,8 @@ public:
     OLAPStatus compute_all_versions_hash(const std::vector<Version>& versions,
                                          VersionHash* version_hash) const;
 
-    // Get OLAPHeader read lock before call get_selectivities()
-    // Get table row_count and selectivity vector for SHOW_TABLE_INFO command
-    OLAPStatus get_selectivities(std::vector<uint32_t>* selectivities);
-
     // used for restore, merge the (0, to_version) in 'hdr'
     OLAPStatus merge_header(const OLAPHeader& hdr, int to_version);
-
-    // Get OLAPHeader write lock before call get_selectivities()
-    void set_selectivities(const std::vector<uint32_t>& selectivities);
 
     // Used by monitoring OLAPTable
     void list_data_files(std::set<std::string>* filenames) const;
@@ -214,7 +252,7 @@ public:
         _header_lock.unlock();
     }
 
-    RWLock* get_header_lock_ptr() {
+    RWMutex* get_header_lock_ptr() {
         return &_header_lock;
     }
 
@@ -224,6 +262,10 @@ public:
     }
     void release_push_lock() {
         _push_lock.unlock();
+    }
+
+    Mutex* get_push_lock() {
+        return &_push_lock;
     }
 
     // Prevent base compaction operations execute concurrently.
@@ -250,14 +292,6 @@ public:
         _cumulative_lock.unlock();
     }
 
-    // Prevent sync  operations execute concurrently.
-    bool try_sync_lock() {
-        return _sync_lock.trylock() == OLAP_SUCCESS;
-    }
-    void release_sync_lock() {
-        _sync_lock.unlock();
-    }
-
     // Construct index file path according version, version_hash and segment
     // We construct file path through header file name. header file name likes:
     //      tables_root_path/db/table/index/table_index_schemaversion.hdr
@@ -269,7 +303,7 @@ public:
     // DailyWinfoIdeaStats_PRIMARY_20120428_0_200_735382373247_1.idx
     std::string construct_index_file_path(const Version& version,
                                           VersionHash version_hash,
-                                          uint32_t segment) const;
+                                          int32_t rowset_id, int32_t segment) const;
 
     // Same as construct_index_file_path except that file suffix is .dat
     // The typical index file path is:
@@ -277,23 +311,32 @@ public:
     // DailyWinfoIdeaStats_PRIMARY_20120428_0_200_735382373247_1.dat
     std::string construct_data_file_path(const Version& version,
                                          VersionHash version_hash,
-                                         uint32_t segment) const;
-
-    // return the dir path of this tablet, include tablet id and schema hash
-    // eg: /path/to/data/0/100001/237480234/
-    std::string construct_dir_path() const;
+                                         int32_t rowset_id, int32_t segment) const;
 
     // For index file, suffix is "idx", for data file, suffix is "dat".
-    static std::string construct_file_path(const std::string& header_path,
+    static std::string construct_file_path(const std::string& tablet_path,
                                            const Version& version,
                                            VersionHash version_hash,
-                                           uint32_t segment,
+                                           int32_t rowset_id, int32_t segment,
                                            const std::string& suffix);
+
+    std::string construct_pending_data_dir_path() const;
+    std::string construct_pending_index_file_path(
+        TTransactionId transaction_id, int32_t rowset_id, int32_t segment) const;
+    std::string construct_pending_data_file_path(
+        TTransactionId transaction_id, int32_t rowset_id, int32_t segment) const;
+    std::string construct_incremental_delta_dir_path() const;
+    std::string construct_incremental_index_file_path(
+        Version version, VersionHash version_hash, int32_t rowset_id, int32_t segment) const;
+    std::string construct_incremental_data_file_path(
+        Version version, VersionHash version_hash, int32_t rowset_id, int32_t segment) const;
 
     std::string construct_file_name(const Version& version,
                                     VersionHash version_hash,
-                                    uint32_t segment,
-                                    const std::string& suffix);
+                                    int32_t rowset_id, int32_t segment,
+                                    const std::string& suffix) const;
+
+    std::string construct_dir_path() const;
 
     // Return -1 if field name is invalid, else return field index in schema.
     int32_t get_field_index(const std::string& field_name) const;
@@ -318,6 +361,10 @@ public:
     // eg. db4.DailyUnitStats.PRIMARY
     const std::string& full_name() const {
         return _full_name;
+    }
+
+    void set_full_name(std::string full_name) {
+        _full_name = full_name;
     }
 
     std::vector<FieldInfo>& tablet_schema() {
@@ -353,6 +400,10 @@ public:
         return _tablet_id;
     }
 
+    void set_tablet_id(TTabletId tablet_id)      {
+        _tablet_id = tablet_id;
+    }
+
     size_t num_short_key_fields() const {
         return _header->num_short_key_fields();
     }
@@ -361,38 +412,53 @@ public:
         return _header->next_column_unique_id();
     }
 
-    // num rows per rowBlock, typically it is 256 or 512.
-    size_t num_rows_per_row_block() const {
-        return _header->num_rows_per_data_block();
-    }
-
     TSchemaHash schema_hash() const {
         return _schema_hash;
     }
 
-    int file_version_size() const {
-        return _header->file_version_size();
+    void set_schema_hash(TSchemaHash schema_hash) {
+        _schema_hash = schema_hash;
     }
 
-    const FileVersionMessage& file_version(int index) const {
-        return _header->file_version(index);
+    OlapStore* store() const {
+        return _store;
     }
 
-    const FileVersionMessage* lastest_delta() const {
+    int file_delta_size() const {
+        return _header->file_delta_size();
+    }
+
+    const PDelta& delta(int index) const {
+        return _header->delta(index);
+    }
+
+    const PDelta* get_delta(int index) const {
+        return _header->get_delta(index);
+    }
+
+    const PDelta* lastest_delta() const {
         return _header->get_lastest_delta_version();
     }
 
-    const FileVersionMessage* latest_version() const {
-        return _header->get_latest_version();
+    const PDelta* lastest_version() const {
+        return _header->get_lastest_version();
     }
 
-    const FileVersionMessage* base_version() const {
+    // need to obtain header rdlock outside
+    const PDelta* least_complete_version(
+        const std::vector<Version>& missing_versions) const;
+
+    const PDelta* base_version() const {
         return _header->get_base_version();
     }
 
     // 在使用之前对header加锁
-    const uint32_t get_compaction_nice_estimate() const {
-        return _header->get_compaction_nice_estimate();
+    const uint32_t get_cumulative_compaction_score() const {
+        return _header->get_cumulative_compaction_score();
+    }
+
+    const uint32_t get_base_compaction_score() const {
+        return _header->get_base_compaction_score();
     }
 
     const OLAPStatus delete_version(const Version& version) {
@@ -407,29 +473,34 @@ public:
         return _header->data_file_type();
     }
 
+    // num rows per rowBlock, typically it is 256 or 512.
+    size_t num_rows_per_row_block() const {
+        return _num_rows_per_row_block;
+    }
+
     CompressKind compress_kind() const {
-        return _header->compress_kind();
+        return _compress_kind;
     }
 
     int delete_data_conditions_size() const {
         return _header->delete_data_conditions_size();
     }
 
-    DeleteDataConditionMessage* add_delete_data_conditions() {
+    DeleteConditionMessage* add_delete_data_conditions() {
         return _header->add_delete_data_conditions();
     }
 
-    const google::protobuf::RepeatedPtrField<DeleteDataConditionMessage>&
+    const google::protobuf::RepeatedPtrField<DeleteConditionMessage>&
     delete_data_conditions() {
         return _header->delete_data_conditions();
     }
 
-    google::protobuf::RepeatedPtrField<DeleteDataConditionMessage>*
+    google::protobuf::RepeatedPtrField<DeleteConditionMessage>*
     mutable_delete_data_conditions() {
         return _header->mutable_delete_data_conditions();
     }
 
-    DeleteDataConditionMessage* mutable_delete_data_conditions(int index) {
+    DeleteConditionMessage* mutable_delete_data_conditions(int index) {
         return _header->mutable_delete_data_conditions(index);
     }
 
@@ -454,7 +525,7 @@ public:
             return false;
         }
 
-        google::protobuf::RepeatedPtrField<DeleteDataConditionMessage>::const_iterator it;
+        google::protobuf::RepeatedPtrField<DeleteConditionMessage>::const_iterator it;
         it = _header->delete_data_conditions().begin();
         for (; it != _header->delete_data_conditions().end(); ++it) {
             if (it->version() == version.first) {
@@ -492,51 +563,16 @@ public:
 
     bool get_schema_change_request(TTabletId* tablet_id,
                                    SchemaHash* schema_hash,
-                                   std::vector<Version>* versions_to_be_changed,
+                                   std::vector<Version>* versions_to_changed,
                                    AlterTabletType* alter_table_type) const;
 
     void set_schema_change_request(TTabletId tablet_id,
                                    TSchemaHash schema_hash,
-                                   const std::vector<Version>& versions_to_be_changed,
+                                   const std::vector<Version>& versions_to_changed,
                                    const AlterTabletType alter_table_type);
 
-    bool remove_last_schema_change_version(SmartOLAPTable new_olap_table);
+    bool remove_last_schema_change_version(OLAPTablePtr new_olap_table);
     void clear_schema_change_request();
-
-    // Following are get/set status functions.
-    // Like base-compaction, push, sync, schema-change.
-    BaseCompactionStatus base_compaction_status() {
-        return _base_compaction_status;
-    }
-
-    void set_base_compaction_status(BaseCompactionStage status, int32_t version) {
-        _base_compaction_status.status = status;
-        if (version > -2) {
-            _base_compaction_status.version = version;
-        }
-    }
-
-    PushStatus push_status() {
-        return _push_status;
-    }
-
-    void set_push_status(PushStage status, int32_t version) {
-        _push_status.status = status;
-        if (version > -2) {
-            _push_status.version = version;
-        }
-    }
-
-    SyncStatus sync_status() {
-        return _sync_status;
-    }
-
-    void set_sync_status(SyncStage status, int32_t version) {
-        _sync_status.status = status;
-        if (version > -2) {
-            _sync_status.version = version;
-        }
-    }
 
     SchemaChangeStatus schema_change_status() {
         return _schema_change_status;
@@ -586,6 +622,10 @@ public:
         return _storage_root_path;
     }
 
+    std::string tablet_path() {
+        return _tablet_path;
+    }
+
     std::string get_field_name_by_index(uint32_t index) {
         if (index < _tablet_schema.size()) {
             return _tablet_schema[index].name;
@@ -612,39 +652,18 @@ public:
 
     OLAPStatus test_version(const Version& version);
 
-    VersionEntity get_version_entity_by_version(Version version);
+    VersionEntity get_version_entity_by_version(const Version& version);
+    size_t get_version_index_size(const Version& version);
+    size_t get_version_data_size(const Version& version);
 
     bool is_dropped() {
         return _is_dropped;
     }
 
-    bool can_do_compaction() {
-        // 如果table正在做schema change，则通过选路判断数据是否转换完成
-        // 如果选路成功，则转换完成，可以进行BE
-        // 如果选路失败，则转换未完成，不能进行BE
-        obtain_header_rdlock();
-        const FileVersionMessage* version = latest_version();
-        if (version == NULL) {
-            release_header_lock();
-            return false;
-        }
-
-        if (is_schema_changing()) {
-            Version test_version = Version(0, version->end_version());
-            std::vector<Version> path_versions;
-            if (OLAP_SUCCESS != select_versions_to_span(test_version, &path_versions)) {
-                release_header_lock();
-                return false;
-            }
-        }
-        release_header_lock();
-
-        return true;
-    }
-
-
+    OLAPStatus recover_tablet_until_specfic_version(const int64_t& until_version,
+                                                    const int64_t& version_hash);
 private:
-    // used for hash-struct of hash_map<Version, OLAPIndex*>.
+    // used for hash-struct of hash_map<Version, Rowset*>.
     struct HashOfVersion {
         uint64_t operator()(const Version& version) const {
             uint64_t hash_value = version.first;
@@ -659,52 +678,66 @@ private:
         }
     };
 
-    typedef std::unordered_map<std::string, int32_t, HashOfString> field_index_map_t;
-    typedef std::unordered_map<Version, OLAPIndex*, HashOfVersion> version_olap_index_map_t;
-
-    explicit OLAPTable(OLAPHeader* header);
-
     // List files with suffix "idx" or "dat".
     void _list_files_with_suffix(const std::string& file_suffix,
                                  std::set<std::string>* file_names) const;
 
     // 获取最大的index（只看大小）
-    OLAPIndex* _get_largest_index();
+    Rowset* _get_largest_index();
 
-    void _set_storage_root_path_name();
+    Rowset* _construct_index_from_version(const PDelta* delta, int32_t rowset_id);
+
+    // check if version is same, may delete local data
+    OLAPStatus _handle_existed_version(int64_t transaction_id, const Version& version,
+                                       const VersionHash& version_hash);
+
+    // like "9-9" "10-10", for incremental cloning
+    OLAPStatus _add_incremental_data(std::vector<Rowset*>& index_vec, int64_t transaction_id,
+                                     const Version& version, const VersionHash& version_hash);
+
+    void _delete_incremental_data(const Version& version, const VersionHash& version_hash);
+
+    OLAPStatus _create_hard_link(const std::string& from, const std::string& to,
+                                 std::vector<std::string>* linked_success_files);
 
     TTabletId _tablet_id;
     TSchemaHash _schema_hash;
     OLAPHeader* _header;
+    size_t _num_rows_per_row_block;
+    CompressKind _compress_kind;
     // Set it true when table is dropped, table files and data structures
     // can be used and not deleted until table is destructed.
     bool _is_dropped;
     std::string _full_name;
     std::vector<FieldInfo> _tablet_schema;  // field info vector is table schema.
-    // version -> its OLAPIndex, data source can be base file, cumulative file,
-    // or delta file.
+
+    // Version mapping to Rowset.
+    // data source can be base delta, cumulative delta, singleton delta.
+    using version_olap_index_map_t = std::unordered_map<Version, std::vector<Rowset*>, HashOfVersion>;
     version_olap_index_map_t _data_sources;
+    using transaction_olap_index_map_t = std::unordered_map<int64_t, std::vector<Rowset*>>;
+    transaction_olap_index_map_t _pending_data_sources;
+
     size_t _num_fields;
     size_t _num_null_fields;
     size_t _num_key_fields;
     // filed name -> field position in row
+    using field_index_map_t = std::unordered_map<std::string, int32_t, HashOfString>;
     field_index_map_t _field_index_map;
     std::vector<int32_t> _field_sizes;
     // A series of status
-    BaseCompactionStatus _base_compaction_status;
-    PushStatus _push_status;
-    SyncStatus _sync_status;
     SchemaChangeStatus _schema_change_status;
     // related locks to ensure that commands are executed correctly.
-    RWLock _header_lock;
-    MutexLock _push_lock;
-    MutexLock _cumulative_lock;
-    MutexLock _base_compaction_lock;
-    MutexLock _sync_lock;
+    RWMutex _header_lock;
+    Mutex _push_lock;
+    Mutex _cumulative_lock;
+    Mutex _base_compaction_lock;
     size_t _id;                        // uniq id, used in cache
     std::string _storage_root_path;
-    volatile bool _is_loaded;
-    MutexLock _load_lock;
+    OlapStore* _store;
+    std::atomic<bool> _is_loaded;
+    Mutex _load_lock;
+    std::string _tablet_path;
 
     DISALLOW_COPY_AND_ASSIGN(OLAPTable);
 };

@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.mysql.privilege.PrivPredicate;
 import com.baidu.palo.qe.ConnectContext;
@@ -67,7 +67,7 @@ public class AlterTableStmtTest {
     }
 
     @Test
-    public void testNormal() throws AnalysisException, InternalException {
+    public void testNormal() throws AnalysisException, UserException {
         List<AlterClause> ops = Lists.newArrayList();
         ops.add(new DropColumnClause("col1", "", null));
         ops.add(new DropColumnClause("col2", "", null));
@@ -79,16 +79,8 @@ public class AlterTableStmtTest {
         Assert.assertEquals(2, stmt.getOps().size());
     }
 
-    @Test
-    public void testNoPriv() throws AnalysisException, InternalException {
-        List<AlterClause> ops = Lists.newArrayList();
-        ops.add(new DropColumnClause("col1", "", null));
-        AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
-        stmt.analyze(AccessTestUtil.fetchBlockAnalyzer());
-    }
-
     @Test(expected = AnalysisException.class)
-    public void testNoTable() throws AnalysisException, InternalException {
+    public void testNoTable() throws AnalysisException, UserException {
         List<AlterClause> ops = Lists.newArrayList();
         ops.add(new DropColumnClause("col1", "", null));
         AlterTableStmt stmt = new AlterTableStmt(null, ops);
@@ -98,7 +90,7 @@ public class AlterTableStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoClause() throws AnalysisException, InternalException {
+    public void testNoClause() throws AnalysisException, UserException {
         List<AlterClause> ops = Lists.newArrayList();
         AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
         stmt.analyze(analyzer);

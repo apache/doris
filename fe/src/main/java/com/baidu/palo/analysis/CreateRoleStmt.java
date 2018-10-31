@@ -16,9 +16,8 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.cluster.ClusterNamespace;
-import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.FeNameFormat;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 public class CreateRoleStmt extends DdlStmt {
 
@@ -33,7 +32,7 @@ public class CreateRoleStmt extends DdlStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, InternalException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         FeNameFormat.checkRoleName(role, false /* can not be admin */, "Can not create role");
         role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);

@@ -20,7 +20,10 @@
 
 package com.baidu.palo.catalog;
 
+import static org.junit.Assert.assertEquals;
+
 import com.baidu.palo.catalog.Replica.ReplicaState;
+import com.baidu.palo.common.FeMetaVersion;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -34,7 +37,14 @@ import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
+import mockit.Mocked;
+import mockit.NonStrictExpectations;
+
 public class ReplicaTest {
+    
+    // replica serialize and deserialize test will use catalog so that it should be mocked
+    @Mocked
+    Catalog catalog;
     
     private Replica replica;
     private long replicaId;
@@ -44,6 +54,7 @@ public class ReplicaTest {
     private long dataSize;
     private long rowCount;
     
+    
     @Before
     public void setUp() {
         replicaId = 10000;
@@ -52,7 +63,7 @@ public class ReplicaTest {
         versionHash = 98765;
         dataSize = 9999;
         rowCount = 1024;
-        replica = new Replica(replicaId, backendId, version, versionHash, dataSize, rowCount, ReplicaState.NORMAL);
+        replica = new Replica(replicaId, backendId, version, versionHash, dataSize, rowCount, ReplicaState.NORMAL, 0, 0, version, versionHash);
     }
     
     @Test
@@ -80,27 +91,16 @@ public class ReplicaTest {
         Assert.assertFalse(replica.checkVersionCatchUp(newVersion, 76543));
         Assert.assertTrue(replica.checkVersionCatchUp(newVersion, newVersionHash));
     }
-    
-    @Test
-    public void toStringTest() {
-        StringBuffer strBuffer = new StringBuffer("replicaId=");
-        strBuffer.append(replicaId);
-        strBuffer.append(", BackendId=");
-        strBuffer.append(backendId);
-        strBuffer.append(", version=");
-        strBuffer.append(version);
-        strBuffer.append(", versionHash=");
-        strBuffer.append(versionHash);
-        strBuffer.append(", dataSize=");
-        strBuffer.append(dataSize);
-        strBuffer.append(", rowCount=");
-        strBuffer.append(rowCount);
-
-        Assert.assertEquals(strBuffer.toString(), replica.toString());
-    }
 
     @Test
     public void testSerialization() throws Exception {
+        new NonStrictExpectations() {
+            {
+                Catalog.getCurrentCatalogJournalVersion();
+                result = FeMetaVersion.VERSION_45;
+            }
+        };
+
         // 1. Write objects to file
         File file = new File("./olapReplicaTest");
         file.createNewFile();
@@ -110,7 +110,7 @@ public class ReplicaTest {
         List<Replica> list2 = new ArrayList<Replica>();
         for (int count = 0; count < 10; ++count) {
             Replica olapReplica = new Replica(100L * count, 100L * count, 100L * count, 100L * count,
-                                              100L * count, 100 * count, ReplicaState.NORMAL);
+                                              100L * count, 100 * count, ReplicaState.NORMAL, 0, 0, 100L * count, 100L * count);
             list1.add(olapReplica);
             olapReplica.write(dos);
         }
@@ -150,6 +150,108 @@ public class ReplicaTest {
         
         dis.close();
         file.delete();
+    }
+    
+    @Test
+    public void testUpdateVersion1() {
+        Replica originalReplica = new Replica(10000, 20000, 3, 1231, 100, 78, ReplicaState.NORMAL, 0, 0, 3, 1231);
+        // new version is little than original version, it is invalid the version will not update
+        originalReplica.updateInfo(2, 111, 100, 78);
+        assertEquals(3, originalReplica.getVersion());
+        assertEquals(1231, originalReplica.getVersionHash());
+    }
+    
+    @Test
+    public void testUpdateVersion2() {
+        Replica originalReplica = new Replica(10000, 20000, 3, 1231, 100, 78, ReplicaState.NORMAL, 0, 0, 0, 0);
+        originalReplica.updateInfo(3, 111, 100, 78);
+        // if new version >= current version and last success version <= new version, then last success version should be updated
+        assertEquals(3, originalReplica.getLastSuccessVersion());
+        assertEquals(111, originalReplica.getLastSuccessVersionHash());
+        assertEquals(3, originalReplica.getVersion());
+        assertEquals(111, originalReplica.getVersionHash());
+    }
+    
+    @Test
+    public void testUpdateVersion3() {
+        // version(3) ---> last failed version (8) ---> last success version(10)
+        Replica originalReplica = new Replica(10000, 20000, 3, 111, 100, 78, ReplicaState.NORMAL, 0, 0, 0, 0);
+        originalReplica.updateLastFailedVersion(8, 100);
+        assertEquals(3, originalReplica.getLastSuccessVersion());
+        assertEquals(111, originalReplica.getLastSuccessVersionHash());
+        assertEquals(3, originalReplica.getVersion());
+        assertEquals(111, originalReplica.getVersionHash());
+        assertEquals(8, originalReplica.getLastFailedVersion());
+        assertEquals(100, originalReplica.getLastFailedVersionHash());
+        
+        // update last success version 10
+        originalReplica.updateVersionInfo(originalReplica.getVersion(), 
+                originalReplica.getVersionHash(), originalReplica.getLastFailedVersion(), 
+                originalReplica.getLastFailedVersionHash(), 
+                10, 1210);
+        assertEquals(10, originalReplica.getLastSuccessVersion());
+        assertEquals(1210, originalReplica.getLastSuccessVersionHash());
+        assertEquals(3, originalReplica.getVersion());
+        assertEquals(111, originalReplica.getVersionHash());
+        assertEquals(8, originalReplica.getLastFailedVersion());
+        assertEquals(100, originalReplica.getLastFailedVersionHash());
+        
+        // update version to 8, the last success version and version should be 10
+        originalReplica.updateInfo(8, 100, 100, 78);
+        assertEquals(10, originalReplica.getLastSuccessVersion());
+        assertEquals(1210, originalReplica.getLastSuccessVersionHash());
+        assertEquals(10, originalReplica.getVersion());
+        assertEquals(1210, originalReplica.getVersionHash());
+        assertEquals(-1, originalReplica.getLastFailedVersion());
+        assertEquals(0, originalReplica.getLastFailedVersionHash());
+        
+        // update last failed version to 12
+        originalReplica.updateLastFailedVersion(12, 1212);
+        assertEquals(10, originalReplica.getLastSuccessVersion());
+        assertEquals(1210, originalReplica.getLastSuccessVersionHash());
+        assertEquals(10, originalReplica.getVersion());
+        assertEquals(1210, originalReplica.getVersionHash());
+        assertEquals(12, originalReplica.getLastFailedVersion());
+        assertEquals(1212, originalReplica.getLastFailedVersionHash());
+        
+        // update last success version to 15
+        originalReplica.updateVersionInfo(originalReplica.getVersion(), 
+                originalReplica.getVersionHash(), originalReplica.getLastFailedVersion(), 
+                originalReplica.getLastFailedVersionHash(), 
+                15, 1215);
+        assertEquals(15, originalReplica.getLastSuccessVersion());
+        assertEquals(1215, originalReplica.getLastSuccessVersionHash());
+        assertEquals(10, originalReplica.getVersion());
+        assertEquals(1210, originalReplica.getVersionHash());
+        assertEquals(12, originalReplica.getLastFailedVersion());
+        assertEquals(1212, originalReplica.getLastFailedVersionHash());
+        
+        // update last failed version to 18
+        originalReplica.updateLastFailedVersion(18, 1218);
+        assertEquals(10, originalReplica.getLastSuccessVersion());
+        assertEquals(1210, originalReplica.getLastSuccessVersionHash());
+        assertEquals(10, originalReplica.getVersion());
+        assertEquals(1210, originalReplica.getVersionHash());
+        assertEquals(18, originalReplica.getLastFailedVersion());
+        assertEquals(1218, originalReplica.getLastFailedVersionHash());
+        
+        // update version to 17 then version and success version is 17
+        originalReplica.updateInfo(17, 1217, 100, 78);
+        assertEquals(17, originalReplica.getLastSuccessVersion());
+        assertEquals(1217, originalReplica.getLastSuccessVersionHash());
+        assertEquals(17, originalReplica.getVersion());
+        assertEquals(1217, originalReplica.getVersionHash());
+        assertEquals(18, originalReplica.getLastFailedVersion());
+        assertEquals(1218, originalReplica.getLastFailedVersionHash());
+        
+        // update version to 18, then version and last success version should be 18 and failed version should be -1
+        originalReplica.updateInfo(18, 1218, 100, 78);
+        assertEquals(18, originalReplica.getLastSuccessVersion());
+        assertEquals(1218, originalReplica.getLastSuccessVersionHash());
+        assertEquals(18, originalReplica.getVersion());
+        assertEquals(1218, originalReplica.getVersionHash());
+        assertEquals(-1, originalReplica.getLastFailedVersion());
+        assertEquals(0, originalReplica.getLastFailedVersionHash());
     }
 }
 

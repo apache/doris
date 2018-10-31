@@ -59,38 +59,13 @@ OLAPStatus read_var_unsigned(ReadOnlyFileStream* stream, int64_t* value) {
     return OLAP_SUCCESS;
 }
 
-uint32_t get_closet_fixed_bits(uint32_t n) {
-    if (n == 0) {
-        return 1;
-    } else if (n >= 1 && n <= 24) {
-        return n;
-    } else if (n > 24 && n <= 26) {
-        return 26;
-    } else if (n > 26 && n <= 28) {
-        return 28;
-    } else if (n > 28 && n <= 30) {
-        return 30;
-    } else if (n > 30 && n <= 32) {
-        return 32;
-    } else if (n > 32 && n <= 40) {
-        return 40;
-    } else if (n > 40 && n <= 48) {
-        return 48;
-    } else if (n > 48 && n <= 56) {
-        return 56;
-    } else {
-        return 64;
-    }
-}
-
 uint32_t find_closet_num_bits(int64_t value) {
-    uint32_t count = 0;
-
-    while (value != 0) {
-        ++count;
-        value = ((uint64_t)value) >> 1;
+    // counting leading zero, builtin function, this will generate BSR(Bit Scan Reverse)
+    // instruction for X86
+    if (value == 0) {
+        return 1;
     }
-
+    auto count = 64 - __builtin_clzll(value);
     return get_closet_fixed_bits(count);
 }
 
@@ -119,77 +94,61 @@ OLAPStatus bytes_to_long_be(ReadOnlyFileStream* stream, int32_t n, int64_t* valu
 }
 
 uint32_t encode_bit_width(uint32_t n) {
-    n = get_closet_fixed_bits(n);
-
-    if (n >= 1 && n <= 24) {
-        return n - 1;
-    } else if (n > 24 && n <= 26) {
-        return TWENTYSIX;
-    } else if (n > 26 && n <= 28) {
-        return TWENTYEIGHT;
-    } else if (n > 28 && n <= 30) {
-        return THIRTY;
-    } else if (n > 30 && n <= 32) {
-        return THIRTYTWO;
-    } else if (n > 32 && n <= 40) {
-        return FORTY;
-    } else if (n > 40 && n <= 48) {
-        return FORTYEIGHT;
-    } else if (n > 48 && n <= 56) {
-        return FIFTYSIX;
-    } else {
-        return SIXTYFOUR;
-    }
+    static uint8_t bits_map[65] = {
+        ONE, // 0
+        ONE, TWO, THREE, FOUR, FIVE, SIX, SEVEN, EIGHT, // 1 - 8
+        NINE, TEN, ELEVEN, TWELVE, THIRTEEN, FOURTEEN, FIFTEEN, SIXTEEN, // 9 - 16
+        // 17 - 24
+        SEVENTEEN, EIGHTEEN, NINETEEN, TWENTY, TWENTYONE, TWENTYTWO, TWENTYTHREE, TWENTYFOUR,
+        // 25 - 32
+        TWENTYSIX, TWENTYSIX, TWENTYEIGHT, TWENTYEIGHT, THIRTY, THIRTY, THIRTYTWO, THIRTYTWO,
+        // 33 - 40
+        FORTY, FORTY, FORTY, FORTY, FORTY, FORTY, FORTY, FORTY,
+        // 41 - 48
+        FORTYEIGHT, FORTYEIGHT, FORTYEIGHT, FORTYEIGHT, FORTYEIGHT, FORTYEIGHT,
+        FORTYEIGHT, FORTYEIGHT,
+        // 49 - 56
+        FIFTYSIX, FIFTYSIX, FIFTYSIX, FIFTYSIX, FIFTYSIX, FIFTYSIX, FIFTYSIX, FIFTYSIX,
+        // 57 - 64
+        SIXTYFOUR, SIXTYFOUR, SIXTYFOUR, SIXTYFOUR, SIXTYFOUR, SIXTYFOUR, SIXTYFOUR, SIXTYFOUR,
+    };
+    return bits_map[n];
 }
 
 uint32_t decode_bit_width(uint32_t n) {
-    if (n <= TWENTYFOUR) {
-        return n + 1;
-    } else if (n == TWENTYSIX) {
-        return 26;
-    } else if (n == TWENTYEIGHT) {
-        return 28;
-    } else if (n == THIRTY) {
-        return 30;
-    } else if (n == THIRTYTWO) {
-        return 32;
-    } else if (n == FORTY) {
-        return 40;
-    } else if (n == FORTYEIGHT) {
-        return 48;
-    } else if (n == FIFTYSIX) {
-        return 56;
-    } else {
-        return 64;
-    }
+    static uint8_t bits_map[SIXTYFOUR + 1] = {
+        1, 2, 3, 4, 5, 6, 7, 8, // ONE - EIGHT
+        9, 10, 11, 12, 13, 14, 15, 16, // NINE - SIXTEEN
+        17, 18, 19, 20, 21, 22, 23, 24, // SEVENTEEN - TWENTYFOUR
+        26, // TWENTYSIX
+        28, // TWENTYEIGHT
+        30, // THIRTY
+        32, // THIRTYTWO
+        40, // FORTY
+        48, // FORTYEIGHT
+        56, // FIFTYSIX
+        64 // SIXTYFOUR
+    };
+    return bits_map[n];
 }
 
-uint32_t percentile_bits(int64_t* data, uint32_t count, double p) {
+uint32_t percentile_bits(int64_t* data, uint16_t count, double p) {
     // histogram that store the encoded bit requirement for each values.
     // maximum number of bits that can encoded is 32 (refer FixedBitSizes)
-    uint32_t hist[32];
-
-    for (uint32_t i = 0; i < 32; i++) {
-        hist[i] = 0;
-    }
-
+    uint16_t hist[65];
+    memset(hist, 0, sizeof(hist));
     // compute the histogram
     for (uint32_t i = 0; i < count; i++) {
-        int idx = encode_bit_width(find_closet_num_bits(data[i]));
-        hist[idx] += 1;
+        hist[used_bits(data[i])]++;
     }
-
     int32_t per_len = (int32_t)(count * (1.0 - p));
-
     // return the bits required by pth percentile length
-    for (int32_t i = 31; i >= 0; i--) {
+    for (int32_t i = 64; i >= 0; i--) {
         per_len -= hist[i];
-
         if (per_len < 0) {
-            return decode_bit_width(i);
+            return get_closet_fixed_bits(i);
         }
     }
-
     return 0;
 }
 

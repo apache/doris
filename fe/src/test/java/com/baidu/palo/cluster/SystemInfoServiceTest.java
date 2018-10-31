@@ -168,12 +168,6 @@ public class SystemInfoServiceTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void validHostAndPortTest2() throws Exception {
-        createHostAndPort(2);
-        systemInfoService.validateHostAndPort(hostPort);
-    }
-
-    @Test(expected = AnalysisException.class)
     public void validHostAndPortTest3() throws Exception {
         createHostAndPort(3);
         systemInfoService.validateHostAndPort(hostPort);

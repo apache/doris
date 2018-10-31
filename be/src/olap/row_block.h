@@ -83,6 +83,14 @@ public:
         cursor->attach(_mem_buf + row_index * _mem_row_bytes);
     }
 
+    inline void set_row(uint32_t row_index, const RowCursor& cursor) const {
+        memcpy(_mem_buf + row_index * _mem_row_bytes, cursor.get_buf(), _mem_row_bytes);
+    }
+
+    inline void set_row(uint32_t row_index, const char* row) const {
+        memcpy(_mem_buf + row_index * _mem_row_bytes, row, _mem_row_bytes);
+    }
+
     // called when finished fill this row_block
     OLAPStatus finalize(uint32_t row_num);
 

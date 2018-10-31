@@ -24,7 +24,7 @@
 
 namespace palo {
 
-IWriter* IWriter::create(SmartOLAPTable table, OLAPIndex *index, bool is_push_write) {
+IWriter* IWriter::create(OLAPTablePtr table, Rowset *index, bool is_push_write) {
     IWriter* writer = NULL;
 
     switch (table->data_file_type()) {
@@ -43,7 +43,7 @@ IWriter* IWriter::create(SmartOLAPTable table, OLAPIndex *index, bool is_push_wr
     return writer;
 }
 
-OLAPDataWriter::OLAPDataWriter(SmartOLAPTable table, OLAPIndex* index, bool is_push_write) : 
+OLAPDataWriter::OLAPDataWriter(OLAPTablePtr table, Rowset* index, bool is_push_write) : 
         IWriter(is_push_write, table),
         _index(index),
         _data(NULL),
@@ -77,7 +77,7 @@ OLAPStatus OLAPDataWriter::init(uint32_t num_rows_per_row_block) {
 
     _data = new (std::nothrow) OLAPData(_index);
     if (NULL == _data) {
-        OLAP_LOG_WARNING("fail to new OLAPData. [table='%s']", _table->full_name().c_str());
+        LOG(WARNING) << "fail to new OLAPData. [table='" << _table->full_name() << "']";
         return OLAP_ERR_MALLOC_ERROR;
     }
 
@@ -90,7 +90,7 @@ OLAPStatus OLAPDataWriter::init(uint32_t num_rows_per_row_block) {
 
     _row_block = new (std::nothrow) RowBlock(_table->tablet_schema());
     if (NULL == _row_block) {
-        OLAP_LOG_WARNING("fail to new RowBlock. [table='%s']", _table->full_name().c_str());
+        LOG(WARNING) << "fail to new RowBlock. [table='" << _table->full_name() << "']";
         return OLAP_ERR_MALLOC_ERROR;
     }
 
@@ -129,17 +129,30 @@ OLAPStatus OLAPDataWriter::init(uint32_t num_rows_per_row_block) {
 
 OLAPStatus OLAPDataWriter::attached_by(RowCursor* row_cursor) {
     if (_row_index >= _table->num_rows_per_row_block()) {
-        if (OLAP_SUCCESS != flush()) {
+        if (OLAP_SUCCESS != _flush_row_block()) {
             OLAP_LOG_WARNING("failed to flush data while attaching row cursor.");
             return OLAP_ERR_OTHER_ERROR;
         }
+        RETURN_NOT_OK(_flush_segment_with_verfication());
     }
     // Row points to the memory that needs to write in _row_block.
     _row_block->get_row(_row_index, row_cursor);
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPDataWriter::flush() {
+OLAPStatus OLAPDataWriter::write(const char* row) {
+    if (_row_index >= _table->num_rows_per_row_block()) {
+        if (OLAP_SUCCESS != _flush_row_block()) {
+            OLAP_LOG_WARNING("failed to flush data while attaching row cursor.");
+            return OLAP_ERR_OTHER_ERROR;
+        }
+        RETURN_NOT_OK(_flush_segment_with_verfication());
+    }
+    _row_block->set_row(_row_index, row);
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus OLAPDataWriter::_flush_row_block() {
     if (_row_index < 1) {
         return OLAP_SUCCESS;
     }
@@ -150,13 +163,55 @@ OLAPStatus OLAPDataWriter::flush() {
     }
 
     // Write a ready row block into OLAPData.
-    // Add one index item into OLAPIndex.
-    if (OLAP_SUCCESS != write_row_block(_row_block)) {
-        OLAP_LOG_WARNING("fail to write row block. [row_num=%u]", _row_index);
+    // Add one index item into Rowset.
+    // Add row block into olap data.
+    uint32_t start_offset;
+    uint32_t end_offset;
+    if (OLAP_SUCCESS != _data->add_row_block(_row_block,
+                                             &start_offset,
+                                             &end_offset)) {
+        OLAP_LOG_WARNING("fail to write data.");
         return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
     }
 
+    // Add the corresponding index item into olap index.
+    if (OLAP_SUCCESS != _index->add_row_block(*_row_block, start_offset)) {
+        OLAP_LOG_WARNING("fail to update index.");
+        return OLAP_ERR_WRITER_INDEX_WRITE_ERROR;
+    }
+
+    _current_segment_size = end_offset;
+    _num_rows += _row_block->row_block_info().row_num;
+
+    // In order to reuse row_block, clear the row_block after finalize
+    _row_block->clear();
     _row_index = 0U;
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus OLAPDataWriter::_flush_segment_with_verfication() {
+    if (UNLIKELY(_current_segment_size < _max_segment_size)) {
+        return OLAP_SUCCESS;
+    }
+    uint32_t data_segment_size;
+    if (OLAP_SUCCESS != _data->finalize_segment(&data_segment_size)) {
+        OLAP_LOG_WARNING("fail to finish segment from olap_data.");
+        return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
+    }
+
+    if (OLAP_SUCCESS != _index->finalize_segment(data_segment_size, _num_rows)) {
+        OLAP_LOG_WARNING("fail to finish segment from olap_index.");
+        return OLAP_ERR_WRITER_INDEX_WRITE_ERROR;
+    }
+
+    if (OLAP_SUCCESS != _data->add_segment()
+        || OLAP_SUCCESS != _index->add_segment()) {
+        OLAP_LOG_WARNING("fail to add data or index segment.");
+        return OLAP_ERR_OTHER_ERROR;
+    }
+
+    _num_rows = 0;
+    _current_segment_size = 0U;
     return OLAP_SUCCESS;
 }
 
@@ -165,78 +220,10 @@ void OLAPDataWriter::sync() {
     _index->sync();
 }
 
-OLAPStatus OLAPDataWriter::write_row_block(RowBlock* row_block) {
-    if (NULL == row_block || row_block->row_block_info().row_num == 0) {
-        return OLAP_SUCCESS;
-    }
-
-    // If _current_segment_size plus row_block size without compressing data
-    // exceeds the max data segment size, finalize the current data/index
-    // segment, and add new data/index segment.
-    if (static_cast<int64_t>(_current_segment_size) + static_cast<int64_t>(row_block->buf_len())
-            > static_cast<int64_t>(_max_segment_size)) {
-        // Finalize data and index segment.
-        uint32_t data_segment_size;
-        if (OLAP_SUCCESS != _data->finalize_segment(&data_segment_size)) {
-            OLAP_LOG_WARNING("fail to finish segment from olap_data.");
-            return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
-        }
-
-        if (OLAP_SUCCESS != _index->finalize_segment(data_segment_size, _num_rows)) {
-            OLAP_LOG_WARNING("fail to finish segment from olap_index.");
-            return OLAP_ERR_WRITER_INDEX_WRITE_ERROR;
-        }
-
-        if (OLAP_SUCCESS != _data->add_segment()
-                || OLAP_SUCCESS != _index->add_segment()) {
-            OLAP_LOG_WARNING("fail to add data or index segment.");
-            return OLAP_ERR_OTHER_ERROR;
-        }
-
-        _num_rows = 0;
-        _current_segment_size = 0U;
-    }
-
-    // Add row block into olap data.
-    uint32_t start_offset;
-    uint32_t end_offset;
-    if (OLAP_SUCCESS != _data->add_row_block(row_block,
-                                             &start_offset,
-                                             &end_offset)) {
-        OLAP_LOG_WARNING("fail to write data.");
-        return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
-    }
-
-    // Add the corresponding index item into olap index.
-    if (OLAP_SUCCESS != _index->add_row_block(*row_block, start_offset)) {
-        OLAP_LOG_WARNING("fail to update index.");
-        return OLAP_ERR_WRITER_INDEX_WRITE_ERROR;
-    }
-
-    _current_segment_size = end_offset;
-    _num_rows += row_block->row_block_info().row_num;
-
-    if (_write_mbytes_per_sec > 0) {
-        uint64_t delta_time_us = _speed_limit_watch.get_elapse_time_us();
-        int64_t sleep_time =
-                _current_segment_size / _write_mbytes_per_sec - delta_time_us;
-        if (sleep_time > 0) {
-            OLAP_LOG_DEBUG("sleep to limit merge speed. [time=%lu bytes=%lu]",
-                    sleep_time, _current_segment_size);
-            usleep(sleep_time);
-        }
-    }
-    
-    // In order to reuse row_block, clear the row_block after finalize
-    row_block->clear();
-
-    return OLAP_SUCCESS;
-}
-
 // Finalize may be success in spite of write() failure.
 OLAPStatus OLAPDataWriter::finalize() {
     // Write the last row block into OLAPData
-    if (OLAP_SUCCESS != flush()) {
+    if (OLAP_SUCCESS != _flush_row_block()) {
         OLAP_LOG_WARNING("fail to flush row block.");
         return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
     }
@@ -253,13 +240,14 @@ OLAPStatus OLAPDataWriter::finalize() {
         return OLAP_ERR_WRITER_INDEX_WRITE_ERROR;
     }
 
-    OLAPStatus res = _index->set_column_statistics(_column_statistics);
+    OLAPStatus res = _index->add_column_statistics(_column_statistics);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("Fail to set delta pruning![res=%d]", res);
         return res;
     }
-    
+
     _num_rows = 0;
+    _current_segment_size = 0U;
 
     return OLAP_SUCCESS;
 }

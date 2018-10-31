@@ -43,6 +43,7 @@ class TupleRow;
 class RowDescriptor;
 class MemTracker;
 class RuntimeProfile;
+class StreamLoadPipe;
 
 struct BrokerScanCounter {
     BrokerScanCounter() : num_rows_returned(0), num_rows_filtered(0) {
@@ -141,6 +142,7 @@ private:
     Tuple* _src_tuple;
     TupleRow* _src_tuple_row;
 
+    std::unique_ptr<MemTracker> _mem_tracker;
     // Mem pool used to allocate _src_tuple and _src_tuple_row
     MemPool _mem_pool;
 
@@ -148,7 +150,8 @@ private:
     const TupleDescriptor* _dest_tuple_desc;
     std::vector<ExprContext*> _dest_expr_ctx;
 
-    std::unique_ptr<MemTracker> _mem_tracker;
+    // used to hold current StreamLoadPipe
+    std::shared_ptr<StreamLoadPipe> _stream_load_pipe;
 
     // used for process stat
     BrokerScanCounter* _counter;

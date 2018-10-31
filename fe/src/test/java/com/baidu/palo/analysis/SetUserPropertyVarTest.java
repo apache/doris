@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -36,20 +36,20 @@ public class SetUserPropertyVarTest {
     }
 
     @Test
-    public void testNormal() throws AnalysisException, InternalException {
+    public void testNormal() throws AnalysisException, UserException {
         SetUserPropertyVar var = new SetUserPropertyVar("quota.normal", "1000");
         var.analyze(analyzer, true);
         Assert.assertEquals("quota.normal", var.getPropertyKey());
         Assert.assertEquals("1000", var.getPropertyValue());
         Assert.assertEquals("'quota.normal' = '1000'", var.toString());
 
-        var = new SetUserPropertyVar("load_cluster.palo-dpp", null);
+        var = new SetUserPropertyVar("load_cluster.palo-dpp", "");
         var.analyze(analyzer, true);
-        Assert.assertEquals("'load_cluster.palo-dpp' = NULL", var.toString());
+        Assert.assertEquals("'load_cluster.palo-dpp' = ''", var.toString());
     }
 
     @Test(expected = AnalysisException.class)
-    public void testUnknownProperty() throws InternalException, AnalysisException {
+    public void testUnknownProperty() throws UserException, AnalysisException {
         SetUserPropertyVar var = new SetUserPropertyVar("unknown_property", "1000");
         var.analyze(analyzer, true);
         Assert.fail("No exception throws.");

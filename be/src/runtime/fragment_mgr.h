@@ -41,6 +41,8 @@ class FragmentExecState;
 class TExecPlanFragmentParams;
 class PlanFragmentExecutor;
 
+std::string to_load_error_http_path(const std::string& file_name);
+
 // This class used to manage all the fragment execute in this instance
 class FragmentMgr : public RestMonitorIface {
 public:

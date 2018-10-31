@@ -250,34 +250,6 @@ OLAPStatus OutStream::_spill() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OutStream::write(char byte) {
-    OLAPStatus res = OLAP_SUCCESS;
-
-    if (NULL == _current) {
-        res = _create_new_input_buffer();
-        if (OLAP_SUCCESS != res) {
-            return res;
-        }
-    }
-
-    if (_current->remaining() < 1) {
-        res = _spill();
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to spill current buffer.");
-            return res;
-        }
-
-        if (NULL == _current) {
-            res = _create_new_input_buffer();
-            if (OLAP_SUCCESS != res) {
-                return res;
-            }
-        }
-    }
-
-    return _current->put(byte);
-}
-
 OLAPStatus OutStream::write(const char* buffer, uint64_t length) {
     OLAPStatus res = OLAP_SUCCESS;
     uint64_t offset = 0;

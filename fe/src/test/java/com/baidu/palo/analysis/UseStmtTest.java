@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.MockedAuth;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
@@ -53,7 +53,7 @@ public class UseStmtTest {
     }
 
     @Test
-    public void testNormal() throws InternalException, AnalysisException {
+    public void testNormal() throws UserException, AnalysisException {
         UseStmt stmt = new UseStmt("testDb");
         stmt.analyze(analyzer);
 
@@ -62,7 +62,7 @@ public class UseStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoDb() throws InternalException, AnalysisException {
+    public void testNoDb() throws UserException, AnalysisException {
         UseStmt stmt = new UseStmt("");
         stmt.analyze(analyzer);
 

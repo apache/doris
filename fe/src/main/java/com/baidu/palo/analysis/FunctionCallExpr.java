@@ -390,6 +390,40 @@ public class FunctionCallExpr extends Expr {
         return;
     }
 
+    // Provide better error message for some aggregate builtins. These can be
+    // a bit more user friendly than a generic function not found.
+    // TODO: should we bother to do this? We could also improve the general
+    // error messages. For example, listing the alternatives.
+    protected String getFunctionNotFoundError(Type[] argTypes) {
+        // Some custom error message for builtins
+        if (fnParams.isStar()) {
+            return "'*' can only be used in conjunction with COUNT";
+        }
+
+        if (fnName.getFunction().equalsIgnoreCase("count")) {
+            if (!fnParams.isDistinct() && argTypes.length > 1) {
+                return "COUNT must have DISTINCT for multiple arguments: " + toSql();
+            }
+        }
+
+        if (fnName.getFunction().equalsIgnoreCase("sum")) {
+            return "SUM requires a numeric parameter: " + toSql();
+        }
+
+        if (fnName.getFunction().equalsIgnoreCase("avg")) {
+            return "AVG requires a numeric or timestamp parameter: " + toSql();
+        }
+
+        String[] argTypesSql = new String[argTypes.length];
+        for (int i = 0; i < argTypes.length; ++i) {
+            argTypesSql[i] = argTypes[i].toSql();
+        }
+
+        return String.format(
+                "No matching function with signature: %s(%s).",
+                fnName, fnParams.isStar() ? "*" : Joiner.on(", ").join(argTypesSql));
+    }
+
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         if (isMergeAggFn) {
@@ -455,7 +489,7 @@ public class FunctionCallExpr extends Expr {
 
         if (fn == null) {
             LOG.warn("fn {} not exists", fnName.getFunction());
-            throw new AnalysisException(fnName.getFunction() + "can't support");
+            throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
         }
 
         if (fnName.getFunction().equals("from_unixtime")) {

@@ -21,7 +21,7 @@ import com.baidu.palo.thrift.TTaskType;
 public abstract class AgentTask {
     private long signature;
     private long backendId;
-    private TTaskType taskType;
+    protected TTaskType taskType;
 
     protected long dbId;
     protected long tableId;
@@ -33,8 +33,8 @@ public abstract class AgentTask {
 
     protected int failedTimes;
 
-    public AgentTask(TResourceInfo resourceInfo, long backendId, long signature, TTaskType taskType,
-                     long dbId, long tableId, long partitionId, long indexId, long tabletId) {
+    public AgentTask(TResourceInfo resourceInfo, long backendId, TTaskType taskType,
+                     long dbId, long tableId, long partitionId, long indexId, long tabletId, long signature) {
         this.backendId = backendId;
         this.signature = signature;
         this.taskType = taskType;
@@ -48,6 +48,11 @@ public abstract class AgentTask {
         this.resourceInfo = resourceInfo;
 
         this.failedTimes = 0;
+    }
+    
+    public AgentTask(TResourceInfo resourceInfo, long backendId, TTaskType taskType,
+            long dbId, long tableId, long partitionId, long indexId, long tabletId) {
+        this(resourceInfo, backendId, taskType, dbId, tableId, partitionId, indexId, tabletId, tabletId);
     }
 
     public long getSignature() {

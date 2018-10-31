@@ -20,7 +20,7 @@
 
 package com.baidu.palo.qe;
 
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -103,7 +103,7 @@ public class HelpModuleTest {
     }
 
     @Test
-    public void testNormal() throws IOException, InternalException {
+    public void testNormal() throws IOException, UserException {
         // Mock
         // HelpObjectLoader categoryLoader = EasyMock.createMock(HelpObjectLoader.class);
         // EasyMock.expect(categoryLoader.loadAll(EasyMock.isA(String.class))).andReturn(categories).anyTimes();
@@ -152,7 +152,7 @@ public class HelpModuleTest {
     }
 
     @Test
-    public void testLoadFromZip() throws IOException, InternalException {
+    public void testLoadFromZip() throws IOException, UserException {
         HelpModule module = new HelpModule();
         URL help = getClass().getClassLoader().getResource("test-help-resource.zip");
         module.setUpByZip(help.getPath());

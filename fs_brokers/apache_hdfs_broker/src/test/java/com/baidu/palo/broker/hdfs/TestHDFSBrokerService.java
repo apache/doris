@@ -1,7 +1,5 @@
 // Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
 
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -15,8 +13,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import java.util.HashMap;
-import java.util.Map;
+package com.baidu.palo.broker.hdfs;
+
+import com.baidu.palo.thrift.TBrokerListPathRequest;
+import com.baidu.palo.thrift.TBrokerListResponse;
+import com.baidu.palo.thrift.TBrokerVersion;
+import com.baidu.palo.thrift.TPaloBrokerService;
 
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
@@ -25,10 +27,8 @@ import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransport;
 import org.junit.Test;
 
-import com.baidu.palo.thrift.TBrokerListPathRequest;
-import com.baidu.palo.thrift.TBrokerListResponse;
-import com.baidu.palo.thrift.TBrokerVersion;
-import com.baidu.palo.thrift.TPaloBrokerService;
+import java.util.HashMap;
+import java.util.Map;
 
 import junit.framework.TestCase;
 

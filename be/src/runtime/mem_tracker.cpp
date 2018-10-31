@@ -310,17 +310,18 @@ Status MemTracker::MemLimitExceeded(RuntimeState* state, const std::string& deta
 
     // Choose which tracker to log the usage of. Default to the process tracker so we can
     // get the full view of memory consumption.
-    MemTracker* tracker_to_log = process_tracker;
-    if (state != nullptr && state->query_mem_tracker()->has_limit()) {
-        MemTracker* query_tracker = state->query_mem_tracker();
-        const int64_t query_capacity = query_tracker->limit() - query_tracker->consumption();
-        ss << "Memory left in query limit: "
-            << PrettyPrinter::print(query_capacity, TUnit::BYTES) << std::endl;
-        // Log the query tracker only if the query limit was closer to being exceeded.
-        if (query_capacity < process_capacity) tracker_to_log = query_tracker;
-    }
-    ss << tracker_to_log->LogUsage();
-    //Status status = Status::MemLimitExceeded(ss.str());
+    // FIXME(cmy): call LogUsage() lead to crash here, fix it later
+    // MemTracker* tracker_to_log = process_tracker;
+    // if (state != nullptr && state->query_mem_tracker()->has_limit()) {
+    //     MemTracker* query_tracker = state->query_mem_tracker();
+    //     const int64_t query_capacity = query_tracker->limit() - query_tracker->consumption();
+    //     ss << "Memory left in query limit: "
+    //         << PrettyPrinter::print(query_capacity, TUnit::BYTES) << std::endl;
+    //     // Log the query tracker only if the query limit was closer to being exceeded.
+    //     if (query_capacity < process_capacity) tracker_to_log = query_tracker;
+    // }
+    // ss << tracker_to_log->LogUsage();
+    // Status status = Status::MemLimitExceeded(ss.str());
     Status status = Status::MEM_LIMIT_EXCEEDED;
     if (state != nullptr) state->log_error(status.get_error_msg());
     return status;

@@ -49,7 +49,7 @@ public class CIDRTest {
     }
 
     @Test
-    public void testNormal() throws InternalException {
+    public void testNormal() throws UserException {
         // the real value is 10.1.16.0/20
         CIDR cidr = new CIDR("192.168.17.0/20");
         Assert.assertEquals("192.168.17.0", cidr.getIP());

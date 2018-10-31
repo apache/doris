@@ -19,22 +19,24 @@ import com.baidu.palo.analysis.SetType;
 import com.baidu.palo.catalog.Catalog;
 import com.baidu.palo.catalog.Column;
 import com.baidu.palo.catalog.Database;
+import com.baidu.palo.catalog.OlapTable;
 import com.baidu.palo.catalog.Table;
 import com.baidu.palo.cluster.ClusterNamespace;
 import com.baidu.palo.common.AnalysisException;
 import com.baidu.palo.common.AuditLog;
-import com.baidu.palo.common.AuthorizationException;
+import com.baidu.palo.common.AuthenticationException;
 import com.baidu.palo.common.CaseSensibility;
 import com.baidu.palo.common.Config;
-import com.baidu.palo.common.DdlException;
 import com.baidu.palo.common.PatternMatcher;
 import com.baidu.palo.common.ThriftServerContext;
 import com.baidu.palo.common.ThriftServerEventProcessor;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.load.EtlStatus;
 import com.baidu.palo.load.LoadJob;
 import com.baidu.palo.load.MiniEtlTaskInfo;
 import com.baidu.palo.master.MasterImpl;
 import com.baidu.palo.mysql.privilege.PrivPredicate;
+import com.baidu.palo.planner.StreamLoadPlanner;
 import com.baidu.palo.qe.AuditBuilder;
 import com.baidu.palo.qe.ConnectContext;
 import com.baidu.palo.qe.ConnectProcessor;
@@ -48,6 +50,7 @@ import com.baidu.palo.thrift.TColumnDef;
 import com.baidu.palo.thrift.TColumnDesc;
 import com.baidu.palo.thrift.TDescribeTableParams;
 import com.baidu.palo.thrift.TDescribeTableResult;
+import com.baidu.palo.thrift.TExecPlanFragmentParams;
 import com.baidu.palo.thrift.TFeResult;
 import com.baidu.palo.thrift.TFetchResourceResult;
 import com.baidu.palo.thrift.TFinishTaskRequest;
@@ -57,6 +60,12 @@ import com.baidu.palo.thrift.TGetTablesParams;
 import com.baidu.palo.thrift.TGetTablesResult;
 import com.baidu.palo.thrift.TListTableStatusResult;
 import com.baidu.palo.thrift.TLoadCheckRequest;
+import com.baidu.palo.thrift.TLoadTxnBeginRequest;
+import com.baidu.palo.thrift.TLoadTxnBeginResult;
+import com.baidu.palo.thrift.TLoadTxnCommitRequest;
+import com.baidu.palo.thrift.TLoadTxnCommitResult;
+import com.baidu.palo.thrift.TLoadTxnRollbackRequest;
+import com.baidu.palo.thrift.TLoadTxnRollbackResult;
 import com.baidu.palo.thrift.TMasterOpRequest;
 import com.baidu.palo.thrift.TMasterOpResult;
 import com.baidu.palo.thrift.TMasterResult;
@@ -70,12 +79,18 @@ import com.baidu.palo.thrift.TShowVariableRequest;
 import com.baidu.palo.thrift.TShowVariableResult;
 import com.baidu.palo.thrift.TStatus;
 import com.baidu.palo.thrift.TStatusCode;
+import com.baidu.palo.thrift.TStreamLoadPutRequest;
+import com.baidu.palo.thrift.TStreamLoadPutResult;
 import com.baidu.palo.thrift.TTableStatus;
 import com.baidu.palo.thrift.TUniqueId;
 import com.baidu.palo.thrift.TUpdateExportTaskStatusRequest;
 import com.baidu.palo.thrift.TUpdateMiniEtlTaskStatusRequest;
+import com.baidu.palo.transaction.LabelAlreadyExistsException;
+import com.baidu.palo.transaction.TabletCommitInfo;
+import com.baidu.palo.transaction.TransactionState;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -314,16 +329,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         LOG.info("mini load request is {}", request);
 
         ConnectContext context = new ConnectContext(null);
-        String cluster;
+        String cluster = SystemInfoService.DEFAULT_CLUSTER;
         if (request.isSetCluster()) {
             cluster = request.cluster;
-        } else {
-            cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
 
-        final String dbFullName = ClusterNamespace.getFullName(cluster, request.db);
-        request.setUser(request.user);
-        request.setDb(dbFullName);
+        final String fullDbName = ClusterNamespace.getFullName(cluster, request.db);
+        request.setDb(fullDbName);
         context.setCluster(cluster);
         context.setDatabase(ClusterNamespace.getFullName(cluster, request.db));
         context.setQualifiedUser(ClusterNamespace.getFullName(cluster, request.user));
@@ -334,12 +346,43 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
         try {
+            if (request.isSetIs_retry() && request.isIs_retry()) {
+                // this may be a retry request from Backends,
+                // so we first check if load job has already been submitted.
+                // TODO(cmy):
+                // The Backend will retry the mini load request if it encounter timeout exception.
+                // So this code here is to avoid returning 'label already used' message to user
+                // because of the timeout retry.
+                // But this may still cause 'label already used' error if the timeout is set too short,
+                // because here is no lock to guarantee the atomic operation between 'isLabelUsed' and 'addLabel'
+                // method.
+                // But the default timeout is set to 3 seconds, so in common case, it will not be a problem.
+                if (request.isSetSubLabel()) {
+                    if (ExecuteEnv.getInstance().getMultiLoadMgr().isLabelUsed(fullDbName, 
+                                                                               request.getLabel(),
+                                                                               request.getSubLabel(),
+                                                                               request.getTimestamp())) {
+                        LOG.info("multi mini load job has already been submitted. label: {}, sub label: {}, "
+                                + "timestamp: {}",
+                                 request.getLabel(), request.getSubLabel(), request.getTimestamp());
+                        return result;
+                    }
+                } else {
+                    if (Catalog.getCurrentCatalog().getLoadInstance().isLabelUsed(fullDbName, 
+                                                                                  request.getLabel(),
+                                                                                  request.getTimestamp())) {    
+                        LOG.info("mini load job has already been submitted. label: {}, timestamp: {}",
+                                 request.getLabel(), request.getTimestamp());
+                        return result;
+                    }
+                }
+            }
+            
             if (request.isSetSubLabel()) {
                 ExecuteEnv.getInstance().getMultiLoadMgr().load(request);
             } else {
-                if (!Catalog.getInstance().getLoadInstance().addLoadJob(request)) {
-                    return result;
-                }
+                // try to add load job, label will be checked here.
+                Catalog.getInstance().getLoadInstance().addLoadJob(request);
 
                 try {
                     // gen mini load audit log
@@ -348,13 +391,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     LOG.warn("failed log mini load stmt", e);
                 }
             }
-        } catch (DdlException e) {
-            LOG.error("add mini load error", e);
+        } catch (UserException e) {
+            LOG.warn("add mini load error", e);
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.setError_msgs(Lists.newArrayList(e.getMessage()));
+        } catch (Throwable e) {
+            LOG.warn("unexpected exception when adding mini load", e);
+            status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
+            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+        } finally {
+            ConnectContext.remove();
         }
 
-        ConnectContext.remove();
         return result;
     }
 
@@ -467,53 +515,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    @Override
-    public TFeResult loadCheck(TLoadCheckRequest request) throws TException {
-        LOG.info("Load check request is {}", request);
-
-
-        TStatus status = new TStatus(TStatusCode.OK);
-        TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
-        String cluster;
-        if (request.isSetCluster()) {
-            cluster = request.cluster;
-        } else {
-            cluster = SystemInfoService.DEFAULT_CLUSTER;
-        }
-
-        final String dbFullName = ClusterNamespace.getFullName(cluster, request.db);
-
-        try {
-            checkPasswordAndPrivs(cluster, request.user, request.passwd, request.db, request.tbl, request.user_ip,
-                                  PrivPredicate.LOAD);
-        } catch (AuthorizationException e) {
-            status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
-            status.setError_msgs(Lists.newArrayList(e.getMessage()));
-            return result;
-        }
-
-        if (request.isSetLabel()) {
-            // Only single table will be set label
-            try {
-                if (request.isSetTimestamp()) {
-                    Catalog.getInstance().getLoadInstance().checkLabelUsed(
-                        dbFullName, request.getLabel(), request.getTimestamp());
-                } else {
-                    Catalog.getInstance().getLoadInstance().checkLabelUsed(
-                        dbFullName, request.getLabel(), 0);
-                }
-            } catch (DdlException e) {
-                status.setStatus_code(TStatusCode.INTERNAL_ERROR);
-                status.setError_msgs(Lists.newArrayList(e.getMessage()));
-                return result;
-            }
-        }
-
-        return result;
-    }
-
     private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, String tbl,
-            String clientIp, PrivPredicate predicate) throws AuthorizationException {
+            String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
         final String fullUserName = ClusterNamespace.getFullName(cluster, user);
         final String fullDbName = ClusterNamespace.getFullName(cluster, db);
@@ -521,15 +524,218 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Catalog.getCurrentCatalog().getAuth().checkPlainPassword(fullUserName,
                                                                       clientIp,
                                                                       passwd)) {
-            throw new AuthorizationException("Access denied for "
+            throw new AuthenticationException("Access denied for "
                     + fullUserName + "@" + clientIp);
         }
 
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(clientIp, fullDbName,
                                                                 fullUserName, tbl, predicate)) {
-            throw new AuthorizationException(
+            throw new AuthenticationException(
                     "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
         }
     }
+
+    @Override
+    public TFeResult loadCheck(TLoadCheckRequest request) throws TException {
+        LOG.info("load check request. label: {}, user: {}, ip: {}",
+                 request.getLabel(), request.getUser(), request.getUser_ip());
+
+        TStatus status = new TStatus(TStatusCode.OK);
+        TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
+        try {
+            String cluster = SystemInfoService.DEFAULT_CLUSTER;
+            if (request.isSetCluster()) {
+                cluster = request.cluster;
+            }
+
+            checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                                  request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
+        } catch (UserException e) {
+            status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
+            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+            return result;
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatus_code(TStatusCode.INTERNAL_ERROR);
+            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+            return result;
+        }
+
+        return result;
+    }
+
+    @Override
+    public TLoadTxnBeginResult loadTxnBegin(TLoadTxnBeginRequest request) throws TException {
+        LOG.info("receive loadTxnBegin request, request={}", request);
+        TLoadTxnBeginResult result = new TLoadTxnBeginResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            result.setTxnId(loadTxnBeginImpl(request));
+        } catch (LabelAlreadyExistsException e) {
+            status.setStatus_code(TStatusCode.LABEL_ALREADY_EXISTS);
+            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+        } catch (UserException e) {
+            status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
+            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+        }
+        return result;
+    }
+
+    private long loadTxnBeginImpl(TLoadTxnBeginRequest request) throws UserException {
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+
+        checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                              request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
+
+        // check label
+        if (Strings.isNullOrEmpty(request.getLabel())) {
+            throw new UserException("empty label in begin request");
+        }
+        // check database
+        Catalog catalog = Catalog.getInstance();
+        String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
+        Database db = catalog.getDb(fullDbName);
+        if (db == null) {
+            String dbName = fullDbName;
+            if (Strings.isNullOrEmpty(request.getCluster())) {
+                dbName = request.getDb();
+            }
+            throw new UserException("unknown database, database=" + dbName);
+        }
+        // begin
+        return Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
+                db.getId(), request.getLabel(), "streamLoad",
+                TransactionState.LoadJobSourceType.BACKEND_STREAMING);
+    }
+
+    @Override
+    public TLoadTxnCommitResult loadTxnCommit(TLoadTxnCommitRequest request) throws TException {
+        LOG.info("receive loadTxnCommit request, request={}", request);
+        TLoadTxnCommitResult result = new TLoadTxnCommitResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            if (!loadTxnCommitImpl(request)) {
+                // committed success but not visible
+                status.setStatus_code(TStatusCode.PUBLISH_TIMEOUT);
+                status.setError_msgs(
+                        Lists.newArrayList("transaction commit successfully, BUT data will be visible later"));
+            }
+        } catch (UserException e) {
+            status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
+            status.addToError_msgs(e.getMessage());
+        }
+        return result;
+    }
+
+    // return true if commit success and publish success, return false if publish timout
+    private boolean loadTxnCommitImpl(TLoadTxnCommitRequest request) throws UserException {
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+
+        checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                              request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
+
+        // get database
+        Catalog catalog = Catalog.getInstance();
+        String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
+        Database db = catalog.getDb(fullDbName);
+        if (db == null) {
+            String dbName = fullDbName;
+            if (Strings.isNullOrEmpty(request.getCluster())) {
+                dbName = request.getDb();
+            }
+            throw new UserException("unknown database, database=" + dbName);
+        }
+        return Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+                db, request.getTxnId(),
+                TabletCommitInfo.fromThrift(request.getCommitInfos()),
+                5000);
+    }
+
+    @Override
+    public TLoadTxnRollbackResult loadTxnRollback(TLoadTxnRollbackRequest request) throws TException {
+        LOG.info("receive loadTxnRollback request, request={}", request);
+
+        TLoadTxnRollbackResult result = new TLoadTxnRollbackResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            loadTxnRollbackImpl(request);
+        } catch (UserException e) {
+            status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
+            status.addToError_msgs(e.getMessage());
+        }
+
+        return result;
+    }
+
+    private void loadTxnRollbackImpl(TLoadTxnRollbackRequest request) throws UserException {
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+
+        checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
+                              request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
+
+        Catalog.getCurrentGlobalTransactionMgr().abortTransaction(request.getTxnId(),
+                request.isSetReason() ? request.getReason() : "system cancel");
+    }
+
+    @Override
+    public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) throws TException {
+        LOG.info("receive streamLoadPut request, request={}", request);
+
+        TStreamLoadPutResult result = new TStreamLoadPutResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            result.setParams(streamLoadPutImpl(request));
+        } catch (UserException e) {
+            status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
+            status.addToError_msgs(e.getMessage());
+        }
+        return result;
+    }
+
+    private TExecPlanFragmentParams streamLoadPutImpl(TStreamLoadPutRequest request) throws UserException {
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+
+        Catalog catalog = Catalog.getInstance();
+        String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
+        Database db = catalog.getDb(fullDbName);
+        if (db == null) {
+            String dbName = fullDbName;
+            if (Strings.isNullOrEmpty(request.getCluster())) {
+                dbName = request.getDb();
+            }
+            throw new UserException("unknown database, database=" + dbName);
+        }
+        db.readLock();
+        try {
+            Table table = db.getTable(request.getTbl());
+            if (table == null) {
+                throw new UserException("unknown table, table=" + request.getTbl());
+            }
+            if (!(table instanceof OlapTable)) {
+                throw new UserException("load table type is not OlapTable, type=" + table.getClass());
+            }
+            StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, request);
+            return planner.plan();
+        } finally {
+            db.readUnlock();
+        }
+    }
+
 }
 

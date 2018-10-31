@@ -39,6 +39,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.zip.Adler32;
 
@@ -266,6 +267,14 @@ public class Util {
         }
 
         return Math.abs((int) adler32.getValue());
+    }
+    
+    public static long generateVersionHash() {
+        return Math.abs(new Random().nextLong());
+    }
+    
+    public static int generateSchemaHash() {
+        return Math.abs(new Random().nextInt());
     }
     
     /**

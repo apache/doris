@@ -437,6 +437,14 @@ public:
         return _per_fragment_instance_idx;
     }
 
+    void set_num_per_fragment_instances(int num_instances) {
+        _num_per_fragment_instances = num_instances;
+    }
+
+    int num_per_fragment_instances() const {
+        return _num_per_fragment_instances;
+    }
+
     ReservationTracker* instance_buffer_reservation() {
         return _instance_buffer_reservation.get();
     }
@@ -460,6 +468,14 @@ public:
 
     ReservationTracker* buffer_reservation() const { 
         return _buffer_reservation; 
+    }
+
+    const std::vector<TTabletCommitInfo>& tablet_commit_infos() const {
+        return _tablet_commit_infos;
+    }
+
+    std::vector<TTabletCommitInfo>& tablet_commit_infos() {
+        return _tablet_commit_infos;
     }
 
     /// Helper to call QueryState::StartSpilling().
@@ -551,6 +567,7 @@ private:
     bool _is_cancelled;
 
     int _per_fragment_instance_idx;
+    int _num_per_fragment_instances = 0;
 
     // used as send id
     int _be_number;
@@ -581,6 +598,7 @@ private:
     std::vector<std::string> _output_files;
     std::atomic<int64_t> _num_rows_load_success;
     std::atomic<int64_t> _num_rows_load_filtered;
+    std::atomic<int64_t> _num_print_error_rows;
 
     std::vector<std::string> _export_output_files;
 
@@ -596,6 +614,7 @@ private:
     std::string _error_log_file_path;
     std::ofstream* _error_log_file; // error file path, absolute path
     std::unique_ptr<LoadErrorHub> _error_hub;
+    std::vector<TTabletCommitInfo> _tablet_commit_infos;
 
     // state of execution
     volatile bool _is_running;

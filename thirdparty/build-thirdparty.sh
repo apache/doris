@@ -36,6 +36,7 @@ if [ ! -f $curdir/vars.sh ]; then
 fi
 
 export DORIS_HOME=$curdir/../
+export GCC_HOME=$curdir/../palo-toolchain/gcc730
 export TP_DIR=$curdir
 
 source $curdir/vars.sh
@@ -155,7 +156,7 @@ build_libevent() {
     CFLAGS="-std=c99 -fPIC -D_BSD_SOURCE -fno-omit-frame-pointer -g -ggdb -O2 -I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR}" \
     ./configure --prefix=$TP_INSTALL_DIR --enable-shared=no --disable-samples
-    make -j2 && make install
+    make -j$PARALLEL && make install
 }
 
 build_openssl() {
@@ -166,8 +167,14 @@ build_openssl() {
     CXXFLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
+    LIBDIR="lib" \
     ./Configure --prefix=$TP_INSTALL_DIR -zlib -shared linux-x86_64
-    make -j2 && make install
+    make -j$PARALLEL && make install
+    if [ -f $TP_INSTALL_DIR/lib64/libcrypto.a ]; then
+        mkdir -p $TP_INSTALL_DIR/lib && \
+        ln -s $TP_INSTALL_DIR/lib64/libcrypto.a $TP_INSTALL_DIR/lib/libcrypto.a && \
+        ln -s $TP_INSTALL_DIR/lib64/libssl.a $TP_INSTALL_DIR/lib/libssl.a
+    fi
 }
 
 # thrift
@@ -191,7 +198,7 @@ build_thrift() {
         mv compiler/cpp/thrifty.hh compiler/cpp/thrifty.h
     fi
 
-    make -j2 && make install
+    make -j$PARALLEL && make install
 }
 
 # llvm
@@ -474,17 +481,29 @@ build_jdk() {
     export JAVA_HOME=$TP_INSTALL_DIR/$JDK_SOURCE
 }
 
-# ant
-build_ant() {
-    check_if_source_exist $ANT_SOURCE
+# rocksdb
+build_rocksdb() {
+    check_if_source_exist $ROCKSDB_SOURCE
 
-    if [ -d $TP_INSTALL_DIR/$ANT_SOURCE ];then
-        echo "$ANT_SOURCE already installed"
-    else
-        cp -rf $TP_SOURCE_DIR/$ANT_SOURCE $TP_INSTALL_DIR/ant
-    fi
+    cd $TP_SOURCE_DIR/$ROCKSDB_SOURCE
 
-    export ANT_HOME=$TP_INSTALL_DIR/ant
+    CFLAGS="-I ${TP_INCLUDE_DIR} -I ${TP_INCLUDE_DIR}/snappy -I ${TP_INCLUDE_DIR}/lz4" CXXFLAGS="-fPIC" LDFLAGS="-static-libstdc++ -static-libgcc" \
+        make -j$PARALLEL static_lib
+    cp librocksdb.a ../../installed/lib/librocksdb.a
+    cp -r include/rocksdb ../../installed/include/
+}
+
+# librdkafka
+build_librdkafka() {
+    check_if_source_exist $LIBRDKAFKA_SOURCE
+
+    cd $TP_SOURCE_DIR/$LIBRDKAFKA_SOURCE
+
+    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
+    LDFLAGS="-L${TP_LIB_DIR}"
+    CFLAGS="-fPIC" \
+    ./configure --prefix=$TP_INSTALL_DIR --enable-static
+    make -j$PARALLEL && make install
 }
 
 build_llvm 
@@ -509,6 +528,7 @@ build_thrift
 build_leveldb
 build_brpc
 build_jdk
-build_ant
+build_rocksdb
+build_librdkafka
 
 echo "Finihsed to build all thirdparties"

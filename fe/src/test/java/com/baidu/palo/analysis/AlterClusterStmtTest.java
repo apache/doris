@@ -21,7 +21,7 @@
 package com.baidu.palo.analysis;
 
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.mysql.privilege.MockedAuth;
 import com.baidu.palo.mysql.privilege.PaloAuth;
 import com.baidu.palo.qe.ConnectContext;
@@ -57,7 +57,7 @@ public class AlterClusterStmtTest {
     }
 
     @Test
-    public void testAnalyzeNormal() throws InternalException, AnalysisException {
+    public void testAnalyzeNormal() throws UserException, AnalysisException {
         final Map<String, String> properties = new HashMap();
         properties.put("instance_num", "2");
         final AlterClusterStmt stmt = new AlterClusterStmt("testCluster", properties);
@@ -68,14 +68,14 @@ public class AlterClusterStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testNoPropertiesFail() throws InternalException, AnalysisException {
+    public void testNoPropertiesFail() throws UserException, AnalysisException {
         final AlterClusterStmt stmt = new AlterClusterStmt("testCluster", null);
         stmt.analyze(analyzer);
         Assert.fail("no exception");
     }
 
     @Test(expected = AnalysisException.class)
-    public void testParamNumberFormatError() throws InternalException, AnalysisException {
+    public void testParamNumberFormatError() throws UserException, AnalysisException {
         final Map<String, String> properties = new HashMap();
         properties.put("instance_num", "0xfffffff");
         final AlterClusterStmt stmt = new AlterClusterStmt("testCluster", properties);

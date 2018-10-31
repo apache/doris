@@ -39,7 +39,7 @@ import com.baidu.palo.analysis.TupleDescriptor;
 import com.baidu.palo.analysis.TupleId;
 import com.baidu.palo.analysis.TupleIsNullPredicate;
 import com.baidu.palo.common.AnalysisException;
-import com.baidu.palo.common.InternalException;
+import com.baidu.palo.common.UserException;
 import com.baidu.palo.thrift.TPartitionType;
 
 import com.google.common.base.Preconditions;
@@ -98,11 +98,11 @@ public class AnalyticPlanner {
      * TODO: when merging sort groups, recognize equivalent exprs
      * (using the equivalence classes) rather than looking for expr equality
      * @throws AnalysisException
-     * @throws InternalException
+     * @throws UserException
      */
     public PlanNode createSingleNodePlan(PlanNode root,
             List<Expr> groupingExprs, List<Expr> inputPartitionExprs) throws AnalysisException,
-        InternalException {
+            UserException {
         List<WindowGroup> windowGroups = collectWindowGroups();
 
         for (int i = 0; i < windowGroups.size(); ++i) {
@@ -382,10 +382,10 @@ public class AnalyticPlanner {
      * is not null (partitionExprs represent the data partition of the entire partition
      * group of which this sort group is a part).
      * @throws AnalysisException
-     * @throws InternalException
+     * @throws UserException
      */
     private PlanNode createSortGroupPlan(PlanNode root, SortGroup sortGroup,
-                                         List<Expr> partitionExprs) throws AnalysisException, InternalException {
+                                         List<Expr> partitionExprs) throws AnalysisException, UserException {
         List<Expr> partitionByExprs = sortGroup.partitionByExprs;
         List<OrderByElement> orderByElements = sortGroup.orderByElements;
         ExprSubstitutionMap sortSmap = null;

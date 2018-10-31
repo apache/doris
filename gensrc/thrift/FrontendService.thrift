@@ -368,6 +368,8 @@ struct TReportExecStatusParams {
 
   // export files
   13: optional list<string> export_files 
+
+  14: optional list<Types.TTabletCommitInfo> commitInfos
 }
 
 struct TFeResult {
@@ -390,6 +392,7 @@ struct TMiniLoadRequest {
     10: optional string cluster
     11: optional i64 timestamp
     12: optional string user_ip
+    13: optional bool is_retry
 }
 
 struct TUpdateMiniEtlTaskStatusRequest {
@@ -449,6 +452,88 @@ struct TUpdateExportTaskStatusRequest {
     3: required PaloInternalService.TExportStatusResult taskStatus
 }
 
+struct TLoadTxnBeginRequest {
+    1: optional string cluster
+    2: required string user
+    3: required string passwd
+    4: required string db
+    5: required string tbl
+    6: optional string user_ip
+    7: required string label
+}
+
+struct TLoadTxnBeginResult {
+    1: required Status.TStatus status
+    2: optional i64 txnId
+}
+
+// StreamLoad request, used to load a streaming to engine
+struct TStreamLoadPutRequest {
+    1: optional string cluster
+    2: required string user
+    3: required string passwd
+    4: required string db
+    5: required string tbl
+    6: optional string user_ip
+
+    // and use this to assgin to OlapTableSink
+    7: required Types.TUniqueId loadId
+    8: required i64 txnId
+
+    9: required Types.TFileType fileType
+    10: required PlanNodes.TFileFormatType formatType
+
+    // only valid when file_type is FILE_LOCAL
+    11: optional string path
+
+    // describe how table's column map to field in source file
+    // slot descriptor stands for field of source file
+    12: optional string columns
+    // filters that applied on data
+    13: optional string where
+    // only valid when file type is CSV
+    14: optional string columnSeparator
+
+    15: optional string partitions
+}
+
+struct TStreamLoadPutResult {
+    1: required Status.TStatus status
+    // valid when status is OK
+    2: optional PaloInternalService.TExecPlanFragmentParams params
+}
+
+struct TLoadTxnCommitRequest {
+    1: optional string cluster
+    2: required string user
+    3: required string passwd
+    4: required string db
+    5: required string tbl
+    6: optional string user_ip
+    7: required i64 txnId
+    8: required bool sync
+    9: optional list<Types.TTabletCommitInfo> commitInfos
+}
+
+struct TLoadTxnCommitResult {
+    1: required Status.TStatus status
+}
+
+struct TLoadTxnRollbackRequest {
+    1: optional string cluster
+    2: required string user
+    3: required string passwd
+    4: required string db
+    5: required string tbl
+    6: optional string user_ip
+    7: required i64 txnId
+    8: optional string reason
+}
+
+struct TLoadTxnRollbackResult {
+    1: required Status.TStatus status
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1:TGetDbsParams params)
     TGetTablesResult getTableNames(1:TGetTablesParams params)
@@ -468,4 +553,11 @@ service FrontendService {
     TListTableStatusResult listTableStatus(1:TGetTablesParams params)
 
     TFeResult updateExportTaskStatus(1:TUpdateExportTaskStatusRequest request)
+
+    TLoadTxnBeginResult loadTxnBegin(1: TLoadTxnBeginRequest request)
+    TLoadTxnCommitResult loadTxnCommit(1: TLoadTxnCommitRequest request)
+    TLoadTxnRollbackResult loadTxnRollback(1: TLoadTxnRollbackRequest request)
+
+    TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
+
 }

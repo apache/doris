@@ -22,13 +22,11 @@
 #include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/Status_types.h"
 #include "olap/olap_define.h"
-#include "olap/olap_rootpath.h"
 #include "runtime/exec_env.h"
 
 namespace palo {
 
 const uint32_t HEARTBEAT_INTERVAL = 10;
-
 class OLAPEngine;
 class Status;
 
@@ -53,7 +51,7 @@ private:
         const TMasterInfo& master_info);
 
     TMasterInfo* _master_info;
-    OLAPRootPath* _olap_rootpath_instance;
+    OLAPEngine* _olap_engine;
     int64_t _epoch;
     DISALLOW_COPY_AND_ASSIGN(HeartbeatServer);
 };  // class HeartBeatServer
