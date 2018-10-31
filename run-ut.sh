@@ -141,11 +141,11 @@ ${DORIS_TEST_BINARY_DIR}/util/new_metrics_test
 ${DORIS_TEST_BINARY_DIR}/util/palo_metrics_test
 ${DORIS_TEST_BINARY_DIR}/util/system_metrics_test
 ${DORIS_TEST_BINARY_DIR}/util/core_local_test
-# ${DORIS_TEST_BINARY_DIR}/util/arena_test
-# ${DORIS_TEST_BINARY_DIR}/util/types_test
-# ${DORIS_TEST_BINARY_DIR}/util/json_util_test
-# ${DORIS_TEST_BINARY_DIR}/util/byte_buffer_test2
-# ${DORIS_TEST_BINARY_DIR}/util/uid_util_test
+${DORIS_TEST_BINARY_DIR}/util/arena_test
+${DORIS_TEST_BINARY_DIR}/util/types_test
+${DORIS_TEST_BINARY_DIR}/util/json_util_test
+${DORIS_TEST_BINARY_DIR}/util/byte_buffer_test2
+${DORIS_TEST_BINARY_DIR}/util/uid_util_test
 
 ## Running common Unittest
 ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test
@@ -156,10 +156,10 @@ ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_gzip_test
 ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_bzip_test
 ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_lz4frame_test
 ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_lzop_test
-# ${DORIS_TEST_BINARY_DIR}/exec/broker_scanner_test
-# ${DORIS_TEST_BINARY_DIR}/exec/broker_scan_node_test
-# ${DORIS_TEST_BINARY_DIR}/exec/olap_table_info_test
-# ${DORIS_TEST_BINARY_DIR}/exec/olap_table_sink_test
+${DORIS_TEST_BINARY_DIR}/exec/broker_scanner_test
+${DORIS_TEST_BINARY_DIR}/exec/broker_scan_node_test
+${DORIS_TEST_BINARY_DIR}/exec/olap_table_info_test
+${DORIS_TEST_BINARY_DIR}/exec/olap_table_sink_test
 
 ## Running runtime Unittest
 ${DORIS_TEST_BINARY_DIR}/runtime/fragment_mgr_test
@@ -169,18 +169,17 @@ ${DORIS_TEST_BINARY_DIR}/runtime/large_int_value_test
 ${DORIS_TEST_BINARY_DIR}/runtime/string_value_test
 ${DORIS_TEST_BINARY_DIR}/runtime/free_list_test
 ${DORIS_TEST_BINARY_DIR}/runtime/string_buffer_test
-# ${DORIS_TEST_BINARY_DIR}/runtime/stream_load_pipe_test
-# ${DORIS_TEST_BINARY_DIR}/runtime/tablet_writer_mgr_test
+${DORIS_TEST_BINARY_DIR}/runtime/stream_load_pipe_test
+${DORIS_TEST_BINARY_DIR}/runtime/tablet_writer_mgr_test
 ## Running expr Unittest
 ${DORIS_TEST_BINARY_DIR}/runtime/snapshot_loader_test
 
 # Running http
 ${DORIS_TEST_BINARY_DIR}/http/metrics_action_test
-# ${DORIS_TEST_BINARY_DIR}/http/http_utils_test
-#${DORIS_TEST_BINARY_DIR}/http/stream_load_test
+${DORIS_TEST_BINARY_DIR}/http/http_utils_test
+${DORIS_TEST_BINARY_DIR}/http/stream_load_test
 
 # Running OLAPEngine Unittest
-#${DORIS_TEST_BINARY_DIR}/olap/command_executor_test
 ${DORIS_TEST_BINARY_DIR}/olap/bit_field_test
 ${DORIS_TEST_BINARY_DIR}/olap/byte_buffer_test
 ${DORIS_TEST_BINARY_DIR}/olap/run_length_byte_test
@@ -195,14 +194,14 @@ ${DORIS_TEST_BINARY_DIR}/olap/in_list_predicate_test
 ${DORIS_TEST_BINARY_DIR}/olap/null_predicate_test
 ${DORIS_TEST_BINARY_DIR}/olap/file_helper_test
 ${DORIS_TEST_BINARY_DIR}/olap/file_utils_test
-# ${DORIS_TEST_BINARY_DIR}/olap/delete_handler_test
-# ${DORIS_TEST_BINARY_DIR}/olap/column_reader_test
-# ${DORIS_TEST_BINARY_DIR}/olap/row_cursor_test
-# ${DORIS_TEST_BINARY_DIR}/olap/skiplist_test
-# ${DORIS_TEST_BINARY_DIR}/olap/serialize_test
-# ${DORIS_TEST_BINARY_DIR}/olap/olap_header_manager_test
-# ${DORIS_TEST_BINARY_DIR}/olap/olap_meta_test
-# ${DORIS_TEST_BINARY_DIR}/olap/delta_writer_test
+${DORIS_TEST_BINARY_DIR}/olap/delete_handler_test
+${DORIS_TEST_BINARY_DIR}/olap/column_reader_test
+${DORIS_TEST_BINARY_DIR}/olap/row_cursor_test
+${DORIS_TEST_BINARY_DIR}/olap/skiplist_test
+${DORIS_TEST_BINARY_DIR}/olap/serialize_test
+${DORIS_TEST_BINARY_DIR}/olap/olap_header_manager_test
+${DORIS_TEST_BINARY_DIR}/olap/olap_meta_test
+${DORIS_TEST_BINARY_DIR}/olap/delta_writer_test
 
 ## Running agent unittest
 # Prepare agent testdata
