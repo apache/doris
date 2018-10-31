@@ -767,7 +767,6 @@ public class Analyzer {
         ArrayList<TupleId> tupleIds = Lists.newArrayList();
         ArrayList<SlotId> slotIds = Lists.newArrayList();
         e.getIds(tupleIds, slotIds);
-
         // register full join conjuncts
         registerFullOuterJoinedConjunct(e);
        
@@ -803,7 +802,7 @@ public class Analyzer {
         if (binaryPred.getOp() != BinaryPredicate.Operator.EQ) {
             return;
         }
-        if (tupleIds.size() != 2) {
+        if (tupleIds.size() < 2) {
             return;
         }
 
@@ -1188,6 +1187,20 @@ public class Analyzer {
         return globalState.fullOuterJoinedConjuncts.containsKey(e.getId());
     }
 
+    public TableRef getOjRef(Expr e) {
+        return globalState.ojClauseByConjunct.get(e.getId());
+    }
+
+   /**
+     * Returns false if 'e' originates from an outer-join On-clause and it is incorrect to
+     * evaluate 'e' at a node materializing 'tids'. Returns true otherwise.
+     */
+    public boolean canEvalOuterJoinedConjunct(Expr e, List<TupleId> tids) {
+        TableRef outerJoin = getOjRef(e);
+        if (outerJoin == null) return true;
+        return tids.containsAll(outerJoin.getAllTableRefIds());
+    }
+
     /**
      * Returns list of candidate equi-join conjuncts to be evaluated by the join node
      * that is specified by the table ref ids of its left and right children.
@@ -1195,27 +1208,59 @@ public class Analyzer {
      * from its On-clause are returned. If an equi-join conjunct is full outer joined,
      * then it is only added to the result if this join is the one to full-outer join it.
      */
-    public List<Expr> getEqJoinConjuncts(TupleId id, TableRef rhsRef) {
-        List<ExprId> conjunctIds = globalState.eqJoinConjuncts.get(id);
-        if (conjunctIds == null) {
-            return null;
+    public List<Expr> getEqJoinConjuncts(List<TupleId> lhsTblRefIds,
+                                         List<TupleId> rhsTblRefIds) {
+        // Contains all equi-join conjuncts that have one child fully bound by one of the
+        // rhs table ref ids (the other child is not bound by that rhs table ref id).
+        List<ExprId> conjunctIds = Lists.newArrayList();
+        for (TupleId rhsId: rhsTblRefIds) {
+            List<ExprId> cids = globalState.eqJoinConjuncts.get(rhsId);
+            if (cids == null) continue;
+            for (ExprId eid: cids) {
+                if (!conjunctIds.contains(eid)) conjunctIds.add(eid);
+            }
         }
-        List<Expr> result = Lists.newArrayList();
+
+        // Since we currently prevent join re-reordering across outer joins, we can never
+        // have a bushy outer join with multiple rhs table ref ids. A busy outer join can
+        // only be constructed with an inline view (which has a single table ref id).
         List<ExprId> ojClauseConjuncts = null;
-        if (rhsRef != null) {
-            Preconditions.checkState(rhsRef.getJoinOp().isOuterJoin());
-            ojClauseConjuncts = globalState.conjunctsByOjClause.get(rhsRef.getId());
+        if (rhsTblRefIds.size() == 1) {
+            ojClauseConjuncts = globalState.conjunctsByOjClause.get(rhsTblRefIds.get(0));
         }
-        for (ExprId conjunctId : conjunctIds) {
+
+        // List of table ref ids that the join node will 'materialize'.
+        List<TupleId> nodeTblRefIds = Lists.newArrayList(lhsTblRefIds);
+        nodeTblRefIds.addAll(rhsTblRefIds);
+        List<Expr> result = Lists.newArrayList();
+        for (ExprId conjunctId: conjunctIds) {
             Expr e = globalState.conjuncts.get(conjunctId);
             Preconditions.checkState(e != null);
-            if (ojClauseConjuncts != null) {
-                if (ojClauseConjuncts.contains(conjunctId)) {
-                    result.add(e);
-                }
-            } else {
-                result.add(e);
+            if (!canEvalFullOuterJoinedConjunct(e, nodeTblRefIds) ||
+                    !canEvalAntiJoinedConjunct(e, nodeTblRefIds) ||
+                    !canEvalOuterJoinedConjunct(e, nodeTblRefIds)) {
+                continue;
             }
+
+            if (ojClauseConjuncts != null && !ojClauseConjuncts.contains(conjunctId)) continue;
+            result.add(e);
+        }
+        return result;
+    }
+
+    /**
+     * return equal conjuncts, used by OlapScanNode.normalizePredicate and SelectStmt.reorderTable
+     */
+    public List<Expr> getEqJoinConjuncts(TupleId id) {
+        final List<ExprId> conjunctIds = globalState.eqJoinConjuncts.get(id);
+        if (conjunctIds == null) {
+            return Lists.newArrayList();
+        }
+        final List<Expr> result = Lists.newArrayList();
+        for (ExprId conjunctId : conjunctIds) {
+            final Expr e = globalState.conjuncts.get(conjunctId);
+            Preconditions.checkState(e != null);
+            result.add(e);
         }
         return result;
     }
@@ -1224,7 +1269,7 @@ public class Analyzer {
      * Returns list of candidate equi-join conjuncts excluding auxiliary predicates
      */
     public List<Expr> getEqJoinConjunctsExcludeAuxPredicates(TupleId id) {
-        final List<Expr> candidateEqJoinPredicates = getEqJoinConjuncts(id, null);
+        final List<Expr> candidateEqJoinPredicates = getEqJoinConjuncts(id);
         final Iterator<Expr> iterator = candidateEqJoinPredicates.iterator();
         while (iterator.hasNext()) {
             final Expr expr = iterator.next();

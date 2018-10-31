@@ -1170,25 +1170,18 @@ public class SingleNodePlanner {
      * inner joins, but only from the JOIN clause Returns the conjuncts in 'joinConjuncts' (in which "<lhs> = <rhs>" is
      * returned as Pair(<lhs>, <rhs>)) and also in their original form in 'joinPredicates'.
      */
-    private void getHashLookupJoinConjuncts(Analyzer analyzer, List<TupleId> lhsIds, TableRef rhs,
+    private void getHashLookupJoinConjuncts(Analyzer analyzer, PlanNode left, PlanNode right,
                                             List<Pair<Expr, Expr>> joinConjuncts, List<Expr> joinPredicates,
-                                            Reference<String> errMsg) {
+                                            Reference<String> errMsg, JoinOperator op) {
         joinConjuncts.clear();
         joinPredicates.clear();
-        TupleId rhsId = rhs.getId();
-        // List<TupleId> rhsIds = rhs.getMaterializedTupleIds();
-        List<TupleId> rhsIds = rhsId.asList();
+        final List<TupleId> lhsIds = left.getTblRefIds();
+        final List<TupleId> rhsIds = right.getTblRefIds();
         List<Expr> candidates;
-        if (rhs.getJoinOp().isOuterJoin()) {
-            // TODO: create test for this
-            Preconditions.checkState(rhs.getOnClause() != null);
-            candidates = analyzer.getEqJoinConjuncts(rhsId, rhs);
-        } else {
-            candidates = analyzer.getEqJoinConjuncts(rhsId, null);
-        }
+        candidates = analyzer.getEqJoinConjuncts(lhsIds, rhsIds);
         if (candidates == null) {
-            if (rhs.getJoinOp().isOuterJoin() || rhs.getJoinOp().isSemiAntiJoin()) {
-                errMsg.setRef("non-equal " +  rhs.getJoinOp().toString() + " is not supported");
+            if (op.isOuterJoin() || op.isSemiAntiJoin()) {
+                errMsg.setRef("non-equal " +  op.toString() + " is not supported");
                 LOG.warn(errMsg);
             }
             LOG.info("no candidates for join.");
@@ -1244,8 +1237,8 @@ public class SingleNodePlanner {
         Reference<String> errMsg = new Reference<String>();
         // get eq join predicates for the TableRefs' ids (not the PlanNodes' ids, which
         // are materialized)
-        getHashLookupJoinConjuncts(analyzer, outer.getTblRefIds(), innerRef, eqJoinConjuncts,
-                eqJoinPredicates, errMsg);
+        getHashLookupJoinConjuncts(analyzer, outer, inner, eqJoinConjuncts,
+                eqJoinPredicates, errMsg, innerRef.getJoinOp());
         if (eqJoinPredicates.isEmpty()) {
 
             // only inner join can change to cross join
