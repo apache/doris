@@ -16,6 +16,9 @@
 #include "http/action/stream_load.h"
 
 #include <gtest/gtest.h>
+
+#include <event2/http.h>
+#include <event2/http_struct.h>
 #include <rapidjson/document.h>
 
 #include "exec/schema_scanner/frontend_helper.h"
@@ -123,6 +126,11 @@ TEST_F(StreamLoadActionTest, normal) {
     StreamLoadAction action(&env);
 
     HttpRequest request;
+
+    struct evhttp_request ev_req;
+    ev_req.remote_host = nullptr;
+    request._ev_req = &ev_req;
+
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "0");
     action.on_header(&request);
@@ -139,6 +147,11 @@ TEST_F(StreamLoadActionTest, put_fail) {
     StreamLoadAction action(&env);
 
     HttpRequest request;
+
+    struct evhttp_request ev_req;
+    ev_req.remote_host = nullptr;
+    request._ev_req = &ev_req;
+
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "16");
     Status status("TestFail");
@@ -157,6 +170,9 @@ TEST_F(StreamLoadActionTest, commit_fail) {
     StreamLoadAction action(&env);
 
     HttpRequest request;
+    struct evhttp_request ev_req;
+    ev_req.remote_host = nullptr;
+    request._ev_req = &ev_req;
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "16");
     Status status("TestFail");
@@ -175,6 +191,9 @@ TEST_F(StreamLoadActionTest, begin_fail) {
     StreamLoadAction action(&env);
 
     HttpRequest request;
+    struct evhttp_request ev_req;
+    ev_req.remote_host = nullptr;
+    request._ev_req = &ev_req;
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "16");
     Status status("TestFail");
@@ -211,6 +230,9 @@ TEST_F(StreamLoadActionTest, plan_fail) {
     StreamLoadAction action(&env);
 
     HttpRequest request;
+    struct evhttp_request ev_req;
+    ev_req.remote_host = nullptr;
+    request._ev_req = &ev_req;
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::CONTENT_LENGTH, "16");
     k_stream_load_plan_status = Status("TestFail");
