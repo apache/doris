@@ -68,7 +68,7 @@ TEST_F(FileUtilsTest, TestCopyFile) {
     char* large_bytes2[(1 << 12)];
     memset(large_bytes2, 0, sizeof(char)*((1 << 12)));
     int i = 0;
-    while (i < 1 << 19) {
+    while (i < 1 << 10) {
         src_file_handler.write(large_bytes2, ((1 << 12)));
         ++i;
     }
@@ -80,7 +80,7 @@ TEST_F(FileUtilsTest, TestCopyFile) {
     FileHandler dst_file_handler;
     dst_file_handler.open(dst_file_name, O_RDONLY);
     int64_t dst_length = dst_file_handler.length();
-    int64_t src_length = 2147483661;
+    int64_t src_length = 4194317;
     ASSERT_EQ(src_length, dst_length);
 }
 
