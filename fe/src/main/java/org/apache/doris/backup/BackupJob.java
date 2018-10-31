@@ -1,0 +1,803 @@
+package org.apache.doris.backup;
+
+import org.apache.doris.analysis.TableRef;
+import org.apache.doris.backup.Status.ErrCode;
+import org.apache.doris.catalog.BrokerMgr.BrokerAddress;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTask;
+import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.SnapshotTask;
+import org.apache.doris.task.UploadTask;
+import org.apache.doris.thrift.TFinishTaskRequest;
+import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TTaskType;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Predicates;
+import com.google.common.base.Strings;
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.Collections2;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.FileVisitOption;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.text.SimpleDateFormat;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+
+public class BackupJob extends AbstractJob {
+    private static final Logger LOG = LogManager.getLogger(BackupJob.class);
+
+    public enum BackupJobState {
+        PENDING, // Job is newly created. Send snapshot tasks and save copied meta info, then transfer to SNAPSHOTING
+        SNAPSHOTING, // Wait for finishing snapshot tasks. When finished, transfer to UPLOAD_SNAPSHOT
+        UPLOAD_SNAPSHOT, // Begin to send upload task to BE, then transfer to UPLOADING
+        UPLOADING, // Wait for finishing upload tasks. When finished, transfer to SAVE_META
+        SAVE_META, // Save copied meta info to local file. When finished, transfer to UPLOAD_INFO
+        UPLOAD_INFO, // Upload meta and job info file to repository. When finished, transfer to FINISHED
+        FINISHED, // Job is finished.
+        CANCELLED // Job is cancelled.
+    }
+
+    // all objects which need backup
+    private List<TableRef> tableRefs = Lists.newArrayList();
+
+    private BackupJobState state;
+
+    private long snapshotFinishedTime = -1;
+    private long snapshopUploadFinishedTime = -1;
+
+    // save all tablets which tasks are not finished.
+    private Set<Long> unfinishedTaskIds = Sets.newConcurrentHashSet();
+    // tablet id -> snapshot info
+    private Map<Long, SnapshotInfo> snapshotInfos = Maps.newConcurrentMap();
+    // save all related table[partition] info
+    private BackupMeta backupMeta;
+    // job info file content
+    private BackupJobInfo jobInfo;
+
+    // save the local dir of this backup job
+    // after job is done, this dir should be deleted
+    private Path localJobDirPath = null;
+    // save the local file path of meta info and job info file
+    private String localMetaInfoFilePath = null;
+    private String localJobInfoFilePath = null;
+
+    public BackupJob() {
+        super(JobType.BACKUP);
+    }
+
+    public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
+            Catalog catalog, long repoId) {
+        super(JobType.BACKUP, label, dbId, dbName, timeoutMs, catalog, repoId);
+        this.tableRefs = tableRefs;
+        this.state = BackupJobState.PENDING;
+    }
+
+    public BackupJobState getState() {
+        return state;
+    }
+
+    public BackupMeta getBackupMeta() {
+        return backupMeta;
+    }
+
+    public BackupJobInfo getJobInfo() {
+        return jobInfo;
+    }
+
+    public String getLocalJobInfoFilePath() {
+        return localJobInfoFilePath;
+    }
+
+    public String getLocalMetaInfoFilePath() {
+        return localMetaInfoFilePath;
+    }
+
+    public synchronized boolean finishTabletSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
+        Preconditions.checkState(task.getJobId() == jobId);
+        
+        if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
+            taskErrMsg.put(task.getSignature(), Joiner.on(",").join(request.getTask_status().getError_msgs()));
+            return false;
+        }
+
+        Preconditions.checkState(request.isSetSnapshot_path());
+        Preconditions.checkState(request.isSetSnapshot_files());
+        // snapshot path does not contains last 'tablet_id' and 'schema_hash' dir
+        // eg:
+        //      /path/to/your/be/data/snapshot/20180410102311.0/
+        // Full path will look like:
+        //      /path/to/your/be/data/snapshot/20180410102311.0/10006/352781111/
+        SnapshotInfo info = new SnapshotInfo(task.getDbId(), task.getTableId(), task.getPartitionId(),
+                task.getIndexId(), task.getTabletId(), task.getBackendId(),
+                task.getSchemaHash(), request.getSnapshot_path(),
+                request.getSnapshot_files());
+        
+        snapshotInfos.put(task.getTabletId(), info);
+        boolean res = unfinishedTaskIds.remove(task.getTabletId());
+        taskErrMsg.remove(task.getTabletId());
+        LOG.debug("get finished snapshot info: {}, unfinished tasks num: {}, remove result: {}. {}",
+                  info, unfinishedTaskIds.size(), res, this);
+
+        return res;
+    }
+
+    public synchronized boolean finishSnapshotUploadTask(UploadTask task, TFinishTaskRequest request) {
+        Preconditions.checkState(task.getJobId() == jobId);
+
+        if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
+            taskErrMsg.put(task.getSignature(), Joiner.on(",").join(request.getTask_status().getError_msgs()));
+            return false;
+        }
+
+        Preconditions.checkState(request.isSetTablet_files());
+        Map<Long, List<String>> tabletFileMap = request.getTablet_files();
+        if (tabletFileMap.isEmpty()) {
+            LOG.warn("upload snapshot files failed because nothing is uploaded. be: {}. {}",
+                     task.getBackendId(), this);
+            return false;
+        }
+
+        // remove checksum suffix in reported file name before checking files
+        Map<Long, List<String>> newTabletFileMap = Maps.newHashMap();
+        for (Map.Entry<Long, List<String>> entry : tabletFileMap.entrySet()) {
+            List<String> files = entry.getValue().stream()
+                    .map(name -> Repository.decodeFileNameWithChecksum(name).first).collect(Collectors.toList());
+            newTabletFileMap.put(entry.getKey(), files);
+        }
+
+        // check if uploaded files are correct
+        for (long tabletId : newTabletFileMap.keySet()) {
+            SnapshotInfo info = snapshotInfos.get(tabletId);
+            List<String> tabletFiles = info.getFiles();
+            List<String> uploadedFiles = newTabletFileMap.get(tabletId);
+
+            if (tabletFiles.size() != uploadedFiles.size()) {
+                LOG.warn("upload snapshot files failed because file num is wrong. "
+                        + "expect: {}, actual:{}, tablet: {}, be: {}. {}",
+                         tabletFiles.size(), uploadedFiles.size(), tabletId, task.getBackendId(), this);
+                return false;
+            }
+
+            if (!Collections2.filter(tabletFiles, Predicates.not(Predicates.in(uploadedFiles))).isEmpty()) {
+                LOG.warn("upload snapshot files failed because file is different. "
+                        + "expect: [{}], actual: [{}], tablet: {}, be: {}. {}",
+                         tabletFiles, uploadedFiles, tabletId, task.getBackendId(), this);
+                return false;
+            }
+
+            // reset files in snapshot info with checksum filename
+            info.setFiles(tabletFileMap.get(tabletId));
+        }
+
+        boolean res = unfinishedTaskIds.remove(task.getSignature());
+        taskErrMsg.remove(task.getTabletId());
+        LOG.debug("get finished upload snapshot task, unfinished tasks num: {}, remove result: {}. {}",
+                  unfinishedTaskIds.size(), res, this);
+        return res;
+    }
+
+    @Override
+    public synchronized void replayRun() {
+        // Backup process does not change any current catalog state,
+        // So nothing need to be done when replaying log
+    }
+
+    @Override
+    public synchronized void replayCancel() {
+        // nothing to do
+    }
+
+    @Override
+    public boolean isPending() {
+        return state == BackupJobState.PENDING;
+    }
+
+    @Override
+    public boolean isCancelled() {
+        return state == BackupJobState.CANCELLED;
+    }
+
+    // Polling the job state and do the right things.
+    @Override
+    public synchronized void run() {
+        if (state == BackupJobState.FINISHED || state == BackupJobState.CANCELLED) {
+            return;
+        }
+
+        // check timeout
+        if (System.currentTimeMillis() - createTime > timeoutMs) {
+            status = new Status(ErrCode.TIMEOUT, "");
+            cancelInternal();
+            return;
+        }
+
+        // get repo if not set
+        if (repo == null) {
+            repo = catalog.getBackupHandler().getRepoMgr().getRepo(repoId);
+            if (repo == null) {
+                status = new Status(ErrCode.COMMON_ERROR, "failed to get repository: " + repoId);
+                cancelInternal();
+                return;
+            }
+        }
+        
+        LOG.debug("run backup job: {}", this);
+
+        // run job base on current state
+        switch (state) {
+            case PENDING:
+                prepareAndSendSnapshotTask();
+                break;
+            case SNAPSHOTING:
+                waitingAllSnapshotsFinished();
+                break;
+            case UPLOAD_SNAPSHOT:
+                uploadSnapshot();
+                break;
+            case UPLOADING:
+                waitingAllUploadingFinished();
+                break;
+            case SAVE_META:
+                saveMetaInfo();
+                break;
+            case UPLOAD_INFO:
+                uploadMetaAndJobInfoFile();
+                break;
+            default:
+                break;
+        }
+
+        if (!status.ok()) {
+            cancelInternal();
+        }
+    }
+
+    // cancel by user
+    @Override
+    public synchronized Status cancel() {
+        if (isDone()) {
+            return new Status(ErrCode.COMMON_ERROR,
+                    "Job with label " + label + " can not be cancelled. state: " + state);
+        }
+
+        status = new Status(ErrCode.COMMON_ERROR, "user cancelled");
+        cancelInternal();
+        return Status.OK;
+    }
+
+    @Override
+    public synchronized boolean isDone() {
+        if (state == BackupJobState.FINISHED || state == BackupJobState.CANCELLED) {
+            return true;
+        }
+        return false;
+    }
+
+    private void prepareAndSendSnapshotTask() {
+        Database db = catalog.getDb(dbId);
+        if (db == null) {
+            status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
+            return;
+        }
+
+        // generate job id
+        jobId = catalog.getNextId();
+        AgentBatchTask batchTask = new AgentBatchTask();
+        db.readLock();
+        try {
+            // check all backup tables again
+            for (TableRef tableRef : tableRefs) {
+                String tblName = tableRef.getName().getTbl();
+                Table tbl = db.getTable(tblName);
+                if (tbl == null) {
+                    status = new Status(ErrCode.NOT_FOUND, "table " + tblName + " does not exist");
+                    return;
+                }
+                if (tbl.getType() != TableType.OLAP) {
+                    status = new Status(ErrCode.COMMON_ERROR, "table " + tblName + " is not OLAP table");
+                    return;
+                }
+
+                OlapTable olapTbl = (OlapTable) tbl;
+                if (tableRef.getPartitions() != null && !tableRef.getPartitions().isEmpty()) {
+                    for (String partName : tableRef.getPartitions()) {
+                        Partition partition = olapTbl.getPartition(partName);
+                        if (partition == null) {
+                            status = new Status(ErrCode.NOT_FOUND, "partition " + partName
+                                    + " does not exist  in table" + tblName);
+                            return;
+                        }
+                    }
+                }
+            }
+
+            unfinishedTaskIds.clear();
+            taskErrMsg.clear();
+            // create snapshot tasks
+            for (TableRef tblRef : tableRefs) {
+                String tblName = tblRef.getName().getTbl();
+                OlapTable tbl = (OlapTable) db.getTable(tblName);
+                List<Partition> partitions = Lists.newArrayList();
+                if (tblRef.getPartitions() == null || tblRef.getPartitions().isEmpty()) {
+                    partitions.addAll(tbl.getPartitions());
+                } else {
+                    for (String partName : tblRef.getPartitions()) {
+                        Partition partition = tbl.getPartition(partName);
+                        partitions.add(partition);
+                    }
+                }
+
+                // snapshot partitions
+                for (Partition partition : partitions) {
+                    long committedVersion = partition.getCommittedVersion();
+                    long committedVersionHash = partition.getCommittedVersionHash();
+                    List<MaterializedIndex> indexes = partition.getMaterializedIndices();
+                    for (MaterializedIndex index : indexes) {
+                        int schemaHash = tbl.getSchemaHashByIndexId(index.getId());
+                        List<Tablet> tablets = index.getTablets();
+                        for (Tablet tablet : tablets) {
+                            Replica replica = chooseReplica(tablet, committedVersion, committedVersionHash);
+                            if (replica == null) {
+                                status = new Status(ErrCode.COMMON_ERROR,
+                                        "faild to choose replica to make snapshot for tablet " + tablet.getId()
+                                                + ". committed version: " + committedVersion
+                                                + ", committed version hash: " + committedVersionHash);
+                                return;
+                            }
+                            SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), tablet.getId(),
+                                    jobId, dbId, tbl.getId(), partition.getId(),
+                                    index.getId(), tablet.getId(),
+                                    committedVersion, committedVersionHash,
+                                    schemaHash, timeoutMs, false /* not restore task */);
+                            batchTask.addTask(task);
+                            unfinishedTaskIds.add(tablet.getId());
+                        }
+                    }
+
+                    LOG.info("snapshot for partition {}, version: {}, version hash: {}",
+                             partition.getId(), committedVersion, committedVersionHash);
+                }
+            }
+
+            // copy all related schema at this moment
+            List<Table> copiedTables = Lists.newArrayList();
+            for (TableRef tableRef : tableRefs) {
+                String tblName = tableRef.getName().getTbl();
+                OlapTable tbl = (OlapTable) db.getTable(tblName);
+                OlapTable copiedTbl = tbl.selectiveCopy(tableRef.getPartitions());
+                if (copiedTbl == null) {
+                    status = new Status(ErrCode.COMMON_ERROR, "faild to copy table: " + tblName);
+                    return;
+                }
+                copiedTables.add(copiedTbl);
+            }
+            backupMeta = new BackupMeta(copiedTables);
+        } finally {
+            db.readUnlock();
+        }
+
+        // send tasks
+        for (AgentTask task : batchTask.getAllTasks()) {
+            AgentTaskQueue.addTask(task);
+        }
+        AgentTaskExecutor.submit(batchTask);
+
+        state = BackupJobState.SNAPSHOTING;
+
+        // DO NOT write log here, state will be reset to PENDING after FE restart. Then all snapshot tasks
+        // will be re-generated and be sent again
+        LOG.info("finished to send snapshot tasks to backend. {}", this);
+    }
+
+    private void waitingAllSnapshotsFinished() {
+        if (unfinishedTaskIds.isEmpty()) {
+            snapshotFinishedTime = System.currentTimeMillis();
+            state = BackupJobState.UPLOAD_SNAPSHOT;
+
+            // log
+            catalog.getEditLog().logBackupJob(this);
+            LOG.info("finished to make snapshots. {}", this);
+            return;
+        }
+
+        LOG.info("waiting {} tablets to make snapshot. {}", unfinishedTaskIds.size(), this);
+    }
+
+    private void uploadSnapshot() {
+        // reuse this set to save all unfinished tablets
+        unfinishedTaskIds.clear();
+        taskErrMsg.clear();
+
+        // We classify the snapshot info by backend
+        ArrayListMultimap<Long, SnapshotInfo> beToSnapshots = ArrayListMultimap.create();
+        for (SnapshotInfo info : snapshotInfos.values()) {
+            beToSnapshots.put(info.getBeId(), info);
+        }
+
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (Long beId : beToSnapshots.keySet()) {
+            List<SnapshotInfo> infos = beToSnapshots.get(beId);
+            int totalNum = infos.size();
+            // each backend allot at most 3 tasks
+            int batchNum = Math.min(totalNum, 3);
+            // each task contains several upload sub tasks
+            int taskNumPerBatch = Math.max(totalNum / batchNum, 1);
+            LOG.debug("backend {} has {} batch, total {} tasks, {}", beId, batchNum, totalNum, this);
+
+            List<BrokerAddress> brokerAddrs = Lists.newArrayList();
+            Status st = repo.getBrokerAddress(beId, catalog, brokerAddrs);
+            if (!st.ok()) {
+                status = st;
+                return;
+            }
+            Preconditions.checkState(brokerAddrs.size() == 1);
+            
+            // allot tasks
+            int index = 0;
+            for (int batch = 0; batch < batchNum; batch++) {
+                Map<String, String> srcToDest = Maps.newHashMap();
+                int currentBatchTaskNum = (batch == batchNum - 1) ? totalNum - index : taskNumPerBatch;
+                for (int j = 0; j < currentBatchTaskNum; j++) {
+                    SnapshotInfo info = infos.get(index++);
+                    String src = info.getTabletPath();
+                    String dest = repo.getRepoTabletPathBySnapshotInfo(label, info);
+                    srcToDest.put(src, dest);
+                }
+                long signature = catalog.getNextId();
+                UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
+                        brokerAddrs.get(0), repo.getStorage().getProperties());
+                batchTask.addTask(task);
+                unfinishedTaskIds.add(signature);
+            }
+        }
+
+        // send tasks
+        for (AgentTask task : batchTask.getAllTasks()) {
+            AgentTaskQueue.addTask(task);
+        }
+        AgentTaskExecutor.submit(batchTask);
+
+        state = BackupJobState.UPLOADING;
+
+        // DO NOT write log here, upload tasks will be resend after FE crashed.
+        LOG.info("finished to send update tasks. {}", this);
+    }
+
+    private void waitingAllUploadingFinished() {
+        if (unfinishedTaskIds.isEmpty()) {
+            snapshopUploadFinishedTime = System.currentTimeMillis();
+            state = BackupJobState.SAVE_META;
+
+            // log
+            catalog.getEditLog().logBackupJob(this);
+            LOG.info("finished uploading snapshots. {}", this);
+            return;
+        }
+
+        LOG.debug("waiting {} tablets to upload snapshot. {}", unfinishedTaskIds.size(), this);
+    }
+
+    private void saveMetaInfo() {
+        String createTimeStr = TimeUtils.longToTimeString(createTime, new SimpleDateFormat(
+                "yyyy-MM-dd-HH-mm-ss"));
+        // local job dir: backup/label__createtime/
+        localJobDirPath = Paths.get(BackupHandler.BACKUP_ROOT_DIR.toString(),
+                                    label + "__" + createTimeStr).normalize();
+
+        try {
+            // 1. create local job dir of this backup job
+            File jobDir = new File(localJobDirPath.toString());
+            if (jobDir.exists()) {
+                // if dir exists, delete it first
+                Files.walk(localJobDirPath,
+                           FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+            }
+            if (!jobDir.mkdir()) {
+                status = new Status(ErrCode.COMMON_ERROR, "Failed to create tmp dir: " + localJobDirPath);
+                return;
+            }
+
+            // 2. save meta info file
+            File metaInfoFile = new File(jobDir, Repository.FILE_META_INFO);
+            if (!metaInfoFile.createNewFile()) {
+                status = new Status(ErrCode.COMMON_ERROR,
+                        "Failed to create meta info file: " + metaInfoFile.toString());
+                return;
+            }
+            backupMeta.writeToFile(metaInfoFile);
+            localMetaInfoFilePath = metaInfoFile.getAbsolutePath();
+
+            // 3. save job info file
+            jobInfo = BackupJobInfo.fromCatalog(createTime, label, dbName, dbId, backupMeta.getTables().values(),
+                                                snapshotInfos);
+            LOG.debug("job info: {}. {}", jobInfo, this);
+            File jobInfoFile = new File(jobDir, Repository.PREFIX_JOB_INFO + createTimeStr);
+            if (!jobInfoFile.createNewFile()) {
+                status = new Status(ErrCode.COMMON_ERROR, "Failed to create job info file: " + jobInfoFile.toString());
+                return;
+            }
+            jobInfo.writeToFile(jobInfoFile);
+            localJobInfoFilePath = jobInfoFile.getAbsolutePath();
+        } catch (Exception e) {
+            status = new Status(ErrCode.COMMON_ERROR, "failed to save meta info and job info file: " + e.getMessage());
+            return;
+        }
+
+        state = BackupJobState.UPLOAD_INFO;
+
+        // meta info and job info has been saved to local file, this can be cleaned to reduce log size
+        backupMeta = null;
+        jobInfo = null;
+        snapshotInfos.clear();
+
+        // log
+        catalog.getEditLog().logBackupJob(this);
+        LOG.info("finished to save meta the backup job info file to local.[{}], [{}] {}",
+                 localMetaInfoFilePath, localJobInfoFilePath, this);
+    }
+
+    private void uploadMetaAndJobInfoFile() {
+        String remoteMetaInfoFile = repo.assembleMetaInfoFilePath(label);
+        if (!uploadFile(localMetaInfoFilePath, remoteMetaInfoFile)) {
+            return;
+        }
+
+        String remoteJobInfoFile = repo.assembleJobInfoFilePath(label, createTime);
+        if (!uploadFile(localJobInfoFilePath, remoteJobInfoFile)) {
+            return;
+        }
+
+        finishedTime = System.currentTimeMillis();
+        state = BackupJobState.FINISHED;
+
+        // log
+        catalog.getEditLog().logBackupJob(this);
+        LOG.info("job is finished. {}", this);
+    }
+
+    private boolean uploadFile(String localFilePath, String remoteFilePath) {
+        if (!validateLocalFile(localFilePath)) {
+            return false;
+        }
+
+        status = repo.upload(localFilePath, remoteFilePath);
+        if (!status.ok()) {
+            return false;
+        }
+        return true;
+    }
+
+    private boolean validateLocalFile(String filePath) {
+        File file = new File(filePath);
+        if (!file.exists() || !file.canRead()) {
+            status = new Status(ErrCode.COMMON_ERROR, "file is invalid: " + filePath);
+            return false;
+        }
+        return true;
+    }
+
+    /*
+     * Choose a replica order by replica id.
+     * This is to expect to choose the same replica at each backup job.
+     */
+    private Replica chooseReplica(Tablet tablet, long committedVersion, long committedVersionHash) {
+        List<Long> replicaIds = Lists.newArrayList();
+        for (Replica replica : tablet.getReplicas()) {
+            replicaIds.add(replica.getId());
+        }
+        
+        Collections.sort(replicaIds);
+        for (Long replicaId : replicaIds) {
+            Replica replica = tablet.getReplicaById(replicaId);
+            if (replica.getVersion() > committedVersion 
+                    || (replica.getVersion() == committedVersion && replica.getVersionHash()==committedVersionHash)) {
+                return replica;
+            }
+        }
+        return null;
+    }
+
+    private void cancelInternal() {
+        // We need to clean the residual due to current state
+        switch (state) {
+            case SNAPSHOTING:
+                // remove all snapshot tasks in AgentTaskQueue
+                for (Long taskId : unfinishedTaskIds) {
+                    AgentTaskQueue.removeTaskOfType(TTaskType.MAKE_SNAPSHOT, taskId);
+                }
+                break;
+            case UPLOADING:
+                // remove all upload tasks in AgentTaskQueue
+                for (Long taskId : unfinishedTaskIds) {
+                    AgentTaskQueue.removeTaskOfType(TTaskType.UPLOAD, taskId);
+                }
+                break;
+            default:
+                break;
+        }
+
+        // clean the backup job dir
+        if (localJobDirPath != null) {
+            try {
+                File jobDir = new File(localJobDirPath.toString());
+                if (jobDir.exists()) {
+                    Files.walk(localJobDirPath,
+                               FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+                }
+            } catch (Exception e) {
+                LOG.warn("failed to clean the backup job dir: " + localJobDirPath.toString());
+            }
+        }
+
+        BackupJobState curState = state;
+        finishedTime = System.currentTimeMillis();
+        state = BackupJobState.CANCELLED;
+
+        // log
+        catalog.getEditLog().logBackupJob(this);
+        LOG.info("finished to cancel backup job. current state: {}. {}", curState.name(), this);
+    }
+    
+    public List<String> getInfo() {
+        List<String> info = Lists.newArrayList();
+        info.add(String.valueOf(jobId));
+        info.add(label);
+        info.add(dbName);
+        info.add(state.name());
+        info.add(getBackupObjs());
+        info.add(TimeUtils.longToTimeString(createTime));
+        info.add(TimeUtils.longToTimeString(snapshotFinishedTime));
+        info.add(TimeUtils.longToTimeString(snapshopUploadFinishedTime));
+        info.add(TimeUtils.longToTimeString(finishedTime));
+        info.add(Joiner.on(", ").join(unfinishedTaskIds));
+        List<String> msgs = taskErrMsg.entrySet().stream().map(n -> "[" + n.getKey() + ": " + n.getValue()
+                + "]").collect(Collectors.toList());
+        info.add(Joiner.on(", ").join(msgs));
+        info.add(status.toString());
+        info.add(String.valueOf(timeoutMs / 1000));
+        return info;
+    }
+
+    private String getBackupObjs() {
+        List<String> list = tableRefs.stream().map(n -> "[" + n.toString() + "]").collect(Collectors.toList());
+        return Joiner.on(", ").join(list);
+    }
+
+    public static BackupJob read(DataInput in) throws IOException {
+        BackupJob job = new BackupJob();
+        job.readFields(in);
+        return job;
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        super.write(out);
+
+        // table refs
+        out.writeInt(tableRefs.size());
+        for (TableRef tblRef : tableRefs) {
+            tblRef.write(out);
+        }
+
+        // state
+        Text.writeString(out, state.name());
+
+        // times
+        out.writeLong(snapshotFinishedTime);
+        out.writeLong(snapshopUploadFinishedTime);
+
+        // snapshot info
+        out.writeInt(snapshotInfos.size());
+        for (SnapshotInfo info : snapshotInfos.values()) {
+            info.write(out);
+        }
+
+        // backup meta
+        if (backupMeta == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            backupMeta.write(out);
+        }
+
+        // No need to persist job info. It is generated then write to file
+
+        // metaInfoFilePath and jobInfoFilePath
+        if (Strings.isNullOrEmpty(localMetaInfoFilePath)) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            Text.writeString(out, localMetaInfoFilePath);
+        }
+
+        if (Strings.isNullOrEmpty(localJobInfoFilePath)) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            Text.writeString(out, localJobInfoFilePath);
+        }
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        super.readFields(in);
+
+        // table refs
+        int size = in.readInt();
+        tableRefs = Lists.newArrayList();
+        for (int i = 0; i < size; i++) {
+            TableRef tblRef = new TableRef();
+            tblRef.readFields(in);
+            tableRefs.add(tblRef);
+        }
+
+        state = BackupJobState.valueOf(Text.readString(in));
+
+        // times
+        snapshotFinishedTime = in.readLong();
+        snapshopUploadFinishedTime = in.readLong();
+
+        // snapshot info
+        size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            SnapshotInfo snapshotInfo = new SnapshotInfo();
+            snapshotInfo.readFields(in);
+            snapshotInfos.put(snapshotInfo.getTabletId(), snapshotInfo);
+        }
+
+        // backup meta
+        if (in.readBoolean()) {
+            backupMeta = BackupMeta.read(in);
+        }
+
+        // No need to persist job info. It is generated then write to file
+
+        // metaInfoFilePath and jobInfoFilePath
+        if (in.readBoolean()) {
+            localMetaInfoFilePath = Text.readString(in);
+        }
+
+        if (in.readBoolean()) {
+            localJobInfoFilePath = Text.readString(in);
+        }
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder(super.toString());
+        sb.append(", state: ").append(state.name());
+        return sb.toString();
+    }
+}
+

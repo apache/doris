@@ -22,7 +22,7 @@
 
 ##############################################################
 # the script generates src/be/src/common/version.h and 
-# src/fe/src/com/cloudera/PALO/common/Version.java which 
+# fe/src/main/java/org/apache/doris/common/Version.java which 
 # contains the build version based on the git hash or svn revision.
 ##############################################################
 
@@ -46,7 +46,7 @@ then
 fi
 
 if [[ -z ${PALO_TEST_BINARY_DIR} ]]; then
-    if [ -e ${DORIS_HOME}/gensrc/build/java/com/baidu/palo/common/Version.java \
+    if [ -e ${DORIS_HOME}/gensrc/build/java/org/apache/doris/common/Version.java \
          -a -e ${DORIS_HOME}/gensrc/build/gen_cpp/version.h ]; then
         exit
     fi
@@ -74,7 +74,7 @@ build_hash="${url}@${revision}"
 build_time="${date}"
 build_info="${user}@${hostname}"
 
-VERSION_PACKAGE="${DORIS_HOME}/gensrc/build/java/com/baidu/palo/common"
+VERSION_PACKAGE="${DORIS_HOME}/gensrc/build/java/org/apache/doris/common"
 mkdir -p ${VERSION_PACKAGE}
 cat >"${VERSION_PACKAGE}/Version.java" <<EOF
 // Modifications copyright (C) 2017, Baidu.com, Inc.
@@ -97,11 +97,11 @@ cat >"${VERSION_PACKAGE}/Version.java" <<EOF
 // specific language governing permissions and limitations
 // under the License.
 
-package com.baidu.palo.common;
+package org.apache.doris.common;
 
 // This is a generated file, DO NOT EDIT IT.
 // To change this file, see palo/src/common/version-info
-// the file should be placed in src/java/com/baidu/palo/common/Version.java
+// the file should be placed in src/java/org/apache/doris/common/Version.java
 
 public class Version {
 
