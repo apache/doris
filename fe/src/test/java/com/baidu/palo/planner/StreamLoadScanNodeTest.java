@@ -1,0 +1,522 @@
+// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package com.baidu.palo.planner;
+
+import com.baidu.palo.analysis.Analyzer;
+import com.baidu.palo.analysis.CastExpr;
+import com.baidu.palo.analysis.DescriptorTable;
+import com.baidu.palo.analysis.FunctionName;
+import com.baidu.palo.analysis.SlotDescriptor;
+import com.baidu.palo.analysis.TupleDescriptor;
+import com.baidu.palo.catalog.AggregateType;
+import com.baidu.palo.catalog.Catalog;
+import com.baidu.palo.catalog.Column;
+import com.baidu.palo.catalog.ColumnType;
+import com.baidu.palo.catalog.Function;
+import com.baidu.palo.catalog.OlapTable;
+import com.baidu.palo.catalog.PrimitiveType;
+import com.baidu.palo.catalog.ScalarFunction;
+import com.baidu.palo.catalog.Type;
+import com.baidu.palo.common.AnalysisException;
+import com.baidu.palo.common.UserException;
+import com.baidu.palo.qe.ConnectContext;
+import com.baidu.palo.thrift.TExplainLevel;
+import com.baidu.palo.thrift.TFileType;
+import com.baidu.palo.thrift.TPlanNode;
+import com.baidu.palo.thrift.TStreamLoadPutRequest;
+
+import com.google.common.collect.Lists;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.junit.Assert;
+import org.junit.Test;
+
+import java.util.List;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
+
+public class StreamLoadScanNodeTest {
+    private static final Logger LOG = LogManager.getLogger(StreamLoadScanNodeTest.class);
+
+    @Mocked
+    Catalog catalog;
+
+    @Injectable
+    ConnectContext connectContext;
+
+    @Injectable
+    OlapTable dstTable;
+
+    @Mocked
+    CastExpr castExpr;
+
+    TStreamLoadPutRequest getBaseRequest() {
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setFileType(TFileType.FILE_STREAM);
+        return request;
+    }
+
+    List<Column> getBaseSchema() {
+        List<Column> columns = Lists.newArrayList();
+
+        Column k1 = new Column("k1", PrimitiveType.BIGINT);
+        k1.setIsKey(true);
+        k1.setIsAllowNull(false);
+        columns.add(k1);
+
+        Column k2 = new Column("k2", new ColumnType(PrimitiveType.VARCHAR, 25, 10, 5));
+        k2.setIsKey(true);
+        k2.setIsAllowNull(true);
+        columns.add(k2);
+
+        Column v1 = new Column("v1", PrimitiveType.BIGINT);
+        v1.setIsKey(false);
+        v1.setIsAllowNull(true);
+        v1.setAggregationType(AggregateType.SUM, false);
+
+        columns.add(v1);
+
+        Column v2 = new Column("v2", new ColumnType(PrimitiveType.VARCHAR, 25, 10, 5));
+        v2.setIsKey(false);
+        v2.setAggregationType(AggregateType.REPLACE, false);
+        v2.setIsAllowNull(false);
+        columns.add(v2);
+
+        return columns;
+    }
+
+    List<Column> getHllSchema() {
+        List<Column> columns = Lists.newArrayList();
+
+        Column k1 = new Column("k1", PrimitiveType.BIGINT);
+        k1.setIsKey(true);
+        k1.setIsAllowNull(false);
+        columns.add(k1);
+
+        Column v1 = new Column("v1", PrimitiveType.HLL);
+        v1.setIsKey(false);
+        v1.setIsAllowNull(true);
+        v1.setAggregationType(AggregateType.HLL_UNION, false);
+
+        columns.add(v1);
+
+        return columns;
+    }
+
+    @Test
+    public void testNormal() throws UserException {
+        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        DescriptorTable descTbl = analyzer.getDescTbl();
+
+        List<Column> columns = getBaseSchema();
+        TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
+        for (Column column : columns) {
+            SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
+            slot.setColumn(column);
+            slot.setIsMaterialized(true);
+            if (column.isAllowNull()) {
+                slot.setIsNullable(true);
+            } else {
+                slot.setIsNullable(false);
+            }
+        }
+
+        TStreamLoadPutRequest request = getBaseRequest();
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+        new Expectations() {{
+            dstTable.getBaseSchema(); result = columns;
+            castExpr.analyze((Analyzer) any);
+        }};
+        scanNode.init(analyzer);
+        scanNode.finalize(analyzer);
+        scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
+        TPlanNode planNode = new TPlanNode();
+        scanNode.toThrift(planNode);
+
+        Assert.assertEquals(1, scanNode.getNumInstances());
+        Assert.assertEquals(1, scanNode.getScanRangeLocations(0).size());
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testLostV2() throws UserException {
+        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        DescriptorTable descTbl = analyzer.getDescTbl();
+
+        List<Column> columns = getBaseSchema();
+        TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
+        for (Column column : columns) {
+            SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
+            slot.setColumn(column);
+            slot.setIsMaterialized(true);
+            if (column.isAllowNull()) {
+                slot.setIsNullable(true);
+            } else {
+                slot.setIsNullable(false);
+            }
+        }
+
+        TStreamLoadPutRequest request = getBaseRequest();
+        request.setColumns("k1, k2, v1");
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+
+        scanNode.init(analyzer);
+        scanNode.finalize(analyzer);
+        scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
+        TPlanNode planNode = new TPlanNode();
+        scanNode.toThrift(planNode);
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testBadColumns() throws UserException, UserException {
+        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        DescriptorTable descTbl = analyzer.getDescTbl();
+
+        List<Column> columns = getBaseSchema();
+        TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
+        for (Column column : columns) {
+            SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
+            slot.setColumn(column);
+            slot.setIsMaterialized(true);
+            if (column.isAllowNull()) {
+                slot.setIsNullable(true);
+            } else {
+                slot.setIsNullable(false);
+            }
+        }
+
+        TStreamLoadPutRequest request = getBaseRequest();
+        request.setColumns("k1 k2 v1");
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+
+        scanNode.init(analyzer);
+        scanNode.finalize(analyzer);
+        scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
+        TPlanNode planNode = new TPlanNode();
+        scanNode.toThrift(planNode);
+    }
+
+    @Test
+    public void testColumnsNormal() throws UserException, UserException {
+        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        DescriptorTable descTbl = analyzer.getDescTbl();
+
+        List<Column> columns = getBaseSchema();
+        TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
+        for (Column column : columns) {
+            SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
+            slot.setColumn(column);
+            slot.setIsMaterialized(true);
+            if (column.isAllowNull()) {
+                slot.setIsNullable(true);
+            } else {
+                slot.setIsNullable(false);
+            }
+        }
+
+        TStreamLoadPutRequest request = getBaseRequest();
+        request.setFileType(TFileType.FILE_LOCAL);
+        request.setColumns("k1,k2,v1, v2=k2");
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+
+        scanNode.init(analyzer);
+        scanNode.finalize(analyzer);
+        scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
+        TPlanNode planNode = new TPlanNode();
+        scanNode.toThrift(planNode);
+    }
+
+    @Test
+    public void testHllColumnsNormal() throws UserException {
+        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        DescriptorTable descTbl = analyzer.getDescTbl();
+
+        List<Column> columns = getHllSchema();
+        TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
+        for (Column column : columns) {
+            SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
+            slot.setColumn(column);
+            slot.setIsMaterialized(true);
+            if (column.isAllowNull()) {
+                slot.setIsNullable(true);
+            } else {
+                slot.setIsNullable(false);
+            }
+        }
+
+        new Expectations() {{
+            catalog.getFunction((Function) any, (Function.CompareMode) any);
+            result = new ScalarFunction(new FunctionName("hll_hash"), Lists.newArrayList(), Type.BIGINT, false);
+        }};
+
+        TStreamLoadPutRequest request = getBaseRequest();
+        request.setFileType(TFileType.FILE_LOCAL);
+        request.setColumns("k1,k2, v1=hll_hash(k2)");
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+
+        scanNode.init(analyzer);
+        scanNode.finalize(analyzer);
+        scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
+        TPlanNode planNode = new TPlanNode();
+        scanNode.toThrift(planNode);
+    }
+
+    @Test(expected = UserException.class)
+    public void testHllColumnsNoHllHash() throws UserException {
+        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        DescriptorTable descTbl = analyzer.getDescTbl();
+
+        List<Column> columns = getHllSchema();
+        TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
+        for (Column column : columns) {
+            SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
+            slot.setColumn(column);
+            slot.setIsMaterialized(true);
+            if (column.isAllowNull()) {
+                slot.setIsNullable(true);
+            } else {
+                slot.setIsNullable(false);
+            }
+        }
+
+        new Expectations() {{
+            catalog.getFunction((Function) any, (Function.CompareMode) any);
+            result = new ScalarFunction(new FunctionName("hll_hash1"), Lists.newArrayList(), Type.BIGINT, false);
+        }};
+
+        TStreamLoadPutRequest request = getBaseRequest();
+        request.setFileType(TFileType.FILE_LOCAL);
+        request.setColumns("k1,k2, v1=hll_hash1(k2)");
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+
+        scanNode.init(analyzer);
+        scanNode.finalize(analyzer);
+        scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
+        TPlanNode planNode = new TPlanNode();
+        scanNode.toThrift(planNode);
+    }
+
+    @Test(expected = UserException.class)
+    public void testHllColumnsFail() throws UserException {
+        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        DescriptorTable descTbl = analyzer.getDescTbl();
+
+        List<Column> columns = getHllSchema();
+        TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
+        for (Column column : columns) {
+            SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
+            slot.setColumn(column);
+            slot.setIsMaterialized(true);
+            if (column.isAllowNull()) {
+                slot.setIsNullable(true);
+            } else {
+                slot.setIsNullable(false);
+            }
+        }
+
+        TStreamLoadPutRequest request = getBaseRequest();
+        request.setFileType(TFileType.FILE_LOCAL);
+        request.setColumns("k1,k2, v1=k2");
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+
+        scanNode.init(analyzer);
+        scanNode.finalize(analyzer);
+        scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
+        TPlanNode planNode = new TPlanNode();
+        scanNode.toThrift(planNode);
+    }
+
+    @Test(expected = UserException.class)
+    public void testUnsupportedFType() throws UserException, UserException {
+        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        DescriptorTable descTbl = analyzer.getDescTbl();
+
+        List<Column> columns = getBaseSchema();
+        TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
+        for (Column column : columns) {
+            SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
+            slot.setColumn(column);
+            slot.setIsMaterialized(true);
+            if (column.isAllowNull()) {
+                slot.setIsNullable(true);
+            } else {
+                slot.setIsNullable(false);
+            }
+        }
+
+        TStreamLoadPutRequest request = getBaseRequest();
+        request.setFileType(TFileType.FILE_BROKER);
+        request.setColumns("k1,k2,v1, v2=k2");
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+
+        scanNode.init(analyzer);
+        scanNode.finalize(analyzer);
+        scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
+        TPlanNode planNode = new TPlanNode();
+        scanNode.toThrift(planNode);
+    }
+
+    @Test(expected = UserException.class)
+    public void testColumnsUnknownRef() throws UserException, UserException {
+        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        DescriptorTable descTbl = analyzer.getDescTbl();
+
+        List<Column> columns = getBaseSchema();
+        TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
+        for (Column column : columns) {
+            SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
+            slot.setColumn(column);
+            slot.setIsMaterialized(true);
+            if (column.isAllowNull()) {
+                slot.setIsNullable(true);
+            } else {
+                slot.setIsNullable(false);
+            }
+        }
+
+        TStreamLoadPutRequest request = getBaseRequest();
+        request.setColumns("k1,k2,v1, v2=k3");
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+
+        scanNode.init(analyzer);
+        scanNode.finalize(analyzer);
+        scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
+        TPlanNode planNode = new TPlanNode();
+        scanNode.toThrift(planNode);
+    }
+
+    @Test
+    public void testWhereNormal() throws UserException, UserException {
+        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        DescriptorTable descTbl = analyzer.getDescTbl();
+
+        List<Column> columns = getBaseSchema();
+        TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
+        for (Column column : columns) {
+            SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
+            slot.setColumn(column);
+            slot.setIsMaterialized(true);
+            if (column.isAllowNull()) {
+                slot.setIsNullable(true);
+            } else {
+                slot.setIsNullable(false);
+            }
+        }
+
+        TStreamLoadPutRequest request = getBaseRequest();
+        request.setColumns("k1,k2,v1, v2=k1");
+        request.setWhere("k1 = 1");
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+
+        scanNode.init(analyzer);
+        scanNode.finalize(analyzer);
+        scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
+        TPlanNode planNode = new TPlanNode();
+        scanNode.toThrift(planNode);
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testWhereBad() throws UserException, UserException {
+        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        DescriptorTable descTbl = analyzer.getDescTbl();
+
+        List<Column> columns = getBaseSchema();
+        TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
+        for (Column column : columns) {
+            SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
+            slot.setColumn(column);
+            slot.setIsMaterialized(true);
+            if (column.isAllowNull()) {
+                slot.setIsNullable(true);
+            } else {
+                slot.setIsNullable(false);
+            }
+        }
+
+        TStreamLoadPutRequest request = getBaseRequest();
+        request.setColumns("k1,k2,v1, v2=k2");
+        request.setWhere("k1   1");
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+
+        scanNode.init(analyzer);
+        scanNode.finalize(analyzer);
+        scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
+        TPlanNode planNode = new TPlanNode();
+        scanNode.toThrift(planNode);
+    }
+
+    @Test(expected = UserException.class)
+    public void testWhereUnknownRef() throws UserException, UserException {
+        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        DescriptorTable descTbl = analyzer.getDescTbl();
+
+        List<Column> columns = getBaseSchema();
+        TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
+        for (Column column : columns) {
+            SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
+            slot.setColumn(column);
+            slot.setIsMaterialized(true);
+            if (column.isAllowNull()) {
+                slot.setIsNullable(true);
+            } else {
+                slot.setIsNullable(false);
+            }
+        }
+
+        TStreamLoadPutRequest request = getBaseRequest();
+        request.setColumns("k1,k2,v1, v2=k1");
+        request.setWhere("k5 = 1");
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+
+        scanNode.init(analyzer);
+        scanNode.finalize(analyzer);
+        scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
+        TPlanNode planNode = new TPlanNode();
+        scanNode.toThrift(planNode);
+    }
+
+    @Test(expected = UserException.class)
+    public void testWhereNotBool() throws UserException, UserException {
+        Analyzer analyzer = new Analyzer(catalog, connectContext);
+        DescriptorTable descTbl = analyzer.getDescTbl();
+
+        List<Column> columns = getBaseSchema();
+        TupleDescriptor dstDesc = descTbl.createTupleDescriptor("DstTableDesc");
+        for (Column column : columns) {
+            SlotDescriptor slot = descTbl.addSlotDescriptor(dstDesc);
+            slot.setColumn(column);
+            slot.setIsMaterialized(true);
+            if (column.isAllowNull()) {
+                slot.setIsNullable(true);
+            } else {
+                slot.setIsNullable(false);
+            }
+        }
+
+        TStreamLoadPutRequest request = getBaseRequest();
+        request.setColumns("k1,k2,v1, v2=k1");
+        request.setWhere("k1 + v2");
+        StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
+
+        scanNode.init(analyzer);
+        scanNode.finalize(analyzer);
+        scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
+        TPlanNode planNode = new TPlanNode();
+        scanNode.toThrift(planNode);
+    }
+}
