@@ -60,6 +60,6 @@ if [ ! -d $BROKER_LOG_DIR ]; then
 fi
 
 echo `date` >> $BROKER_LOG_DIR/apache_hdfs_broker.out
-nohup $LIMIT $JAVA $JAVA_OPTS com.baidu.palo.broker.hdfs.BrokerBootstrap "$@" >> $BROKER_LOG_DIR/apache_hdfs_broker.out 2>&1 </dev/null &
+nohup $LIMIT $JAVA $JAVA_OPTS org.apache.doris.broker.hdfs.BrokerBootstrap "$@" >> $BROKER_LOG_DIR/apache_hdfs_broker.out 2>&1 </dev/null &
 
 echo $! > $pidfile
