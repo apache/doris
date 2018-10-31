@@ -69,7 +69,7 @@ native_types = {
 thrift_preamble = '\
 // Copyright 2015 Baidu Inc.\n\
 //\n\
-namespace java com.baidu.palo.thrift\n\
+namespace java org.apache.doris.thrift\n\
 \n\
 enum TExprOpcode {\n'
 
@@ -136,7 +136,7 @@ operator_file_preamble = '\
 // This is a generated file, DO NOT EDIT.\n\
 // To add new functions, see impala/common/function-registry/gen_opcodes.py\n\
 \n\
-package com.baidu.palo.opcode;\n\
+package org.apache.doris.opcode;\n\
 \n\
 public enum FunctionOperator {\n'
 
@@ -149,11 +149,11 @@ java_registry_preamble = '\
 // This is a generated file, DO NOT EDIT.\n\
 // To add new functions, see impala/common/function-registry/gen_opcodes.py\n\
 \n\
-package com.baidu.palo.opcode;\n\
+package org.apache.doris.opcode;\n\
 \n\
-import com.baidu.palo.analysis.OpcodeRegistry;\n\
-import com.baidu.palo.catalog.PrimitiveType;\n\
-import com.baidu.palo.thrift.TExprOpcode;\n\
+import org.apache.doris.analysis.OpcodeRegistry;\n\
+import org.apache.doris.catalog.PrimitiveType;\n\
+import org.apache.doris.thrift.TExprOpcode;\n\
 import com.google.common.base.Preconditions;\n\
 \n\
 public class FunctionRegistry { \n\
@@ -186,7 +186,7 @@ def initialize_sub(op, return_type, arg_types):
     sub["java_output"] += ", " + java_args
     return sub
 
-FE_PATH = "../java/com/baidu/palo/opcode/"
+FE_PATH = "../java/org.apache.doris/opcode/"
 BE_PATH = "../gen_cpp/opcode/"
 THRIFT_PATH = "../thrift/"
 

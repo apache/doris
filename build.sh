@@ -33,7 +33,7 @@ export DORIS_HOME=${ROOT}
 
 . ${DORIS_HOME}/env.sh
 
-PARALLEL=4
+PARALLEL=8
 
 # Check args
 usage() {

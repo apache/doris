@@ -19,7 +19,7 @@
 // under the License.
 
 namespace cpp palo
-namespace java com.baidu.palo.thrift
+namespace java org.apache.doris.thrift
 
 enum TStatusCode {
     OK,

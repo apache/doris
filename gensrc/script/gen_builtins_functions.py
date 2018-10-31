@@ -32,10 +32,10 @@ java_registry_preamble = '\
 // common/function-registry/gen_builtins_catalog.py or the function list at\n\
 // common/function-registry/palo_builtins_functions.py.\n\
 \n\
-package com.baidu.palo.builtins;\n\
+package org.apache.doris.builtins;\n\
 \n\
-import com.baidu.palo.catalog.PrimitiveType;\n\
-import com.baidu.palo.catalog.FunctionSet;\n\
+import org.apache.doris.catalog.PrimitiveType;\n\
+import org.apache.doris.catalog.FunctionSet;\n\
 \n\
 public class ScalarBuiltins { \n\
     public static void initBuiltins(FunctionSet functionSet) { \
@@ -45,7 +45,7 @@ java_registry_epilogue = '\
   }\n\
 }\n'
 
-FE_PATH = "../java/com/baidu/palo/builtins/"
+FE_PATH = "../java/org.apache.doris/builtins/"
 
 # This contains all the metadata to describe all the builtins.
 # Each meta data entry is itself a map to store all the meta data

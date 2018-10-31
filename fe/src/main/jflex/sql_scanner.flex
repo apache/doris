@@ -18,7 +18,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package com.baidu.palo.analysis;
+package org.apache.doris.analysis;
 
 import java_cup.runtime.Symbol;
 import java.io.StringWriter;
@@ -32,8 +32,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.ArrayList;
 
-import com.baidu.palo.analysis.SqlParserSymbols;
-import com.baidu.palo.common.util.SqlUtils;
+import org.apache.doris.analysis.SqlParserSymbols;
+import org.apache.doris.common.util.SqlUtils;
 
 %%
 
