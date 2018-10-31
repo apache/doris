@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -17,63 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
-// This file includes definitions of classes used internally in the buffer pool.
-//
-/// +========================+
-/// | IMPLEMENTATION NOTES   |
-/// +========================+
-///
-/// Lock Ordering
-/// =============
-/// The lock acquisition order is:
-/// 1. Client::lock_
-/// 2. FreeBufferArena::lock_. If multiple arena locks are acquired, must be acquired in
-///    ascending order.
-/// 3. Page::lock
-///
-/// If a reference to a Page is acquired through a page list, the Page* reference only
-/// remains valid so long as list's lock is held.
-///
-/// Page States
-/// ===========
-/// Each Page object is owned by at most one InternalList<Page> at any given point.
-/// Each page is either pinned or unpinned. Unpinned has a number of sub-states, which
-/// is determined by which list in Client/BufferPool contains the page.
-/// * Pinned: Always in this state when 'pin_count' > 0. The page has a buffer and is in
-///     Client::pinned_pages_. 'pin_in_flight' determines which sub-state the page is in:
-///   -> When pin_in_flight=false, the buffer contains the page's data and the client can
-///      read and write to the buffer.
-///   -> When pin_in_flight=true, the page's data is in the process of being read from
-///      scratch disk into the buffer. Clients will block on the read I/O if they attempt
-///      to access the buffer.
-/// * Unpinned - Dirty: When no write to scratch has been started for an unpinned page.
-///     The page is in Client::dirty_unpinned_pages_.
-/// * Unpinned - Write in flight: When the write to scratch has been started but not
-///     completed for a dirty unpinned page. The page is in
-///     Client::write_in_flight_pages_. For accounting purposes this is considered a
-///     dirty page.
-/// * Unpinned - Clean: When the write to scratch has completed but the page was not
-///     evicted. The page is in a clean pages list in a BufferAllocator arena.
-/// * Unpinned - Evicted: After a clean page's buffer has been reclaimed. The page is
-///     not in any list.
-///
-/// Page Eviction Policy
-/// ====================
-/// The page eviction policy is designed so that clients that run only in-memory (i.e.
-/// don't unpin pages) never block on I/O. To achieve this, we must be able to
-/// fulfil reservations by either allocating buffers or evicting clean pages. Assuming
-/// reservations are not overcommitted (they shouldn't be), this global invariant can be
-/// maintained by enforcing a local invariant for every client:
-///
-///   reservation >= BufferHandles returned to client
-//                   + pinned pages + dirty pages (dirty unpinned or write in flight)
-///
-/// The local invariant is maintained by writing pages to disk as the first step of any
-/// operation that allocates a new buffer or reclaims buffers from clean pages. I.e.
-/// "dirty pages" must be decreased before one of the other values on the R.H.S. of the
-/// invariant can be increased. Operations block waiting for enough writes to complete
-/// to satisfy the invariant.
 
 #ifndef BDG_PALO_BE_RUNTIME_BUFFER_POOL_INTERNAL_H
 #define BDG_PALO_BE_RUNTIME_BUFFER_POOL_INTERNAL_H

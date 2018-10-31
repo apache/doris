@@ -8,9 +8,6 @@ from string import Template
 import palo_builtins_functions
 
 java_registry_preamble = '\
-//  Modifications copyright (C) 2017, Baidu.com, Inc. \n\
-//  Copyright 2017 The Apache Software Foundation \n\
-// \n\
 // Licensed to the Apache Software Foundation (ASF) under one \n\
 // or more contributor license agreements.  See the NOTICE file \n\
 // distributed with this work for additional information \n\

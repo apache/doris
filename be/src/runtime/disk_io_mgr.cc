@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -75,13 +72,13 @@ static const int LOW_MEMORY = 64 * 1024 * 1024;
 const int DiskIoMgr::DEFAULT_QUEUE_CAPACITY = 2;
 
 // namespace detail {
-// // Indicates if file handle caching should be used
+// Indicates if file handle caching should be used
 // static inline bool is_file_handle_caching_enabled() {
 //     return config::max_cached_file_handles > 0;
 // }
 // }
 
-// // This method is used to clean up resources upon eviction of a cache file handle.
+// This method is used to clean up resources upon eviction of a cache file handle.
 // void DiskIoMgr::HdfsCachedFileHandle::release(DiskIoMgr::HdfsCachedFileHandle** h) {
 //   PaloMetrics::IO_MGR_NUM_CACHED_FILE_HANDLES->increment(-1L);
 //   VLOG_FILE << "Cached file handle evicted, hdfsCloseFile() fid=" << (*h)->_hdfs_file;
