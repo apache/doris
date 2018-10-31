@@ -69,6 +69,7 @@ add_library(Util STATIC
   cidr.cpp
   core_local.cpp
   uid_util.cpp
+  aes_util.cpp
 )
 
 #ADD_BE_TEST(integer-array-test)

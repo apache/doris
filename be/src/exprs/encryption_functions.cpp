@@ -18,7 +18,7 @@
 #include "exprs/encryption_functions.h"
 
 #include <openssl/md5.h>
-#include "aes/my_aes.h"
+#include "util/aes_util.h"
 #include "exprs/anyval_util.h"
 #include "exprs/expr.h"
 #include "util/debug_util.h"
@@ -42,8 +42,8 @@ StringVal EncryptionFunctions::aes_encrypt(FunctionContext* ctx,
     boost::scoped_array<char> p;
     p.reset(new char[cipher_len]);
 
-    int ret_code = my_aes_encrypt((unsigned char *)src.ptr, src.len,
-            (unsigned char*)p.get(), (unsigned char *)key.ptr, key.len, my_aes_128_ecb, NULL);
+    int ret_code = AesUtil::encrypt(AES_128_ECB, (unsigned char*)src.ptr, src.len,
+            (unsigned char*)key.ptr, key.len, NULL, true, (unsigned char*)p.get());
     if (ret_code < 0) {
         return StringVal::null();
     }
@@ -60,8 +60,8 @@ StringVal EncryptionFunctions::aes_decrypt(FunctionContext* ctx,
     boost::scoped_array<char> p;
     p.reset(new char[cipher_len]);
 
-    int ret_code = my_aes_decrypt((unsigned char *)src.ptr, src.len, (unsigned char*)p.get(),
-            (unsigned char *)key.ptr, key.len, my_aes_128_ecb, NULL);
+    int ret_code = AesUtil::decrypt(AES_128_ECB, (unsigned char*)src.ptr, src.len,
+            (unsigned char*)key.ptr, key.len, NULL, true,  (unsigned char*)p.get());
     if (ret_code < 0) {
         return StringVal::null();
     }
