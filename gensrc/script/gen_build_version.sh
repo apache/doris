@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-
-# Modifications copyright (C) 2017, Baidu.com, Inc.
-# Copyright 2017 The Apache Software Foundation
-
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -19,6 +15,9 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+
+####################################################################
+# This script is used to build Doris used in Baidu
 
 ##############################################################
 # the script generates src/be/src/common/version.h and 
@@ -77,9 +76,6 @@ build_info="${user}@${hostname}"
 VERSION_PACKAGE="${DORIS_HOME}/gensrc/build/java/org/apache/doris/common"
 mkdir -p ${VERSION_PACKAGE}
 cat >"${VERSION_PACKAGE}/Version.java" <<EOF
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -123,9 +119,6 @@ EOF
 GEN_CPP_DIR=${DORIS_HOME}/gensrc/build/gen_cpp/
 mkdir -p ${GEN_CPP_DIR}
 cat >"${GEN_CPP_DIR}/version.h" <<EOF
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information

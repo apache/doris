@@ -1,6 +1,3 @@
-# Modifications copyright (C) 2017, Baidu.com, Inc.
-# Copyright 2017 The Apache Software Foundation
-
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -67,7 +64,6 @@ native_types = {
 }
 
 thrift_preamble = '\
-// Copyright 2015 Baidu Inc.\n\
 //\n\
 namespace java org.apache.doris.thrift\n\
 \n\
@@ -78,9 +74,6 @@ thrift_epilogue = '\
 \n'
 
 cc_registry_preamble = '\
-//  Modifications copyright (C) 2017, Baidu.com, Inc. \n\
-//  Copyright 2017 The Apache Software Foundation \n\
-// \n\
 // Licensed to the Apache Software Foundation (ASF) under one \n\
 // or more contributor license agreements.  See the NOTICE file \n\
 // distributed with this work for additional information \n\
@@ -131,8 +124,6 @@ cc_registry_epilogue = '\
 }\n'
 
 operator_file_preamble = '\
-//  Copyright 2012 Baidu Inc.\n\
-// \n\
 // This is a generated file, DO NOT EDIT.\n\
 // To add new functions, see impala/common/function-registry/gen_opcodes.py\n\
 \n\
@@ -144,8 +135,6 @@ operator_file_epilogue = '\
 }\n'
 
 java_registry_preamble = '\
-//  Copyright 2012 Baidu Inc.\n\
-// \n\
 // This is a generated file, DO NOT EDIT.\n\
 // To add new functions, see impala/common/function-registry/gen_opcodes.py\n\
 \n\

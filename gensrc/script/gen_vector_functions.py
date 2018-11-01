@@ -1,6 +1,3 @@
-# Modifications copyright (C) 2017, Baidu.com, Inc.
-# Copyright 2017 The Apache Software Foundation
-
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -385,12 +382,6 @@ native_funcs = {
 }
 
 cc_preamble = '\
-/***************************************************************************\n\
- * \n\
- * Copyright (c) 2014 Baidu.com, Inc. All Rights Reserved\n\
- * \n\
- **************************************************************************/\n\
-\n\
 // This is a generated file, DO NOT EDIT IT.\n\
 // To add new functions, see impala/common/function-registry/gen_vector_functions.py\n\
 \n\
@@ -413,12 +404,6 @@ cc_epilogue = '\
 }\n'
 
 h_preamble = '\
-/***************************************************************************\n\
- * \n\
- * Copyright (c) 2014 Baidu.com, Inc. All Rights Reserved\n\
- * \n\
- **************************************************************************/\n\
-\n\
 // This is a generated file, DO NOT EDIT IT.\n\
 // To add new functions, see impala/common/function-registry/gen_vector_functions.py\n\
 \n\
@@ -442,9 +427,6 @@ h_epilogue = '\
 
 python_preamble = '\
 #!/usr/bin/env python\n\
-#  Modifications copyright (C) 2017, Baidu.com, Inc. \n\
-#  Copyright 2017 The Apache Software Foundation \n\
-# \n\
 # Licensed to the Apache Software Foundation (ASF) under one \n\
 # or more contributor license agreements.  See the NOTICE file \n\
 # distributed with this work for additional information \n\
