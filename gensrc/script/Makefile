@@ -50,14 +50,14 @@ GEN_OPCODE_OUTPUT = ${BUILD_DIR}/thrift/Opcodes.thrift \
                     ${BUILD_DIR}/java/org/apache/doris/opcode/FunctionRegistry.java \
                     ${BUILD_DIR}/java/org/apache/doris/opcode/FunctionOperator.java
 
-${GEN_OPCODE_OUTPUT}: palo_functions.py ${GEN_FUNC_OUTPUT} ${GEN_VEC_FUNC_OUTPUT} | ${BUILD_DIR}/python
+${GEN_OPCODE_OUTPUT}: doris_functions.py ${GEN_FUNC_OUTPUT} ${GEN_VEC_FUNC_OUTPUT} | ${BUILD_DIR}/python
 gen_opcode: ${GEN_OPCODE_OUTPUT}
 .PHONY: gen_opcode
 
 # generate 
 GEN_BUILTINS_OUTPUT = ${BUILD_DIR}/java/org/apache/doris/builtins/ScalarBuiltins.java
 
-${GEN_BUILTINS_OUTPUT}: palo_builtins_functions.py gen_builtins_functions.py
+${GEN_BUILTINS_OUTPUT}: doris_builtins_functions.py gen_builtins_functions.py
 	cd ${BUILD_DIR}/python && ${PYTHON} ${CURDIR}/gen_builtins_functions.py
 gen_builtins: ${GEN_BUILTINS_OUTPUT}
 .PHONY: gen_builtins
