@@ -294,16 +294,14 @@ public class OlapScanNode extends ScanNode {
 
     private void normalizePredicate(Analyzer analyzer) throws UserException {
         // 1. Get Columns which has eqJoin on it
-        List<Expr> eqJoinPredicate = analyzer.getEqJoinConjuncts(desc.getId(), null);
-        if (null != eqJoinPredicate) {
+        List<Expr> eqJoinPredicate = analyzer.getEqJoinConjuncts(desc.getId());
+        for (Expr expr : eqJoinPredicate) {
             for (SlotDescriptor slot : desc.getSlots()) {
-                for (Expr expr : eqJoinPredicate) {
-                    for (int i = 0; i < 2; ++i) {
-                        if (expr.getChild(i).isBound(slot.getId())) {
-                            eqJoinColumns.add(slot.getColumn().getName());
-                            LOG.debug("Add eqJoinColumn: ColName=" + slot.getColumn().getName());
-                            break;
-                        }
+                for (int i = 0; i < 2; i++) {
+                    if (expr.getChild(i).isBound(slot.getId())) {
+                        eqJoinColumns.add(slot.getColumn().getName());
+                        LOG.debug("Add eqJoinColumn: ColName=" + slot.getColumn().getName());
+                        break;
                     }
                 }
             }

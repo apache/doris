@@ -567,7 +567,7 @@ public class SelectStmt extends QueryStmt {
         while (i < fromClause_.size()) {
             TableRef tblRef = fromClause_.get(i);
             // get all equal
-            List<Expr> eqJoinPredicates = analyzer.getEqJoinConjuncts(tblRef.getId(), null);
+            List<Expr> eqJoinPredicates = analyzer.getEqJoinConjuncts(tblRef.getId());
             List<TupleId> tuple_list = Lists.newArrayList();
             Expr.getIds(eqJoinPredicates, tuple_list, null);
             for (TupleId tid : tuple_list) {
