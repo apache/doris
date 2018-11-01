@@ -23,7 +23,7 @@
 # about type checking.
 #
 # This scripts pulls function metadata input from
-#   - src/common/function/palo_functions.py (manually maintained)
+#   - src/common/function/doris_functions.py (manually maintained)
 #   - src/common/function/generated_functions.py (auto-generated metadata)
 #
 # This script will generate 4 outputs
@@ -44,7 +44,7 @@ import sys
 import os
 import string
 sys.path.append(os.getcwd())
-import palo_functions
+import doris_functions
 import generated_functions
 import generated_vector_functions
 
@@ -337,15 +337,15 @@ def generate_fe_registry_init(filename):
     java_registry_file.close()
 
 # Read the function metadata inputs
-for function in palo_functions.functions:
+for function in doris_functions.functions:
     if len(function) != 5:
-        print "Invalid function entry in palo_functions.py:\n\t" + repr(function)
+        print "Invalid function entry in doris_functions.py:\n\t" + repr(function)
         sys.exit(1)
     add_function(function, False)
 
-for function in palo_functions.udf_functions:
+for function in doris_functions.udf_functions:
     assert len(function) == 6, \
-            "Invalid function entry in palo_functions.py:\n\t" + repr(function)
+            "Invalid function entry in doris_functions.py:\n\t" + repr(function)
     add_function(function, True)
 
 for function in generated_functions.functions:
