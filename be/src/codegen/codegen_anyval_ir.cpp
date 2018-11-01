@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -19,6 +16,7 @@
 // under the License.
 
 #ifdef IR_COMPILE
+
 #include "runtime/string_value.hpp"
 #include "runtime/datetime_value.h"
 #include "runtime/decimal_value.h"

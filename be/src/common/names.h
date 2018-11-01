@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -18,21 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-/// The motivation for the using declarations below is to allow accessing the most
-/// relevant and most frequently used library classes without having to explicitly pull
-/// them into the global namespace. The goal is that when readers sees a usage of vector
-/// (etc.) without any further specialization they can rely on the fact that it will be a
-/// std::vector.
-//
-/// Instead of actually including the header files for the symbols, this file only checks
-/// if certain include guards are defined before applying the using declaration. This
-/// makes sure that including this file has no impact on the compile time.
-//
-/// Please make sure that this file is included last in the cc file's include list to make
-/// sure that all relevant include guards are defined.
-//
-/// The content of this file is manually curated and should only be changed on rare
-/// occasions.
 #include <boost/version.hpp>
 
 #ifdef _GLIBCXX_VECTOR

@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -493,7 +490,7 @@ void* TimestampFunctions::from_utc(Expr* e, TupleRow* row) {
 
     // boost::local_time::time_zone_ptr timezone = TimezoneDatabase::find_timezone(tz->debug_string());
 
-    // // This should raise some sort of error or at least null. Hive just ignores it.
+    // This should raise some sort of error or at least null. Hive just ignores it.
     // if (timezone == NULL) {
     //     LOG(ERROR) << "Unknown timezone '" << *tz << "'" << std::endl;
     //     e->_result.timestamp_val = *tv;
@@ -525,7 +522,7 @@ void* TimestampFunctions::to_utc(Expr* e, TupleRow* row) {
 
     // boost::local_time::time_zone_ptr timezone = TimezoneDatabase::find_timezone(tz->debug_string());
 
-    // // This should raise some sort of error or at least null. Hive just ignores it.
+    // This should raise some sort of error or at least null. Hive just ignores it.
     // if (timezone == NULL) {
     //     LOG(ERROR) << "Unknown timezone '" << *tz << "'" << std::endl;
     //     e->_result.timestamp_val = *tv;

@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -1205,7 +1202,7 @@ private:
 };
 
 // multi distinct state for string
-// // serialize order type:len:value:len:value ...
+// serialize order type:len:value:len:value ...
 class MultiDistinctStringCountState {
 public:
 
@@ -1297,7 +1294,7 @@ private:
 };
 
 // multi distinct state for decimal
-// // serialize order type:int_len:frac_len:sign:int_len ... 
+// serialize order type:int_len:frac_len:sign:int_len ... 
 class MultiDistinctDecimalState {
 public:
 
@@ -1401,7 +1398,7 @@ private:
 };
 
 // multi distinct state for date
-// // serialize order type:packed_time:type:packed_time:type ...
+// serialize order type:packed_time:type:packed_time:type ...
 class MultiDistinctCountDateState {
 public:
     
