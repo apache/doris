@@ -4,6 +4,8 @@ before_install:
   - sudo updatedb
 script:
   - export DORIS_HOME=`pwd`
+  - wget http://180.76.53.174:8090/installed.tgz
+  - tar -zxf palo-thirdparty.tgz -C thirdparty
   - ./env.sh
   - ./run-ut.sh
   - ./run-fe-ut.sh
