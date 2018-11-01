@@ -3,6 +3,7 @@ before_install:
   - sudo apt-get install g++ ant cmake zip byacc flex automake libtool binutils-dev libiberty-dev bison python2.7 libncurses5-dev
   - sudo updatedb
 script:
+  - jenkins build
   - export DORIS_HOME=`pwd`
   - wget http://180.76.53.174:8090/installed.tgz
   - tar -zxf palo-thirdparty.tgz -C thirdparty
