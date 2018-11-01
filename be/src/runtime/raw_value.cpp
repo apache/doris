@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -25,6 +22,7 @@
 #include "runtime/string_value.hpp"
 #include "runtime/tuple.h"
 #include "olap/utils.h"
+#include "util/types.h"
 
 namespace palo {
 
@@ -164,7 +162,7 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
         break;
 
     case TYPE_LARGEINT:
-        *stream << *reinterpret_cast<const __int128*>(value);
+        *stream << reinterpret_cast<const PackedInt128*>(value)->value;
         break;
 
     default:
@@ -247,7 +245,7 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
     }
 
     case TYPE_LARGEINT: {
-        *reinterpret_cast<__int128*>(dst) = *reinterpret_cast<const __int128*>(value);
+        *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
         break;
     }
 
@@ -314,7 +312,7 @@ void RawValue::write(const void* value, const TypeDescriptor& type, void* dst, u
             *reinterpret_cast<int64_t*>(dst) = *reinterpret_cast<const int64_t*>(value);
             break;
         case TYPE_LARGEINT:
-            *reinterpret_cast<__int128*>(dst) = *reinterpret_cast<const __int128*>(value);
+            *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
             break;
         case TYPE_FLOAT:
             *reinterpret_cast<float*>(dst) = *reinterpret_cast<const float*>(value);

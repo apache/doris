@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -41,6 +38,9 @@ void url_encode(const std::vector<uint8_t>& in, std::string* out);
 // the strings as encoded by Hive, which means selectively ignoring
 // certain characters like ' '.
 bool url_decode(const std::string& in, std::string* out);
+
+void base64url_encode(const std::string& in, std::string *out);
+void base64_encode(const std::string& in, std::string *out);
 
 // Utility method to decode base64 encoded strings.  Also not extremely
 // performant.

@@ -1,8 +1,10 @@
-# Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
 #
 #   http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -71,6 +73,11 @@ set(SRC_FILES
     ${GEN_CPP_DIR}/olap_common.pb.cc
     ${GEN_CPP_DIR}/olap_file.pb.cc
     ${GEN_CPP_DIR}/column_data_file.pb.cc
+    ${GEN_CPP_DIR}/data.pb.cc
+    ${GEN_CPP_DIR}/descriptors.pb.cc
+    ${GEN_CPP_DIR}/internal_service.pb.cc
+    ${GEN_CPP_DIR}/types.pb.cc
+    ${GEN_CPP_DIR}/status.pb.cc
     #$${GEN_CPP_DIR}/opcode/functions.cc
     #$${GEN_CPP_DIR}/opcode/vector-functions.cc
     #$${GEN_CPP_DIR}/opcode/opcode-registry-init.cc

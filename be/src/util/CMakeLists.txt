@@ -1,6 +1,3 @@
-# Modifications copyright (C) 2017, Baidu.com, Inc.
-# Copyright 2017 The Apache Software Foundation
-
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -25,7 +22,9 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/util")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/util")
 
 add_library(Util STATIC
+  arena.cc
   bfd_parser.cpp
+  bitmap.cpp
   codec.cpp
   compress.cpp
   cpu_info.cpp
@@ -34,6 +33,7 @@ add_library(Util STATIC
   decompress.cpp
   disk_info.cpp
   hash_util.hpp
+  json_util.cpp
   palo_metrics.cpp
   mem_info.cpp
   metrics.cpp
@@ -51,10 +51,10 @@ add_library(Util STATIC
   thrift_client.cpp
   thrift_server.cpp
   symbols_util.cpp
+  system_metrics.cpp
   url_parser.cpp
   url_coding.cpp
   file_utils.cpp
-  mysql_dtoa.cpp
   mysql_row_buffer.cpp
   tuple_row_compare.cpp
   error_util.cc
@@ -63,6 +63,12 @@ add_library(Util STATIC
   load_error_hub.cpp
   mysql_load_error_hub.cpp
   null_load_error_hub.cpp
+  time.cpp
+  os_info.cpp
+#  coding_util.cpp
+  cidr.cpp
+  core_local.cpp
+  uid_util.cpp
 )
 
 #ADD_BE_TEST(integer-array-test)

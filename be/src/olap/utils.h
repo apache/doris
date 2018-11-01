@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -195,10 +197,10 @@ OLAPStatus move_to_trash(const boost::filesystem::path& schema_hash_root,
                          const boost::filesystem::path& file_path);
 
 // encapsulation of pthread_mutex to lock the critical sources.
-class MutexLock {
+class Mutex {
 public:
-    MutexLock();
-    ~MutexLock();
+    Mutex();
+    ~Mutex();
 
     // wait until obtain the lock
     OLAPStatus lock();
@@ -215,80 +217,47 @@ public:
 
 private:
     pthread_mutex_t _lock;
+    DISALLOW_COPY_AND_ASSIGN(Mutex);
 };
 
-// encapsulation of pthread_mutex to lock the critical sources.
-class AutoMutexLock {
+// Helper class than locks a mutex on construction
+// and unlocks the mutex on descontruction.
+class MutexLock {
 public:
     // wait until obtain the lock
-    explicit AutoMutexLock(MutexLock* mutex_lock) : _mutex_lock(mutex_lock) {
-        _mutex_lock->lock();
+    explicit MutexLock(Mutex* mutex) : _mutex(mutex) {
+        _mutex->lock();
     }
     // unlock is called after
-    ~AutoMutexLock() {
-        _mutex_lock->unlock();
+    ~MutexLock() {
+        _mutex->unlock();
     }
 
 private:
-    MutexLock* _mutex_lock;
+    Mutex* _mutex;
 
-    DISALLOW_COPY_AND_ASSIGN(AutoMutexLock);
-};
-
-// encapsulation of pthread_mutex to lock the critical sources.
-class Condition {
-public:
-    explicit Condition(MutexLock& mutex);
-
-    ~Condition();
-
-    void wait();
-
-    void wait_for_seconds(uint32_t seconds);
-
-    void notify();
-
-    void notify_all();
-
-private:
-    MutexLock& _mutex;
-    pthread_cond_t _cond;
-};
-
-enum LockTypeEnum {
-    READER_LOCK = 0,
-    WRITER_LOCK = 1
-};
-
-// 监控读写锁的状态信息
-struct RWLockInfo {
-    // TODO(guping) 未来根据情况扩展信息字段，可以考虑文件名和代码行数
-    //const char* file_name;
-    //int32_t line_num;
-    RWLockInfo() : tid(0), lock_type(READER_LOCK) {}
-    RWLockInfo(pthread_t in_tid) : tid(in_tid), lock_type(READER_LOCK) {}
-    RWLockInfo(pthread_t in_tid, LockTypeEnum in_lock_type) :
-            tid(in_tid),
-            lock_type(in_lock_type) {}
-
-    void clear() {
-        tid = 0;
-        lock_type = READER_LOCK;
-    }
-
-    bool operator==(const RWLockInfo& other) const {
-        return tid == other.tid;
-    }
-
-    pthread_t tid;
-    LockTypeEnum lock_type;
+    DISALLOW_COPY_AND_ASSIGN(MutexLock);
 };
 
 // pthread_read/write_lock
-class RWLock {
+class RWMutex {
 public:
-    RWLock();
-    ~RWLock();
+    // Possible fairness policies for the RWMutex.
+    enum class Priority {
+        // The lock will prioritize readers at the expense of writers.
+        PREFER_READING,
+
+        // The lock will prioritize writers at the expense of readers.
+        //
+        // Care should be taken when using this fairness policy, as it can lead to
+        // unexpected deadlocks (e.g. a writer waiting on the lock will prevent
+        // additional readers from acquiring it).
+        PREFER_WRITING,
+    };
+
+    // Create an RWMutex that prioritized readers by default.
+    RWMutex(Priority prio = Priority::PREFER_READING);
+    ~RWMutex();
     // wait until obtaining the read lock
     OLAPStatus rdlock();
     // try obtaining the read lock
@@ -304,33 +273,65 @@ private:
     pthread_rwlock_t _lock;
 };
 
-// encapsulation of pthread_rwlock_t to lock the critical sources.
-class AutoRWLock {
+//
+// Acquire a ReadLock on the specified RWMutex.
+// The Lock will be automatically released then the
+// object goes out of scope.
+//
+class ReadLock {
 public:
-    // wait until obtain the lock
-    explicit AutoRWLock(RWLock* lock, bool is_read)
-            : _lock(lock) {
-        if (is_read) {
-            _lock->rdlock();
-        } else {
-            _lock->wrlock();
-        }
+    explicit ReadLock(RWMutex* mutex)
+            : _mutex(mutex) {
+        this->_mutex->rdlock();
     }
-
-    // unlock is called after
-    ~AutoRWLock() {
-        _lock->unlock();
-    }
+    ~ReadLock() { this->_mutex->unlock(); }
 
 private:
-    RWLock* _lock;
+    RWMutex* _mutex;
+    DISALLOW_COPY_AND_ASSIGN(ReadLock);
+};
 
-    DISALLOW_COPY_AND_ASSIGN(AutoRWLock);
+//
+// Acquire a WriteLock on the specified RWMutex.
+// The Lock will be automatically released then the
+// object goes out of scope.
+//
+class WriteLock {
+public:
+    explicit WriteLock(RWMutex* mutex)
+            : _mutex(mutex) {
+        this->_mutex->wrlock();
+    }
+    ~WriteLock() { this->_mutex->unlock(); }
+
+private:
+    RWMutex* _mutex;
+    DISALLOW_COPY_AND_ASSIGN(WriteLock);
 };
 
 enum ComparatorEnum {
     COMPARATOR_LESS = 0,
     COMPARATOR_LARGER = 1,
+};
+
+// encapsulation of pthread_mutex to lock the critical sources.
+class Condition {
+public:
+    explicit Condition(Mutex& mutex);
+
+    ~Condition();
+
+    void wait();
+
+    void wait_for_seconds(uint32_t seconds);
+
+    void notify();
+
+    void notify_all();
+
+private:
+    Mutex& _mutex;
+    pthread_cond_t _cond;
 };
 
 // 处理comparator functor处理过程中出现的错误
@@ -389,6 +390,8 @@ OLAPStatus create_dir(const std::string& path);
 OLAPStatus create_dirs(const std::string& path);
 
 OLAPStatus copy_dir(const std::string &src_dir, const std::string &dst_dir);
+
+void remove_files(const std::vector<std::string>& files);
 
 OLAPStatus remove_dir(const std::string& path);
 
@@ -518,15 +521,7 @@ bool valid_datetime(const std::string& value_str);
 #define OLAP_LOG_WARNING(fmt, arg...) OLAP_LOG_WRITE(WARNING, fmt, ##arg)
 #define OLAP_LOG_FATAL(fmt, arg...) OLAP_LOG_WRITE(ERROR, fmt, ##arg)
 
-// Log define for network session
-#ifdef PERFORMANCE
-#define OLAP_LOG_DEBUG_SOCK(fmt, arg...)
-
-#else
 #define OLAP_LOG_DEBUG_SOCK(fmt, arg...) OLAP_LOG_WRITE(INFO, fmt, ##arg)
-
-#endif
-
 #define OLAP_LOG_TRACE_SOCK(fmt, arg...) OLAP_LOG_WRITE(INFO, fmt, ##arg)
 #define OLAP_LOG_NOTICE_DIRECT_SOCK(fmt, arg...) OLAP_LOG_WRITE(INFO, fmt, ##arg)
 #define OLAP_LOG_WARNING_SOCK(fmt, arg...) OLAP_LOG_WRITE(WARNING, fmt, ##arg)

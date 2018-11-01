@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -26,10 +23,12 @@
 #include "exprs/expr.h"
 #include "exprs/slot_ref.h"
 #include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/raw_value.h"
 #include "udf/udf_internal.h"
 #include "util/debug_util.h"
+#include "exprs/anyval_util.h"
 
 namespace palo {
 
@@ -74,6 +73,14 @@ Status ExprContext::open(RuntimeState* state) {
     FunctionContext::FunctionStateScope scope =
         _is_clone? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
     return _root->open(state, this, scope);
+}
+
+// TODO chenhao , replace ExprContext with ScalarExprEvaluator 
+Status ExprContext::open(std::vector<ExprContext*> evals, RuntimeState* state) {
+    for (int i = 0; i < evals.size(); ++i) {
+        RETURN_IF_ERROR(evals[i]->open(state));
+    }
+    return Status::OK;
 }
 
 void ExprContext::close(RuntimeState* state) {
@@ -444,4 +451,53 @@ DecimalVal ExprContext::get_decimal_val(TupleRow* row) {
     return _root->get_decimal_val(this, row);
 }
 
+Status ExprContext::get_const_value(RuntimeState* state, Expr& expr,
+    AnyVal** const_val) {
+  DCHECK(_opened);
+  if (!expr.is_constant()) {
+    *const_val = nullptr;
+    return Status::OK;
+  }
+
+  // A constant expression shouldn't have any SlotRefs expr in it.
+  DCHECK_EQ(expr.get_slot_ids(nullptr), 0);
+  DCHECK(_pool != nullptr);
+  const TypeDescriptor& result_type = expr.type();
+  ObjectPool* obj_pool = state->obj_pool();
+  *const_val = create_any_val(obj_pool, result_type);
+  if (*const_val == NULL) {
+      return Status("Could not create any val");
+  }
+
+  const void* result = ExprContext::get_value(&expr, nullptr);
+  AnyValUtil::set_any_val(result, result_type, *const_val);
+  if (result_type.is_string_type()) {
+    StringVal* sv = reinterpret_cast<StringVal*>(*const_val);
+    if (!sv->is_null && sv->len > 0) {
+      // Make sure the memory is owned by this evaluator.
+      char* ptr_copy = reinterpret_cast<char*>(_pool->try_allocate(sv->len));
+      if (ptr_copy == nullptr) {
+        return _pool->mem_tracker()->MemLimitExceeded(
+            state, "Could not allocate constant string value", sv->len);
+      }
+      memcpy(ptr_copy, sv->ptr, sv->len);
+      sv->ptr = reinterpret_cast<uint8_t*>(ptr_copy);
+    }
+  }
+  return get_error(expr._fn_ctx_idx_start, expr._fn_ctx_idx_end);
+}
+
+
+Status ExprContext::get_error(int start_idx, int end_idx) const {
+  DCHECK(_opened);
+  end_idx = end_idx == -1 ? _fn_contexts.size() : end_idx;
+  DCHECK_GE(start_idx, 0);
+  DCHECK_LE(end_idx, _fn_contexts.size());
+  for (int idx = start_idx; idx < end_idx; ++idx) {
+    DCHECK_LT(idx, _fn_contexts.size());
+    FunctionContext* fn_ctx = _fn_contexts[idx];
+    if (fn_ctx->has_error()) return Status(fn_ctx->error_msg());
+  }
+  return Status::OK;
+}
 }

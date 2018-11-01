@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -231,10 +228,10 @@ private:
         int64_t _index;
 
         // Pointer to the current tuple.
-        uint8_t* _current_tuple;
+        uint8_t* _current_tuple = nullptr;
 
         // Start of the buffer containing current tuple.
-        uint8_t* _buffer_start;
+        uint8_t* _buffer_start = nullptr;
 
         // Index into _run._fixed_len_blocks of the block containing the current tuple.
         int _block_index;

@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -19,7 +16,7 @@
 // under the License.
 
 namespace cpp palo
-namespace java com.baidu.palo.thrift
+namespace java org.apache.doris.thrift
 
 typedef i64 TTimestamp
 typedef i32 TPlanNodeId
@@ -35,6 +32,10 @@ typedef i64 TCount
 typedef i64 TSize
 typedef i32 TClusterId
 typedef i64 TEpoch
+
+// add for real time load, partitionid is not defined previously, define it here
+typedef i64 TTransactionId
+typedef i64 TPartitionId
 
 enum TStorageType {
     ROW,
@@ -145,10 +146,16 @@ enum TTaskType {
     CANCEL_DELETE,
     MAKE_SNAPSHOT,
     RELEASE_SNAPSHOT,
-    CHECK_CONSISTENCY
+    CHECK_CONSISTENCY,
     UPLOAD,
-    RESTORE,
-    CLEAR_REMOTE_FILE
+    DOWNLOAD,
+    CLEAR_REMOTE_FILE,
+    MOVE
+    REALTIME_PUSH,
+    PUBLISH_VERSION,
+    CLEAR_ALTER_TASK,
+    CLEAR_TRANSACTION_TASK,
+    RECOVER_TABLET
 }
 
 enum TStmtType {
@@ -243,6 +250,7 @@ struct TAggregateFunction {
   6: optional string finalize_fn_symbol
   8: optional string get_value_fn_symbol
   9: optional string remove_fn_symbol
+  10: optional bool is_analytic_only_fn = false
 }
 
 // Represents a function in the Catalog.
@@ -298,7 +306,8 @@ enum TTableType {
     OLAP_TABLE,
     SCHEMA_TABLE,
     KUDU_TABLE,
-    BROKER_TABLE
+    BROKER_TABLE,
+    ES_TABLE
 }
 
 enum TKeysType {
@@ -334,6 +343,11 @@ enum TExportState {
 enum TFileType {
     FILE_LOCAL,
     FILE_BROKER,
+    FILE_STREAM,    // file content is streaming in the buffer
 }
 
+struct TTabletCommitInfo {
+    1: required i64 tabletId
+    2: required i64 backendId
+}
 

@@ -61,7 +61,7 @@ add_library(Gutil STATIC
   walltime.cc)
 
 set_target_properties(Gutil PROPERTIES COMPILE_FLAGS "-funsigned-char -Wno-deprecated -Wno-char-subscripts")
-target_link_libraries(Gutil glog protobuf rt)
+# target_link_libraries(Gutil glog protobuf rt)
 
 #set(GUTIL_LIBS
 #  glog

@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -34,9 +36,10 @@ TEST(SubmitTasksTest, TestSubmitTasks){
     TAgentResult return_value;
     vector<TAgentTaskRequest> tasks;
     
+    ExecEnv env;
     TMasterInfo master_info;
     TNetworkAddress network_address;
-    AgentServer agent_server(NULL, master_info);
+    AgentServer agent_server(&env, master_info);
     
     // Master info not init
     agent_server.submit_tasks(return_value, tasks);
@@ -90,11 +93,6 @@ TEST(SubmitTasksTest, TestSubmitTasks){
     upload_task.task_type = TTaskType::UPLOAD;
     upload_task.__set_upload_req(upload_req);
     tasks.push_back(upload_task);
-    TAgentTaskRequest restore_task;
-    TRestoreReq restore_req;
-    restore_task.task_type = TTaskType::RESTORE;
-    restore_task.__set_restore_req(restore_req);
-    tasks.push_back(restore_task);
     TAgentTaskRequest make_snapshot_task;
     TSnapshotRequest snapshot_req;
     make_snapshot_task.task_type = TTaskType::MAKE_SNAPSHOT;
@@ -119,9 +117,10 @@ TEST(MakeSnapshotTest, TestMakeSnapshot) {
     string snapshot_path;
     TMasterInfo master_info;
 
+    ExecEnv env;
     CommandExecutor* tmp;    
     MockCommandExecutor mock_command_executor;
-    AgentServer agent_server(NULL, master_info);
+    AgentServer agent_server(&env, master_info);
     tmp = agent_server._command_executor;
     agent_server._command_executor = &mock_command_executor;
 
@@ -151,7 +150,8 @@ TEST(ReleaseSnapshotTest, TestReleaseSnapshot) {
 
     CommandExecutor* tmp;    
     MockCommandExecutor mock_command_executor;
-    AgentServer agent_server(NULL, master_info);
+    ExecEnv env;
+    AgentServer agent_server(&env, master_info);
     tmp = agent_server._command_executor;
     agent_server._command_executor = &mock_command_executor;
 
@@ -178,7 +178,7 @@ TEST(ReleaseSnapshotTest, TestReleaseSnapshot) {
 }  // namespace palo
 
 int main(int argc, char **argv) {
-    std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
+    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     if (!palo::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;

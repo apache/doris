@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -49,7 +51,29 @@ public:
     ~OutStream();
 
     // 向流输出一个字节
-    OLAPStatus write(char byte);
+    inline OLAPStatus write(char byte) {
+        OLAPStatus res = OLAP_SUCCESS;
+        if (_current == nullptr) {
+            res = _create_new_input_buffer();
+            if (res != OLAP_SUCCESS) {
+                return res;
+            }
+        }
+        if (_current->remaining() < 1) {
+            res = _spill();
+            if (res != OLAP_SUCCESS) {
+                OLAP_LOG_WARNING("fail to spill current buffer.");
+                return res;
+            }
+            if (_current == nullptr) {
+                res = _create_new_input_buffer();
+                if (res != OLAP_SUCCESS) {
+                    return res;
+                }
+            }
+        }
+        return _current->put(byte);
+    }
 
     // 向流输出一段数据
     OLAPStatus write(const char* buffer, uint64_t length);

@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -30,7 +32,7 @@
 #include "http/http_response.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
-#include "http/webserver.h"
+#include "http/ev_http_server.h"
 #include "runtime/exec_env.h"
 #include "util/bfd_parser.h"
 
@@ -48,16 +50,16 @@ public:
     HeapAction() { }
     virtual ~HeapAction() { }
 
-    virtual void handle(HttpRequest *req, HttpChannel *channel) override;
+    virtual void handle(HttpRequest *req) override;
 };
 
-void HeapAction::handle(HttpRequest* req, HttpChannel* channel) {
-#ifdef ADDRESS_SANITIZER
+void HeapAction::handle(HttpRequest* req) {
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     (void)kPprofDefaultSampleSecs; // Avoid unused variable warning.
 
     std::string str = "Heap profiling is not available with address sanitizer builds.";
-    HttpResponse response(HttpStatus::OK, &str);
-    channel->send_response(response);
+
+    HttpChannel::send_reply(req, str);
 #else
     std::lock_guard<std::mutex> lock(kPprofActionMutex);
 
@@ -79,8 +81,8 @@ void HeapAction::handle(HttpRequest* req, HttpChannel* channel) {
     HeapProfilerStop();
     std::string str = profile;
     delete profile;
-    HttpResponse response(HttpStatus::OK, &str);
-    channel->send_response(response);
+
+    HttpChannel::send_reply(req, str);
 #endif
 }
 
@@ -89,21 +91,20 @@ public:
     GrowthAction() { }
     virtual ~GrowthAction() { }
 
-    virtual void handle(HttpRequest *req, HttpChannel *channel) override;
+    virtual void handle(HttpRequest *req) override;
 };
 
-void GrowthAction::handle(HttpRequest* req, HttpChannel* channel) {
-#ifdef ADDRESS_SANITIZER
+void GrowthAction::handle(HttpRequest* req) {
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     std::string str = "Growth profiling is not available with address sanitizer builds.";
-    HttpResponse response(HttpStatus::OK, &str);
-    channel->send_response(response);
+    HttpChannel::send_reply(req, str);
 #else
     std::lock_guard<std::mutex> lock(kPprofActionMutex);
 
     std::string heap_growth_stack;
     MallocExtension::instance()->GetHeapGrowthStacks(&heap_growth_stack);
-    HttpResponse response(HttpStatus::OK, &heap_growth_stack);
-    channel->send_response(response);
+
+    HttpChannel::send_reply(req, heap_growth_stack);
 #endif
 }
 
@@ -112,14 +113,13 @@ public:
     ProfileAction() { }
     virtual ~ProfileAction() { }
 
-    virtual void handle(HttpRequest *req, HttpChannel *channel) override;
+    virtual void handle(HttpRequest *req) override;
 };
 
-void ProfileAction::handle(HttpRequest *req, HttpChannel *channel) {
-#ifdef ADDRESS_SANITIZER
+void ProfileAction::handle(HttpRequest *req) {
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     std::string str = "CPU profiling is not available with address sanitizer builds.";
-    HttpResponse response(HttpStatus::OK, &str);
-    channel->send_response(response);
+    HttpChannel::send_reply(req, str);
 #else
     std::lock_guard<std::mutex> lock(kPprofActionMutex);
 
@@ -141,15 +141,14 @@ void ProfileAction::handle(HttpRequest *req, HttpChannel *channel) {
     if (!prof_file.is_open()) {
         ss << "Unable to open cpu profile: " << tmp_prof_file_name.str();
         std::string str = ss.str();
-        HttpResponse response(HttpStatus::OK, &str);
-        channel->send_response(response);
+        HttpChannel::send_reply(req, str);
         return;
     }
     ss << prof_file.rdbuf();
     prof_file.close();
     std::string str = ss.str();
-    HttpResponse response(HttpStatus::OK, &str);
-    channel->send_response(response);
+
+    HttpChannel::send_reply(req, str);
 #endif
 }
 
@@ -157,7 +156,7 @@ class PmuProfileAction : public HttpHandler {
 public:
     PmuProfileAction() { }
     virtual ~PmuProfileAction() { }
-    virtual void handle(HttpRequest *req, HttpChannel *channel) override {
+    virtual void handle(HttpRequest *req) override {
     }
 };
 
@@ -166,7 +165,7 @@ public:
     ContentionAction() { }
     virtual ~ContentionAction() { }
 
-    virtual void handle(HttpRequest *req, HttpChannel *channel) override {
+    virtual void handle(HttpRequest *req) override {
     }
 };
 
@@ -174,23 +173,23 @@ class CmdlineAction : public HttpHandler {
 public:
     CmdlineAction() { }
     virtual ~CmdlineAction() { }
-    virtual void handle(HttpRequest *req, HttpChannel *channel) override;
+    virtual void handle(HttpRequest *req) override;
 };
 
-void CmdlineAction::handle(HttpRequest* req, HttpChannel* channel) {
+void CmdlineAction::handle(HttpRequest* req) {
     FILE* fp = fopen("/proc/self/cmdline", "r");
     if (fp == nullptr) {
         std::string str = "Unable to open file: /proc/self/cmdline";
-        HttpResponse response(HttpStatus::OK, &str);
-        channel->send_response(response);
+
+        HttpChannel::send_reply(req, str);
         return;
     }
     char buf[1024];
     fscanf(fp, "%s ", buf);
     fclose(fp);
     std::string str = buf;
-    HttpResponse response(HttpStatus::OK, &str);
-    channel->send_response(response);
+
+    HttpChannel::send_reply(req, str);
 }
 
 class SymbolAction : public HttpHandler {
@@ -198,81 +197,27 @@ public:
     SymbolAction(BfdParser* parser) : _parser(parser) { }
     virtual ~SymbolAction() { }
 
-    virtual void handle(HttpRequest *req, HttpChannel *channel) override;
+    virtual void handle(HttpRequest *req) override;
 
 private:
     BfdParser* _parser;
 };
 
-static Status save_to_string(std::string* str, int64_t len, HttpChannel* channel) {
-    const int64_t BUF_SIZE = 4096;
-    char buf[BUF_SIZE];
-    int64_t to_read = len;
-    while (to_read > 0) {
-        int64_t to_read_this_time = std::min(to_read, BUF_SIZE);
-        int64_t read_this_time = channel->read(buf, to_read_this_time);
-        if (to_read_this_time != read_this_time) {
-            // what can i do??
-            char errmsg[64];
-            LOG(INFO) << "read chunked data failed, need=" << to_read_this_time
-                << " and read=" << read_this_time
-                << ",syserr=" << strerror_r(errno, errmsg, 64);
-            return Status("Failed when receiving http packet.");
-        }
-        str->append(buf, read_this_time);
-        // write will write all buf into file, so that write_len == read_this_time
-        to_read -= read_this_time;
-    }
-    return Status::OK;
-}
-
-void SymbolAction::handle(HttpRequest* req, HttpChannel* channel) {
+void SymbolAction::handle(HttpRequest* req) {
     // TODO: Implement symbol resolution. Without this, the binary needs to be passed
     // to pprof to resolve all symbols.
     if (req->method() == HttpMethod::GET) {
         std::stringstream ss;
         ss << "num_symbols: " << _parser->num_symbols();
         std::string str = ss.str();
-        HttpResponse response(HttpStatus::OK, &str);
-        channel->send_response(response);
+
+        HttpChannel::send_reply(req, str);
         return;
     } else if (req->method() == HttpMethod::HEAD) {
-        HttpResponse response(HttpStatus::OK);
-#if 0
-        response.add_header(
-            std::string(HttpHeaders::CONTENT_LENGTH), std::to_string(file_size));
-        response.add_header(
-            std::string(HttpHeaders::CONTENT_TYPE),
-            get_content_type(file_path));
-#endif
-
-        channel->send_response_header(response);
+        HttpChannel::send_reply(req);
         return;
     } else if (req->method() == HttpMethod::POST) {
-        // read buf
-        std::string request;
-        if (!req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-            Status st;
-            int64_t len = std::stol(req->header(HttpHeaders::CONTENT_LENGTH));
-            if (len > 32 * 1024 * 1024) {
-                st = Status("File size exceed max size(32MB) we can support.");
-            } else {
-                st = save_to_string(&request, len, channel);
-            }
-            if (!st.ok()) {
-                std::string str = st.get_error_msg();
-                HttpResponse response(HttpStatus::OK, &str);
-                channel->send_response(response);
-                return;
-            }
-        } else {
-            std::stringstream ss;
-            ss << "There is no " << HttpHeaders::CONTENT_LENGTH << " in request headers";
-            std::string str = ss.str();
-            HttpResponse response(HttpStatus::OK, &str);
-            channel->send_response(response);
-            return;
-        }
+        std::string request = req->get_request_body();
         // parse address
         std::string result;
         const char* ptr = request.c_str();
@@ -292,12 +237,12 @@ void SymbolAction::handle(HttpRequest* req, HttpChannel* channel) {
                 ptr++;
             }
         }
-        HttpResponse response(HttpStatus::OK, &result);
-        channel->send_response(response);
+
+        HttpChannel::send_reply(req, result);
     }
 }
 
-Status PprofActions::setup(ExecEnv* exec_env, Webserver* http_server) {
+Status PprofActions::setup(ExecEnv* exec_env, EvHttpServer* http_server) {
     http_server->register_handler(HttpMethod::GET, "/pprof/heap",
                                   new HeapAction());
     http_server->register_handler(HttpMethod::GET, "/pprof/growth",

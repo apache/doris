@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -19,7 +16,7 @@
 // under the License.
 
 namespace cpp palo
-namespace java com.baidu.palo.thrift
+namespace java org.apache.doris.thrift
 
 include "Exprs.thrift"
 include "Types.thrift"
@@ -42,10 +39,11 @@ enum TPlanNodeType {
   META_SCAN_NODE,
   ANALYTIC_EVAL_NODE,
   OLAP_REWRITE_NODE,
-  KUDU_SCAN_NODE
-  BROKER_SCAN_NODE
-  EMPTY_SET_NODE    
-  UNION_NODE
+  KUDU_SCAN_NODE,
+  BROKER_SCAN_NODE,
+  EMPTY_SET_NODE, 
+  UNION_NODE,
+  ES_SCAN_NODE
 }
 
 // phases of an execution node
@@ -90,7 +88,8 @@ struct TPaloScanRange {
 }
 
 enum TFileFormatType {
-    FORMAT_CSV_PLAIN,
+    FORMAT_UNKNOWN = -1,
+    FORMAT_CSV_PLAIN = 0,
     FORMAT_CSV_GZ,
     FORMAT_CSV_LZO,
     FORMAT_CSV_BZ2,
@@ -109,6 +108,8 @@ struct TBrokerRangeDesc {
     5: required i64 start_offset;
     // Size of this range, if size = -1, this means that will read to then end of file
     6: required i64 size
+    // used to get stream for this load
+    7: optional Types.TUniqueId load_id
 }
 
 struct TBrokerScanRangeParams {
@@ -143,13 +144,24 @@ struct TBrokerScanRange {
     3: required list<Types.TNetworkAddress> broker_addresses
 }
 
+// Es scan range
+struct TEsScanRange {
+  1: required list<Types.TNetworkAddress> es_hosts  //  es hosts is used by be scan node to connect to es
+  // has to set index and type here, could not set it in scannode
+  // because on scan node maybe scan an es alias then it contains one or more indices
+  2: required string index   
+  3: optional string type
+  4: required i32 shard_id
+}
+
 // Specification of an individual data range which is held in its entirety
 // by a storage server
 struct TScanRange {
   // one of these must be set for every TScanRange2
   4: optional TPaloScanRange palo_scan_range
   5: optional binary kudu_scan_token
-    6: optional TBrokerScanRange broker_scan_range
+  6: optional TBrokerScanRange broker_scan_range
+  7: optional TEsScanRange es_scan_range
 }
 
 struct TMySQLScanNode {
@@ -165,6 +177,11 @@ struct TBrokerScanNode {
     // Partition info used to process partition select in broker load
     2: optional list<Exprs.TExpr> partition_exprs
     3: optional list<Partitions.TRangePartition> partition_infos
+}
+
+struct TEsScanNode {
+    1: required Types.TTupleId tuple_id
+    2: optional map<string,string> properties
 }
 
 struct TMiniLoadEtlFunction {
@@ -204,6 +221,7 @@ struct TSchemaScanNode {
   7: optional string ip
   8: optional i32 port
   9: optional i64 thread_id
+  10: optional string user_ip
 }
 
 struct TMetaScanNode {
@@ -325,6 +343,7 @@ struct TAggregationNode {
   // Set to true if this aggregation function requires finalization to complete after all
   // rows have been aggregated, and this node is not an intermediate node.
   5: required bool need_finalize
+  6: optional bool use_streaming_preaggregation
 }
 
 struct TPreAggregationNode {
@@ -493,6 +512,25 @@ struct TKuduScanNode {
   1: required Types.TTupleId tuple_id
 }
 
+// This contains all of the information computed by the plan as part of the resource
+// profile that is needed by the backend to execute.
+struct TBackendResourceProfile {
+// The minimum reservation for this plan node in bytes.
+1: required i64 min_reservation = 0; // no support reservation
+
+// The maximum reservation for this plan node in bytes. MAX_INT64 means effectively
+// unlimited.
+2: required i64 max_reservation = 12188490189880;  // no max reservation limit 
+
+// The spillable buffer size in bytes to use for this node, chosen by the planner.
+// Set iff the node uses spillable buffers.
+3: optional i64 spillable_buffer_size = 2097152
+
+// The buffer size in bytes that is large enough to fit the largest row to be processed.
+// Set if the node allocates buffers for rows from the buffer pool.
+4: optional i64 max_row_buffer_size = 4194304  //TODO chenhao
+}
+
 // This is essentially a union of all messages corresponding to subclasses
 // of PlanNode.
 struct TPlanNode {
@@ -528,6 +566,8 @@ struct TPlanNode {
   26: optional TOlapRewriteNode olap_rewrite_node
   27: optional TKuduScanNode kudu_scan_node
   28: optional TUnionNode union_node
+  29: optional TBackendResourceProfile resource_profile
+  30: optional TEsScanNode es_scan_node
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

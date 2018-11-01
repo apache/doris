@@ -1,0 +1,8 @@
+*.swp
+*.pyc
+be/output
+be/build
+output
+docs/build
+gensrc/build
+fe/target

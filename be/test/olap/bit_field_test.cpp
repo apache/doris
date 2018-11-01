@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -70,7 +72,8 @@ public:
                 0, 
                 _helper.length(), 
                 NULL, 
-                OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
+                OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE,
+                &_stats);
         ASSERT_EQ(OLAP_SUCCESS, _stream->init());
 
         _reader = new (std::nothrow) BitFieldReader(_stream);
@@ -84,6 +87,7 @@ public:
     FileHandler _helper;
     ByteBuffer* _shared_buffer;
     ReadOnlyFileStream* _stream;
+    OlapReaderStatistics _stats;
 };
 
 TEST_F(TestBitField, ReadWriteOneBit) {
@@ -147,7 +151,7 @@ TEST_F(TestBitField, Seek) {
     PositionEntryReader entry;
     entry._positions = index_entry._positions;
     entry._positions_count = index_entry._positions_count;
-    entry._statistics.init(OLAP_FIELD_TYPE_NONE, false);
+    entry._statistics.init(OLAP_FIELD_TYPE_TINYINT, false);
 
     PositionProvider position(&entry);
     _reader->seek(&position);
@@ -182,7 +186,7 @@ TEST_F(TestBitField, Skip) {
 }
 
 int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
+    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     if (!palo::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;

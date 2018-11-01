@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -19,19 +21,30 @@
 #include <map>
 #include <string>
 
+#include <boost/algorithm/string.hpp>
+
+#include "http/http_common.h"
+#include "http/http_headers.h"
 #include "http/http_method.h"
+#include "util/string_util.h"
 
 struct mg_connection;
+struct evhttp_request;
 
 namespace palo {
 
+class HttpHandler;
+
 class HttpRequest {
 public:
-    // Now we only construct http request from mongoose
-    HttpRequest(mg_connection* conn);
+    // Only used for unit test
+    HttpRequest() { }
+    
+    HttpRequest(evhttp_request* ev_req);
 
-    ~HttpRequest() {
-    }
+    ~HttpRequest();
+
+    int init_from_evhttp();
 
     HttpMethod method() const {
         return _method;
@@ -52,7 +65,7 @@ public:
     const std::string& param(const std::string& key) const;
 
     // return params
-    const std::map<std::string, std::string>& headers() {
+    const StringCaseUnorderedMap<std::string>& headers() {
         return _headers;
     }
 
@@ -65,23 +78,36 @@ public:
         return _query_params;
     }
 
+    std::string get_request_body();
+
+    void add_output_header(const char* key, const char* value);
+
     std::string debug_string() const;
 
+    void set_handler(HttpHandler* handler) { _handler = handler; }
+    HttpHandler* handler() const { return _handler; }
+
+    struct evhttp_request* get_evhttp_request() const { return _ev_req; }
+
+    void* handler_ctx() const { return _handler_ctx; }
+    void set_handler_ctx(void* ctx) { _handler_ctx = ctx; }
+
+    const char* remote_host() const;
+
 private:
-    // construct from mg_connection
-    bool init();
-
-    void parse_params(const char* query);
-
     HttpMethod _method;
     std::string _uri;
     std::string _raw_path;
-    std::map<std::string, std::string> _headers;
+
+    StringCaseUnorderedMap<std::string> _headers;
     std::map<std::string, std::string> _params;
     std::map<std::string, std::string> _query_params;
 
-    // save mongoose connection here
-    mg_connection* _conn;
+    struct evhttp_request* _ev_req = nullptr; 
+    HttpHandler* _handler = nullptr;
+
+    void* _handler_ctx = nullptr;
+    std::string _request_body;
 };
 
 }

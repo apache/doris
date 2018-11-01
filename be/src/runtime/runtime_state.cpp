@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -31,7 +28,10 @@
 #include "exprs/expr.h"
 #include "runtime/buffered_block_mgr.h"
 #include "runtime/buffered_block_mgr2.h"
+#include "runtime/bufferpool/reservation_util.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/initial_reservations.h"
 #include "runtime/runtime_state.h"
 #include "runtime/load_path_mgr.h"
 #include "util/cpu_info.h"
@@ -39,7 +39,10 @@
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/file_utils.h"
+#include "util/pretty_printer.h"
 #include "util/mysql_load_error_hub.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/bufferpool/reservation_tracker.h"
 
 namespace palo {
 
@@ -57,9 +60,12 @@ RuntimeState::RuntimeState(
             _root_node_id(-1),
             _num_rows_load_success(0),
             _num_rows_load_filtered(0),
+            _num_print_error_rows(0),
             _normal_row_number(0),
             _error_row_number(0),
-            _error_log_file(nullptr) {
+            _error_log_file(nullptr),
+            _is_running(true),
+            _instance_buffer_reservation(new ReservationTracker) {
     Status status = init(fragment_instance_id, query_options, now, exec_env);
     DCHECK(status.ok());
 }
@@ -82,7 +88,8 @@ RuntimeState::RuntimeState(
             _num_rows_load_filtered(0),
             _normal_row_number(0),
             _error_row_number(0),
-            _error_log_file(nullptr) {
+            _error_log_file(nullptr),
+            _instance_buffer_reservation(new ReservationTracker) {
     Status status = init(fragment_params.params.fragment_instance_id, query_options, now, exec_env);
     DCHECK(status.ok());
 }
@@ -112,6 +119,20 @@ RuntimeState::~RuntimeState() {
         _error_hub->close();
     }
 
+    // Release the reservation, which should be unused at the point.
+    if (_instance_buffer_reservation != nullptr) {
+        _instance_buffer_reservation->Close();
+    }
+
+    if (_initial_reservations != nullptr) { 
+        _initial_reservations->ReleaseResources();
+    }
+    
+    if (_buffer_reservation != nullptr) {
+        _buffer_reservation->Close();
+    }
+
+#ifndef BE_TEST
     // _query_mem_tracker must be valid as long as _instance_mem_tracker is so
     // delete _instance_mem_tracker first.
     // LogUsage() walks the MemTracker tree top-down when the memory limit is exceeded.
@@ -120,9 +141,16 @@ RuntimeState::~RuntimeState() {
     if (_instance_mem_tracker.get() != NULL) {
         // May be NULL if InitMemTrackers() is not called, for example from tests.
         _instance_mem_tracker->unregister_from_parent();
+        _instance_mem_tracker->close();
     }
 
+#endif
     _instance_mem_tracker.reset();
+   
+    if (_query_mem_tracker.get() != NULL) {
+        _query_mem_tracker->unregister_from_parent();
+        _query_mem_tracker->close();
+    }
     _query_mem_tracker.reset();
 }
 
@@ -165,7 +193,6 @@ Status RuntimeState::init(
 Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     bool has_query_mem_tracker = _query_options.__isset.mem_limit && (_query_options.mem_limit > 0);
     int64_t bytes_limit = has_query_mem_tracker ? _query_options.mem_limit : -1;
-
     // we do not use global query-map  for now, to avoid mem-exceeded different fragments
     // running on the same machine.
     // TODO(lingbin): open it later. note that open with BufferedBlcokMgr's BlockMgrsMap
@@ -184,8 +211,49 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
         new MemTracker(-1, "UDFs", _instance_mem_tracker.get()));
     _udf_pool.reset(new MemPool(_udf_mem_tracker.get()));
     */
-    _udf_pool.reset(new MemPool(_instance_mem_tracker.get()));
+    // _udf_pool.reset(new MemPool(_instance_mem_tracker.get()));
+
+    RETURN_IF_ERROR(init_buffer_poolstate());
+
+    _initial_reservations = _obj_pool->add(new InitialReservations(_obj_pool.get(),
+                      _buffer_reservation, _query_mem_tracker.get(), 
+                      _query_options.initial_reservation_total_claims));
+    RETURN_IF_ERROR(
+        _initial_reservations->Init(_query_id, min_reservation()));
+    DCHECK_EQ(0, _initial_reservation_refcnt.load());
+
+    if (_instance_buffer_reservation != nullptr) {
+        _instance_buffer_reservation->InitChildTracker(&_profile,
+            _buffer_reservation, _instance_mem_tracker.get(),
+            std::numeric_limits<int64_t>::max());
+    } 
+
     return Status::OK;
+}
+
+Status RuntimeState::init_buffer_poolstate() {
+  ExecEnv* exec_env = ExecEnv::GetInstance();
+  int64_t mem_limit = _query_mem_tracker->lowest_limit();
+  int64_t max_reservation;
+  if (query_options().__isset.buffer_pool_limit
+      && query_options().buffer_pool_limit > 0) {
+    max_reservation = query_options().buffer_pool_limit;
+  } else if (mem_limit == -1) {
+    // No query mem limit. The process-wide reservation limit is the only limit on
+    // reservations.
+    max_reservation = std::numeric_limits<int64_t>::max();
+  } else {
+    DCHECK_GE(mem_limit, 0);
+    max_reservation = ReservationUtil::GetReservationLimitFromMemLimit(mem_limit);
+  }
+
+  VLOG_QUERY << "Buffer pool limit for " << print_id(_query_id) << ": " << max_reservation;
+
+  _buffer_reservation = _obj_pool->add(new ReservationTracker);
+  _buffer_reservation->InitChildTracker(
+      NULL, exec_env->buffer_reservation(), _query_mem_tracker.get(), max_reservation);
+  
+  return Status::OK;
 }
 
 Status RuntimeState::create_block_mgr() {
@@ -200,7 +268,7 @@ Status RuntimeState::create_block_mgr() {
     }
     RETURN_IF_ERROR(BufferedBlockMgr2::create(this, _query_mem_tracker.get(),
             runtime_profile(), _exec_env->tmp_file_mgr(),
-            block_mgr_limit, io_mgr()->max_read_buffer_size(), &_block_mgr2));
+            block_mgr_limit, _exec_env->disk_io_mgr()->max_read_buffer_size(), &_block_mgr2));
     return Status::OK;
 }
 
@@ -320,14 +388,18 @@ Status RuntimeState::create_load_dir() {
 
 Status RuntimeState::create_error_log_file() {
     // Make sure that load dir exists.
-    create_load_dir();
+    // create_load_dir();
 
-    std::stringstream ss;
-    ss << load_dir() << "/" << ERROR_FILE_NAME
-        << "_" << std::hex << fragment_instance_id().hi
-        << "_" << fragment_instance_id().lo;
-    _error_log_file_path = ss.str();
-    _error_log_file = new std::ofstream(_error_log_file_path, std::ifstream::out);
+    _exec_env->load_path_mgr()->get_load_error_file_name(
+            _db_name, _import_label, _fragment_instance_id, &_error_log_file_path);
+    // std::stringstream ss;
+    // ss << load_dir() << "/" << ERROR_FILE_NAME
+    //     << "_" << std::hex << fragment_instance_id().hi
+    //     << "_" << fragment_instance_id().lo;
+    // _error_log_file_path = ss.str();
+    std::string error_log_absolute_path
+        = _exec_env->load_path_mgr()->get_load_error_absolute_path(_error_log_file_path);
+    _error_log_file = new std::ofstream(error_log_absolute_path, std::ifstream::out);
     if (!_error_log_file->is_open()) {
         std::stringstream error_msg;
         error_msg << "Fail to open error file: [" << _error_log_file_path << "].";
@@ -357,6 +429,10 @@ void RuntimeState::append_error_msg_to_file(
             }
             return;
         }
+    }
+
+    if (_num_print_error_rows.fetch_add(1, std::memory_order_relaxed) > MAX_ERROR_NUM) {
+        return;
     }
 
     std::stringstream out;
@@ -408,5 +484,10 @@ Status RuntimeState::get_codegen(LlvmCodeGen** codegen) {
     return get_codegen(codegen, true);
 }
 
+// TODO chenhao , check scratch_limit, disable_spilling and file_group
+// before spillng
+Status RuntimeState::StartSpilling(MemTracker* mem_tracker) {
+    return Status("Mem limit exceeded.");
+}
 } // end namespace palo
 

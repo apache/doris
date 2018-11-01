@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -46,10 +48,14 @@ namespace palo {
 //    *  在调用log_conds()的时候，只需要加读锁
 class DeleteConditionHandler {
 public:
-    typedef google::protobuf::RepeatedPtrField<DeleteDataConditionMessage> del_cond_array;
+    typedef google::protobuf::RepeatedPtrField<DeleteConditionMessage> del_cond_array;
 
     DeleteConditionHandler() {}
     ~DeleteConditionHandler() {}
+
+    // 检查cond表示的删除条件是否符合要求；
+    // 如果不符合要求，返回OLAP_ERR_DELETE_INVALID_CONDITION；符合要求返回OLAP_SUCCESS
+    OLAPStatus check_condition_valid(OLAPTablePtr table, const TCondition& cond);
 
     // 存储指定版本号的删除条件到Header文件中。因此，调用之前需要对Header文件加写锁
     //
@@ -62,9 +68,12 @@ public:
     //     * OLAP_ERR_DELETE_INVALID_PARAMETERS：函数参数不符合要求
     //     * OLAP_ERR_DELETE_INVALID_CONDITION：del_condition不符合要求
     OLAPStatus store_cond(
-            SmartOLAPTable table,
+            OLAPTablePtr table,
             const int32_t version,
             const std::vector<TCondition>& conditions);
+
+    // construct sub condition from TCondition
+    std::string construct_sub_conditions(const TCondition& condition);
 
     // 从Header文件中移除特定版本号的删除条件。在调用之前需要对Header文件加写锁
     //
@@ -81,7 +90,7 @@ public:
     //         * 这个表没有指定版本号的删除条件
     //     * OLAP_ERR_DELETE_INVALID_PARAMETERS：函数参数不符合要求
     OLAPStatus delete_cond(
-            SmartOLAPTable table, const int32_t version, bool delete_smaller_version_conditions);
+            OLAPTablePtr table, const int32_t version, bool delete_smaller_version_conditions);
 
     // 将一个olap engine的表上存有的所有删除条件打印到log中。调用前只需要给Header文件加读锁
     //
@@ -89,18 +98,15 @@ public:
     //     table: 要打印删除条件的olap engine表
     // 返回值：
     //     OLAP_SUCCESS：调用成功
-    OLAPStatus log_conds(SmartOLAPTable table);
+    OLAPStatus log_conds(OLAPTablePtr table);
 private:
-    // 检查cond表示的删除条件是否符合要求；
-    // 如果不符合要求，返回OLAP_ERR_DELETE_INVALID_CONDITION；符合要求返回OLAP_SUCCESS
-    OLAPStatus _check_condition_valid(SmartOLAPTable table, const TCondition& cond);
 
     // 检查指定的删除条件版本是否符合要求；
     // 如果不符合要求，返回OLAP_ERR_DELETE_INVALID_VERSION；符合要求返回OLAP_SUCCESS
-    OLAPStatus _check_version_valid(SmartOLAPTable table, const int32_t filter_version);
+    OLAPStatus _check_version_valid(OLAPTablePtr table, const int32_t filter_version);
 
     // 检查指定版本的删除条件是否已经存在。如果存在，返回指定版本删除条件的数组下标；不存在返回-1
-    int _check_whether_condition_exist(SmartOLAPTable, int cond_version);
+    int _check_whether_condition_exist(OLAPTablePtr, int cond_version);
 };
 
 // 表示一个删除条件
@@ -129,7 +135,7 @@ struct DeleteConditions {
 class DeleteHandler {
 public:
     typedef std::vector<DeleteConditions>::size_type cond_num_t;
-    typedef google::protobuf::RepeatedPtrField<DeleteDataConditionMessage> del_cond_array;
+    typedef google::protobuf::RepeatedPtrField<DeleteConditionMessage> del_cond_array;
 
     DeleteHandler() : _is_inited(false) {}
     ~DeleteHandler() {}
@@ -148,7 +154,7 @@ public:
     //     * OLAP_SUCCESS: 调用成功
     //     * OLAP_ERR_DELETE_INVALID_PARAMETERS: 参数不符合要求
     //     * OLAP_ERR_MALLOC_ERROR: 在填充_del_conds时，分配内存失败
-    OLAPStatus init(SmartOLAPTable olap_table, int32_t version);
+    OLAPStatus init(OLAPTablePtr olap_table, int32_t version);
 
     // 判定一条数据是否符合删除条件
     //

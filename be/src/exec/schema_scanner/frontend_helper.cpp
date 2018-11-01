@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -58,159 +55,91 @@ void FrontendHelper::setup(ExecEnv* exec_env) {
 Status FrontendHelper::get_db_names(
          const std::string& ip,
          const int32_t port,
-         const TGetDbsParams &db_params,
-         TGetDbsResult *db_result) {
-    Status status;
-    TNetworkAddress address = make_network_address(ip, port);
-    try {
-        // 500ms is enough
-        FrontendServiceConnection client(
-            _s_exec_env->frontend_client_cache(), 
-            address, 
-            500, 
-            &status);
-        if (!status.ok()) {
-            return status;
-        }
-
-        try {
-            client->getDbNames(*db_result, db_params);
-        } catch (apache::thrift::transport::TTransportException& e) {
-            RETURN_IF_ERROR(client.reopen());
-            client->getDbNames(*db_result, db_params);
-        }
-    } catch (apache::thrift::TException& e) {
-        std::stringstream ss;
-        ss << "getDbNames from " << address << " failed:" << e.what();
-        return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str(), false);
-    }
-    return Status::OK;
+         const TGetDbsParams &request,
+         TGetDbsResult *result) {
+    return rpc(ip, port,
+               [&request, &result] (FrontendServiceConnection& client) {
+                client->getDbNames(*result, request);
+               });
 }
 
 Status FrontendHelper::get_table_names(
          const std::string& ip,
          const int32_t port,
-         const TGetTablesParams &table_params,
-         TGetTablesResult *table_result) {
-    Status status;
-    TNetworkAddress address = make_network_address(ip, port);
-    try {
-        // 500ms is enough
-        FrontendServiceConnection client(
-            _s_exec_env->frontend_client_cache(), 
-            address, 
-            500, 
-            &status);
-        if (!status.ok()) {
-            return status;
-        }
-
-        try {
-            client->getTableNames(*table_result, table_params);
-        } catch (apache::thrift::transport::TTransportException& e) {
-            RETURN_IF_ERROR(client.reopen());
-            client->getTableNames(*table_result, table_params);
-        }
-    } catch (apache::thrift::TException& e) {
-        std::stringstream ss;
-        ss << "getTableNames from " << address << " failed:" << e.what();
-        return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str(), false);
-    }
-    return Status::OK;
+         const TGetTablesParams &request,
+         TGetTablesResult *result) {
+    return rpc(ip, port,
+               [&request, &result] (FrontendServiceConnection& client) {
+                client->getTableNames(*result, request);
+               });
 }
 
 Status FrontendHelper::list_table_status(
          const std::string& ip,
          const int32_t port,
-         const TGetTablesParams &table_params,
-         TListTableStatusResult *table_result) {
-    Status status;
-    TNetworkAddress address = make_network_address(ip, port);
-    try {
-        // 500ms is enough
-        FrontendServiceConnection client(
-            _s_exec_env->frontend_client_cache(), 
-            address, 
-            500, 
-            &status);
-        if (!status.ok()) {
-            return status;
-        }
-
-        try {
-            client->listTableStatus(*table_result, table_params);
-        } catch (apache::thrift::transport::TTransportException& e) {
-            RETURN_IF_ERROR(client.reopen());
-            client->listTableStatus(*table_result, table_params);
-        }
-    } catch (apache::thrift::TException& e) {
-        std::stringstream ss;
-        ss << "getTableNames from " << address << " failed:" << e.what();
-        return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str(), false);
-    }
-    return Status::OK;
+         const TGetTablesParams &request,
+         TListTableStatusResult *result) {
+    return rpc(ip, port,
+               [&request, &result] (FrontendServiceConnection& client) {
+                client->listTableStatus(*result, request);
+               });
 }
 
 Status FrontendHelper::describe_table(
          const std::string& ip,
          const int32_t port,
-         const TDescribeTableParams &desc_params,
-         TDescribeTableResult *desc_result) {
-    Status status;
-    TNetworkAddress address = make_network_address(ip, port);
-    try {
-        // 500ms is enough
-        FrontendServiceConnection client(
-            _s_exec_env->frontend_client_cache(), 
-            address, 
-            500, 
-            &status);
-        if (!status.ok()) {
-            return status;
-        }
-
-        try {
-            client->describeTable(*desc_result, desc_params);
-        } catch (apache::thrift::transport::TTransportException& e) {
-            RETURN_IF_ERROR(client.reopen());
-            client->describeTable(*desc_result, desc_params);
-        }
-    } catch (apache::thrift::TException& e) {
-        std::stringstream ss;
-        ss << "describeTable from " << address << " failed:" << e.what();
-        return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str(), false);
-    }
-    return Status::OK;
+         const TDescribeTableParams &request,
+         TDescribeTableResult *result) {
+    return rpc(ip, port,
+               [&request, &result] (FrontendServiceConnection& client) {
+                client->describeTable(*result, request);
+               });
 }
 
 Status FrontendHelper::show_varialbes(
          const std::string& ip,
          const int32_t port,
-         const TShowVariableRequest &var_params,
-         TShowVariableResult *var_result) {
-    Status status;
+         const TShowVariableRequest &request,
+         TShowVariableResult *result) {
+    return rpc(ip, port,
+               [&request, &result] (FrontendServiceConnection& client) {
+                client->showVariables(*result, request);
+               });
+}
+
+Status FrontendHelper::rpc(
+        const std::string& ip,
+        const int32_t port,
+        std::function<void (FrontendServiceConnection&)> callback,
+        int timeout_ms) {
     TNetworkAddress address = make_network_address(ip, port);
     try {
-        // 500ms is enough
+        Status status;
         FrontendServiceConnection client(
-            _s_exec_env->frontend_client_cache(), 
-            address, 
-            500, 
-            &status);
+            _s_exec_env->frontend_client_cache(), address, timeout_ms, &status);
         if (!status.ok()) {
+            LOG(WARNING) << "Connect frontent failed, address=" << address
+                << ", status=" << status.get_error_msg();
             return status;
         }
-
         try {
-            client->showVariables(*var_result, var_params);
+            callback(client);
         } catch (apache::thrift::transport::TTransportException& e) {
-            RETURN_IF_ERROR(client.reopen());
-            client->showVariables(*var_result, var_params);
+            LOG(WARNING) << "retrying call frontend service, address="
+                    << address << ", reason=" << e.what();
+            status = client.reopen(timeout_ms);
+            if (!status.ok()) {
+                LOG(WARNING) << "client repoen failed. address=" << address
+                    << ", status=" << status.get_error_msg();
+                return status;
+            }
+            callback(client);
         }
     } catch (apache::thrift::TException& e) {
-        std::stringstream ss;
-        ss << "showVariables from " << address << " failed:" << e.what();
-        return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str(), false);
+        LOG(WARNING) << "call frontend service failed, address=" << address
+            << ", reason=" << e.what();
+        return Status(TStatusCode::THRIFT_RPC_ERROR,
+                      "failed to call frontend service", false);
     }
     return Status::OK;
 }

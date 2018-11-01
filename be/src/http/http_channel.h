@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -19,43 +21,31 @@
 #include <string>
 #include <cstdint>
 
+#include "http/http_status.h"
+
 struct mg_connection;
 
 namespace palo {
 
 class HttpRequest;
-class HttpResponse;
 
 class HttpChannel {
 public:
-    // Wrapper for mongoose
-    HttpChannel(const HttpRequest& request, mg_connection* mg_conn);
+    // Helper maybe used everywhere
+    static void send_basic_challenge(HttpRequest* req, const std::string& realm);
 
-    void send_response(const HttpResponse& response);
+    static void send_error(HttpRequest* request, HttpStatus status);
 
-    void send_response_header(const HttpResponse& response);
-    void send_response_content(const HttpResponse& response);
-    void append_response_content(
-            const HttpResponse& response,
-            const char* content,
-            int32_t content_size);
-    void send_status_line();
-
-    const HttpRequest& request() const {
-        return _request;
+    // send 200(OK) reply with content
+    static inline void send_reply(HttpRequest* request, const std::string& content) {
+        send_reply(request, HttpStatus::OK, content);
     }
 
-    void update_content_length(int64_t len);
+    static void send_reply(HttpRequest* request, HttpStatus status = HttpStatus::OK);
 
-    int read(char* buf, int len);
+    static void send_reply(HttpRequest* request, HttpStatus status, const std::string& content);
 
-    // Helper maybe used everywhere
-    void send_basic_challenge(const std::string& realm);
-
-private:
-    const HttpRequest& _request;
-    // save mongoose connection here
-    mg_connection* _mg_conn;
+    static void send_file(HttpRequest* request, int fd, size_t off, size_t size);
 };
 
 }

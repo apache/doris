@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -43,8 +40,8 @@ BlockingJoinNode::BlockingJoinNode(const std::string& node_name,
       _join_op(join_op) {
 }
 
-Status BlockingJoinNode::init(const TPlanNode& tnode) {
-    return ExecNode::init(tnode);
+Status BlockingJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    return ExecNode::init(tnode, state);
 }
 
 BlockingJoinNode::~BlockingJoinNode() {

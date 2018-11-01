@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -52,6 +49,9 @@ Status SchemaSchemataScanner::start(RuntimeState *state) {
     }
     if (NULL != _param->user) {
         db_params.__set_user(*(_param->user));
+    }
+    if (NULL != _param->user_ip) {
+        db_params.__set_user_ip(*(_param->user_ip));
     }
     if (NULL != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(FrontendHelper::get_db_names(*(_param->ip),

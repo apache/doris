@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -35,13 +37,17 @@
 #include "olap/olap_cond.h"
 #include "olap/olap_define.h"
 #include "olap/olap_engine.h"
-#include "olap/olap_index.h"
 #include "olap/olap_table.h"
 #include "olap/row_cursor.h"
 #include "runtime/runtime_state.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/mem_pool.h"
+
+#include "olap/column_predicate.h"
 
 namespace palo {
+
+class Rowset;
+
 namespace column_file {
 
 class ColumnReader;
@@ -51,14 +57,16 @@ class SegmentReader {
 public:
     explicit SegmentReader(const std::string file,
             OLAPTable* table,
-            OLAPIndex* index,
+            Rowset* index,
             uint32_t segment_id,
             const std::vector<uint32_t>& return_columns,
             const std::set<uint32_t>& load_bf_columns,
             const Conditions* conditions,
+            const std::vector<ColumnPredicate*>* col_predicates,
             const DeleteHandler& delete_handler,
             const DelCondSatisfied delete_status,
-            RuntimeState* runtime_state);
+            RuntimeState* runtime_state,
+            OlapReaderStatistics* stats);
 
     ~SegmentReader();
 
@@ -69,6 +77,10 @@ public:
     // @return [description]
     OLAPStatus init(bool is_using_cache);
 
+    // Must called before seek to block.
+    // TODO(zc)
+    OLAPStatus prepare(const std::vector<uint32_t>& columns);
+
     // 指定读取的第一个block和最后一个block，并初始化column reader
     // seek_to_block支持被多次调用
     // Inputs:
@@ -78,18 +90,19 @@ public:
     // 1. 按conditions过滤index中的统计信息,  确定需要读取的block列表
     // 2. 读取blocks, 构造InStream
     // 3. 创建并初始化Readers
-    //
-    OLAPStatus seek_to_block(uint32_t first_block, uint32_t last_block, bool without_filter);
+    // Outputs:
+    // next_block_id: 
+    //      block with next_block_id would read if get_block called again.
+    //      this field is used to set batch's limit when client found logical end is reach
+    OLAPStatus seek_to_block(uint32_t first_block, uint32_t last_block, bool without_filter, 
+                             uint32_t* next_block_id, bool* eof);
 
-    // 返回下一行数据
-    // @return 绑定数据的RowCursor，失败或无数据可读则返回NULL
-    const RowCursor* get_next_row(bool without_filter);
-
-    // 返回最后一行数据
-    // @return 绑定数据的RowCursor，失败或无数据可读则返回NULL
-    const RowCursor* get_current_row() const {
-        return (!_eof) ? &_cursor : NULL;
-    }
+    // get vector batch from this segment.
+    // next_block_id: 
+    //      block with next_block_id would read if get_block called again.
+    //      this field is used to set batch's limit when client found logical end is reach
+    // ATTN: If you change batch to contain more columns, you must call seek_to_block again.
+    OLAPStatus get_block(VectorizedRowBatch* batch, uint32_t* next_block_id, bool* eof);
 
     bool eof() const {
         return _eof;
@@ -98,11 +111,6 @@ public:
     // 返回当前segment中block的数目
     uint32_t block_count() const {
         return _block_count;
-    }
-
-    // 返回当前行所处的block数
-    uint32_t current_block() {
-        return _current_block;
     }
 
     // 返回当前semgnet中，每块的行数
@@ -117,26 +125,7 @@ public:
     // 只允许在初始化之前选择，之后则无法更改
     // 暂时没有动态切换的需求
     void set_is_using_mmap(bool is_using_mmap) {
-        if (!_is_init) {
-            _is_using_mmap = is_using_mmap;
-        } else {
-            OLAP_LOG_WARNING("segment reader has alreay inited, "
-                    "can't change is_using_mmap [now=%d]",
-                    _is_using_mmap);
-        }
-    }
-
-    OLAPStatus get_row_batch(
-            uint8_t* batch_buf,
-            uint32_t batch_buf_len,
-            uint32_t* start_row_index,
-            uint32_t* batch_row_num,
-            uint32_t* block_row_num,
-            std::vector<uint32_t>& return_columns);
-
-    uint64_t get_filted_rows() const {
-        OLAP_LOG_DEBUG("SegmentReader _filted_rows: %lu", _filted_rows); 
-        return _filted_rows;
+        _is_using_mmap = is_using_mmap;
     }
 
 private:
@@ -187,10 +176,6 @@ private:
     // 设置segment的相关信息，解压器，列，编码等
     OLAPStatus _set_segment_info();
 
-    // 检查是否有为空的列
-    // @param has_null 返回一个 columnd->是否有空值 的映射
-    void _fill_has_null(std::map<ColumnId, bool>* has_null);
-
     // 检查列存文件版本
     // @return 返回OLAP_SUCCESS代表版本检查通过
     OLAPStatus _check_file_version();
@@ -223,13 +208,6 @@ private:
             bool is_compressed,
             bool has_null);
 
-    // 根据stream类型和编码判断是否采用了字典编码
-    bool _is_dictionary(StreamInfoMessage::Kind kind,
-            ColumnEncodingMessage encoding);
-
-    // 判断两段区域是否重叠
-    bool _is_overlap(size_t left_a, size_t right_a, size_t left_b, size_t right_b);
-
     // 读出所有列，完整的流，（这里只是创建stream，在orc file里因为没有mmap因
     // 此意味着实际的数据读取， 而在这里并没有实际的读，只是圈出来需要的范围）
     OLAPStatus _read_all_data_streams(size_t* buffer_size);
@@ -238,21 +216,18 @@ private:
     // 创建reader
     OLAPStatus _create_reader(size_t* buffer_size);
 
-    // 读取数据，会根据有没有条件，是不是需要扫全数据来分别使用
-    // _read_all_data_streams或_read_partial_data_streams
-    OLAPStatus _read_block(bool without_filter);
+    // we impelete seek to block in two phase. first, we just only move _next_block_id
+    // to the position that we want goto; second, we seek the column streams to the
+    // position we going to read.
+    void _seek_to_block(int64_t block_id, bool without_filter);
 
-    // 所有reader skip一定row
-    OLAPStatus _reader_skip(uint64_t skip_rows);
-
-    // 前进n行
-    OLAPStatus _move_to_next_row(bool without_filter);
+    // seek to block id without check. only seek in cids's read stream.
+    // because some columns may not be read
+    OLAPStatus _seek_to_block_directly(
+        int64_t block_id, const std::vector<uint32_t>& cids);
 
     // 跳转到某个row entry
     OLAPStatus _seek_to_row_entry(int64_t block_id);
-
-    // 读取下一行并attach到cursor上
-    inline OLAPStatus _read_next_and_attach();
 
     OLAPStatus _reset_readers();
 
@@ -262,12 +237,10 @@ private:
     }
 
     inline const ColumnDataHeaderMessage& _header_message() {
-        return _file_header.message();
+        return _file_header->message();
     }
 
     OLAPStatus _init_include_blocks(uint32_t first_block, uint32_t last_block);
-
-    void _init_vectorized_info(std::vector<uint32_t>& return_columns);
 
     inline const int32_t _get_included_row_index_stream_num() {
         int32_t included_row_index_stream_num = 0;
@@ -288,6 +261,9 @@ private:
         return included_row_index_stream_num;
     }
 
+    OLAPStatus _load_to_vectorized_row_batch(
+        VectorizedRowBatch* batch, size_t size);
+
 private:
     static const int32_t BYTE_STREAM_POSITIONS = 1;
     static const int32_t RUN_LENGTH_BYTE_POSITIONS = BYTE_STREAM_POSITIONS + 1;
@@ -303,37 +279,48 @@ private:
     palo::FileHandler _file_handler;             // 文件handler
 
     OLAPTable* _table;
-    OLAPIndex* _olap_index;
+    Rowset* _olap_index;
     uint32_t _segment_id;
 
     const Conditions* _conditions;         // 列过滤条件
     DeleteHandler _delete_handler;
     DelCondSatisfied _delete_status;
-    RowCursor _cursor;                     // 返回数据使用的helper cursor
 
     bool _eof;                             // eof标志
-    bool _is_init;
+
+    // If this field is false, client must to call seek_to_block before
+    // calling get_block.
+    bool _at_block_start = false;
+
     int64_t _end_block;                           // 本次读取的结束块
-    int64_t _current_block;                       // 当前读取到的块
+    int64_t _current_block_id = 0;                       // 当前读取到的块
+
+    // this is set by _seek_to_block, when get_block is called, first
+    // seek to this block_id, then read block.
+    int64_t _next_block_id = 0;
     int64_t _block_count;             // 每一列中，index entry的数目应该相等。
 
     uint64_t _num_rows_in_block;
     bool _null_supported;
     uint64_t _header_length;           // Header(FixHeader+PB)大小，读数据时需要偏移
-    uint64_t _current_row;             // 当前row在整个segment中是第几条
 
-    std::vector<uint32_t> _return_columns; // 要返回的列，里边的id为tablet_schema_id
+    // columns that can be used by client. when client seek to range's start or end,
+    // client may read more columns than normal read.
+    // For example: 
+    //  table1's schema is 'k1, k2, v1'. which k1, k2 is key column, v1 is value column.
+    //  for query 'select sum(v1) from table1', client split all data to sub-range in logical,
+    //  so, one sub-range need to seek to right position with k1 and k2; then only read v1.
+    //  In this situation, _used_columns contains (k1, k2, v1)
+    std::vector<uint32_t> _used_columns;
     std::vector<ColumnReader*> _column_readers;    // 实际的数据读取器
     std::vector<StreamIndexReader*> _column_indices; // 保存column的index
 
-    UniqueIdSet _segment_columns;
     UniqueIdSet _include_columns;           // 用于判断该列是不是被包含
     UniqueIdSet _load_bf_columns;
     UniqueIdSet _include_bf_columns;
     UniqueIdToColumnIdMap _table_id_to_unique_id_map; // table id到unique id的映射
     UniqueIdToColumnIdMap _unique_id_to_table_id_map; // unique id到table id的映射
     UniqueIdToColumnIdMap _unique_id_to_segment_id_map; // uniqid到segment id的映射
-    UniqueIdToColumnIdMap _segment_id_to_unique_id_map; //segment id到uniqid的映射
 
     std::map<ColumnId, StreamIndexReader*> _indices;
     std::map<StreamName, ReadOnlyFileStream*> _streams;      //需要读取的流
@@ -353,48 +340,28 @@ private:
     */
     uint8_t* _include_blocks;
     uint32_t _remain_block;
-    uint64_t _filted_rows;
     bool _need_block_filter;   //与include blocks组合使用，如果全不中，就不再读
     bool _is_using_mmap;                     // 这个标记为true时，使用mmap来读取文件
     bool _is_data_loaded;
     size_t _buffer_size;
 
     Cache* _lru_cache;
-    Cache::Handle** _cache_handle;
-    FileHeader<ColumnDataHeaderMessage> _file_header;
+    std::vector<Cache::Handle*> _cache_handle;
+    const FileHeader<ColumnDataHeaderMessage>* _file_header;
 
-    bool _vectorized_info_inited;
-    std::vector<VectorizedPositionInfo> _vectorized_position;
+    std::unique_ptr<MemTracker> _tracker;
+    std::unique_ptr<MemPool> _mem_pool;
 
     RuntimeState* _runtime_state;  // 用于统计内存消耗等运行时信息
     ByteBuffer* _shared_buffer;
 
+    // Set when seek_to_block is called, valid until next seek_to_block is called.
+    bool _without_filter = false;
+
+    OlapReaderStatistics* _stats;
+
     DISALLOW_COPY_AND_ASSIGN(SegmentReader);
 };
-
-inline OLAPStatus SegmentReader::_read_next_and_attach() {
-    OLAPStatus res = OLAP_SUCCESS;
-
-    for (std::vector<ColumnReader*>::iterator it = _column_readers.begin();
-            it != _column_readers.end(); ++it) {
-        res = (*it)->next();
-
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to read next, res = %d, column = %u",
-                    res, (*it)->column_unique_id());
-            return res;
-        }
-
-        res = (*it)->attach(&_cursor);
-
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to attach reader. [res=%d]", res);
-            return res;
-        }
-    }
-
-    return res;
-}
 
 }  // namespace column_file
 }  // namespace palo

@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -92,6 +89,7 @@ void CrossJoinNode::init_get_next(TupleRow* first_left_row) {
 Status CrossJoinNode::get_next(RuntimeState* state, RowBatch* output_batch, bool* eos) {
     // RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT, state));
     RETURN_IF_CANCELLED(state);
+    *eos = false;
     // TOOD(zhaochun)
     // RETURN_IF_ERROR(state->check_query_state());
     SCOPED_TIMER(_runtime_profile->total_time_counter());

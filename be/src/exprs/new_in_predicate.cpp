@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -192,6 +189,7 @@ IN_FUNCTIONS(DoubleVal, double, double_val)
 IN_FUNCTIONS(StringVal, StringValue, string_val)
 IN_FUNCTIONS(DateTimeVal, DateTimeValue, datetime_val)
 IN_FUNCTIONS(DecimalVal, DecimalValue, decimal_val)
+IN_FUNCTIONS(LargeIntVal, __int128, large_int_val)
 
 // Needed for in-predicate-benchmark to build
 template BooleanVal InPredicate::iterate<IntVal>(

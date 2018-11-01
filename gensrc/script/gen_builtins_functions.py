@@ -8,12 +8,13 @@ from string import Template
 import palo_builtins_functions
 
 java_registry_preamble = '\
-//  Modifications copyright (C) 2017, Baidu.com, Inc. \n\
-//  Copyright 2017 The Apache Software Foundation \n\
-// \n\
-//  Licensed under the Apache License, Version 2.0 (the "License");\n\
-//  you may not use this file except in compliance with the License.\n\
-//  You may obtain a copy of the License at\n\
+// Licensed to the Apache Software Foundation (ASF) under one \n\
+// or more contributor license agreements.  See the NOTICE file \n\
+// distributed with this work for additional information \n\
+// regarding copyright ownership.  The ASF licenses this file \n\
+// to you under the Apache License, Version 2.0 (the \n\
+// "License"); you may not use this file except in compliance \n\
+// with the License.  You may obtain a copy of the License at \n\
 // \n\
 //  http://www.apache.org/licenses/LICENSE-2.0\n\
 // \n\
@@ -28,10 +29,10 @@ java_registry_preamble = '\
 // common/function-registry/gen_builtins_catalog.py or the function list at\n\
 // common/function-registry/palo_builtins_functions.py.\n\
 \n\
-package com.baidu.palo.builtins;\n\
+package org.apache.doris.builtins;\n\
 \n\
-import com.baidu.palo.catalog.PrimitiveType;\n\
-import com.baidu.palo.catalog.FunctionSet;\n\
+import org.apache.doris.catalog.PrimitiveType;\n\
+import org.apache.doris.catalog.FunctionSet;\n\
 \n\
 public class ScalarBuiltins { \n\
     public static void initBuiltins(FunctionSet functionSet) { \
@@ -41,7 +42,7 @@ java_registry_epilogue = '\
   }\n\
 }\n'
 
-FE_PATH = "../java/com/baidu/palo/builtins/"
+FE_PATH = "../java/org.apache.doris/builtins/"
 
 # This contains all the metadata to describe all the builtins.
 # Each meta data entry is itself a map to store all the meta data

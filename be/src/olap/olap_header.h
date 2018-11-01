@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -22,6 +24,7 @@
 #include <vector>
 
 #include "gen_cpp/olap_file.pb.h"
+#include "gen_cpp/Types_types.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 
@@ -29,20 +32,26 @@ namespace palo {
 // Class for managing olap table header.
 class OLAPHeader : public OLAPHeaderMessage {
 public:
+    explicit OLAPHeader() :
+            _support_reverse_version(false) {}
+
+    // for compatible header file
     explicit OLAPHeader(const std::string& file_name) :
             _file_name(file_name),
             _support_reverse_version(false) {}
 
     virtual ~OLAPHeader();
 
-    // Loads the header from disk, returning true on success.
-    // In load(), we will validate olap header file, which mainly include
+    // Loads the header from disk and init, returning true on success.
+    // In load_and_init(), we will validate olap header file, which mainly include
     // tablet schema, delta version and so on.
-    OLAPStatus load();
+    OLAPStatus load_and_init();
 
     // Saves the header to disk, returning true on success.
     OLAPStatus save();
     OLAPStatus save(const std::string& file_path);
+
+    OLAPStatus init();
 
     // Return the file name of the heade.
     std::string file_name() const {
@@ -51,27 +60,34 @@ public:
 
     // Adds a new version to the header. Do not use the proto's
     // add_version() directly.
-    OLAPStatus add_version(Version version,
-            VersionHash version_hash,
-            uint32_t num_segments,
-            time_t max_timestamp,
-            int64_t index_size,
-            int64_t data_size,
-            int64_t num_rows);
+    OLAPStatus add_version(Version version, VersionHash version_hash,
+                           int32_t rowset_id, int32_t num_segments,
+                           int64_t index_size, int64_t data_size, int64_t num_rows,
+                           bool empty, const std::vector<KeyRange>* column_statistics);
 
-    OLAPStatus add_version(
-        Version version,
-        VersionHash version_hash,
-        uint32_t num_segments,
-        time_t max_timestamp,
-        int64_t index_size,
-        int64_t data_size,
-        int64_t num_rows,
-        std::vector<std::pair<Field *, Field *> > *column_statistics);
+    OLAPStatus add_pending_version(int64_t partition_id, int64_t transaction_id,
+                                 const std::vector<std::string>* delete_conditions);
+    OLAPStatus add_pending_rowset(int64_t transaction_id, int32_t num_segments,
+                                  int32_t pending_rowset_id, const PUniqueId& load_id,
+                                  bool empty, const std::vector<KeyRange>* column_statistics);
+
+    // add incremental rowset into header like "9-9" "10-10", for incremental cloning
+    OLAPStatus add_incremental_version(Version version, VersionHash version_hash,
+                                       int32_t rowset_id, int32_t num_segments,
+                                       int64_t index_size, int64_t data_size, int64_t num_rows,
+                                       bool empty, const std::vector<KeyRange>* column_statistics);
+
+    void add_delete_condition(const DeleteConditionMessage& delete_condition, int64_t version);
+
+    const PPendingDelta* get_pending_delta(int64_t transaction_id) const;
+    const PPendingRowSet* get_pending_rowset(int64_t transaction_id, int32_t pending_rowset_id) const;
+    const PDelta* get_incremental_version(Version version) const;
 
     // Deletes a version from the header.
     OLAPStatus delete_version(Version version);
     OLAPStatus delete_all_versions();
+    void delete_pending_delta(int64_t transaction_id);
+    void delete_incremental_delta(Version version);
 
     // Constructs a canonical file name (without path) for the header.
     // eg "DailyUnitStats_PRIMARY.hdr"
@@ -92,15 +108,24 @@ public:
     virtual OLAPStatus select_versions_to_span(const Version& target_version,
                                            std::vector<Version>* span_versions);
 
-    const FileVersionMessage* get_lastest_delta_version() const;
-    const FileVersionMessage* get_latest_version() const;
-    const uint32_t get_expansion_nice_estimate() const;
+    const PDelta* get_lastest_delta_version() const;
+    const PDelta* get_lastest_version() const;
+    Version get_latest_version() const;
+    const PDelta* get_delta(int index) const;
+    const PDelta* get_base_version() const;
+    const uint32_t get_cumulative_compaction_score() const;
+    const uint32_t get_base_compaction_score() const;
     const OLAPStatus version_creation_time(const Version& version, int64_t* creation_time) const;
 
+    int file_delta_size() const {
+        return delta_size();
+    }
+    void change_file_version_to_delta();
 private:
     // Compute schema hash(all fields name and type, index name and its field
     // names) using lzo_adler32 function.
     OLAPStatus _compute_schema_hash(SchemaHash* schema_hash);
+    void _convert_file_version_to_delta(const FileVersionMessage& version, PDelta* delta);
 
     // full path of olap header file
     std::string _file_name;
@@ -122,7 +147,7 @@ private:
     // vertex value --> vertex_index of _version_graph
     // It is easy to find vertex index according to vertex value.
     std::unordered_map<int, int> _vertex_helper_map;
-
+    
     DISALLOW_COPY_AND_ASSIGN(OLAPHeader);
 };
 

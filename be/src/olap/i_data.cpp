@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -17,10 +19,11 @@
 
 #include "olap/column_file/column_data.h"
 #include "olap/olap_data.h"
+#include "olap/rowset.h"
 
 namespace palo {
 
-IData* IData::create(OLAPIndex* index) {
+IData* IData::create(Rowset* index) {
     IData* data = NULL;
     DataFileType file_type = index->table()->data_file_type();
 
@@ -42,7 +45,7 @@ IData* IData::create(OLAPIndex* index) {
 }
 
 bool IData::delta_pruning_filter() {
-    if (empty()) {
+    if (empty() || zero_num_rows()) {
         return true;
     }
             
@@ -54,8 +57,7 @@ bool IData::delta_pruning_filter() {
 }
 
 int IData::delete_pruning_filter() {
-
-    if (empty()) {
+    if (empty() || zero_num_rows()) {
         // should return DEL_NOT_SATISFIED, because that when creating rollup table,
         // the delete version file should preserved for filter data.
         return DEL_NOT_SATISFIED;

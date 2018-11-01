@@ -1,6 +1,3 @@
-# Modifications copyright (C) 2017, Baidu.com, Inc.
-# Copyright 2017 The Apache Software Foundation
-
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -39,6 +36,7 @@ add_library(Exprs
   conditional_functions.cpp
   conditional_functions_ir.cpp
   decimal_operators.cpp
+  es_functions.cpp
   literal.cpp
   expr.cpp
   expr_ir.cpp
@@ -62,6 +60,8 @@ add_library(Exprs
   json_functions.cpp
   operators.cpp
   hll_hash_function.cpp
+  agg_fn.cc
+  new_agg_fn_evaluator.cc
 )
 #ADD_BE_TEST(json_function_test)
 #ADD_BE_TEST(binary_predicate_test)

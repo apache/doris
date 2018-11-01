@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -21,143 +18,104 @@
 #ifndef BDG_PALO_BE_SRC_COMMON_UTIL_PALO_METRICS_H
 #define BDG_PALO_BE_SRC_COMMON_UTIL_PALO_METRICS_H
 
+#include <set>
+#include <string>
+#include <vector>
+
 #include "util/metrics.h"
 
 namespace palo {
 
-// Global impalad-wide metrics.  This is useful for objects that want to update metrics
-// without having to do frequent metrics lookups.
-// These get created by impala-server from the Metrics ob<ject in ExecEnv right when the
-// ImpaladServer starts up.
+class SystemMetrics;
+
 class PaloMetrics {
 public:
-    // Creates and initializes all metrics above in 'm'.
-    static void create_metrics(MetricGroup* m);
+    // counters
+    static IntCounter fragment_requests_total;
+    static IntCounter fragment_request_duration_us;
+    static IntCounter http_requests_total;
+    static IntCounter http_request_duration_us;
+    static IntCounter http_request_send_bytes;
+    static IntCounter query_scan_bytes;
+    static IntCounter query_scan_rows;
+    static IntCounter ranges_processed_total;
+    static IntCounter push_requests_success_total;
+    static IntCounter push_requests_fail_total;
+    static IntCounter push_request_duration_us;
+    static IntCounter push_request_write_bytes;
+    static IntCounter push_request_write_rows;
+    static IntCounter create_tablet_requests_total;
+    static IntCounter create_tablet_requests_failed;
+    static IntCounter drop_tablet_requests_total;
 
-    static StringProperty* palo_be_start_time() {
-        return _s_palo_be_start_time;
-    }
-    static StringProperty* palo_be_version() {
-        return _s_palo_be_version;
-    }
-    static BooleanProperty* palo_be_ready() {
-        return _s_palo_be_ready;
-    }
-    static IntCounter* palo_be_num_fragments() {
-        return _s_palo_be_num_fragments;
-    }
-    static IntCounter* num_ranges_ranges_processed() {
-        return _s_num_ranges_processed;
-    }
-    static IntCounter* num_ranges_missing_volume_id() {
-        return _s_num_ranges_missing_volume_id;
-    }
-    static IntGauge* mem_pool_total_bytes() {
-        return _s_mem_pool_total_bytes;
-    }
-    static IntGauge* hash_table_total_bytes() {
-        return _s_hash_table_total_bytes;
-    }
-    static IntCounter* olap_lru_cache_lookup_count() {
-        return _s_olap_lru_cache_lookup_count;
-    }
-    static IntCounter* olap_lru_cache_hit_count() {
-        return _s_olap_lru_cache_hit_count;
-    }
-    static IntCounter* palo_push_count() {
-        return _s_palo_push_count;
-    }
-    static IntCounter* palo_fetch_count() {
-        return _s_palo_fetch_count;
-    }
-    static IntCounter* palo_request_count() {
-        return _s_palo_request_count;
-    }
-    static IntCounter* be_merge_delta_num() {
-        return _s_be_merge_delta_num;
-    }
-    static IntCounter* be_merge_size() {
-        return _s_be_merge_size;
-    }
-    static IntCounter* ce_merge_delta_num() {
-        return _s_ce_merge_delta_num;
-    }
-    static IntCounter* ce_merge_size() {
-        return _s_ce_merge_size;
-    }
+    static IntCounter report_all_tablets_requests_total;
+    static IntCounter report_all_tablets_requests_failed;
+    static IntCounter report_tablet_requests_total;
+    static IntCounter report_tablet_requests_failed;
+    static IntCounter report_disk_requests_total;
+    static IntCounter report_disk_requests_failed;
+    static IntCounter report_task_requests_total;
+    static IntCounter report_task_requests_failed;
 
-    // static IntGauge* io_mgr_bytes_read() {
-    //     return _s_io_mgr_bytes_read;
-    // }
-    // static IntGauge* io_mgr_local_bytes_read() {
-    //     return _s_io_mgr_local_bytes_read;
-    // }
-    // static IntGauge* io_mgr_cached_bytes_read() {
-    //     return _s_io_mgr_cached_bytes_read;
-    // }
-    // static IntGauge* io_mgr_short_circuit_bytes_read() {
-    //     return _s_io_mgr_short_circuit_bytes_read;
-    // }
-    static IntCounter* io_mgr_bytes_written() {
-        return _s_io_mgr_bytes_written;
-    }
+    static IntCounter schema_change_requests_total;
+    static IntCounter schema_change_requests_failed;
+    static IntCounter create_rollup_requests_total;
+    static IntCounter create_rollup_requests_failed;
+    static IntCounter storage_migrate_requests_total;
+    static IntCounter delete_requests_total;
+    static IntCounter delete_requests_failed;
+    static IntCounter cancel_delete_requests_total;
+    static IntCounter clone_requests_total;
+    static IntCounter clone_requests_failed;
 
-    static IntGauge* io_mgr_num_buffers() {
-        return _s_io_mgr_num_buffers;
-    }
-    static IntGauge* io_mgr_num_open_files() {
-        return _s_io_mgr_num_open_files;
-    }
-    static IntGauge* io_mgr_num_unused_buffers() {
-        return _s_io_mgr_num_unused_buffers;
-    }
-    static IntGauge* io_mgr_num_file_handles_outstanding() {
-        return _s_io_mgr_num_file_handles_outstanding;
-    }
-    static IntGauge* io_mgr_total_bytes() {
-        return _s_io_mgr_total_bytes;
-    }
+    static IntCounter finish_task_requests_total;
+    static IntCounter finish_task_requests_failed;
 
-    static IntCounter* num_queries_spilled() {
-        return _s_num_queries_spilled;
-    }
+    static IntCounter base_compaction_request_total;
+    static IntCounter base_compaction_request_failed;
+    static IntCounter cumulative_compaction_request_total;
+    static IntCounter cumulative_compaction_request_failed;
+
+    static IntCounter base_compaction_deltas_total;
+    static IntCounter base_compaction_bytes_total;
+    static IntCounter cumulative_compaction_deltas_total;
+    static IntCounter cumulative_compaction_bytes_total;
+
+    static IntCounter alter_task_success_total;
+    static IntCounter alter_task_failed_total;
+
+    // Gauges
+    static IntGauge memory_pool_bytes_total;
+    static IntGauge process_thread_num;
+    static IntGauge process_fd_num_used;
+    static IntGauge process_fd_num_limit_soft;
+    static IntGauge process_fd_num_limit_hard;
+
+    ~PaloMetrics();
+    // call before calling metrics
+    void initialize(
+        const std::string& name,
+        bool init_system_metrics = false,
+        const std::set<std::string>& disk_devices = std::set<std::string>(),
+        const std::vector<std::string>& network_interfaces = std::vector<std::string>());
+
+    static PaloMetrics* instance() { return &_s_palo_metrics; }
+    static MetricRegistry* metrics() { return _s_palo_metrics._metrics; }
+private:
+    // Don't allow constrctor
+    PaloMetrics();
+
+    void update();
+    void _update_process_thread_num();
+    void _update_process_fd_num();
 
 private:
-    static StringProperty* _s_palo_be_start_time;
-    static StringProperty* _s_palo_be_version;
-    static BooleanProperty* _s_palo_be_ready;
-    static IntCounter* _s_palo_be_num_fragments;
-    static IntCounter* _s_num_ranges_processed;
-    static IntCounter* _s_num_ranges_missing_volume_id;
-    static IntGauge* _s_mem_pool_total_bytes;
-    static IntGauge* _s_hash_table_total_bytes;
-    static IntCounter* _s_olap_lru_cache_lookup_count;
-    static IntCounter* _s_olap_lru_cache_hit_count;
-    static IntCounter* _s_palo_push_count;
-    static IntCounter* _s_palo_fetch_count;
-    static IntCounter* _s_palo_request_count;
-    static IntCounter* _s_be_merge_delta_num;
-    static IntCounter* _s_be_merge_size;
-    static IntCounter* _s_ce_merge_delta_num;
-    static IntCounter* _s_ce_merge_size;
+    static const char* _s_hook_name;
 
-    // static IntGauge* _s_io_mgr_bytes_read;
-    // static IntGauge* _s_io_mgr_local_bytes_read;
-    // static IntGauge* _s_io_mgr_cached_bytes_read;
-    // static IntGauge* _s_io_mgr_short_circuit_bytes_read;
-    static IntCounter* _s_io_mgr_bytes_written;
+    static PaloMetrics _s_palo_metrics;
 
-    static IntGauge* _s_io_mgr_num_buffers;
-    static IntGauge* _s_io_mgr_num_open_files;
-    static IntGauge* _s_io_mgr_num_unused_buffers;
-    // static IntGauge* _s_io_mgr_num_cached_file_handles;
-    static IntGauge* _s_io_mgr_num_file_handles_outstanding;
-    // static IntGauge* _s_io_mgr_cached_file_handles_hit_count;
-    // static IntGauge* _s_io_mgr_cached_file_handles_miss_count;
-    static IntGauge* _s_io_mgr_total_bytes;
-
-    static IntCounter* _s_num_queries_spilled;
-
+    MetricRegistry* _metrics;
+    SystemMetrics* _system_metrics;
 };
 
 };

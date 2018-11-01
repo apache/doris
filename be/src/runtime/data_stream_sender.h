@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -29,12 +26,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "util/runtime_profile.h"
-#include "gen_cpp/Data_types.h"  // for TRowBatch
-
-#include "sender_dispatcher.h"
-#include "rpc/dispatch_handler.h"
-#include "rpc/io_handler.h"
-#include "rpc/poll_event.h"
+#include "gen_cpp/data.pb.h"  // for PRowBatch
 
 namespace palo {
 
@@ -94,7 +86,8 @@ public:
     /// Serializes the src batch into the dest thrift batch. Maintains metrics.
     /// num_receivers is the number of receivers this batch will be sent to. Only
     /// used to maintain metrics.
-    Status serialize_batch(RowBatch* src, TRowBatch* dest, int num_receivers = 1);
+    template<class T>
+    Status serialize_batch(RowBatch* src, T* dest, int num_receivers = 1);
 
     // Return total number of bytes sent in TRowBatch.data. If batches are
     // broadcast to multiple receivers, they are counted once per receiver.
@@ -139,13 +132,14 @@ private:
 
     // serialized batches for broadcasting; we need two so we can write
     // one while the other one is still being sent
-    TRowBatch _thrift_batch1;
-    TRowBatch _thrift_batch2;
-    TRowBatch* _current_thrift_batch;  // the next one to fill in send()
+    PRowBatch _pb_batch1;
+    PRowBatch _pb_batch2;
+    PRowBatch* _current_pb_batch = nullptr;
 
     std::vector<ExprContext*> _partition_expr_ctxs;  // compute per-row partition values
 
     std::vector<Channel*> _channels;
+    std::vector<std::shared_ptr<Channel>> _channel_shared_ptrs;
 
     // map from range value to partition_id
     // sorted in ascending orderi by range for binary search

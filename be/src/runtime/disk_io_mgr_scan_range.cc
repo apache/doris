@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -316,9 +313,11 @@ Status DiskIoMgr::ScanRange::open() {
         return Status(ss.str());
     }
     // }
+#if 0
     if (PaloMetrics::io_mgr_num_open_files() != NULL) {
         PaloMetrics::io_mgr_num_open_files()->increment(1L);
     }
+#endif
     return Status::OK;
 }
 
@@ -364,9 +363,11 @@ void DiskIoMgr::ScanRange::close() {
         fclose(_local_file);
         _local_file = NULL;
     }
+#if 0
     if (PaloMetrics::io_mgr_num_open_files() != NULL) {
         PaloMetrics::io_mgr_num_open_files()->increment(-1L);
     }
+#endif
 }
 
 /*

@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -28,7 +30,7 @@
 #include "common/logging.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
-#include "util/mysql_dtoa.h"
+#include "gutil/strings/numbers.h"
 #include "util/mysql_global.h"
 
 namespace palo {
@@ -132,6 +134,7 @@ public:
     // Note: the base is 10^9 for parameter frac_value, which means the max length of fraction part
     // is 9, and the parameter frac_value need to be divided by 10^9.
     DecimalValue(int64_t int_value, int64_t frac_value) : _buffer_length(DECIMAL_BUFF_LENGTH) {
+        set_to_zero();
         if (int_value < 0 || frac_value < 0) {
             _sign = true;
         } else {
@@ -148,6 +151,7 @@ public:
     }
 
     DecimalValue(int64_t int_value) : _buffer_length(DECIMAL_BUFF_LENGTH){
+        set_to_zero();
         _sign = int_value < 0 ? true : false;
 
         int32_t big_digit_length = copy_int_to_decimal_int(
@@ -161,7 +165,7 @@ public:
         // buffer is short, sign and '\0' is the 2.
         char buffer[MAX_FLOAT_STR_LENGTH + 2];
         buffer[0] = '\0';
-        int length = my_gcvt(float_value, MY_GCVT_ARG_FLOAT, MAX_FLOAT_STR_LENGTH, buffer, NULL);
+        int length = FloatToBuffer(float_value, MAX_FLOAT_STR_LENGTH, buffer);
         DCHECK(length >= 0) << "gcvt float failed, float value=" << float_value;
         parse_from_str(buffer, length);
         return *this;
@@ -170,7 +174,7 @@ public:
     DecimalValue& assign_from_double(const double double_value) {
         char buffer[MAX_DOUBLE_STR_LENGTH + 2];
         buffer[0] = '\0';
-        int length = my_gcvt(double_value, MY_GCVT_ARG_DOUBLE, MAX_DOUBLE_STR_LENGTH, buffer, NULL);
+        int length = DoubleToBuffer(double_value, MAX_DOUBLE_STR_LENGTH, buffer);
         DCHECK(length >= 0) << "gcvt double failed, double value=" << double_value;
         parse_from_str(buffer, length);
         return *this;
@@ -312,6 +316,10 @@ public:
     // to              - decimal where where the result will be stored
     //                  to->buf and to->len must be set.
     void to_max_decimal(int precision, int frac);
+    void to_min_decimal(int precision, int frac) {
+        to_max_decimal(precision, frac);
+        _sign = -1;
+    }
 
     // The maximum of fraction part is "scale".
     // If the length of fraction part is less than "scale", '0' will be filled.
@@ -390,7 +398,7 @@ public:
     // set DecimalValue to zero
     void set_to_zero() {
         _buffer_length = DECIMAL_BUFF_LENGTH;
-        _buffer[0] = 0;
+        memset(_buffer, 0, sizeof(int32_t) * DECIMAL_BUFF_LENGTH);
         _int_length = 1;
         _frac_length = 0;
         _sign = false;
@@ -441,6 +449,9 @@ public:
     static const char* _s_llvm_class_name;
 
 private:
+
+    friend class MultiDistinctDecimalState;
+
     bool is_zero() const {
         const int32_t* buff = _buffer;
         const int32_t* end = buff + round_up(_int_length)
@@ -566,6 +577,8 @@ inline const int32_t* DecimalValue::get_first_no_zero_index(
         ++buff;
     }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
     // When the value of a "big digit" is "000099999", its 'intg' may be 5/6/7/8/9,
     // we get accurate 'intg' here and the first no zero index of buff
     if (temp_intg > 0) {
@@ -576,6 +589,7 @@ inline const int32_t* DecimalValue::get_first_no_zero_index(
     } else {
         temp_intg = 0;
     }
+#pragma GCC diagnostic pop
     *int_digit_num = temp_intg;
     return buff;
 }

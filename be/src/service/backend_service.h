@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -22,9 +19,9 @@
 #define BDG_PALO_BE_SERVICE_BACKEND_SERVICE_H
 
 #include <memory>
+#include "agent/agent_server.h"
 #include "common/status.h"
 #include "gen_cpp/BackendService.h"
-#include "agent/agent_server.h"
 #include <thrift/protocol/TDebugProtocol.h>
 
 namespace palo {
@@ -74,8 +71,6 @@ public:
     // NOTE: now we do not support multiple backend in one process
     static Status create_service(
         ExecEnv* exec_env, int port, ThriftServer** server);
-
-    static Status create_rpc_service(ExecEnv* exec_env);
 
     // Agent service
     virtual void submit_tasks(
@@ -149,6 +144,8 @@ public:
     void get_export_status(TExportStatusResult& result, const TUniqueId& task_id) override;
 
     void erase_export_task(TStatus& t_status, const TUniqueId& task_id) override;
+
+    virtual void get_tablet_stat(TTabletStatResult& result) override;
 
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);

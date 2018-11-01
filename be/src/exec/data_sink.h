@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -64,7 +61,11 @@ public:
     // Further send() calls are illegal after calling close().
     // It must be okay to call this multiple times. Subsequent calls should
     // be ignored.
-    virtual Status close(RuntimeState* state, Status exec_status) = 0;
+    virtual Status close(RuntimeState* state, Status exec_status) {
+        _expr_mem_tracker->close();
+        _closed = true;   
+        return Status::OK;
+    }
 
     // Creates a new data sink from thrift_sink. A pointer to the
     // new sink is written to *sink, and is owned by the caller.

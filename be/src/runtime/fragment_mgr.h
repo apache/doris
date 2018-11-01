@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -29,6 +26,7 @@
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "util/thread_pool.hpp"
 #include "util/hash_util.hpp"
 #include "http/rest_monitor_iface.h"
@@ -39,6 +37,8 @@ class ExecEnv;
 class FragmentExecState;
 class TExecPlanFragmentParams;
 class PlanFragmentExecutor;
+
+std::string to_load_error_http_path(const std::string& file_name);
 
 // This class used to manage all the fragment execute in this instance
 class FragmentMgr : public RestMonitorIface {
@@ -53,6 +53,9 @@ public:
 
     // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb);
+
+    Status fetch_fragment_exec_infos(PFetchFragmentExecInfosResult* result,
+                                     const PFetchFragmentExecInfoRequest* request);
 
     Status cancel(const TUniqueId& fragment_id);
 

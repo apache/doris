@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -24,6 +26,7 @@
 #include <vector>
 
 #include "olap/field.h"
+#include "olap/wrapper_field.h"
 #include "olap/file_helper.h"
 #include "olap/utils.h"
 
@@ -45,7 +48,7 @@ namespace palo {
 
 // Construct version graph(using adjacency list) from header's information.
 static OLAPStatus construct_version_graph(
-        const RepeatedPtrField<FileVersionMessage>& versions_in_header,
+        const RepeatedPtrField<PDelta>& versions_in_header,
         vector<Vertex>* version_graph,
         unordered_map<int, int>* vertex_helper_map);
 
@@ -60,7 +63,7 @@ static OLAPStatus add_version_to_graph(const Version& version,
 
 // Delete version from graph, it is called near the end of delete_version
 static OLAPStatus delete_version_from_graph(
-        const RepeatedPtrField<FileVersionMessage>& versions_in_header,
+        const RepeatedPtrField<PDelta>& versions_in_header,
         const Version& version,
         vector<Vertex>* version_graph,
         unordered_map<int, int>* vertex_helper_map);
@@ -76,38 +79,76 @@ OLAPHeader::~OLAPHeader() {
     Clear();
 }
 
-OLAPStatus OLAPHeader::load() {
+void OLAPHeader::change_file_version_to_delta() {
+    // convert FileVersionMessage to PDelta and PRowSet in initialization.
+    // FileVersionMessage is used in previous code, and PDelta and PRowSet
+    // is used in streaming load branch.
+    for (int i = 0; i < file_version_size(); ++i) {
+        PDelta* delta = add_delta();
+        _convert_file_version_to_delta(file_version(i), delta);
+    }
+
+    clear_file_version();
+}
+
+OLAPStatus OLAPHeader::init() {
+    clear_version_graph(&_version_graph, &_vertex_helper_map);
+    if (construct_version_graph(delta(),
+                                &_version_graph,
+                                &_vertex_helper_map) != OLAP_SUCCESS) {
+        OLAP_LOG_WARNING("fail to construct version graph.");
+        return OLAP_ERR_OTHER_ERROR;
+    }
+    if (_file_name == "") {
+        stringstream file_stream;
+        file_stream << tablet_id() << ".hdr";
+        _file_name = file_stream.str();
+    }
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus OLAPHeader::load_and_init() {
+    // check the tablet_path is not empty
+    if (_file_name == "") {
+        LOG(WARNING) << "file_path is empty for header";
+        return OLAP_ERR_DIR_NOT_EXIST;
+    }
+
     FileHeader<OLAPHeaderMessage> file_header;
     FileHandler file_handler;
 
     if (file_handler.open(_file_name.c_str(), O_RDONLY) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to open index file. [file='%s']", _file_name.c_str());
+        LOG(WARNING) << "fail to open index file. [file='" << _file_name << "']";
         return OLAP_ERR_IO_ERROR;
     }
 
     // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
     if (file_header.unserialize(&file_handler) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to unserialize header. [path='%s']", _file_name.c_str());
+        LOG(WARNING) << "fail to unserialize header. [path='" << _file_name << "']";
         return OLAP_ERR_PARSE_PROTOBUF_ERROR;
     }
 
     try {
         CopyFrom(file_header.message());
     } catch (...) {
-        OLAP_LOG_WARNING("fail to copy protocol buffer object. [path='%s']", _file_name.c_str());
+        LOG(WARNING) << "fail to copy protocol buffer object. [path='" << _file_name << "']";
         return OLAP_ERR_PARSE_PROTOBUF_ERROR;
     }
 
-    clear_version_graph(&_version_graph, &_vertex_helper_map);
+    if (file_version_size() != 0) {
+        // convert FileVersionMessage to PDelta and PRowSet in initialization.
+        for (int i = 0; i < file_version_size(); ++i) {
+            PDelta* delta = add_delta();
+            _convert_file_version_to_delta(file_version(i), delta);
+        }
 
-    if (construct_version_graph(file_version(),
-                                &_version_graph,
-                                &_vertex_helper_map) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to construct version graph.");
-        return OLAP_ERR_OTHER_ERROR;
+        clear_file_version();
+        OLAPStatus res = save();
+        if (res != OLAP_SUCCESS) {
+            LOG(FATAL) << "failed to remove file version in initialization";
+        }
     }
-
-    return OLAP_SUCCESS;
+    return init();
 }
 
 OLAPStatus OLAPHeader::save() {
@@ -115,75 +156,92 @@ OLAPStatus OLAPHeader::save() {
 }
 
 OLAPStatus OLAPHeader::save(const string& file_path) {
+    // check the tablet_path is not empty
+    if (file_path == "") {
+        LOG(WARNING) << "file_path is empty for header";
+        return OLAP_ERR_DIR_NOT_EXIST;
+    }
+
     FileHeader<OLAPHeaderMessage> file_header;
     FileHandler file_handler;
 
     if (file_handler.open_with_mode(file_path.c_str(),
             O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to open header file. [file='%s']", file_path.c_str());
+        LOG(WARNING) << "fail to open header file. [file='" << file_path << "']";
         return OLAP_ERR_IO_ERROR;
     }
 
     try {
         file_header.mutable_message()->CopyFrom(*this);
     } catch (...) {
-        OLAP_LOG_WARNING("fail to copy protocol buffer object. [path='%s']", file_path.c_str());
+        LOG(WARNING) << "fail to copy protocol buffer object. [path='" << file_path << "']";
         return OLAP_ERR_OTHER_ERROR;
     }
 
     if (file_header.prepare(&file_handler) != OLAP_SUCCESS
             || file_header.serialize(&file_handler) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to serialize to file header. [path='%s']", file_path.c_str());
+        LOG(WARNING) << "fail to serialize to file header. [path='" << file_path << "']";
         return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR;
     }
 
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPHeader::add_version(
-        Version version,
-        VersionHash version_hash,
-        uint32_t num_segments,
-        time_t max_timestamp,
-        int64_t index_size,
-        int64_t data_size,
-        int64_t num_rows,
-        std::vector<std::pair<Field *, Field *> > *column_statistics) {
+OLAPStatus OLAPHeader::add_version(Version version, VersionHash version_hash,
+                int32_t rowset_id, int32_t num_segments,
+                int64_t index_size, int64_t data_size, int64_t num_rows,
+                bool empty, const std::vector<KeyRange>* column_statistics) {
     // Check whether version is valid.
     if (version.first > version.second) {
-        OLAP_LOG_WARNING("the version is not valid. [version='%d,%d']",
-                         version.first,
-                         version.second);
+        LOG(WARNING) << "the version is not valid."
+                     << "version=" << version.first << "-" << version.second;
         return OLAP_ERR_HEADER_ADD_VERSION;
     }
 
-    // Check whether the version is existed.
-    for (int i = 0; i < file_version_size(); ++i) {
-        if (file_version(i).start_version() == version.first
-                && file_version(i).end_version() == version.second) {
-            OLAP_LOG_WARNING("the version is existed. [version='%d,%d']",
-                             version.first,
-                             version.second);
-            return OLAP_ERR_HEADER_ADD_VERSION;
+    int delta_id = 0;
+    for (int i = 0; i < delta_size(); ++i) {
+        if (delta(i).start_version() == version.first
+            && delta(i).end_version() == version.second) {
+            for (const PRowSet& rowset : delta(i).rowset()) {
+                if (rowset.rowset_id() == rowset_id) {
+                    LOG(WARNING) << "the version is existed."
+                        << "version=" << version.first << ", "
+                        << version.second;
+                    return OLAP_ERR_HEADER_ADD_VERSION;
+                }
+            }
+            delta_id = i;
+            break;
         }
     }
 
+    // if rowset_id is greater or equal than zero, it is used
+    // to streaming load
+
     // Try to add version to protobuf.
+    PDelta* new_delta = nullptr;
     try {
-        FileVersionMessage* new_version = add_file_version();
-        new_version->set_num_segments(num_segments);
-        new_version->set_start_version(version.first);
-        new_version->set_end_version(version.second);
-        new_version->set_version_hash(version_hash);
-        new_version->set_max_timestamp(max_timestamp);
-        new_version->set_index_size(index_size);
-        new_version->set_data_size(data_size);
-        new_version->set_num_rows(num_rows);
-        new_version->set_creation_time(time(NULL));
+        if (rowset_id == -1 || rowset_id == 0) {
+            // snapshot will use rowset_id which equals minus one
+            new_delta = add_delta();
+            new_delta->set_start_version(version.first);
+            new_delta->set_end_version(version.second);
+            new_delta->set_version_hash(version_hash);
+            new_delta->set_creation_time(time(NULL));
+        } else {
+            new_delta = const_cast<PDelta*>(&delta(delta_id));
+        }
+        PRowSet* new_rowset = new_delta->add_rowset();
+        new_rowset->set_rowset_id(rowset_id);
+        new_rowset->set_num_segments(num_segments);
+        new_rowset->set_index_size(index_size);
+        new_rowset->set_data_size(data_size);
+        new_rowset->set_num_rows(num_rows);
+        new_rowset->set_empty(empty);
         if (NULL != column_statistics) {
             for (size_t i = 0; i < column_statistics->size(); ++i) {
-                ColumnPruning *column_pruning = 
-                        new_version->mutable_delta_pruning()->add_column_pruning();
+                ColumnPruning *column_pruning =
+                    new_rowset->add_column_pruning();
                 column_pruning->set_min(column_statistics->at(i).first->to_string());
                 column_pruning->set_max(column_statistics->at(i).second->to_string());
                 column_pruning->set_null_flag(column_statistics->at(i).first->is_null());
@@ -204,24 +262,220 @@ OLAPStatus OLAPHeader::add_version(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPHeader::add_version(
-        Version version,
-        VersionHash version_hash,
-        uint32_t num_segments,
-        time_t max_timestamp,
-        int64_t index_size,
-        int64_t data_size,
-        int64_t num_rows) {
-    return add_version(version, version_hash, num_segments, 
-            max_timestamp, index_size, data_size, num_rows, NULL);
+OLAPStatus OLAPHeader::add_pending_version(
+        int64_t partition_id, int64_t transaction_id,
+        const std::vector<string>* delete_conditions) {
+    for (int i = 0; i < pending_delta_size(); ++i) {
+        if (pending_delta(i).transaction_id() == transaction_id) {
+            LOG(WARNING) << "pending delta already exists in header."
+                         << "transaction_id: " << transaction_id;
+            return OLAP_ERR_HEADER_ADD_PENDING_DELTA;
+        }
+    }
+
+    try {
+        PPendingDelta* new_pending_delta = add_pending_delta();
+        new_pending_delta->set_partition_id(partition_id);
+        new_pending_delta->set_transaction_id(transaction_id);
+        new_pending_delta->set_creation_time(time(NULL));
+
+        if (delete_conditions != nullptr) {
+            DeleteConditionMessage* del_cond = new_pending_delta->mutable_delete_condition();
+            del_cond->set_version(0);
+            for (const string& condition : *delete_conditions) {
+                del_cond->add_sub_conditions(condition);
+                OLAP_LOG_INFO("store one sub-delete condition. [condition='%s' transaction_id=%ld]",
+                              condition.c_str(), transaction_id);
+            }
+        }
+
+    } catch (...) {
+        LOG(WARNING) << "fail to add pending rowset to header protobf";
+        return OLAP_ERR_HEADER_ADD_PENDING_DELTA;
+    }
+
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus OLAPHeader::add_pending_rowset(
+        int64_t transaction_id, int32_t num_segments,
+        int32_t pending_rowset_id, const PUniqueId& load_id,
+        bool empty, const std::vector<KeyRange>* column_statistics) {
+
+    int32_t delta_id = 0;
+    for (int32_t i = 0; i < pending_delta_size(); ++i) {
+        const PPendingDelta& delta = pending_delta(i);
+        if (delta.transaction_id() == transaction_id) {
+            delta_id = i;
+            for (int j = 0; j < delta.pending_rowset_size(); ++j) {
+                const PPendingRowSet& pending_rowset = delta.pending_rowset(j);
+                if (pending_rowset.pending_rowset_id() == pending_rowset_id) {
+                    LOG(WARNING) << "pending rowset already exists in header."
+                        << "transaction_id:" << transaction_id << ", "
+                        << "pending_rowset_id: " << pending_rowset_id;
+                    return OLAP_ERR_HEADER_ADD_PENDING_DELTA;
+                }
+            }
+        }
+    }
+
+    try {
+        PPendingRowSet* new_pending_rowset
+            = const_cast<PPendingDelta&>(pending_delta(delta_id)).add_pending_rowset();
+        new_pending_rowset->set_pending_rowset_id(pending_rowset_id);
+        new_pending_rowset->set_num_segments(num_segments);
+        new_pending_rowset->mutable_load_id()->set_hi(load_id.hi());
+        new_pending_rowset->mutable_load_id()->set_lo(load_id.lo());
+        new_pending_rowset->set_empty(empty);
+        if (NULL != column_statistics) {
+            for (size_t i = 0; i < column_statistics->size(); ++i) {
+                ColumnPruning *column_pruning =
+                    new_pending_rowset->add_column_pruning();
+                column_pruning->set_min(column_statistics->at(i).first->to_string());
+                column_pruning->set_max(column_statistics->at(i).second->to_string());
+                column_pruning->set_null_flag(column_statistics->at(i).first->is_null());
+            }
+        }
+
+    } catch (...) {
+        OLAP_LOG_WARNING("fail to add pending rowset to protobf");
+        return OLAP_ERR_HEADER_ADD_PENDING_DELTA;
+    }
+
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus OLAPHeader::add_incremental_version(Version version, VersionHash version_hash,
+                int32_t rowset_id, int32_t num_segments,
+                int64_t index_size, int64_t data_size, int64_t num_rows,
+                bool empty, const std::vector<KeyRange>* column_statistics) {
+    // Check whether version is valid.
+    if (version.first != version.second) {
+        OLAP_LOG_WARNING("the incremental version is not valid. [version=%d]", version.first);
+        return OLAP_ERR_HEADER_ADD_INCREMENTAL_VERSION;
+    }
+
+    // Check whether the version is existed.
+    int32_t delta_id = 0;
+    for (int i = 0; i < incremental_delta_size(); ++i) {
+        const PDelta& incre_delta = incremental_delta(i);
+        if (incre_delta.start_version() == version.first) {
+            delta_id = i;
+            for (int j = 0; j < incre_delta.rowset_size(); ++j) {
+                const PRowSet& incremental_rowset = incre_delta.rowset(j);
+                if (incremental_rowset.rowset_id() == rowset_id) {
+                    LOG(WARNING) << "rowset already exists in header."
+                        << "version: " << version.first << "-" << version.second << ","
+                        << "rowset_id: " << rowset_id;
+                    return OLAP_ERR_HEADER_ADD_PENDING_DELTA;
+                }
+            }
+        }
+    }
+
+    // Try to add version to protobuf.
+    try {
+        PDelta* new_incremental_delta = nullptr;
+        if (rowset_id == 0) {
+            new_incremental_delta = add_incremental_delta();
+            new_incremental_delta->set_start_version(version.first);
+            new_incremental_delta->set_end_version(version.second);
+            new_incremental_delta->set_version_hash(version_hash);
+            new_incremental_delta->set_creation_time(time(NULL));
+        } else {
+            new_incremental_delta = const_cast<PDelta*>(&incremental_delta(delta_id));
+        }
+        PRowSet* new_incremental_rowset = new_incremental_delta->add_rowset();
+        new_incremental_rowset->set_rowset_id(rowset_id);
+        new_incremental_rowset->set_num_segments(num_segments);
+        new_incremental_rowset->set_index_size(index_size);
+        new_incremental_rowset->set_data_size(data_size);
+        new_incremental_rowset->set_num_rows(num_rows);
+        new_incremental_rowset->set_empty(empty);
+        if (NULL != column_statistics) {
+            for (size_t i = 0; i < column_statistics->size(); ++i) {
+                ColumnPruning *column_pruning =
+                    new_incremental_rowset->add_column_pruning();
+                column_pruning->set_min(column_statistics->at(i).first->to_string());
+                column_pruning->set_max(column_statistics->at(i).second->to_string());
+                column_pruning->set_null_flag(column_statistics->at(i).first->is_null());
+            }
+        }
+    } catch (...) {
+        OLAP_LOG_WARNING("add incremental version to protobf error");
+        return OLAP_ERR_HEADER_ADD_INCREMENTAL_VERSION;
+    }
+
+    return OLAP_SUCCESS;
+}
+
+void OLAPHeader::add_delete_condition(const DeleteConditionMessage& delete_condition,
+                                      int64_t version) {
+    // check whether condition exist
+    DeleteConditionMessage* del_cond = NULL;
+    int i = 0;
+    for (; i < delete_data_conditions_size(); i++) {
+        DeleteConditionMessage temp = delete_data_conditions().Get(i);
+        if (temp.version() == version) {
+            break;
+        }
+    }
+
+    // clear existed condition
+    if (i < delete_data_conditions_size()) {
+        del_cond = mutable_delete_data_conditions(i);
+        del_cond->clear_sub_conditions();
+    } else {
+        del_cond = add_delete_data_conditions();
+        del_cond->set_version(version);
+    }
+
+    for (const string& condition : delete_condition.sub_conditions()) {
+        del_cond->add_sub_conditions(condition);
+    }
+    OLAP_LOG_INFO("add delete condition. [version=%d]", version);
+}
+
+const PPendingDelta* OLAPHeader::get_pending_delta(int64_t transaction_id) const {
+    for (int i = 0; i < pending_delta_size(); i++) {
+        if (pending_delta(i).transaction_id() == transaction_id) {
+            return &pending_delta(i);
+        }
+    }
+    return nullptr;
+}
+
+const PPendingRowSet* OLAPHeader::get_pending_rowset(int64_t transaction_id, int32_t pending_rowset_id) const {
+    for (int i = 0; i < pending_delta_size(); i++) {
+        if (pending_delta(i).transaction_id() == transaction_id) {
+            const PPendingDelta& delta = pending_delta(i);
+            for (int j = 0; j < delta.pending_rowset_size(); ++j) {
+                const PPendingRowSet& pending_rowset = delta.pending_rowset(j);
+                if (pending_rowset.pending_rowset_id() == pending_rowset_id) {
+                    return &pending_rowset;
+                }
+            }
+        }
+    }
+    return nullptr;
+}
+
+const PDelta* OLAPHeader::get_incremental_version(Version version) const {
+    for (int i = 0; i < incremental_delta_size(); i++) {
+        if (incremental_delta(i).start_version() == version.first
+            && incremental_delta(i).end_version() == version.second) {
+            return &incremental_delta(i);
+        }
+    }
+    return nullptr;
 }
 
 OLAPStatus OLAPHeader::delete_version(Version version) {
     // Find the version that need to be deleted.
     int index = -1;
-    for (int i = 0; i < file_version_size(); ++i) {
-        if (file_version(i).start_version() == version.first
-                && file_version(i).end_version() == version.second) {
+    for (int i = 0; i < delta_size(); ++i) {
+        if (delta(i).start_version() == version.first
+                && delta(i).end_version() == version.second) {
             index = i;
             break;
         }
@@ -229,8 +483,8 @@ OLAPStatus OLAPHeader::delete_version(Version version) {
 
     // Delete version from protobuf.
     if (index != -1) {
-        RepeatedPtrField<FileVersionMessage >* version_ptr = mutable_file_version();
-        for (int i = index; i < file_version_size() - 1; ++i) {
+        RepeatedPtrField<PDelta>* version_ptr = mutable_delta();
+        for (int i = index; i < delta_size() - 1; ++i) {
             version_ptr->SwapElements(i, i + 1);
         }
 
@@ -238,8 +492,7 @@ OLAPStatus OLAPHeader::delete_version(Version version) {
     }
 
     // Atomic delete is not supported now.
-    if (delete_version_from_graph(file_version(),
-                                  version,
+    if (delete_version_from_graph(delta(), version,
                                   &_version_graph,
                                   &_vertex_helper_map) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to delete version from graph. [version='%d-%d']",
@@ -253,19 +506,60 @@ OLAPStatus OLAPHeader::delete_version(Version version) {
 
 OLAPStatus OLAPHeader::delete_all_versions() {
     clear_file_version();
+    clear_delta();
+    clear_pending_delta();
+    clear_incremental_delta();
     clear_version_graph(&_version_graph, &_vertex_helper_map);
 
-    if (construct_version_graph(file_version(),
+    if (construct_version_graph(delta(),
                                 &_version_graph,
                                 &_vertex_helper_map) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to construct version graph.");
         return OLAP_ERR_OTHER_ERROR;
     }
-
     return OLAP_SUCCESS;
 }
 
-// This function is called when base-expansion, cumulative-expansion, quering.
+void OLAPHeader::delete_pending_delta(int64_t transaction_id) {
+    int index = -1;
+    for (int i = 0; i < pending_delta_size(); ++i) {
+        if (pending_delta(i).transaction_id() == transaction_id) {
+            index = i;
+            break;
+        }
+    }
+
+    if (index != -1) {
+        RepeatedPtrField<PPendingDelta>* pending_delta_ptr = mutable_pending_delta();
+        for (int i = index; i < pending_delta_size() - 1; ++i) {
+            pending_delta_ptr->SwapElements(i, i + 1);
+        }
+
+        pending_delta_ptr->RemoveLast();
+    }
+}
+
+void OLAPHeader::delete_incremental_delta(Version version) {
+    int index = -1;
+    for (int i = 0; i < incremental_delta_size(); ++i) {
+        if (incremental_delta(i).start_version() == version.first
+             && incremental_delta(i).end_version() == version.second) {
+            index = i;
+            break;
+        }
+    }
+
+    if (index != -1) {
+        RepeatedPtrField<PDelta>* version_ptr = mutable_incremental_delta();
+        for (int i = index; i < incremental_delta_size() - 1; ++i) {
+            version_ptr->SwapElements(i, i + 1);
+        }
+
+        version_ptr->RemoveLast();
+    }
+}
+
+// This function is called when base-compaction, cumulative-compaction, quering.
 // we use BFS algorithm to get the shortest version path.
 OLAPStatus OLAPHeader::select_versions_to_span(const Version& target_version,
                                            vector<Version>* span_versions) {
@@ -399,71 +693,125 @@ OLAPStatus OLAPHeader::select_versions_to_span(const Version& target_version,
     return OLAP_SUCCESS;
 }
 
-const FileVersionMessage* OLAPHeader::get_lastest_delta_version() const {
-    if (file_version_size() == 0) {
-        return NULL;
+const PDelta* OLAPHeader::get_lastest_delta_version() const {
+    if (delta_size() == 0) {
+        return nullptr;
     }
 
-    const FileVersionMessage* max_version = NULL;
-    for (int i = file_version_size() - 1; i >= 0; --i) {
-        if (file_version(i).start_version() == file_version(i).end_version()) {
-            if (max_version == NULL) {
-                max_version = &file_version(i);
-            } else if (file_version(i).start_version() > max_version->start_version()) {
-                max_version = &file_version(i);
+    const PDelta* max_delta = nullptr;
+    for (int i = delta_size() - 1; i >= 0; --i) {
+        if (delta(i).start_version() == delta(i).end_version()) {
+            if (max_delta == nullptr) {
+                max_delta = &delta(i);
+            } else if (delta(i).start_version() > max_delta->start_version()) {
+                max_delta = &delta(i);
             }
         }
     }
-
-    return max_version;
+    if (max_delta != nullptr) {
+        LOG(INFO) << "max_delta:" << max_delta->start_version() << ","
+            << max_delta->end_version();
+    }
+    return max_delta;
 }
 
-const FileVersionMessage* OLAPHeader::get_latest_version() const {
-    if (file_version_size() == 0) {
-        return NULL;
+const PDelta* OLAPHeader::get_lastest_version() const {
+    if (delta_size() == 0) {
+        return nullptr;
     }
 
-    const FileVersionMessage* max_version = NULL;
-    for (int i = file_version_size() - 1; i >= 0; --i) {
-        if (max_version == NULL) {
-            max_version = &file_version(i);
-        } else if (file_version(i).end_version() > max_version->end_version()) {
-            max_version = &file_version(i);
-        } else if (file_version(i).end_version() == max_version->end_version()
-                       && file_version(i).start_version() == file_version(i).end_version()) {
-            max_version = &file_version(i);
+    const PDelta* max_delta = nullptr;
+    for (int i = delta_size() - 1; i >= 0; --i) {
+        if (max_delta == nullptr) {
+            max_delta = &delta(i);
+        } else if (delta(i).end_version() > max_delta->end_version()) {
+            max_delta = &delta(i);
+        } else if (delta(i).end_version() == max_delta->end_version()
+                   && delta(i).start_version() == delta(i).end_version()) {
+            max_delta = &delta(i);
         }
     }
-
-    return max_version;
+    return max_delta;
 }
 
-const uint32_t OLAPHeader::get_expansion_nice_estimate() const{
-    uint32_t nice = 0;
+Version OLAPHeader::get_latest_version() const {
+    auto delta = get_lastest_version();
+    return {delta->start_version(), delta->end_version()};
+}
+
+const PDelta* OLAPHeader::get_delta(int index) const {
+    if (delta_size() == 0) {
+        return nullptr;
+    }
+
+    return &delta(index);
+}
+
+void OLAPHeader::_convert_file_version_to_delta(const FileVersionMessage& version,
+                                                PDelta* delta) {
+    delta->set_start_version(version.start_version());
+    delta->set_end_version(version.end_version());
+    delta->set_version_hash(version.version_hash());
+    delta->set_creation_time(version.creation_time());
+
+    PRowSet* rowset = delta->add_rowset();
+    rowset->set_rowset_id(-1);
+    rowset->set_num_segments(version.num_segments());
+    rowset->set_index_size(version.index_size());
+    rowset->set_data_size(version.data_size());
+    rowset->set_num_rows(version.num_rows());
+    if (version.has_delta_pruning()) {
+        for (int i = 0; i < version.delta_pruning().column_pruning_size(); ++i) {
+            ColumnPruning* column_pruning = rowset->add_column_pruning();
+            *column_pruning = version.delta_pruning().column_pruning(i);
+        }
+    }
+}
+
+const uint32_t OLAPHeader::get_cumulative_compaction_score() const{
+    uint32_t score = 0;
     bool base_version_exists = false;
     const int32_t point = cumulative_layer_point();
-    for (int i = file_version_size() - 1; i >= 0; --i) {
-        if (file_version(i).start_version() >= point) {
-            nice++;
+    for (int i = delta_size() - 1; i >= 0; --i) {
+        if (delta(i).start_version() >= point) {
+            score++;
         }
-        if (file_version(i).start_version() == 0) {
+        if (delta(i).start_version() == 0) {
             base_version_exists = true;
         }
     }
-    nice = nice < config::ce_policy_delta_files_number ? 0 : nice;
+    score = score < config::cumulative_compaction_num_singleton_deltas ? 0 : score;
 
-    // base不存在可能是tablet正在做alter table，先不选它，设nice=0
-    return base_version_exists ? nice : 0;
+    // base不存在可能是tablet正在做alter table，先不选它，设score=0
+    return base_version_exists ? score : 0;
+}
+
+const uint32_t OLAPHeader::get_base_compaction_score() const{
+    uint32_t score = 0;
+    const int32_t point = cumulative_layer_point();
+    bool base_version_exists = false;
+    for (int i = delta_size() - 1; i >= 0; --i) {
+        if (delta(i).end_version() < point) {
+            score++;
+        }
+        if (delta(i).start_version() == 0) {
+            base_version_exists = true;
+        }
+    }
+    score = score < config::base_compaction_num_cumulative_deltas ? 0 : score;
+
+    // base不存在可能是tablet正在做alter table，先不选它，设score=0
+    return base_version_exists ? score : 0;
 }
 
 const OLAPStatus OLAPHeader::version_creation_time(const Version& version,
                                                    int64_t* creation_time) const {
-    if (0 == file_version_size()) {
+    if (delta_size() == 0) {
         return OLAP_ERR_VERSION_NOT_EXIST;
     }
 
-    for (int i = file_version_size() - 1; i >= 0; --i) {
-        const FileVersionMessage& temp = file_version(i);
+    for (int i = delta_size() - 1; i >= 0; --i) {
+        const PDelta& temp = delta(i);
         if (temp.start_version() == version.first && temp.end_version() == version.second) {
             *creation_time = temp.creation_time();
             return OLAP_SUCCESS;
@@ -483,7 +831,7 @@ const OLAPStatus OLAPHeader::version_creation_time(const Version& version,
 
 // Construct version graph(using adjacency list) from header's information.
 static OLAPStatus construct_version_graph(
-        const RepeatedPtrField<FileVersionMessage>& versions_in_header,
+        const RepeatedPtrField<PDelta>& versions_in_header,
         vector<Vertex>* version_graph,
         unordered_map<int, int>* vertex_helper_map) {
     if (versions_in_header.size() == 0) {
@@ -558,7 +906,7 @@ static OLAPStatus clear_version_graph(vector<Vertex>* version_graph,
         SAFE_DELETE(it->edges);
     }
     version_graph->clear();
-    
+
     return OLAP_SUCCESS;
 }
 
@@ -600,7 +948,7 @@ static OLAPStatus add_version_to_graph(const Version& version,
 
 // Delete version from graph, it is called near the end of delete_version
 static OLAPStatus delete_version_from_graph(
-        const RepeatedPtrField<FileVersionMessage>& versions_in_header,
+        const RepeatedPtrField<PDelta>& versions_in_header,
         const Version& version,
         vector<Vertex>* version_graph,
         unordered_map<int, int>* vertex_helper_map) {
@@ -696,6 +1044,20 @@ static OLAPStatus add_vertex_to_graph(int vertex_value,
     version_graph->push_back(vertex);
     (*vertex_helper_map)[vertex_value] = version_graph->size() - 1;
     return OLAP_SUCCESS;
+}
+
+const PDelta* OLAPHeader::get_base_version() const {
+    if (delta_size() == 0) {
+        return nullptr;
+    }
+
+    for (int i = 0; i < delta_size(); ++i) {
+        if (delta(i).start_version() == 0) {
+            return &delta(i);
+        }
+    }
+
+    return nullptr;
 }
 
 }  // namespace palo

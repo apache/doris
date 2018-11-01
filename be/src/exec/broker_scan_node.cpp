@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -50,7 +52,7 @@ static bool compare_part_use_range(const PartitionInfo* v1, const PartitionInfo*
     return v1->range() < v2->range();
 }
 
-Status BrokerScanNode::init(const TPlanNode& tnode) {
+Status BrokerScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ScanNode::init(tnode));
     auto& broker_scan_node = tnode.broker_scan_node;
     if (broker_scan_node.__isset.partition_exprs) {
@@ -311,7 +313,7 @@ Status BrokerScanNode::scanner_scan(
             TupleRow* row = row_batch->get_row(row_idx);
             // scan node is the first tuple of tuple row
             row->set_tuple(0, tuple);
-            memset(tuple, 0, sizeof(_tuple_desc->num_null_bytes()));
+            memset(tuple, 0, _tuple_desc->num_null_bytes());
 
             // Get from scanner
             RETURN_IF_ERROR(scanner->get_next(tuple, tuple_pool, &scanner_eof));

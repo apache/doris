@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -341,7 +343,7 @@ namespace palo {
             size_t _capacity;
 
             // _mutex protects the following state.
-            MutexLock _mutex;
+            Mutex _mutex;
             size_t _usage;
             uint64_t _last_id;
 
@@ -387,7 +389,7 @@ namespace palo {
             static uint32_t _shard(uint32_t hash);
 
             LRUCache _shards[kNumShards];
-            MutexLock _id_mutex;
+            Mutex _id_mutex;
             uint64_t _last_id;
     };
 

@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -17,14 +19,14 @@
 #define BDG_PALO_BE_SRC_OLAP_MOCK_MOCK_COMMAND_EXECUTOR_H
 
 #include "gmock/gmock.h"
-#include "olap/command_executor.h"
+#include "olap/olap_engine.h"
 
 namespace palo {
 
-class MockCommandExecutor : public CommandExecutor {
+class MockCommandExecutor : public OLAPEngine {
 public:
     MOCK_METHOD1(create_table, OLAPStatus(const TCreateTabletReq& request));
-    MOCK_METHOD2(get_table, SmartOLAPTable(TTabletId tablet_id, TSchemaHash schema_hash));
+    MOCK_METHOD2(get_table, OLAPTablePtr(TTabletId tablet_id, TSchemaHash schema_hash));
     MOCK_METHOD1(drop_table, OLAPStatus(const TDropTabletReq& request));
     MOCK_METHOD2(
             push,
@@ -64,7 +66,7 @@ public:
             OLAPStatus(const TPushReq& request, std::vector<TTabletInfo>* tablet_info_vec));
     MOCK_METHOD1(cancel_delete, OLAPStatus(const TCancelDeleteDataReq& request));
     MOCK_METHOD3(
-            base_expansion,
+            base_compaction,
             OLAPStatus(TTabletId tablet_id, TSchemaHash schema_hash, TVersion version));
     MOCK_METHOD4(
             update_header,
@@ -84,8 +86,25 @@ public:
     MOCK_METHOD1(reload_root_path, OLAPStatus(const std::string& root_paths));
     MOCK_METHOD2(check_table_exist, bool(TTabletId tablet_id, TSchemaHash schema_hash));
     MOCK_METHOD1(
-            get_all_root_path_stat,
-            OLAPStatus(std::vector<OLAPRootPathStat>* root_paths_stat));
+            get_all_root_path_info,
+            OLAPStatus(std::vector<RootPathInfo>* root_paths_info));
+    MOCK_METHOD2(
+            publish_version,
+            OLAPStatus(const TPublishVersionRequest& request,
+                       std::vector<TTabletId>* error_tablet_ids));
+    MOCK_METHOD3(
+            get_info_before_incremental_clone,
+            std::string(
+                    OLAPTablePtr tablet,
+                    int64_t committed_version,
+                    std::vector<Version>* missing_versions));
+    MOCK_METHOD4(
+            finish_clone,
+            OLAPStatus(
+                    OLAPTablePtr tablet,
+                    const std::string& clone_dir,
+                    int64_t committed_version,
+                    bool is_incremental_clone));
 };
 
 }  // namespace palo

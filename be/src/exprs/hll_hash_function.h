@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -42,6 +39,9 @@ public:
                                      const palo_udf::StringVal& dest_base);
     static StringVal create_string_result(palo_udf::FunctionContext* ctx, 
                                           const StringVal& str, const bool is_null);
+
+    static const int HLL_INIT_EXPLICT_SET_SIZE;
+    static const int HLL_EMPTY_SET_SIZE;
 };
 }
 

@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -28,9 +25,10 @@
 #include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
-#include "runtime/mem_tracker.h"
+#include "runtime/mem_pool.h"
 #include "util/runtime_profile.h"
 #include "util/blocking_queue.hpp"
+#include "runtime/bufferpool/buffer_pool.h"
 
 namespace llvm {
 class Function;
@@ -70,7 +68,7 @@ public:
     /// Initializes this object from the thrift tnode desc. The subclass should
     /// do any initialization that can fail in Init() rather than the ctor.
     /// If overridden in subclass, must first call superclass's Init().
-    virtual Status init(const TPlanNode& tnode);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
 
     // Sets up internal structures, etc., without doing any actual work.
     // Must be called prior to open(). Will only be called once in this
@@ -101,6 +99,21 @@ public:
     // TODO: AggregationNode and HashJoinNode cannot be "re-opened" yet.
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) = 0;
 
+    // Resets the stream of row batches to be retrieved by subsequent GetNext() calls.
+    // Clears all internal state, returning this node to the state it was in after calling
+    // Prepare() and before calling Open(). This function must not clear memory
+    // still owned by this node that is backing rows returned in GetNext().
+    // Prepare() and Open() must have already been called before calling Reset().
+    // GetNext() may have optionally been called (not necessarily until eos).
+    // Close() must not have been called.
+    // Reset() is not idempotent. Calling it multiple times in a row without a preceding
+    // call to Open() is invalid.
+    // If overridden in a subclass, must call superclass's Reset() at the end. The default
+    // implementation calls Reset() on children.
+    // Note that this function may be called many times (proportional to the input data),
+    // so should be fast.
+    virtual Status reset(RuntimeState* state);
+
     // close() will get called for every exec node, regardless of what else is called and
     // the status of these calls (i.e. prepare() may never have been called, or
     // prepare()/open()/get_next() returned with an error).
@@ -124,7 +137,7 @@ public:
     // Creates exec node tree from list of nodes contained in plan via depth-first
     // traversal. All nodes are placed in pool.
     // Returns error if 'plan' is corrupted, otherwise success.
-    static Status create_tree(ObjectPool* pool, const TPlan& plan,
+    static Status create_tree(RuntimeState* state, ObjectPool* pool, const TPlan& plan,
                              const DescriptorTbl& descs, ExecNode** root);
 
     // Set debug action for node with given id in 'tree'
@@ -198,6 +211,10 @@ public:
         return _expr_mem_tracker.get();
     }
 
+    MemPool* expr_mem_pool() { 
+        return _expr_mem_pool.get(); 
+    }
+
     // Extract node id from p->name().
     static int get_node_id_from_profile(RuntimeProfile* p);
 
@@ -206,6 +223,25 @@ public:
 
 protected:
     friend class DataSink;
+
+    /// Initialize 'buffer_pool_client_' and claim the initial reservation for this
+    /// ExecNode. Only needs to be called by ExecNodes that will use the client.
+    /// The client is automatically cleaned up in Close(). Should not be called if
+    /// the client is already open.
+    /// The ExecNode must return the initial reservation to
+    /// QueryState::initial_reservations(), which is done automatically in Close() as long
+    /// as the initial reservation is not released before Close().
+    Status claim_buffer_reservation(RuntimeState* state);
+
+    /// Release any unused reservation in excess of the node's initial reservation. Returns
+    /// an error if releasing the reservation requires flushing pages to disk, and that
+    /// fails.
+    Status release_unused_reservation();
+
+    /// Enable the increase reservation denial probability on 'buffer_pool_client_' based on
+    /// the 'debug_action_' set on this node. Returns an error if 'debug_action_param_' is
+    /// invalid.
+    //Status enable_deny_reservation_debug_action();
 
     /// Extends blocking queue for row batches. Row batches have a property that
     /// they must be processed in the order they were produced, even in cancellation
@@ -261,6 +297,9 @@ protected:
     std::vector<ExecNode*> _children;
     RowDescriptor _row_descriptor;
 
+    /// Resource information sent from the frontend.
+    const TBackendResourceProfile _resource_profile;
+
     // debug-only: if _debug_action is not INVALID, node will perform action in
     // _debug_phase
     TExecNodePhase::type _debug_phase;
@@ -270,8 +309,17 @@ protected:
     int64_t _num_rows_returned;
 
     boost::scoped_ptr<RuntimeProfile> _runtime_profile;
+   
+    /// Account for peak memory used by this node
     boost::scoped_ptr<MemTracker> _mem_tracker;
+   
+    /// MemTracker used by 'expr_mem_pool_'.
     boost::scoped_ptr<MemTracker> _expr_mem_tracker;
+
+    /// MemPool for allocating data structures used by expression evaluators in this node.
+    /// Created in Prepare().
+    boost::scoped_ptr<MemPool> _expr_mem_pool;
+
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _rows_returned_rate;
     // Account for peak memory used by this node
@@ -282,6 +330,12 @@ protected:
     // "Codegen Enabled"
     boost::mutex _exec_options_lock;
     std::string _runtime_exec_options;
+   
+    /// Buffer pool client for this node. Initialized with the node's minimum reservation
+    /// in ClaimBufferReservation(). After initialization, the client must hold onto at
+    /// least the minimum reservation so that it can be returned to the initial
+    /// reservations pool in Close().
+    BufferPool::ClientHandle _buffer_pool_client;
 
     ExecNode* child(int i) {
         return _children[i];
@@ -301,10 +355,10 @@ protected:
     bool is_in_subplan() const { return false; }
 
     // Create a single exec node derived from thrift node; place exec node in 'pool'.
-    static Status create_node(ObjectPool* pool, const TPlanNode& tnode,
+    static Status create_node(RuntimeState* state, ObjectPool* pool, const TPlanNode& tnode,
                              const DescriptorTbl& descs, ExecNode** node);
 
-    static Status create_tree_helper(ObjectPool* pool, const std::vector<TPlanNode>& tnodes,
+    static Status create_tree_helper(RuntimeState* state, ObjectPool* pool, const std::vector<TPlanNode>& tnodes,
                                    const DescriptorTbl& descs, ExecNode* parent, int* node_idx, ExecNode** root);
 
     virtual bool is_scan_node() const {
@@ -319,6 +373,16 @@ protected:
 
     // Appends option to '_runtime_exec_options'
     void add_runtime_exec_option(const std::string& option);
+
+    /// Frees any local allocations made by evals_to_free_ and returns the result of
+    /// state->CheckQueryState(). Nodes should call this periodically, e.g. once per input
+    /// row batch. This should not be called outside the main execution thread.
+    //
+    /// Nodes may override this to add extra periodic cleanup, e.g. freeing other local
+    /// allocations. ExecNodes overriding this function should return
+    /// ExecNode::QueryMaintenance().
+    virtual Status QueryMaintenance(RuntimeState* state) WARN_UNUSED_RESULT;
+
 private:
     bool _is_closed;
 };

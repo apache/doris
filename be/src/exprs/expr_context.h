@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -61,6 +58,9 @@ public:
     /// Idempotent (this allows exprs to be opened multiple times in subplans without
     /// reinitializing function state).
     Status open(RuntimeState* state);
+
+    //TODO chenhao
+    static Status open(std::vector<ExprContext*> input_evals, RuntimeState* state);
 
     /// Creates a copy of this ExprContext. Open() must be called first. The copy contains
     /// clones of each FunctionContext, which share the fragment-local state of the
@@ -150,6 +150,24 @@ public:
     static void free_local_allocations(const std::vector<FunctionContext*>& ctxs);
 
     static const char* _s_llvm_class_name;
+
+    bool opened() {
+       return _opened; 
+    }
+
+    /// If 'expr' is constant, evaluates it with no input row argument and returns the
+    /// result in 'const_val'. Sets 'const_val' to NULL if the argument is not constant.
+    /// The returned AnyVal and associated varlen data is owned by this evaluator. This
+    /// should only be called after Open() has been called on this expr. Returns an error
+    /// if there was an error evaluating the expression or if memory could not be allocated
+    /// for the expression result.
+    Status get_const_value(RuntimeState* state, Expr& expr, AnyVal** const_val);
+
+    /// Returns an error status if there was any error in evaluating the expression
+    /// or its sub-expressions. 'start_idx' and 'end_idx' correspond to the range
+    /// within the vector of FunctionContext for the sub-expressions of interest.
+    /// The default parameters correspond to the entire expr 'root_'.
+    Status get_error(int start_idx, int end_idx) const;
 
 private:
     friend class Expr;

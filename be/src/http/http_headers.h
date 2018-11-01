@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -15,6 +17,8 @@
 
 #ifndef BDG_PALO_BE_SRC_COMMON_UTIL_HTTP_HEADERS_H
 #define BDG_PALO_BE_SRC_COMMON_UTIL_HTTP_HEADERS_H
+
+#include <string>
 
 namespace palo {
 
@@ -93,6 +97,8 @@ public:
     static const char* WEBSOCKET_ORIGIN;
     static const char* WEBSOCKET_PROTOCOL;
     static const char* WWW_AUTHENTICATE;
+
+    static const std::string JsonType;
 };
 
 }

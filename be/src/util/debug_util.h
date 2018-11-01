@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -40,11 +37,13 @@ class TupleDescriptor;
 class Tuple;
 class TupleRow;
 class RowBatch;
+class PUniqueId;
 
 std::string print_tuple(const Tuple* t, const TupleDescriptor& d);
 std::string print_row(TupleRow* row, const RowDescriptor& d);
 std::string print_batch(RowBatch* batch);
 std::string print_id(const TUniqueId& id);
+std::string print_id(const PUniqueId& id);
 std::string print_plan_node_type(const TPlanNodeType::type& type);
 std::string print_tstmt_type(const TStmtType::type& type);
 std::string print_query_state(const QueryState::type& type);
@@ -68,6 +67,8 @@ std::string get_version_string(bool compact);
 // Note: there is a libc bug that causes this not to work on 64 bit machines
 // for recursive calls.
 std::string get_stack_trace();
+
+std::string hexdump(const char* buf, int len);
 
 }
 

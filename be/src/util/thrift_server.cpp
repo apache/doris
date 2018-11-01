@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -33,21 +30,23 @@
 #include <thrift/server/TThreadPoolServer.h>
 #include <thrift/server/TThreadedServer.h>
 #include <thrift/transport/TSocket.h>
-#include <thrift/server/TThreadPoolServer.h>
 #include <thrift/transport/TServerSocket.h>
 
 namespace palo {
 
-
 // Helper class that starts a server in a separate thread, and handles
 // the inter-thread communication to monitor whether it started
 // correctly.
-class ThriftServer::ThriftServerEventProcessor 
+class ThriftServer::ThriftServerEventProcessor
         : public apache::thrift::server::TServerEventHandler {
 public:
-    ThriftServerEventProcessor(ThriftServer* thrift_server) : 
+    ThriftServerEventProcessor(ThriftServer* thrift_server) :
             _thrift_server(thrift_server),
-            _signal_fired(false) { 
+            _signal_fired(false) {
+    }
+
+    // friendly to code style
+    virtual ~ThriftServerEventProcessor() {
     }
 
     // Called by TNonBlockingServer when server has acquired its resources and is ready to
@@ -103,7 +102,7 @@ Status ThriftServer::ThriftServerEventProcessor::start_and_wait_for_server() {
     _thrift_server->_server_thread.reset(
         new boost::thread(&ThriftServer::ThriftServerEventProcessor::supervise, this));
 
-    boost::system_time deadline = boost::get_system_time() 
+    boost::system_time deadline = boost::get_system_time()
             + boost::posix_time::milliseconds(TIMEOUT_MS);
 
     // Loop protects against spurious wakeup. Locks provide necessary fences to ensure
@@ -223,8 +222,8 @@ void* ThriftServer::ThriftServerEventProcessor::createContext(
     }
 
     if (_thrift_server->_metrics_enabled) {
-        _thrift_server->_num_current_connections_metric->increment(1L);
-        _thrift_server->_total_connections_metric->increment(1L);
+        _thrift_server->_connections_total->increment(1L);
+        _thrift_server->_current_connections->increment(1L);
     }
 
     // Store the _session_key in the per-client context to avoid recomputing
@@ -255,7 +254,7 @@ void ThriftServer::ThriftServerEventProcessor::deleteContext(
     }
 
     if (_thrift_server->_metrics_enabled) {
-        _thrift_server->_num_current_connections_metric->increment(-1L);
+        _thrift_server->_current_connections->increment(-1L);
     }
 }
 
@@ -263,9 +262,9 @@ ThriftServer::ThriftServer(
         const std::string& name,
         const boost::shared_ptr<apache::thrift::TProcessor>& processor,
         int port,
-        MetricGroup* metrics,
+        MetricRegistry* metrics,
         int num_worker_threads,
-        ServerType server_type) : 
+        ServerType server_type) :
             _started(false),
             _port(port),
             _num_worker_threads(num_worker_threads),
@@ -277,13 +276,15 @@ ThriftServer::ThriftServer(
             _session_handler(NULL) {
     if (metrics != NULL) {
         _metrics_enabled = true;
-        std::stringstream count_ss;
-        count_ss << "palo_be.thrift_server." << name << ".connections_in_use";
-        _num_current_connections_metric =
-            metrics->AddGauge(count_ss.str(), 0L);
-        std::stringstream max_ss;
-        max_ss << "palo_be.thrift_server." << name << ".total_connections";
-        _total_connections_metric = metrics->AddCounter(max_ss.str(), 0L);
+        _current_connections.reset(new IntGauge());
+        metrics->register_metric("thrift_current_connections", 
+                                 MetricLabels().add("name", name),
+                                 _current_connections.get());
+
+        _connections_total.reset(new IntCounter());
+        metrics->register_metric("thrift_connections_total",
+                                 MetricLabels().add("name", name),
+                                 _connections_total.get());
     } else {
         _metrics_enabled = false;
     }
@@ -291,10 +292,10 @@ ThriftServer::ThriftServer(
 
 Status ThriftServer::start() {
     DCHECK(!_started);
-    boost::shared_ptr<apache::thrift::protocol::TProtocolFactory> 
+    boost::shared_ptr<apache::thrift::protocol::TProtocolFactory>
             protocol_factory(new apache::thrift::protocol::TBinaryProtocolFactory());
     boost::shared_ptr<apache::thrift::concurrency::ThreadManager> thread_mgr;
-    boost::shared_ptr<apache::thrift::concurrency::ThreadFactory> 
+    boost::shared_ptr<apache::thrift::concurrency::ThreadFactory>
             thread_factory(new apache::thrift::concurrency::PosixThreadFactory());
     boost::shared_ptr<apache::thrift::transport::TServerTransport> fe_server_transport;
     boost::shared_ptr<apache::thrift::transport::TTransportFactory> transport_factory;
@@ -364,6 +365,10 @@ Status ThriftServer::start() {
 
     DCHECK(_started);
     return Status::OK;
+}
+
+void ThriftServer::stop() {
+    _server->stop();
 }
 
 void ThriftServer::join() {

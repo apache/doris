@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -25,10 +22,11 @@
 #include <vector>
 
 #include "gen_cpp/Types_types.h"  // for TPrimitiveType
+#include "gen_cpp/types.pb.h" // for PTypeDesc
 #include "runtime/primitive_type.h"
 #include "thrift/protocol/TDebugProtocol.h"
 #include "common/config.h"
-#include "olap/field.h"
+#include "olap/hll.h"
 
 namespace llvm {
 class ConstantStruct;
@@ -129,6 +127,13 @@ struct TypeDescriptor {
         return result;
     }
 
+    static TypeDescriptor from_protobuf(const PTypeDesc& ptype) {
+        int idx = 0;
+        TypeDescriptor result(ptype.types(), &idx);
+        DCHECK_EQ(idx, ptype.types_size() - 1);
+        return result;
+    }
+
     bool operator==(const TypeDescriptor& o) const {
         if (type != o.type) {
             return false;
@@ -155,6 +160,8 @@ struct TypeDescriptor {
         return thrift_type;
     }
 
+    void to_protobuf(PTypeDesc* ptype) const;
+
     inline bool is_string_type() const {
         return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL;
     }
@@ -168,8 +175,7 @@ struct TypeDescriptor {
     }
 
     inline bool is_var_len_string_type() const {
-        return type == TYPE_VARCHAR || type == TYPE_HLL
-            || (type == TYPE_CHAR && len > MAX_CHAR_INLINE_LENGTH);
+        return type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_CHAR;
     }
 
     inline bool is_complex_type() const {
@@ -287,6 +293,7 @@ private:
     /// 'types' being constructed, and is set to the index of the next type in 'types' that
     /// needs to be processed (or the size 'types' if all nodes have been processed).
     TypeDescriptor(const std::vector<TTypeNode>& types, int* idx);
+    TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNode>& types, int* idx);
 
     /// Recursive implementation of ToThrift() that populates 'thrift_type' with the
     /// TTypeNodes for this type and its children.

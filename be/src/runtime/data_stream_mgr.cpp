@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -31,9 +28,7 @@
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 
-#include "rpc/comm.h"
-#include "rpc/comm_buf.h"
-
+#include "gen_cpp/types.pb.h" // PUniqueId
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/PaloInternalService_types.h"
 
@@ -99,13 +94,16 @@ shared_ptr<DataStreamRecvr> DataStreamMgr::find_recvr(
 }
 
 Status DataStreamMgr::add_data(
-        const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-        const TRowBatch& thrift_batch, int sender_id, bool* buffer_overflow,
-        std::pair<InetAddr, CommBufPtr> response) {
-    VLOG_ROW << "add_data(): fragment_instance_id=" << fragment_instance_id
-            << " node=" << dest_node_id
-            << " size=" << RowBatch::get_batch_size(thrift_batch);
-    shared_ptr<DataStreamRecvr> recvr = find_recvr(fragment_instance_id, dest_node_id);
+        const PUniqueId& finst_id, int32_t node_id,
+        const PRowBatch& pb_batch, int32_t sender_id,
+        int be_number, int64_t packet_seq,
+        ::google::protobuf::Closure** done) {
+    VLOG_ROW << "add_data(): finst_id=" << print_id(finst_id)
+            << " node=" << node_id;
+    TUniqueId t_finst_id;
+    t_finst_id.hi = finst_id.hi();
+    t_finst_id.lo = finst_id.lo();
+    shared_ptr<DataStreamRecvr> recvr = find_recvr(t_finst_id, node_id);
     if (recvr == NULL) {
         // The receiver may remove itself from the receiver map via deregister_recvr()
         // at any time without considering the remaining number of senders.
@@ -116,7 +114,7 @@ Status DataStreamMgr::add_data(
         // errors from receiver-initiated teardowns.
         return Status::OK;
     }
-    recvr->add_batch(thrift_batch, sender_id, buffer_overflow, response);
+    recvr->add_batch(pb_batch, sender_id, be_number, packet_seq, done);
     return Status::OK;
 }
 

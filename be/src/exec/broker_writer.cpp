@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -23,18 +25,17 @@
 #include "runtime/broker_mgr.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
-#include "runtime/runtime_state.h"
 #include "util/thrift_util.h"
 
 namespace palo {
 
 BrokerWriter::BrokerWriter(
-        RuntimeState* state,
+        ExecEnv* env,
         const std::vector<TNetworkAddress>& broker_addresses,
         const std::map<std::string, std::string>& properties,
         const std::string& path,
         int64_t start_offset) :
-            _state(state),
+            _env(env),
             _addresses(broker_addresses),
             _properties(properties),
             _path(path),
@@ -48,22 +49,22 @@ BrokerWriter::~BrokerWriter() {
 }
 
 #ifdef BE_TEST
-inline BrokerServiceClientCache* client_cache(RuntimeState* state) {
+inline BrokerServiceClientCache* client_cache(ExecEnv* env) {
     static BrokerServiceClientCache s_client_cache;
     return &s_client_cache;
 }
 
-inline const std::string& client_id(RuntimeState* state, const TNetworkAddress& addr) {
+inline const std::string& client_id(ExecEnv* env, const TNetworkAddress& addr) {
     static std::string s_client_id = "palo_unit_test";
     return s_client_id;
 }
 #else
-inline BrokerServiceClientCache* client_cache(RuntimeState* state) {
-    return state->exec_env()->broker_client_cache();
+inline BrokerServiceClientCache* client_cache(ExecEnv* env) {
+    return env->broker_client_cache();
 }
 
-inline const std::string& client_id(RuntimeState* state, const TNetworkAddress& addr) {
-    return state->exec_env()->broker_mgr()->get_client_id(addr);
+inline const std::string& client_id(ExecEnv* env, const TNetworkAddress& addr) {
+    return env->broker_mgr()->get_client_id(addr);
 }
 #endif
 
@@ -74,7 +75,7 @@ Status BrokerWriter::open() {
     request.__set_version(TBrokerVersion::VERSION_ONE);
     request.__set_path(_path);
     request.__set_openMode(TBrokerOpenMode::APPEND);
-    request.__set_clientId(client_id(_state, broker_addr));
+    request.__set_clientId(client_id(_env, broker_addr));
     request.__set_properties(_properties);
 
     VLOG_ROW << "debug: send broker open writer request: "
@@ -83,8 +84,7 @@ Status BrokerWriter::open() {
     TBrokerOpenWriterResponse response;
     try {
         Status status;
-        // 500ms is enough
-        BrokerServiceConnection client(client_cache(_state), broker_addr, 500, &status);
+        BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker writer client failed. "
                 << "broker=" << broker_addr
@@ -139,8 +139,7 @@ Status BrokerWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_l
     TBrokerOperationStatus response;
     try {
         Status status;
-        // 500ms is enough
-        BrokerServiceConnection client(client_cache(_state), broker_addr, 500, &status);
+        BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker write client failed. "
                     << "broker=" << broker_addr
@@ -148,17 +147,22 @@ Status BrokerWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_l
             return status;
         }
 
+        // we do not re-try simplely, because broker server may already write data
         try {
             client->pwrite(response, request);
         } catch (apache::thrift::transport::TTransportException& e) {
             RETURN_IF_ERROR(client.reopen());
-            client->pwrite(response, request);
+
+            std::stringstream ss;
+            ss << "Fail to write to broker, broker:" << broker_addr << " failed:" << e.what();
+            LOG(WARNING) << ss.str();
+            return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str());
         }
     } catch (apache::thrift::TException& e) {
         std::stringstream ss;
         ss << "Fail to write to broker, broker:" << broker_addr << " failed:" << e.what();
         LOG(WARNING) << ss.str();
-        return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str(), false);
+        return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str());
     }
 
     VLOG_ROW << "debug: send broker pwrite response: "
@@ -194,8 +198,7 @@ void BrokerWriter::close() {
     TBrokerOperationStatus response;
     try {
         Status status;
-        // 500ms is enough
-        BrokerServiceConnection client(client_cache(_state), broker_addr, 500, &status);
+        BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker write client failed. broker=" << broker_addr
                 << ", status=" << status.get_error_msg();

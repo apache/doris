@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -299,10 +296,24 @@ struct hash<palo::TNetworkAddress> {
     }
 };
 
+#if !defined(IR_COMPILE) && __GNUC__ < 6
+// Cause this is builtin function
 template<>
 struct hash<__int128> {
     std::size_t operator()(const __int128& val) const {
         return palo::HashUtil::hash(&val, sizeof(val), 0);
+    }
+};
+#endif
+
+template<>
+struct hash<std::pair<palo::TUniqueId, int64_t>> {
+    size_t operator()(const std::pair<palo::TUniqueId, int64_t>& pair) const {
+        size_t seed = 0;
+        seed = palo::HashUtil::hash(&pair.first.lo, sizeof(pair.first.lo), seed);
+        seed = palo::HashUtil::hash(&pair.first.hi, sizeof(pair.first.hi), seed);
+        seed = palo::HashUtil::hash(&pair.second, sizeof(pair.second), seed);
+        return seed;
     }
 };
 

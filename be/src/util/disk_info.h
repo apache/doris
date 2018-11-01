@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -23,9 +20,11 @@
 
 #include <map>
 #include <string>
+#include <set>
 
 #include <boost/cstdint.hpp>
 #include "common/logging.h"
+#include "common/status.h"
 
 namespace palo {
 
@@ -79,6 +78,10 @@ public:
     }
 
     static std::string debug_string();
+
+    // get disk devices of given path
+    static Status get_disk_devices(const std::vector<std::string>& paths,
+                                   std::set<std::string>* devices);
 
 private:
     static bool _s_initialized;

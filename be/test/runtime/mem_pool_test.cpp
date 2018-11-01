@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -156,23 +158,15 @@ TEST(MemPoolTest, ReturnPartial) {
     p.free_all();
 }
 
-// Utility class to call private functions on MemPool.
-class MemPoolTest {
-    public:
-        static bool check_integrity(MemPool* pool, bool current_chunk_empty) {
-            return pool->check_integrity(current_chunk_empty);
-        }
-};
-
 TEST(MemPoolTest, Limits) {
     MemTracker limit3(320);
     MemTracker limit1(160, "", &limit3);
     MemTracker limit2(240, "", &limit3);
 
-    MemPool* p1 = new MemPool(&limit1, 80);
+    MemPool* p1 = new MemPool(&limit1);
     EXPECT_FALSE(limit1.any_limit_exceeded());
 
-    MemPool* p2 = new MemPool(&limit2, 80);
+    MemPool* p2 = new MemPool(&limit2);
     EXPECT_FALSE(limit2.any_limit_exceeded());
 
     // p1 exceeds a non-shared limit
@@ -213,18 +207,15 @@ TEST(MemPoolTest, Limits) {
     EXPECT_FALSE(limit2.limit_exceeded());
     uint8_t* result = p2->try_allocate(160);
     DCHECK(result != NULL);
-    DCHECK(MemPoolTest::check_integrity(p2, false));
 
     // Try To allocate another 160 bytes, this should fail.
     result = p2->try_allocate(160);
     DCHECK(result == NULL);
-    DCHECK(MemPoolTest::check_integrity(p2, false));
 
     // Try To allocate 20 bytes, this should succeed. try_allocate() should leave the
     // pool in a functional state..
     result = p2->try_allocate(20);
     DCHECK(result != NULL);
-    DCHECK(MemPoolTest::check_integrity(p2, false));
 
     p2->free_all();
     delete p2;
@@ -293,14 +284,14 @@ TEST(MemPoolTest, MaxAllocation) {
 }
 
 int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
+    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     // if (!palo::config::init(conffile.c_str(), false)) {
     //     fprintf(stderr, "error read config file. \n");
     //     return -1;
     // }
     palo::init_glog("be-test");
+    
     ::testing::InitGoogleTest(&argc, argv);
-
     return RUN_ALL_TESTS();
 }
 

@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -55,7 +52,7 @@ SchemaScanNode::~SchemaScanNode() {
     _src_tuple = NULL;
 }
 
-Status SchemaScanNode::init(const TPlanNode& tnode) {
+Status SchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode));
     if (tnode.schema_scan_node.__isset.db) {
         _scanner_param.db = _pool->add(new std::string(tnode.schema_scan_node.db));
@@ -75,6 +72,10 @@ Status SchemaScanNode::init(const TPlanNode& tnode) {
 
     if (tnode.schema_scan_node.__isset.ip) {
         _scanner_param.ip = _pool->add(new std::string(tnode.schema_scan_node.ip));
+    }
+
+    if (tnode.schema_scan_node.__isset.user_ip) {
+        _scanner_param.user_ip = _pool->add(new std::string(tnode.schema_scan_node.user_ip));
     }
 
     if (tnode.schema_scan_node.__isset.port) {
@@ -167,7 +168,7 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
             return Status("no match column for this column.");
         }
 
-        if (_src_tuple_desc->slots()[j]->type() != _dest_tuple_desc->slots()[i]->type()) {
+        if (_src_tuple_desc->slots()[j]->type().type != _dest_tuple_desc->slots()[i]->type().type) {
             LOG(WARNING) << "schema not match. input is " << _src_tuple_desc->slots()[j]->type()
                          << " and output is " << _dest_tuple_desc->slots()[i]->type();
             return Status("schema not match.");
@@ -310,6 +311,7 @@ Status SchemaScanNode::close(RuntimeState* state) {
         COUNTER_UPDATE(memory_used_counter(), _tuple_pool->peak_allocated_bytes());
     }
 
+    _tuple_pool.reset();
     return ExecNode::close(state);
 }
 

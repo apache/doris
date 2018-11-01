@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -57,6 +54,8 @@ public:
     // Returns the currently allowed maximum of possible file descriptors. In case of an
     // error returns 0.
     static uint64_t max_num_file_handles();
+
+    static bool contain_path(const std::string& parent_path, const std::string& sub_path);
 };
 
 }

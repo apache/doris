@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -35,6 +32,9 @@ namespace palo {
 
 class TFetchDataResult;
 class BufferControlBlock;
+class GetResultBatchCtx;
+class PUniqueId;
+
 // manage all result buffer control block in one backend
 class ResultBufferMgr {
 public:
@@ -49,6 +49,9 @@ public:
                         boost::shared_ptr<BufferControlBlock>* sender);
     // fetch data, used by RPC
     Status fetch_data(const TUniqueId& fragment_id, TFetchDataResult* result);
+
+    void fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx);
+
     // cancel
     Status cancel(const TUniqueId& fragment_id);
 

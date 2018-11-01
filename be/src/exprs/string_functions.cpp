@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -89,7 +86,9 @@ StringVal StringFunctions::space(FunctionContext* context, const IntVal& len) {
         return StringVal();
     }
     int32_t space_size = std::min(len.val, 65535);
-    StringVal result = StringVal::create_temp_string_val(context, space_size);
+    // TODO pengyubing
+    // StringVal result = StringVal::create_temp_string_val(context, space_size);
+    StringVal result(context, space_size);  
     memset(result.ptr, ' ', space_size);
     return result;
 }
@@ -102,7 +101,10 @@ StringVal StringFunctions::repeat(
     if (str.len == 0 || n.val <= 0) {
         return StringVal();
     }
-    StringVal result = StringVal::create_temp_string_val(context, str.len * n.val);
+
+    // TODO pengyubing
+    // StringVal result = StringVal::create_temp_string_val(context, str.len * n.val);
+    StringVal result(context, str.len * n.val);
     if (UNLIKELY(result.is_null)) {
         return result;
     }
@@ -127,7 +129,9 @@ StringVal StringFunctions::lpad(
         return StringVal(str.ptr, len.val);
     }
 
-    StringVal result = StringVal::create_temp_string_val(context, len.val);
+    // TODO pengyubing
+    // StringVal result = StringVal::create_temp_string_val(context, len.val);
+    StringVal result(context, len.val);
     if (result.is_null) {
         return result;
     }
@@ -160,7 +164,9 @@ StringVal StringFunctions::rpad(
         return StringVal(str.ptr, len.val);
     }
 
-    StringVal result = StringVal::create_temp_string_val(context, len.val);
+    // TODO pengyubing
+    // StringVal result = StringVal::create_temp_string_val(context, len.val);
+    StringVal result(context, len.val);
     if (UNLIKELY(result.is_null)) {
         return result;
     }
@@ -191,7 +197,9 @@ StringVal StringFunctions::lower(FunctionContext* context, const StringVal& str)
     if (str.is_null) {
         return StringVal::null();
     }
-    StringVal result = StringVal::create_temp_string_val(context, str.len);
+    // TODO pengyubing
+    // StringVal result = StringVal::create_temp_string_val(context, str.len);
+    StringVal result(context, str.len);
     if (UNLIKELY(result.is_null)) {
         return result;
     }
@@ -205,7 +213,9 @@ StringVal StringFunctions::upper(FunctionContext* context, const StringVal& str)
     if (str.is_null) {
         return StringVal::null();
     }
-    StringVal result = StringVal::create_temp_string_val(context, str.len);
+    // TODO pengyubing
+    // StringVal result = StringVal::create_temp_string_val(context, str.len);
+    StringVal result(context, str.len);
     if (UNLIKELY(result.is_null)) {
         return result;
     }
@@ -219,7 +229,10 @@ StringVal StringFunctions::reverse(FunctionContext* context, const StringVal& st
     if (str.is_null) {
         return StringVal::null();
     }
-    StringVal result = StringVal::create_temp_string_val(context, str.len);
+
+    // TODO pengyubing
+    // StringVal result = StringVal::create_temp_string_val(context, str.len);
+    StringVal result(context, str.len);
     if (UNLIKELY(result.is_null)) {
         return result;
     }
@@ -515,7 +528,10 @@ StringVal StringFunctions::concat_ws(
         }
         total_size += sep.len + strs[i].len;
     }
-    StringVal result = StringVal::create_temp_string_val(context, total_size);
+
+    // TODO pengyubing
+    // StringVal result = StringVal::create_temp_string_val(context, total_size);
+    StringVal result(context, total_size);
     uint8_t* ptr = result.ptr;
 
     // Loop again to append the data.

@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -80,8 +77,8 @@ PartitionedAggregationNode::PartitionedAggregationNode(
     DCHECK_EQ(PARTITION_FANOUT, 1 << NUM_PARTITIONING_BITS);
 }
 
-Status PartitionedAggregationNode::init(const TPlanNode& tnode) {
-    RETURN_IF_ERROR(ExecNode::init(tnode));
+Status PartitionedAggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::init(tnode, state));
     RETURN_IF_ERROR(
             Expr::create_expr_trees(_pool, tnode.agg_node.grouping_exprs, &_probe_expr_ctxs));
     for (int i = 0; i < tnode.agg_node.aggregate_functions.size(); ++i) {
@@ -139,7 +136,7 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
     for (int i = 0; i < _probe_expr_ctxs.size(); ++i) {
         SlotDescriptor* desc = _intermediate_tuple_desc->slots()[i];
         DCHECK(desc->type().type == TYPE_NULL ||
-                desc->type() == _probe_expr_ctxs[i]->root()->type());
+                desc->type().type == _probe_expr_ctxs[i]->root()->type().type);
         // Hack to avoid TYPE_NULL SlotRefs.
         Expr* expr = desc->type().type != TYPE_NULL ?
             new SlotRef(desc) : new SlotRef(desc, TYPE_BOOLEAN);

@@ -1,6 +1,3 @@
-# Modifications copyright (C) 2017, Baidu.com, Inc.
-# Copyright 2017 The Apache Software Foundation
-
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -187,10 +184,10 @@ visible_functions = [
     [['seconds_sub'], 'DATETIME', ['DATETIME', 'INT'],
         '_ZN4palo18TimestampFunctions11seconds_subEPN8palo_udf'
         '15FunctionContextERKNS1_11DateTimeValERKNS1_6IntValE'],
-    [['microseconds_sub'], 'DATETIME', ['DATETIME', 'INT'],
+    [['microseconds_add'], 'DATETIME', ['DATETIME', 'INT'],
         '_ZN4palo18TimestampFunctions10micros_addEPN8palo_udf'
         '15FunctionContextERKNS1_11DateTimeValERKNS1_6IntValE'],
-    [['microseconds_sub'], 'DATETIME', ['DATETIME', 'BIGINT'],
+    [['microseconds_sub'], 'DATETIME', ['DATETIME', 'INT'],
         '_ZN4palo18TimestampFunctions10micros_subEPN8palo_udf'
         '15FunctionContextERKNS1_11DateTimeValERKNS1_6IntValE'],
 
@@ -398,6 +395,7 @@ visible_functions = [
     [['if'], 'SMALLINT', ['BOOLEAN', 'SMALLINT', 'SMALLINT'], ''],
     [['if'], 'INT', ['BOOLEAN', 'INT', 'INT'], ''],
     [['if'], 'BIGINT', ['BOOLEAN', 'BIGINT', 'BIGINT'], ''],
+    [['if'], 'LARGEINT', ['BOOLEAN', 'LARGEINT', 'LARGEINT'], ''],
     [['if'], 'FLOAT', ['BOOLEAN', 'FLOAT', 'FLOAT'], ''],
     [['if'], 'DOUBLE', ['BOOLEAN', 'DOUBLE', 'DOUBLE'], ''],
     [['if'], 'VARCHAR', ['BOOLEAN', 'VARCHAR', 'VARCHAR'], ''],
@@ -409,6 +407,7 @@ visible_functions = [
     [['nullif'], 'SMALLINT', ['SMALLINT', 'SMALLINT'], ''],
     [['nullif'], 'INT', ['INT', 'INT'], ''],
     [['nullif'], 'BIGINT', ['BIGINT', 'BIGINT'], ''],
+    [['nullif'], 'LARGEINT', ['LARGEINT', 'LARGEINT'], ''],
     [['nullif'], 'FLOAT', ['FLOAT', 'FLOAT'], ''],
     [['nullif'], 'DOUBLE', ['DOUBLE', 'DOUBLE'], ''],
     [['nullif'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], ''],
@@ -420,6 +419,7 @@ visible_functions = [
     [['ifnull'], 'SMALLINT', ['SMALLINT', 'SMALLINT'], ''],
     [['ifnull'], 'INT', ['INT', 'INT'], ''],
     [['ifnull'], 'BIGINT', ['BIGINT', 'BIGINT'], ''],
+    [['ifnull'], 'LARGEINT', ['LARGEINT', 'LARGEINT'], ''],
     [['ifnull'], 'FLOAT', ['FLOAT', 'FLOAT'], ''],
     [['ifnull'], 'DOUBLE', ['DOUBLE', 'DOUBLE'], ''],
     [['ifnull'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], ''],
@@ -431,11 +431,16 @@ visible_functions = [
     [['coalesce'], 'SMALLINT', ['SMALLINT', '...'], ''],
     [['coalesce'], 'INT', ['INT', '...'], ''],
     [['coalesce'], 'BIGINT', ['BIGINT', '...'], ''],
+    [['coalesce'], 'LARGEINT', ['LARGEINT', '...'], ''],
     [['coalesce'], 'FLOAT', ['FLOAT', '...'], ''],
     [['coalesce'], 'DOUBLE', ['DOUBLE', '...'], ''],
     [['coalesce'], 'VARCHAR', ['VARCHAR', '...'], ''],
     [['coalesce'], 'DATETIME', ['DATETIME', '...'], ''],
     [['coalesce'], 'DECIMAL', ['DECIMAL', '...'], ''],
+
+    [['match'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 
+        '_ZN4palo11ESFunctions5matchEPN'
+        '8palo_udf15FunctionContextERKNS1_9StringValES6_'],
 
     # String builtin functions
     [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT'],

@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -43,7 +45,7 @@ namespace palo {
 //           clear schema change info in both current table and related tables,
 //           finally we will only push for current tables
 OLAPStatus PushHandler::process(
-        SmartOLAPTable olap_table,
+        OLAPTablePtr olap_table,
         const TPushReq& request,
         PushType push_type,
         vector<TTabletInfo>* tablet_info_vec) {
@@ -65,7 +67,7 @@ OLAPStatus PushHandler::process(
     TTabletId tablet_id;
     TSchemaHash schema_hash;
     AlterTabletType alter_table_type;
-    SmartOLAPTable related_olap_table;
+    OLAPTablePtr related_olap_table;
     _obtain_header_rdlock();
     bool is_schema_changing = olap_table->get_schema_change_request(
             &tablet_id, &schema_hash, NULL, &alter_table_type);
@@ -93,9 +95,8 @@ OLAPStatus PushHandler::process(
 
     // Obtain push lock to avoid simultaneously PUSH and
     // conflict with alter table operations.
-    for (SmartOLAPTable table : _olap_table_arr) {
+    for (OLAPTablePtr table : _olap_table_arr) {
         table->obtain_push_lock();
-        table->set_push_status(PUSH_RUNNING, _request.version);
     }
     is_push_locked = true;
 
@@ -211,8 +212,8 @@ OLAPStatus PushHandler::process(
 
             res = table_var.olap_table->save_header();
             if (res != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("fail to save header. [res=%d table='%s']",
-                                 res, table_var.olap_table->full_name().c_str());
+                LOG(FATAL) << "fail to save header. res=" << res << ", "
+                           << "table=" << table_var.olap_table->full_name();
                 goto EXIT;
             }
         }
@@ -251,7 +252,7 @@ OLAPStatus PushHandler::process(
         }
     }
     _release_header_lock();
-    
+
     // 6. Delete unused versions which include delta and commulative,
     //    which, in fact, is added to list and deleted by background thread
     for (TableVars& table_var : table_infoes) {
@@ -279,22 +280,230 @@ EXIT:
             continue;
         }
 
-        for (OLAPIndex* olap_index : table_var.added_indices) {
-            olap_index->delete_all_files();
-            SAFE_DELETE(olap_index);
+        for (Rowset* rowset : table_var.added_indices) {
+            rowset->delete_all_files();
+            SAFE_DELETE(rowset);
         }
     }
 
     // Release push lock
     if (is_push_locked) {
-        for (SmartOLAPTable table : _olap_table_arr) {
+        for (OLAPTablePtr table : _olap_table_arr) {
             table->release_push_lock();
-            table->set_push_status(PUSH_WAITING, -1);
         }
     }
     _olap_table_arr.clear();
 
     OLAP_LOG_INFO("finish to process push. [res=%d]", res);
+
+    return res;
+}
+
+OLAPStatus PushHandler::process_realtime_push(
+        OLAPTablePtr olap_table,
+        const TPushReq& request,
+        PushType push_type,
+        vector<TTabletInfo>* tablet_info_vec) {
+    OLAP_LOG_INFO("begin to realtime push. [table=%s transaction_id=%ld]",
+                   olap_table->full_name().c_str(), request.transaction_id);
+
+    OLAPStatus res = OLAP_SUCCESS;
+    _request = request;
+    vector<TableVars> table_infoes(1);
+    table_infoes[0].olap_table = olap_table;
+    AlterTabletType alter_table_type;
+
+    // add transaction in engine, then check sc status
+    // lock, prevent sc handler checking transaction concurrently
+    olap_table->obtain_push_lock();
+    PUniqueId load_id;
+    load_id.set_hi(0);
+    load_id.set_lo(0);
+    res = OLAPEngine::get_instance()->add_transaction(
+        request.partition_id, request.transaction_id,
+        olap_table->tablet_id(), olap_table->schema_hash(), load_id);
+
+    // if transaction exists, exit
+    if (res == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+
+        // if push finished, report success to fe
+        if (olap_table->has_pending_data(request.transaction_id)) {
+            OLAP_LOG_WARNING("pending data exists in tablet, which means push finished,"
+                             "return success. [table=%s transaction_id=%ld]",
+                             olap_table->full_name().c_str(), request.transaction_id);
+            res = OLAP_SUCCESS;
+        }
+        olap_table->release_push_lock();
+        goto EXIT;
+    }
+
+    // only when fe sends schema_change true, should consider to push related table
+    if (_request.is_schema_changing) {
+        OLAP_LOG_DEBUG("push req specify schema changing is true. [table=%s transaction_id=%ld]",
+                       olap_table->full_name().c_str(), request.transaction_id);
+        TTabletId related_tablet_id;
+        TSchemaHash related_schema_hash;
+
+        olap_table->obtain_header_rdlock();
+        bool is_schema_changing = olap_table->get_schema_change_request(
+            &related_tablet_id, &related_schema_hash, NULL, &alter_table_type);
+        olap_table->release_header_lock();
+
+        if (is_schema_changing) {
+            OLAP_LOG_INFO("find schema_change status when realtime push. "
+                          "[table=%s related_tablet_id=%ld related_schema_hash=%d transaction_id=%ld]",
+                          olap_table->full_name().c_str(),
+                          related_tablet_id, related_schema_hash, request.transaction_id);
+            OLAPTablePtr related_olap_table = OLAPEngine::get_instance()->get_table(
+                related_tablet_id, related_schema_hash);
+
+            // if related tablet not exists, only push current tablet
+            if (NULL == related_olap_table.get()) {
+                OLAP_LOG_WARNING("can't find related table, only push current tablet. "
+                                 "[table=%s related_tablet_id=%ld related_schema_hash=%d]",
+                                 olap_table->full_name().c_str(),
+                                 related_tablet_id, related_schema_hash);
+
+            // if current tablet is new table, only push current tablet
+            } else if (olap_table->creation_time() > related_olap_table->creation_time()) {
+                OLAP_LOG_WARNING("current table is new, only push current tablet. "
+                                 "[table=%s related_olap_table=%s]",
+                                 olap_table->full_name().c_str(),
+                                 related_olap_table->full_name().c_str());
+
+            // add related transaction in engine
+            } else {
+                PUniqueId load_id;
+                load_id.set_hi(0);
+                load_id.set_lo(0);
+                res = OLAPEngine::get_instance()->add_transaction(
+                    request.partition_id, request.transaction_id,
+                    related_olap_table->tablet_id(), related_olap_table->schema_hash(), load_id);
+
+                // if related tablet's transaction exists, only push current tablet
+                if (res == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+                    OLAP_LOG_WARNING("related tablet's transaction exists in engine, "
+                                     "only push current tablet. "
+                                     "[related_table=%s transaction_id=%ld]",
+                                     related_olap_table->full_name().c_str(),
+                                     request.transaction_id);
+                } else {
+                    table_infoes.push_back(TableVars());
+                    TableVars& new_item = table_infoes.back();
+                    new_item.olap_table = related_olap_table;
+                }
+            }
+        }
+    }
+    olap_table->release_push_lock();
+
+    if (table_infoes.size() == 1) {
+        table_infoes.resize(2);
+    }
+
+    // check delete condition if push for delete
+    if (push_type == PUSH_FOR_DELETE) {
+
+        for (TableVars& table_var : table_infoes) {
+            if (table_var.olap_table.get() == NULL) {
+                continue;
+            }
+
+            if (request.delete_conditions.size() == 0) {
+                OLAP_LOG_WARNING("invalid parameters for store_cond. [condition_size=0]");
+                res = OLAP_ERR_DELETE_INVALID_PARAMETERS;
+                goto EXIT;
+            }
+
+            DeleteConditionHandler del_cond_handler;
+            table_var.olap_table->obtain_header_rdlock();
+            for (const TCondition& cond : request.delete_conditions) {
+                res = del_cond_handler.check_condition_valid(table_var.olap_table, cond);
+                if (res != OLAP_SUCCESS) {
+                    OLAP_LOG_WARNING("fail to check delete condition. [table=%s res=%d]",
+                                     table_var.olap_table->full_name().c_str(), res);
+                    table_var.olap_table->release_header_lock();
+                    goto EXIT;
+                }
+            }
+            table_var.olap_table->release_header_lock();
+            OLAP_LOG_INFO("success to check delete condition when realtime push. "
+                          "[table=%s transaction_id=%ld]",
+                          table_var.olap_table->full_name().c_str(), request.transaction_id);
+        }
+    }
+
+    // write
+    res = _convert(table_infoes[0].olap_table, table_infoes[1].olap_table,
+                   &(table_infoes[0].added_indices), &(table_infoes[1].added_indices),
+                   alter_table_type);
+    if (res != OLAP_SUCCESS) {
+        OLAP_LOG_WARNING("fail to convert tmp file when realtime push. [res=%d]", res);
+        goto EXIT;
+    }
+
+    // add pending data to tablet
+    for (TableVars& table_var : table_infoes) {
+        if (table_var.olap_table.get() == NULL) {
+            continue;
+        }
+
+        for (Rowset* olap_index : table_var.added_indices) {
+
+            res = table_var.olap_table->add_pending_data(
+                olap_index, push_type == PUSH_FOR_DELETE ? &request.delete_conditions : NULL);
+
+            // if pending data exists in tablet, which means push finished
+            if (res == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+                SAFE_DELETE(olap_index);
+                res = OLAP_SUCCESS;
+
+            } else if (res != OLAP_SUCCESS) {
+                OLAP_LOG_WARNING("fail to add pending data to tablet. [table=%s transaction_id=%ld]",
+                                 table_var.olap_table->full_name().c_str(), request.transaction_id);
+                goto EXIT;
+            }
+        }
+    }
+
+EXIT:
+    // if transaction existed in engine but push not finished, not report to fe
+    if (res == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+        OLAP_LOG_WARNING("find transaction existed when realtime push, not report. ",
+                         "[table=%s partition_id=%ld transaction_id=%ld]",
+                         olap_table->full_name().c_str(),
+                         request.partition_id, request.transaction_id);
+        return res;
+    }
+
+    if (res == OLAP_SUCCESS) {
+        if (tablet_info_vec != NULL) {
+            _get_tablet_infos(table_infoes, tablet_info_vec);
+        }
+        OLAP_LOG_INFO("process realtime push successfully. "
+                      "[table=%s partition_id=%ld transaction_id=%ld]",
+                      olap_table->full_name().c_str(), request.partition_id, request.transaction_id);
+    } else {
+
+        // error happens, clear
+        OLAP_LOG_WARNING("failed to process realtime push. [table=%s transaction_id=%ld]",
+                         olap_table->full_name().c_str(), request.transaction_id);
+        for (TableVars& table_var : table_infoes) {
+            if (table_var.olap_table.get() == NULL) {
+                continue;
+            }
+
+            OLAPEngine::get_instance()->delete_transaction(
+                request.partition_id, request.transaction_id,
+                table_var.olap_table->tablet_id(), table_var.olap_table->schema_hash());
+
+            // actually, olap_index may has been deleted in delete_transaction()
+            for (Rowset* rowset : table_var.added_indices) {
+                rowset->release();
+                OLAPEngine::get_instance()->add_unused_index(rowset);
+            }
+        }
+    }
 
     return res;
 }
@@ -316,8 +525,8 @@ void PushHandler::_get_tablet_infos(
 }
 
 OLAPStatus PushHandler::_convert(
-        SmartOLAPTable curr_olap_table,
-        SmartOLAPTable new_olap_table,
+        OLAPTablePtr curr_olap_table,
+        OLAPTablePtr new_olap_table,
         Indices* curr_olap_indices,
         Indices* new_olap_indices,
         AlterTabletType alter_table_type) {
@@ -326,7 +535,7 @@ OLAPStatus PushHandler::_convert(
     BinaryFile raw_file;
     IBinaryReader* reader = NULL;
     IWriter* writer = NULL;
-    OLAPIndex* delta_index = NULL;
+    Rowset* delta_rowset = NULL;
     uint32_t  num_rows = 0;
 
     do {
@@ -372,37 +581,49 @@ OLAPStatus PushHandler::_convert(
             }
         }
 
-        // 2. New OLAPIndex of curr_olap_table for current push
-        OLAP_LOG_DEBUG("init OLAPIndex.");
+        // 2. New Rowset of curr_olap_table for current push
+        OLAP_LOG_DEBUG("init Rowset.");
 
-        if (NULL == (delta_index = new(std::nothrow) OLAPIndex(
+        if (_request.__isset.transaction_id) {
+            // create pending data dir
+            string dir_path = curr_olap_table->construct_pending_data_dir_path();
+            if (!check_dir_existed(dir_path) && (res = create_dirs(dir_path)) != OLAP_SUCCESS) {
+                if (!check_dir_existed(dir_path)) {
+                    OLAP_LOG_WARNING("fail to create pending dir. [res=%d table=%s]",
+                                     res, curr_olap_table->full_name().c_str());
+                    break;
+                }
+            }
+
+            delta_rowset = new(std::nothrow) Rowset(
+                curr_olap_table.get(), (_request.push_type == TPushType::LOAD_DELETE),
+                0, 0, true, _request.partition_id, _request.transaction_id);
+        } else {
+            delta_rowset = new(std::nothrow) Rowset(
                 curr_olap_table.get(),
                 Version(_request.version, _request.version),
                 _request.version_hash,
                 (_request.push_type == TPushType::LOAD_DELETE),
-                0, 0))) {
-            OLAP_LOG_WARNING("fail to malloc OLAPIndex. [table='%s' size=%ld]",
-                             curr_olap_table->full_name().c_str(), sizeof(OLAPIndex));
+                0, 0);
+        }
+
+        if (NULL == delta_rowset) {
+            OLAP_LOG_WARNING("fail to malloc Rowset. [table='%s' size=%ld]",
+                             curr_olap_table->full_name().c_str(), sizeof(Rowset));
             res = OLAP_ERR_MALLOC_ERROR;
             break;
         }
-        curr_olap_indices->push_back(delta_index);
+        curr_olap_indices->push_back(delta_rowset);
 
-        // 3. New Writer to write data into OLAPIndex
+        // 3. New Writer to write data into Rowset
         OLAP_LOG_DEBUG("init writer. [table='%s' block_row_size=%lu]",
                        curr_olap_table->full_name().c_str(),
                        curr_olap_table->num_rows_per_row_block());
 
-        if (NULL == (writer = IWriter::create(curr_olap_table, delta_index, true))) {
+        if (NULL == (writer = IWriter::create(curr_olap_table, delta_rowset, true))) {
             OLAP_LOG_WARNING("fail to create writer. [table='%s']",
                              curr_olap_table->full_name().c_str());
             res = OLAP_ERR_MALLOC_ERROR;
-            break;
-        } else if (OLAP_SUCCESS != (res = writer->init())) {
-            OLAP_LOG_WARNING(
-                    "fail to init writer. [res=%d table='%s' version=%u version_hash=%lu]",
-                    res, curr_olap_table->full_name().c_str(),
-                    _request.version, _request.version_hash);
             break;
         }
 
@@ -412,7 +633,7 @@ OLAPStatus PushHandler::_convert(
             break;
         }
 
-        // 5. Read data from raw file and write into OLAPIndex of curr_olap_table
+        // 5. Read data from raw file and write into Rowset of curr_olap_table
         if (_request.__isset.http_file_path) {
             // Convert from raw to delta
             OLAP_LOG_DEBUG("start to convert row file to delta.");
@@ -425,7 +646,7 @@ OLAPStatus PushHandler::_convert(
                     break;
                 }
 
-                res = reader->next(&row);
+                res = reader->next(&row, writer->mem_pool());
                 if (OLAP_SUCCESS != res) {
                     OLAP_LOG_WARNING("read next row failed. [res=%d read_rows=%u]",
                                      res, num_rows);
@@ -452,15 +673,27 @@ OLAPStatus PushHandler::_convert(
 
         OLAP_LOG_DEBUG("load the index.");
 
-        if (OLAP_SUCCESS != (res = delta_index->load())) {
+        if (OLAP_SUCCESS != (res = delta_rowset->load())) {
             OLAP_LOG_WARNING("fail to load index. [res=%d table='%s' version=%ld]",
                              res, curr_olap_table->full_name().c_str(), _request.version);
             break;
         }
+        _write_bytes += delta_rowset->data_size();
+        _write_rows += delta_rowset->num_rows();
 
         // 7. Convert data for schema change tables
         OLAP_LOG_TRACE("load to related tables of schema_change if possible. ");
         if (NULL != new_olap_table.get()) {
+            // create related tablet's pending data dir
+            string dir_path = new_olap_table->construct_pending_data_dir_path();
+            if (!check_dir_existed(dir_path) && (res = create_dirs(dir_path)) != OLAP_SUCCESS) {
+                if (!check_dir_existed(dir_path)) {
+                    OLAP_LOG_WARNING("fail to create pending dir. [res=%d table=%s]",
+                                     res, new_olap_table->full_name().c_str());
+                    break;
+                }
+            }
+
             SchemaChangeHandler schema_change;
             res = schema_change.schema_version_convert(
                     curr_olap_table,
@@ -486,22 +719,22 @@ OLAPStatus PushHandler::_convert(
 }
 
 OLAPStatus PushHandler::_validate_request(
-        SmartOLAPTable olap_table_for_raw,
-        SmartOLAPTable olap_table_for_schema_change,
+        OLAPTablePtr olap_table_for_raw,
+        OLAPTablePtr olap_table_for_schema_change,
         bool is_new_tablet_effective,
         PushType push_type) {
-    const FileVersionMessage* latest_delta = olap_table_for_raw->lastest_delta();
+    const PDelta* latest_delta = olap_table_for_raw->lastest_delta();
 
     if (NULL == latest_delta) {
-        const FileVersionMessage* latest_version = olap_table_for_raw->latest_version();
+        const PDelta* lastest_version = olap_table_for_raw->lastest_version();
 
         // PUSH the first version when the version is 0, or
         // tablet is in alter table status.
-        if (NULL == latest_version
+        if (NULL == lastest_version
                 && (0 == _request.version || NULL != olap_table_for_schema_change.get())) {
             return OLAP_SUCCESS;
-        } else if (NULL != latest_version
-                && (latest_version->end_version() + 1 == _request.version)) {
+        } else if (NULL != lastest_version
+                && (lastest_version->end_version() + 1 == _request.version)) {
             return OLAP_SUCCESS;
         }
 
@@ -530,8 +763,8 @@ OLAPStatus PushHandler::_validate_request(
                 || _request.version > latest_delta->start_version() + 1) {
             OLAP_LOG_WARNING(
                     "try to push a delta with incorrect version. "
-                    "[new_version=%ld latest_version=%u "
-                    "new_version_hash=%ld latest_version_hash=%lu]",
+                    "[new_version=%ld lastest_version=%u "
+                    "new_version_hash=%ld lastest_version_hash=%lu]",
                     _request.version, latest_delta->start_version(),
                     _request.version_hash, latest_delta->version_hash());
             return OLAP_ERR_PUSH_VERSION_INCORRECT;
@@ -539,8 +772,8 @@ OLAPStatus PushHandler::_validate_request(
                 && _request.version_hash == latest_delta->version_hash()) {
             OLAP_LOG_WARNING(
                     "try to push a already exist delta. "
-                    "[new_version=%ld latest_version=%u "
-                    "new_version_hash=%ld latest_version_hash=%lu]",
+                    "[new_version=%ld lastest_version=%u "
+                    "new_version_hash=%ld lastest_version_hash=%lu]",
                     _request.version, latest_delta->start_version(),
                     _request.version_hash, latest_delta->version_hash());
             return OLAP_ERR_PUSH_VERSION_ALREADY_EXIST;
@@ -555,21 +788,21 @@ OLAPStatus PushHandler::_validate_request(
 // user submit a push job and cancel it soon, but some 
 // tablets already push success.
 OLAPStatus PushHandler::_get_versions_reverted(
-        SmartOLAPTable olap_table,
+        OLAPTablePtr olap_table,
         bool is_new_tablet,
         PushType push_type,
         Versions* unused_versions) {
-    const FileVersionMessage* latest_delta = olap_table->lastest_delta();
+    const PDelta* latest_delta = olap_table->lastest_delta();
 
     if (NULL == latest_delta) {
-        const FileVersionMessage* latest_version = olap_table->latest_version();
+        const PDelta* lastest_version = olap_table->lastest_version();
 
         // PUSH the first version, and the version is 0
-        if ((NULL == latest_version
+        if ((NULL == lastest_version
                 && (0 == _request.version || is_new_tablet))) {
             return OLAP_SUCCESS;
-        } else if (NULL != latest_version
-                && latest_version->end_version() + 1 == _request.version) {
+        } else if (NULL != lastest_version
+                && lastest_version->end_version() + 1 == _request.version) {
             return OLAP_SUCCESS;
         }
 
@@ -607,7 +840,7 @@ OLAPStatus PushHandler::_get_versions_reverted(
 }
 
 OLAPStatus PushHandler::_update_header(
-        SmartOLAPTable olap_table,
+        OLAPTablePtr olap_table,
         Versions* unused_versions,
         Indices* new_indices,
         Indices* unused_indices) {
@@ -632,8 +865,8 @@ OLAPStatus PushHandler::_update_header(
     // Note we don't return fail here.
     res = olap_table->save_header();
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_FATAL("fail to save header. [res=%d table='%s']",
-                       res, olap_table->full_name().c_str());
+        LOG(FATAL) << "fail to save header. res=" << res << ", "
+                   << "table=" << olap_table->full_name();
     }
 
     return res;
@@ -641,7 +874,7 @@ OLAPStatus PushHandler::_update_header(
 
 void PushHandler::_delete_old_indices(Indices* unused_indices) {
     if (!unused_indices->empty()) {
-        OLAPUnusedIndex* unused_index = OLAPUnusedIndex::get_instance();
+        OLAPEngine* unused_index = OLAPEngine::get_instance();
 
         for (Indices::iterator it = unused_indices->begin();
                 it != unused_indices->end(); ++it) {
@@ -651,8 +884,8 @@ void PushHandler::_delete_old_indices(Indices* unused_indices) {
 }
 
 OLAPStatus PushHandler::_clear_alter_table_info(
-        SmartOLAPTable tablet,
-        SmartOLAPTable related_tablet) {
+        OLAPTablePtr tablet,
+        OLAPTablePtr related_tablet) {
     OLAPStatus res = OLAP_SUCCESS;
     _obtain_header_wrlock();
 
@@ -667,8 +900,8 @@ OLAPStatus PushHandler::_clear_alter_table_info(
         
         res = tablet->save_header();
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_FATAL("fail to save header. [res=%d table='%s']",
-                           res, tablet->full_name().c_str());
+            LOG(FATAL) << "fail to save header. res=" << res << ", "
+                       << "table=" << tablet->full_name();
             break;
         }
 
@@ -687,8 +920,8 @@ OLAPStatus PushHandler::_clear_alter_table_info(
             
             res = related_tablet->save_header();
             if (res != OLAP_SUCCESS) {
-                OLAP_LOG_FATAL("fail to save header. [res=%d table='%s']",
-                               res, related_tablet->full_name().c_str());
+                LOG(FATAL) << "fail to save header. res=" << res << ", "
+                           << "table=" << related_tablet->full_name();
                 break;
             }
         }
@@ -732,7 +965,7 @@ BinaryReader::BinaryReader()
 }
 
 OLAPStatus BinaryReader::init(
-        SmartOLAPTable table,
+        OLAPTablePtr table,
         BinaryFile* file) {
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -769,7 +1002,7 @@ OLAPStatus BinaryReader::finalize() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BinaryReader::next(RowCursor* row) {
+OLAPStatus BinaryReader::next(RowCursor* row, MemPool* mem_pool) {
     OLAPStatus res = OLAP_SUCCESS;
 
     if (!_ready || NULL == row) {
@@ -789,10 +1022,11 @@ OLAPStatus BinaryReader::next(RowCursor* row) {
 
     size_t p  = 0;
     for (size_t i = 0; i < schema.size(); ++i) {
-        if (true == schema[i].is_allow_null) {
+        row->set_not_null(i);
+        if (schema[i].is_allow_null) {
             bool is_null = false;
             is_null = (_row_buf[p/8] >> ((num_null_bytes * 8 - p - 1) % 8)) & 1;
-            if (true == is_null) {
+            if (is_null) {
                 row->set_null(i);
             }
             p++;
@@ -807,19 +1041,17 @@ OLAPStatus BinaryReader::next(RowCursor* row) {
         if (schema[i].type == OLAP_FIELD_TYPE_VARCHAR || schema[i].type == OLAP_FIELD_TYPE_HLL) {
             // Read varchar length buffer first
             if (OLAP_SUCCESS != (res = _file->read(_row_buf + offset,
-                        sizeof(VarCharField::LengthValueType)))) {
+                        sizeof(StringLengthType)))) {
                 OLAP_LOG_WARNING("read file for one row fail. [res=%d]", res);
                 return res;
             }
 
-            // Get varchar field size 
-            VarCharField::LengthValueType* size_ptr =
-                reinterpret_cast<VarCharField::LengthValueType*>(_row_buf + offset);
-            offset += sizeof(VarCharField::LengthValueType);
-            field_size = *size_ptr;
-            if (field_size > schema[i].length - sizeof(VarCharField::LengthValueType)) {
+            // Get varchar field size
+            field_size = *reinterpret_cast<StringLengthType*>(_row_buf + offset);
+            offset += sizeof(StringLengthType);
+            if (field_size > schema[i].length - sizeof(StringLengthType)) {
                 OLAP_LOG_WARNING("invalid data length for VARCHAR! [max_len=%d real_len=%d]",
-                                 schema[i].length - sizeof(VarCharField::LengthValueType),
+                                 schema[i].length - sizeof(StringLengthType),
                                  field_size);
                 return OLAP_ERR_PUSH_INPUT_DATA_ERROR;
             }
@@ -833,10 +1065,13 @@ OLAPStatus BinaryReader::next(RowCursor* row) {
             return res;
         }
 
-        if (schema[i].type == OLAP_FIELD_TYPE_VARCHAR || schema[i].type == OLAP_FIELD_TYPE_HLL) {
-            row->read_field(_row_buf + offset - sizeof(VarCharField::LengthValueType), i, sizeof(VarCharField::LengthValueType) + field_size);
+        if (schema[i].type == OLAP_FIELD_TYPE_CHAR
+                || schema[i].type == OLAP_FIELD_TYPE_VARCHAR
+                || schema[i].type == OLAP_FIELD_TYPE_HLL) {
+            StringSlice slice(_row_buf + offset, field_size);
+            row->set_field_content(i, reinterpret_cast<char*>(&slice), mem_pool);
         } else {
-            row->read_field(_row_buf + offset, i, field_size);
+            row->set_field_content(i, _row_buf + offset, mem_pool);
         }
         offset += field_size;
     }
@@ -860,7 +1095,7 @@ LzoBinaryReader::LzoBinaryReader()
 }
 
 OLAPStatus LzoBinaryReader::init(
-        SmartOLAPTable table,
+        OLAPTablePtr table,
         BinaryFile* file) {
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -899,7 +1134,7 @@ OLAPStatus LzoBinaryReader::finalize() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus LzoBinaryReader::next(RowCursor* row) {
+OLAPStatus LzoBinaryReader::next(RowCursor* row, MemPool* mem_pool) {
     OLAPStatus res = OLAP_SUCCESS;
 
     if (!_ready || NULL == row) {
@@ -920,12 +1155,12 @@ OLAPStatus LzoBinaryReader::next(RowCursor* row) {
     size_t num_null_bytes = (_table->num_null_fields() + 7) / 8;
 
     size_t p = 0;
-    row->reset_buf();
     for (size_t i = 0; i < schema.size(); ++i) {
-        if (true == schema[i].is_allow_null) {
+        row->set_not_null(i);
+        if (schema[i].is_allow_null) {
             bool is_null = false;
             is_null = (_row_buf[_next_row_start + p/8] >> ((num_null_bytes * 8 - p - 1) % 8)) & 1;
-            if (true == is_null) {
+            if (is_null) {
                 row->set_null(i);
             }
             p++;
@@ -940,14 +1175,12 @@ OLAPStatus LzoBinaryReader::next(RowCursor* row) {
 
         if (schema[i].type == OLAP_FIELD_TYPE_VARCHAR || schema[i].type == OLAP_FIELD_TYPE_HLL) {
             // Get varchar field size
-            VarCharField::LengthValueType* size_ptr =
-                reinterpret_cast<VarCharField::LengthValueType*>(_row_buf + _next_row_start + offset);
-            offset += sizeof(VarCharField::LengthValueType);
-            field_size = *size_ptr;
+            field_size = *reinterpret_cast<StringLengthType*>(_row_buf + _next_row_start + offset);
+            offset += sizeof(StringLengthType);
 
-            if (field_size > schema[i].length - sizeof(VarCharField::LengthValueType)) {
+            if (field_size > schema[i].length - sizeof(StringLengthType)) {
                 OLAP_LOG_WARNING("invalid data length for VARCHAR! [max_len=%d real_len=%d]",
-                                 schema[i].length - sizeof(VarCharField::LengthValueType),
+                                 schema[i].length - sizeof(StringLengthType),
                                  field_size);
                 return OLAP_ERR_PUSH_INPUT_DATA_ERROR;
             }
@@ -955,10 +1188,13 @@ OLAPStatus LzoBinaryReader::next(RowCursor* row) {
             field_size = schema[i].length;
         }
 
-        if (schema[i].type == OLAP_FIELD_TYPE_VARCHAR || schema[i].type == OLAP_FIELD_TYPE_HLL) {
-            row->read_field(_row_buf + _next_row_start + offset - sizeof(VarCharField::LengthValueType), i, sizeof(VarCharField::LengthValueType) + field_size);
+        if (schema[i].type == OLAP_FIELD_TYPE_CHAR
+                || schema[i].type == OLAP_FIELD_TYPE_VARCHAR
+                || schema[i].type == OLAP_FIELD_TYPE_HLL) {
+            StringSlice slice(_row_buf + _next_row_start + offset, field_size);
+            row->set_field_content(i, reinterpret_cast<char*>(&slice), mem_pool);
         } else {
-            row->read_field(_row_buf + _next_row_start + offset, i, field_size);
+            row->set_field_content(i, _row_buf + _next_row_start + offset, mem_pool);
         }
 
         offset += field_size;

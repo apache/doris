@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -47,7 +49,7 @@ void set_up() {
 
 void tear_down() {
     system("rm -rf ./test_run");
-    remove_all_dir(string(getenv("PALO_HOME")) + UNUSED_PREFIX);
+    remove_all_dir(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
 }
 
 void set_default_create_tablet_request(TCreateTabletReq* request) {
@@ -56,7 +58,7 @@ void set_default_create_tablet_request(TCreateTabletReq* request) {
     request->__set_version_hash(0);
     request->tablet_schema.schema_hash = 1508825676;
     request->tablet_schema.short_key_column_count = 2;
-    request->tablet_schema.storage_type = TStorageType::ROW;
+    request->tablet_schema.storage_type = TStorageType::COLUMN;
 
     TColumn k1;
     k1.column_name = "k1";
@@ -146,7 +148,7 @@ public:
         // Remove all dir.
         OLAPEngine::get_instance()->drop_table(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        while (0 == access(_header_file_name.c_str(), F_OK)) {
+        while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
         }
         ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
@@ -168,10 +170,10 @@ public:
         CommandExecutor command_executor = CommandExecutor();
         res = command_executor.create_table(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        SmartOLAPTable tablet = command_executor.get_table(
+        OLAPTablePtr tablet = command_executor.get_table(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet.get() != NULL);
-        _header_file_name = tablet->header_file_name();
+        _tablet_path = tablet->tablet_path();
 
         // push data
         set_default_push_request(&_push_req);
@@ -435,7 +437,7 @@ public:
 
 private:
     TCreateTabletReq _create_tablet;
-    std::string _header_file_name;
+    std::string _tablet_path;
     TPushReq _push_req;
 
     TPlanNode _tnode;
@@ -681,7 +683,7 @@ public:
         // Remove all dir.
         OLAPEngine::get_instance()->drop_table(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        while (0 == access(_header_file_name.c_str(), F_OK)) {
+        while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
         }
         ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
@@ -704,10 +706,10 @@ public:
         CommandExecutor command_executor = CommandExecutor();
         res = command_executor.create_table(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        SmartOLAPTable tablet = command_executor.get_table(
+        OLAPTablePtr tablet = command_executor.get_table(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet.get() != NULL);
-        _header_file_name = tablet->header_file_name();
+        _tablet_path = tablet->tablet_path();
 
         // push data
         set_default_push_request(&_push_req);
@@ -972,7 +974,7 @@ public:
 
 private:
     TCreateTabletReq _create_tablet;
-    std::string _header_file_name;
+    std::string _tablet_path;
     TPushReq _push_req;
 
     TPlanNode _tnode;
@@ -1165,7 +1167,7 @@ public:
         // Remove all dir.
         OLAPEngine::get_instance()->drop_table(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        while (0 == access(_header_file_name.c_str(), F_OK)) {
+        while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
         }
         ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
@@ -1187,10 +1189,10 @@ public:
         CommandExecutor command_executor = CommandExecutor();
         res = command_executor.create_table(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        SmartOLAPTable tablet = command_executor.get_table(
+        OLAPTablePtr tablet = command_executor.get_table(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet.get() != NULL);
-        _header_file_name = tablet->header_file_name();
+        _tablet_path = tablet->tablet_path();
 
         // push data
         set_default_push_request(&_push_req);
@@ -1472,7 +1474,7 @@ public:
 
 private:
     TCreateTabletReq _create_tablet;
-    std::string _header_file_name;
+    std::string _tablet_path;
     TPushReq _push_req;
     TPushReq _delete_req;
 
@@ -1567,7 +1569,7 @@ TEST_F(TestOLAPReaderColumnDeleteCondition, next_tuple) {
 }  // namespace palo
 
 int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
+    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     if (!palo::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;

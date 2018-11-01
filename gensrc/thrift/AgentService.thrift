@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -19,7 +16,7 @@
 // under the License.
 
 namespace cpp palo
-namespace java com.baidu.palo.thrift
+namespace java org.apache.doris.thrift
 
 include "Status.thrift"
 include "Types.thrift"
@@ -50,6 +47,7 @@ struct TCreateTabletReq {
     3: optional Types.TVersion version
     4: optional Types.TVersionHash version_hash
     5: optional Types.TStorageMedium storage_medium
+    6: optional bool in_restore_mode
 }
 
 struct TDropTabletReq {
@@ -79,6 +77,12 @@ struct TPushReq {
     8: optional i64 http_file_size
     9: optional list<PaloInternalService.TCondition> delete_conditions
     10: optional bool need_decompress
+    // for real time load
+    11: optional Types.TTransactionId transaction_id
+    12: optional Types.TPartitionId partition_id
+    // fe should inform be that this request is running during schema change
+    // be should write two files
+    13: optional bool is_schema_changing
 }
 
 struct TCloneReq {
@@ -86,6 +90,8 @@ struct TCloneReq {
     2: required Types.TSchemaHash schema_hash
     3: required list<Types.TBackend> src_backends
     4: optional Types.TStorageMedium storage_medium
+    5: optional Types.TVersion committed_version
+    6: optional Types.TVersionHash committed_version_hash
 }
 
 struct TStorageMediumMigrateReq {
@@ -109,17 +115,17 @@ struct TCheckConsistencyReq {
 }
 
 struct TUploadReq {
-    1: required string local_file_path
-    2: required string remote_file_path
-    3: required map<string, string> remote_source_properties
-    4: optional Types.TTabletId tablet_id
+    1: required i64 job_id;
+    2: required map<string, string> src_dest_map
+    3: required Types.TNetworkAddress broker_addr
+    4: optional map<string, string> broker_prop
 }
 
-struct TRestoreReq {
-    1: required Types.TTabletId tablet_id
-    2: required Types.TSchemaHash schema_hash
-    3: required string remote_file_path
-    4: required map<string, string> remote_source_properties
+struct TDownloadReq {
+    1: required i64 job_id
+    2: required map<string, string> src_dest_map
+    3: required Types.TNetworkAddress broker_addr
+    4: optional map<string, string> broker_prop
 }
 
 struct TSnapshotRequest {
@@ -128,6 +134,10 @@ struct TSnapshotRequest {
     3: optional Types.TVersion version
     4: optional Types.TVersionHash version_hash
     5: optional i64 timeout
+    6: optional list<Types.TVersion> missing_version
+    7: optional bool list_files
+    // if all nodes has been upgraded, it can be removed.
+    8: optional bool allow_incremental_clone
 }
 
 struct TReleaseSnapshotRequest {
@@ -139,10 +149,46 @@ struct TClearRemoteFileReq {
     2: required map<string, string> remote_source_properties
 }
 
+struct TPartitionVersionInfo {
+    1: required Types.TPartitionId partition_id
+    2: required Types.TVersion version
+    3: required Types.TVersionHash version_hash
+}
+
+struct TMoveDirReq {
+    1: required Types.TTabletId tablet_id
+    2: required Types.TSchemaHash schema_hash
+    3: required string src
+    4: required i64 job_id
+    5: required bool overwrite
+}
+
 enum TAgentServiceVersion {
     V1
 }
 
+struct TPublishVersionRequest {
+    1: required Types.TTransactionId transaction_id
+    2: required list<TPartitionVersionInfo> partition_version_infos
+}
+
+struct TClearAlterTaskRequest {
+    1: required Types.TTabletId tablet_id
+    2: required Types.TSchemaHash schema_hash
+}
+
+struct TClearTransactionTaskRequest {
+    1: required Types.TTransactionId transaction_id
+    2: required list<Types.TPartitionId> partition_id
+}
+
+struct TRecoverTabletReq {
+    1: optional Types.TTabletId tablet_id
+    2: optional Types.TSchemaHash schema_hash
+    3: optional Types.TVersion version
+    4: optional Types.TVersionHash version_hash
+}
+ 
 struct TAgentTaskRequest {
     1: required TAgentServiceVersion protocol_version
     2: required Types.TTaskType task_type
@@ -153,20 +199,26 @@ struct TAgentTaskRequest {
     7: optional TAlterTabletReq alter_tablet_req
     8: optional TCloneReq clone_req
     9: optional TPushReq push_req
-    10: optional TCancelDeleteDataReq cancel_delete_data_req
+    10: optional TCancelDeleteDataReq cancel_delete_data_req //deprecated
     11: optional Types.TResourceInfo resource_info
     12: optional TStorageMediumMigrateReq storage_medium_migrate_req
     13: optional TCheckConsistencyReq check_consistency_req
     14: optional TUploadReq upload_req
-    15: optional TRestoreReq restore_req
+    15: optional TDownloadReq download_req
     16: optional TSnapshotRequest snapshot_req
     17: optional TReleaseSnapshotRequest release_snapshot_req
     18: optional TClearRemoteFileReq clear_remote_file_req
+    19: optional TPublishVersionRequest publish_version_req
+    20: optional TClearAlterTaskRequest clear_alter_task_req
+    21: optional TClearTransactionTaskRequest clear_transaction_task_req
+    22: optional TMoveDirReq move_dir_req
+    23: optional TRecoverTabletReq recover_tablet_req;
 }
 
 struct TAgentResult {
     1: required Status.TStatus status
     2: optional string snapshot_path
+    3: optional bool allow_incremental_clone
 }
 
 struct TTopicItem {

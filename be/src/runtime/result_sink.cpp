@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -20,6 +17,7 @@
 
 #include "runtime/result_sink.h"
 
+#include "common/config.h"
 #include "util/debug_util.h"
 #include "exprs/expr.h"
 #include "runtime/row_batch.h"
@@ -86,7 +84,8 @@ Status ResultSink::close(RuntimeState* state, Status exec_status) {
     if (_sender) {
         _sender->close(exec_status);
     }
-    state->exec_env()->result_mgr()->cancel_at_time(time(NULL) + 5, state->fragment_instance_id());
+    state->exec_env()->result_mgr()->cancel_at_time(time(NULL) + config::result_buffer_cancelled_interval_time, 
+                                                    state->fragment_instance_id());
     Expr::close(_output_expr_ctxs, state);
 
     _closed = true;

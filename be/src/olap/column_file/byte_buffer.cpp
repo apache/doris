@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -155,34 +157,6 @@ ByteBuffer* ByteBuffer::mmap(FileHandler* handler, uint64_t offset, int prot, in
     buf->_limit = length;
     buf->_is_mmap = true;
     return buf;
-}
-
-OLAPStatus ByteBuffer::set_position(uint64_t new_position) {
-    if (new_position <= _limit) {
-        _position = new_position;
-        return OLAP_SUCCESS;
-    } else {
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-}
-
-OLAPStatus ByteBuffer::set_limit(uint64_t new_limit) {
-    if (new_limit > _capacity) {
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-    _limit = new_limit;
-
-    if (_position > _limit) {
-        _position = _limit;
-    }
-
-    return OLAP_SUCCESS;
-}
-
-void ByteBuffer::flip() {
-    _limit = _position;
-    _position = 0;
 }
 
 OLAPStatus ByteBuffer::put(char src) {

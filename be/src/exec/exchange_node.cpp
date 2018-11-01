@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -24,6 +21,7 @@
 
 #include "runtime/data_stream_mgr.h"
 #include "runtime/data_stream_recvr.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/row_batch.h"
 #include "util/debug_util.h"
@@ -51,8 +49,8 @@ ExchangeNode::ExchangeNode(
     DCHECK(_is_merging || (_offset == 0));
 }
 
-Status ExchangeNode::init(const TPlanNode& tnode) {
-    RETURN_IF_ERROR(ExecNode::init(tnode));
+Status ExchangeNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::init(tnode, state));
     if (!_is_merging) {
         return Status::OK;
     }
@@ -115,8 +113,10 @@ Status ExchangeNode::fill_input_row_batch(RuntimeState* state) {
     DCHECK(!_is_merging);
     Status ret_status;
     {
+        state->set_query_state_for_wait();
         // SCOPED_TIMER(state->total_network_receive_timer());
         ret_status = _stream_recvr->get_batch(&_input_batch);
+        state->set_query_state_for_running();
     }
     VLOG_FILE << "exch: has batch=" << (_input_batch == NULL ? "false" : "true")
         << " #rows=" << (_input_batch != NULL ? _input_batch->num_rows() : 0)
@@ -201,7 +201,7 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
         }
 
         _next_row_idx = 0;
-        DCHECK(_input_batch->row_desc().is_prefix_of(output_batch->row_desc()));
+        DCHECK(_input_batch->row_desc().layout_is_prefix_of(output_batch->row_desc()));
     }
 }
 
@@ -210,7 +210,10 @@ Status ExchangeNode::get_next_merging(RuntimeState* state, RowBatch* output_batc
     RETURN_IF_CANCELLED(state);
     // RETURN_IF_ERROR(QueryMaintenance(state));
     RETURN_IF_ERROR(state->check_query_state());
+
+    state->set_query_state_for_wait();
     RETURN_IF_ERROR(_stream_recvr->get_next(output_batch, eos));
+    state->set_query_state_for_running();
 
     while ((_num_rows_skipped < _offset)) {
         _num_rows_skipped += output_batch->num_rows();

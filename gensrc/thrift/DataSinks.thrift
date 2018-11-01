@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -19,7 +16,7 @@
 // under the License.
 
 namespace cpp palo
-namespace java com.baidu.palo.thrift
+namespace java org.apache.doris.thrift
 
 include "Exprs.thrift"
 include "Types.thrift"
@@ -32,6 +29,7 @@ enum TDataSinkType {
     DATA_SPLIT_SINK,
     MYSQL_TABLE_SINK,
     EXPORT_SINK,
+    OLAP_TABLE_SINK
 }
 
 // Sink which forwards data to a remote plan fragment,
@@ -87,6 +85,22 @@ struct TExportSink {
     6: optional map<string, string> properties;
 }
 
+struct TOlapTableSink {
+    1: required Types.TUniqueId load_id
+    2: required i64 txn_id
+    3: required i64 db_id
+    4: required i64 table_id
+    5: required i32 tuple_id
+    6: required i32 num_replicas
+    7: required bool need_gen_rollup
+    8: optional string db_name
+    9: optional string table_name
+    10: required Descriptors.TOlapTableSchemaParam schema
+    11: required Descriptors.TOlapTablePartitionParam partition
+    12: required Descriptors.TOlapTableLocationParam location
+    13: required Descriptors.TPaloNodesInfo nodes_info
+}
+
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink
@@ -94,5 +108,6 @@ struct TDataSink {
   4: optional TDataSplitSink split_sink
   5: optional TMysqlTableSink mysql_table_sink
   6: optional TExportSink export_sink
+  7: optional TOlapTableSink olap_table_sink
 }
 

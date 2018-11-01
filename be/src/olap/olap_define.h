@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -32,8 +34,8 @@ static const uint32_t OLAP_MAX_PATH_LEN = 512;
 static const uint32_t OLAP_DEFAULT_MAX_PACKED_ROW_BLOCK_SIZE = 1024 * 1024 * 20;
 // 每个row block压缩前的最大长度，也就是buf的最大长度
 static const uint32_t OLAP_DEFAULT_MAX_UNPACKED_ROW_BLOCK_SIZE = 1024 * 1024 * 100;
-// 块大小使用uint32_t保存, 为防止一些意外出现, 这里定义为4G-2MB,
-static const uint32_t OLAP_MAX_SEGMENT_FILE_SIZE = 4292870144;
+// 块大小使用uint32_t保存, 这里定义为2G,
+static const uint32_t OLAP_MAX_SEGMENT_FILE_SIZE = 2147483648;
 // 列存储文件的块大小,由于可能会被全部载入内存,所以需要严格控制大小, 这里定义为256MB
 static const uint32_t OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE = 268435456;
 // 在列存储文件中, 数据分块压缩, 每个块的默认压缩前的大小
@@ -46,7 +48,15 @@ static const size_t OLAP_LRU_CACHE_MAX_KEY_LENTH = OLAP_MAX_PATH_LEN * 2;
 
 static const uint64_t OLAP_FIX_HEADER_MAGIC_NUMBER = 0;
 // 执行be/ce时默认的候选集大小
-static constexpr uint32_t OLAP_EXPANSION_DEFAULT_CANDIDATE_SIZE = 10;
+static constexpr uint32_t OLAP_COMPACTION_DEFAULT_CANDIDATE_SIZE = 10;
+
+// the max length supported for string type
+static const uint16_t OLAP_STRING_MAX_LENGTH = 65535;
+
+// the max bytes for stored string length
+using StringOffsetType = uint32_t;
+using StringLengthType = uint16_t;
+static const uint16_t OLAP_STRING_MAX_BYTES = sizeof(StringLengthType);
 
 enum OLAPDataVersion {
     OLAP_V1 = 0,
@@ -62,6 +72,10 @@ static const std::string DPP_PREFIX = "/dpp_download";
 static const std::string SNAPSHOT_PREFIX = "/snapshot";
 static const std::string TRASH_PREFIX = "/trash";
 static const std::string UNUSED_PREFIX = "/unused";
+static const std::string ERROR_LOG_PREFIX = "/error_log";
+static const std::string PENDING_DELTA_PREFIX = "/pending_delta";
+static const std::string INCREMENTAL_DELTA_PREFIX = "/incremental_delta";
+static const std::string CLONE_PREFIX = "/clone";
 
 static const int32_t OLAP_DATA_VERSION_APPLIED = PALO_V1;
 
@@ -116,6 +130,7 @@ enum OLAPStatus {
     OLAP_ERR_FILE_FORMAT_ERROR = -119,
     OLAP_ERR_EVAL_CONJUNCTS_ERROR = -120,
     OLAP_ERR_COPY_FILE_ERROR =  -121,
+    OLAP_ERR_FILE_ALREADY_EXIST =  -122,
 
     // common errors codes
     // [-200, -300)
@@ -144,6 +159,8 @@ enum OLAPStatus {
     OLAP_ERR_NO_AVAILABLE_ROOT_PATH = -223,
     OLAP_ERR_CHECK_LINES_ERROR = -224,
     OLAP_ERR_INVALID_CLUSTER_INFO = -225,
+    OLAP_ERR_TRANSACTION_NOT_EXIST = -226,
+    OLAP_ERR_DISK_FAILURE = -227,
 
     // CommandExecutor
     // [-300, -400)
@@ -161,6 +178,7 @@ enum OLAPStatus {
     OLAP_ERR_TABLE_VERSION_INDEX_MISMATCH_ERROR = -401,
     OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR = -402,
     OLAP_ERR_TABLE_INDEX_FIND_ERROR = -403,
+    OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR = -404,
 
     // OLAPEngine
     // [-500, -600)
@@ -189,7 +207,7 @@ enum OLAPStatus {
     OLAP_ERR_READER_ACQUIRE_DATA_ERROR = -702,
     OLAP_ERR_READER_READING_ERROR = -703,
 
-    // BaseExpansion
+    // BaseCompaction
     // [-800, -900)
     OLAP_ERR_BE_VERSION_NOT_MATCH = -800,
     OLAP_ERR_BE_REPLACE_VERSIONS_ERROR = -801,
@@ -217,8 +235,9 @@ enum OLAPStatus {
     OLAP_ERR_PUSH_VERSION_ALREADY_EXIST = -908,
     OLAP_ERR_PUSH_TABLE_NOT_EXIST = -909,
     OLAP_ERR_PUSH_INPUT_DATA_ERROR = -910,
+    OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST = -911,
 
-    // OLAPIndex
+    // Rowset
     // [-1000, -1100)
     OLAP_ERR_INDEX_LOAD_ERROR = -1000,
     OLAP_ERR_INDEX_EOF = -1001,
@@ -248,6 +267,17 @@ enum OLAPStatus {
     // [-1400, -1500)
     OLAP_ERR_HEADER_ADD_VERSION = -1400,
     OLAP_ERR_HEADER_DELETE_VERSION = -1401,
+    OLAP_ERR_HEADER_ADD_PENDING_DELTA = -1402,
+    OLAP_ERR_HEADER_ADD_INCREMENTAL_VERSION = -1403,
+    OLAP_ERR_HEADER_INVALID_FLAG = -1404,
+    OLAP_ERR_HEADER_PUT = -1405,
+    OLAP_ERR_HEADER_DELETE = -1406,
+    OLAP_ERR_HEADER_GET = -1407,
+    OLAP_ERR_HEADER_LOAD_INVALID_KEY = -1408,
+    OLAP_ERR_HEADER_FLAG_PUT = -1409,
+    OLAP_ERR_HEADER_LOAD_JSON_HEADER = -1410,
+    OLAP_ERR_HEADER_INIT_FAILED = -1411,
+    OLAP_ERR_HEADER_PB_PARSE_FAILED = -1412,
 
     // OLAPTableSchema
     // [-1500, -1600)
@@ -292,11 +322,42 @@ enum OLAPStatus {
     OLAP_ERR_CUMULATIVE_FAILED_ACQUIRE_DATA_SOURCE = -2003,
     OLAP_ERR_CUMULATIVE_INVALID_NEED_MERGED_VERSIONS = -2004,
     OLAP_ERR_CUMULATIVE_ERROR_DELETE_ACTION = -2005,
+
+    // OLAPMeta
+    // [-3000, -3100)
+    OLAP_ERR_META_INVALID_ARGUMENT = -3000,
+    OLAP_ERR_META_OPEN_DB = -3001,
+    OLAP_ERR_META_KEY_NOT_FOUND = -3002,
+    OLAP_ERR_META_GET = -3003,
+    OLAP_ERR_META_PUT = -3004,
+    OLAP_ERR_META_ITERATOR = -3005,
+    OLAP_ERR_META_DELETE = -3006,
+};
+
+enum ColumnFamilyIndex {
+    DEFAULT_COLUMN_FAMILY_INDEX = 0,
+    DORIS_COLUMN_FAMILY_INDEX,
+    META_COLUMN_FAMILY_INDEX,
 };
 
 static const char* const HINIS_KEY_SEPARATOR = ";";
 static const char* const HINIS_KEY_PAIR_SEPARATOR = "|";
 static const char* const HINIS_KEY_GROUP_SEPARATOR = "&";
+
+static const std::string DEFAULT_COLUMN_FAMILY = "default";
+static const std::string DORIS_COLUMN_FAMILY = "doris";
+static const std::string META_COLUMN_FAMILY = "meta";
+static const std::string IS_HEADER_CONVERTED = "is_header_converted";
+static const std::string CONVERTED_FLAG = "true";
+const std::string TABLET_ID_KEY = "tablet_id";
+const std::string TABLET_SCHEMA_HASH_KEY = "schema_hash";
+
+#define RETURN_NOT_OK(s) do { \
+    OLAPStatus _s = (s);      \
+    if (_s != OLAP_SUCCESS) { \
+        return _s; \
+    } \
+} while (0);
 
 // Declare copy constructor and equal operator as private
 #ifndef DISALLOW_COPY_AND_ASSIGN

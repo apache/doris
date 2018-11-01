@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -24,6 +21,8 @@
 #include <gperftools/heap-profiler.h>
 #include <thrift/protocol/TDebugProtocol.h>
 #include <thrift/concurrency/PosixThreadFactory.h>
+
+#include "olap/olap_engine.h"
 #include "service/backend_options.h"
 #include "util/network_util.h"
 #include "util/thrift_util.h"
@@ -35,7 +34,6 @@
 #include "runtime/pull_load_task_mgr.h"
 #include "runtime/export_task_mgr.h"
 #include "runtime/result_buffer_mgr.h"
-#include "service/receiver_dispatcher.h"
 
 namespace palo {
 
@@ -48,18 +46,15 @@ using apache::thrift::concurrency::PosixThreadFactory;
 BackendService::BackendService(ExecEnv* exec_env) :
         _exec_env(exec_env),
         _agent_server(new AgentServer(exec_env, *exec_env->master_info())) {
-#ifndef ADDRESS_SANITIZER
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
     // tcmalloc and address sanitizer can not be used together
     if (!config::heap_profile_dir.empty()) {
         HeapProfilerStart(config::heap_profile_dir.c_str());
     }
 #endif
-    // Initialize Palo metrics
-    PaloMetrics::create_metrics(exec_env->metrics());
     char buf[64];
     DateTimeValue value = DateTimeValue::local_time();
     value.to_string(buf);
-    PaloMetrics::palo_be_start_time()->update(buf);
 }
 
 Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer** server) {
@@ -71,33 +66,15 @@ Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer*
     boost::shared_ptr<ThreadFactory> thread_factory(new PosixThreadFactory());
 
     boost::shared_ptr<TProcessor> be_processor(new BackendServiceProcessor(handler));
-    *server = new ThriftServer("PaloBackend",
-                               be_processor, port,
+    *server = new ThriftServer("backend",
+                               be_processor,
+                               port,
                                exec_env->metrics(),
                                config::be_service_threads);
 
     LOG(INFO) << "PaloInternalService listening on " << port;
 
     return Status::OK;
-}
-
-Status BackendService::create_rpc_service(ExecEnv* exec_env) {
-    ReactorFactory::initialize(config::rpc_reactor_threads);
-
-    struct sockaddr_in addr;
-    InetAddr::initialize(&addr, BackendOptions::get_localhost().c_str(), config::be_rpc_port);
-    Comm* comm = Comm::instance();
-
-    DispatchHandlerPtr dhp = std::make_shared<Dispatcher>(exec_env, comm, nullptr);
-    ConnectionHandlerFactoryPtr handler_factory = std::make_shared<HandlerFactory>(dhp);
-
-    Status status = Status::OK;
-    int error = comm->listen(addr, handler_factory, dhp);
-    if (error != error::OK) {
-        status = Status("create rpc server failed.");
-    }
-
-    return status;
 }
 
 void BackendService::exec_plan_fragment(TExecPlanFragmentResult& return_val,
@@ -245,6 +222,10 @@ void BackendService::erase_export_task(TStatus& t_status, const TUniqueId& task_
 //        VLOG_RPC << "delete export task successful with task_id " << task_id;
 //    }
 //    status.to_thrift(&t_status);
+}
+
+void BackendService::get_tablet_stat(TTabletStatResult& result) {
+    OLAPEngine::get_instance()->get_tablet_stat(result);
 }
 
 } // namespace palo

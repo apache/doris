@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -19,20 +16,26 @@
 // under the License.
 
 namespace cpp palo
-namespace java com.baidu.palo.thrift
+namespace java org.apache.doris.thrift
 
 enum TStatusCode {
-  OK,
-  CANCELLED,
-  ANALYSIS_ERROR,
-  NOT_IMPLEMENTED_ERROR,
-  RUNTIME_ERROR,
-  MEM_LIMIT_EXCEEDED,
-  INTERNAL_ERROR,
-  THRIFT_RPC_ERROR,
-  TIMEOUT,
-  KUDU_NOT_ENABLED,
-  KUDU_NOT_SUPPORTED_ON_OS
+    OK,
+    CANCELLED,
+    ANALYSIS_ERROR,
+    NOT_IMPLEMENTED_ERROR,
+    RUNTIME_ERROR,
+    MEM_LIMIT_EXCEEDED,
+    INTERNAL_ERROR,
+    THRIFT_RPC_ERROR,
+    TIMEOUT,
+    KUDU_NOT_ENABLED,
+    KUDU_NOT_SUPPORTED_ON_OS,
+    MEM_ALLOC_FAILED,
+    BUFFER_ALLOCATION_FAILED,
+    MINIMUM_RESERVATION_UNAVAILABLE,
+    PUBLISH_TIMEOUT,
+    LABEL_ALREADY_EXISTS,
+    DATA_QUALITY_ERROR,
 }
 
 struct TStatus {

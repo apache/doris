@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -28,6 +25,7 @@
 #include "common/logging.h"
 #include "exprs/expr.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/tuple_row.h"
 #include "runtime/row_batch.h"
 #include "runtime/raw_value.h"
@@ -43,18 +41,18 @@
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/BackendService.h"
+#include "gen_cpp/internal_service.pb.h"
 
-#include "rpc/dispatch_handler_synchronizer.h"
-#include "rpc/event.h"
-#include "rpc/protocol.h"
-#include "rpc/error.h"
-#include "rpc/serialization.h"
 #include <arpa/inet.h>
 
+#include "service/brpc.h"
+
 #include "util/thrift_util.h"
+#include "util/brpc_stub_cache.h"
+#include "util/ref_count_closure.h"
 
 namespace palo {
-
+ 
 // A channel sends data asynchronously via calls to transmit_data
 // to a single destination ipaddress/node.
 // It has a fixed-capacity buffer and allows the caller either to add rows to
@@ -70,7 +68,8 @@ public:
     // how much tuple data is getting accumulated before being sent; it only applies
     // when data is added via add_row() and not sent directly via send_batch().
     Channel(DataStreamSender* parent, const RowDescriptor& row_desc,
-            const TNetworkAddress& destination, const TUniqueId& fragment_instance_id,
+            const TNetworkAddress& brpc_dest,
+            const TUniqueId& fragment_instance_id,
             PlanNodeId dest_node_id, int buffer_size) :
         _parent(parent),
         _buffer_size(buffer_size),
@@ -79,27 +78,16 @@ public:
         _dest_node_id(dest_node_id),
         _num_data_bytes_sent(0),
         _packet_seq(0),
-        _rpc_in_flight(false),
-        _is_closed(false),
-        _params(NULL) {
-
-        _comm = Comm::instance();
-        InetAddr::initialize(&_addr, destination.hostname.c_str(), destination.port);
-
-        _dhp = std::make_shared<ResponseHandler>();
-        _resp_handler = static_cast<ResponseHandler *>(_dhp.get());
-        _error = error::OK;
-        _buf = NULL;
-        _size = 0;
-
-        _thrift_serializer = new ThriftSerializer(false, 100);
+        _need_close(false),
+        _brpc_dest_addr(brpc_dest) {
     }
 
     virtual ~Channel() {
-        if (NULL != _params) {
-            delete _params;
+        if (_closure != nullptr && _closure->unref()) {
+            delete _closure;
         }
-        delete _thrift_serializer;
+        // release this before request desctruct
+        _brpc_request.release_finst_id();
     }
 
     // Initialize channel.
@@ -114,14 +102,8 @@ public:
     // Asynchronously sends a row batch.
     // Returns the status of the most recently finished transmit_data
     // rpc (or OK if there wasn't one that hasn't been reported yet).
-    Status send_batch(TRowBatch* batch);
-
-    // Return status of last transmit_data rpc (initiated by the most recent call
-    // to either send_batch() or send_current_batch()).
-    Status get_send_status();
-
-    // Waits for the rpc thread pool to finish the current rpc.
-    void wait_for_rpc();
+    // if batch is nullptr, send the eof packet
+    Status send_batch(PRowBatch* batch, bool eos = false);
 
     // Flush buffered rows and close channel.
     // Returns error status if any of the preceding rpcs failed, OK otherwise.
@@ -131,11 +113,29 @@ public:
         return _num_data_bytes_sent;
     }
 
-    TRowBatch* thrift_batch() { 
-        return &_thrift_batch;
+    PRowBatch* pb_batch() { 
+        return &_pb_batch;
     }
 
 private:
+    inline Status _wait_last_brpc() {
+        auto cntl = &_closure->cntl;
+        brpc::Join(cntl->call_id());
+        if (cntl->Failed()) {
+            LOG(WARNING) << "failed to send brpc batch, error=" << berror(cntl->ErrorCode())
+                << ", error_text=" << cntl->ErrorText();
+            return Status(TStatusCode::THRIFT_RPC_ERROR, "failed to send batch");
+        }
+        return Status::OK;
+    }
+
+
+private:
+    // Serialize _batch into _thrift_batch and send via send_batch().
+    // Returns send_batch() status.
+    Status send_current_batch(bool eos = false);
+    Status close_internal();
+
     DataStreamSender* _parent;
     int _buffer_size;
 
@@ -149,116 +149,73 @@ private:
 
     // we're accumulating rows into this batch
     boost::scoped_ptr<RowBatch> _batch;
-    TRowBatch _thrift_batch;
 
-    // We want to reuse the rpc thread to prevent creating a thread per rowbatch.
-    // TODO: currently we only have one batch in flight, but we should buffer more
-    // batches. This is a bit tricky since the channels share the outgoing batch
-    // pointer we need some mechanism to coordinate when the batch is all done.
-    // TODO: if the order of row batches does not matter, we can consider increasing
-    // the number of threads.
-    bool _rpc_in_flight;  // true if the rpc in sending.
-
-    Status _rpc_status;  // status of most recently finished transmit_data rpc
-
-    bool _is_closed;
-
+    bool _need_close;
     int _be_number;
 
-    int _timeout;
+    TNetworkAddress _brpc_dest_addr;
 
-    // Serialize _batch into _thrift_batch and send via send_batch().
-    // Returns send_batch() status.
-    Status send_current_batch();
-
-    Status close_internal();
-
-    struct sockaddr_in _addr;
-    CommBufPtr _cbp;
-    Comm* _comm;
-    DispatchHandlerPtr _dhp;
-    ConnectionManagerPtr _conn_mgr;
-    ResponseHandler* _resp_handler;
-    int _error;
-    uint8_t* _buf;
-    uint32_t _size;
-    ThriftSerializer* _thrift_serializer;
-    TTransmitDataParams* _params;
+    // TODO(zc): initused for brpc
+    PUniqueId _finst_id;
+    PRowBatch _pb_batch;
+    PTransmitDataParams _brpc_request;
+    PInternalService_Stub* _brpc_stub = nullptr;
+    RefCountClosure<PTransmitDataResult>* _closure = nullptr;
+    int32_t _brpc_timeout_ms = 500;
 };
 
 Status DataStreamSender::Channel::init(RuntimeState* state) {
     _be_number = state->be_number();
 
-    // thrift timeout is ms, query_options.query_timeout is s
-    _timeout = state->query_options().query_timeout * 1000;
-
     // TODO: figure out how to size _batch
     int capacity = std::max(1, _buffer_size / std::max(_row_desc.get_row_size(), 1));
     _batch.reset(new RowBatch(_row_desc, capacity, _parent->_mem_tracker.get()));
 
-    _conn_mgr = state->exec_env()->get_conn_manager();
-    _conn_mgr->add(_addr, 10, NULL);
-    bool is_connected = _conn_mgr->wait_for_connection(_addr, 100);
-    if (false == is_connected) {
-        _conn_mgr->remove(_addr);
-        return Status(TStatusCode::THRIFT_RPC_ERROR, "connection failed");
+    if (_brpc_dest_addr.hostname.empty()) {
+        LOG(WARNING) << "there is no brpc destination address's hostname"
+            ", maybe version is not compatible.";
+        return Status("no brpc destination");
     }
+
+    // initialize brpc request
+    _finst_id.set_hi(_fragment_instance_id.hi);
+    _finst_id.set_lo(_fragment_instance_id.lo);
+    _brpc_request.set_allocated_finst_id(&_finst_id);
+    _brpc_request.set_node_id(_dest_node_id);
+    _brpc_request.set_sender_id(_parent->_sender_id);
+    _brpc_request.set_be_number(_be_number);
+
+    _brpc_timeout_ms = std::min(3600, state->query_options().query_timeout) * 1000;
+    _brpc_stub = state->exec_env()->brpc_stub_cache()->get_stub(_brpc_dest_addr);
+
+    _need_close = true;
     return Status::OK;
 }
 
-Status DataStreamSender::Channel::send_batch(TRowBatch* batch) {
+Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
+    if (_closure == nullptr) {
+        _closure = new RefCountClosure<PTransmitDataResult>();
+        _closure->ref();
+    } else {
+        RETURN_IF_ERROR(_wait_last_brpc());
+        _closure->cntl.Reset();
+    }
     VLOG_ROW << "Channel::send_batch() instance_id=" << _fragment_instance_id
-             << " dest_node=" << _dest_node_id << " #rows=" << batch->num_rows;
+             << " dest_node=" << _dest_node_id;
 
-    // return if the previous batch saw an error
-    RETURN_IF_ERROR(get_send_status());
-    {
-        batch->be_number = _be_number;
-        batch->packet_seq = _packet_seq++;
+    _brpc_request.set_eos(eos);
+    if (batch != nullptr) {
+        _brpc_request.set_allocated_row_batch(batch);
     }
+    _brpc_request.set_packet_seq(_packet_seq++);
 
-    _rpc_in_flight = true;
-
-    TTransmitDataParams params;
-    params.protocol_version = PaloInternalServiceVersion::V1;
-    params.__set_dest_fragment_instance_id(_fragment_instance_id);
-    params.__set_dest_node_id(_dest_node_id);
-    params.__set_be_number(_be_number);
-    params.__set_row_batch(*batch);  // yet another copy
-    params.__set_packet_seq(batch->packet_seq);
-    params.__set_eos(false);
-    params.__set_sender_id(_parent->_sender_id);
-
-    _thrift_serializer->serialize(&params, &_size, &_buf);
-
-    CommHeader header;
-    _cbp = std::make_shared<CommBuf>(header, _size);
-    _cbp->append_bytes(_buf, _size);
-    int error = _comm->send_request(_addr, _timeout, _cbp, _resp_handler);
-    if (error::OK != error) {
-        return Status(TStatusCode::THRIFT_RPC_ERROR, "send request failed");
+    _closure->ref();
+    _closure->cntl.set_timeout_ms(_brpc_timeout_ms);
+    _brpc_stub->transmit_data(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
+    if (batch != nullptr) {
+        _brpc_request.release_row_batch();
     }
     return Status::OK;
-}
-
-void DataStreamSender::Channel::wait_for_rpc() {
-    EventPtr event_ptr;
-
-    while (_rpc_in_flight) {
-        _resp_handler->get_response(event_ptr);
-        _rpc_in_flight = false;
-
-        if (Event::ERROR == event_ptr->type) {
-            _rpc_status = Status(TStatusCode::THRIFT_RPC_ERROR, "send request failed");
-            LOG(ERROR) <<  "request id: " << event_ptr->header.id << ","
-                << "rpc error : " <<  error::get_text(event_ptr->error);
-        } else if (Event::MESSAGE == event_ptr->type) {
-            TTransmitDataResult res;
-            const uint8_t *buf_ptr = (uint8_t*)event_ptr->payload;
-            uint32_t sz = event_ptr->payload_len;
-            deserialize_thrift_msg(buf_ptr, &sz, false, &res);
-        }
-    }
 }
 
 Status DataStreamSender::Channel::add_row(TupleRow* row) {
@@ -289,78 +246,32 @@ Status DataStreamSender::Channel::add_row(TupleRow* row) {
     return Status::OK;
 }
 
-Status DataStreamSender::Channel::send_current_batch() {
-    // make sure there's no in-flight transmit_data() call that might still want to
-    // access _thrift_batch
-    wait_for_rpc();
+Status DataStreamSender::Channel::send_current_batch(bool eos) {
     {
         SCOPED_TIMER(_parent->_serialize_batch_timer);
-        int uncompressed_bytes = _batch->serialize(&_thrift_batch);
-        COUNTER_UPDATE(_parent->_bytes_sent_counter, RowBatch::get_batch_size(_thrift_batch));
+        int uncompressed_bytes = _batch->serialize(&_pb_batch);
+        COUNTER_UPDATE(_parent->_bytes_sent_counter, RowBatch::get_batch_size(_pb_batch));
         COUNTER_UPDATE(_parent->_uncompressed_bytes_counter, uncompressed_bytes);
     }
     _batch->reset();
-    RETURN_IF_ERROR(send_batch(&_thrift_batch));
+    RETURN_IF_ERROR(send_batch(&_pb_batch, eos));
     return Status::OK;
 }
 
-Status DataStreamSender::Channel::get_send_status() {
-    wait_for_rpc();
-
-    if (!_rpc_status.ok()) {
-        LOG(ERROR) << "channel send status: " << _rpc_status.get_error_msg();
-    }
-
-    return _rpc_status;
-}
-
 Status DataStreamSender::Channel::close_internal() {
-    if (_is_closed) {
+    if (!_need_close) {
         return Status::OK;
     }
-
     VLOG_RPC << "Channel::close() instance_id=" << _fragment_instance_id
              << " dest_node=" << _dest_node_id
-             << " #rows= " << _batch->num_rows();
-
+             << " #rows= " << ((_batch == nullptr) ? 0 : _batch->num_rows());
     if (_batch != NULL && _batch->num_rows() > 0) {
-        // flush
-        RETURN_IF_ERROR(send_current_batch());
+        RETURN_IF_ERROR(send_current_batch(true));
+    } else {
+        RETURN_IF_ERROR(send_batch(nullptr, true));
     }
-
-    // if the last transmitted batch resulted in a error, return that error
-    RETURN_IF_ERROR(get_send_status());
-    Status status;
-
-    if (!status.ok()) {
-        return status;
-    }
-
-    TTransmitDataParams params;
-    params.protocol_version = PaloInternalServiceVersion::V1;
-    params.__set_dest_fragment_instance_id(_fragment_instance_id);
-    params.__set_dest_node_id(_dest_node_id);
-    params.__set_be_number(_be_number);
-    params.__set_packet_seq(_packet_seq);
-    params.__set_eos(true);
-    params.__set_sender_id(_parent->_sender_id);
-    LOG(INFO) << "calling transmit_data to close channel";
-
-    _thrift_serializer->serialize(&params, &_size, &_buf);
-
-    CommHeader header;
-    _cbp = std::make_shared<CommBuf>(header, _size);
-    _cbp->append_bytes(_buf, _size);
-    EventPtr event_ptr;
-    _error = _comm->send_request(_addr, _timeout, _cbp, _resp_handler);
-    if (error::OK != _error) {
-        LOG(INFO) << "close send request failed";
-        return Status(TStatusCode::THRIFT_RPC_ERROR, "send close request failed");
-    }
-    _rpc_in_flight = true;
-    RETURN_IF_ERROR(get_send_status());
-
-    _is_closed = true;
+    RETURN_IF_ERROR(_wait_last_brpc());
+    _need_close = false;
     return Status::OK;
 }
 
@@ -380,7 +291,7 @@ DataStreamSender::DataStreamSender(
         _current_channel_idx(0),
         _part_type(sink.output_partition.type),
         _ignore_not_found(sink.__isset.ignore_not_found ? sink.ignore_not_found : true),
-        _current_thrift_batch(&_thrift_batch1),
+        _current_pb_batch(&_pb_batch1),
         _profile(NULL),
         _serialize_batch_timer(NULL),
         _thrift_transmit_timer(NULL),
@@ -393,10 +304,12 @@ DataStreamSender::DataStreamSender(
             || sink.output_partition.type == TPartitionType::RANGE_PARTITIONED);
     // TODO: use something like google3's linked_ptr here (scoped_ptr isn't copyable)
     for (int i = 0; i < destinations.size(); ++i) {
-        _channels.push_back(
-            new Channel(this, row_desc, destinations[i].server,
+        _channel_shared_ptrs.emplace_back(
+            new Channel(this, row_desc,
+                        destinations[i].brpc_server,
                         destinations[i].fragment_instance_id,
                         sink.dest_node_id, per_channel_buffer_size));
+        _channels.push_back(_channel_shared_ptrs[i].get());
     }
 }
 
@@ -479,7 +392,6 @@ Status DataStreamSender::prepare(RuntimeState* state) {
         profile()->add_derived_counter("OverallThroughput", TUnit::BYTES_PER_SECOND,
         boost::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
                                              profile()->total_time_counter()), "");
-
     for (int i = 0; i < _channels.size(); ++i) {
         RETURN_IF_ERROR(_channels[i]->init(state));
     }
@@ -490,9 +402,7 @@ Status DataStreamSender::prepare(RuntimeState* state) {
 DataStreamSender::~DataStreamSender() {
     // TODO: check that sender was either already closed() or there was an error
     // on some channel
-    for (int i = 0; i < _channels.size(); ++i) {
-        delete _channels[i];
-    }
+    _channel_shared_ptrs.clear();
 }
 
 Status DataStreamSender::open(RuntimeState* state) {
@@ -509,23 +419,17 @@ Status DataStreamSender::send(RuntimeState* state, RowBatch* batch) {
 
     // Unpartition or _channel size
     if (_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) {
-        // _current_thrift_batch is *not* the one that was written by the last call
-        // to Serialize()
-        RETURN_IF_ERROR(serialize_batch(batch, _current_thrift_batch, _channels.size()));
-        // SendBatch() will block if there are still in-flight rpcs (and those will
-        // reference the previously written thrift batch)
-        for (int i = 0; i < _channels.size(); ++i) {
-            RETURN_IF_ERROR(_channels[i]->send_batch(_current_thrift_batch));
+        RETURN_IF_ERROR(serialize_batch(batch, _current_pb_batch, _channels.size()));
+        for (auto channel : _channels) {
+            RETURN_IF_ERROR(channel->send_batch(_current_pb_batch));
         }
-        _current_thrift_batch =
-            (_current_thrift_batch == &_thrift_batch1 ? &_thrift_batch2 : &_thrift_batch1);
+        _current_pb_batch = (_current_pb_batch == &_pb_batch1 ? &_pb_batch2 : &_pb_batch1);
     } else if (_part_type == TPartitionType::RANDOM) {
         // Round-robin batches among channels. Wait for the current channel to finish its
         // rpc before overwriting its batch.
         Channel* current_channel = _channels[_current_channel_idx];
-        current_channel->wait_for_rpc();
-        RETURN_IF_ERROR(serialize_batch(batch, current_channel->thrift_batch()));
-        RETURN_IF_ERROR(current_channel->send_batch(current_channel->thrift_batch()));
+        RETURN_IF_ERROR(serialize_batch(batch, current_channel->pb_batch()));
+        RETURN_IF_ERROR(current_channel->send_batch(current_channel->pb_batch()));
         _current_channel_idx = (_current_channel_idx + 1) % _channels.size();
     } else if (_part_type == TPartitionType::HASH_PARTITIONED) {
         // hash-partition batch's rows across channels
@@ -681,7 +585,8 @@ Status DataStreamSender::close(RuntimeState* state, Status exec_status) {
     return Status::OK;
 }
 
-Status DataStreamSender::serialize_batch(RowBatch* src, TRowBatch* dest, int num_receivers) {
+template<typename T>
+Status DataStreamSender::serialize_batch(RowBatch* src, T* dest, int num_receivers) {
     VLOG_ROW << "serializing " << src->num_rows() << " rows";
     {
         // TODO(zc)
@@ -695,14 +600,12 @@ Status DataStreamSender::serialize_batch(RowBatch* src, TRowBatch* dest, int num
         // int uncompressed_bytes = bytes - dest->tuple_data.size() + dest->uncompressed_size;
         // The size output_batch would be if we didn't compress tuple_data (will be equal to
         // actual batch size if tuple_data isn't compressed)
-
         COUNTER_UPDATE(_bytes_sent_counter, bytes * num_receivers);
         COUNTER_UPDATE(_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
     }
 
     return Status::OK;
 }
-
 
 int64_t DataStreamSender::get_num_data_bytes_sent() const {
     // TODO: do we need synchronization here or are reads & writes to 8-byte ints

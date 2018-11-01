@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -24,6 +21,30 @@
 #include <string>
 #include "exprs/predicate.h"
 #include "udf/udf.h"
+
+/* added by lide */
+#define IN_FUNCTIONS_STMT(AnyValType, SetType, type_name) \
+  static palo_udf::BooleanVal in_set_lookup( \
+      palo_udf::FunctionContext* context, const palo_udf::AnyValType& val, int num_args, \
+      const palo_udf::AnyValType* args); \
+\
+  static palo_udf::BooleanVal not_in_set_lookup( \
+      palo_udf::FunctionContext* context, const palo_udf::AnyValType& val, int num_args, \
+      const palo_udf::AnyValType* args); \
+\
+  static palo_udf::BooleanVal in_iterate( \
+      palo_udf::FunctionContext* context, const palo_udf::AnyValType& val, int num_args, \
+      const palo_udf::AnyValType* args); \
+\
+  static palo_udf::BooleanVal not_in_iterate( \
+      palo_udf::FunctionContext* context, const palo_udf::AnyValType& val, int num_args, \
+      const palo_udf::AnyValType* args); \
+\
+  static void set_lookup_prepare_##type_name( \
+      palo_udf::FunctionContext* ctx, palo_udf::FunctionContext::FunctionStateScope scope); \
+\
+  static void set_lookup_close_##type_name( \
+      palo_udf::FunctionContext* ctx, palo_udf::FunctionContext::FunctionStateScope scope);
 
 namespace palo {
 
@@ -270,6 +291,9 @@ public:
     static palo_udf::BooleanVal not_in_set_lookup(
         palo_udf::FunctionContext* context, const palo_udf::DecimalVal& val,
         int num_args, const palo_udf::DecimalVal* args);
+
+    /* added by lide */
+    IN_FUNCTIONS_STMT(LargeIntVal, __int128, large_int_val)
 
 private:
     friend class InPredicateBenchmark;

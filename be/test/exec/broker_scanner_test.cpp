@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -25,6 +27,7 @@
 #include "runtime/tuple.h"
 #include "exec/local_file_reader.h"
 #include "runtime/descriptors.h"
+#include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/lib_cache.h"
 #include "gen_cpp/Descriptors_types.h"
@@ -38,6 +41,7 @@ public:
     BrokerScannerTest() : _runtime_state("BrokerScannerTest") {
         init();
         _profile = _runtime_state.runtime_profile();
+        _runtime_state._instance_mem_tracker.reset(new MemTracker());
     }
     void init();
 
@@ -55,6 +59,7 @@ private:
     void init_desc_table();
     void init_params();
 
+    MemTracker _tracker;
     RuntimeState _runtime_state;
     RuntimeProfile* _profile;
     ObjectPool _obj_pool;
@@ -356,7 +361,7 @@ TEST_F(BrokerScannerTest, normal) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    MemPool tuple_pool(_runtime_state.instance_mem_tracker());
+    MemPool tuple_pool(&_tracker);
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
     // 1,2,3
@@ -408,7 +413,8 @@ TEST_F(BrokerScannerTest, normal2) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    MemPool tuple_pool(_runtime_state.instance_mem_tracker());
+    MemTracker tracker;
+    MemPool tuple_pool(&tracker);
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
     // 1,2,3
@@ -454,7 +460,8 @@ TEST_F(BrokerScannerTest, normal3) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    MemPool tuple_pool(_runtime_state.instance_mem_tracker());
+    MemTracker tracker;
+    MemPool tuple_pool(&tracker);
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
     // 1,2,3
@@ -501,7 +508,8 @@ TEST_F(BrokerScannerTest, normal4) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    MemPool tuple_pool(_runtime_state.instance_mem_tracker());
+    MemTracker tracker;
+    MemPool tuple_pool(&tracker);
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
     // 1,2,3
@@ -532,7 +540,8 @@ TEST_F(BrokerScannerTest, normal5) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    MemPool tuple_pool(_runtime_state.instance_mem_tracker());
+    MemTracker tracker;
+    MemPool tuple_pool(&tracker);
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
     // end of file
@@ -556,7 +565,8 @@ TEST_F(BrokerScannerTest, normal6) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    MemPool tuple_pool(_runtime_state.instance_mem_tracker());
+    MemTracker tracker;
+    MemPool tuple_pool(&tracker);
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
     // 4,5,6
@@ -587,7 +597,8 @@ TEST_F(BrokerScannerTest, normal7) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    MemPool tuple_pool(_runtime_state.instance_mem_tracker());
+    MemTracker tracker;
+    MemPool tuple_pool(&tracker);
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
     // end of file
@@ -611,7 +622,8 @@ TEST_F(BrokerScannerTest, normal8) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    MemPool tuple_pool(_runtime_state.instance_mem_tracker());
+    MemTracker tracker;
+    MemPool tuple_pool(&tracker);
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
     // 4,5,6
@@ -642,7 +654,8 @@ TEST_F(BrokerScannerTest, normal9) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    MemPool tuple_pool(_runtime_state.instance_mem_tracker());
+    MemTracker tracker;
+    MemPool tuple_pool(&tracker);
     Tuple* tuple = (Tuple*)tuple_pool.allocate(20);
     bool eof = false;
     // end of file
@@ -654,7 +667,7 @@ TEST_F(BrokerScannerTest, normal9) {
 } // end namespace palo
 
 int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
+    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     // if (!palo::config::init(conffile.c_str(), false)) {
     //     fprintf(stderr, "error read config file. \n");
     //     return -1;

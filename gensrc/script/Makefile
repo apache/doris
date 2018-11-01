@@ -1,6 +1,3 @@
-# Modifications copyright (C) 2017, Baidu.com, Inc.
-# Copyright 2017 The Apache Software Foundation
-
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -21,8 +18,6 @@
 # generate files with python
 
 BUILD_DIR = ${CURDIR}/../build/
-
-PYTHON=python
 
 # Prerequisites on the right side of '|' is only order
 all: gen_opcode gen_version gen_builtins
@@ -52,15 +47,15 @@ gen_vec_func: ${GEN_VEC_FUNC_OUTPUT}
 # generate opcode
 GEN_OPCODE_OUTPUT = ${BUILD_DIR}/thrift/Opcodes.thrift \
                     ${BUILD_DIR}/gen_cpp/opcode/opcode-registry-init.cc \
-                    ${BUILD_DIR}/java/com/baidu/palo/opcode/FunctionRegistry.java \
-                    ${BUILD_DIR}/java/com/baidu/palo/opcode/FunctionOperator.java
+                    ${BUILD_DIR}/java/org/apache/doris/opcode/FunctionRegistry.java \
+                    ${BUILD_DIR}/java/org/apache/doris/opcode/FunctionOperator.java
 
 ${GEN_OPCODE_OUTPUT}: palo_functions.py ${GEN_FUNC_OUTPUT} ${GEN_VEC_FUNC_OUTPUT} | ${BUILD_DIR}/python
 gen_opcode: ${GEN_OPCODE_OUTPUT}
 .PHONY: gen_opcode
 
 # generate 
-GEN_BUILTINS_OUTPUT = ${BUILD_DIR}/java/com/baidu/palo/builtins/ScalarBuiltins.java
+GEN_BUILTINS_OUTPUT = ${BUILD_DIR}/java/org/apache/doris/builtins/ScalarBuiltins.java
 
 ${GEN_BUILTINS_OUTPUT}: palo_builtins_functions.py gen_builtins_functions.py
 	cd ${BUILD_DIR}/python && ${PYTHON} ${CURDIR}/gen_builtins_functions.py
@@ -68,7 +63,7 @@ gen_builtins: ${GEN_BUILTINS_OUTPUT}
 .PHONY: gen_builtins
 
 # generate version info
-VERSION_OUTPUT = ${BUILD_DIR}/java/com/baidu/palo/common/Version.java
+VERSION_OUTPUT = ${BUILD_DIR}/java/org/apache/doris/common/Version.java
 
 gen_version:
 	${CURDIR}/gen_build_version.sh

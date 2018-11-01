@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -29,7 +31,7 @@ namespace palo {
 namespace column_file {
 
 static const uint64_t DEFAULT_SEED = 104729;
-static const uint64_t BLOOM_FILTER_NULL_HASHCODE = 2862933555777941757L;
+static const uint64_t BLOOM_FILTER_NULL_HASHCODE = 2862933555777941757ULL;
 
 struct BloomFilterIndexHeader {
     uint64_t block_count;
@@ -72,12 +74,12 @@ public:
 
     // Set the bit specified by param, note that uint64_t type contains 2^6 bits
     void set(uint32_t index) {
-        _data[index >> 6] |= 1L << index;
+        _data[index >> 6] |= 1L << (index % 64);
     }
 
     // Return true if the bit specified by param is set
     bool get(uint32_t index) const {
-        return (_data[index >> 6] & (1L << index)) != 0;
+        return (_data[index >> 6] & (1L << (index % 64))) != 0;
     }
 
     // Merge with another BitSet by byte, return false when the length is not equal
@@ -175,7 +177,7 @@ public:
         uint32_t hash2 = (uint32_t) (hash >> 32);
 
         for (uint32_t i = 0; i < _hash_function_num; ++i) {
-            uint32_t combine_hash = hash1 + hash2 * i;
+            uint64_t combine_hash = hash1 + hash2 * i;
             uint32_t index = combine_hash % _bit_num;
             _bit_set.set(index);
         }
@@ -194,7 +196,7 @@ public:
         uint32_t hash2 = (uint32_t) (hash >> 32);
 
         for (uint32_t i = 0; i < _hash_function_num; ++i) {
-            uint32_t combine_hash = hash1 + hash2 * i;
+            uint64_t combine_hash = hash1 + hash2 * i;
             uint32_t index = combine_hash % _bit_num;
             if (!_bit_set.get(index)) {
                 return false;

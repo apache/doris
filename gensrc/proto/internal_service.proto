@@ -1,0 +1,166 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+syntax="proto2";
+
+package palo;
+
+import "data.proto";
+import "descriptors.proto";
+import "status.proto";
+import "types.proto";
+
+option cc_generic_services = true;
+
+// Transmit data when process SQL query
+message PTransmitDataParams {
+    // non-change member
+    required PUniqueId finst_id = 1;
+    required int32 node_id = 2;
+    // Id of this fragment in its role as a sender.
+    required int32 sender_id = 3;
+    required int32 be_number = 4;
+
+    // if set to true, indicates that no more row batches will be sent
+    // for this dest_node_id
+    required bool eos = 5;
+    optional PRowBatch row_batch = 6;
+    // different per packet
+    required int64 packet_seq = 7;
+};
+
+message PTransmitDataResult {
+    optional PStatus status = 1;
+};
+
+message PTabletWithPartition {
+    required int64 partition_id = 1;
+    required int64 tablet_id = 2;
+}
+
+message PTabletInfo {
+    required int64 tablet_id = 1;
+    required int32 schema_hash = 2;
+}
+
+// open a tablet writer
+message PTabletWriterOpenRequest {
+    required PUniqueId id = 1;
+    required int64 index_id = 2;
+    required int64 txn_id = 3;
+    required POlapTableSchemaParam schema = 4;
+    repeated PTabletWithPartition tablets = 5;
+    required int32 num_senders = 6;
+    required bool need_gen_rollup = 7;
+};
+
+message PTabletWriterOpenResult {
+    required PStatus status = 1;
+};
+
+// add batch to tablet writer
+message PTabletWriterAddBatchRequest {
+    required PUniqueId id = 1;
+    required int64 index_id = 2;
+    required int32 sender_id = 3;
+
+    // If this is the last batch from this sender
+    optional bool eos = 4;
+
+    required int64 packet_seq = 5;
+    repeated int64 tablet_ids = 6;
+    // unset if and only if when eos is true
+    optional PRowBatch row_batch = 7;
+    // only valid when eos is true
+    // valid partition ids that would write in this writer
+    repeated int64 partition_ids = 8;
+};
+
+message PTabletWriterAddBatchResult {
+    required PStatus status = 1;
+    repeated PTabletInfo tablet_vec = 2;
+};
+
+// tablet writer cancel
+message PTabletWriterCancelRequest {
+    required PUniqueId id = 1;
+    required int64 index_id = 2;
+    required int32 sender_id = 3;
+};
+
+message PTabletWriterCancelResult {
+};
+
+message PExecPlanFragmentRequest {
+};
+
+message PExecPlanFragmentResult {
+    required PStatus status = 1;
+};
+
+message PCancelPlanFragmentRequest {
+    required PUniqueId finst_id = 1;
+};
+
+message PCancelPlanFragmentResult {
+    required PStatus status = 1;
+};
+
+message PFetchDataRequest {
+    required PUniqueId finst_id = 1;
+};
+
+message PFetchDataResult {
+    required PStatus status = 1;
+    // valid when status is ok
+    optional int64 packet_seq = 2;
+    optional bool eos = 3;
+};
+
+message PFetchFragmentExecInfoRequest {
+    repeated PUniqueId finst_id = 1;
+};
+
+enum PFragmentExecStatus {
+    RUNNING = 0;
+    WAIT = 1;
+    FINISHED = 2;
+}
+
+message PFragmentExecInfo {
+    required PUniqueId finst_id = 1;
+    required int32 exec_status = 2;
+    optional int32 plan_node_type = 3;  // same as TPlanNodeType
+    optional int64 rows_count = 4;
+}
+
+message PFetchFragmentExecInfosResult {
+    required PStatus status = 1;
+    repeated PFragmentExecInfo fragment_exec_info = 2;
+}
+
+service PInternalService {
+    rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
+    rpc exec_plan_fragment(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
+    rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
+    rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
+    rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
+    rpc tablet_writer_add_batch(PTabletWriterAddBatchRequest) returns (PTabletWriterAddBatchResult);
+    rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);
+    rpc fetch_fragment_exec_infos(PFetchFragmentExecInfoRequest) returns (PFetchFragmentExecInfosResult);
+};
+

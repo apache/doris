@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -49,7 +51,6 @@ void UserResourceListener::handle_update(const TAgentServiceVersion::type& proto
     if (updates.size() > 0) {
         int64_t new_version = updates[0].int_value;
         // Async call to update users resource method
-        LOG(INFO) << "Latest version for master is  " << new_version;
         std::async(std::launch::async, 
                    &UserResourceListener::update_users_resource, 
                    this, new_version);
@@ -60,8 +61,6 @@ void UserResourceListener::update_users_resource(int64_t new_version) {
     if (new_version <= _cgroups_mgr.get_cgroups_version()) {
         return;
     }
-    LOG(INFO) << "New version " << new_version 
-        << " is bigger than older version " << _cgroups_mgr.get_cgroups_version();
     // Call fe to get latest user resource
     Status master_status;
     // using 500ms as default timeout value    
@@ -78,9 +77,7 @@ void UserResourceListener::update_users_resource(int64_t new_version) {
     }
     try {
         try {
-            LOG(INFO) << "Call master to get resource";
             client->fetchResource(new_fetched_resource);
-            LOG(INFO) << "Call master to get resource successfully";   
         } catch (TTransportException& e) {
             // reopen the client and set timeout to 500ms
             master_status = client.reopen(500);
@@ -102,7 +99,6 @@ void UserResourceListener::update_users_resource(int64_t new_version) {
             << e.what();
         return;
     }
-    LOG(INFO) << "Begin to update user's cgroups resource";
     _cgroups_mgr.update_local_cgroups(new_fetched_resource); 
 }
 }

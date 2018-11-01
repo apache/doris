@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-
-# Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
 #
 #   http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -18,7 +19,18 @@
 curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
 
-pidfile=$curdir/be.pid
+export DORIS_HOME=`cd "$curdir/.."; pwd`
+export PID_DIR=`cd "$curdir"; pwd`
+
+while read line; do
+    envline=`echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*="`
+    envline=`eval "echo $envline"`
+    if [[ $envline == *"="* ]]; then
+        eval 'export "$envline"'
+    fi
+done < $DORIS_HOME/conf/be.conf
+
+pidfile=$PID_DIR/be.pid
 
 if [ -f $pidfile ]; then
     pid=`cat $pidfile`
@@ -28,10 +40,7 @@ if [ -f $pidfile ]; then
         exit 1
     fi
 
-    if flock -nx $pidfile -c "ls > /dev/null 2>&1"; then
-        echo "Backend already exit, remove pid file. "
-        rm $pidfile
-    else
+    if kill -0 $pid; then
         if kill -9 $pid > /dev/null 2>&1; then
             echo "stop $pidcomm, and remove pid file. "
             rm $pidfile
@@ -39,6 +48,9 @@ if [ -f $pidfile ]; then
         else
             exit 1
         fi
+    else
+        echo "Backend already exit, remove pid file. "
+        rm $pidfile
     fi
 else
     echo "$pidfile does not exist"

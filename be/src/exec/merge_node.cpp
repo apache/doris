@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -41,8 +38,8 @@ MergeNode::MergeNode(ObjectPool* pool, const TPlanNode& tnode,
         _child_row_idx(0) {
 }
 
-Status MergeNode::init(const TPlanNode& tnode) {
-    RETURN_IF_ERROR(ExecNode::init(tnode));
+Status MergeNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::init(tnode, state));
     DCHECK(tnode.__isset.merge_node);
     // Create _const_expr_lists from thrift exprs.
     const vector<vector<TExpr> >& const_texpr_lists = tnode.merge_node.const_expr_lists;

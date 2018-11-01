@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -116,6 +113,51 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
             scalar_type.__set_precision(precision);
             scalar_type.__set_scale(scale);
         }
+    }
+}
+
+void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
+    DCHECK(!is_complex_type()) << "Don't support complex type now, type=" << type;
+    auto node = ptype->add_types();
+    node->set_type(TTypeNodeType::SCALAR);
+    auto scalar_type = node->mutable_scalar_type();
+    scalar_type->set_type(palo::to_thrift(type));
+    if (type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_HLL) {
+        scalar_type->set_len(len);
+    } else if (type == TYPE_DECIMAL) {
+        DCHECK_NE(precision, -1);
+        DCHECK_NE(scale, -1);
+        scalar_type->set_precision(precision);
+        scalar_type->set_scale(scale);
+    }
+}
+
+TypeDescriptor::TypeDescriptor(
+        const google::protobuf::RepeatedPtrField<PTypeNode>& types,
+        int* idx)
+        : len(-1), precision(-1), scale(-1) {
+    DCHECK_GE(*idx, 0);
+    DCHECK_LT(*idx, types.size());
+
+    const PTypeNode& node = types.Get(*idx);
+    switch (node.type()) {
+    case TTypeNodeType::SCALAR: {
+        DCHECK(node.has_scalar_type());
+        const PScalarType& scalar_type = node.scalar_type();
+        type = thrift_to_type((TPrimitiveType::type)scalar_type.type());
+        if (type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_HLL) {
+            DCHECK(scalar_type.has_len());
+            len = scalar_type.len();
+        } else if (type == TYPE_DECIMAL) {
+            DCHECK(scalar_type.has_precision());
+            DCHECK(scalar_type.has_scale());
+            precision = scalar_type.precision();
+            scale = scalar_type.scale();
+        }
+        break;
+    }
+    default:
+        DCHECK(false) << node.type();
     }
 }
 

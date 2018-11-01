@@ -1,6 +1,3 @@
-# Modifications copyright (C) 2017, Baidu.com, Inc.
-# Copyright 2017 The Apache Software Foundation
-
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -26,62 +23,80 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 
+set(EXEC_FILES
+    aggregation_node.cpp
+    #pre_aggregation_node.cpp
+    aggregation_node_ir.cpp
+    analytic_eval_node.cpp
+    blocking_join_node.cpp
+    broker_scan_node.cpp
+    broker_reader.cpp
+    broker_scanner.cpp
+    cross_join_node.cpp
+    data_sink.cpp
+    decompressor.cpp
+    empty_set_node.cpp
+    exec_node.cpp
+    exchange_node.cpp
+    hash_join_node.cpp
+    hash_join_node_ir.cpp
+    hash_table.cpp
+    local_file_reader.cpp
+    merge_node.cpp
+    merge_join_node.cpp
+    scan_node.cpp
+    select_node.cpp
+    text_converter.cpp
+    topn_node.cpp
+    sort_exec_exprs.cpp
+    sort_node.cpp
+    olap_rewrite_node.cpp
+    olap_scan_node.cpp
+    olap_scanner.cpp
+    olap_meta_reader.cpp
+    olap_common.cpp
+    olap_table_info.cpp
+    olap_table_sink.cpp
+    plain_text_line_reader.cpp
+    mysql_scan_node.cpp
+    mysql_scanner.cpp
+    csv_scan_node.cpp
+    csv_scanner.cpp
+    spill_sort_node.cc
+    union_node.cpp
+    union_node_ir.cpp
+    schema_scanner.cpp
+    schema_scan_node.cpp
+    schema_scanner/schema_tables_scanner.cpp
+    schema_scanner/schema_dummy_scanner.cpp
+    schema_scanner/schema_schemata_scanner.cpp
+    schema_scanner/schema_variables_scanner.cpp
+    schema_scanner/schema_columns_scanner.cpp
+    schema_scanner/schema_charsets_scanner.cpp
+    schema_scanner/schema_collations_scanner.cpp
+    schema_scanner/frontend_helper.cpp
+    partitioned_hash_table.cc
+    partitioned_hash_table_ir.cc
+    partitioned_aggregation_node.cc
+    partitioned_aggregation_node_ir.cc
+    new_partitioned_hash_table.cc
+    new_partitioned_hash_table_ir.cc
+    new_partitioned_aggregation_node.cc
+    new_partitioned_aggregation_node_ir.cc
+    local_file_writer.cpp
+    broker_writer.cpp
+)
+
+if(EXISTS "${BASE_DIR}/src/exec/kudu_util.cpp")
+    set(EXEC_FILES ${EXEC_FILES}
+        #kudu_scan_node.cpp
+        #kudu_scanner.cpp
+        #kudu_util.cpp
+    )
+endif()
+
 add_library(Exec STATIC
-  aggregation_node.cpp
-  #pre_aggregation_node.cpp
-  aggregation_node_ir.cpp
-  analytic_eval_node.cpp
-  blocking_join_node.cpp
-  broker_scan_node.cpp
-  broker_reader.cpp
-  broker_scanner.cpp
-  cross_join_node.cpp
-  data_sink.cpp
-  decompressor.cpp
-  empty_set_node.cpp
-  exec_node.cpp
-  exchange_node.cpp
-  hash_join_node.cpp
-  hash_join_node_ir.cpp
-  hash_table.cpp
-  local_file_reader.cpp
-  merge_node.cpp
-  merge_join_node.cpp
-  scan_node.cpp
-  select_node.cpp
-  text_converter.cpp
-  topn_node.cpp
-  sort_exec_exprs.cpp
-  sort_node.cpp
-  olap_rewrite_node.cpp
-  olap_scan_node.cpp
-  olap_scanner.cpp
-  olap_meta_reader.cpp
-  olap_common.cpp
-  plain_text_line_reader.cpp
-  mysql_scan_node.cpp
-  mysql_scanner.cpp
-  csv_scan_node.cpp
-  csv_scanner.cpp
-  spill_sort_node.cc
-  union_node.cpp
-  union_node_ir.cpp
-  schema_scanner.cpp
-  schema_scan_node.cpp
-  schema_scanner/schema_tables_scanner.cpp
-  schema_scanner/schema_dummy_scanner.cpp
-  schema_scanner/schema_schemata_scanner.cpp
-  schema_scanner/schema_variables_scanner.cpp
-  schema_scanner/schema_columns_scanner.cpp
-  schema_scanner/schema_charsets_scanner.cpp
-  schema_scanner/schema_collations_scanner.cpp
-  schema_scanner/frontend_helper.cpp
-  partitioned_hash_table.cc
-  partitioned_hash_table_ir.cc
-  partitioned_aggregation_node.cc
-  partitioned_aggregation_node_ir.cc
-  local_file_writer.cpp
-  broker_writer.cpp
+    ${EXEC_FILES}
 )
 
 # TODO: why is this test disabled?

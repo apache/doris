@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -44,27 +41,27 @@ public:
 
     // Prepare conjuncts, create Schema columns to slots mapping
     // initialize _schema_scanner
-    virtual Status init(const TPlanNode& tnode);
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
     // Prepare conjuncts, create Schema columns to slots mapping
     // initialize _schema_scanner
-    virtual Status prepare(RuntimeState* state);
+    Status prepare(RuntimeState* state) override;
 
     // Start Schema scan using _schema_scanner.
-    virtual Status open(RuntimeState* state);
+    Status open(RuntimeState* state) override;
 
     // Fill the next row batch by calling next() on the _schema_scanner,
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
+    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
 
     // Close the _schema_scanner, and report errors.
-    virtual Status close(RuntimeState* state);
+    Status close(RuntimeState* state) override;
 
     // this is no use in this class
-    virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges);
+    Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
 private:
     // Write debug string of this into out.
-    virtual void debug_string(int indentation_level, std::stringstream* out) const;
+    void debug_string(int indentation_level, std::stringstream* out) const override;
     // Copy one row from schema table to input tuple
     void copy_one_row();
 

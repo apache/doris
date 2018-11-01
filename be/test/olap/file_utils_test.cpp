@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -38,14 +40,14 @@ namespace palo {
 class FileUtilsTest : public testing::Test {
 public:
     // create a mock cgroup folder 
-    static void SetUpTestCase() {
+    virtual void SetUp() {
         ASSERT_FALSE(boost::filesystem::exists(_s_test_data_path));
         // create a mock cgroup path
         ASSERT_TRUE(boost::filesystem::create_directory(_s_test_data_path));
     }
 
     // delete the mock cgroup folder
-    static void TearDownTestCase() {
+    virtual void TearDown() {
         ASSERT_TRUE(boost::filesystem::remove_all(_s_test_data_path));
     }
     
@@ -68,7 +70,7 @@ TEST_F(FileUtilsTest, TestCopyFile) {
     char* large_bytes2[(1 << 12)];
     memset(large_bytes2, 0, sizeof(char)*((1 << 12)));
     int i = 0;
-    while (i < 1 << 19) {
+    while (i < 1 << 10) {
         src_file_handler.write(large_bytes2, ((1 << 12)));
         ++i;
     }
@@ -80,13 +82,18 @@ TEST_F(FileUtilsTest, TestCopyFile) {
     FileHandler dst_file_handler;
     dst_file_handler.open(dst_file_name, O_RDONLY);
     int64_t dst_length = dst_file_handler.length();
-    int64_t src_length = 2147483661;
+    int64_t src_length = 4194317;
     ASSERT_EQ(src_length, dst_length);
 }
 
 }  // namespace palo
 
 int main(int argc, char **argv) {
+    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
+    if (!palo::config::init(conffile.c_str(), false)) {
+        fprintf(stderr, "error read config file. \n");
+        return -1;
+    }
     palo::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

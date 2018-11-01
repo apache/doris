@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -56,6 +53,7 @@ public:
     virtual StringVal get_string_val(ExprContext* context, TupleRow* row);
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row);
     virtual DecimalVal get_decimal_val(ExprContext* context, TupleRow* row);
+    virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 
     virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
 
@@ -84,6 +82,7 @@ public:
     virtual StringVal get_string_val(ExprContext* context, TupleRow* row);
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row);
     // virtual DecimalVal get_decimal_val(ExprContext* context, TupleRow* row);
+    virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 
     virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual std::string debug_string() const { 
@@ -111,6 +110,7 @@ public:
     virtual StringVal get_string_val(ExprContext* context, TupleRow* row);
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row);
     virtual DecimalVal get_decimal_val(ExprContext* context, TupleRow* row);
+    virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 
     virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual std::string debug_string() const { 
@@ -139,6 +139,7 @@ public:
     virtual StringVal get_string_val(ExprContext* context, TupleRow* row);
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row);
     virtual DecimalVal get_decimal_val(ExprContext* context, TupleRow* row);
+    virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 
     virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual std::string debug_string() const { return Expr::debug_string("CoalesceExpr"); }

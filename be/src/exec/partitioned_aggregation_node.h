@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -104,7 +101,7 @@ public:
     // a null dtor to pass codestyle check
     virtual ~PartitionedAggregationNode() {}
 
-    virtual Status init(const TPlanNode& tnode);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
     virtual Status prepare(RuntimeState* state);
     virtual Status open(RuntimeState* state);
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
@@ -469,12 +466,6 @@ private:
     // compiled functions with codegen'd ones.
     // Assumes AGGREGATED_ROWS = false.
     llvm::Function* codegen_process_batch();
-
-    // Functions to instantiate templated versions of process_batch().
-    // The xcompiled versions of these functions are used in codegen_process_batch().
-    // TODO: is there a better way to do this?
-    Status process_batch_false(RowBatch* batch, PartitionedHashTableCtx* ht_ctx);
-    Status process_batch_true(RowBatch* batch, PartitionedHashTableCtx* ht_ctx);
 
     // We need two buffers per partition, one for the aggregated stream and one
     // for the unaggregated stream. We need an additional buffer to read the stream

@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-
-# Modifications copyright (C) 2017, Baidu.com, Inc.
-# Copyright 2017 The Apache Software Foundation
-
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -20,13 +16,16 @@
 # specific language governing permissions and limitations
 # under the License.
 
+####################################################################
+# This script is used to build Doris used in Baidu
+
 ##############################################################
 # the script generates src/be/src/common/version.h and 
-# src/fe/src/com/cloudera/PALO/common/Version.java which 
+# fe/src/main/java/org/apache/doris/common/Version.java which 
 # contains the build version based on the git hash or svn revision.
 ##############################################################
 
-build_version="0.8.0"
+build_version="3.3-branch"
 
 unset LANG
 unset LC_CTYPE
@@ -37,22 +36,22 @@ hostname=`hostname`
 
 cwd=`pwd`
 
-if [ -z ${PALO_HOME+x} ]
+if [ -z ${DORIS_HOME+x} ]
 then
     ROOT=`dirname "$0"`
     ROOT=`cd "$ROOT"; pwd`
-    PALO_HOME=${ROOT}/../..
-    echo "PALO_HOME: ${PALO_HOME}"
+    DORIS_HOME=${ROOT}/../..
+    echo "DORIS_HOME: ${DORIS_HOME}"
 fi
 
-if [[ ${RUN_BE_TEST} == 1 ]]; then
-    if [ -e ${PALO_HOME}/gensrc/build/java/com/baidu/palo/common/Version.java \
-         -a -e ${PALO_HOME}/gensrc/build/gen_cpp/version.h ]; then
+if [[ -z ${PALO_TEST_BINARY_DIR} ]]; then
+    if [ -e ${DORIS_HOME}/gensrc/build/java/org/apache/doris/common/Version.java \
+         -a -e ${DORIS_HOME}/gensrc/build/gen_cpp/version.h ]; then
         exit
     fi
 fi
 
-cd ${PALO_HOME}
+cd ${DORIS_HOME}
 if [ -d .svn ]; then
     revision=`svn info | sed -n -e 's/Last Changed Rev: \(.*\)/\1/p'`
     url=`svn info | sed -n -e 's/^URL: \(.*\)/\1/p'`
@@ -62,10 +61,10 @@ if [ -d .svn ]; then
     fi
 elif [ -d .git ]; then
     revision=`git log -1 --pretty=format:"%H"`
-    url="git://${hostname}${PALO_HOME}"
+    url="git://${hostname}${DORIS_HOME}"
 else
     revision="Unknown"
-    url="file://${PALO_HOME}"
+    url="file://${DORIS_HOME}"
 fi
 
 cd ${cwd}
@@ -74,12 +73,9 @@ build_hash="${url}@${revision}"
 build_time="${date}"
 build_info="${user}@${hostname}"
 
-VERSION_PACKAGE="${PALO_HOME}/gensrc/build/java/com/baidu/palo/common"
+VERSION_PACKAGE="${DORIS_HOME}/gensrc/build/java/org/apache/doris/common"
 mkdir -p ${VERSION_PACKAGE}
 cat >"${VERSION_PACKAGE}/Version.java" <<EOF
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -97,11 +93,11 @@ cat >"${VERSION_PACKAGE}/Version.java" <<EOF
 // specific language governing permissions and limitations
 // under the License.
 
-package com.baidu.palo.common;
+package org.apache.doris.common;
 
 // This is a generated file, DO NOT EDIT IT.
 // To change this file, see palo/src/common/version-info
-// the file should be placed in src/java/com/baidu/palo/common/Version.java
+// the file should be placed in src/java/org/apache/doris/common/Version.java
 
 public class Version {
 
@@ -120,12 +116,9 @@ public class Version {
 }
 EOF
 
-GEN_CPP_DIR=${PALO_HOME}/gensrc/build/gen_cpp/
+GEN_CPP_DIR=${DORIS_HOME}/gensrc/build/gen_cpp/
 mkdir -p ${GEN_CPP_DIR}
 cat >"${GEN_CPP_DIR}/version.h" <<EOF
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information

@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -163,23 +160,27 @@ StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const LargeInt
     return AnyValUtil::from_buffer_temp(ctx, d, len);
 }
 
-
 #define CAST_FLOAT_TO_STRING(float_type, format) \
-    StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const float_type& val) { \
-        if (val.is_null) return StringVal::null(); \
-        /* val.val could be -nan, return "nan" instead */ \
-        if (std::isnan(val.val)) return StringVal("nan"); \
-        /* Add 1 to MAX_FLOAT_CHARS since snprintf adds a trailing '\0' */ \
-        StringVal sv = StringVal::create_temp_string_val(ctx, MAX_FLOAT_CHARS + 1); \
-        sv.len = my_gcvt(val.val, format, MAX_FLOAT_CHARS, (char*)sv.ptr, NULL); \
-        return sv; \
-    }
+  StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const float_type& val) { \
+    if (val.is_null) return StringVal::null(); \
+    /* val.val could be -nan, return "nan" instead */ \
+    if (std::isnan(val.val)) return StringVal("nan"); \
+    /* Add 1 to MAX_FLOAT_CHARS since snprintf adds a trailing '\0' */ \
+    StringVal sv(ctx, MAX_FLOAT_CHARS + 1); \
+    if (UNLIKELY(sv.is_null)) { \
+      return sv; \
+    } \
+    sv.len = snprintf(reinterpret_cast<char*>(sv.ptr), sv.len, format, val.val); \
+    DCHECK_GT(sv.len, 0); \
+    DCHECK_LE(sv.len, MAX_FLOAT_CHARS); \
+    return sv; \
+  }
 
 // Floats have up to 9 significant digits, doubles up to 17
 // (see http://en.wikipedia.org/wiki/Single-precision_floating-point_format
 // and http://en.wikipedia.org/wiki/Double-precision_floating-point_format)
-CAST_FLOAT_TO_STRING(FloatVal, MY_GCVT_ARG_FLOAT);
-CAST_FLOAT_TO_STRING(DoubleVal, MY_GCVT_ARG_DOUBLE);
+CAST_FLOAT_TO_STRING(FloatVal, "%.9g");
+CAST_FLOAT_TO_STRING(DoubleVal, "%.17g");
 
 StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const DateTimeVal& val) {
     if (val.is_null) {

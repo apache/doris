@@ -1,8 +1,10 @@
-# Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
 #
 #   http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -22,6 +24,8 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/service")
 add_library(Service
     backend_options.cpp
     backend_service.cpp
+    brpc_service.cpp
+    internal_service.cpp
 )
 
 add_executable(palo_be
@@ -29,10 +33,10 @@ add_executable(palo_be
 )
 
 # This permits libraries loaded by dlopen to link to the symbols in the program.
-set_target_properties(palo_be PROPERTIES LINK_FLAGS -rdynamic)
+# set_target_properties(palo_be PROPERTIES LINK_FLAGS -pthread)
 
 target_link_libraries(palo_be
-    ${PALO_LINK_LIBS}
+    ${DORIS_LINK_LIBS}
 )
 
 install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)

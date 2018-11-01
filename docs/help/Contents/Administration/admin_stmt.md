@@ -1,19 +1,23 @@
 # ALTER SYSTEM
 ## description
 
-    该语句用于操作一个集群内的节点。（仅管理员使用！）
+    该语句用于操作一个系统内的节点。（仅管理员使用！）
     语法：
-        1) 增加节点
+        1) 增加节点(不使用多租户功能则按照此方法添加)
             ALTER SYSTEM ADD BACKEND "host:heartbeat_port"[,"host:heartbeat_port"...];
-        2) 删除节点
+        2) 增加空闲节点(即添加不属于任何cluster的BACKEND)
+            ALTER SYSTEM ADD FREE BACKEND "host:heartbeat_port"[,"host:heartbeat_port"...];
+        3) 增加节点到某个cluster
+            ALTER SYSTEM ADD BACKEND TO cluster_name "host:heartbeat_port"[,"host:heartbeat_port"...];
+        4) 删除节点
             ALTER SYSTEM DROP BACKEND "host:heartbeat_port"[,"host:heartbeat_port"...];
-        3) 节点下线
+        5) 节点下线
             ALTER SYSTEM DECOMMISSION BACKEND "host:heartbeat_port"[,"host:heartbeat_port"...];
-        4) 增加Broker
+        6) 增加Broker
             ALTER SYSTEM ADD BROKER broker_name "host:port"[,"host:port"...];
-        5) 减少Broker
+        7) 减少Broker
             ALTER SYSTEM DROP BROKER broker_name "host:port"[,"host:port"...];
-        6) 删除所有Broker
+        8) 删除所有Broker
             ALTER SYSTEM DROP ALL BROKER broker_name
         
     说明：
@@ -27,18 +31,21 @@
 
     1. 增加一个节点
         ALTER SYSTEM ADD BACKEND "host:port";
+
+    2. 增加一个空闲节点
+        ALTER SYSTEM ADD FREE BACKEND "host:port";
         
-    2. 删除两个节点
+    3. 删除两个节点
         ALTER SYSTEM DROP BACKEND "host1:port", "host2:port";
         
-    3. 下线两个节点
+    4. 下线两个节点
         ALTER SYSTEM DECOMMISSION BACKEND "host1:port", "host2:port";
 
-    4. 增加两个Hdfs Broker
+    5. 增加两个Hdfs Broker
         ALTER SYSTEM ADD BROKER hdfs "host1:port", "host2:port";
         
 ## keyword
-    ALTER,SYSTEM,BACKEND,BROKER
+    ALTER,SYSTEM,BACKEND,BROKER,FREE
 
 # CANCEL ALTER SYSTEM
 ## description
@@ -210,3 +217,12 @@
 
 ## keyword
     ENTER
+    
+# SHOW BACKENDS
+## description
+    该语句用于查看cluster内的节点
+    语法：
+        SHOW BACKENDS
+        
+## keyword
+    SHOW, BACKENDS

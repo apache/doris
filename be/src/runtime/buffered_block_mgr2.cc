@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -20,6 +17,7 @@
 
 #include "runtime/buffered_block_mgr2.h"
 
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
@@ -31,6 +29,7 @@
 #include "util/palo_metrics.h"
 #include "util/debug_util.h"
 #include "util/uid_util.h"
+#include "util/pretty_printer.h"
 
 using std::string;
 using std::stringstream;
@@ -218,7 +217,7 @@ BufferedBlockMgr2::BufferedBlockMgr2(RuntimeState* state, TmpFileMgr* tmp_file_m
     _unfullfilled_reserved_buffers(0),
     _total_pinned_buffers(0),
     _non_local_outstanding_writes(0),
-    _io_mgr(state->io_mgr()),
+    _io_mgr(state->exec_env()->disk_io_mgr()),
     _is_cancelled(false),
     _writes_issued(0) {
 }
@@ -250,7 +249,7 @@ Status BufferedBlockMgr2::create(
             // _s_query_to_block_mgrs[state->query_id()] = *block_mgr;
         }
     }
-    (*block_mgr)->init(state->io_mgr(), profile, parent, mem_limit);
+    (*block_mgr)->init(state->exec_env()->disk_io_mgr(), profile, parent, mem_limit);
     return Status::OK;
 }
 
@@ -796,9 +795,11 @@ Status BufferedBlockMgr2::write_unpinned_block(Block* block) {
     _bytes_written_counter->update(block->_valid_data_len);
     ++_writes_issued;
     if (_writes_issued == 1) {
+#if 0
         if (PaloMetrics::num_queries_spilled() != NULL) {
             PaloMetrics::num_queries_spilled()->increment(1);
         }
+#endif
     }
     return Status::OK;
 }

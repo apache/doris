@@ -1,6 +1,3 @@
-# Modifications copyright (C) 2017, Baidu.com, Inc.
-# Copyright 2017 The Apache Software Foundation
-
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -46,7 +43,7 @@ set(IR_DESC_GEN_OUTPUT
 
 add_custom_command(
     OUTPUT ${IR_DESC_GEN_OUTPUT}
-    COMMAND python ${CMAKE_CURRENT_SOURCE_DIR}/gen_ir_descriptions.py
+    COMMAND $ENV{PYTHON} ${CMAKE_CURRENT_SOURCE_DIR}/gen_ir_descriptions.py
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/gen_ir_descriptions.py
     COMMENT "Generating ir cross compile metadata."
     VERBATIM
@@ -70,7 +67,7 @@ add_custom_command(
   COMMAND ${LLVM_CLANG_EXECUTABLE} ${CLANG_IR_CXX_FLAGS} "-msse4.2" ${CLANG_INCLUDE_FLAGS} ${IR_INPUT_FILES} -o ${IR_SSE_TMP_OUTPUT_FILE}
   COMMAND ${LLVM_OPT_EXECUTABLE} --instnamer < ${IR_SSE_TMP_OUTPUT_FILE} > ${IR_SSE_OUTPUT_FILE}
   COMMAND rm ${IR_SSE_TMP_OUTPUT_FILE}
-  DEPENDS Util Exec Exprs Udf ${IR_INPUT_FILES}
+  DEPENDS Exprs Udf ${IR_INPUT_FILES}
 )
 
 # Compile without sse enabled.
@@ -79,7 +76,7 @@ add_custom_command(
   COMMAND ${LLVM_CLANG_EXECUTABLE} ${CLANG_IR_CXX_FLAGS} ${CLANG_INCLUDE_FLAGS} ${IR_INPUT_FILES} -o ${IR_NO_SSE_TMP_OUTPUT_FILE}
   COMMAND ${LLVM_OPT_EXECUTABLE} --instnamer < ${IR_NO_SSE_TMP_OUTPUT_FILE} > ${IR_NO_SSE_OUTPUT_FILE}
   COMMAND rm ${IR_NO_SSE_TMP_OUTPUT_FILE}
-  DEPENDS Util Exec Exprs Udf ${IR_INPUT_FILES}
+  DEPENDS Exprs Udf ${IR_INPUT_FILES}
 )
 
 add_custom_target(compile_to_ir_sse DEPENDS ${IR_SSE_OUTPUT_FILE})
@@ -88,18 +85,18 @@ add_custom_target(compile_to_ir_no_sse DEPENDS ${IR_NO_SSE_OUTPUT_FILE})
 # Convert LLVM bytecode to C array.
 add_custom_command(
   OUTPUT ${IR_SSE_C_FILE}
-  COMMAND $ENV{PALO_HOME}/gensrc/script/file2array.sh -n -v palo_sse_llvm_ir ${IR_SSE_OUTPUT_FILE} > ${IR_SSE_TMP_C_FILE}
+  COMMAND $ENV{DORIS_HOME}/gensrc/script/file2array.sh -n -v palo_sse_llvm_ir ${IR_SSE_OUTPUT_FILE} > ${IR_SSE_TMP_C_FILE}
   COMMAND mv ${IR_SSE_TMP_C_FILE} ${IR_SSE_C_FILE}
-  DEPENDS $ENV{PALO_HOME}/gensrc/script/file2array.sh
+  DEPENDS $ENV{DORIS_HOME}/gensrc/script/file2array.sh
   DEPENDS ${IR_SSE_OUTPUT_FILE}
 )
 
 # Convert LLVM bytecode to C array.
 add_custom_command(
   OUTPUT ${IR_NO_SSE_C_FILE}
-  COMMAND $ENV{PALO_HOME}/gensrc/script/file2array.sh -n -v palo_no_sse_llvm_ir ${IR_NO_SSE_OUTPUT_FILE} > ${IR_NO_SSE_TMP_C_FILE}
+  COMMAND $ENV{DORIS_HOME}/gensrc/script/file2array.sh -n -v palo_no_sse_llvm_ir ${IR_NO_SSE_OUTPUT_FILE} > ${IR_NO_SSE_TMP_C_FILE}
   COMMAND mv ${IR_NO_SSE_TMP_C_FILE} ${IR_NO_SSE_C_FILE}
-  DEPENDS $ENV{PALO_HOME}/gensrc/script/file2array.sh
+  DEPENDS $ENV{DORIS_HOME}/gensrc/script/file2array.sh
   DEPENDS ${IR_NO_SSE_OUTPUT_FILE}
 )
 

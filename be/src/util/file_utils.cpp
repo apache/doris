@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -22,15 +19,19 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 #include <dirent.h>
 
 #include <sstream>
 #include <algorithm>
+#include <iomanip>
 
 #include <boost/filesystem.hpp>
 #include <boost/system/error_code.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/trim.hpp>
+
+#include <openssl/md5.h>
 
 #include "olap/file_helper.h"
 #include "util/defer_op.h"
@@ -80,7 +81,10 @@ Status FileUtils::remove_all(const std::string& file_path) {
     return Status::OK;
 }
 
-Status FileUtils::scan_dir(const std::string& dir_path, std::vector<std::string>* files) {
+Status FileUtils::scan_dir(
+        const std::string& dir_path, std::vector<std::string>* files,
+        int64_t* file_count) {
+
     DIR* dir = opendir(dir_path.c_str());
     if (dir == nullptr) {
         char buf[64];
@@ -92,6 +96,7 @@ Status FileUtils::scan_dir(const std::string& dir_path, std::vector<std::string>
 
     struct dirent entry;
     struct dirent* result = nullptr;
+    int64_t count = 0;
     while (true) {
         int ret = readdir_r(dir, &entry, &result);
         if (ret != 0) {
@@ -108,8 +113,17 @@ Status FileUtils::scan_dir(const std::string& dir_path, std::vector<std::string>
         if (file_name == "." || file_name == "..") {
             continue; 
         }
-        files->push_back(file_name);
+
+        if (files != nullptr) {
+            files->emplace_back(std::move(file_name));
+        }
+        count++; 
     }
+
+    if (file_count != nullptr) {
+        *file_count = count;
+    }
+
     return Status::OK;
 }
 
@@ -213,6 +227,44 @@ Status FileUtils::copy_file(const std::string& src_path, const std::string& dest
         src_length -= to_read;
     }
     return Status::OK;
+}
+
+Status FileUtils::md5sum(const std::string& file, std::string* md5sum) {
+    int fd = open(file.c_str(), O_RDONLY);
+    if (fd < 0) {
+        return Status("failed to open file");
+    }
+    
+    struct stat statbuf;
+    if (fstat(fd, &statbuf) < 0) {
+        close(fd);
+        return Status("failed to stat file");
+    }
+    size_t file_len = statbuf.st_size;
+    void* buf = mmap(0, file_len, PROT_READ, MAP_SHARED, fd, 0);
+
+    unsigned char result[MD5_DIGEST_LENGTH];
+    MD5((unsigned char*) buf, file_len, result);
+    munmap(buf, file_len); 
+
+    std::stringstream ss;
+    for (int32_t i = 0; i < MD5_DIGEST_LENGTH; i++) {
+        ss << std::setfill('0') << std::setw(2) << std::hex << (int) result[i];
+    }
+    ss >> *md5sum;
+    
+    close(fd);
+    return Status::OK;
+}
+
+bool FileUtils::check_exist(const std::string& path) {
+    boost::system::error_code errcode;
+    bool exist = boost::filesystem::exists(path, errcode);
+    if (errcode != boost::system::errc::success && errcode != boost::system::errc::no_such_file_or_directory) {
+        LOG(WARNING) << "error when check path:" << path << ", error code:" << errcode;
+        return false;
+    }
+    return exist;
 }
 
 }

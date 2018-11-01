@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -19,7 +16,7 @@
 // under the License.
 
 namespace cpp palo
-namespace java com.baidu.palo.thrift
+namespace java org.apache.doris.thrift
 
 include "Status.thrift"
 include "Types.thrift"
@@ -54,6 +51,16 @@ struct TFetchAllPullLoadTaskInfosResult {
 
 struct TExportTaskRequest {
     1: required PaloInternalService.TExecPlanFragmentParams params
+}
+
+struct TTabletStat {
+    1: required i64 tablet_id
+    2: optional i64 data_size
+    3: optional i64 row_num
+}
+
+struct TTabletStatResult {
+    1: required map<i64, TTabletStat> tablets_stats
 }
 
 service BackendService {
@@ -110,4 +117,6 @@ service BackendService {
     PaloInternalService.TExportStatusResult get_export_status(1:Types.TUniqueId task_id);
 
     Status.TStatus erase_export_task(1:Types.TUniqueId task_id);
+
+    TTabletStatResult get_tablet_stat();
 }

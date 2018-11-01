@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -43,6 +45,7 @@ class TupleRow;
 class RowDescriptor;
 class MemTracker;
 class RuntimeProfile;
+class StreamLoadPipe;
 
 struct BrokerScanCounter {
     BrokerScanCounter() : num_rows_returned(0), num_rows_filtered(0) {
@@ -141,6 +144,7 @@ private:
     Tuple* _src_tuple;
     TupleRow* _src_tuple_row;
 
+    std::unique_ptr<MemTracker> _mem_tracker;
     // Mem pool used to allocate _src_tuple and _src_tuple_row
     MemPool _mem_pool;
 
@@ -148,7 +152,8 @@ private:
     const TupleDescriptor* _dest_tuple_desc;
     std::vector<ExprContext*> _dest_expr_ctx;
 
-    std::unique_ptr<MemTracker> _mem_tracker;
+    // used to hold current StreamLoadPipe
+    std::shared_ptr<StreamLoadPipe> _stream_load_pipe;
 
     // used for process stat
     BrokerScanCounter* _counter;

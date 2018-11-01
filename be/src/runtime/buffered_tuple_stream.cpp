@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -28,6 +25,7 @@
 #include "runtime/tuple_row.h"
 #include "util/bit_util.h"
 #include "util/debug_util.h"
+#include "util/pretty_printer.h"
 #include "common/status.h"
 
 namespace palo {
@@ -374,7 +372,7 @@ Status BufferedTupleStream::get_next_internal(RowBatch* batch, bool* eos,
                 continue;
             }
 
-            DCHECK_NOTNULL(tuple);
+            DCHECK(tuple != nullptr);
 
             for (int k = 0; k < _string_slots[j].second.size(); ++k) {
                 const SlotDescriptor* slot_desc = _string_slots[j].second[k];
@@ -423,7 +421,7 @@ int BufferedTupleStream::compute_row_size(TupleRow* row) const {
             continue;
         }
 
-        DCHECK_NOTNULL(tuple);
+        DCHECK(tuple != nullptr);
 
         for (int j = 0; j < _string_slots[i].second.size(); ++j) {
             const SlotDescriptor* slot_desc = _string_slots[i].second[j];

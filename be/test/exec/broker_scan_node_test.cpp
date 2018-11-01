@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -38,6 +40,7 @@ class BrokerScanNodeTest : public testing::Test {
 public:
     BrokerScanNodeTest() : _runtime_state("BrokerScanNodeTest") {
         init();
+        _runtime_state._instance_mem_tracker.reset(new MemTracker());
     }
     void init();
     static void SetUpTestCase() {
@@ -395,8 +398,9 @@ TEST_F(BrokerScanNodeTest, normal) {
     status = scan_node.open(&_runtime_state);
     ASSERT_TRUE(status.ok());
 
+    MemTracker tracker;
     // Get batch
-    RowBatch batch(scan_node.row_desc(), 1024, _runtime_state.instance_mem_tracker());
+    RowBatch batch(scan_node.row_desc(), _runtime_state.batch_size(), &tracker);
 
     bool eos = false;
     status = scan_node.get_next(&_runtime_state, &batch, &eos);
@@ -424,7 +428,7 @@ TEST_F(BrokerScanNodeTest, normal) {
 }
 
 int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
+    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     // if (!palo::config::init(conffile.c_str(), false)) {
     //     fprintf(stderr, "error read config file. \n");
     //     return -1;

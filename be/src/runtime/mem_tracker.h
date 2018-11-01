@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -28,9 +25,10 @@
 #include <unordered_map>
 
 #include "gen_cpp/Types_types.h"
-#include <util/palo_metrics.h>
+#include "util/metrics.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
+#include "common/status.h"
 
 namespace palo {
 
@@ -87,6 +85,13 @@ public:
 
     ~MemTracker();
 
+    /// Closes this MemTracker. After closing it is invalid to consume memory on this
+    /// tracker and the tracker's consumption counter (which may be owned by a
+    /// RuntimeProfile, not this MemTracker) can be safely destroyed. MemTrackers without
+    /// consumption metrics in the context of a daemon must always be closed.
+    /// Idempotent: calling multiple times has no effect.
+    void close();
+
     // Removes this tracker from _parent->_child_trackers.
     void unregister_from_parent() {
         DCHECK(_parent != NULL);
@@ -97,7 +102,7 @@ public:
 
     /// Include counters from a ReservationTracker in logs and other diagnostics.
     /// The counters should be owned by the fragment's RuntimeProfile.
-    void EnableReservationReporting(const ReservationTrackerCounters& counters);
+    void enable_reservation_reporting(const ReservationTrackerCounters& counters);
 
     /// Construct a MemTracker object for query 'id'. The query limits are determined based
     /// on 'query_options'. The MemTracker is a child of the request pool MemTracker for
@@ -130,7 +135,7 @@ public:
         }
         for (std::vector<MemTracker*>::iterator tracker = _all_trackers.begin();
              tracker != _all_trackers.end(); ++tracker) {
-            (*tracker)->_consumption->Add(bytes);
+            (*tracker)->_consumption->add(bytes);
             if ((*tracker)->_consumption_metric == NULL) {
                 DCHECK_GE((*tracker)->_consumption->current_value(), 0);
             }
@@ -147,7 +152,7 @@ public:
         for (int i = 0; i < _all_trackers.size(); ++i) {
             if (_all_trackers[i] == end_tracker) return;
             DCHECK(!_all_trackers[i]->has_limit());
-            _all_trackers[i]->_consumption->Add(bytes);
+            _all_trackers[i]->_consumption->add(bytes);
         }
         DCHECK(false) << "end_tracker is not an ancestor";
     }
@@ -170,13 +175,13 @@ public:
             MemTracker* tracker = _all_trackers[i];
             const int64_t limit = tracker->limit();
             if (limit < 0) {
-                tracker->_consumption->Add(bytes); // No limit at this tracker.
+                tracker->_consumption->add(bytes); // No limit at this tracker.
             } else {
                 // If TryConsume fails, we can try to GC, but we may need to try several times if
                 // there are concurrent consumers because we don't take a lock before trying to
                 // update _consumption.
                 while (true) {
-                    if (LIKELY(tracker->_consumption->TryAdd(bytes, limit))) break;
+                    if (LIKELY(tracker->_consumption->try_add(bytes, limit))) break;
 
                     VLOG_RPC << "TryConsume failed, bytes=" << bytes
                         << " consumption=" << tracker->_consumption->current_value()
@@ -185,7 +190,7 @@ public:
                         DCHECK_GE(i, 0);
                         // Failed for this mem tracker. Roll back the ones that succeeded.
                         for (int j = _all_trackers.size() - 1; j > i; --j) {
-                            _all_trackers[j]->_consumption->Add(-bytes);
+                            _all_trackers[j]->_consumption->add(-bytes);
                         }
                         return false;
                     }
@@ -213,7 +218,7 @@ public:
         }
         for (std::vector<MemTracker*>::iterator tracker = _all_trackers.begin();
              tracker != _all_trackers.end(); ++tracker) {
-            (*tracker)->_consumption->Add(-bytes);
+            (*tracker)->_consumption->add(-bytes);
             /// If a UDF calls FunctionContext::TrackAllocation() but allocates less than the
             /// reported amount, the subsequent call to FunctionContext::Free() may cause the
             /// process mem tracker to go negative until it is synced back to the tcmalloc
@@ -258,7 +263,7 @@ public:
     void RefreshConsumptionFromMetric() {
         DCHECK(_consumption_metric != nullptr);
         DCHECK(_parent == nullptr);
-        _consumption->Set(_consumption_metric->value());
+        _consumption->set(_consumption_metric->value());
     }
 
 
@@ -324,7 +329,7 @@ public:
 
     /// Register this MemTracker's metrics. Each key will be of the form
     /// "<prefix>.<metric name>".
-    void RegisterMetrics(MetricGroup* metrics, const std::string& prefix);
+    void RegisterMetrics(MetricRegistry* metrics, const std::string& prefix);
 
     /// Logs the usage of this tracker and all of its children (recursively).
     /// If 'logged_consumption' is non-NULL, sets the consumption value logged.
@@ -339,6 +344,8 @@ public:
     /// 'failed_allocation_size' is zero, nothing about the allocation size is logged.
     Status MemLimitExceeded(RuntimeState* state, const std::string& details,
             int64_t failed_allocation = 0);
+
+    static const int UNLIMITED_DEPTH = INT_MAX;
 
     static const std::string COUNTER_NAME;
 
@@ -373,6 +380,10 @@ public:
         return msg.str();
     }
 
+    bool is_consumption_metric_null() {
+        return _consumption_metric == nullptr;
+    }
+    
 private:
     friend class PoolMemTrackerRegistry;
 

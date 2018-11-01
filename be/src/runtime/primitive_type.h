@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -213,6 +210,13 @@ inline int get_slot_size(PrimitiveType type) {
     }
 
     return 0;
+}
+
+inline bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs) {
+    if (lhs == TYPE_CHAR || lhs == TYPE_VARCHAR || lhs == TYPE_HLL) {
+        return rhs == TYPE_CHAR || rhs == TYPE_VARCHAR || rhs == TYPE_HLL;
+    }
+    return lhs == rhs;
 }
 
 TExprOpcode::type to_in_opcode(PrimitiveType t);

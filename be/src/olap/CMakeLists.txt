@@ -1,8 +1,10 @@
-# Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
 #
 #   http://www.apache.org/licenses/LICENSE-2.0
 #
@@ -20,33 +22,45 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/olap")
   
 add_library(Olap STATIC
-    olap_reader.cpp
-    base_expansion_handler.cpp
-    command_executor.cpp
-    cumulative_handler.cpp
+    aggregate_func.cpp
+    base_compaction.cpp
+    comparison_predicate.cpp
+    cumulative_compaction.cpp
+    delta_writer.cpp
     delete_handler.cpp
     field.cpp
+    field_info.cpp
     file_helper.cpp
+    hll.cpp
     i_data.cpp
+    in_list_predicate.cpp
     lru_cache.cpp
-    olap_main.cpp
+    memtable.cpp
     merger.cpp
+    new_status.cpp
+    null_predicate.cpp
     olap_cond.cpp
     olap_data.cpp
     olap_engine.cpp
     olap_header.cpp
     olap_index.cpp
-    olap_rootpath.cpp
     olap_server.cpp
     olap_snapshot.cpp
+    options.cpp
+    store.cpp
     olap_table.cpp
     push_handler.cpp
     reader.cpp
     row_block.cpp
     row_cursor.cpp
+    rowset.cpp
     schema_change.cpp
+    types.cpp 
     utils.cpp
+    wrapper_field.cpp
     writer.cpp
+    olap_header_manager.cpp
+    olap_meta.cpp
     column_file/bit_field_reader.cpp
     column_file/bit_field_writer.cpp
     column_file/bloom_filter.hpp

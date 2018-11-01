@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -28,7 +30,7 @@
 // #include <ul_string.h>
 
 #include "olap/olap_engine.h"
-#include "olap/olap_index.h"
+#include "olap/rowset.h"
 #include "olap/olap_table.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
@@ -46,7 +48,7 @@ using std::vector;
 
 namespace palo {
 
-OLAPData::OLAPData(OLAPIndex* index) :
+OLAPData::OLAPData(Rowset* index) :
         IData(OLAP_DATA_FILE, index),
         _olap_table(NULL),
         _is_pickled(true),
@@ -74,11 +76,6 @@ OLAPStatus OLAPData::init() {
     return unpickle();
 }
 
-void OLAPData::set_conjuncts(std::vector<ExprContext*>* query_conjuncts, 
-                             std::vector<ExprContext*>* delete_conjuncts) {
-    _row_block_broker->set_conjuncts(query_conjuncts, delete_conjuncts);
-}
-
 OLAPStatus OLAPData::get_first_row_block(RowBlock** row_block,
                                      const char** packed_row_block,
                                      uint32_t* packed_row_block_size) {
@@ -101,11 +98,11 @@ OLAPStatus OLAPData::get_first_row_block(RowBlock** row_block,
         set_eof(true);
         return res;
     } else if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("Fail to find first row block with OLAPIndex.");
+        OLAP_LOG_WARNING("Fail to find first row block with Rowset.");
         return res;
     }
 
-    res = _row_block_broker->change_to(row_block_pos, _profile);
+    res = _row_block_broker->change_to(row_block_pos);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("Fail to get row block. "
                          "[segment=%d, block_size=%d, data_offset=%d, index_offset=%d]",
@@ -116,6 +113,7 @@ OLAPStatus OLAPData::get_first_row_block(RowBlock** row_block,
         _check_io_error(res);
         return res;
     }
+    _stats->raw_rows_read += _row_block_broker->num_rows();
 
     (row_block == NULL || (*row_block = _row_block_broker->row_block()));
     (packed_row_block == NULL || (*packed_row_block = _row_block_broker->packed_row_block()));
@@ -139,7 +137,7 @@ OLAPStatus OLAPData::get_next_row_block(RowBlock** row_block,
     RowBlockPosition row_block_pos = _row_block_broker->position();
     res = olap_index()->find_next_row_block(&row_block_pos, eof_ptr());
     if (eof()) {
-        OLAP_LOG_DEBUG("Got EOF from OLAPIndex. [segment=%d, data_offset=%d]",
+        OLAP_LOG_DEBUG("Got EOF from Rowset. [segment=%d, data_offset=%d]",
                        row_block_pos.segment,
                        row_block_pos.data_offset);
         // 当到达eof的时候不需要把结果带出来
@@ -176,7 +174,7 @@ OLAPStatus OLAPData::get_next_row_block(RowBlock** row_block,
 
         return OLAP_ERR_INDEX_EOF;
     }
-    res = _row_block_broker->change_to(row_block_pos, _profile);
+    res = _row_block_broker->change_to(row_block_pos);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("Fail to get row block. "
                          "[segment=%d, block_size=%d, data_offset=%d, index_offset=%d]",
@@ -188,6 +186,7 @@ OLAPStatus OLAPData::get_next_row_block(RowBlock** row_block,
         _check_io_error(res);
         return res;
     }
+    _stats->raw_rows_read += _row_block_broker->num_rows();
 
     (row_block == NULL || (*row_block = _row_block_broker->row_block()));
     (packed_row_block == NULL || (*packed_row_block = _row_block_broker->packed_row_block()));
@@ -214,7 +213,7 @@ RowBlock* OLAPData::seek_and_get_row_block(const RowBlockPosition& position) {
     }
 
     OLAPStatus res = OLAP_SUCCESS;
-    if ((res = _row_block_broker->change_to(position, _profile)) != OLAP_SUCCESS) {
+    if ((res = _row_block_broker->change_to(position)) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("Fail to get row block. "
                          "[segment=%d, block_size=%d, data_offset=%d, index_offset=%d]",
                          position.segment,
@@ -225,6 +224,7 @@ RowBlock* OLAPData::seek_and_get_row_block(const RowBlockPosition& position) {
         _check_io_error(res);
         return NULL;
     }
+    _stats->raw_rows_read += _row_block_broker->num_rows();
 
     return _row_block_broker->row_block();
 }
@@ -243,13 +243,13 @@ const RowCursor* OLAPData::get_first_row() {
         set_eof(true);
         return NULL;
     } else if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("Fail to find first row block with OLAPIndex.");
+        OLAP_LOG_WARNING("Fail to find first row block with Rowset.");
         return NULL;
     }
 
-    OLAP_LOG_DEBUG("RowBlockPosition='%s'", row_block_pos.to_string().c_str());
+    VLOG(3) << "RowBlockPosition='" << row_block_pos.to_string() << "'";
 
-    if ((res = _row_block_broker->change_to(row_block_pos, _profile)) != OLAP_SUCCESS) {
+    if ((res = _row_block_broker->change_to(row_block_pos)) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("Fail to get row block. "
                          "[segment=%d, block_size=%d, data_offset=%d, index_offset=%d]",
                          row_block_pos.segment,
@@ -260,20 +260,9 @@ const RowCursor* OLAPData::get_first_row() {
         _check_io_error(res);
         return NULL;
     }
+    _stats->raw_rows_read += _row_block_broker->num_rows();
 
     return _row_block_broker->first();
-}
-
-const RowCursor* OLAPData::get_current_row() {
-    set_eof(false);
-
-    if (!_row_block_broker) {
-        OLAP_LOG_FATAL("using pickled OLAPData is forbidden.");
-        return NULL;
-    }
-
-    // 这里没有强限制,必须在调用其他的获取get row的方法之后才能使用此方法
-    return _row_block_broker->current();
 }
 
 const RowCursor* OLAPData::get_next_row() {
@@ -408,7 +397,7 @@ const RowCursor* OLAPData::find_row(const RowCursor& key, bool find_last_key, bo
 
     while (end_position >= start_position && !data_eof) {
         // 根据pos取到对应的row_block
-        if ((res = _row_block_broker->change_to(start_position, _profile)) != OLAP_SUCCESS) {
+        if ((res = _row_block_broker->change_to(start_position)) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("Fail to get row block. "
                              "[segment=%d, block_size=%d, data_offset=%d, index_offset=%d]",
                              start_position.segment,
@@ -419,6 +408,7 @@ const RowCursor* OLAPData::find_row(const RowCursor& key, bool find_last_key, bo
             _check_io_error(res);
             return NULL;
         }
+        _stats->raw_rows_read += _row_block_broker->num_rows();
 
         // eof代表这一块找完了，仍然没有发现key，但也可能是找到了endkey，也就是说
         // 这个数据中没有需要的key。
@@ -441,7 +431,7 @@ const RowCursor* OLAPData::find_row(const RowCursor& key, bool find_last_key, bo
         return row_cursor;
     } else if (eof || data_eof) {
         // 此处找不到，是由于设置了end_key，超找超过了end_key对应行
-        OLAP_LOG_TRACE("key can't be found, Search over end_key![key=%s]", key.to_string().c_str());
+        VLOG(3) << "key can't be found, Search over end_key![key=" << key.to_string() << "]";
         set_eof(true);
         return NULL;
     } else {
@@ -508,7 +498,7 @@ OLAPStatus OLAPData::unpickle() {
                                        _session_status->end_row_index);
         _row_block_broker->set_end_row_flag(_session_status->is_set_end_row);
 
-        res = _row_block_broker->change_to(_session_status->position, _profile);
+        res = _row_block_broker->change_to(_session_status->position);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to get row block. "
                              "[res=%d segment=%d block_size=%d data_offset=%d index_offset=%d]",
@@ -522,6 +512,7 @@ OLAPStatus OLAPData::unpickle() {
             _check_io_error(res);
             return OLAP_ERR_DATA_ROW_BLOCK_ERROR;
         }
+        _stats->raw_rows_read += _row_block_broker->num_rows();
 
         _row_block_broker->get_row(_session_status->row_index);
     }
@@ -562,13 +553,11 @@ OLAPStatus OLAPData::add_segment() {
     data_header->set_segment(_write_descriptor->segment);
 
     // file for new segment
-    file_name = _olap_table->construct_data_file_path(olap_index()->version(),
-                                                      olap_index()->version_hash(),
-                                                      _write_descriptor->segment);
+    file_name = olap_index()->construct_data_file_path(olap_index()->rowset_id(), _write_descriptor->segment);
     res = _write_descriptor->file_handle.open_with_mode(
             file_name, O_CREAT | O_EXCL | O_WRONLY , S_IRUSR | S_IWUSR);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("Fail to open file. [file_name=%s]", file_name.c_str());
+        LOG(WARNING) << "Fail to open file. [file_name=" << file_name << "]";
         goto ADD_SEGMENT_ERR;
     }
 
@@ -606,115 +595,45 @@ ADD_SEGMENT_ERR:
     return res;
 }
 
-OLAPStatus OLAPData::add_packed_row_block(const RowBlock* row_block,
-                                      const char* packed_row_block,
-                                      uint32_t packed_row_block_size,
-                                      uint32_t* start_data_offset,
-                                      uint32_t* end_data_offset) {
+OLAPStatus OLAPData::add_row_block(RowBlock* row_block,
+                                   uint32_t* start_data_offset,
+                                   uint32_t* end_data_offset) {
     if (!_write_descriptor) {
         OLAP_LOG_WARNING("segment should be added before.");
         return OLAP_ERR_NOT_INITED;
     }
 
     OLAPStatus res = OLAP_SUCCESS;
-    RowBlockHeaderV2 row_block_header;
 
-    memory_copy(_write_descriptor->packed_buffer, packed_row_block, packed_row_block_size);
-
-    RowBlockInfo rb_info = row_block->row_block_info();
     // 返回RowBlock起始位置的Offset
     off_t offset = _write_descriptor->file_handle.tell();
     if (offset == -1) {
-        OLAP_LOG_WARNING("fail to tell file. [err=%m]");
         res = OLAP_ERR_IO_ERROR;
-        goto ADD_PACKED_ROW_BLOCK_ERROR;
+        _check_io_error(res);
+        return res;
     }
 
     (start_data_offset == NULL || (*start_data_offset = static_cast<uint32_t>(offset)));
 
-    // 更新RowBlockHeader
-    row_block_header.packed_len = static_cast<uint32_t>(packed_row_block_size);
-    row_block_header.num_rows = rb_info.row_num;
-    row_block_header.checksum = rb_info.checksum;
-    //新增内容，包括魔数，版本和未打包内容的大小，便于后续解压
-    row_block_header.magic_num = 0;
-    row_block_header.version = 1;
-    row_block_header.unpacked_len = row_block->used_buf_len();
-    
-    res = _write_descriptor->file_handle.write(&row_block_header, sizeof(row_block_header));
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to dump row block header. [size=%lu]", sizeof(row_block_header));
-        goto ADD_PACKED_ROW_BLOCK_ERROR;
-    }
-    
-    res = _write_descriptor->file_handle.write(_write_descriptor->packed_buffer,
-                                               packed_row_block_size);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to dump row block data. [size=%u]", packed_row_block_size);
-        goto ADD_PACKED_ROW_BLOCK_ERROR;
-    }
-
-    // 更新SegmentHeader的校验码，计算RowBlock数据部分
-    _write_descriptor->checksum = olap_crc32(_write_descriptor->checksum,
-                                             _write_descriptor->packed_buffer,
-                                             packed_row_block_size);
-    // 返回RowBlock结束位置的Offset
-    offset = _write_descriptor->file_handle.tell();
-    if (offset == -1) {
-        res = OLAP_ERR_IO_ERROR;
-        goto ADD_PACKED_ROW_BLOCK_ERROR;
-    }
-
-    (end_data_offset == NULL || (*end_data_offset = static_cast<uint32_t>(offset)));
-
-    return OLAP_SUCCESS;
-
-ADD_PACKED_ROW_BLOCK_ERROR:
-    _check_io_error(res);
-
-    return res;
-}
-
-OLAPStatus OLAPData::add_row_block(const RowBlock& row_block,
-                               uint32_t* start_data_offset,
-                               uint32_t* end_data_offset) {
-    if (!_write_descriptor) {
-        OLAP_LOG_WARNING("segment should be added before.");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-    OLAPStatus res = OLAP_SUCCESS;
-    RowBlockHeaderV2 row_block_header;
     size_t packed_size = 0;
-    RowBlockInfo rb_info = row_block.row_block_info();
-
-    // 返回RowBlock起始位置的Offset
-    off_t offset = _write_descriptor->file_handle.tell();
-    if (offset == -1) {
-        res = OLAP_ERR_IO_ERROR;
-        goto ADD_ROW_BLOCK_ERROR;
-    }
-
-    (start_data_offset == NULL || (*start_data_offset = static_cast<uint32_t>(offset)));
-
     // 使用LZO1C-99压缩RowBlock
-    if (row_block.compress(_write_descriptor->packed_buffer,
-                           OLAP_DEFAULT_MAX_PACKED_ROW_BLOCK_SIZE,
-                           &packed_size,
-                           OLAP_COMP_STORAGE) != OLAP_SUCCESS) {
+    if (row_block->serialize_to_row_format(_write_descriptor->packed_buffer,
+                                           OLAP_DEFAULT_MAX_PACKED_ROW_BLOCK_SIZE,
+                                           &packed_size,
+                                           OLAP_COMP_STORAGE) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("Fail to compress row block.");
         return OLAP_ERR_COMPRESS_ERROR;
     }
 
-    // 更新RowBlockHeader
+    // RowBlockInfo is valid only after serialize is called
+    const RowBlockInfo& rb_info = row_block->row_block_info();
+    RowBlockHeaderV2 row_block_header;
     row_block_header.packed_len = static_cast<uint32_t>(packed_size);
     row_block_header.num_rows = rb_info.row_num;
     row_block_header.checksum = rb_info.checksum;
-
-    // 新增
     row_block_header.magic_num = 0;
     row_block_header.version = 1;
-    row_block_header.unpacked_len = row_block.used_buf_len();
+    row_block_header.unpacked_len = rb_info.unpacked_len;
     
     res = _write_descriptor->file_handle.write(&row_block_header, sizeof(row_block_header));
     if (res != OLAP_SUCCESS) {
@@ -736,17 +655,13 @@ OLAPStatus OLAPData::add_row_block(const RowBlock& row_block,
     offset = _write_descriptor->file_handle.tell();
     if (offset == -1) {
         res = OLAP_ERR_IO_ERROR;
-        goto ADD_ROW_BLOCK_ERROR;
+        _check_io_error(res);
+        return res;
     }
 
     (end_data_offset == NULL || (*end_data_offset = static_cast<uint32_t>(offset)));
 
     return OLAP_SUCCESS;
-
-ADD_ROW_BLOCK_ERROR:
-    _check_io_error(res);
-
-    return res;
 }
 
 OLAPStatus OLAPData::finalize_segment(uint32_t* data_offset) {
@@ -823,6 +738,57 @@ OLAPStatus OLAPData::set_end_key(const RowCursor* end_key, bool find_last_end_ke
     return OLAP_SUCCESS;
 }
 
+OLAPStatus OLAPData::prepare_block_read(
+        const RowCursor* start_key, bool find_start_key,
+        const RowCursor* end_key, bool find_end_key,
+        RowBlock** row_block) {
+    if (end_key != nullptr) {
+        auto res = set_end_key(end_key, find_end_key);
+        if (res != OLAP_SUCCESS) {
+            // Just ignore this error
+            VLOG(1) << "can't find end_key, end_key:" << end_key->to_string();
+        }
+    }
+    if (start_key != nullptr) {
+        auto row = find_row(*start_key, find_start_key, false);
+        if (row == nullptr) {
+            if (!eof()) {
+                // Some error happened
+                LOG(WARNING) << "failed to find start row row";
+                return OLAP_ERR_INIT_FAILED;
+            }
+            *row_block = nullptr;
+            return OLAP_ERR_DATA_EOF;
+        }
+    } else {
+        auto row = get_first_row();
+        if (row == nullptr) {
+            if (!eof()) {
+                LOG(WARNING) << "failed to get first row";
+                return OLAP_ERR_INIT_FAILED;
+            }
+            *row_block = nullptr;
+            return OLAP_ERR_DATA_EOF;
+        }
+    }
+    *row_block = _row_block_broker->get_row_block_to_read();
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus OLAPData::get_next_block(RowBlock** block) {
+    auto res = get_next_row_block(block, nullptr, nullptr);
+    if (eof()) {
+        *block = nullptr;
+        return OLAP_ERR_DATA_EOF;
+    }
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to get_next_row_block, res:" << res;
+        return res;
+    }
+    *block = _row_block_broker->get_row_block_to_read();
+    return OLAP_SUCCESS;
+}
+
 void OLAPData::_check_io_error(OLAPStatus res) {
     if (is_io_error(res)) {
         _olap_table->set_io_error();
@@ -830,7 +796,7 @@ void OLAPData::_check_io_error(OLAPStatus res) {
 }
 
 OLAPData::RowBlockBroker::RowBlockBroker(
-        OLAPTable* olap_table, OLAPIndex* olap_index, RuntimeState* runtime_state) :
+        OLAPTable* olap_table, Rowset* olap_index, RuntimeState* runtime_state) :
         _file_handler(),
         _row_block_pos(),
         _read_buffer(NULL),
@@ -845,8 +811,6 @@ OLAPData::RowBlockBroker::RowBlockBroker(
         _is_set_end_row(false),
         _olap_table(olap_table),
         _olap_index(olap_index),
-        _query_conjunct_ctxs(NULL),
-        _delete_conjunct_ctxs(NULL),
         _is_end_block(false),
         _runtime_state(runtime_state) {
     if (_olap_index != NULL) {
@@ -897,30 +861,13 @@ OLAPStatus OLAPData::RowBlockBroker::init() {
 
 const RowCursor* OLAPData::RowBlockBroker::first() {
     _row_index = 0;
-    if (_row_block->get_row_to_read(_row_index, &_row_cursor) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to get row from row block. "
-                         "[segment=%d data_offset=%d _row_index=%d]",
-                         _row_block_pos.segment,
-                         _row_block_pos.data_offset,
-                         _row_index);
-        return NULL;
-    }
-
+    _row_block->get_row(_row_index, &_row_cursor);
     return &_row_cursor;
 }
 
 const RowCursor* OLAPData::RowBlockBroker::last() {
     _row_index = _num_rows - 1;
-
-    if (_row_block->get_row_to_read(_row_index, &_row_cursor) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to get row from row block. "
-                         "[segment=%d data_offset=%d _row_index=%d]",
-                         _row_block_pos.segment,
-                         _row_block_pos.data_offset,
-                         _row_index);
-        return NULL;
-    }
-
+    _row_block->get_row(_row_index, &_row_cursor);
     return &_row_cursor;
 }
 
@@ -932,14 +879,7 @@ const RowCursor* OLAPData::RowBlockBroker::next(bool* end_of_row_block) {
 
     (end_of_row_block == NULL || (*end_of_row_block = false));
 
-    if (_row_block->get_row_to_read(_row_index, &_row_cursor) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to get row from row block. "
-                         "[segment=%d data_offset=%d _row_index=%d]",
-                         _row_block_pos.segment,
-                         _row_block_pos.data_offset,
-                         _row_index);
-        return NULL;
-    }
+    _row_block->get_row(_row_index, &_row_cursor);
 
     return &_row_cursor;
 }
@@ -948,7 +888,7 @@ const RowCursor* OLAPData::RowBlockBroker::find_row(const RowCursor& key,
                                                     bool find_last_key,
                                                     bool* end_of_row_block) {
     if (_row_block->find_row(key, find_last_key, &_row_index) != OLAP_SUCCESS) {
-        OLAP_LOG_TRACE("fail to find row from row block. [key='%s']", key.to_string().c_str());
+        VLOG(3) << "fail to find row from row block. [key='" << key.to_string() << "']";
         return NULL;
     }
 
@@ -957,14 +897,7 @@ const RowCursor* OLAPData::RowBlockBroker::find_row(const RowCursor& key,
         return NULL;
     }
 
-    if (_row_block->get_row_to_read(_row_index, &_row_cursor) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to get row from row block. "
-                         "[segment=%d, data_offset=%d, _row_index=%d]",
-                         _row_block_pos.segment,
-                         _row_block_pos.data_offset,
-                         _row_index);
-        return NULL;
-    }
+    _row_block->get_row(_row_index, &_row_cursor);
 
     (end_of_row_block == NULL || (*end_of_row_block = false));
     
@@ -976,16 +909,7 @@ const RowCursor* OLAPData::RowBlockBroker::get_row(uint32_t row_index) {
     if (_row_index >= _num_rows) {
         return NULL;
     }
-
-    if (_row_block->get_row_to_read(_row_index, &_row_cursor) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to get row from row block."
-                         "[segment=%d, data_offset=%d, _row_index=%d]",
-                         _row_block_pos.segment,
-                         _row_block_pos.data_offset,
-                         _row_index);
-        return NULL;
-    }
-
+    _row_block->get_row(_row_index, &_row_cursor);
     return &_row_cursor;
 }
 
@@ -1002,14 +926,8 @@ const RowCursor* OLAPData::RowBlockBroker::current() {
     return &_row_cursor;
 }
 
-OLAPStatus OLAPData::RowBlockBroker::change_to(
-        const RowBlockPosition& row_block_pos, RuntimeProfile* profile) {
+OLAPStatus OLAPData::RowBlockBroker::change_to(const RowBlockPosition& row_block_pos) {
     OLAPStatus res = OLAP_SUCCESS;
-    RuntimeProfile::Counter* read_data_timer = NULL;
-    if (profile != NULL) {
-        read_data_timer = profile->get_counter("ReadDataTime");    
-    }
-    SCOPED_TIMER(read_data_timer);
 
     // 先将持有的row_block释放
     this->release();
@@ -1091,12 +1009,10 @@ OLAPStatus OLAPData::RowBlockBroker::_get_row_block(const RowBlockPosition& row_
         }
     }
 
-    file_name = _olap_table->construct_data_file_path(_olap_index->version(),
-                                                      _olap_index->version_hash(),
-                                                      row_block_pos.segment);
+    file_name = _olap_index->construct_data_file_path(_olap_index->rowset_id(), row_block_pos.segment);
 
     if ((res = _file_handler.open_with_cache(file_name, O_RDONLY)) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to open file. [file_name=%s]", file_name.c_str());
+        LOG(WARNING) << "fail to open file. [file_name=" << file_name << "]";
         goto GET_ROW_BLOCK_ERROR;
     }
     
@@ -1177,26 +1093,6 @@ OLAPStatus OLAPData::RowBlockBroker::_get_row_block(const RowBlockPosition& row_
                          res,
                          packed_len);
         goto GET_ROW_BLOCK_ERROR;
-    }
-
-    // 过滤删除条件
-    if (_delete_conjunct_ctxs != NULL) {
-        res = _row_block->eval_conjuncts(*_delete_conjunct_ctxs);
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to eval delete conjuncts for row block. [res=%d]", res);
-            goto GET_ROW_BLOCK_ERROR;
-        }
-        // 保存删除条件执行后的结果，以便存入Cache备用
-        _row_block->backup();
-    }
-
-    // 过滤查询条件
-    if (_query_conjunct_ctxs != NULL) {
-        res = _row_block->eval_conjuncts(*_query_conjunct_ctxs);
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to eval query conjuncts for row block. [res=%d]", res);
-            goto GET_ROW_BLOCK_ERROR;
-        }
     }
 
     return OLAP_SUCCESS;

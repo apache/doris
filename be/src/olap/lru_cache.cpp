@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -28,7 +30,6 @@
 #include "olap/olap_index.h"
 #include "olap/row_block.h"
 #include "olap/utils.h"
-#include "util/palo_metrics.h"
 
 using std::string;
 using std::stringstream;
@@ -233,36 +234,27 @@ void LRUCache::_lru_append(LRUHandle* list, LRUHandle* e) {
 }
 
 Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
-    AutoMutexLock l(&_mutex);
+    MutexLock l(&_mutex);
     ++_lookup_count;
     LRUHandle* e = _table.lookup(key, hash);
-
-    if (PaloMetrics::olap_lru_cache_lookup_count() != NULL) {
-        PaloMetrics::olap_lru_cache_lookup_count()->increment(1);
-    }
 
     if (e != NULL) {
         ++_hit_count;
         _ref(e);
-
-        if (PaloMetrics::olap_lru_cache_hit_count() != NULL) {
-            PaloMetrics::olap_lru_cache_hit_count()->increment(1);
-        }
-
     }
 
     return reinterpret_cast<Cache::Handle*>(e);
 }
 
 void LRUCache::release(Cache::Handle* handle) {
-    AutoMutexLock l(&_mutex);
+    MutexLock l(&_mutex);
     _unref(reinterpret_cast<LRUHandle*>(handle));
 }
 
 Cache::Handle* LRUCache::insert(
         const CacheKey& key, uint32_t hash, void* value, size_t charge,
         void (*deleter)(const CacheKey& key, void* value)) {
-    AutoMutexLock l(&_mutex);
+    MutexLock l(&_mutex);
 
     LRUHandle* e = reinterpret_cast<LRUHandle*>(
             malloc(sizeof(LRUHandle)-1 + key.size()));
@@ -309,12 +301,12 @@ bool LRUCache::_finish_erase(LRUHandle* e) {
 }
 
 void LRUCache::erase(const CacheKey& key, uint32_t hash) {
-    AutoMutexLock l(&_mutex);
+    MutexLock l(&_mutex);
     _finish_erase(_table.remove(key, hash));
 }
 
 int LRUCache::prune() {
-    AutoMutexLock l(&_mutex);
+    MutexLock l(&_mutex);
     int num_prune = 0;
     while (_lru.next != &_lru) {
         LRUHandle* e = _lru.next;
@@ -374,7 +366,7 @@ void* ShardedLRUCache::value(Handle* handle) {
 }
 
 uint64_t ShardedLRUCache::new_id() {
-    AutoMutexLock l(&_id_mutex);
+    MutexLock l(&_id_mutex);
     return ++(_last_id);
 }
 

@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -23,7 +25,6 @@
 #include "agent/utils.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/Types_types.h"
-#include "olap/command_executor.h"
 #include "olap/olap_define.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
@@ -91,11 +92,13 @@ public:
 private:
     ExecEnv* _exec_env;
     const TMasterInfo& _master_info;
-    CommandExecutor* _command_executor;
 
     TaskWorkerPool* _create_table_workers;
     TaskWorkerPool* _drop_table_workers;
     TaskWorkerPool* _push_workers;
+    TaskWorkerPool* _publish_version_workers;
+    TaskWorkerPool* _clear_alter_task_workers;
+    TaskWorkerPool* _clear_transaction_task_workers;
     TaskWorkerPool* _delete_workers;
     TaskWorkerPool* _alter_table_workers;
     TaskWorkerPool* _clone_workers;
@@ -106,9 +109,11 @@ private:
     TaskWorkerPool* _report_disk_state_workers;
     TaskWorkerPool* _report_olap_table_workers;
     TaskWorkerPool* _upload_workers;
-    TaskWorkerPool* _restore_workers;
+    TaskWorkerPool* _download_workers;
     TaskWorkerPool* _make_snapshot_workers;
     TaskWorkerPool* _release_snapshot_workers;
+    TaskWorkerPool* _move_dir_workers;
+    TaskWorkerPool* _recover_tablet_workers;
 
     DISALLOW_COPY_AND_ASSIGN(AgentServer);
     

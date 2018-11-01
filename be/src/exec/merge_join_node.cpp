@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -57,9 +54,9 @@ MergeJoinNode::MergeJoinNode(
 MergeJoinNode::~MergeJoinNode() {
 }
 
-Status MergeJoinNode::init(const TPlanNode& tnode) {
+Status MergeJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     DCHECK(tnode.__isset.merge_join_node);
-    RETURN_IF_ERROR(ExecNode::init(tnode));
+    RETURN_IF_ERROR(ExecNode::init(tnode, state));
     const vector<TEqJoinCondition>& cmp_conjuncts =
         tnode.merge_join_node.cmp_conjuncts;
 

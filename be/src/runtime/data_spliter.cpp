@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -21,6 +23,7 @@
 
 #include "exprs/expr.h"
 #include "common/object_pool.h"
+#include "service/backend_options.h"
 #include "runtime/runtime_state.h"
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
@@ -297,7 +300,8 @@ Status DataSpliter::close(RuntimeState* state, Status close_status) {
         Status status = iter->finish(state);
         if (UNLIKELY(is_ok && !status.ok())) {
             LOG(WARNING) << "finish dpp_sink error"
-                    << " err_msg=" << status.get_error_msg();
+                    << " err_msg=" << status.get_error_msg()
+                    << " backend=" << BackendOptions::get_localhost();
             is_ok = false;
             err_status = status;
         }
@@ -321,7 +325,8 @@ Status DataSpliter::close(RuntimeState* state, Status close_status) {
             err_status = status;
         }
     }
-
+  
+    _expr_mem_tracker->close();
     _closed = true;
     if (is_ok) {
         return Status::OK;

@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -46,6 +43,7 @@ HashJoinNode::HashJoinNode(
         ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs) :
             ExecNode(pool, tnode, descs),
             _join_op(tnode.hash_join_node.join_op),
+            _probe_eos(false),
             _codegen_process_build_batch_fn(NULL),
             _process_build_batch_fn(NULL),
             _process_probe_batch_fn(NULL),
@@ -63,8 +61,8 @@ HashJoinNode::~HashJoinNode() {
     DCHECK(_probe_batch == NULL);
 }
 
-Status HashJoinNode::init(const TPlanNode& tnode) {
-    RETURN_IF_ERROR(ExecNode::init(tnode));
+Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    RETURN_IF_ERROR(ExecNode::init(tnode, state));
     DCHECK(tnode.__isset.hash_join_node);
     const vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
 
@@ -134,9 +132,13 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     _build_tuple_row_size = num_build_tuples * sizeof(Tuple*);
 
     // TODO: default buckets
+    const bool stores_nulls = _join_op == TJoinOp::RIGHT_OUTER_JOIN
+        || _join_op == TJoinOp::FULL_OUTER_JOIN
+        || _join_op == TJoinOp::RIGHT_ANTI_JOIN
+        || _join_op == TJoinOp::RIGHT_SEMI_JOIN;
     _hash_tbl.reset(new HashTable(
             _build_expr_ctxs, _probe_expr_ctxs, _build_tuple_size,
-            false, id(), mem_tracker(), 1024));
+            stores_nulls, id(), mem_tracker(), 1024));
 
     _probe_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker()));
 
@@ -301,7 +303,7 @@ Status HashJoinNode::open(RuntimeState* state) {
             return Status::OK;
         }
 
-        if (_hash_tbl->size() > 500 * 1024) {
+        if (_hash_tbl->size() > 1024) {
             _is_push_down = false;
         }
 

@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -37,11 +39,12 @@
 
 namespace palo {
 class IndexComparator;
-class OLAPIndex;
+class Rowset;
 class OLAPTable;
 class RowBlock;
 class RowCursor;
 class SegmentComparator;
+class WrapperField;
 
 typedef uint32_t data_file_offset_t;
 typedef std::vector<FieldInfo> RowFields;
@@ -53,9 +56,10 @@ struct OLAPIndexFixedHeader {
     uint64_t num_rows;
 };
 
-struct Slice {
+struct EntrySlice {
     char* data;
     size_t length;
+    EntrySlice() : data(nullptr), length(0) {}
 };
 
 // Range of offset in one segment
@@ -87,8 +91,8 @@ struct RowBlockPosition {
 
     bool operator==(const RowBlockPosition& other) const {
         return (segment == other.segment
-                    && block_size == other.block_size
                     && data_offset == other.data_offset
+                    && block_size == other.block_size
                     && index_offset == other.index_offset);
     }
 
@@ -156,27 +160,23 @@ struct SegmentMetaInfo {
     }
 
     IDRange     range;
-    Slice       buffer;
+    EntrySlice       buffer;
     FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader>  file_header;
 };
 
 // In memory index structure, all index hold here
 class MemIndex {
 public:
-    friend class OLAPIndex;
+    friend class Rowset;
     friend class IndexComparator;
     friend class SegmentComparator;
 
-    explicit MemIndex() :
-            _key_length(0),
-            _num_entries(0),
-            _index_size(0),
-            _data_size(0),
-            _num_rows(0) {}
+    MemIndex();
     ~MemIndex();
 
     // 初始化MemIndex, 传入short_key的总长度和对应的Field数组
-    OLAPStatus init(size_t short_key_len, size_t short_key_num, RowFields* fields);
+    OLAPStatus init(size_t short_key_len, size_t new_short_key_len,
+                    size_t short_key_num, RowFields* fields);
 
     // 加载一个segment到内存
     OLAPStatus load_segment(const char* file, size_t *current_num_rows_per_row_block);
@@ -235,8 +235,6 @@ public:
     // the 2-dimension offset of the first element of second segment is (1, 0),
     // it's plain offset is 100
     const iterator_offset_t get_absolute_offset(const OLAPIndexOffset& offset) const {
-        //size_t num_rows_per_block =
-        //  _meta[offset.segment].file_header.message().num_rows_per_block();
         if (offset.segment >= segment_count() || offset.offset >= _meta[offset.segment].count()) {
             return _num_entries;
         } else {
@@ -248,7 +246,7 @@ public:
     const OLAPIndexOffset get_relative_offset(iterator_offset_t absolute_offset) const;
 
     // Return content of index item, which IndexOffset is pos
-    OLAPStatus get_entry(const OLAPIndexOffset& pos, Slice* slice) const;
+    OLAPStatus get_entry(const OLAPIndexOffset& pos, EntrySlice* slice) const;
 
     // Return RowBlockPosition from IndexOffset
     OLAPStatus get_row_block_position(const OLAPIndexOffset& pos, RowBlockPosition* rbp) const;
@@ -263,10 +261,18 @@ public:
         return _key_length;
     }
 
+    const size_t new_short_key_length() const {
+        return _new_key_length;
+    }
+
     // Return length of full index item,
     // which actually equals to short_key_length() plus sizeof(data_file_offset_t)
     const size_t entry_length() const {
         return short_key_length() + sizeof(data_file_offset_t);
+    }
+
+    const size_t new_entry_length() const {
+        return _new_key_length + sizeof(data_file_offset_t);
     }
 
     // Return short key FieldInfo array
@@ -284,7 +290,7 @@ public:
         return _meta.size();
     }
     
-    bool empty() const {
+    bool zero_num_rows() const {
         return _num_entries == 0;
     }
     
@@ -319,6 +325,7 @@ public:
 private:
     std::vector<SegmentMetaInfo> _meta;
     size_t _key_length;
+    size_t _new_key_length;
     size_t _key_num;
     size_t _num_entries;
     size_t _index_size;
@@ -326,6 +333,8 @@ private:
     size_t _num_rows;
     RowFields*  _fields;
 
+    std::unique_ptr<MemTracker> _tracker;
+    std::unique_ptr<MemPool> _mem_pool;
     DISALLOW_COPY_AND_ASSIGN(MemIndex);
 };
 
@@ -361,13 +370,11 @@ private:
     bool _compare(const iterator_offset_t& index,
                   const RowCursor& key,
                   ComparatorEnum comparator) {
-        Slice slice;
+        EntrySlice slice;
         OLAPIndexOffset offset(_cur_seg, index);
         _index->get_entry(offset, &slice);
 
-        if (_helper_cursor->attach(slice.data, _index->short_key_length()) != OLAP_SUCCESS) {
-            throw ComparatorException();
-        }
+        _helper_cursor->attach(slice.data);
 
         if (comparator == COMPARATOR_LESS) {
             return _helper_cursor->index_cmp(key) < 0;
@@ -403,13 +410,12 @@ private:
     bool _compare(const iterator_offset_t& index,
                   const RowCursor& key,
                   ComparatorEnum comparator) {
-        Slice slice;
+        EntrySlice slice;
         slice.data = _index->_meta[index].buffer.data;
-        slice.length = _index->short_key_length();
+        //slice.length = _index->short_key_length();
+        slice.length = _index->new_short_key_length();
 
-        if (_helper_cursor->attach(slice.data, _index->short_key_length()) != OLAP_SUCCESS) {
-            throw ComparatorException();
-        }
+        _helper_cursor->attach(slice.data);
 
         if (comparator == COMPARATOR_LESS) {
             return _helper_cursor->index_cmp(key) < 0;
@@ -420,278 +426,6 @@ private:
 
     const MemIndex* _index;
     RowCursor* _helper_cursor;
-};
-
-// Class for managing OLAP table indices
-// For fast key lookup, we maintain a sparse index for every data file. The
-// index is sparse because we only have one pointer per row block. Each
-// index entry contains the short key for the first row of the
-// corresponding row block
-class OLAPIndex {
-    friend class MemIndex;
-public:
-    OLAPIndex(OLAPTable* table,
-              Version version,
-              VersionHash version_hash,
-              bool delete_flag,
-              uint32_t num_segments,
-              time_t max_timestamp);
-
-    virtual ~OLAPIndex();
-
-    // Load the index into memory.
-    OLAPStatus load();
-    bool index_loaded();
-    OLAPStatus load_pb(const char* file, uint32_t seg_id);
-
-    bool has_column_statistics() {
-        return _inited_column_statistics;
-    }
-
-    OLAPStatus set_column_statistics(std::vector<std::pair<Field *, Field *> > &column_statistics);
-    
-    std::vector<std::pair<Field *, Field *>> &get_column_statistics() {
-        return _column_statistics;
-    }
-
-    OLAPStatus set_column_statistics_from_string(
-            std::vector<std::pair<std::string, std::string>> &column_statistics_string,
-            std::vector<bool> &has_null_flags);
-
-    // 检查index文件和data文件的有效性
-    OLAPStatus validate();
-
-    // Finds position of the first (or last if find_last is set) row
-    // block that may contain the smallest key equal to or greater than
-    // 'key'. Returns true on success. If find_last is set, note that
-    // the position is the last block that can possibly contain the
-    // given key.
-    OLAPStatus find_row_block(const RowCursor& key,
-                          RowCursor* helper_cursor,
-                          bool find_last,
-                          RowBlockPosition* position) const;
-
-    // Finds position of first row block contain the smallest key equal
-    // to or greater than 'key'. Returns true on success.
-    OLAPStatus find_short_key(const RowCursor& key,
-                          RowCursor* helper_cursor,
-                          bool find_last,
-                          RowBlockPosition* position) const;
-
-    // Returns position of the first row block in the index.
-    OLAPStatus find_first_row_block(RowBlockPosition* position) const;
-
-    // Returns position of the last row block in the index.
-    OLAPStatus find_last_row_block(RowBlockPosition* position) const;
-
-    // Given the position of a row block, finds position of the next block.
-    // Sets eof to tru if there are no more blocks to go through, and
-    // returns false. Returns true on success.
-    OLAPStatus find_next_row_block(RowBlockPosition* position, bool* eof) const;
-
-    // Given two positions in an index, low and high, set output to be
-    // the midpoint between those two positions.  Returns the distance
-    // between low and high as computed by ComputeDistance.
-    OLAPStatus find_mid_point(const RowBlockPosition& low,
-                          const RowBlockPosition& high,
-                          RowBlockPosition* output,
-                          uint32_t* dis) const;
-
-    OLAPStatus find_prev_point(const RowBlockPosition& current, RowBlockPosition* prev) const;
-
-    OLAPStatus get_row_block_entry(const RowBlockPosition& pos, Slice* entry) const;
-
-    // Given a starting row block position, advances the position by
-    // num_row_blocks, then stores back the new position through the
-    // pointer.  Returns true on success, false on attempt to seek past
-    // the last block.
-    OLAPStatus advance_row_block(int64_t num_row_blocks, RowBlockPosition* position) const;
-
-    // Computes the distance between two positions, in row blocks.
-    uint32_t compute_distance(const RowBlockPosition& position1,
-                              const RowBlockPosition& position2) const;
-
-    // The following four functions are used for creating new index
-    // files. AddSegment() and FinalizeSegment() start and end a new
-    // segment respectively, while IndexRowBlock() and IndexShortKey()
-    // add a new index entry to the current segment.
-    OLAPStatus add_segment();
-    OLAPStatus add_short_key(const RowCursor& short_key, const uint32_t data_offset);
-    OLAPStatus add_row_block(const RowBlock& row_block, const uint32_t data_offset);
-    OLAPStatus finalize_segment(uint32_t data_segment_size, int64_t num_rows);
-    void sync();
-
-    // reference count
-    void acquire();
-    void release();
-    bool is_in_use();
-    int64_t ref_count();
-
-    // delete all files (*.idx; *.dat)
-    void delete_all_files();
-
-    // getters and setters.
-    // get associated OLAPTable pointer
-    OLAPTable* table() const {
-        return _table;
-    }
-
-    void set_table(OLAPTable* table) {
-        _table = table;
-    }
-    
-    Version version() const {
-        return _version;
-    }
-    
-    VersionHash version_hash() const;
-
-    bool delete_flag() const {
-        return _index.delete_flag();
-    }
-
-    uint32_t num_segments() const {
-        return _num_segments;
-    }
-    
-    void set_num_segments(uint32_t num_segments) {
-        _num_segments = num_segments;
-    }
-    
-    time_t max_timestamp() const {
-        return _max_timestamp;
-    }
-    
-    size_t index_size() const {
-        return _index.index_size();
-    }
-    
-    size_t data_size() const {
-        return _index.data_size();
-    }
-
-    int64_t num_rows() const {
-        return _index.num_rows();
-    }
-    
-    const size_t short_key_length() const {
-        return _short_key_length;
-    }
-    
-    const RowFields& short_key_fields() const {
-        return _short_key_info_list;
-    }
-    
-    bool empty() const {
-        return _index.empty();
-    }
-    
-    // return count of entries in MemIndex
-    uint64_t num_index_entries() const;
-
-    size_t current_num_rows_per_row_block() const {
-        return _current_num_rows_per_row_block;
-    }
-
-    OLAPStatus get_row_block_position(const OLAPIndexOffset& pos, RowBlockPosition* rbp) const {
-        return _index.get_row_block_position(pos, rbp);
-    }
-    
-    inline const FileHeader<column_file::ColumnDataHeaderMessage>& get_seg_pb(uint32_t seg_id) const {
-        return _seg_pb_map.at(seg_id);
-    }
-
-    inline bool get_null_supported(uint32_t seg_id) {
-        return _index.get_null_supported(seg_id);
-    }
-
-private:
-    void _check_io_error(OLAPStatus res);
-
-    std::string _construct_index_file_path(const Version& version,
-                                           VersionHash version_hash,
-                                           uint32_t segment) const {
-        return OLAPTable::construct_file_path(_header_file_name,
-                                              version,
-                                              version_hash,
-                                              segment,
-                                              "idx");
-    }
-
-    std::string _construct_data_file_path(const Version& version,
-                                          VersionHash version_hash,
-                                          uint32_t segment) const {
-        return OLAPTable::construct_file_path(_header_file_name,
-                                              version,
-                                              version_hash,
-                                              segment,
-                                              "dat");
-    }
-
-    OLAPTable* _table;                 // table definition for this index
-    Version _version;                  // version of associated data file
-    bool _delete_flag;
-    time_t _max_timestamp;             // max pusher delta timestamp
-    uint32_t _num_segments;            // number of segments in this index
-    VersionHash _version_hash;      // version hash for this index
-    bool _index_loaded;                // whether the index has been read
-    atomic_t _ref_count;               // reference count
-    MemIndex _index;
-
-    std::string _header_file_name;     // the name of the related header file
-    // short key对应的field_info数组
-    RowFields _short_key_info_list;
-    // short key对应的总长度
-    size_t _short_key_length;
-
-    // 以下是写入流程时需要的一些中间状态
-    // 当前写入文件的FileHandler
-    FileHandler _current_file_handler;
-    // 当前写入的FileHeader
-    FileHeader<OLAPIndexHeaderMessage, OLAPIndexFixedHeader> _file_header;
-    // 当前写入的short_key的buf
-    char* _short_key_buf;
-    // 当前写入的segment的checksum
-    uint32_t _checksum;
-    // 当前写入时用作索引项的RowCursor
-    RowCursor _current_index_row;
-
-    // Lock held while loading the index.
-    mutable boost::mutex _index_load_lock;
-
-    size_t _current_num_rows_per_row_block;
-
-    bool _inited_column_statistics;
-
-    std::vector<std::pair<Field *, Field *> > _column_statistics;
-    std::vector<bool> _has_null_flags;
-    std::unordered_map<uint32_t, FileHeader<column_file::ColumnDataHeaderMessage> > _seg_pb_map;
-
-    DISALLOW_COPY_AND_ASSIGN(OLAPIndex);
-};
-
-class OLAPUnusedIndex {
-    DECLARE_SINGLETON(OLAPUnusedIndex);
-public:
-    OLAPStatus init() {
-        clear();
-        return OLAP_SUCCESS;
-    }
-
-    void clear() {
-        _unused_index_list.clear();
-    }
-
-    void start_delete_unused_index();
-
-    void add_unused_index(OLAPIndex* olap_index);
-
-private:
-    typedef std::list<OLAPIndex*> unused_index_list_t;
-    unused_index_list_t _unused_index_list;
-    MutexLock _mutex;
-
-    DISALLOW_COPY_AND_ASSIGN(OLAPUnusedIndex);
 };
 
 }  // namespace palo

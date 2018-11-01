@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -129,11 +131,9 @@ AgentStatus MasterServerClient::finish_task(
             &client_status);
 
     if (!client_status.ok()) {
-        OLAP_LOG_WARNING("master client, get client from cache failed."
-                         "host: %s, port: %d, code: %d",
-                         _master_info.network_address.hostname.c_str(),
-                         _master_info.network_address.port,
-                         client_status.code());
+        LOG(WARNING) << "master client. get client from cache failed. host: "
+                     << _master_info.network_address.hostname << ". port: " << _master_info.network_address.port
+                     << ". code: " << client_status.code();
         return PALO_ERROR;
     }
 
@@ -212,11 +212,8 @@ AgentStatus MasterServerClient::report(const TReportRequest request, TMasterResu
             }   
         }   
     } catch (TException& e) {
-        OLAP_LOG_WARNING("master client, finish report failed."
-                         "host: %s, port: %d, code: %d",
-                         _master_info.network_address.hostname.c_str(),
-                         _master_info.network_address.port,
-                         client_status.code());
+        LOG(WARNING) << "master client. finish report failed. host: " << _master_info.network_address.hostname
+                    << ". port: " << _master_info.network_address.port << ". code: " << client_status.code();
         return PALO_ERROR;
     }
 
@@ -243,7 +240,7 @@ AgentStatus AgentUtils::rsync_from_remote(
         cmd_stream << " --timeout=" << timeout_second;
     }
     cmd_stream << " " << remote_host << ":" << remote_file_path << " " << local_file_path;
-    OLAP_LOG_INFO("rsync cmd: %s", cmd_stream.str().c_str());
+    LOG(INFO) << "rsync cmd: " << cmd_stream.str();
 
     FILE* fp = NULL;
     fp = popen(cmd_stream.str().c_str(), "r");

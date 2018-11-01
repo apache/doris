@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -28,7 +30,7 @@
 
 namespace palo {
 
-class Webserver;
+class EvHttpServer;
 
 // This a handler for webpage request
 // and this handler manage all the page handler
@@ -37,12 +39,12 @@ public:
     typedef std::map<std::string, std::string> ArgumentMap;
     typedef boost::function<void (const ArgumentMap& args, std::stringstream* output)> 
             PageHandlerCallback;
-    WebPageHandler(Webserver* webserver);
+    WebPageHandler(EvHttpServer* http_server);
 
     virtual ~WebPageHandler() {
     }
 
-    virtual void handle(HttpRequest *req, HttpChannel *channel);
+    void handle(HttpRequest *req) override;
 
     // Just use old code
     void register_page(const std::string& path, const PageHandlerCallback& callback);
@@ -65,7 +67,7 @@ private:
         std::vector<PageHandlerCallback> _callbacks;
     };
 
-    Webserver* _web_server;
+    EvHttpServer* _http_server;
     // Lock guarding the _path_handlers map
     boost::mutex _map_lock;
     // Map of path to a PathHandler containing a list of handlers for that

@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -25,6 +27,7 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include "exec/text_converter.hpp"
+#include "exprs/hll_hash_function.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
 #include "runtime/row_batch.h"
@@ -171,8 +174,8 @@ Status CsvScanNode::prepare(RuntimeState* state) {
             }
             _hll_column_num++;
         }
-        
-        // NOTE: not all the columns in '_column' is exist in table schema
+
+        // NOTE: not all the columns in '_columns' is exist in table schema
         if (_columns.end() != std::find(_columns.begin(), _columns.end(), column_name)) {
             _column_slot_map[column_name] = slot;
         } else {
@@ -180,13 +183,11 @@ Status CsvScanNode::prepare(RuntimeState* state) {
         }
 
         // add 'unspecified_columns' which have default values
-        if (_columns.end() != std::find(
+        if (_unspecified_columns.end() != std::find(
                     _unspecified_columns.begin(),
                     _unspecified_columns.end(),
                     column_name)) {
             _column_slot_map[column_name] = slot;
-        } else {
-            _column_slot_map[column_name] = nullptr;
         }
     }
 
@@ -204,7 +205,6 @@ Status CsvScanNode::prepare(RuntimeState* state) {
         const std::string& column_name = _unspecified_columns[i];
         SlotDescriptor* slot = _column_slot_map[column_name];
         _unspecified_colomn_slot_vec.push_back(slot);
-
         _unspecified_colomn_type_vec.push_back(_column_type_map[column_name]);
     }
 
@@ -279,7 +279,7 @@ Status CsvScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos
     }
 
     _tuple = reinterpret_cast<Tuple*>(tuple_buffer);
-    memset(_tuple, 0, sizeof(_tuple_desc->num_null_bytes()));
+    memset(_tuple, 0, _tuple_desc->num_null_bytes());
 
     // Indicates whether there are more rows to process.
     bool csv_eos = false;
@@ -571,12 +571,12 @@ bool CsvScanNode::split_check_fill(const std::string& line, RuntimeState* state)
         if (!slot->is_materialized()) {
             continue;
         }
-        
+
         if (slot->type().type == TYPE_HLL) {
             continue;
-        }  
+        }
 
-        const TColumnType& column_type = _column_type_vec[i]; 
+        const TColumnType& column_type = _column_type_vec[i];
         bool flag = check_and_write_text_slot(
                    column_name, column_type,
                    fields[i].c_str(),
@@ -602,9 +602,9 @@ bool CsvScanNode::split_check_fill(const std::string& line, RuntimeState* state)
 
         if (slot->type().type == TYPE_HLL) {
             continue;
-        } 
-        
-        const TColumnType& column_type = _unspecified_colomn_type_vec[i];  
+        }
+
+        const TColumnType& column_type = _unspecified_colomn_type_vec[i];
         bool flag = check_and_write_text_slot(
                        column_name, column_type,
                        _default_values[i].c_str(),
@@ -624,7 +624,7 @@ bool CsvScanNode::split_check_fill(const std::string& line, RuntimeState* state)
         const std::string& column_name = iter->first;
         const SlotDescriptor* slot = _column_slot_map[column_name];
         const TColumnType& column_type = _column_type_map[column_name];
-        std::string column_string = ""; 
+        std::string column_string = "";
         const char* src = fields[function.param_column_index].c_str();
         int src_column_len = fields[function.param_column_index].length();
         hll_hash(src, src_column_len, &column_string);
@@ -632,12 +632,12 @@ bool CsvScanNode::split_check_fill(const std::string& line, RuntimeState* state)
                        column_name, column_type,
                        column_string.c_str(),
                        column_string.length(),
-                       slot, state, &error_msg); 
+                       slot, state, &error_msg);
         if (flag == false) {
             _runtime_state->append_error_msg_to_file(line, error_msg.str());
             return false;
-        } 
-    } 
+        }
+    }
 
     return true;
 }
@@ -650,25 +650,23 @@ bool CsvScanNode::check_hll_function(TMiniLoadEtlFunction& function) {
     }
     return true;
 }
-    
+
 void CsvScanNode::hll_hash(const char* src, int len, std::string* result) {
     std::string str(src, len);
     if (str != "\\N") {
         uint64_t hash = HashUtil::murmur_hash64A(src, len, HashUtil::MURMUR_SEED);
-        char buf[11]; 
-        memset(buf, 0, 11);
+        char buf[HllHashFunctions::HLL_INIT_EXPLICT_SET_SIZE];
         // expliclit set
         buf[0] = HLL_DATA_EXPLICIT;
         buf[1] = 1;
         *((uint64_t*)(buf + 2)) = hash;
-        *result = std::string(buf, 11);
+        *result = std::string(buf, sizeof(buf));
     } else {
-        char buf[2];
-        memset(buf, 0, 2); 
+        char buf[HllHashFunctions::HLL_EMPTY_SET_SIZE];
         // empty set
         buf[0] = HLL_DATA_EMPTY;
-        *result = std::string(buf, 2);
-    }   
+        *result = std::string(buf, sizeof(buf));
+    }
 }
 
 } // end namespace palo

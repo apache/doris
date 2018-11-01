@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -172,6 +169,8 @@ private:
         palo_udf::FunctionContext* context,
         const palo_udf::StringVal& pattern,
         std::string* re_pattern);
+
+    static void remove_escape_character(std::string* search_string);
 };
 
 }

@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -30,14 +27,14 @@ SortNode::SortNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
     : ExecNode(pool, tnode, descs),
       _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
       _num_rows_skipped(0) {
-    Status status = init(tnode);
+    Status status = init(tnode, nullptr);
     DCHECK(status.ok()) << "SortNode c'tor:init failed: \n" << status.get_error_msg();
 }
 
 SortNode::~SortNode() {
 }
 
-Status SortNode::init(const TPlanNode& tnode) {
+Status SortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     const vector<TExpr>* sort_tuple_slot_exprs =  tnode.sort_node.__isset.sort_tuple_slot_exprs ?
             &tnode.sort_node.sort_tuple_slot_exprs : NULL;
     RETURN_IF_ERROR(_sort_exec_exprs.init(tnode.sort_node.ordering_exprs,

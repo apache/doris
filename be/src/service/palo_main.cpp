@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -24,6 +26,10 @@
 #include <boost/thread/thread.hpp>
 #include <gperftools/malloc_extension.h>
 
+#if defined(LEAK_SANITIZER)
+#include <sanitizer/lsan_interface.h>
+#endif
+
 #include "common/logging.h"
 #include "common/daemon.h"
 #include "common/config.h"
@@ -39,18 +45,23 @@
 #include "agent/status.h"
 #include "agent/topic_subscriber.h"
 #include "util/palo_metrics.h"
-#include "olap/olap_main.h"
+#include "olap/options.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
+#include "service/brpc_service.h"
 #include <gperftools/profiler.h>
 #include "common/resource_tls.h"
 #include "exec/schema_scanner/frontend_helper.h"
 
-#include "rpc/reactor_factory.h"
-
 static void help(const char*);
 
 #include <dlfcn.h>
+
+extern "C" { void __lsan_do_leak_check(); }
+
+namespace palo {
+extern bool k_palo_exit;
+}
 
 int main(int argc, char** argv) {
     // check if print version or help
@@ -64,8 +75,8 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (getenv("PALO_HOME") == nullptr) {
-        fprintf(stderr, "you need set PALO_HOME environment variable.\n");
+    if (getenv("DORIS_HOME") == nullptr) {
+        fprintf(stderr, "you need set DORIS_HOME environment variable.\n");
         exit(-1);
     }
 
@@ -73,16 +84,10 @@ int main(int argc, char** argv) {
     using std::string;
 
     // open pid file, obtain file lock and save pid
-    string pid_file = string(getenv("PALO_HOME")) + "/bin/be.pid";
+    string pid_file = string(getenv("PID_DIR")) + "/be.pid";
     int fd = open(pid_file.c_str(), O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
     if (fd < 0) {
         fprintf(stderr, "fail to create pid file.");
-        exit(-1);
-    }
-
-    int lock_res = flock(fd, LOCK_EX | LOCK_NB);
-    if (lock_res < 0) {
-        fprintf(stderr, "fail to lock pid file, maybe another process is locking it.");
         exit(-1);
     }
 
@@ -94,33 +99,58 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
-    string conffile = string(getenv("PALO_HOME")) + "/conf/be.conf"; 
+    // descriptor will be leaked when failing to close fd
+    if (::close(fd) < 0) {
+        fprintf(stderr, "failed to close fd of pidfile.");
+        exit(-1);
+    }
+
+    string conffile = string(getenv("DORIS_HOME")) + "/conf/be.conf";
     if (!palo::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
 
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
+    MallocExtension::instance()->SetNumericProperty(
+        "tcmalloc.aggressive_memory_decommit", 21474836480);
+#endif
+
+    std::vector<palo::StorePath> paths;
+    auto olap_res = palo::parse_conf_store_paths(palo::config::storage_root_path, &paths);
+    if (olap_res != palo::OLAP_SUCCESS) {
+        LOG(FATAL) << "parse config storage path failed, path=" << palo::config::storage_root_path;
+        exit(-1);
+    }
+
     palo::LlvmCodeGen::initialize_llvm();
-    palo::init_daemon(argc, argv);
+    palo::init_daemon(argc, argv, paths);
 
     palo::ResourceTls::init();
-    palo::BackendOptions::init();
+    if (!palo::BackendOptions::init()) {
+        exit(-1);
+    }
 
-    // initialize storage
-    if (0 != palo::olap_main(argc, argv)) {
-        LOG(ERROR) << "olap start error!";
-        palo::shutdown_logging();
-        exit(1);
+    // options
+    palo::EngineOptions options;
+    options.store_paths = paths;
+    palo::OLAPEngine* engine = nullptr;
+    auto st = palo::OLAPEngine::open(options, &engine);
+    if (!st.ok()) {
+        LOG(FATAL) << "fail to open OLAPEngine, res=" << st.get_error_msg();
+        exit(-1);
     }
 
     // start backend service for the coordinator on be_port
-    palo::ExecEnv exec_env;
+    palo::ExecEnv exec_env(paths);
+    exec_env.set_olap_engine(engine);
+
     palo::FrontendHelper::setup(&exec_env);
     palo::ThriftServer* be_server = nullptr;
 
     EXIT_IF_ERROR(palo::BackendService::create_service(
-            &exec_env, 
-            palo::config::be_port, 
+            &exec_env,
+            palo::config::be_port,
             &be_server));
     Status status = be_server->start();
     if (!status.ok()) {
@@ -129,9 +159,10 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    status = palo::BackendService::create_rpc_service(&exec_env);
+    palo::BRpcService brpc_service(&exec_env);
+    status = brpc_service.start(palo::config::brpc_port);
     if (!status.ok()) {
-        LOG(ERROR) << "Palo Be services did not start correctly, exiting";
+        LOG(ERROR) << "BRPC service did not start correctly, exiting";
         palo::shutdown_logging();
         exit(1);
     }
@@ -158,15 +189,24 @@ int main(int argc, char** argv) {
         palo::shutdown_logging();
         exit(1);
     }
-    heartbeat_thrift_server->start();
 
-    // this blocks until the beeswax and hs2 servers terminate
-    palo::PaloMetrics::palo_be_ready()->update(true);
-    LOG(INFO) << "Palo has started.";
+    status = heartbeat_thrift_server->start();
+    if (!status.ok()) {
+        LOG(ERROR) << "Palo BE HeartBeat Service did not start correctly, exiting";
+        palo::shutdown_logging();
+        exit(1);
+    }
 
-    //be_server->join();
-
-    palo::ReactorFactory::join();
+    while (!palo::k_palo_exit) {
+#if defined(LEAK_SANITIZER)
+        __lsan_do_leak_check();
+#endif
+        sleep(10);
+    }
+    heartbeat_thrift_server->stop();
+    heartbeat_thrift_server->join();
+    be_server->stop();
+    be_server->join();
 
     delete be_server;
     return 0;

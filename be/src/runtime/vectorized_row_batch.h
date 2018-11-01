@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -28,33 +30,32 @@
 #include "runtime/row_batch_interface.hpp"
 #include "runtime/row_batch.h"
 #include "util/mem_util.hpp"
+#include "olap/row_cursor.h"
 
 namespace palo {
 
 class VectorizedRowBatch;
-
-struct BackupInfo {
-    BackupInfo() : selected_in_use(false), size(0), selected(NULL) {}
-
-    bool selected_in_use;
-    int size;
-    int* selected;
-};
+class RowBlock;
 
 class ColumnVector {
 public:
-    virtual ~ColumnVector() {
-        //if (NULL == _is_null) {
-            //delete _is_null;
-        //}
+    ColumnVector() { }
+    ~ColumnVector() {}
+
+    bool* is_null() const {
+        return _is_null;
     }
 
-    inline bool is_repeating() {
-        return _is_repeating;
+    void set_is_null(bool* is_null) {
+        _is_null = is_null;
     }
 
-    void set_is_repeating(bool is_repeating) {
-        _is_repeating = is_repeating;
+    bool no_nulls() const {
+        return _no_nulls;
+    }
+
+    void set_no_nulls(bool no_nulls) {
+        _no_nulls = no_nulls;
     }
 
     void* col_data() {
@@ -63,71 +64,41 @@ public:
     void set_col_data(void* data) {
         _col_data = data;
     }
-
-    void* col_string_data() {
-        return _col_string_data;
-    }
-    void set_col_string_data(void* data) {
-        _col_string_data = data;
-    }
-
-    int byte_size() {
-        return _byte_size;
-    }
-    void set_byte_size(int byte_size) {
-        _byte_size = byte_size;
-    }
 private:
-    ColumnVector(int size) {
-        _is_repeating = false;
-        //_no_nulls = true;
-        //_is_null = new bool[size];
-        _col_data = NULL;
-        _col_string_data = NULL;
-        _byte_size = 0;
-    }
-    friend class VectorizedRowBatch;
-    void* _col_data;
-    void* _col_string_data;
-    int _byte_size;
-    bool _is_repeating;
-    // this is no null in palo now
-    //bool _no_nulls;
-    //bool* _is_null;
+    void* _col_data = nullptr;
+    bool _no_nulls = false;
+    bool* _is_null = nullptr;
 };
 
-class VectorizedRowBatch : public RowBatchInterface {
+class VectorizedRowBatch {
 public:
-    //VectorizedRowBatch(const TupleDescriptor& tuple_desc, int capacity);
-    VectorizedRowBatch(const std::vector<FieldInfo>& schema, int capacity, MemTracker* mem_tracker);
-    virtual ~VectorizedRowBatch() { }
+    VectorizedRowBatch(
+        const std::vector<FieldInfo>& schema,
+        const std::vector<uint32_t>& cols,
+        int capacity);
 
-    MemPool* mem_pool() {
-        return &_mem_pool;
+    ~VectorizedRowBatch() {
+        for (auto& item: _col_map) {
+            delete item.second;
+        }
+        delete[] _selected;
     }
 
-    void add_column(int index, const TypeDescriptor& type) {
-        if (-1 == index) {
-            return;
-        }
-
-        DCHECK_EQ(index, _columns.size());
-        boost::shared_ptr<ColumnVector> col_vec(new ColumnVector(_capacity));
-        col_vec->set_col_data(_mem_pool.allocate(type.get_slot_size() * _capacity));
-        _columns.push_back(col_vec);
+    MemPool* mem_pool() {
+        return _mem_pool.get();
     }
 
     ColumnVector* column(int column_index) {
-        DCHECK_GE(column_index, 0);
-        DCHECK_LT(column_index, _columns.size());
-        return _columns[column_index].get();
+        return _col_map[column_index];
     }
 
-    int capacity() {
+    const std::vector<uint32_t>& columns() const { return _cols; }
+
+    uint16_t capacity() {
         return _capacity;
     }
 
-    int size() {
+    uint16_t size() {
         return _size;
     }
 
@@ -148,84 +119,39 @@ public:
         _selected_in_use = selected_in_use;
     }
 
-    int* selected() const {
+    uint16_t* selected() const {
         return _selected;
     }
 
-    void set_selected(int* selected) {
-        for (int i = 0; i < _capacity; ++i) {
-            _selected[i] = selected[i];
-        }
-    }
-
-    inline void backup() {
-        _backup_info.size = _size;
-        _backup_info.selected_in_use = _selected_in_use;
-        if (_selected_in_use) {
-            if (NULL == _backup_info.selected) {
-                _backup_info.selected
-                    = reinterpret_cast<int*>(_mem_pool.allocate(sizeof(int) * _capacity));
-            }
-            for (int i = 0; i < _capacity; ++i) {
-                _backup_info.selected[i] = _selected[i];
-            }
-        }
-        _has_backup = true;
-    }
-
-    inline void restore() {
-        if (_has_backup) {
-            _size = _backup_info.size;
-            _selected_in_use = _backup_info.selected_in_use;
-            if (_selected_in_use) {
-                _selected = _backup_info.selected;
-            }
-            _row_iter = 0;
-        }
-    }
-
-    //// reorganized memory layout from PAX storage
-    //void reorganized_from_pax(const std::vector<FieldInfo>& schema);
-
-    //// reorganized memory layout from DSM storage(Column Store)
-    //void reorganized_from_dsm();
-
-    inline bool is_iterator_end() {
-        return _row_iter >= _size;
-    }
-
-    inline void reset_row_iterator() {
-        _row_iter = 0;
-    }
-
-    inline void reset() {
+    inline void clear() {
         _size = 0;
         _selected_in_use = false;
-        _row_iter = 0;
-        _columns.erase(_columns.begin() + _num_cols, _columns.end());
-        _mem_pool.clear();
-        _selected = reinterpret_cast<int*>(_mem_pool.allocate(sizeof(int) * _capacity));
+        _limit = _capacity;
+        _mem_pool->clear();
     }
 
-    bool get_next_tuple(Tuple* tuple, const TupleDescriptor& tuple_desc);
+    uint16_t limit() const { return _limit; }
+    void set_limit(uint16_t limit) { _limit = limit; }
+    void set_block_status(uint8_t status) { _block_status = status; }
+    uint8_t block_status() const { return _block_status; }
 
-    void to_row_batch(RowBatch* row_batch, const TupleDescriptor& tuple_desc);
+    // Dump this vector batch to RowBlock;
+    void dump_to_row_block(RowBlock* row_block);
 
 private:
-    //const TupleDescriptor& _tuple_desc;
-    std::vector<FieldInfo> _schema;
-    Tuple* _tuple;
-    const int _capacity;
-    const int _num_cols;
-    int _size;
-    int* _selected;
-    bool _selected_in_use;
-    int _row_iter;
-    BackupInfo _backup_info;
-    bool _has_backup;
-    std::vector<boost::shared_ptr<ColumnVector> > _columns;
+    const std::vector<FieldInfo>& _schema;
+    const std::vector<uint32_t>& _cols;
+    const uint16_t _capacity;
+    uint16_t _size = 0;
+    uint16_t* _selected = nullptr;
+    std::map<ColumnId, ColumnVector*> _col_map;
 
-    MemPool _mem_pool;
+    bool _selected_in_use = false;
+    uint8_t _block_status;
+
+    std::unique_ptr<MemTracker> _tracker;
+    std::unique_ptr<MemPool> _mem_pool;
+    uint16_t _limit;
 };
 
 }

@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -29,6 +26,7 @@
 #include "codegen/palo_ir.h"
 #include "runtime/buffered_block_mgr2.h" // for BufferedBlockMgr2::Block
 // #include "runtime/buffered_tuple_stream2.inline.h"
+#include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/disk_io_mgr.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
@@ -41,6 +39,7 @@ class TRowBatch;
 class Tuple;
 class TupleRow;
 class TupleDescriptor;
+class PRowBatch;
 
 // A RowBatch encapsulates a batch of rows, each composed of a number of tuples.
 // The maximum number of rows is fixed at the time of construction, and the caller
@@ -92,6 +91,8 @@ public:
     // TODO: figure out how to transfer the data from input_batch to this RowBatch
     // (so that we don't need to make yet another copy)
     RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, MemTracker* tracker);
+
+    RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, MemTracker* tracker);
 
     // Releases all resources accumulated at this row batch.  This includes
     //  - tuple_ptrs
@@ -261,6 +262,16 @@ public:
     // and will call Close() on the stream and delete it when freeing resources.
     void add_tuple_stream(BufferedTupleStream2* stream);
 
+    /// Adds a buffer to this row batch. The buffer is deleted when freeing resources.
+    /// The buffer's memory remains accounted against the original owner, even when the
+    /// ownership of batches is transferred. If the original owner wants the memory to be
+    /// released, it should call this with 'mode' FLUSH_RESOURCES (see MarkFlushResources()
+    /// for further explanation).
+    /// TODO: IMPALA-4179: after IMPALA-3200, simplify the ownership transfer model and
+    /// make it consistent between buffers and I/O buffers.
+    void add_buffer(BufferPool::ClientHandle* client, BufferPool::BufferHandle&& buffer,
+        FlushMode flush);
+
     // Adds a block to this row batch. The block must be pinned. The blocks must be
     // deleted when freeing resources.
     void add_block(BufferedBlockMgr2::Block* block);
@@ -357,9 +368,11 @@ public:
     // Returns the uncompressed serialized size (this will be the true size of output_batch
     // if tuple_data is actually uncompressed).
     int serialize(TRowBatch* output_batch);
+    int serialize(PRowBatch* output_batch);
 
     // Utility function: returns total size of batch.
     static int get_batch_size(const TRowBatch& batch);
+    static int get_batch_size(const PRowBatch& batch);
 
     int num_rows() const {
         return _num_rows;
@@ -368,6 +381,9 @@ public:
         return _capacity;
     }
 
+    int num_buffers() const { 
+        return _buffers.size(); 
+    }
     // Swaps all of the row batch state with 'other'.  This is used for scan nodes
     // which produce RowBatches asynchronously.  Typically, an ExecNode is handed
     // a row batch to populate (pull model) but ScanNodes have multiple threads
@@ -472,6 +488,12 @@ private:
     // (i.e. they are not ref counted) so most row batches don't own any.
     std::vector<DiskIoMgr::BufferDescriptor*> _io_buffers;
 
+    struct BufferInfo {
+        BufferPool::ClientHandle* client;
+        BufferPool::BufferHandle buffer;
+    };
+    /// Pages attached to this row batch. See AddBuffer() for ownership semantics.
+    std::vector<BufferInfo> _buffers;
     // Tuple streams currently owned by this row batch.
     std::vector<BufferedTupleStream2*> _tuple_streams;
 

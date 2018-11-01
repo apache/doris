@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -19,8 +21,11 @@
 #include <iostream>
 
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
+#include "runtime/load_stream_mgr.h"
+#include "runtime/stream_load_pipe.h"
 #include "runtime/tuple.h"
 #include "exprs/expr.h"
 #include "exec/text_converter.h"
@@ -87,9 +92,14 @@ BrokerScanner::BrokerScanner(RuntimeState* state,
         _skip_next_line(false),
         _src_tuple(nullptr),
         _src_tuple_row(nullptr),
-        _mem_pool(_state->instance_mem_tracker()),
-        _dest_tuple_desc(nullptr),
+#if BE_TEST
+        _mem_tracker(new MemTracker()),
+        _mem_pool(_mem_tracker.get()),
+#else 
         _mem_tracker(new MemTracker(-1, "Broker Scanner", state->instance_mem_tracker())),
+        _mem_pool(_state->instance_mem_tracker()),
+#endif
+        _dest_tuple_desc(nullptr),
         _counter(counter),
         _rows_read_counter(nullptr),
         _read_timer(nullptr),
@@ -228,8 +238,13 @@ Status BrokerScanner::open_next_reader() {
 
 Status BrokerScanner::open_file_reader() {
     if (_cur_file_reader != nullptr) {
-        delete _cur_file_reader;
-        _cur_file_reader = nullptr;
+        if (_stream_load_pipe != nullptr) {
+            _stream_load_pipe.reset();
+            _cur_file_reader = nullptr;
+        } else {
+            delete _cur_file_reader;
+            _cur_file_reader = nullptr;
+        }
     }
 
     const TBrokerRangeDesc& range = _ranges[_next_range];
@@ -246,9 +261,17 @@ Status BrokerScanner::open_file_reader() {
     }
     case TFileType::FILE_BROKER: {
         BrokerReader* broker_reader = new BrokerReader(
-            _state, _broker_addresses, _params.properties, range.path, start_offset);
+            _state->exec_env(), _broker_addresses, _params.properties, range.path, start_offset);
         RETURN_IF_ERROR(broker_reader->open());
         _cur_file_reader = broker_reader;
+        break;
+    }
+    case TFileType::FILE_STREAM: {
+        _stream_load_pipe = _state->exec_env()->load_stream_mgr()->get(range.load_id);
+        if (_stream_load_pipe == nullptr) {
+            return Status("unknown stream load id");
+        }
+        _cur_file_reader = _stream_load_pipe.get();
         break;
     }
     default: {
@@ -360,8 +383,13 @@ void BrokerScanner::close() {
     }
 
     if (_cur_file_reader != nullptr) {
-        delete _cur_file_reader;
-        _cur_file_reader = nullptr;
+        if (_stream_load_pipe != nullptr) {
+            _stream_load_pipe.reset();
+            _cur_file_reader = nullptr;
+        } else {
+            delete _cur_file_reader;
+            _cur_file_reader = nullptr;
+        }
     }
     Expr::close(_dest_expr_ctx, _state);
 }

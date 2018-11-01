@@ -1,9 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
@@ -19,7 +13,7 @@
 // under the License.
 
 namespace cpp palo
-namespace java com.baidu.palo.thrift
+namespace java org.apache.doris.thrift
 
 include "Status.thrift"
 include "Types.thrift"
@@ -28,12 +22,15 @@ struct TMasterInfo {
     1: required Types.TNetworkAddress network_address
     2: required Types.TClusterId cluster_id
     3: required Types.TEpoch epoch
+    4: optional string token 
+    5: optional string backend_ip
 }
 
 struct TBackendInfo {
     1: required Types.TPort be_port
     2: required Types.TPort http_port
     3: optional Types.TPort be_rpc_port
+    4: optional Types.TPort brpc_port
 }
 
 struct THeartbeatResult {

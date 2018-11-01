@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -30,9 +27,11 @@
 // #include <gutil/strings/substitute.h>
 // #include <gutil/strings/join.h>
 
+#include "olap/olap_engine.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/filesystem_util.h"
+#include "runtime/exec_env.h"
 
 using boost::algorithm::is_any_of;
 using boost::algorithm::join;
@@ -54,24 +53,21 @@ const uint64_t _s_available_space_threshold_mb = 1024;
 const std::string TMP_FILE_MGR_ACTIVE_SCRATCH_DIRS = "tmp_file_mgr.active_scratch_dirs";
 const std::string TMP_FILE_MGR_ACTIVE_SCRATCH_DIRS_LIST = "tmp_file_mgr.active_scratch_dirs.list";
 
-TmpFileMgr::TmpFileMgr() :
-        _initialized(false), _dir_status_lock(), _tmp_dirs(),
-        _num_active_scratch_dirs_metric(NULL), _active_scratch_dirs_metric(NULL) {}
+TmpFileMgr::TmpFileMgr(ExecEnv* exec_env) :
+        _exec_env(exec_env), _initialized(false), _dir_status_lock(), _tmp_dirs() { }
+        // _num_active_scratch_dirs_metric(NULL), _active_scratch_dirs_metric(NULL) {}
 
-Status TmpFileMgr::init(MetricGroup* metrics) {
-    std::string tmp_dirs_spec = config::query_scratch_dirs;
+Status TmpFileMgr::init(MetricRegistry* metrics) {
+    std::string tmp_dirs_spec = config::storage_root_path;
     vector<string> all_tmp_dirs;
-    // Empty string should be interpreted as no scratch
-    if (!tmp_dirs_spec.empty()) {
-        boost::split(
-                all_tmp_dirs, tmp_dirs_spec,
-                is_any_of(";"), boost::algorithm::token_compress_on);
+    for (auto& path : _exec_env->store_paths()) {
+        all_tmp_dirs.emplace_back(path.path);
     }
     return init_custom(all_tmp_dirs, true, metrics);
 }
 
 Status TmpFileMgr::init_custom(
-        const vector<string>& tmp_dirs, bool one_dir_per_device, MetricGroup* metrics) {
+        const vector<string>& tmp_dirs, bool one_dir_per_device, MetricRegistry* metrics) {
     DCHECK(!_initialized);
     if (tmp_dirs.empty()) {
         LOG(WARNING) << "Running without spill to disk: no scratch directories provided.";
@@ -123,17 +119,18 @@ Status TmpFileMgr::init_custom(
     }
 
     DCHECK(metrics != NULL);
-    _num_active_scratch_dirs_metric = metrics->AddGauge(
-            TMP_FILE_MGR_ACTIVE_SCRATCH_DIRS, 0L);
+    _num_active_scratch_dirs_metric.reset(new IntGauge());
+    metrics->register_metric("active_scratch_dirs", _num_active_scratch_dirs_metric.get());
     //_active_scratch_dirs_metric = metrics->register_metric(new SetMetric<std::string>(
     //        TMP_FILE_MGR_ACTIVE_SCRATCH_DIRS_LIST,
     //        std::set<std::string>()));
-    _active_scratch_dirs_metric = SetMetric<string>::CreateAndRegister(
-    metrics, TMP_FILE_MGR_ACTIVE_SCRATCH_DIRS_LIST, std::set<std::string>());
-    _num_active_scratch_dirs_metric->update(_tmp_dirs.size());
-    for (int i = 0; i < _tmp_dirs.size(); ++i) {
-        _active_scratch_dirs_metric->add(_tmp_dirs[i].path());
-    }
+    // TODO(zc):
+    // _active_scratch_dirs_metric = SetMetric<string>::CreateAndRegister(
+    // metrics, TMP_FILE_MGR_ACTIVE_SCRATCH_DIRS_LIST, std::set<std::string>());
+    _num_active_scratch_dirs_metric->set_value(_tmp_dirs.size());
+    // for (int i = 0; i < _tmp_dirs.size(); ++i) {
+    //     _active_scratch_dirs_metric->add(_tmp_dirs[i].path());
+    // }
 
     _initialized = true;
 
@@ -186,7 +183,7 @@ void TmpFileMgr::blacklist_device(DeviceId device_id) {
     }
     if (added) {
         _num_active_scratch_dirs_metric->increment(-1);
-        _active_scratch_dirs_metric->remove(_tmp_dirs[device_id].path());
+        // _active_scratch_dirs_metric->remove(_tmp_dirs[device_id].path());
     }
 }
 

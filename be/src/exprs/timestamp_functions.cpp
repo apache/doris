@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -138,8 +135,8 @@ bool TimestampFunctions::check_format(const StringVal& format, DateTimeValue& t)
 
 void TimestampFunctions::report_bad_format(const StringVal* format) {
     std::string format_str((char *)format->ptr, format->len);
-    LOG(WARNING) << "Bad date/time conversion format: " << format_str
-                 << " Format must be: 'yyyy-MM-dd[ HH:mm:ss]'";
+    // LOG(WARNING) << "Bad date/time conversion format: " << format_str
+    //             << " Format must be: 'yyyy-MM-dd[ HH:mm:ss]'";
 }
 
 IntVal TimestampFunctions::year(
@@ -255,8 +252,6 @@ DateTimeVal TimestampFunctions::str_to_date(
     if (str.is_null || format.is_null) {
         return DateTimeVal::null();
     }
-    LOG(INFO) << "format is " << std::string((const char*)format.ptr, format.len)
-        << "str is " << std::string((const char*)str.ptr, str.len);
     DateTimeValue ts_value;
     if (!ts_value.from_date_format_str((const char*)format.ptr, format.len,
                                        (const char*)str.ptr, str.len)) {
@@ -495,7 +490,7 @@ void* TimestampFunctions::from_utc(Expr* e, TupleRow* row) {
 
     // boost::local_time::time_zone_ptr timezone = TimezoneDatabase::find_timezone(tz->debug_string());
 
-    // // This should raise some sort of error or at least null. Hive just ignores it.
+    // This should raise some sort of error or at least null. Hive just ignores it.
     // if (timezone == NULL) {
     //     LOG(ERROR) << "Unknown timezone '" << *tz << "'" << std::endl;
     //     e->_result.timestamp_val = *tv;
@@ -527,7 +522,7 @@ void* TimestampFunctions::to_utc(Expr* e, TupleRow* row) {
 
     // boost::local_time::time_zone_ptr timezone = TimezoneDatabase::find_timezone(tz->debug_string());
 
-    // // This should raise some sort of error or at least null. Hive just ignores it.
+    // This should raise some sort of error or at least null. Hive just ignores it.
     // if (timezone == NULL) {
     //     LOG(ERROR) << "Unknown timezone '" << *tz << "'" << std::endl;
     //     e->_result.timestamp_val = *tv;

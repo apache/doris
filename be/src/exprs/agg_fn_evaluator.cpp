@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -31,6 +28,7 @@
 #include "udf/udf_internal.h"
 #include "util/debug_util.h"
 #include "runtime/datetime_value.h"
+#include "runtime/mem_tracker.h"
 #include "thrift/protocol/TDebugProtocol.h"
 #include "runtime/raw_value.h"
 
@@ -273,6 +271,9 @@ Status AggFnEvaluator::open(RuntimeState* state, FunctionContext* agg_fn_ctx) {
 
 void AggFnEvaluator::close(RuntimeState* state) {
     Expr::close(_input_exprs_ctxs, state);
+    if (UNLIKELY(_total_mem_consumption > 0)) {
+        _mem_tracker->release(_total_mem_consumption);
+    }
 }
 
 // Utility to put val into an AnyVal struct
@@ -337,7 +338,7 @@ inline void AggFnEvaluator::set_any_val(
         return;
 
     case TYPE_LARGEINT:
-        reinterpret_cast<LargeIntVal*>(dst)->val = *reinterpret_cast<const __int128*>(slot);
+        memcpy(&reinterpret_cast<LargeIntVal*>(dst)->val, slot, sizeof(__int128));
         return;
 
     default:
@@ -406,7 +407,7 @@ inline void AggFnEvaluator::set_output_slot(const AnyVal* src,
         return;
 
     case TYPE_LARGEINT: {
-        *reinterpret_cast<__int128*>(slot) = reinterpret_cast<const LargeIntVal*>(src)->val;
+        memcpy(slot, &reinterpret_cast<const LargeIntVal*>(src)->val, sizeof(__int128));
         return;
     }
 
@@ -449,9 +450,6 @@ void AggFnEvaluator::update_mem_limlits(int len) {
 }
 
 AggFnEvaluator::~AggFnEvaluator() {
-    if (UNLIKELY(_total_mem_consumption > 0)) {
-        _mem_tracker->release(_total_mem_consumption);
-    }
 }
 
 inline void AggFnEvaluator::update_mem_trackers(bool is_filter, bool is_add_buckets, int len) {

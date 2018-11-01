@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -33,6 +30,7 @@
 #include "exec/exchange_node.h"
 #include "exec/scan_node.h"
 #include "exprs/expr.h"
+#include "runtime/exec_env.h"
 #include "runtime/descriptors.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/result_buffer_mgr.h"
@@ -42,6 +40,7 @@
 #include "util/debug_util.h"
 #include "util/container_util.hpp"
 #include "util/parse_util.h"
+#include "util/pretty_printer.h"
 #include "util/mem_info.h"
 
 namespace palo {
@@ -142,7 +141,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     // set up plan
     DCHECK(request.__isset.fragment);
     RETURN_IF_ERROR(
-            ExecNode::create_tree(obj_pool(), request.fragment.plan, *desc_tbl, &_plan));
+            ExecNode::create_tree(_runtime_state.get(), obj_pool(), request.fragment.plan, *desc_tbl, &_plan));
     _runtime_state->set_fragment_root_id(_plan->id());
 
     if (request.params.__isset.debug_node_id) {
@@ -163,8 +162,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
         static_cast<ExchangeNode*>(exch_node)->set_num_senders(num_senders);
     }
 
+ 
     RETURN_IF_ERROR(_plan->prepare(_runtime_state.get()));
-
     // set scan ranges
     std::vector<ExecNode*> scan_nodes;
     std::vector<TScanRangeParams> no_scan_ranges;
@@ -183,6 +182,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     print_volume_ids(params.per_node_scan_ranges);
 
     _runtime_state->set_per_fragment_instance_idx(params.sender_id);
+    _runtime_state->set_num_per_fragment_instances(params.num_senders);
+
     // set up sink, if required
     if (request.fragment.__isset.output_sink) {
         RETURN_IF_ERROR(DataSink::create_data_sink(obj_pool(),
@@ -334,11 +335,6 @@ Status PlanFragmentExecutor::open_internal() {
         SCOPED_TIMER(profile()->total_time_counter());
         Status status = _sink->close(runtime_state(), _status);
         RETURN_IF_ERROR(status);
-    }
-    {
-        std::stringstream ss;
-        profile()->pretty_print(&ss);
-        LOG(INFO) << ss.str();
     }
 
     // Setting to NULL ensures that the d'tor won't double-close the sink.
@@ -500,8 +496,8 @@ void PlanFragmentExecutor::cancel() {
     LOG(INFO) << "cancel(): instance_id=" << _runtime_state->fragment_instance_id();
     DCHECK(_prepared);
     _runtime_state->set_is_cancelled(true);
-    _runtime_state->stream_mgr()->cancel(_runtime_state->fragment_instance_id());
-    _runtime_state->result_mgr()->cancel(_runtime_state->fragment_instance_id());
+    _runtime_state->exec_env()->stream_mgr()->cancel(_runtime_state->fragment_instance_id());
+    _runtime_state->exec_env()->result_mgr()->cancel(_runtime_state->fragment_instance_id());
 }
 
 const RowDescriptor& PlanFragmentExecutor::row_desc() {
@@ -529,16 +525,33 @@ void PlanFragmentExecutor::close() {
 
     // Prepare may not have been called, which sets _runtime_state
     if (_runtime_state.get() != NULL) {
-        _plan->close(_runtime_state.get());
+        
+        // _runtime_state init failed
+        if (_plan != nullptr) {
+            _plan->close(_runtime_state.get());
+        }
 
         if (_sink.get() != NULL) {
-            _sink->close(runtime_state(), _status);
+            if (_prepared) {
+                _sink->close(runtime_state(), _status);
+            } else {
+                _sink->close(runtime_state(), Status("prepare failed"));
+            }
         }
 
         _exec_env->thread_mgr()->unregister_pool(_runtime_state->resource_pool());
-    }
 
-    _mem_tracker->release(_mem_tracker->consumption());
+        {
+            std::stringstream ss;
+            _runtime_state->runtime_profile()->pretty_print(&ss);
+            LOG(INFO) << ss.str();
+        }
+    }
+     
+    // _mem_tracker init failed
+    if (_mem_tracker.get() != nullptr) {
+        _mem_tracker->release(_mem_tracker->consumption());
+    }
     _closed = true;
 }
 

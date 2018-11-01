@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -28,15 +25,14 @@
 #include <boost/thread/mutex.hpp>
 
 #include <atomic>
-#include <vector>
-#include <string>
-// stringstream is a typedef, so can't forward declare it.
-#include <sstream>
 #include <memory>
+#include <fstream>
+#include <string>
+#include <sstream>
+#include <vector>
 
-#include "runtime/exec_env.h"
+#include "common/global_types.h"
 #include "util/logging.h"
-#include "runtime/descriptors.h"  // for PlanNodeId
 #include "runtime/mem_pool.h"
 #include "runtime/thread_resource_mgr.h"
 #include "gen_cpp/Types_types.h"  // for TUniqueId
@@ -61,6 +57,9 @@ class TmpFileMgr;
 class BufferedBlockMgr;
 class BufferedBlockMgr2;
 class LoadErrorHub;
+class ReservationTracker;
+class InitialReservations;
+class RowDescriptor;
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
@@ -92,6 +91,9 @@ public:
     // will add a fourth level when they are initialized.
     // This function also initializes a user function mem tracker (in the fourth level).
     Status init_mem_trackers(const TUniqueId& query_id);
+
+    /// Called from Init() to set up buffer reservations and the file group.
+    Status init_buffer_poolstate();
 
     // Gets/Creates the query wide block mgr.
     Status create_block_mgr();
@@ -151,21 +153,6 @@ public:
     ExecEnv* exec_env() {
         return _exec_env;
     }
-    DataStreamMgr* stream_mgr() {
-        return _exec_env->stream_mgr();
-    }
-    ResultBufferMgr* result_mgr() {
-        return _exec_env->result_mgr();
-    }
-    BackendServiceClientCache* client_cache() {
-        return _exec_env->client_cache();
-    }
-    FrontendServiceClientCache* frontend_client_cache() {
-        return _exec_env->frontend_client_cache();
-    }
-    DiskIoMgr* io_mgr() {
-        return _exec_env->disk_io_mgr();
-    }
     std::vector<MemTracker*>* mem_trackers() {
         return &_mem_trackers;
     }
@@ -191,10 +178,6 @@ public:
     // See comment on _root_node_id. We add one to prevent having a hash seed of 0.
     uint32_t fragment_hash_seed() const {
         return _root_node_id + 1;
-    }
-
-    ThreadPool* etl_thread_pool() {
-        return _exec_env->etl_thread_pool();
     }
 
     // Returns true if the codegen object has been created. Note that this may return false
@@ -245,9 +228,9 @@ public:
         return _process_status;
     };
 
-    MemPool* udf_pool() {
-        return _udf_pool.get();
-    };
+//    MemPool* udf_pool() {
+//        return _udf_pool.get();
+//    };
 
     // Create and return a stream receiver for _fragment_instance_id
     // from the data stream manager. The receiver is added to _data_stream_recvrs_pool.
@@ -327,6 +310,7 @@ public:
             return;
         }
         _process_status = status;
+
     }
 
     // Sets query_status_ to MEM_LIMIT_EXCEEDED and logs all the registered trackers.
@@ -382,10 +366,6 @@ public:
         return _load_dir;
     }
 
-    const void set_load_dir(std::string& dir) {
-        _load_dir = dir;
-    }
-
     void set_load_job_id(int64_t job_id) {
         _load_job_id = job_id;
     }
@@ -426,10 +406,6 @@ public:
         return _error_log_file_path;
     }
 
-    const void set_error_log_file_path(const std::string& file_path) {
-        _error_log_file_path = file_path;
-    }
-
     // TODO(lingbin): remove this file error method after mysql error exporter is stable.
     void append_error_msg_to_file(const std::string& line, const std::string& error_msg);
 
@@ -458,6 +434,62 @@ public:
         return _per_fragment_instance_idx;
     }
 
+    void set_num_per_fragment_instances(int num_instances) {
+        _num_per_fragment_instances = num_instances;
+    }
+
+    int num_per_fragment_instances() const {
+        return _num_per_fragment_instances;
+    }
+
+    ReservationTracker* instance_buffer_reservation() {
+        return _instance_buffer_reservation.get();
+    }
+
+    int64_t min_reservation() {
+        return _query_options.min_reservation;
+    }
+
+    int64_t max_reservation() {
+        return _query_options.max_reservation;
+    } 
+
+    bool disable_stream_preaggregations() {
+        return _query_options.disable_stream_preaggregations;
+    }
+
+     // the following getters are only valid after Prepare()
+    InitialReservations* initial_reservations() const { 
+        return _initial_reservations; 
+    }
+
+    ReservationTracker* buffer_reservation() const { 
+        return _buffer_reservation; 
+    }
+
+    const std::vector<TTabletCommitInfo>& tablet_commit_infos() const {
+        return _tablet_commit_infos;
+    }
+
+    std::vector<TTabletCommitInfo>& tablet_commit_infos() {
+        return _tablet_commit_infos;
+    }
+
+    /// Helper to call QueryState::StartSpilling().
+    Status StartSpilling(MemTracker* mem_tracker);
+
+    void set_query_state_for_wait() {
+        _is_running = false;
+    }
+
+    void set_query_state_for_running() {
+        _is_running = true;
+    }
+
+    bool is_running() {
+        return _is_running;
+    }
+
 private:
     // Allow TestEnv to set block_mgr manually for testing.
     friend class TestEnv;
@@ -473,7 +505,7 @@ private:
 
     Status create_error_log_file();
 
-    static const int DEFAULT_BATCH_SIZE = 1024;
+    static const int DEFAULT_BATCH_SIZE = 2048;
 
     DescriptorTbl* _desc_tbl;
     std::shared_ptr<ObjectPool> _obj_pool;
@@ -532,6 +564,7 @@ private:
     bool _is_cancelled;
 
     int _per_fragment_instance_idx;
+    int _num_per_fragment_instances = 0;
 
     // used as send id
     int _be_number;
@@ -541,7 +574,7 @@ private:
     // will not necessarily be set in all error cases.
     boost::mutex _process_status_lock;
     Status _process_status;
-    boost::scoped_ptr<MemPool> _udf_pool;
+    //boost::scoped_ptr<MemPool> _udf_pool;
 
     // BufferedBlockMgr object used to allocate and manage blocks of input data in memory
     // with a fixed memory budget.
@@ -562,6 +595,7 @@ private:
     std::vector<std::string> _output_files;
     std::atomic<int64_t> _num_rows_load_success;
     std::atomic<int64_t> _num_rows_load_filtered;
+    std::atomic<int64_t> _num_print_error_rows;
 
     std::vector<std::string> _export_output_files;
 
@@ -577,6 +611,30 @@ private:
     std::string _error_log_file_path;
     std::ofstream* _error_log_file; // error file path, absolute path
     std::unique_ptr<LoadErrorHub> _error_hub;
+    std::vector<TTabletCommitInfo> _tablet_commit_infos;
+
+    // state of execution
+    volatile bool _is_running;
+
+    //TODO chenhao , remove this to QueryState 
+    /// Pool of buffer reservations used to distribute initial reservations to operators
+    /// in the query. Contains a ReservationTracker that is a child of
+    /// 'buffer_reservation_'. Owned by 'obj_pool_'. Set in Prepare().
+    ReservationTracker* _buffer_reservation = nullptr;
+
+    /// Buffer reservation for this fragment instance - a child of the query buffer
+    /// reservation. Non-NULL if 'query_state_' is not NULL.
+    boost::scoped_ptr<ReservationTracker> _instance_buffer_reservation;
+
+    /// Pool of buffer reservations used to distribute initial reservations to operators
+    /// in the query. Contains a ReservationTracker that is a child of
+    /// 'buffer_reservation_'. Owned by 'obj_pool_'. Set in Prepare().
+    InitialReservations* _initial_reservations = nullptr;
+
+    /// Number of fragment instances executing, which may need to claim
+    /// from 'initial_reservations_'.
+    /// TODO: not needed if we call ReleaseResources() in a timely manner (IMPALA-1575).
+    AtomicInt32 _initial_reservation_refcnt;
 
     // prohibit copies
     RuntimeState(const RuntimeState&);

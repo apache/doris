@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -22,6 +19,7 @@
 
 #include <math.h>
 #include <exception>
+#include <memory>
 #include <sstream>
 
 #include "common/logging.h"
@@ -88,6 +86,51 @@ bool url_decode(const std::string& in, std::string* out) {
     }
 
     return true;
+}
+
+static void encode_base64_internal(const std::string& in, std::string* out,
+                                   const unsigned char* basis, bool padding) {
+    size_t len = in.size();
+    std::unique_ptr<unsigned char[]> buf(new unsigned char[len]);
+    const unsigned char* s = reinterpret_cast<const unsigned char*>(in.data());
+    unsigned char* d = buf.get();
+    while (len > 2) {
+        *d++ = basis[(s[0] >> 2) & 0x3f];
+        *d++ = basis[((s[0] & 3) << 4) | (s[1] >> 4)];
+        *d++ = basis[((s[1] & 0x0f) << 2) | (s[2] >> 6)];
+        *d++ = basis[s[2] & 0x3f];
+
+        s += 3;
+        len -= 3;
+    }
+    if (len) {
+        *d++ = basis[(s[0] >> 2) & 0x3f];
+        if (len == 1) {
+            *d++ = basis[(s[0] & 3) << 4];
+            if (padding) {
+                *d++ = '=';
+            }
+        } else {
+            *d++ = basis[((s[0] & 3) << 4) | (s[1] >> 4)];
+            *d++ = basis[(s[1] & 0x0f) << 2];
+        }
+        if (padding) {
+            *d++ = '=';
+        }
+    }
+    out->assign((char*)buf.get(), d - buf.get());
+}
+
+void base64url_encode(const std::string& in, std::string *out) {
+    static unsigned char basis64[] =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    encode_base64_internal(in, out, basis64, false);
+}
+
+void base64_encode(const std::string& in, std::string* out) {
+    static unsigned char basis64[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    encode_base64_internal(in, out, basis64, true);
 }
 
 static char encoding_table[] = {

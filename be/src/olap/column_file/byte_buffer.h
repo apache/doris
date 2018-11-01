@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -81,7 +83,14 @@ public:
     }
     // 设置内部指针的位置
     // 如果新位置大于等于limit, 则返回OLAP_ERR_INPUT_PARAMETER_ERROR
-    OLAPStatus set_position(uint64_t new_position);
+    OLAPStatus set_position(uint64_t new_position) {
+        if (new_position <= _limit) {
+            _position = new_position;
+            return OLAP_SUCCESS;
+        } else {
+            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        }
+    }
 
     inline uint64_t limit() const {
         return _limit;
@@ -89,9 +98,21 @@ public:
     //设置新的limit
     //如果limit超过capacity, 返回OLAP_ERR_INPUT_PARAMETER_ERROR
     //如果position大于新的limit, 设置position等于limit
-    OLAPStatus set_limit(uint64_t new_limit);
+    OLAPStatus set_limit(uint64_t new_limit) {
+        if (new_limit > _capacity) {
+            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        }
 
-    uint64_t remaining() const {
+        _limit = new_limit;
+
+        if (_position > _limit) {
+            _position = _limit;
+        }
+
+        return OLAP_SUCCESS;
+    }
+
+    inline uint64_t remaining() const {
         return _limit - _position;
     }
 
@@ -99,7 +120,10 @@ public:
     // 将position设置为0
     // 这个函数可以用于将ByteBuffer从写状态转为读状态, 即在进行一些写之后
     // 调用本函数,之后可以对ByteBuffer做读操作.
-    void flip();
+    void flip() {
+        _limit = _position;
+        _position = 0;
+    }
 
     // 以下三个读取函数进行inline优化
 

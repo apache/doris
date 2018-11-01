@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -168,6 +165,37 @@ uint64_t FileSystemUtil::max_num_file_handles() {
         return static_cast<uint64_t>(data.rlim_cur);
     }
     return 0ul;
+}
+
+// NOTE: the parent_path and sub_path can either dir or file.
+//   return true if patent_path == sub_path
+bool FileSystemUtil::contain_path(
+        const std::string& parent_path, const std::string& sub_path) {
+    boost::filesystem::path parent(parent_path);
+    boost::filesystem::path sub(sub_path);
+    parent = parent.lexically_normal();
+    sub = sub.lexically_normal();
+
+    if (parent == sub) {
+        return true;
+    }
+
+    if (parent.filename() == ".") {
+        parent.remove_filename();
+    }
+
+    // We're also not interested in the file's name.
+    if (sub.has_filename()) {
+        sub.remove_filename();
+    }
+    // If dir has more components than file, then file can't possibly reside in dir.
+    auto dir_len = std::distance(parent.begin(), parent.end());
+    auto file_len = std::distance(sub.begin(), sub.end());
+    if (dir_len > file_len) {
+        return false;
+    }
+
+    return std::equal(parent.begin(), parent.end(), sub.begin());
 }
 
 } // end namespace palo

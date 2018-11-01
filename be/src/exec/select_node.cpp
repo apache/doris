@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -58,29 +55,38 @@ Status SelectNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
     if (reached_limit() || (_child_row_idx == _child_row_batch->num_rows() && _child_eos)) {
         // we're already done or we exhausted the last child batch and there won't be any
         // new ones
+        _child_row_batch->transfer_resource_ownership(row_batch);
         *eos = true;
         return Status::OK;
     }
+    *eos = false;
 
     // start (or continue) consuming row batches from child
     while (true) {
+        RETURN_IF_CANCELLED(state);
         if (_child_row_idx == _child_row_batch->num_rows()) {
             // fetch next batch
-            RETURN_IF_CANCELLED(state);
-            row_batch->tuple_data_pool()->acquire_data(_child_row_batch->tuple_data_pool(), false);
-            _child_row_batch->reset();
-            RETURN_IF_ERROR(child(0)->get_next(state, _child_row_batch.get(), &_child_eos));
             _child_row_idx = 0;
+            _child_row_batch->transfer_resource_ownership(row_batch);
+            _child_row_batch->reset();
+            if (row_batch->at_capacity()) {
+                return Status::OK;
+            }
+            RETURN_IF_ERROR(child(0)->get_next(state, _child_row_batch.get(), &_child_eos));
         }
 
         if (copy_rows(row_batch)) {
             *eos = reached_limit()
                    || (_child_row_idx == _child_row_batch->num_rows() && _child_eos);
+            if (*eos) {
+                _child_row_batch->transfer_resource_ownership(row_batch);
+            }
             return Status::OK;
         }
 
         if (_child_eos) {
             // finished w/ last child row batch, and child eos is true
+            _child_row_batch->transfer_resource_ownership(row_batch);
             *eos = true;
             return Status::OK;
         }

@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -24,11 +21,12 @@
 //#include "exprs/opcode_registry.h"
 #include "udf/udf.h"
 #include "udf/udf_internal.h"
-#include "olap/field.h"
+#include "olap/hll.h"
 
 namespace palo {
 
 class HllSetResolver;
+class HybirdSetBase;
 
 // Collection of builtin aggregate functions. Aggregate functions implement
 // the various phases of the aggregation: Init(), Update(), Serialize(), Merge(),
@@ -186,6 +184,47 @@ dst);
     static palo_udf::StringVal hll_finalize(
             palo_udf::FunctionContext*,
             const palo_udf::StringVal& src);
+
+    // count and sum distinct algorithm in multi distinct
+    template <typename T>
+    static void count_or_sum_distinct_numeric_init(palo_udf::FunctionContext* ctx, palo_udf::StringVal* dst);
+    template <typename T>
+    static void count_or_sum_distinct_numeric_update(FunctionContext* ctx, T& src, StringVal* dst);
+    template <typename T>
+    static void count_or_sum_distinct_numeric_merge(FunctionContext* ctx, StringVal& src, StringVal* dst);
+    template <typename T>
+    static StringVal count_or_sum_distinct_numeric_serialize(FunctionContext* ctx, const StringVal& state_sv);
+    template <typename T>
+    static BigIntVal count_or_sum_distinct_numeric_finalize(FunctionContext* ctx, const StringVal& state_sv);
+
+    // count distinct in multi distinct for string 
+    static void count_distinct_string_init(palo_udf::FunctionContext* ctx, palo_udf::StringVal* dst);
+    static void count_distinct_string_update(FunctionContext* ctx, StringVal& src, StringVal* dst);
+    static void count_distinct_string_merge(FunctionContext* ctx, StringVal& src, StringVal* dst);
+    static StringVal count_distinct_string_serialize(FunctionContext* ctx, const StringVal& state_sv);
+    static BigIntVal count_distinct_string_finalize(FunctionContext* ctx, const StringVal& state_sv);
+ 
+    // count distinct in multi distinct for decimal
+    static void count_or_sum_distinct_decimal_init(palo_udf::FunctionContext* ctx, palo_udf::StringVal* dst);
+    static void count_or_sum_distinct_decimal_update(FunctionContext* ctx, DecimalVal& src, StringVal* dst);
+    static void count_or_sum_distinct_decimal_merge(FunctionContext* ctx, StringVal& src, StringVal* dst);
+    static StringVal count_or_sum_distinct_decimal_serialize(FunctionContext* ctx, const StringVal& state_sv);
+    static BigIntVal count_distinct_decimal_finalize(FunctionContext* ctx, const StringVal& state_sv);
+    static DecimalVal sum_distinct_decimal_finalize(FunctionContext* ctx, const StringVal& state_sv);
+
+    // count distinct in multi disticnt for Date
+    static void count_distinct_date_init(palo_udf::FunctionContext* ctx, palo_udf::StringVal* dst);
+    static void count_distinct_date_update(FunctionContext* ctx, DateTimeVal& src, StringVal* dst);
+    static void count_distinct_date_merge(FunctionContext* ctx, StringVal& src, StringVal* dst);
+    static StringVal count_distinct_date_serialize(FunctionContext* ctx, const StringVal& state_sv);
+    static BigIntVal count_distinct_date_finalize(FunctionContext* ctx, const StringVal& state_sv);
+ 
+    template <typename T>
+    static BigIntVal sum_distinct_bigint_finalize(FunctionContext* ctx, const StringVal& state_sv);
+    template <typename T>
+    static LargeIntVal sum_distinct_largeint_finalize(FunctionContext* ctx, const StringVal& state_sv);
+    template <typename T>
+    static DoubleVal sum_distinct_double_finalize(FunctionContext* ctx, const StringVal& state_sv); 
 
     /// Knuth's variance algorithm, more numerically stable than canonical stddev
     /// algorithms; reference implementation:

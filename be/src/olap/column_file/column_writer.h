@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -24,9 +26,12 @@
 #include "olap/column_file/bloom_filter_writer.h"
 #include "olap/column_file/out_stream.h"
 #include "olap/column_file/stream_index_writer.h"
+#include "olap/column_file/run_length_byte_writer.h"
+#include "olap/column_file/run_length_integer_writer.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/row_block.h"
 #include "olap/row_cursor.h"
 
 namespace palo {
@@ -55,7 +60,11 @@ public:
             double bf_fpp);
     virtual ~ColumnWriter();
     virtual OLAPStatus init();
-    virtual OLAPStatus write(RowCursor* row_cursor);
+
+    OLAPStatus write(RowCursor* cursor);
+
+    virtual OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) = 0;
+
     // 将之前记录的block位置信息与当前的统计信息写入到一个新的索引项中
     OLAPStatus create_row_index_entry();
     // 估算当前缓存的内存大小, 不包括已经输出到OutStream的内存
@@ -68,9 +77,6 @@ public:
     //   * column_statistics
     virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
     virtual void save_encoding(ColumnEncodingMessage* encoding);
-    // 子类返回统计信息的接口
-    virtual ColumnStatistics* segment_statistics() = 0;
-    virtual ColumnStatistics* block_statistics() = 0;
     uint32_t column_id() const {
         return _column_id;
     }
@@ -82,6 +88,14 @@ public:
     virtual void get_bloom_filter_info(bool* has_bf_column,
                                        uint32_t* bf_hash_function_num,
                                        uint32_t* bf_bit_num);
+
+    ColumnStatistics* segment_statistics() {
+        return &_segment_statistics;
+    }
+
+    ColumnStatistics* block_statistics() {
+        return &_block_statistics;
+    }
 protected:
     ColumnWriter(uint32_t column_id,
             OutStreamFactory* stream_factory,
@@ -138,11 +152,35 @@ public:
                      double bf_fpp);
     virtual ~ByteColumnWriter();
     virtual OLAPStatus init();
-    virtual OLAPStatus write(RowCursor* row_cursor);
+
+    OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
+        for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
+            block->get_row(i, cursor);
+
+            OLAPStatus res = ColumnWriter::write(cursor);
+            if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
+                OLAP_LOG_WARNING("fail to write ColumnWriter.");
+                return res;
+            }
+
+            const Field* field = cursor->get_field_by_index(column_id());
+            bool is_null = field->is_null(cursor->get_buf());
+            char* buf = field->get_field_ptr(cursor->get_buf());
+            _block_statistics.add(buf);
+            if (!is_null) {
+                char value = *reinterpret_cast<char*>(buf + 1);
+                res = _writer->write(value);
+                if (res != OLAP_SUCCESS) {
+                    LOG(WARNING) << "fail to write double, res=" << res;
+                    return res;
+                }
+            }
+        }
+        return OLAP_SUCCESS;
+    }
+
     virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
     virtual void record_position();
-    virtual ColumnStatistics* segment_statistics();
-    virtual ColumnStatistics* block_statistics();
     virtual OLAPStatus flush() {
         return OLAP_SUCCESS;
     }
@@ -162,10 +200,18 @@ public:
             bool is_singed);
     ~IntegerColumnWriter();
     OLAPStatus init();
-    OLAPStatus write(int64_t data);
-    OLAPStatus finalize(ColumnDataHeaderMessage* header);
-    void record_position(PositionEntryWriter* index_entry);
-    OLAPStatus flush();
+    OLAPStatus write(int64_t data) {
+        return _writer->write(data);
+    }
+    OLAPStatus finalize(ColumnDataHeaderMessage* header) {
+        return _writer->flush();
+    }
+    void record_position(PositionEntryWriter* index_entry) {
+        _writer->get_position(index_entry, false);
+    }
+    OLAPStatus flush() {
+        return _writer->flush();
+    }
 
 private:
     uint32_t _column_id;
@@ -210,24 +256,28 @@ public:
         return OLAP_SUCCESS;
     }
 
-    virtual OLAPStatus write(RowCursor* row_cursor) {
-        OLAPStatus res = ColumnWriter::write(row_cursor);
+    OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
+        for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
+            block->get_row(i, cursor);
+            OLAPStatus res = ColumnWriter::write(cursor);
+            if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
+                OLAP_LOG_WARNING("fail to write ColumnWriter. [res=%d]", res);
+                return res;
+            }
 
-        if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
-            OLAP_LOG_WARNING("fail to write ColumnWriter. [res=%d]", res);
-            return res;
+            const Field* field = cursor->get_field_by_index(column_id());
+            bool is_null = field->is_null(cursor->get_buf());
+            char* buf = field->get_field_ptr(cursor->get_buf());
+            _block_statistics.add(buf);
+            if (!is_null) {
+                T value = *reinterpret_cast<T*>(buf + 1);
+                res =  _writer.write(static_cast<int64_t>(value));
+                if (res != OLAP_SUCCESS) {
+                    LOG(WARNING) << "fail to write integer, res=" << res;
+                    return res;
+                }
+            }
         }
-
-        bool is_null = row_cursor->is_null(column_id());
-        const Field* field = row_cursor->get_field_by_index(column_id());
-        if (false == is_null) {
-            _block_statistics.add(field);
-            T value = *reinterpret_cast<T*>(field->buf());
-            return _writer.write(static_cast<int64_t>(value));
-        } else {
-            _block_statistics.add(field);
-        }
-
         return OLAP_SUCCESS;
     }
 
@@ -263,14 +313,6 @@ public:
     virtual void record_position() {
         ColumnWriter::record_position();
         _writer.record_position(index_entry());
-    }
-
-    virtual ColumnStatistics* segment_statistics() {
-        return &_segment_statistics;
-    }
-
-    virtual ColumnStatistics* block_statistics() {
-        return &_block_statistics;
     }
 private:
     IntegerColumnWriter _writer;
@@ -317,22 +359,29 @@ public:
         return OLAP_SUCCESS;
     }
 
-    virtual OLAPStatus write(RowCursor* row_cursor) {
-        OLAPStatus res = ColumnWriter::write(row_cursor);
+    OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
+        for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
+            block->get_row(i, cursor);
+            OLAPStatus res = ColumnWriter::write(cursor);
+            if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
+                OLAP_LOG_WARNING("fail to write ColumnWriter. [res=%d]", res);
+                return res;
+            }
 
-        if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
-            OLAP_LOG_WARNING("fail to write ColumnWriter. [res=%d]", res);
-            return res;
+            const Field* field = cursor->get_field_by_index(column_id());
+
+            bool is_null = field->is_null(cursor->get_buf());
+            char* buf = field->get_field_ptr(cursor->get_buf());
+            _block_statistics.add(buf);
+            if (!is_null) {
+                T* value = reinterpret_cast<T*>(buf + 1);
+                res = _stream->write(reinterpret_cast<char*>(value), sizeof(T));
+                if (res != OLAP_SUCCESS) {
+                    LOG(WARNING) << "fail to write double, res=" << res;
+                    return res;
+                }
+            }
         }
-
-        bool is_null = row_cursor->is_null(column_id());
-        const Field* field = row_cursor->get_field_by_index(column_id());
-        if (false == is_null) {
-            T* value = reinterpret_cast<T*>(field->buf());
-            _block_statistics.add(field);
-            return _stream->write(reinterpret_cast<char*>(value), sizeof(T));
-        }
-
         return OLAP_SUCCESS;
     }
 
@@ -359,13 +408,6 @@ public:
         _stream->get_position(index_entry());
     }
 
-    virtual ColumnStatistics* segment_statistics() {
-        return &_segment_statistics;
-    }
-
-    virtual ColumnStatistics* block_statistics() {
-        return &_block_statistics;
-    }
 private:
     OutStream* _stream;
 
@@ -384,11 +426,32 @@ public:
                           double bf_fpp);
     virtual ~VarStringColumnWriter();
     virtual OLAPStatus init();
-    virtual OLAPStatus write(RowCursor* row_cursor);
+
+    OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
+        for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
+            block->get_row(i, cursor);
+            OLAPStatus res = ColumnWriter::write(cursor);
+            if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
+                OLAP_LOG_WARNING("fail to write ColumnWriter.");
+                return res;
+            }
+            auto field = cursor->get_field_by_index(column_id());
+            bool is_null = field->is_null(cursor->get_buf());
+            if (!is_null) {
+                char* buf = field->get_ptr(cursor->get_buf());
+                StringSlice* slice = reinterpret_cast<StringSlice*>(buf);
+                res = write(slice->data, slice->size);
+                if (res != OLAP_SUCCESS) {
+                    LOG(WARNING) << "fail to write varchar, res=" << res;
+                    return res;
+                }
+            }
+        }
+        return OLAP_SUCCESS;
+    }
+
     virtual uint64_t estimate_buffered_memory();
     virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
-    virtual ColumnStatistics* segment_statistics();
-    virtual ColumnStatistics* block_statistics();
     virtual void save_encoding(ColumnEncodingMessage* encoding);
     virtual void record_position();
     virtual OLAPStatus flush() {
@@ -442,7 +505,34 @@ public:
             size_t num_rows_per_row_block,
             double bf_fpp);
     virtual ~FixLengthStringColumnWriter();
-    virtual OLAPStatus write(RowCursor* row_cursor);
+
+    OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
+        for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
+            block->get_row(i, cursor);
+
+            OLAPStatus res = ColumnWriter::write(cursor);
+            if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
+                OLAP_LOG_WARNING("fail to write ColumnWriter.");
+                return res;
+            }
+
+            const Field* field = cursor->get_field_by_index(column_id());
+            bool is_null = field->is_null(cursor->get_buf());
+            char* buf = field->get_ptr(cursor->get_buf());
+
+            if (!is_null) {
+                //const char* str = reinterpret_cast<const char*>(buf);
+                StringSlice* slice = reinterpret_cast<StringSlice*>(buf);
+                res = VarStringColumnWriter::write(slice->data, slice->size);
+                if (res != OLAP_SUCCESS) {
+                    LOG(WARNING) << "fail to write fix-length string, res=" << res;
+                    return res;
+                }
+            }
+        }
+        return OLAP_SUCCESS;
+    }
+
     virtual OLAPStatus flush() {
         return OLAP_SUCCESS;
     }
@@ -465,11 +555,39 @@ public:
                         double bf_fpp);
     virtual ~DecimalColumnWriter();
     virtual OLAPStatus init();
-    virtual OLAPStatus write(RowCursor* row_cursor);
+
+    OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
+        for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
+            block->get_row(i, cursor);
+            OLAPStatus res = ColumnWriter::write(cursor);
+            if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
+                OLAP_LOG_WARNING("fail to write ColumnWriter.");
+                return res;
+            }
+
+            const Field* field = cursor->get_field_by_index(column_id());
+            bool is_null = field->is_null(cursor->get_buf());
+            char* buf = field->get_field_ptr(cursor->get_buf());
+            _block_statistics.add(buf);
+            if (!is_null) {
+                decimal12_t value = *reinterpret_cast<decimal12_t*>(buf + 1);
+                res = _int_writer->write(value.integer);
+                if (res != OLAP_SUCCESS) {
+                    OLAP_LOG_WARNING("fail to write integer of Decimal.");
+                    return res;
+                }
+                res = _frac_writer->write(value.fraction);
+                if (res != OLAP_SUCCESS) {
+                    OLAP_LOG_WARNING("fail to write fraction of Decimal.");
+                    return res;
+                }
+            }
+        }
+        return OLAP_SUCCESS;
+    }
+
     virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
     virtual void record_position();
-    virtual ColumnStatistics* segment_statistics();
-    virtual ColumnStatistics* block_statistics();
     virtual OLAPStatus flush() {
         return OLAP_SUCCESS;
     }
@@ -487,11 +605,38 @@ public:
                          double bf_fpp);
     virtual ~LargeIntColumnWriter();
     virtual OLAPStatus init();
-    virtual OLAPStatus write(RowCursor* row_cursor);
+
+    OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
+        for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
+            block->get_row(i, cursor);
+            OLAPStatus res = ColumnWriter::write(cursor);
+            if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
+                OLAP_LOG_WARNING("fail to write ColumnWriter.");
+                return res;
+            }
+            const Field* field = cursor->get_field_by_index(column_id());
+            bool is_null = field->is_null(cursor->get_buf());
+            char* buf = field->get_field_ptr(cursor->get_buf());
+            _block_statistics.add(buf);
+            if (!is_null) {
+                int64_t* value = reinterpret_cast<int64_t*>(buf + 1);
+                res = _high_writer->write(*value);
+                if (res != OLAP_SUCCESS) {
+                    OLAP_LOG_WARNING("fail to write integer of LargeInt.");
+                    return res;
+                }
+                res = _low_writer->write(*(++value));
+                if (res != OLAP_SUCCESS) {
+                    OLAP_LOG_WARNING("fail to write fraction of LargeInt.");
+                    return res;
+                }
+            }
+        }
+        return OLAP_SUCCESS;
+    }
+
     virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
     virtual void record_position();
-    virtual ColumnStatistics* segment_statistics();
-    virtual ColumnStatistics* block_statistics();
     virtual OLAPStatus flush() {
         return OLAP_SUCCESS;
     }

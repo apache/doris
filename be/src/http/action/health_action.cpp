@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -21,6 +23,7 @@
 #include "http/http_channel.h"
 #include "http/http_request.h"
 #include "http/http_response.h"
+#include "http/http_headers.h"
 #include "http/http_status.h"
 
 namespace palo {
@@ -31,7 +34,7 @@ HealthAction::HealthAction(ExecEnv* exec_env) :
         _exec_env(exec_env) {
 }
 
-void HealthAction::handle(HttpRequest *req, HttpChannel *channel) {
+void HealthAction::handle(HttpRequest *req) {
     std::stringstream ss;
     ss << "{";
     ss << "\"status\": \"OK\",";
@@ -39,8 +42,12 @@ void HealthAction::handle(HttpRequest *req, HttpChannel *channel) {
     ss << "}";
     std::string result = ss.str();
 
+    req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
+    HttpChannel::send_reply(req, HttpStatus::OK, result);
+#if 0
     HttpResponse response(HttpStatus::OK, HEADER_JSON, &result);
     channel->send_response(response);
+#endif
 }
 
 } // end namespace palo

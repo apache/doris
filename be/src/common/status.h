@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -27,6 +24,7 @@
 #include "common/logging.h"
 #include "common/compiler_util.h"
 #include "gen_cpp/Status_types.h"  // for TStatus
+#include "gen_cpp/status.pb.h" // for PStatus
 
 namespace palo {
 
@@ -107,6 +105,9 @@ public:
     // same as previous c'tor
     Status& operator=(const TStatus& status);
 
+    Status(const PStatus& pstatus);
+    Status& operator=(const PStatus& pstatus);
+
     // assign from stringstream
     Status& operator=(const std::stringstream& stream);
 
@@ -154,6 +155,7 @@ public:
 
     // Convert into TStatus.
     void to_thrift(TStatus* status) const;
+    void to_protobuf(PStatus* status) const;
 
     // Return all accumulated error msgs in a single string.
     void get_error_msg(std::string* msg) const;
@@ -164,12 +166,18 @@ public:
         return _error_detail == NULL ? TStatusCode::OK : _error_detail->error_code;
     }
 
+    /// Does nothing if status.ok().
+    /// Otherwise: if 'this' is an error status, adds the error msg from 'status';
+    /// otherwise assigns 'status'.
+    void MergeStatus(const Status& status);
+
 private:
     struct ErrorDetail {
         TStatusCode::type error_code;  // anything other than OK
         std::vector<std::string> error_msgs;
 
         ErrorDetail(const TStatus& status);
+        ErrorDetail(const PStatus& status);
         ErrorDetail(TStatusCode::type code)
             : error_code(code) {}
         ErrorDetail(TStatusCode::type code, const std::string& msg)
@@ -185,6 +193,14 @@ private:
         Status _status_ = (stmt); \
         if (UNLIKELY(!_status_.ok())) { \
             return _status_; \
+        } \
+    } while (false)
+
+#define RETURN_IF_STATUS_ERROR(status, stmt) \
+    do { \
+        status = (stmt); \
+        if (UNLIKELY(!status.ok())) { \
+            return; \
         } \
     } while (false)
 

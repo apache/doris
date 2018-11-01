@@ -1,0 +1,311 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.catalog;
+
+import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.SingleRangePartitionDesc;
+import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.persist.EditLog;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TDisk;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+public class CatalogTestUtil {
+
+    public static String testDb1 = "testDb1";
+    public static long testDbId1 = 1;
+    public static String testTable1 = "testTable1";
+    public static long testTableId1 = 2;
+    public static String testPartition1 = "testPartition1";
+    public static long testPartitionId1 = 3;
+    public static String testIndex1 = "testIndex1";
+    public static long testIndexId1 = 2; // the base indexid == tableid
+    public static int testSchemaHash1 = 93423942;
+    public static long testBackendId1 = 5;
+    public static long testBackendId2 = 6;
+    public static long testBackendId3 = 7;
+    public static long testReplicaId1 = 8;
+    public static long testReplicaId2 = 9;
+    public static long testReplicaId3 = 10;
+    public static long testTabletId1 = 11;
+    public static long testStartVersion = 12;
+    public static long testStartVersionHash = 12312;
+    public static long testPartitionCurrentVersionHash = 12312;
+    public static long testPartitionNextVersionHash = 123123123;
+    public static long testRollupIndexId2 = 13;
+    public static String testRollupIndex2 = "newRollupIndex";
+    public static String testTxnLable1 = "testTxnLable1";
+    public static String testTxnLable2 = "testTxnLable2";
+    public static String testTxnLable3 = "testTxnLable3";
+    public static String testTxnLable4 = "testTxnLable4";
+    public static String testTxnLable5 = "testTxnLable5";
+    public static String testTxnLable6 = "testTxnLable6";
+    public static String testTxnLable7 = "testTxnLable7";
+    public static String testTxnLable8 = "testTxnLable8";
+    public static String testTxnLable9 = "testTxnLable9";
+    public static String testTxnLable10 = "testTxnLable10";
+    public static String testTxnLable11 = "testTxnLable11";
+    public static String testTxnLable12 = "testTxnLable12";
+    public static String testPartitionedEsTable1 = "partitionedEsTable1";
+    public static long testPartitionedEsTableId1 = 14;
+    public static String testUnPartitionedEsTable1 = "unpartitionedEsTable1";
+    public static long testUnPartitionedEsTableId1 = 15;
+
+    public static Catalog createTestCatalog() throws InstantiationException, IllegalAccessException,
+            IllegalArgumentException, InvocationTargetException, NoSuchMethodException, SecurityException {
+        Constructor<Catalog> constructor = Catalog.class.getDeclaredConstructor();
+        constructor.setAccessible(true);
+        Catalog catalog = constructor.newInstance();
+        catalog.setEditLog(new EditLog("name"));
+        FakeCatalog.setCatalog(catalog);
+        Backend backend1 = createBackend(testBackendId1, "host1", 123, 124, 125);
+        Backend backend2 = createBackend(testBackendId2, "host1", 123, 124, 125);
+        Backend backend3 = createBackend(testBackendId3, "host1", 123, 124, 125);
+        catalog.getCurrentSystemInfo().addBackend(backend1);
+        catalog.getCurrentSystemInfo().addBackend(backend2);
+        catalog.getCurrentSystemInfo().addBackend(backend3);
+        catalog.initDefaultCluster();
+        Database db = createSimpleDb(testDbId1, testTableId1, testPartitionId1, testIndexId1, testTabletId1,
+                testStartVersion, testStartVersionHash);
+        catalog.unprotectCreateDb(db);
+        return catalog;
+    }
+
+    public static boolean compareCatalog(Catalog masterCatalog, Catalog slaveCatalog) {
+        Database masterDb = masterCatalog.getDb(testDb1);
+        Database slaveDb = slaveCatalog.getDb(testDb1);
+        List<Table> tables = masterDb.getTables();
+        for (Table table : tables) {
+            Table slaveTable = slaveDb.getTable(table.getId());
+            if (slaveTable == null) {
+                return false;
+            }
+            Partition masterPartition = table.getPartition(testPartition1);
+            Partition slavePartition = slaveTable.getPartition(testPartition1);
+            if (masterPartition == null && slavePartition == null) {
+                return true;
+            }
+            if (masterPartition.getId() != slavePartition.getId()) {
+                return false;
+            }
+            if (masterPartition.getCommittedVersion() != slavePartition.getCommittedVersion()
+                    || masterPartition.getCommittedVersionHash() != slavePartition.getCommittedVersionHash()
+                    || masterPartition.getNextVersion() != slavePartition.getNextVersion()
+                    || masterPartition.getCurrentVersionHash() != slavePartition.getCurrentVersionHash()) {
+                return false;
+            }
+            List<MaterializedIndex> allMaterializedIndices = masterPartition.getMaterializedIndices();
+            for (MaterializedIndex masterIndex : allMaterializedIndices) {
+                MaterializedIndex slaveIndex = slavePartition.getIndex(masterIndex.getId());
+                if (slaveIndex == null) {
+                    return false;
+                }
+                List<Tablet> allTablets = masterIndex.getTablets();
+                for (Tablet masterTablet : allTablets) {
+                    Tablet slaveTablet = slaveIndex.getTablet(masterTablet.getId());
+                    if (slaveTablet == null) {
+                        return false;
+                    }
+                    List<Replica> allReplicas = masterTablet.getReplicas();
+                    for (Replica masterReplica : allReplicas) {
+                        Replica slaveReplica = slaveTablet.getReplicaById(masterReplica.getId());
+                        if (slaveReplica.getBackendId() != masterReplica.getBackendId()
+                                || slaveReplica.getVersion() != masterReplica.getVersion()
+                                || slaveReplica.getVersionHash() != masterReplica.getVersionHash()
+                                || slaveReplica.getLastFailedVersion() != masterReplica.getLastFailedVersion()
+                                || slaveReplica.getLastFailedVersionHash() != masterReplica.getLastFailedVersionHash()
+                                || slaveReplica.getLastSuccessVersion() != slaveReplica.getLastSuccessVersion()
+                                || slaveReplica.getLastSuccessVersionHash() != slaveReplica
+                                        .getLastSuccessVersionHash()) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    public static Database createSimpleDb(long dbId, long tableId, long partitionId, long indexId, long tabletId,
+            long version, long versionHash) {
+        Catalog.getCurrentInvertedIndex().clear();
+
+        // replica
+        long replicaId = 0;
+        Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, versionHash, 0L, 0L,
+                ReplicaState.NORMAL, -1, 0, 0, 0);
+        Replica replica2 = new Replica(testReplicaId2, testBackendId2, version, versionHash, 0L, 0L,
+                ReplicaState.NORMAL, -1, 0, 0, 0);
+        Replica replica3 = new Replica(testReplicaId3, testBackendId3, version, versionHash, 0L, 0L,
+                ReplicaState.NORMAL, -1, 0, 0, 0);
+
+        // tablet
+        Tablet tablet = new Tablet(tabletId);
+
+        // index
+        MaterializedIndex index = new MaterializedIndex(indexId, IndexState.NORMAL);
+        TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, 0);
+        index.addTablet(tablet, tabletMeta);
+
+        tablet.addReplica(replica1);
+        tablet.addReplica(replica2);
+        tablet.addReplica(replica3);
+
+        // partition
+        RandomDistributionInfo distributionInfo = new RandomDistributionInfo(10);
+        Partition partition = new Partition(partitionId, testPartition1, index, distributionInfo);
+        partition.updateCommitVersionAndVersionHash(testStartVersion, testStartVersionHash);
+        partition.setNextVersion(testStartVersion + 1);
+        partition.setNextVersionHash(testPartitionNextVersionHash, testPartitionCurrentVersionHash);
+
+        // columns
+        List<Column> columns = new ArrayList<Column>();
+        Column temp = new Column("k1", PrimitiveType.INT);
+        temp.setIsKey(true);
+        columns.add(temp);
+        temp = new Column("k2", PrimitiveType.INT);
+        temp.setIsKey(true);
+        columns.add(temp);
+        columns.add(new Column("v", new ColumnType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
+
+        List<Column> keysColumn = new ArrayList<Column>();
+        temp = new Column("k1", PrimitiveType.INT);
+        temp.setIsKey(true);
+        keysColumn.add(temp);
+        temp = new Column("k2", PrimitiveType.INT);
+        temp.setIsKey(true);
+        keysColumn.add(temp);
+
+        // table
+        PartitionInfo partitionInfo = new SinglePartitionInfo();
+        partitionInfo.setDataProperty(partitionId, DataProperty.DEFAULT_HDD_DATA_PROPERTY);
+        partitionInfo.setReplicationNum(partitionId, (short) 3);
+        OlapTable table = new OlapTable(tableId, testTable1, columns, KeysType.AGG_KEYS, partitionInfo,
+                distributionInfo);
+        table.addPartition(partition);
+        table.setIndexSchemaInfo(indexId, testIndex1, columns, 0, testSchemaHash1, (short) 1);
+        // db
+        Database db = new Database(dbId, testDb1);
+        db.createTable(table);
+        db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
+        
+        // add a es table to catalog
+        try {
+            createPartitionedEsTable(db);
+            createUnPartitionedEsTable(db);
+        } catch (DdlException e) {
+            // TODO Auto-generated catch block
+            // e.printStackTrace();
+        }
+        return db;
+    }
+    
+    public static void createPartitionedEsTable(Database db) throws DdlException {
+        // columns
+        List<Column> columns = new ArrayList<Column>();
+        Column k1 = new Column("k1", PrimitiveType.DATE);
+        k1.setIsKey(true);
+        columns.add(k1);
+        Column k2 = new Column("k2", PrimitiveType.INT);
+        k2.setIsKey(true);
+        columns.add(k2);
+        columns.add(new Column("v", new ColumnType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
+
+        // table
+        List<Column> partitionColumns = Lists.newArrayList();
+        List<SingleRangePartitionDesc> singleRangePartitionDescs = Lists.newArrayList();
+        partitionColumns.add(k1);
+
+        singleRangePartitionDescs.add(new SingleRangePartitionDesc(false, "p1",
+                                                                   new PartitionKeyDesc(Lists
+                                                                           .newArrayList("100")),
+                                                                   null));
+
+        RangePartitionInfo partitionInfo = new RangePartitionInfo(partitionColumns);
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(EsTable.HOSTS, "xxx");
+        properties.put(EsTable.INDEX, "indexa");
+        properties.put(EsTable.PASSWORD, "");
+        properties.put(EsTable.USER, "root");
+        EsTable esTable = new EsTable(testPartitionedEsTableId1, testPartitionedEsTable1, 
+                columns, properties, partitionInfo);
+        db.createTable(esTable);
+    }
+    
+    public static void createUnPartitionedEsTable(Database db) throws DdlException {
+        // columns
+        List<Column> columns = new ArrayList<Column>();
+        Column k1 = new Column("k1", PrimitiveType.DATE);
+        k1.setIsKey(true);
+        columns.add(k1);
+        Column k2 = new Column("k2", PrimitiveType.INT);
+        k2.setIsKey(true);
+        columns.add(k2);
+        columns.add(new Column("v", new ColumnType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
+
+        // table
+        List<Column> partitionColumns = Lists.newArrayList();
+        List<SingleRangePartitionDesc> singleRangePartitionDescs = Lists.newArrayList();
+        partitionColumns.add(k1);
+
+        singleRangePartitionDescs.add(new SingleRangePartitionDesc(false, "p1",
+                                                                   new PartitionKeyDesc(Lists
+                                                                           .newArrayList("100")),
+                                                                   null));
+
+        RangePartitionInfo partitionInfo = new RangePartitionInfo(partitionColumns);
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(EsTable.HOSTS, "xxx");
+        properties.put(EsTable.INDEX, "indexa");
+        properties.put(EsTable.PASSWORD, "");
+        properties.put(EsTable.USER, "root");
+        EsTable esTable = new EsTable(testUnPartitionedEsTableId1, testUnPartitionedEsTable1, 
+                    columns, properties, partitionInfo);
+        db.createTable(esTable);
+    }
+
+    public static Backend createBackend(long id, String host, int heartPort, int bePort, int httpPort) {
+        Backend backend = new Backend(id, host, heartPort);
+        // backend.updateOnce(bePort, httpPort, 10000);
+        backend.setAlive(true);
+        return backend;
+    }
+
+    public static Backend createBackend(long id, String host, int heartPort, int bePort, int httpPort,
+            long totalCapacityB, long availableCapacityB) {
+        Backend backend = createBackend(id, host, heartPort, bePort, httpPort);
+        Map<String, TDisk> backendDisks = new HashMap<String, TDisk>();
+        String rootPath = "root_path";
+        TDisk disk = new TDisk(rootPath, totalCapacityB, availableCapacityB, true);
+        backendDisks.put(rootPath, disk);
+        backend.updateDisks(backendDisks);
+        backend.setAlive(true);
+        return backend;
+    }
+}

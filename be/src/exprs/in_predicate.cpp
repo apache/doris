@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -62,8 +59,14 @@ Status InPredicate::open(
     Expr::open(state, context, scope);
 
     for (int i = 1; i < _children.size(); ++i) {
-        if (_children[i]->type() != _children[0]->type()) {
-            return Status("InPredicate type not same");
+        if (_children[0]->type().is_string_type()) {
+            if (!_children[i]->type().is_string_type()) {
+                return Status("InPredicate type not same");
+            }
+        } else {
+            if (_children[i]->type().type != _children[0]->type().type) {
+                return Status("InPredicate type not same");
+            }
         }
 
         void* value = context->get_value(_children[i], NULL);

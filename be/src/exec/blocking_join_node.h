@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -45,7 +42,7 @@ public:
 
     // Subclasses should call BlockingJoinNode::init() and then perform any other init()
     // work, e.g. creating expr trees.
-    virtual Status init(const TPlanNode& tnode);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
 
     // Subclasses should call BlockingJoinNode::prepare() and then perform any other
     // prepare() work, e.g. codegen.

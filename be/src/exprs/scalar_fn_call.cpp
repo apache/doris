@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -89,8 +86,8 @@ Status ScalarFnCall::prepare(
     _fn_context_index = context->register_func(
             state, return_type, arg_types, varargs_buffer_size);
     // _scalar_fn = OpcodeRegistry::instance()->get_function_ptr(_opcode);
+    Status status = Status::OK;
     if (_scalar_fn == NULL) {
-        Status status;
         if (SymbolsUtil::is_mangled(_fn.scalar_fn.symbol)) {
             status = LibCache::instance()->get_so_function_ptr(
                 _fn.hdfs_location, _fn.scalar_fn.symbol, &_scalar_fn, &_cache_entry, true);
@@ -167,7 +164,7 @@ Status ScalarFnCall::prepare(
                                     reinterpret_cast<void**>(&_close_fn)));
     }
 
-    return Status::OK;
+    return status;
 }
 
 Status ScalarFnCall::open(
@@ -423,7 +420,7 @@ Status ScalarFnCall::get_udf(RuntimeState* state, Function** udf) {
         _fn.scalar_fn.symbol.find("add_sub") != std::string::npos;
     if (_fn.binary_type == TFunctionBinaryType::NATIVE 
             || (_fn.binary_type == TFunctionBinaryType::BUILTIN 
-                && (!state->codegen_level() > 0 || broken_builtin))) {
+                && (!(state->codegen_level() > 0) || broken_builtin))) {
         // In this path, we are code that has been statically compiled to assembly.
         // This can either be a UDF implemented in a .so or a builtin using the UDF
         // interface with the code in impalad.
@@ -533,7 +530,7 @@ Status ScalarFnCall::get_udf(RuntimeState* state, Function** udf) {
         }
         *udf = codegen->finalize_function(*udf);
         if (*udf == NULL) {
-            return Status("udf verify falied");
+            return Status("udf verify failed");
             // TODO(zc)
             // TErrorCode::UDF_VERIFY_FAILED, _fn.scalar_fn.symbol, _fn.hdfs_location);
         }

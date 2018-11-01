@@ -1,6 +1,3 @@
-# Modifications copyright (C) 2017, Baidu.com, Inc.
-# Copyright 2017 The Apache Software Foundation
-
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -73,7 +70,7 @@ add_library(Runtime STATIC
   tmp_file_mgr.cc
   disk_io_mgr.cc
   disk_io_mgr_reader_context.cc
-  disk_io_mgr_scan_range.cc
+  disk_io_mgr_scan_range.cc 
   buffered_block_mgr2.cc
   test_env.cc
   mem_tracker.cpp
@@ -82,8 +79,19 @@ add_library(Runtime STATIC
   data_stream_recvr.cc
   buffered_tuple_stream2.cc
   buffered_tuple_stream2_ir.cc
+  buffered_tuple_stream3.cc
   #  export_task_mgr.cpp
   export_sink.cpp
+  tablet_writer_mgr.cpp
+  bufferpool/buffer_allocator.cc
+  bufferpool/buffer_pool.cc
+  bufferpool/reservation_tracker.cc
+  bufferpool/reservation_util.cc
+  bufferpool/suballocator.cc
+  bufferpool/system_allocator.cc
+  initial_reservations.cc
+  snapshot_loader.cpp
+  kafka_consumer_pipe.cpp
 )
 
 # This test runs forever so should not be part of 'make test'

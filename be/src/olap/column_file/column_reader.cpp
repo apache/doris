@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -19,7 +21,6 @@
 #include "olap/column_file/column_reader.h"
 #include "olap/column_file/file_stream.h"
 #include "olap/olap_define.h"
-
 
 namespace palo {
 namespace column_file {
@@ -62,48 +63,14 @@ OLAPStatus IntegerColumnReader::init(
 }
 
 OLAPStatus IntegerColumnReader::seek(PositionProvider* position) {
-#ifndef PERFORMANCE
-
-    if (NULL == _data_reader) {
-        OLAP_LOG_WARNING("reader not init.");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-    if (NULL == position) {
-        OLAP_LOG_WARNING("input positions is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-#endif
     return _data_reader->seek(position);
 }
 
 OLAPStatus IntegerColumnReader::skip(uint64_t row_count) {
-#ifndef PERFORMANCE
-
-    if (NULL == _data_reader) {
-        OLAP_LOG_WARNING("reader not init.");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-#endif
     return _data_reader->skip(row_count);
 }
 
 OLAPStatus IntegerColumnReader::next(int64_t* value) {
-#ifndef PERFORMANCE
-
-    if (NULL == _data_reader) {
-        OLAP_LOG_WARNING("reader not init.");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-    if (NULL == value) {
-        OLAP_LOG_WARNING("input value pointer is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-#endif
     return _data_reader->next(value);
 }
 
@@ -112,6 +79,7 @@ StringColumnDirectReader::StringColumnDirectReader(
         uint32_t dictionary_size) : 
         _eof(false),
         _column_unique_id(column_unique_id),
+        _values(NULL),
         _data_stream(NULL),
         _length_reader(NULL) {
 }
@@ -120,7 +88,9 @@ StringColumnDirectReader::~StringColumnDirectReader() {
     SAFE_DELETE(_length_reader);
 }
 
-OLAPStatus StringColumnDirectReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams) {
+OLAPStatus StringColumnDirectReader::init(
+        std::map<StreamName, ReadOnlyFileStream*>* streams,
+        int size, MemPool* mem_pool) {
     if (NULL == streams) {
         OLAP_LOG_WARNING("input streams is NULL");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
@@ -136,6 +106,8 @@ OLAPStatus StringColumnDirectReader::init(std::map<StreamName, ReadOnlyFileStrea
                 _column_unique_id);
         return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
     }
+
+    _values = reinterpret_cast<StringSlice*>(mem_pool->allocate(size * sizeof(StringSlice)));
 
     ReadOnlyFileStream* length_stream = extract_stream(_column_unique_id,
                                         StreamInfoMessage::LENGTH,
@@ -158,19 +130,6 @@ OLAPStatus StringColumnDirectReader::init(std::map<StreamName, ReadOnlyFileStrea
 }
 
 OLAPStatus StringColumnDirectReader::seek(PositionProvider* position) {
-#ifndef PERFORMANCE
-
-    if (NULL == _data_stream || NULL == _length_reader) {
-        OLAP_LOG_WARNING("reader not init.");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-    if (NULL == position) {
-        OLAP_LOG_WARNING("input positions is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-#endif
     OLAPStatus res = _data_stream->seek(position);
 
     // All strings in segment may be empty, so the data stream is EOF and
@@ -207,14 +166,6 @@ OLAPStatus StringColumnDirectReader::skip(uint64_t row_count) {
 
 // Return string field of current row_count
 OLAPStatus StringColumnDirectReader::next(char* buffer, uint32_t* length) {
-#ifndef PERFORMANCE
-
-    if (NULL == buffer || NULL == length) {
-        OLAP_LOG_WARNING("input parameters is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-#endif
     int64_t read_length = 0;
     OLAPStatus res = _length_reader->next(&read_length);
     *length = read_length;
@@ -228,12 +179,94 @@ OLAPStatus StringColumnDirectReader::next(char* buffer, uint32_t* length) {
     return res;
 }
 
+OLAPStatus StringColumnDirectReader::next_vector(
+            ColumnVector* column_vector,
+            uint32_t size,
+            MemPool* mem_pool,
+            int64_t* read_bytes) {
+    /*
+     * MemPool here is not the same as MemPool in init function
+     * 1. MemPool is created by VectorizedRowBatch,
+     *    and reset when load row batch
+     * 2. MemPool in init function is created by SegmentReader,
+     *    and free by SegmentReader deconstructor. 
+     */
+    OLAPStatus res = OLAP_SUCCESS;
+    int64_t length = 0;
+    int64_t string_buffer_size = 0;
+
+    column_vector->set_col_data(_values);
+    if (column_vector->no_nulls()) {
+        for (int i = 0; i < size; ++i) {
+            res = _length_reader->next(&length);
+            if (OLAP_SUCCESS != res) {
+                return res;
+            }
+            _values[i].size = length;
+            string_buffer_size += length;
+        }
+
+        char* string_buffer = reinterpret_cast<char*>(mem_pool->allocate(string_buffer_size));
+        for (int i = 0; i < size; ++i) {
+            _values[i].data = string_buffer;
+            length = _values[i].size;
+            while (length > 0) {
+                uint64_t buf_size = length;
+                res = _data_stream->read(string_buffer, &buf_size);
+                if (res != OLAP_SUCCESS) {
+                    return res;
+                }
+                length -= buf_size;
+                string_buffer += buf_size;
+            }
+        }
+    } else {
+        bool* is_null = column_vector->is_null();
+        for (int i = 0; i < size; ++i) {
+            if (!is_null[i]) {
+                res = _length_reader->next(&length);
+                if (OLAP_SUCCESS != res) {
+                    return res;
+                }
+                _values[i].size = length;
+                string_buffer_size += length;
+            } else {
+                _values[i].size = 0;
+            }
+        }
+
+        char* string_buffer = reinterpret_cast<char*>(mem_pool->allocate(string_buffer_size));
+        for (int i = 0; i < size; ++i) {
+            if (!is_null[i]) {
+                length = _values[i].size;
+                _values[i].data = string_buffer;
+                while (length > 0) {
+                    uint64_t buf_size = length;
+                    res = _data_stream->read(string_buffer, &buf_size);
+                    if (res != OLAP_SUCCESS) {
+                        return res;
+                    }
+                    length -= buf_size;
+                    string_buffer += buf_size;
+                }
+            } else {
+                _values[i].data = nullptr;
+                _values[i].size = 0;
+            }
+        }
+    }
+    *read_bytes += string_buffer_size;
+
+    return res;
+}
+
 StringColumnDictionaryReader::StringColumnDictionaryReader(
         uint32_t column_unique_id,
-        uint32_t dictionary_size) : 
+        uint32_t dictionary_size) :
         _eof(false),
         _dictionary_size(dictionary_size),
         _column_unique_id(column_unique_id),
+        _values(NULL),
         //_dictionary_size(0),
         //_offset_dictionary(NULL),
         //_dictionary_data_buffer(NULL),
@@ -255,7 +288,8 @@ StringColumnDictionaryReader::~StringColumnDictionaryReader() {
 // 后边再测，先保留代码
 
 OLAPStatus StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileStream *> *streams,
-                                          UniqueIdEncodingMap* encodings) {
+                                          UniqueIdEncodingMap* encodings,
+                                          RuntimeProfile* profile) {
     ReadOnlyFileStream* dictionary_data_stream = extract_stream(_column_unique_id,
                                                       StreamInfoMessage::DICTIONARY_DATA,
                                                       streams);
@@ -339,7 +373,9 @@ OLAPStatus StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileS
 }
 */
 
-OLAPStatus StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams) {
+OLAPStatus StringColumnDictionaryReader::init(
+        std::map<StreamName, ReadOnlyFileStream*>* streams,
+        int size, MemPool* mem_pool) {
     ReadOnlyFileStream* dictionary_data_stream = extract_stream(_column_unique_id,
             StreamInfoMessage::DICTIONARY_DATA,
             streams);
@@ -400,6 +436,8 @@ OLAPStatus StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileS
         offset += value;
     }
     */
+
+    _values = reinterpret_cast<StringSlice*>(mem_pool->allocate(size * sizeof(StringSlice)));
     int64_t read_buffer_size = 1024;
     char* _read_buffer = new(std::nothrow) char[read_buffer_size];
 
@@ -465,48 +503,14 @@ OLAPStatus StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileS
 }
 
 OLAPStatus StringColumnDictionaryReader::seek(PositionProvider* position) {
-#ifndef PERFORMANCE
-
-    if (NULL == position) {
-        OLAP_LOG_WARNING("input positions is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-    if (NULL == _data_reader) {
-        OLAP_LOG_WARNING("reader not init ");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-#endif
     return _data_reader->seek(position);
 }
 
 OLAPStatus StringColumnDictionaryReader::skip(uint64_t row_count) {
-#ifndef PERFORMANCE
-
-    if (NULL == _data_reader) {
-        OLAP_LOG_WARNING("reader not init ");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-#endif
     return _data_reader->skip(row_count);
 }
 
 OLAPStatus StringColumnDictionaryReader::next(char* buffer, uint32_t* length) {
-#ifndef PERFORMANCE
-
-    if (NULL == buffer || NULL == length) {
-        OLAP_LOG_WARNING("input buffer or length is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-    if (NULL == _data_reader) {
-        OLAP_LOG_WARNING("reader not init ");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-#endif
     int64_t value;
     OLAPStatus res = _data_reader->next(&value);
     // 错误或是EOF
@@ -531,8 +535,79 @@ OLAPStatus StringColumnDictionaryReader::next(char* buffer, uint32_t* length) {
     return OLAP_SUCCESS;
 }
 
+OLAPStatus StringColumnDictionaryReader::next_vector(
+            ColumnVector* column_vector,
+            uint32_t size,
+            MemPool* mem_pool,
+            int64_t* read_bytes) {
+
+    int64_t index[size];
+    int64_t buffer_size = 0;
+    OLAPStatus res = OLAP_SUCCESS;
+
+    column_vector->set_col_data(_values);
+    if (column_vector->no_nulls()) {
+        for (int i = 0; i < size; ++i) {
+            res = _data_reader->next(&index[i]);
+            if (OLAP_SUCCESS != res) {
+                return res;
+            }
+            if (index[i] >= static_cast<int64_t>(_dictionary.size())) {
+                OLAP_LOG_WARNING("value may indicated an invalid dictionary entry. "
+                                 "[index = %lu, dictionary_size = %lu]",
+                                 index[i], _dictionary.size());
+                return OLAP_ERR_BUFFER_OVERFLOW;
+            }
+            _values[i].size = _dictionary[index[i]].size();
+            buffer_size += _values[i].size;
+        }
+
+        char* string_buffer = reinterpret_cast<char*>(mem_pool->allocate(buffer_size));
+        for (int i = 0; i < size; ++i) {
+            memory_copy(string_buffer,
+                        _dictionary[index[i]].c_str(),
+                        _values[i].size);
+            _values[i].data = string_buffer;
+            string_buffer += _values[i].size;
+        }
+    } else {
+        bool* is_null = column_vector->is_null();
+        for (int i = 0; i < size; ++i) {
+            if (!is_null[i]) {
+                res = _data_reader->next(&index[i]);
+                if (OLAP_SUCCESS != res) {
+                    return res;
+                }
+                if (index[i] >= static_cast<int64_t>(_dictionary.size())) {
+                    OLAP_LOG_WARNING("value may indicated an invalid dictionary entry. "
+                                     "[index = %lu, dictionary_size = %lu]",
+                                     index[i], _dictionary.size());
+                    return OLAP_ERR_BUFFER_OVERFLOW;
+                }
+                _values[i].size = _dictionary[index[i]].size();
+                buffer_size += _values[i].size;
+            }
+        }
+
+        char* string_buffer = reinterpret_cast<char*>(mem_pool->allocate(buffer_size));
+        for (int i = 0; i < size; ++i) {
+            if (!is_null[i]) {
+                memory_copy(string_buffer,
+                            _dictionary[index[i]].c_str(),
+                            _values[i].size);
+                _values[i].data = string_buffer;
+                string_buffer += _values[i].size;
+            }
+        }
+    }
+    *read_bytes += buffer_size;
+
+    return res;
+}
+
 ColumnReader::ColumnReader(uint32_t column_id, uint32_t column_unique_id) : 
         _value_present(false),
+        _is_null(NULL),
         _column_id(column_id),
         _column_unique_id(column_unique_id),
         _present_reader(NULL) {
@@ -564,10 +639,10 @@ ColumnReader* ColumnReader::create(uint32_t column_id,
                 return new(std::nothrow) NullValueReader(column_id, column_unique_id);
             } else {
                 return new(std::nothrow) DefaultValueReader(column_id, column_unique_id,
-                        field_info.default_value);
+                        field_info.default_value, field_info.type, field_info.length);
             }
         } else if (field_info.is_allow_null) {
-            OLAP_LOG_DEBUG("create NullValueReader: %s", field_info.name.c_str());
+            LOG(WARNING) << "create NullValueReader: " << field_info.name;
             return new(std::nothrow) NullValueReader(column_id, column_unique_id);
         } else {
             OLAP_LOG_WARNING("not null field has no default value");
@@ -702,8 +777,8 @@ ColumnReader* ColumnReader::create(uint32_t column_id,
     case OLAP_FIELD_TYPE_LIST:
     case OLAP_FIELD_TYPE_MAP:
     default: {
-        OLAP_LOG_WARNING("unspported filed type. [field=%s type=%d]",
-                field_info.name.c_str(), field_info.type);
+        LOG(WARNING) << "unspported filed type. [field=" << field_info.name
+                     << " type=" << field_info.type << "]";
         break;
     }
     }
@@ -732,17 +807,23 @@ ColumnReader::~ColumnReader() {
     SAFE_DELETE(_present_reader);
 }
 
-OLAPStatus ColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams) {
+OLAPStatus ColumnReader::init(
+        std::map<StreamName, ReadOnlyFileStream*>* streams,
+        int size, MemPool* mem_pool,
+        OlapReaderStatistics* stats) {
     if (NULL == streams) {
         OLAP_LOG_WARNING("null parameters given.");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
+    _stats = stats;
 
     // 从map中找到需要的流，ColumnReader的数据应该由一条PRESENT流和一条ROW_INDEX流组成
     ReadOnlyFileStream* present_stream = extract_stream(_column_unique_id,
                                          StreamInfoMessage::PRESENT,
                                          streams);
 
+    _is_null = reinterpret_cast<bool*>(mem_pool->allocate(size));
+    memset(_is_null, 0, size);
 
     if (NULL == present_stream) {
         _present_reader = NULL;
@@ -768,15 +849,6 @@ OLAPStatus ColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams
 }
 
 OLAPStatus ColumnReader::seek(PositionProvider* position) {
-#ifndef PERFORMANCE
-
-    if (NULL == position) {
-        OLAP_LOG_WARNING("input positions is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-#endif
-
     if (NULL != _present_reader) {
         return _present_reader->seek(position);
     }
@@ -788,17 +860,25 @@ OLAPStatus ColumnReader::skip(uint64_t row_count) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus ColumnReader::next() {
+OLAPStatus ColumnReader::next_vector(
+            ColumnVector* column_vector,
+            uint32_t size,
+            MemPool* mem_pool) {
     OLAPStatus res = OLAP_SUCCESS;
-
+    column_vector->set_is_null(_is_null);
     if (NULL != _present_reader) {
-        char value = '\0';
-        res = _present_reader->next(&value);
-
-        if (OLAP_SUCCESS == res) {
-            _value_present = (1 == value);
+        column_vector->set_no_nulls(false);
+        for (uint32_t i = 0; i < size; ++i) {
+            bool value = false;
+            res = _present_reader->next((char*)&value);
+            if (OLAP_SUCCESS != res) {
+                break;
+            }
+            _is_null[i] = value;
         }
-        OLAP_LOG_DEBUG("column_id: %d, _value_present: %d", _column_unique_id, _value_present);
+        _stats->bytes_read += size;
+    } else {
+        column_vector->set_no_nulls(true);
     }
 
     return res;
@@ -828,20 +908,23 @@ uint64_t ColumnReader::_count_none_nulls(uint64_t rows) {
 TinyColumnReader::TinyColumnReader(uint32_t column_id, uint32_t column_unique_id) : 
         ColumnReader(column_id, column_unique_id),
         _eof(false),
-        _data_reader(NULL) {
-}
+        _values(NULL),
+        _data_reader(NULL) {}
 
 TinyColumnReader::~TinyColumnReader() {
     SAFE_DELETE(_data_reader);
 }
 
-OLAPStatus TinyColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams) {
+OLAPStatus TinyColumnReader::init(
+        std::map<StreamName, ReadOnlyFileStream*>* streams,
+        int size, MemPool* mem_pool,
+        OlapReaderStatistics* stats) {
     if (NULL == streams) {
         OLAP_LOG_WARNING("input streams is NULL");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    ColumnReader::init(streams);
+    ColumnReader::init(streams, size, mem_pool, stats);
     ReadOnlyFileStream* data_stream = extract_stream(_column_unique_id,
                                       StreamInfoMessage::DATA,
                                       streams);
@@ -851,6 +934,7 @@ OLAPStatus TinyColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* str
         return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
     }
 
+    _values = reinterpret_cast<char*>(mem_pool->allocate(size));
     _data_reader = new(std::nothrow) RunLengthByteReader(data_stream);
 
     if (NULL == _data_reader) {
@@ -862,19 +946,6 @@ OLAPStatus TinyColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* str
 }
 
 OLAPStatus TinyColumnReader::seek(PositionProvider* positions) {
-#ifndef PERFORMANCE
-
-    if (NULL == _data_reader) {
-        OLAP_LOG_WARNING("reader not init.");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-    if (NULL == position) {
-        OLAP_LOG_WARNING("input positions is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-#endif
     OLAPStatus res;
     if (NULL == _present_reader) {
         res = _data_reader->seek(positions);
@@ -897,36 +968,42 @@ OLAPStatus TinyColumnReader::seek(PositionProvider* positions) {
 }
 
 OLAPStatus TinyColumnReader::skip(uint64_t row_count) {
-#ifndef PERFORMANCE
-
-    if (NULL == _data_reader) {
-        OLAP_LOG_WARNING("reader not init.");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-#endif
     // count_none_nulls 其实就是columnReader的跳过函数。
     return _data_reader->skip(_count_none_nulls(row_count));
 }
 
-OLAPStatus TinyColumnReader::next() {
-#ifndef PERFORMANCE
-
-    if (NULL == _data_reader) {
-        OLAP_LOG_WARNING("reader not init.");
-        return OLAP_ERR_NOT_INITED;
+OLAPStatus TinyColumnReader::next_vector(
+        ColumnVector* column_vector,
+        uint32_t size,
+        MemPool* mem_pool) {
+    OLAPStatus res = ColumnReader::next_vector(column_vector, size, mem_pool);
+    if (OLAP_SUCCESS != res) {
+        if (OLAP_ERR_DATA_EOF == res) {
+            _eof = true;
+        }
+        return res;
     }
 
-#endif
-    OLAPStatus res = ColumnReader::next();
-
-    if (OLAP_SUCCESS == res) {
-        if (false == _value_present) {
-            res = _data_reader->next(&_value);
-        } else {
-            _value = 0;
+    bool* is_null = column_vector->is_null();
+    column_vector->set_col_data(_values);
+    if (column_vector->no_nulls()) {
+        for (uint32_t i = 0; i < size; ++i) {
+            res = _data_reader->next(_values + i);
+            if (OLAP_SUCCESS != res) {
+                break;
+            }
+        }
+    } else {
+        for (uint32_t i = 0; i < size; ++i) {
+            if (!is_null[i]) {
+                res = _data_reader->next(_values + i);
+                if (OLAP_SUCCESS != res) {
+                    break;
+                }
+            }
         }
     }
+    _stats->bytes_read += size;
 
     if (OLAP_ERR_DATA_EOF == res) {
         _eof = true;
@@ -937,9 +1014,10 @@ OLAPStatus TinyColumnReader::next() {
 
 DecimalColumnReader::DecimalColumnReader(uint32_t column_id, uint32_t column_unique_id) : 
         ColumnReader(column_id, column_unique_id),
+        _eof(false),
+        _values(NULL),
         _int_reader(NULL),
         _frac_reader(NULL) {
-        _value = {0, 0};
 }
 
 DecimalColumnReader::~DecimalColumnReader() {
@@ -947,14 +1025,20 @@ DecimalColumnReader::~DecimalColumnReader() {
     SAFE_DELETE(_frac_reader);
 }
 
-OLAPStatus DecimalColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams) {
+OLAPStatus DecimalColumnReader::init(
+        std::map<StreamName, ReadOnlyFileStream*>* streams,
+        int size, MemPool* mem_pool,
+        OlapReaderStatistics* stats) {
     if (NULL == streams) {
         OLAP_LOG_WARNING("input streams is NULL");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
     // reset stream and reader
-    ColumnReader::init(streams);
+    ColumnReader::init(streams, size, mem_pool, stats);
+
+    _values = reinterpret_cast<decimal12_t*>(mem_pool->allocate(size * sizeof(decimal12_t)));
+
     // 从map中找到需要的流，StringColumnReader的数据应该由一条DATA流和一条LENGTH流组成
     ReadOnlyFileStream* int_stream = extract_stream(_column_unique_id,
                                      StreamInfoMessage::DATA,
@@ -993,30 +1077,7 @@ OLAPStatus DecimalColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* 
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DecimalColumnReader::attach(RowCursor* cursor) {
-    OLAPStatus res;
-    if (true == _value_present) {
-        res = cursor->set_null(_column_id);
-    } else {
-        res = cursor->attach_by_index(_column_id, reinterpret_cast<char*>(&_value), false);
-    }
-    return res;
-}
-
 OLAPStatus DecimalColumnReader::seek(PositionProvider* positions) {
-#ifndef PERFORMANCE
-
-    if (NULL == _frac_reader || NULL == _int_reader) {
-        OLAP_LOG_WARNING("reader not init.");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-    if (NULL == position) {
-        OLAP_LOG_WARNING("input positions is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-#endif
     OLAPStatus res;
     if (NULL == _present_reader) {
         res = _int_reader->seek(positions);
@@ -1069,76 +1130,90 @@ OLAPStatus DecimalColumnReader::skip(uint64_t row_count) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DecimalColumnReader::next() {
-    OLAPStatus res = ColumnReader::next();
-    if (OLAP_SUCCESS == res) {
-        if (false == _value_present) {
-            int64_t value;
-            OLAPStatus res = _int_reader->next(&value);
+OLAPStatus DecimalColumnReader::next_vector(
+        ColumnVector* column_vector,
+        uint32_t size,
+        MemPool* mem_pool) {
+    OLAPStatus res = ColumnReader::next_vector(column_vector, size, mem_pool);
+    if (OLAP_SUCCESS != res) {
+        if (OLAP_ERR_DATA_EOF == res) {
+            _eof = true;
+        }
+        return res;
+    }
 
+    bool* is_null = column_vector->is_null();
+    column_vector->set_col_data(_values);
+
+    if (column_vector->no_nulls()) {
+        for (uint32_t i = 0; i < size; ++i) {
+            int64_t value = 0;
+            OLAPStatus res = _int_reader->next(&value);
             if (OLAP_SUCCESS != res) {
                 OLAP_LOG_WARNING("fail to read decimal int part");
-                return res;
+                break;
             }
+            _values[i].integer = value;
 
-            _value._int = value;
             res = _frac_reader->next(&value);
-
             if (OLAP_SUCCESS != res) {
                 OLAP_LOG_WARNING("fail to read decimal frac part");
-                return res;
+                break;
             }
-	    _value._frac = value;
-        } else {
-            _value._int = 0;
-            _value._frac = 0;
+            _values[i].fraction = value;
+        }
+    } else {
+        for (uint32_t i = 0; i < size; ++i) {
+            int64_t value = 0;
+            if (!is_null[i]) {
+                OLAPStatus res = _int_reader->next(&value);
+                if (OLAP_SUCCESS != res) {
+                    OLAP_LOG_WARNING("fail to read decimal int part");
+                    break;
+                }
+                _values[i].integer = value;
+
+                res = _frac_reader->next(&value);
+                if (OLAP_SUCCESS != res) {
+                    OLAP_LOG_WARNING("fail to read decimal frac part");
+                    break;
+                }
+                _values[i].fraction = value;
+            }
         }
     }
+    _stats->bytes_read += sizeof(decimal12_t) * size;
 
     return res;
-    
-
-    /*
-    int64_t value;
-    OLAPStatus res = _int_reader->next(&value);
-
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to read decimal int part");
-        return res;
-    }
-
-    _value._int = value;
-    res = _frac_reader->next(&value);
-
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to read decimal frac part");
-        return res;
-    }
-
-    _value._frac = value;
-    return res;
-    */
 }
 
 LargeIntColumnReader::LargeIntColumnReader(uint32_t column_id, uint32_t column_unique_id) : 
         ColumnReader(column_id, column_unique_id),
+        _eof(false),
+        _values(NULL),
         _high_reader(NULL),
-        _low_reader(NULL) {
-}
+        _low_reader(NULL) {}
 
 LargeIntColumnReader::~LargeIntColumnReader() {
     SAFE_DELETE(_high_reader);
     SAFE_DELETE(_low_reader);
 }
 
-OLAPStatus LargeIntColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams) {
+OLAPStatus LargeIntColumnReader::init(
+        std::map<StreamName, ReadOnlyFileStream*>* streams,
+        int size, MemPool* mem_pool,
+        OlapReaderStatistics* stats) {
     if (NULL == streams) {
         OLAP_LOG_WARNING("input streams is NULL");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
     // reset stream and reader
-    ColumnReader::init(streams);
+    ColumnReader::init(streams, size, mem_pool, stats);
+
+    _values = reinterpret_cast<int128_t*>(
+        mem_pool->try_allocate_aligned(size * sizeof(int128_t), alignof(int128_t)));
+
     // 从map中找到需要的流，LargeIntColumnReader的数据应该由一条DATA流组成
     ReadOnlyFileStream* high_stream = extract_stream(_column_unique_id,
                                      StreamInfoMessage::DATA,
@@ -1173,30 +1248,7 @@ OLAPStatus LargeIntColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>*
     return OLAP_SUCCESS;
 }
 
-OLAPStatus LargeIntColumnReader::attach(RowCursor* cursor) {
-    OLAPStatus res;
-    if (true == _value_present) {
-        res = cursor->set_null(_column_id);
-    } else {
-        res = cursor->attach_by_index(_column_id, reinterpret_cast<char*>(&_value), false);
-    }
-    return res;
-}
-
 OLAPStatus LargeIntColumnReader::seek(PositionProvider* positions) {
-#ifndef PERFORMANCE
-
-    if (NULL == _low_reader || NULL == _high_reader) {
-        OLAP_LOG_WARNING("reader not init.");
-        return OLAP_ERR_NOT_INITED;
-    }
-
-    if (NULL == position) {
-        OLAP_LOG_WARNING("input positions is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
-#endif
     OLAPStatus res;
     if (NULL == _present_reader) {
         res = _high_reader->seek(positions);
@@ -1248,46 +1300,59 @@ OLAPStatus LargeIntColumnReader::skip(uint64_t row_count) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus LargeIntColumnReader::next() {
-    OLAPStatus res = ColumnReader::next();
-    if (OLAP_SUCCESS == res) {
-        if (false == _value_present) {
-            int64_t* value = (int64_t*)(&_value);
+OLAPStatus LargeIntColumnReader::next_vector(
+        ColumnVector* column_vector,
+        uint32_t size,
+        MemPool* mem_pool) {
+    OLAPStatus res = ColumnReader::next_vector(column_vector, size, mem_pool);
+    if (OLAP_SUCCESS != res) {
+        if (OLAP_ERR_DATA_EOF == res) {
+            _eof = true;
+        }
+        return res;
+    }
 
+    bool* is_null = column_vector->is_null();
+    column_vector->set_col_data(_values);
+
+    if (column_vector->no_nulls()) {
+        for (uint32_t i = 0; i < size; ++i) {
+            int64_t* value = NULL;
+            value = (int64_t*)(_values + i);
             res = _high_reader->next(value);
             if (OLAP_SUCCESS != res) {
-                OLAP_LOG_WARNING("fail to read large int high part. [res=%d]", res);
-                return res;
+                OLAP_LOG_WARNING("fail to read decimal int part");
+                break;
             }
 
             res = _low_reader->next(++value);
             if (OLAP_SUCCESS != res) {
-                OLAP_LOG_WARNING("fail to read large int low part. [res=%d]", res);
-                return res;
+                OLAP_LOG_WARNING("fail to read decimal frac part");
+                break;
             }
+        }
+    } else {
+        for (uint32_t i = 0; i < size; ++i) {
+            int64_t* value = NULL;
+            if (!is_null[i]) {
+                value = (int64_t*)(_values + i);
+                res = _high_reader->next(value);
+                if (OLAP_SUCCESS != res) {
+                    OLAP_LOG_WARNING("fail to read decimal int part");
+                    break;
+                }
 
-        } else {
-            _value = 0;
+                res = _low_reader->next(++value);
+                if (OLAP_SUCCESS != res) {
+                    OLAP_LOG_WARNING("fail to read decimal frac part");
+                    break;
+                }
+            }
         }
     }
+    _stats->bytes_read += 16 * size;
+
     return res;
-
-
-    /*
-    int64_t* value = (int64_t*)(&_value);
-
-    OLAPStatus res = _high_reader->next(value);
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to read large int high part. [res=%d]", res);
-        return res;
-    }
-
-    res = _low_reader->next(++value);
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to read large int low part. [res=%d]", res);
-        return res;
-    }
-    */
 }
 
 }  // namespace column_file

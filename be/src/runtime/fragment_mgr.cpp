@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -34,6 +31,7 @@
 #include "runtime/datetime_value.h"
 #include "util/stopwatch.hpp"
 #include "util/debug_util.h"
+#include "util/palo_metrics.h"
 #include "util/thrift_util.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
@@ -43,6 +41,14 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 namespace palo {
+
+std::string to_load_error_http_path(const std::string& file_name) {
+    std::stringstream url;
+    url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
+        << "/api/_load_error_log?"
+        << "file=" << file_name;
+    return url.str();
+}
 
 using apache::thrift::TException;
 using apache::thrift::TProcessor;
@@ -182,18 +188,20 @@ static void register_cgroups(const std::string& user, const std::string& group) 
 }
 
 Status FragmentExecState::execute() {
-    MonotonicStopWatch watch;
-    watch.start();
-    // TODO(zc): add dpp into cgroups
-    if (_set_rsc_info) {
-        register_cgroups(_user, _group);
-    } else {
-        CgroupsMgr::apply_system_cgroup();
-    }
+    int64_t duration_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&duration_ns);
+        if (_set_rsc_info) {
+            register_cgroups(_user, _group);
+        } else {
+            CgroupsMgr::apply_system_cgroup();
+        }
 
-    _executor.open();
-    _executor.close();
-    LOG(INFO) << "execute time is " << watch.elapsed_time() / 1000000;
+        _executor.open();
+        _executor.close();
+    }
+    PaloMetrics::fragment_requests_total.increment(1);
+    PaloMetrics::fragment_request_duration_us.increment(duration_ns / 1000);
     return Status::OK;
 }
 
@@ -210,7 +218,9 @@ void FragmentExecState::callback(const Status& status, RuntimeProfile* profile, 
 std::string FragmentExecState::to_http_path(const std::string& file_name) {
     std::stringstream url;
     url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
-        << "/api/_download_load?file=" << file_name;
+        << "/api/_download_load?"
+        << "token=" << _exec_env->token()
+        << "&file=" << file_name;
     return url.str();
 }
 
@@ -265,11 +275,19 @@ void FragmentExecState::coordinator_callback(
             s_dpp_abnormal_all, std::to_string(runtime_state->num_rows_load_filtered()));
     }
     if (!runtime_state->get_error_log_file_path().empty()) {
-        params.__set_tracking_url(to_http_path(runtime_state->get_error_log_file_path()));
+        params.__set_tracking_url(
+                to_load_error_http_path(runtime_state->get_error_log_file_path()));
     }
     if (!runtime_state->export_output_files().empty()) {
         params.__isset.export_files = true;
         params.export_files = runtime_state->export_output_files();
+    }
+    if (!runtime_state->tablet_commit_infos().empty()) {
+        params.__isset.commitInfos = true;
+        params.commitInfos.reserve(runtime_state->tablet_commit_infos().size());
+        for (auto& info : runtime_state->tablet_commit_infos()) {
+            params.commitInfos.push_back(info);
+        }
     }
     DCHECK(runtime_state != NULL);
 
@@ -423,11 +441,18 @@ Status FragmentMgr::exec_plan_fragment(
         }
     } else {
         pthread_t id;
-        pthread_create(&id,
+        int ret = pthread_create(&id,
                        nullptr,
                        fragment_executor,
                        new ThreadPool::WorkFunction(
                            std::bind<void>(&FragmentMgr::exec_actual, this, exec_state, cb)));
+        if (ret != 0) {
+            std::string err_msg("Could not create thread.");
+            err_msg.append(strerror(ret));
+            err_msg.append(",");
+            err_msg.append(std::to_string(ret));
+            return Status(err_msg);
+        }
         pthread_detach(id);
     }
 
@@ -473,6 +498,41 @@ void FragmentMgr::cancel_worker() {
         sleep(1);
     }
     LOG(INFO) << "FragmentMgr cancel worker is going to exit.";
+}
+
+
+Status FragmentMgr::fetch_fragment_exec_infos(PFetchFragmentExecInfosResult* result,
+                                              const PFetchFragmentExecInfoRequest* request) {
+    int fragment_id_list_size = request->finst_id_size();
+    for (int i = 0; i < fragment_id_list_size; i++) {
+        const PUniqueId& p_fragment_id = request->finst_id(i);
+        TUniqueId id;
+        id.__set_hi(p_fragment_id.hi());
+        id.__set_lo(p_fragment_id.lo()); 
+        PFragmentExecInfo* info = result->add_fragment_exec_info();
+        PUniqueId* finst_id = info->mutable_finst_id();
+        finst_id->set_hi(p_fragment_id.hi());
+        finst_id->set_lo(p_fragment_id.lo()); 
+
+        bool is_running = false; 
+        std::lock_guard<std::mutex> lock(_lock);
+        {
+            auto iter = _fragment_map.find(id);
+            if (iter == _fragment_map.end()) {
+                info->set_exec_status(PFragmentExecStatus::FINISHED);
+                continue;
+            }
+            is_running = iter->second->executor()->runtime_state()->is_running();
+        }
+
+        if (is_running) {
+            info->set_exec_status(PFragmentExecStatus::RUNNING);
+        } else {
+            info->set_exec_status(PFragmentExecStatus::WAIT);
+        }
+    }
+
+    return Status::OK;       
 }
 
 void FragmentMgr::debug(std::stringstream& ss) {

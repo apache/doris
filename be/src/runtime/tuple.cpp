@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -127,19 +124,17 @@ int64_t Tuple::release_string(const TupleDescriptor& desc) {
     return bytes;
 }
 
-void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int* offset,
-                     bool convert_ptrs) {
+void Tuple::deep_copy(
+        const TupleDescriptor& desc, char** data, int* offset, bool convert_ptrs) {
     Tuple* dst = reinterpret_cast<Tuple*>(*data);
     memory_copy(dst, this, desc.byte_size());
     *data += desc.byte_size();
     *offset += desc.byte_size();
 
-    for (std::vector<SlotDescriptor*>::const_iterator i = desc.string_slots().begin();
-            i != desc.string_slots().end(); ++i) {
-        DCHECK((*i)->type().is_string_type());
-
-        if (!dst->is_null((*i)->null_indicator_offset())) {
-            StringValue* string_v = dst->get_string_slot((*i)->tuple_offset());
+    for (auto slot_desc : desc.string_slots()) {
+        DCHECK(slot_desc->type().is_string_type());
+        if (!dst->is_null(slot_desc->null_indicator_offset())) {
+            StringValue* string_v = dst->get_string_slot(slot_desc->tuple_offset());
             memory_copy(*data, string_v->ptr, string_v->len);
             string_v->ptr = (convert_ptrs ? reinterpret_cast<char*>(*offset) : *data);
             *data += string_v->len;

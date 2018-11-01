@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -42,7 +39,11 @@ public:
 
     // Scan dir path and return all files in this path without '.' and '..'
     // Item in files is the filename in 'dir_path', which is not absolute path
-    static Status scan_dir(const std::string& dir_path, std::vector<std::string>* files);
+    // if files == nullptr, no file names will be returned.
+    // if file_count != nullptr, it will save the number of files.
+    static Status scan_dir(
+            const std::string& dir_path, std::vector<std::string>* files,
+            int64_t* file_count = nullptr);
 
     // If the file_path is not exist, or is not a dir, return false.
     static bool is_dir(const std::string& file_path);
@@ -61,6 +62,11 @@ public:
 
     // copy the file from src path to dest path, it will overwrite the existing files
     static Status copy_file(const std::string& src_path, const std::string& dest_path);
+
+    // calc md5sum of a local file
+    static Status md5sum(const std::string& file, std::string* md5sum);
+
+    static bool check_exist(const std::string& path);
 };
 
 }

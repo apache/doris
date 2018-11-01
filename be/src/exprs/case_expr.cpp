@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -335,6 +332,9 @@ void CaseExpr::get_child_val(int child_idx, ExprContext* ctx, TupleRow* row, Any
     case TYPE_DECIMAL:
         *reinterpret_cast<DecimalVal*>(dst) = _children[child_idx]->get_decimal_val(ctx, row);
         break;
+    case TYPE_LARGEINT:
+        *reinterpret_cast<LargeIntVal*>(dst) = _children[child_idx]->get_large_int_val(ctx, row);
+        break;
     default:
         DCHECK(false) << _children[child_idx]->type();
     }
@@ -375,6 +375,9 @@ bool CaseExpr::any_val_eq(const TypeDescriptor& type, const AnyVal* v1, const An
     case TYPE_DECIMAL:
         return AnyValUtil::equals(type, *reinterpret_cast<const DecimalVal*>(v1),
                                   *reinterpret_cast<const DecimalVal*>(v2));
+    case TYPE_LARGEINT:
+        return AnyValUtil::equals(type, *reinterpret_cast<const LargeIntVal*>(v1),
+                                  *reinterpret_cast<const LargeIntVal*>(v2));
     default:
         DCHECK(false) << type;
         return false;

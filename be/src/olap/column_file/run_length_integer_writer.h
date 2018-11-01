@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -260,12 +262,12 @@ private:
     OLAPStatus _write_patched_base_values();
     OLAPStatus _write_delta_values();
 
-    static const uint32_t MAX_SCOPE = 512;
-    static const uint32_t MIN_REPEAT = 3;  // NOTE 不要修改这个值, 否则程序出错
-    static const uint32_t MAX_SHORT_REPEAT_LENGTH = 10;
+    static const uint16_t MAX_SCOPE = 512;
+    static const uint16_t MIN_REPEAT = 3;  // NOTE 不要修改这个值, 否则程序出错
+    static const uint16_t MAX_SHORT_REPEAT_LENGTH = 10;
     // MAX_PATCH_LIST原本只需要0.05*MAX_SCOPE, 然而为了防止percentile_bits()里
     // 与这里的浮点计算产生的误差, 这里直接放大两倍, 请不要修改这个值
-    static const uint32_t MAX_PATCH_LIST = uint32_t(MAX_SCOPE * 0.1);
+    static const uint16_t MAX_PATCH_LIST = uint16_t(MAX_SCOPE * 0.1);
     OutStream* _output;
     bool _is_signed;
     uint32_t _fixed_run_length;
@@ -273,7 +275,7 @@ private:
     int64_t _prev_delta;
     int64_t _literals[MAX_SCOPE];
     EncodingType _encoding;
-    uint32_t _num_literals;
+    uint16_t _num_literals;
     int64_t _zig_zag_literals[MAX_SCOPE];  // for direct encoding
     int64_t _base_reduced_literals[MAX_SCOPE]; // for for patched base encoding
     int64_t _adj_deltas[MAX_SCOPE - 1];     // for delta encoding

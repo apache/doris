@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -27,10 +24,14 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "gen_cpp/Types_types.h" // for TUniqueId
-#include "gen_cpp/Data_types.h"  // for TRowBatch
 #include "runtime/descriptors.h"
 #include "util/tuple_row_compare.h"
-#include "rpc/inet_addr.h"
+
+namespace google {
+namespace protobuf {
+class Closure;
+}
+}
 
 namespace palo {
 
@@ -39,10 +40,7 @@ class SortedRunMerger;
 class MemTracker;
 class RowBatch;
 class RuntimeProfile;
-
-class Comm;
-class CommBuf;
-typedef std::shared_ptr<CommBuf> CommBufPtr;
+class PRowBatch;
 
 // Single receiver of an m:n data stream.
 // DataStreamRecvr maintains one or more queues of row batches received by a
@@ -110,10 +108,10 @@ private:
             PlanNodeId dest_node_id, int num_senders, bool is_merging, int total_buffer_limit,
             RuntimeProfile* profile);
 
-    // Add a new batch of rows to the appropriate sender queue, blocking if the queue is
-    // full. Called from DataStreamMgr.
-    void add_batch(const TRowBatch& thrift_batch, int sender_id,
-                   bool* is_buf_overflow, std::pair<InetAddr, CommBufPtr> response);
+    // If receive queue is full, done is enqueue pending, and return with *done is nullptr
+    void add_batch(const PRowBatch& batch, int sender_id,
+                   int be_number, int64_t packet_seq,
+                   ::google::protobuf::Closure** done);
 
     // Indicate that a particular sender is done. Delegated to the appropriate
     // sender queue. Called from DataStreamMgr.

@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -24,7 +21,7 @@
 #include <stdlib.h>
 
 #include "common/logging.h"
-#include "util/mysql_dtoa.h"
+#include "gutil/strings/numbers.h"
 #include "util/mysql_global.h"
 
 namespace palo {
@@ -217,7 +214,7 @@ int MysqlRowBuffer::push_float(float data) {
         return ret;
     }
 
-    int length = my_gcvt(data, MY_GCVT_ARG_FLOAT, MAX_FLOAT_STR_LENGTH + 2, _pos + 1, NULL);
+    int length = FloatToBuffer(data, MAX_FLOAT_STR_LENGTH + 2, _pos + 1);
 
     if (length < 0) {
         LOG(ERROR) << "gcvt float failed. data = " << data;
@@ -238,7 +235,7 @@ int MysqlRowBuffer::push_double(double data) {
         return ret;
     }
 
-    int length = my_gcvt(data, MY_GCVT_ARG_DOUBLE, MAX_DOUBLE_STR_LENGTH + 2, _pos + 1, NULL);
+    int length = DoubleToBuffer(data, MAX_DOUBLE_STR_LENGTH + 2, _pos + 1);
 
     if (length < 0) {
         LOG(ERROR) << "gcvt double failed. data = " << data;

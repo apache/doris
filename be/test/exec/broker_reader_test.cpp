@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -45,7 +47,7 @@ protected:
     virtual void TearDown() {
     }
 private:
-    RuntimeState* _runtime_state;
+    ExecEnv* _env;
     std::map<std::string, std::string> _properties;
     std::vector<TNetworkAddress> _addresses;
 };
@@ -61,7 +63,7 @@ void BrokerReaderTest::init() {
 
 TEST_F(BrokerReaderTest, normal) {
     std::string path = "hdfs://host:port/dir";
-    BrokerReader reader(_runtime_state, _addresses, _properties, path, 0);
+    BrokerReader reader(_env, _addresses, _properties, path, 0);
     auto st = reader.open();
     ASSERT_TRUE(st.ok());
     uint8_t buf[128 * 1024];
@@ -81,7 +83,7 @@ TEST_F(BrokerReaderTest, normal) {
 } // end namespace palo
 
 int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
+    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     // if (!palo::config::init(conffile.c_str(), false)) {
     //     fprintf(stderr, "error read config file. \n");
     //     return -1;

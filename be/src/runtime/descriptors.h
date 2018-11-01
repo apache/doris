@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -27,6 +24,9 @@
 #include <boost/scoped_ptr.hpp>
 #include <ostream>
 
+#include <google/protobuf/repeated_field.h>
+#include <google/protobuf/stubs/common.h>
+
 #include "common/status.h"
 #include "common/global_types.h"
 #include "gen_cpp/Descriptors_types.h"  // for TTupleId
@@ -51,6 +51,9 @@ class TTupleDescriptor;
 class Expr;
 class RuntimeState;
 class SchemaScanner;
+class OlapTableSchemaParam;
+class PTupleDescriptor;
+class PSlotDescriptor;
 
 struct LlvmTupleStruct {
     llvm::StructType* tuple_struct;
@@ -66,10 +69,16 @@ struct LlvmTupleStruct {
 struct NullIndicatorOffset {
     int byte_offset;
     uint8_t bit_mask;  // to extract null indicator
+    uint8_t bit_offset; // only used to serialize, from 1 to 8
 
-    NullIndicatorOffset(int byte_offset, int bit_offset)
+    NullIndicatorOffset(int byte_offset, int bit_offset_)
         : byte_offset(byte_offset),
-          bit_mask(bit_offset == -1 ? 0 : 1 << (7 - bit_offset)) {
+        bit_mask(bit_offset_ == -1 ? 0 : 1 << (7 - bit_offset_)),
+        bit_offset(bit_offset_) {
+    }
+ 
+    bool equals(const NullIndicatorOffset& o) const {
+        return this->byte_offset == o.byte_offset && this->bit_mask == o.bit_mask;
     }
 
     std::string debug_string() const;
@@ -110,9 +119,20 @@ public:
     bool is_nullable() const {
         return _null_indicator_offset.bit_mask != 0;
     }
+
+    int slot_size() const {
+        return _slot_size;
+    }
+
     std::string col_name() const {
         return _col_name;
     }
+
+    /// Return true if the physical layout of this descriptor matches the physical layout
+    /// of other_desc, but not necessarily ids.
+    bool layout_equals(const SlotDescriptor& other_desc) const;
+
+    void to_protobuf(PSlotDescriptor* pslot) const;
 
     std::string debug_string() const;
 
@@ -128,6 +148,7 @@ private:
     friend class DescriptorTbl;
     friend class TupleDescriptor;
     friend class SchemaScanner;
+    friend class OlapTableSchemaParam;
 
     const SlotId _id;
     const TypeDescriptor _type;
@@ -140,6 +161,9 @@ private:
     // the idx of the slot in the tuple descriptor (0-based).
     // this is provided by the FE
     const int _slot_idx;
+    
+    // the byte size of this slot.
+    const int _slot_size;
 
     // the idx of the slot in the llvm codegen'd tuple struct
     // this is set by TupleDescriptor during codegen and takes into account
@@ -154,6 +178,7 @@ private:
     llvm::Function* _set_null_fn;
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
+    SlotDescriptor(const PSlotDescriptor& pdesc);
 };
 
 // Base class for table descriptors.
@@ -305,7 +330,14 @@ public:
     TupleId id() const {
         return _id;
     }
+
+    /// Return true if the physical layout of this descriptor matches that of other_desc,
+    /// but not necessarily the id.
+    bool layout_equals(const TupleDescriptor& other_desc) const;
+
     std::string debug_string() const;
+
+    void to_protobuf(PTupleDescriptor* ptuple) const;
 
     // Creates a typed struct description for llvm.  The layout of the struct is computed
     // by the FE which includes the order of the fields in the resulting struct.
@@ -323,6 +355,7 @@ public:
 private:
     friend class DescriptorTbl;
     friend class SchemaScanner;
+    friend class OlapTableSchemaParam;
 
     const TupleId _id;
     TableDescriptor* _table_desc;
@@ -342,7 +375,11 @@ private:
     llvm::StructType* _llvm_struct; // cache for the llvm struct type for this tuple desc
 
     TupleDescriptor(const TTupleDescriptor& tdesc);
+    TupleDescriptor(const PTupleDescriptor& tdesc);
     void add_slot(SlotDescriptor* slot);
+
+    /// Returns slots in their physical order.
+    std::vector<SlotDescriptor*> slots_ordered_by_idx() const;
 };
 
 class DescriptorTbl {
@@ -439,6 +476,8 @@ public:
 
     // Populate row_tuple_ids with our ids.
     void to_thrift(std::vector<TTupleId>* row_tuple_ids);
+    void to_protobuf(
+        google::protobuf::RepeatedField<google::protobuf::int32 >* row_tuple_ids);
 
     // Return true if the tuple ids of this descriptor are a prefix
     // of the tuple ids of other_desc.
@@ -446,6 +485,14 @@ public:
 
     // Return true if the tuple ids of this descriptor match tuple ids of other desc.
     bool equals(const RowDescriptor& other_desc) const;
+
+    /// Return true if the physical layout of this descriptor matches the physical layout
+    /// of other_desc, but not necessarily the ids.
+    bool layout_equals(const RowDescriptor& other_desc) const;
+
+    /// Return true if the tuples of this descriptor are a prefix of the tuples of
+    /// other_desc. Tuples are compared by their physical layout and not by ids.
+    bool layout_is_prefix_of(const RowDescriptor& other_desc) const;
 
     std::string debug_string() const;
 

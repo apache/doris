@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -29,6 +26,7 @@
 #include "runtime/types.h"
 #include "runtime/string_value.h"
 #include "util/hash_util.hpp"
+#include "util/types.h"
 
 namespace palo {
 
@@ -170,8 +168,8 @@ inline bool RawValue::lt(const void* v1, const void* v2, const TypeDescriptor& t
                *reinterpret_cast<const DecimalValue*>(v2);
 
     case TYPE_LARGEINT:
-        return *reinterpret_cast<const __int128*>(v1) <
-               *reinterpret_cast<const __int128*>(v2);
+        return reinterpret_cast<const PackedInt128*>(v1)->value <
+               reinterpret_cast<const PackedInt128*>(v2)->value;
 
     default:
         DCHECK(false) << "invalid type: " << type;
@@ -228,8 +226,8 @@ inline bool RawValue::eq(const void* v1, const void* v2, const TypeDescriptor& t
                *reinterpret_cast<const DecimalValue*>(v2);
 
     case TYPE_LARGEINT:
-        return *reinterpret_cast<const __int128*>(v1) ==
-               *reinterpret_cast<const __int128*>(v2);
+        return reinterpret_cast<const PackedInt128*>(v1)->value ==
+               reinterpret_cast<const PackedInt128*>(v2)->value;
 
     default:
         DCHECK(false) << "invalid type: " << type;
@@ -282,7 +280,7 @@ inline uint32_t RawValue::get_hash_value(
 
     case TYPE_DATE:
     case TYPE_DATETIME:
-        return HashUtil::hash(v, 12, seed);
+        return HashUtil::hash(v, 16, seed);
 
     case TYPE_DECIMAL:
         return HashUtil::hash(v, 40, seed);
@@ -337,7 +335,7 @@ inline uint32_t RawValue::get_hash_value_fvn(
 
     case TYPE_DATE:
     case TYPE_DATETIME:
-        return HashUtil::fnv_hash(v, 12, seed);
+        return HashUtil::fnv_hash(v, 16, seed);
 
     case TYPE_DECIMAL:
         return ((DecimalValue *) v)->hash(seed);

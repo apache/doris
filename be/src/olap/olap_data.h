@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -29,6 +31,9 @@
 
 namespace palo {
 
+// Row Storage Table is deprecated.
+// This file will be removed in succedent release.
+
 class OLAPTable;
 class RowBlock;
 class RowCursor;
@@ -48,14 +53,11 @@ class RowCursor;
 // the original RAW_COLUMN_MIXED.
 class OLAPData: public IData {
 public:
-    explicit OLAPData(OLAPIndex* index);
+    explicit OLAPData(Rowset* index);
     virtual ~OLAPData();
 
     // 初始化, 和unpickle统一到同一流程上
     virtual OLAPStatus init();
-
-    virtual void set_conjuncts(std::vector<ExprContext*>* query_conjuncts, 
-                               std::vector<ExprContext*>* delete_conjuncts);
 
     OLAPStatus get_first_row_block(RowBlock** row_block,
                                const char** packed_row_block,
@@ -79,33 +81,32 @@ public:
 
     // Points the internal cursor to either the first row or the last row.
     // Returns NULL in case of an error.
-    virtual const RowCursor* get_first_row();
-    virtual const RowCursor* get_current_row();
+    const RowCursor* get_first_row();
 
     // Advances the internal cursor to the next row and returns that row.
     // Sets _eof if there is no more row left.
-    virtual const RowCursor* get_next_row();
+    const RowCursor* get_next_row();
 
     // Points internal cursor to the first row equal to or larger than 'key'.
     // to key. Returns a pointer to the row or NULL if 1) there is an
     // error, or 2) the key exceeds any row in the table.
-    virtual const RowCursor* find_row(const RowCursor& key, bool find_last_key, bool is_end_key);
+    const RowCursor* find_row(const RowCursor& key, bool find_last_key, bool is_end_key);
 
     // find_last_end_key false:<; true:<=
-    virtual OLAPStatus set_end_key(const RowCursor* end_key, bool find_last_end_key);
+    OLAPStatus set_end_key(const RowCursor* end_key, bool find_last_end_key);
+
+    OLAPStatus prepare_block_read(
+        const RowCursor* start_key, bool find_start_key,
+        const RowCursor* end_key, bool find_end_key,
+        RowBlock** block) override;
+
+    OLAPStatus get_next_block(RowBlock** block) override;
 
     // The following four functions are used for creating new date
     // files. add_segment() and finalize_segment() start and end a new
     // segment respectively, while add_row_block() and add_packed_rowblock()
     // add a new data block to the current segment.(only writer)
     OLAPStatus add_segment();
-
-    // Add packed row block into OLAPData.
-    OLAPStatus add_packed_row_block(const RowBlock* row_block,
-                                const char* packed_row_block,
-                                uint32_t packed_row_block_size,
-                                uint32_t* start_data_offset,
-                                uint32_t* end_data_offset);
 
     // TODO(fdy): 未实现方法,等待有使用需求时再实现
     OLAPStatus add_packed_rowblock(
@@ -119,9 +120,9 @@ public:
     //                                 equals to the current segment file length.
     // @return  OLAPStatus  OLAP_SUCCESS if succeed, or else OLAP_ERR_XXX
     // @note
-    OLAPStatus add_row_block(const RowBlock& row_block,
-                         uint32_t* start_data_offset,
-                         uint32_t* end_data_offset);
+    OLAPStatus add_row_block(RowBlock* row_block,
+                             uint32_t* start_data_offset,
+                             uint32_t* end_data_offset);
 
     // 结束segment,回写头部
     OLAPStatus finalize_segment(uint32_t* data_offset);
@@ -147,21 +148,17 @@ public:
         return olap_index()->num_segments();
     }
     
-    time_t max_timestamp() const {
-        return olap_index()->max_timestamp();
-    }
-
 private:
     // RowBlock代理,内部类，可以代理指定position的RowBlock，为RowBlock提供类似Iterator服务。
     class RowBlockBroker {
     public:
-        RowBlockBroker(OLAPTable* olap_table, OLAPIndex* olap_index, RuntimeState* runtime_state);
+        RowBlockBroker(OLAPTable* olap_table, Rowset* olap_index, RuntimeState* runtime_state);
         ~RowBlockBroker();
 
         OLAPStatus init();
 
         // 根据block position，在文件中定位row_block
-        OLAPStatus change_to(const RowBlockPosition& row_block_pos, RuntimeProfile* profile);
+        OLAPStatus change_to(const RowBlockPosition& row_block_pos);
         // 释放当前持有的row_block
         OLAPStatus release();
 
@@ -172,12 +169,6 @@ private:
         const RowCursor* get_row(uint32_t row_index);
         const RowCursor* next(bool* end_of_row_block);
         const RowCursor* find_row(const RowCursor& key, bool find_last_key, bool* end_of_row_block);
-
-        void set_conjuncts(std::vector<ExprContext*>* query_conjunct_ctxs, 
-                           std::vector<ExprContext*>* delete_conjunct_ctxs) {
-            _query_conjunct_ctxs = query_conjunct_ctxs;
-            _delete_conjunct_ctxs = delete_conjunct_ctxs;
-        }
 
         void set_end_row(const RowBlockPosition& end_block_position, uint32_t end_row_index) {
             _end_block_position = end_block_position;
@@ -212,6 +203,12 @@ private:
             return _row_block;
         }
 
+        RowBlock* get_row_block_to_read() {
+            _row_block->set_pos(_row_index);
+            _row_block->set_limit(_num_rows);
+            return _row_block;
+        }
+
         const char* packed_row_block() {
             return _read_buffer + _row_block_header_size;
         }
@@ -223,6 +220,8 @@ private:
         const bool is_end_block() {
             return _is_end_block;
         }
+
+        uint32_t num_rows() const { return _num_rows; }
 
         Tuple* get_next_tuple();
         
@@ -246,10 +245,7 @@ private:
         bool _is_set_end_row;
 
         OLAPTable* _olap_table;
-        OLAPIndex* _olap_index;
-
-        std::vector<ExprContext*>* _query_conjunct_ctxs;
-        std::vector<ExprContext*>* _delete_conjunct_ctxs;
+        Rowset* _olap_index;
 
         uint64_t _data_read_buf_size;
         bool _is_end_block;
@@ -315,7 +311,7 @@ class OLAPDataComparator {
 public:
     OLAPDataComparator(RowBlockPosition position,
                        OLAPData* olap_data,
-                       const OLAPIndex* index,
+                       const Rowset* index,
                        RowCursor* helper_cursor) :
             _start_block_position(position),
             _olap_data(olap_data),
@@ -355,11 +351,7 @@ private:
         // 取block里的最后一条数据与key进行比较，返回小于的结果
         // TODO(hujie01): 比较block暂时不使用过滤条件
         uint32_t row_num = block->row_block_info().row_num;
-        if ((res = block->get_row_to_read(row_num - 1, _helper_cursor, true)) 
-                != OLAP_SUCCESS) {
-            OLAP_LOG_FATAL("fail to invoke get_row. [res=%d]", res);
-            throw ComparatorException();
-        }
+        block->get_row(row_num - 1, _helper_cursor);
 
         if (comparator_enum == COMPARATOR_LESS) {
             return _helper_cursor->cmp(key) < 0;
@@ -370,7 +362,7 @@ private:
 
     const RowBlockPosition _start_block_position;
     OLAPData* _olap_data;
-    const OLAPIndex* _index;
+    const Rowset* _index;
     RowCursor* _helper_cursor;
 };
 

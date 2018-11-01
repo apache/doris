@@ -1,8 +1,7 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -13,7 +12,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-namespace java com.baidu.palo.thrift
+namespace java org.apache.doris.thrift
 namespace cpp palo
 
 enum TBrokerOperationStatusCode {
@@ -90,6 +89,7 @@ struct TBrokerListPathRequest {
     2: required string path;
     3: required bool isRecursive;
     4: required map<string,string> properties;
+    5: optional bool fileNameOnly;
 }
 
 struct TBrokerDeletePathRequest {

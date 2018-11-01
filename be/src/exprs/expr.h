@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -67,6 +64,7 @@ class SetVar;
 class TupleIsNullPredicate;
 class VectorizedRowBatch;
 class Literal;
+class MemTracker;
 
 // This is the superclass of all expr evaluation nodes.
 class Expr {
@@ -165,6 +163,12 @@ public:
         return _is_slotref;
     }
 
+    /// Returns true if this expr uses a FunctionContext to track its runtime state.
+    /// Overridden by exprs which use FunctionContext.
+    virtual bool has_fn_ctx() const { 
+        return false; 
+    }
+
     /// Returns an error status if the function context associated with the
     /// expr has an error set.
     Status get_fn_context_error(ExprContext* ctx);
@@ -198,6 +202,27 @@ public:
     static Status create_expr_trees(ObjectPool* pool, const std::vector<TExpr>& texprs,
                                     std::vector<ExprContext*>* ctxs);
 
+    /// Create a new ScalarExpr based on thrift Expr 'texpr'. The newly created ScalarExpr
+    /// is stored in ObjectPool 'pool' and returned in 'expr' on success. 'row_desc' is the
+    /// tuple row descriptor of the input tuple row. On failure, 'expr' is set to NULL and
+    /// the expr tree (if created) will be closed. Error status will be returned too.
+    static Status create(const TExpr& texpr, const RowDescriptor& row_desc,
+        RuntimeState* state, ObjectPool* pool, Expr** expr, MemTracker* tracker);
+
+    /// Create a new ScalarExpr based on thrift Expr 'texpr'. The newly created ScalarExpr
+    /// is stored in ObjectPool 'state->obj_pool()' and returned in 'expr'. 'row_desc' is
+    /// the tuple row descriptor of the input tuple row. Returns error status on failure.
+    static Status create(const TExpr& texpr, const RowDescriptor& row_desc,
+        RuntimeState* state, Expr** expr, MemTracker* tracker);
+
+    /// Convenience functions creating multiple ScalarExpr.
+    static Status create(const std::vector<TExpr>& texprs, const RowDescriptor& row_desc,
+        RuntimeState* state, ObjectPool* pool, std::vector<Expr*>* exprs, MemTracker* tracker);
+
+    /// Convenience functions creating multiple ScalarExpr.
+    static Status create(const std::vector<TExpr>& texprs, const RowDescriptor& row_desc,
+        RuntimeState* state, std::vector<Expr*>* exprs, MemTracker* tracker);
+
     /// Convenience function for preparing multiple expr trees.
     /// Allocations from 'ctxs' will be counted against 'tracker'.
     static Status prepare(const std::vector<ExprContext*>& ctxs, RuntimeState* state,
@@ -217,6 +242,9 @@ public:
 
     /// Convenience function for closing multiple expr trees.
     static void close(const std::vector<ExprContext*>& ctxs, RuntimeState* state);
+
+    /// Convenience functions for closing a list of ScalarExpr.
+    static void close(const std::vector<Expr*>& exprs);
 
     // Computes a memory efficient layout for storing the results of evaluating 'exprs'
     // Returns the number of bytes necessary to store all the results and offsets
@@ -246,6 +274,12 @@ public:
     /// runtime constant. Returns the number of calls replaced. This should be used in
     /// GetCodegendComputeFn().
     int inline_constants(LlvmCodeGen* codegen, llvm::Function* fn);
+
+    /// Assigns indices into the FunctionContext vector 'fn_ctxs_' in an evaluator to
+    /// nodes which need FunctionContext in the tree. 'next_fn_ctx_idx' is the index
+    /// of the next available entry in the vector. It's updated as this function is
+    /// called recursively down the tree.
+    void assign_fn_ctx_idx(int* next_fn_ctx_idx);
 
     virtual std::string debug_string() const;
     static std::string debug_string(const std::vector<Expr*>& exprs);
@@ -298,6 +332,13 @@ protected:
     friend class ScalarFnCall;
     friend class HllHashFunction;
 
+    /// Constructs an Expr tree from the thrift Expr 'texpr'. 'root' is the root of the
+    /// Expr tree created from texpr.nodes[0] by the caller (either ScalarExpr or AggFn).
+    /// The newly created Expr nodes are added to 'pool'. Returns error status on failure.
+    static Status create_tree(const TExpr& texpr, ObjectPool* pool, Expr* root);
+
+    int fn_ctx_idx() const { return _fn_ctx_idx; }
+
     Expr(const TypeDescriptor& type);
     Expr(const TypeDescriptor& type, bool is_slotref);
     Expr(const TExprNode& node);
@@ -345,6 +386,9 @@ protected:
             RuntimeState* state,
             ExprContext* context,
             FunctionContext::FunctionStateScope scope);
+
+    /// Releases cache entries to LibCache in all nodes of the Expr tree.
+    virtual void close();
 
     /// Helper function that calls ctx->Register(), sets fn_context_index_, and returns the
     /// registered FunctionContext.
@@ -470,6 +514,35 @@ private:
     // Helper function for InlineConstants(). Returns the IR version of what GetConstant()
     // would return.
     llvm::Value* get_ir_constant(LlvmCodeGen* codegen, ExprConstant c, int i);
+
+    /// Creates an expression tree rooted at 'root' via depth-first traversal.
+    /// Called recursively to create children expr trees for sub-expressions.
+    ///
+    /// parameters:
+    ///   nodes: vector of thrift expression nodes to be unpacked.
+    ///          It is essentially an Expr tree encoded in a depth-first manner.
+    ///   pool: Object pool in which Expr created from nodes are stored.
+    ///   root: root of the new tree. Created and initialized by the caller.
+    ///   child_node_idx: index into 'nodes' to be unpacked. It's the root of the next child
+    ///                   child Expr tree to be added to 'root'. Updated as 'nodes' are
+    ///                   consumed to construct the tree.
+    /// return
+    ///   status.ok() if successful
+    ///   !status.ok() if tree is inconsistent or corrupt
+    static Status create_tree_internal(const std::vector<TExprNode>& nodes,
+        ObjectPool* pool, Expr* parent, int* child_node_idx);
+
+    /// 'fn_ctx_idx_' is the index into the FunctionContext vector in ScalarExprEvaluator
+    /// for storing FunctionContext needed to evaluate this ScalarExprNode. It's -1 if this
+    /// ScalarExpr doesn't need a FunctionContext. The FunctionContext is managed by the
+    /// evaluator and initialized by calling ScalarExpr::OpenEvaluator().
+    int _fn_ctx_idx = -1;
+
+    /// [fn_ctx_idx_start_, fn_ctx_idx_end_) defines the range in FunctionContext vector
+    /// in ScalarExpeEvaluator for the expression subtree rooted at this ScalarExpr node.
+    int _fn_ctx_idx_start = 0;
+    int _fn_ctx_idx_end = 0;
+
 };
 
 inline bool Expr::evaluate(VectorizedRowBatch* batch) {

@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -20,6 +17,10 @@
 
 #include "exprs/anyval_util.h"
 
+#include "exprs/anyval_util.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
+
 namespace palo {
 using palo_udf::BooleanVal;
 using palo_udf::TinyIntVal;
@@ -33,6 +34,20 @@ using palo_udf::DecimalVal;
 using palo_udf::DateTimeVal;
 using palo_udf::StringVal;
 using palo_udf::AnyVal;
+
+Status allocate_any_val(RuntimeState* state, MemPool* pool, const TypeDescriptor& type,
+    const std::string& mem_limit_exceeded_msg, AnyVal** result) {
+  const int anyval_size = AnyValUtil::any_val_size(type);
+  const int anyval_alignment = AnyValUtil::any_val_alignment(type);
+  *result =
+      reinterpret_cast<AnyVal*>(pool->try_allocate_aligned(anyval_size, anyval_alignment));
+  if (*result == NULL) {
+    return pool->mem_tracker()->MemLimitExceeded(
+        state, mem_limit_exceeded_msg, anyval_size);
+  }
+  memset(*result, 0, anyval_size);
+  return Status::OK;
+}
 
 AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
     switch (type.type) {
@@ -63,6 +78,7 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
     case TYPE_DOUBLE:
         return pool->add(new DoubleVal);
 
+    case TYPE_CHAR:
     case TYPE_HLL:
     case TYPE_VARCHAR:
         return pool->add(new StringVal);
@@ -75,7 +91,7 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
 
     case TYPE_DATETIME:
         return pool->add(new DateTimeVal);
-default:
+    default:
         DCHECK(false) << "Unsupported type: " << type.type;
         return NULL;
     }

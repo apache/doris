@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -17,16 +19,24 @@
 #define BDG_PALO_BE_SERVICE_BACKEND_OPTIONS_H
 
 #include <string>
+#include <vector>
 #include <gutil/macros.h>
 
 namespace palo {
 
+class CIDR;
+
 class BackendOptions {
 public:
-    static void init();
+    static bool init();
     static std::string get_localhost();
+
 private:
-    static std::string _localhost;
+    static bool analyze_priority_cidrs();
+    static bool is_in_prior_network(const std::string& ip);
+
+    static std::string _s_localhost;
+    static std::vector<CIDR> _s_priority_cidrs;
 
     DISALLOW_COPY_AND_ASSIGN(BackendOptions);
 };

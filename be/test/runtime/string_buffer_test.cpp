@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -13,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "runtime/string_buffer.hpp"
+
 #include <string>
 #include <gtest/gtest.h>
 
 #include "runtime/mem_pool.h"
-#include "runtime/string_buffer.hpp"
-
+#include "runtime/mem_tracker.h"
 
 namespace palo {
 
@@ -32,7 +35,8 @@ void validate_string(const std::string& std_str, const StringBuffer& str) {
 }
 
 TEST(StringBufferTest, Basic) {
-    MemPool pool;
+    MemTracker tracker;
+    MemPool pool(&tracker);
     StringBuffer str(&pool);
     std::string std_str;
 
@@ -71,12 +75,14 @@ TEST(StringBufferTest, Basic) {
 }
 
 int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
+#if 0
+    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     if (!palo::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
     init_glog("be-test");
+#endif
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -36,7 +33,11 @@
 #include "util/runtime_profile.h"
 #include "gen_cpp/Types_types.h"  // for TUniqueId
 
-#include "rpc/inet_addr.h"
+namespace google {
+namespace protobuf {
+class Closure;
+}
+}
 
 namespace palo {
 
@@ -44,10 +45,8 @@ class DescriptorTbl;
 class DataStreamRecvr;
 class RowBatch;
 class RuntimeState;
-class TRowBatch;
-class Comm;
-class CommBuf;
-typedef std::shared_ptr<CommBuf> CommBufPtr;
+class PRowBatch;
+class PUniqueId;
 
 // Singleton class which manages all incoming data streams at a backend node. It
 // provides both producer and consumer functionality for each data stream.
@@ -88,12 +87,10 @@ public:
     // TODO: enforce per-sender quotas (something like 200% of buffer_size/#senders),
     // so that a single sender can't flood the buffer and stall everybody else.
     // Returns OK if successful, error status otherwise.
-    Status add_data(const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-            const TRowBatch& thrift_batch, int sender_id, bool* buffer_overflow,
-                    std::pair<InetAddr, CommBufPtr> response);
-    // Status add_data(const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-    //                 const TRowBatch& thrift_batch, bool* buffer_overflow,
-    //                 std::pair<InetAddr, CommBufPtr> response);
+    Status add_data(const PUniqueId& fragment_instance_id, int32_t node_id,
+                    const PRowBatch& pb_batch, int32_t sender_id,
+                    int32_t be_number, int64_t packet_seq,
+                    ::google::protobuf::Closure** done);
 
     // Notifies the recvr associated with the fragment/node id that the specified
     // sender has closed.

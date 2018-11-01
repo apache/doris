@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -19,7 +16,7 @@
 // under the License.
 
 namespace cpp palo
-namespace java com.baidu.palo.thrift
+namespace java org.apache.doris.thrift
 
 include "AgentService.thrift"
 include "PaloInternalService.thrift"
@@ -34,6 +31,8 @@ struct TTabletInfo {
     5: required Types.TCount row_count
     6: required Types.TSize data_size
     7: optional Types.TStorageMedium storage_medium
+    8: optional list<Types.TTransactionId> transaction_ids
+    9: optional i64 version_count
 }
 
 struct TFinishTaskRequest {
@@ -47,6 +46,10 @@ struct TFinishTaskRequest {
     8: optional i64 request_version
     9: optional i64 request_version_hash
     10: optional string snapshot_path
+    11: optional list<Types.TTabletId> error_tablet_ids
+    12: optional list<string> snapshot_files
+    13: optional map<Types.TTabletId, list<string>> tablet_files
+    14: optional list<Types.TTabletId> downloaded_tablet_ids
 }
 
 struct TTablet {
@@ -55,9 +58,10 @@ struct TTablet {
 
 struct TDisk {
     1: required string root_path
-    2: required Types.TSize total_capacity
-    3: required Types.TSize available_capacity
+    2: required Types.TSize disk_total_capacity
+    3: required Types.TSize data_used_capacity
     4: required bool used
+    5: optional Types.TSize disk_available_capacity
 }
 
 struct TReportRequest {
@@ -66,6 +70,7 @@ struct TReportRequest {
     3: optional map<Types.TTaskType, set<i64>> tasks // string signature
     4: optional map<Types.TTabletId, TTablet> tablets
     5: optional map<string, TDisk> disks // string root_path
+    6: optional bool force_recovery
 }
 
 struct TMasterResult {

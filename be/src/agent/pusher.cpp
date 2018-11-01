@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -26,7 +28,6 @@
 #include "agent/cgroups_mgr.h"
 #include "agent/file_downloader.h"
 #include "gen_cpp/AgentService_types.h"
-#include "olap/command_executor.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_engine.h"
@@ -39,16 +40,12 @@ using std::vector;
 namespace palo {
 
     
-Pusher::Pusher(const TPushReq& push_req) :
-        _push_req(push_req) {
-    _command_executor = new CommandExecutor();
+Pusher::Pusher(OLAPEngine* engine, const TPushReq& push_req) :
+        _push_req(push_req), _engine(engine) {
     _download_status = PALO_SUCCESS;
 }
 
 Pusher::~Pusher() {
-    if (_command_executor != NULL) {
-        delete _command_executor;
-    }
 }
 
 AgentStatus Pusher::init() {
@@ -60,8 +57,8 @@ AgentStatus Pusher::init() {
     }
 
     // Check replica exist
-    SmartOLAPTable olap_table;
-    olap_table = _command_executor->get_table(
+    OLAPTablePtr olap_table;
+    olap_table = _engine->get_table(
             _push_req.tablet_id,
             _push_req.schema_hash);
     if (olap_table.get() == NULL) {
@@ -84,12 +81,12 @@ AgentStatus Pusher::init() {
         remote_full_path = _push_req.http_file_path;
 
         // Get local download path
-        OLAP_LOG_INFO("start get file. remote_full_path:%s", remote_full_path.c_str());
+        LOG(INFO) << "start get file. remote_full_path: " << remote_full_path;
         string root_path = olap_table->storage_root_path_name();
 
         status = _get_tmp_file_dir(root_path, &tmp_file_dir);
         if (PALO_SUCCESS != status) {
-            OLAP_LOG_WARNING("get local path failed. tmp file dir: %s", tmp_file_dir.c_str());
+            LOG(WARNING) << "get local path failed. tmp file dir: " << tmp_file_dir;
         }
     }
 
@@ -118,14 +115,14 @@ AgentStatus Pusher::_get_tmp_file_dir(const string& root_path, string* download_
     boost::filesystem::path full_path(*download_path);
 
     if (!boost::filesystem::exists(full_path)) {
-        OLAP_LOG_INFO("download dir not exist: %s", download_path->c_str());
+        LOG(INFO) << "download dir not exist: " << *download_path;
         boost::system::error_code error_code;
         boost::filesystem::create_directories(*download_path, error_code);
 
         if (0 != error_code) {
             status = PALO_ERROR;
-            OLAP_LOG_WARNING("create download dir failed.path: %s, error code: %d",
-                    download_path->c_str(), error_code);
+            LOG(WARNING) << "create download dir failed.path: "
+                         << *download_path << ", error code: " << error_code;
         }
     }
 
@@ -155,10 +152,9 @@ AgentStatus Pusher::_download_file() {
                 _downloader_param.remote_file_path.c_str(),
                 _push_req.tablet_id, cost, _push_req.http_file_size, rate);
     } else {
-        OLAP_LOG_WARNING("down load file failed. remote_file=%s, tablet=%d, cost=%ld, "
-                         "file size: %ld B",
-                _downloader_param.remote_file_path.c_str(), _push_req.tablet_id, cost,
-                _push_req.http_file_size);
+        LOG(WARNING) << "down load file failed. remote_file=" << _downloader_param.remote_file_path
+                     << " tablet=" << _push_req.tablet_id
+                     << " cost=" << cost << " file size: " << _push_req.http_file_size << " B";
     }
 
     // todo check data length and mv name tmp
@@ -262,10 +258,12 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
     if (status == PALO_SUCCESS) {
         // Load delta file
         time_t push_begin = time(NULL);
-        OLAPStatus push_status = _command_executor->push(_push_req, tablet_infos);
+        OLAPStatus push_status = _engine->push(_push_req, tablet_infos);
         time_t push_finish = time(NULL);
         OLAP_LOG_INFO("Push finish, cost time: %ld", push_finish - push_begin);
-        if (push_status != OLAPStatus::OLAP_SUCCESS) {
+        if (push_status == OLAPStatus::OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+            status = PALO_PUSH_HAD_LOADED;
+        } else if (push_status != OLAPStatus::OLAP_SUCCESS) {
             status = PALO_ERROR;
         }
     }

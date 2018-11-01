@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -26,6 +23,7 @@
 
 #include "common/logging.h"
 #include "runtime/broker_mgr.h"
+#include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/client_cache.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/disk_io_mgr.h"
@@ -33,29 +31,41 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/thread_resource_mgr.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/tablet_writer_mgr.h"
 #include "runtime/tmp_file_mgr.h"
+#include "runtime/bufferpool/reservation_tracker.h"
 #include "util/metrics.h"
 #include "util/network_util.h"
-#include "http/webserver.h"
 #include "http/web_page_handler.h"
 #include "http/default_path_handlers.h"
 #include "util/parse_util.h"
 #include "util/mem_info.h"
 #include "util/debug_util.h"
+#include "http/ev_http_server.h"
 #include "http/action/mini_load.h"
 #include "http/action/checksum_action.h"
 #include "http/action/health_action.h"
 #include "http/action/reload_tablet_action.h"
+#include "http/action/restore_tablet_action.h"
 #include "http/action/snapshot_action.h"
 #include "http/action/pprof_actions.h"
+#include "http/action/metrics_action.h"
+#include "http/action/meta_action.h"
+#include "http/action/stream_load.h"
 #include "http/download_action.h"
 #include "http/monitor_action.h"
 #include "http/http_method.h"
+#include "olap/olap_engine.h"
 #include "util/network_util.h"
 #include "util/bfd_parser.h"
 #include "runtime/etl_job_mgr.h"
 #include "runtime/load_path_mgr.h"
+#include "runtime/load_stream_mgr.h"
 #include "runtime/pull_load_task_mgr.h"
+#include "runtime/snapshot_loader.h"
+#include "util/pretty_printer.h"
+#include "util/palo_metrics.h"
+#include "util/brpc_stub_cache.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/TPaloBrokerService.h"
@@ -65,15 +75,22 @@ namespace palo {
 
 ExecEnv* ExecEnv::_exec_env = nullptr;
 
-ExecEnv::ExecEnv() :
+ExecEnv::ExecEnv()
+    : _thread_mgr(new ThreadResourceMgr),
+    _master_info(new TMasterInfo()),
+    _load_stream_mgr(new LoadStreamMgr()),
+    _brpc_stub_cache(new BrpcStubCache()) {
+}
+
+ExecEnv::ExecEnv(const std::vector<StorePath>& paths) :
+        _store_paths(paths),
         _stream_mgr(new DataStreamMgr()),
         _result_mgr(new ResultBufferMgr()),
         _client_cache(new BackendServiceClientCache()),
         _frontend_client_cache(new FrontendServiceClientCache()),
         _broker_client_cache(new BrokerServiceClientCache()),
-        _webserver(new Webserver()),
-        _web_page_handler(new WebPageHandler(_webserver.get())),
-        _metrics(new MetricGroup("exec_env")),
+        _ev_http_server(new EvHttpServer(config::webserver_port, config::webserver_num_workers)),
+        _web_page_handler(new WebPageHandler(_ev_http_server.get())),
         _mem_tracker(NULL),
         _pool_mem_trackers(new PoolMemTrackerRegistry),
         _thread_mgr(new ThreadResourceMgr),
@@ -87,16 +104,21 @@ ExecEnv::ExecEnv() :
         _fragment_mgr(new FragmentMgr(this)),
         _master_info(new TMasterInfo()),
         _etl_job_mgr(new EtlJobMgr(this)),
-        _load_path_mgr(new LoadPathMgr()),
+        _load_path_mgr(new LoadPathMgr(this)),
         _disk_io_mgr(new DiskIoMgr()),
-        _tmp_file_mgr(new TmpFileMgr),
+        _tmp_file_mgr(new TmpFileMgr(this)),
         _bfd_parser(BfdParser::create()),
         _pull_load_task_mgr(new PullLoadTaskMgr(config::pull_load_task_dir)),
         _broker_mgr(new BrokerMgr(this)),
+        _tablet_writer_mgr(new TabletWriterMgr(this)),
+        _load_stream_mgr(new LoadStreamMgr()),
+        _snapshot_loader(new SnapshotLoader(this)),
+        _brpc_stub_cache(new BrpcStubCache()),
         _enable_webserver(true),
         _tz_database(TimezoneDatabase()) {
-    _client_cache->init_metrics(_metrics.get(), "palo.backends");
-    //_frontend_client_cache->init_metrics(_metrics.get(), "frontend-server.backends");
+    _client_cache->init_metrics(PaloMetrics::metrics(), "backend");
+    _frontend_client_cache->init_metrics(PaloMetrics::metrics(), "frontend");
+    _broker_client_cache->init_metrics(PaloMetrics::metrics(), "broker");
     _result_mgr->init();
     _cgroups_mgr->init_cgroups();
     _etl_job_mgr->init();
@@ -124,9 +146,6 @@ Status ExecEnv::init_for_tests() {
 Status ExecEnv::start_services() {
     LOG(INFO) << "Starting global services";
 
-    //create connection manger
-    _conn_mgr = std::make_shared<ConnectionManager>();
-
     // Initialize global memory limit.
     int64_t bytes_limit = 0;
     bool is_percent = false;
@@ -137,6 +156,30 @@ Status ExecEnv::start_services() {
         return Status("Failed to parse mem limit from '" + config::mem_limit + "'.");
     }
 
+    std::stringstream ss;
+    if (!BitUtil::IsPowerOf2(config::FLAGS_min_buffer_size)) {
+        ss << "--min_buffer_size must be a power-of-two: " << config::FLAGS_min_buffer_size;
+        return Status(ss.str());
+    }
+
+    int64_t buffer_pool_limit = ParseUtil::parse_mem_spec(config::FLAGS_buffer_pool_limit,
+        &is_percent);
+    if (buffer_pool_limit <= 0) {
+        ss << "Invalid --buffer_pool_limit value, must be a percentage or "
+           "positive bytes value or percentage: " << config::FLAGS_buffer_pool_limit;
+        return Status(ss.str());
+    }
+    buffer_pool_limit = BitUtil::RoundDown(buffer_pool_limit, config::FLAGS_min_buffer_size);
+
+    int64_t clean_pages_limit = ParseUtil::parse_mem_spec(config::FLAGS_buffer_pool_clean_pages_limit,
+        &is_percent);
+    if (clean_pages_limit <= 0) {
+        ss << "Invalid --buffer_pool_clean_pages_limit value, must be a percentage or "
+              "positive bytes value or percentage: " << config::FLAGS_buffer_pool_clean_pages_limit;
+        return Status(ss.str());
+    }
+
+    init_buffer_pool(config::FLAGS_min_buffer_size, buffer_pool_limit, clean_pages_limit);
     // Limit of 0 means no memory limit.
     if (bytes_limit > 0) {
         _mem_tracker.reset(new MemTracker(bytes_limit));
@@ -157,59 +200,108 @@ Status ExecEnv::start_services() {
 
     // Start services in order to ensure that dependencies between them are met
     if (_enable_webserver) {
-        add_default_path_handlers(_web_page_handler.get(), _mem_tracker.get());
-        _webserver->register_handler(HttpMethod::PUT,
-                                     "/api/{db}/{table}/_load",
-                                     new MiniLoadAction(this));
-        DownloadAction* download_action = new DownloadAction(this, "");
-                // = new DownloadAction(this, config::mini_load_download_path);
-        _webserver->register_handler(HttpMethod::GET, "/api/_download_load", download_action);
-        _webserver->register_handler(HttpMethod::HEAD, "/api/_download_load", download_action);
-
-        DownloadAction* tablet_download_action = new DownloadAction(this, "");
-        _webserver->register_handler(HttpMethod::HEAD,
-                                     "/api/_tablet/_download",
-                                     tablet_download_action);
-        _webserver->register_handler(HttpMethod::GET,
-                                     "/api/_tablet/_download",
-                                     tablet_download_action);
-
-        // Register monitor
-        MonitorAction* monitor_action = new MonitorAction();
-        monitor_action->register_module("etl_mgr", etl_job_mgr());
-        monitor_action->register_module("fragment_mgr", fragment_mgr());
-        _webserver->register_handler(HttpMethod::GET, "/_monitor/{module}", monitor_action);
-
-        // Register BE health action
-        HealthAction* health_action = new HealthAction(this);
-        _webserver->register_handler(HttpMethod::GET, "/api/health", health_action);
-
-        // register pprof actions
-        PprofActions::setup(this, _webserver.get());
-
-#ifndef BE_TEST
-        // Register BE checksum action
-        ChecksumAction* checksum_action = new ChecksumAction(this);
-        _webserver->register_handler(HttpMethod::GET, "/api/checksum", checksum_action);
-
-        // Register BE reload tablet action
-        ReloadTabletAction* reload_tablet_action = new ReloadTabletAction(this);
-        _webserver->register_handler(HttpMethod::GET, "/api/reload_tablet", reload_tablet_action);
-
-        // Register BE snapshot action
-        SnapshotAction* snapshot_action = new SnapshotAction(this);
-        _webserver->register_handler(HttpMethod::GET, "/api/snapshot", snapshot_action);
-#endif
-
-        RETURN_IF_ERROR(_webserver->start());
+        RETURN_IF_ERROR(start_webserver());
     } else {
         LOG(INFO) << "Webserver is disabled";
     }
 
-    _metrics->init(_enable_webserver ? _web_page_handler.get() : NULL);
-    RETURN_IF_ERROR(_tmp_file_mgr->init(_metrics.get()));
+    RETURN_IF_ERROR(_tmp_file_mgr->init(PaloMetrics::metrics()));
 
     return Status::OK;
+}
+
+Status ExecEnv::start_webserver() {
+    add_default_path_handlers(_web_page_handler.get(), _mem_tracker.get());
+    _ev_http_server->register_handler(HttpMethod::PUT,
+                                 "/api/{db}/{table}/_load",
+                                 new MiniLoadAction(this));
+    _ev_http_server->register_handler(HttpMethod::PUT,
+                                 "/api/{db}/{table}/_stream_load",
+                                 new StreamLoadAction(this));
+
+    std::vector<std::string> allow_paths;
+    for (auto& path : _store_paths) {
+        allow_paths.emplace_back(path.path);
+    }
+    DownloadAction* download_action = new DownloadAction(this, allow_paths);
+    // = new DownloadAction(this, config::mini_load_download_path);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/_download_load", download_action);
+    _ev_http_server->register_handler(HttpMethod::HEAD, "/api/_download_load", download_action);
+
+    DownloadAction* tablet_download_action = new DownloadAction(this, allow_paths);
+    _ev_http_server->register_handler(HttpMethod::HEAD,
+                                 "/api/_tablet/_download",
+                                 tablet_download_action);
+    _ev_http_server->register_handler(HttpMethod::GET,
+                                 "/api/_tablet/_download",
+                                 tablet_download_action);
+
+    DownloadAction* error_log_download_action = new DownloadAction(
+            this, _load_path_mgr->get_load_error_file_dir());
+    _ev_http_server->register_handler(
+            HttpMethod::GET, "/api/_load_error_log", error_log_download_action);
+    _ev_http_server->register_handler(
+            HttpMethod::HEAD, "/api/_load_error_log", error_log_download_action);
+
+    // Register monitor
+    MonitorAction* monitor_action = new MonitorAction();
+    monitor_action->register_module("etl_mgr", etl_job_mgr());
+    monitor_action->register_module("fragment_mgr", fragment_mgr());
+    _ev_http_server->register_handler(HttpMethod::GET, "/_monitor/{module}", monitor_action);
+
+    // Register BE health action
+    HealthAction* health_action = new HealthAction(this);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
+
+    // register pprof actions
+    PprofActions::setup(this, _ev_http_server.get());
+
+    {
+        auto action = _object_pool.add(new MetricsAction(PaloMetrics::metrics()));
+        _ev_http_server->register_handler(HttpMethod::GET, "/metrics", action);
+    }
+
+    MetaAction* meta_action = new MetaAction(HEADER);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/meta/header/{tablet_id}/{schema_hash}", meta_action);
+
+#ifndef BE_TEST
+    // Register BE checksum action
+    ChecksumAction* checksum_action = new ChecksumAction(this);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/checksum", checksum_action);
+
+    // Register BE reload tablet action
+    ReloadTabletAction* reload_tablet_action = new ReloadTabletAction(this);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/reload_tablet", reload_tablet_action);
+
+    RestoreTabletAction* restore_tablet_action = new RestoreTabletAction(this);
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/restore_tablet", restore_tablet_action);
+
+    // Register BE snapshot action
+    SnapshotAction* snapshot_action = new SnapshotAction(this);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/snapshot", snapshot_action);
+#endif
+
+    RETURN_IF_ERROR(_ev_http_server->start());
+    return Status::OK;
+}
+
+uint32_t ExecEnv::cluster_id() {
+    return OLAPEngine::get_instance()->effective_cluster_id();
+}
+
+void ExecEnv::init_buffer_pool(int64_t min_page_size, int64_t capacity, int64_t clean_pages_limit) {
+  DCHECK(_buffer_pool == nullptr);
+  _buffer_pool.reset(new BufferPool(min_page_size, capacity, clean_pages_limit));
+  _buffer_reservation.reset(new ReservationTracker);
+  _buffer_reservation->InitRootTracker(nullptr, capacity);
+}
+
+const std::string& ExecEnv::token() const {
+    return _master_info->token;
+}
+
+MetricRegistry* ExecEnv::metrics() const {
+    return PaloMetrics::metrics();
 }
 
 }

@@ -1,8 +1,10 @@
-// Copyright (c) 2017, Baidu.com, Inc. All Rights Reserved
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
@@ -81,8 +83,8 @@ TEST_F(TestBloomFilter, add_and_test_bytes) {
     BloomFilter bf;
     bf.init(1024);
 
-    bf.add_bytes(NULL, 0);
-    ASSERT_TRUE(bf.test_bytes(NULL, 0));
+    bf.add_bytes(nullptr, 0);
+    ASSERT_TRUE(bf.test_bytes(nullptr, 0));
 
     bytes = "hello";
     bf.add_bytes(bytes.c_str(), bytes.size());
@@ -120,42 +122,42 @@ TEST_F(TestBloomFilter, bloom_filter_info) {
 
     bytes = "a";
     points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
-    OLAP_LOG_WARNING("bytes=%s points=%s", bytes.c_str(), points.c_str());
+    LOG(WARNING) << "bytes=" << bytes << " points=" << points;
 
     bytes = "ab";
     points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
-    OLAP_LOG_WARNING("bytes=%s points=%s", bytes.c_str(), points.c_str());
+    LOG(WARNING) << "bytes=" << bytes << " points=" << points;
 
     bytes = "b";
     points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
-    OLAP_LOG_WARNING("bytes=%s points=%s", bytes.c_str(), points.c_str());
+    LOG(WARNING) << "bytes=" << bytes << " points=" << points;
 
     bytes = "ba";
     points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
-    OLAP_LOG_WARNING("bytes=%s points=%s", bytes.c_str(), points.c_str());
+    LOG(WARNING) << "bytes=" << bytes << " points=" << points;
 
     bytes = "c";
     points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
-    OLAP_LOG_WARNING("bytes=%s points=%s", bytes.c_str(), points.c_str());
+    LOG(WARNING) << "bytes=" << bytes << " points=" << points;
 
     bytes = "bc";
     points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
-    OLAP_LOG_WARNING("bytes=%s points=%s", bytes.c_str(), points.c_str());
+    LOG(WARNING) << "bytes=" << bytes << " points=" << points;
 
     bytes = "ac";
     points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
-    OLAP_LOG_WARNING("bytes=%s points=%s", bytes.c_str(), points.c_str());
+    LOG(WARNING) << "bytes=" << bytes << " points=" << points;
 
     bytes = "abc";
     points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
-    OLAP_LOG_WARNING("bytes=%s points=%s", bytes.c_str(), points.c_str());
+    LOG(WARNING) << "bytes=" << bytes << " points=" << points;
 }
 
 } // namespace column_file
 } // namespace palo
 
 int main(int argc, char **argv) {
-    std::string conffile = std::string(getenv("PALO_HOME")) + "/conf/be.conf";
+    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     if (!palo::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;

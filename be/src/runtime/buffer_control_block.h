@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -22,14 +19,42 @@
 #define BDG_PALO_BE_RUNTIME_BUFFER_CONTROL_BLOCK_H
 
 #include <list>
+#include <deque>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/condition_variable.hpp>
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
 
+namespace google {
+namespace protobuf {
+class Closure;
+}
+}
+
+namespace brpc {
+class Controller;
+}
+
 namespace palo {
 
 class TFetchDataResult;
+class PFetchDataResult;
+
+struct GetResultBatchCtx {
+    brpc::Controller* cntl = nullptr;
+    PFetchDataResult* result = nullptr;
+    google::protobuf::Closure* done = nullptr;
+
+    GetResultBatchCtx(brpc::Controller* cntl_,
+                      PFetchDataResult* result_,
+                      google::protobuf::Closure* done_)
+        : cntl(cntl_), result(result_), done(done_) {
+    }
+
+    void on_failure(const Status& status);
+    void on_close(int64_t packet_seq);
+    void on_data(TFetchDataResult* t_result, int64_t packet_seq, bool eos = false);
+};
 
 // buffer used for result customer and productor
 class BufferControlBlock {
@@ -39,8 +64,12 @@ public:
 
     Status init();
     Status add_batch(TFetchDataResult* result);
+
     // get result from batch, use timeout?
     Status get_batch(TFetchDataResult* result);
+
+    void get_batch(GetResultBatchCtx* ctx);
+
     // close buffer block, set _status to exec_status and set _is_close to true;
     // called because data has been read or error happend.
     Status close(Status exec_status);
@@ -61,7 +90,7 @@ private:
     Status _status;
     int _buffer_rows;
     int _buffer_limit;
-    int _packet_num;
+    int64_t _packet_num;
 
     // blocking queue for batch
     ResultQueue _batch_queue;
@@ -71,6 +100,8 @@ private:
     boost::condition_variable _data_arriaval;
     // signal removal of data by stream consumer
     boost::condition_variable _data_removal;
+
+    std::deque<GetResultBatchCtx*> _waiting_rpc;
 };
 
 }

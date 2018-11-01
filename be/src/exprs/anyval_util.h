@@ -1,6 +1,3 @@
-// Modifications copyright (C) 2017, Baidu.com, Inc.
-// Copyright 2017 The Apache Software Foundation
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -25,8 +22,11 @@
 #include "runtime/primitive_type.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
+#include "common/status.h"
 
 namespace palo {
+
+class MemPool;
 
 // Utilities for AnyVals
 class AnyValUtil {
@@ -195,6 +195,7 @@ public:
         return palo_udf::FunctionContext::TYPE_DATE;
     case TYPE_DATETIME:
         return palo_udf::FunctionContext::TYPE_DATETIME;
+    case TYPE_HLL:
     case TYPE_CHAR:
     case TYPE_VARCHAR:
         return palo_udf::FunctionContext::TYPE_STRING;
@@ -233,6 +234,8 @@ public:
         case TYPE_DOUBLE:
             return sizeof(palo_udf::DoubleVal);
 
+        case TYPE_HLL:
+        case TYPE_CHAR:
         case TYPE_VARCHAR:
             return sizeof(palo_udf::StringVal);
 
@@ -249,6 +252,31 @@ public:
         }
     }
 
+    /// Returns the byte alignment of *Val for type t.
+    static int any_val_alignment(const TypeDescriptor& t) {
+      switch (t.type) {
+        case TYPE_BOOLEAN: return alignof(BooleanVal);
+        case TYPE_TINYINT: return alignof(TinyIntVal);
+        case TYPE_SMALLINT: return alignof(SmallIntVal);
+        case TYPE_INT: return alignof(IntVal);
+        case TYPE_BIGINT: return alignof(BigIntVal);
+        case TYPE_LARGEINT: return alignof(LargeIntVal);
+        case TYPE_FLOAT: return alignof(FloatVal);
+        case TYPE_DOUBLE: return alignof(DoubleVal);
+        case TYPE_HLL:
+        case TYPE_VARCHAR:
+        case TYPE_CHAR:
+          return alignof(StringVal);
+        case TYPE_DATETIME: 
+        case TYPE_DATE:
+          return alignof(DateTimeVal);
+        case TYPE_DECIMAL: return alignof(DecimalVal);
+        default:
+            DCHECK(false) << t;
+            return 0;
+        }
+    }
+
     static std::string to_string(const StringVal& v) {
         return std::string(reinterpret_cast<char*>(v.ptr), v.len);
     }
@@ -257,6 +285,13 @@ public:
         StringVal val = from_buffer(ctx, s.c_str(), s.size());
         return val;
     }
+
+    static void TruncateIfNecessary(const FunctionContext::TypeDesc& type, StringVal *val) {
+        if (type.type == FunctionContext::TYPE_VARCHAR) {
+            DCHECK(type.len >= 0); 
+            val->len = std::min(val->len, type.len);
+        }   
+    } 
 
     static StringVal from_buffer(FunctionContext* ctx, const char* ptr, int len) {
         StringVal result(ctx, len);
@@ -308,8 +343,7 @@ public:
                 *reinterpret_cast<const int64_t*>(slot);
             return;
         case TYPE_LARGEINT:
-            reinterpret_cast<palo_udf::LargeIntVal*>(dst)->val =  
-                    *reinterpret_cast<const __int128*>(slot);
+            memcpy(&reinterpret_cast<palo_udf::LargeIntVal*>(dst)->val, slot, sizeof(__int128));
             return;
         case TYPE_FLOAT:
             reinterpret_cast<palo_udf::FloatVal*>(dst)->val = 
@@ -405,6 +439,12 @@ inline bool AnyValUtil::equals_intenal(const DecimalVal& x, const DecimalVal& y)
 // Creates the corresponding AnyVal subclass for type. The object is added to the pool.
 palo_udf::AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type);
 
-}
+/// Allocates an AnyVal subclass of 'type' from 'pool'. The AnyVal's memory is
+/// initialized to all 0's. Returns a MemLimitExceeded() error with message
+/// 'mem_limit_exceeded_msg' if the allocation cannot be made because of a memory
+/// limit. 
+Status allocate_any_val(RuntimeState* state, MemPool* pool, const TypeDescriptor& type,
+    const std::string& mem_limit_exceeded_msg, AnyVal** result);
 
+}
 #endif
