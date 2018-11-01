@@ -178,6 +178,10 @@ public abstract class PrivTable implements Writable {
 
     public static PrivTable read(DataInput in) throws IOException {
         String className = Text.readString(in);
+        if (className.startsWith("com.baidu.palo")) {
+            // we need to be compatible with former class name
+            className = className.replaceFirst("com.baidu.palo", "org.apache.doris");
+        }
         PrivTable privTable = null;
         try {
             Class<? extends PrivTable> derivedClass = (Class<? extends PrivTable>) Class.forName(className);

@@ -46,6 +46,10 @@ public class AlterClause implements Writable {
 
     public static AlterClause read(DataInput in) throws IOException {
         String className = Text.readString(in);
+        if (className.startsWith("com.baidu.palo")) {
+            // we need to be compatible with former class name
+            className = className.replaceFirst("com.baidu.palo", "org.apache.doris");
+        }
         AlterClause alterClause = null;
         try {
             Class<? extends AlterClause> derivedClass = (Class<? extends AlterClause>) Class.forName(className);
