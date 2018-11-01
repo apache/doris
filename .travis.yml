@@ -3,6 +3,7 @@ before_install:
   - sudo apt-get install g++ ant cmake zip byacc flex automake libtool binutils-dev libiberty-dev bison python2.7 libncurses5-dev
   - sudo updatedb
 script:
+  - export DORIS_HOME=`pwd`
   - ./env.sh
   - ./run-ut.sh
   - ./run-fe-ut.sh
