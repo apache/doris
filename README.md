@@ -1,4 +1,4 @@
-# Introduction to Apache Doris ((incubating))
+# Introduction to Apache Doris (incubating)
 
 Apache Doris is an MPP-based interactive SQL data warehousing for reporting and analysis. Doris mainly integrates the technology of Google Mesa and Apache Impala. Unlike other popular SQL-on-Hadoop systems, Doris is designed to be a simple and single tightly coupled system, not depending on other systems. Doris not only provides high concurrent low latency point query performance, but also provides high throughput queries of ad-hoc analysis. Doris not only provides batch data loading, but also provides near real-time mini-batch data loading. Doris also provides high availability, reliability, fault tolerance, and scalability. The simplicity (of developing, deploying and using) and meeting many data serving requirements in single system are the main features of Doris.
 
@@ -199,7 +199,7 @@ Currently we only support full data backup data rather than incremental backups 
 In addition to improving data security, the backup function also provides a way to export the data. Data can be exported to other downstream systems for further processing.
 
 # Install
-Doris only supports Linux System. Oracle JDK 8.0+ and GCC 4.8.2+ are required. See the document of [INSTALL](https://github.com/apache/incubator-doris/wiki/Doris-Install) and [Deploy & Update](https://github.com/apache/incubator-doris/wiki/Doris-Deploy-%26-Upgrade)
+Doris only supports Linux System. Oracle JDK 8.0+ and GCC 4.8.2+ are required. See the document of [INSTALL](https://github.com/apache/incubator-doris/wiki/Palo-Install) and [Deploy & Update](https://github.com/apache/incubator-doris/wiki/Palo-Deploy-%26-Upgrade)
 
 # User Guide
 See the [Doris Wiki](https://github.com/apache/incubator-doris/wiki) for more information.
