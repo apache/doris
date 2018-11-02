@@ -22,7 +22,7 @@
 #include "util/thrift_util.h"
 #include "service/brpc.h"
 
-namespace palo {
+namespace doris {
 
 void GetResultBatchCtx::on_failure(const Status& status) {
     DCHECK(!status.ok()) << "status is ok, errmsg=" << status.get_error_msg();

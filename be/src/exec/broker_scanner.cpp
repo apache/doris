@@ -35,7 +35,7 @@
 #include "exec/broker_reader.h"
 #include "exec/decompressor.h"
 
-namespace palo {
+namespace doris {
 
 class Slice {
 public:

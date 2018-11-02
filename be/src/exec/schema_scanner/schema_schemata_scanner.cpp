@@ -20,7 +20,7 @@
 #include "runtime/string_value.h"
 #include "exec/schema_scanner/frontend_helper.h"
 
-namespace palo {
+namespace doris {
 
 SchemaScanner::ColumnDesc SchemaSchemataScanner::_s_columns[] = {
     //   name,       type,          size

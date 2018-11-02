@@ -30,7 +30,7 @@
 #include "gen_cpp/Types_types.h"
 #include "runtime/exec_env.h"
 
-namespace palo {
+namespace doris {
 
 static const uint32_t MAX_SHARD_NUM = 1024;
 static const std::string SHARD_PREFIX = "__shard_";

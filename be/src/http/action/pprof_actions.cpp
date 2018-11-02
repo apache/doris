@@ -36,7 +36,7 @@
 #include "runtime/exec_env.h"
 #include "util/bfd_parser.h"
 
-namespace palo {
+namespace doris {
 
 // pprof default sample time in seconds.
 static const std::string SECOND_KEY = "seconds";
@@ -131,7 +131,7 @@ void ProfileAction::handle(HttpRequest *req) {
 
     std::ostringstream tmp_prof_file_name;
     // Build a temporary file name that is hopefully unique.
-    tmp_prof_file_name << config::pprof_profile_dir << "/palo_profile." 
+    tmp_prof_file_name << config::pprof_profile_dir << "/doris_profile." 
         << getpid() << "." << rand();
     ProfilerStart(tmp_prof_file_name.str().c_str());
     sleep(seconds);

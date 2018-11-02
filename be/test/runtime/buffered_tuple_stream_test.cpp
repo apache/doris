@@ -38,7 +38,7 @@
 #include "util/debug_util.h"
 #include "runtime/buffered_tuple_stream.h"
 
-namespace palo {
+namespace doris {
 
 class BufferedTupleStreamTest : public testing::Test {
 public:

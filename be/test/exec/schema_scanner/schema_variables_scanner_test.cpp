@@ -22,10 +22,10 @@
 #include "exec/schema_scanner/schema_variables_scanner.h"
 #include "runtime/mem_pool.h"
 #include "runtime/descriptors.h"
-#include "service/palo_server.h"
+#include "service/doris_server.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 class SchemaVariablesScannerTest : public testing::Test {
 public:
@@ -98,7 +98,7 @@ TEST_F(SchemaVariablesScannerTest, invalid_param) {
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }

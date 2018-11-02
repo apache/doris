@@ -32,7 +32,7 @@
 // #include "gutil/gscoped_ptr.h"
 // #include "util/thread.h"
 
-namespace palo {
+namespace doris {
 
 class KuduScanner;
 

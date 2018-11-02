@@ -23,7 +23,7 @@
 #include "runtime/exec_env.h"
 #include "util/cpu_info.h"
 
-namespace palo {
+namespace doris {
 // Mock fragment mgr
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
                                        FinishCallback cb) {
@@ -226,11 +226,11 @@ TEST_F(EtlJobMgrTest, FinishUnknowJob) {
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    palo::CpuInfo::init();
+    doris::CpuInfo::init();
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

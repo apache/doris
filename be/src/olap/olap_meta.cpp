@@ -40,7 +40,7 @@ using rocksdb::Status;
 using rocksdb::kDefaultColumnFamilyName;
 using rocksdb::NewFixedPrefixTransform;
 
-namespace palo {
+namespace doris {
 const std::string META_POSTFIX = "/meta";
 const size_t PREFIX_LENGTH = 4;
 

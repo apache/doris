@@ -17,7 +17,7 @@
 
 syntax="proto2";
 
-package palo;
+package doris;
 
 message PRowBatch {
     required int32 num_rows = 1;

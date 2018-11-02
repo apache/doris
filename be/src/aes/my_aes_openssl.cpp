@@ -25,7 +25,7 @@
 #define DBUG_ASSERT(A) assert(A)
 #define TRUE true
 #define FALSE false
-namespace palo {
+namespace doris {
 /* keep in sync with enum my_aes_opmode in my_aes.h */
 const char *my_aes_opmode_names[]=
 {

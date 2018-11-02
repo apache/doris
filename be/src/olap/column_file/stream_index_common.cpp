@@ -21,7 +21,7 @@
 #include "olap/field.h"
 #include "olap/wrapper_field.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 ColumnStatistics::ColumnStatistics() : 
@@ -128,4 +128,4 @@ OLAPStatus ColumnStatistics::write_to_buffer(char* buffer, size_t size) {
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris

@@ -36,7 +36,7 @@
 #include "util/file_utils.h"
 #include "gen_cpp/DataSinks_types.h"
 
-namespace palo {
+namespace doris {
 
 DataSpliter::DataSpliter(const RowDescriptor& row_desc) :
         _obj_pool(new ObjectPool()),

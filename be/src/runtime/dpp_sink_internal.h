@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_DPP_SINK_INTERNAL_H
-#define BDG_PALO_BE_RUNTIME_DPP_SINK_INTERNAL_H
+#ifndef DORIS_BE_RUNTIME_DPP_SINK_INTERNAL_H
+#define DORIS_BE_RUNTIME_DPP_SINK_INTERNAL_H
 
 #include <vector>
 #include <string>
@@ -27,7 +27,7 @@
 #include "runtime/primitive_type.h"
 #include "util/hash_util.hpp"
 
-namespace palo {
+namespace doris {
 
 class ExprContext;
 class MemTracker;
@@ -306,11 +306,11 @@ namespace std {
 
 // TODO(zc)
 template<>
-struct hash<palo::TabletDesc> {
-    std::size_t operator()(const palo::TabletDesc& desc) const {
+struct hash<doris::TabletDesc> {
+    std::size_t operator()(const doris::TabletDesc& desc) const {
         uint32_t seed = 0;
-        seed = palo::HashUtil::crc_hash(&desc.partition_id, sizeof(desc.partition_id), seed);
-        seed = palo::HashUtil::crc_hash(&desc.bucket_id, sizeof(desc.bucket_id), seed);
+        seed = doris::HashUtil::crc_hash(&desc.partition_id, sizeof(desc.partition_id), seed);
+        seed = doris::HashUtil::crc_hash(&desc.bucket_id, sizeof(desc.bucket_id), seed);
         return seed;
     }
 };

@@ -20,7 +20,7 @@
 #include <stdio.h>
 #include "common/logging.h"
 
-namespace palo {
+namespace doris {
 
 std::string ErrnoToString(int err) {
     char errmsg[128];
@@ -144,4 +144,4 @@ std::string NewStatus::ToString() const {
     return result;
 }
 
-}  // namespace palo
+}  // namespace doris

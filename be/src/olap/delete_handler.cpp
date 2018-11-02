@@ -43,7 +43,7 @@ using boost::smatch;
 
 using google::protobuf::RepeatedPtrField;
 
-namespace palo {
+namespace doris {
 
 // 将删除条件存储到table的Header文件中，
 // 在存储之前会判断删除条件是否符合要求。主要判断以下2个方面：
@@ -442,5 +442,5 @@ void DeleteHandler::finalize() {
     _is_inited = false;
 }
 
-}  // namespace palo
+}  // namespace doris
 

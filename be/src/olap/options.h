@@ -22,7 +22,7 @@
 
 #include "olap/olap_define.h"
 
-namespace palo {
+namespace doris {
 
 struct StorePath {
     StorePath() : capacity_bytes(-1) { }

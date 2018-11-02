@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_INLINE_H
-#define BDG_PALO_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_INLINE_H
+#ifndef DORIS_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_INLINE_H
+#define DORIS_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_INLINE_H
 
 #include "runtime/buffered_tuple_stream2.h"
 
 #include "runtime/descriptors.h"
 #include "runtime/tuple_row.h"
 
-namespace palo {
+namespace doris {
 
 inline bool BufferedTupleStream2::add_row(TupleRow* row, Status* status) {
     DCHECK(!_closed);
@@ -88,4 +88,4 @@ inline void BufferedTupleStream2::get_tuple_row(const RowIdx& idx, TupleRow* row
 
 }
 
-#endif // BDG_PALO_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_INLINE_H
+#endif // DORIS_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_INLINE_H

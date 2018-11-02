@@ -52,7 +52,7 @@ using kudu::client::KuduTable;
 using kudu::client::KuduValue;
 using kudu::Slice;
 
-namespace palo {
+namespace doris {
 
 const string KuduScanNode::KUDU_ROUND_TRIPS = "TotalKuduScanRoundTrips";
 const string KuduScanNode::KUDU_REMOTE_TOKENS = "KuduRemoteScanTokens";

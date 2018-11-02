@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  BDG_PALO_BE_SRC_QUERY_EXEC_MYSQL_SCANNER_H
-#define  BDG_PALO_BE_SRC_QUERY_EXEC_MYSQL_SCANNER_H
+#ifndef  DORIS_BE_SRC_QUERY_EXEC_MYSQL_SCANNER_H
+#define  DORIS_BE_SRC_QUERY_EXEC_MYSQL_SCANNER_H
 
 #include <stdlib.h>
 #include <string>
@@ -25,7 +25,7 @@
 
 #include "common/status.h"
 
-namespace palo {
+namespace doris {
 
 struct MysqlScannerParam {
     std::string host;
@@ -46,7 +46,7 @@ public:
     Status open();
     Status query(const std::string& query);
 
-    // query for PALO
+    // query for DORIS
     Status query(const std::string& table, const std::vector<std::string>& fields,
                  const std::vector<std::string>& filters);
     Status get_next_row(char** *buf, unsigned long** lengths, bool* eos);

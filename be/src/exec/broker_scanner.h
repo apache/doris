@@ -29,7 +29,7 @@
 #include "runtime/mem_pool.h"
 #include "util/runtime_profile.h"
 
-namespace palo {
+namespace doris {
 
 class Tuple;
 class SlotDescriptor;
@@ -55,7 +55,7 @@ struct BrokerScanCounter {
     int64_t num_rows_filtered;
 };
 
-// Broker scanner convert the data read from broker to palo's tuple.
+// Broker scanner convert the data read from broker to doris's tuple.
 class BrokerScanner {
 public:
     BrokerScanner(

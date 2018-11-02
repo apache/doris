@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_H
-#define BDG_PALO_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_H
+#ifndef DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_H
+#define DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_H
 
 #include <memory>
 #include <vector>
 #include <boost/cstdint.hpp>
 #include <boost/scoped_ptr.hpp>
-#include "codegen/palo_ir.h"
+#include "codegen/doris_ir.h"
 #include "common/logging.h"
 #include "common/compiler_util.h"
 #include "runtime/buffered_tuple_stream3.h"
@@ -37,7 +37,7 @@ namespace llvm {
   class Function;
 }
 
-namespace palo {
+namespace doris {
 
 class Expr;
 class ExprContext;

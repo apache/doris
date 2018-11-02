@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_H
-#define BDG_PALO_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_H
+#define DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_H
 
 #include <string>
 
@@ -26,10 +26,10 @@
 #include "runtime/tuple.h"
 #include "runtime/mem_pool.h"
 
-namespace palo {
+namespace doris {
 
-// forehead declar class, because jni function init in PaloServer.
-class PaloServer;
+// forehead declar class, because jni function init in DorisServer.
+class DorisServer;
 class RuntimeState;
 
 // scanner parameter from frontend
@@ -71,8 +71,8 @@ public:
         return _tuple_desc;
     }
 
-    static void set_palo_server(PaloServer* palo_server) {
-        _s_palo_server = palo_server;
+    static void set_doris_server(DorisServer* doris_server) {
+        _s_doris_server = doris_server;
     }
 
 protected:
@@ -87,7 +87,7 @@ protected:
     int _column_num;
     TupleDescriptor* _tuple_desc;
 
-    static PaloServer* _s_palo_server;
+    static DorisServer* _s_doris_server;
 
 };
 

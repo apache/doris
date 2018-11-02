@@ -17,7 +17,7 @@
 
 #include "runtime/kafka_consumer_pipe.h"
 
-namespace palo {
+namespace doris {
 
 
-} // end namespace palo
+} // end namespace doris

@@ -20,7 +20,7 @@
 #include "olap/column_file/byte_buffer.h"
 #include "olap/column_file/out_stream.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 ReadOnlyFileStream::ReadOnlyFileStream(
@@ -198,4 +198,4 @@ uint64_t ReadOnlyFileStream::available() {
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris

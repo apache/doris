@@ -17,7 +17,7 @@
 
 #include "util/hash_util.hpp"
 
-namespace palo {
+namespace doris {
 // Define the hashing functions for llvm.  They are not used by anything that is
 // cross compiled and without this, would get stripped by the clang optimizer.
 #ifdef IR_COMPILE

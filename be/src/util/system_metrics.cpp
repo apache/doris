@@ -22,7 +22,7 @@
 
 #include <functional>
 
-namespace palo {
+namespace doris {
 
 const char* SystemMetrics::_s_hook_name = "system_metrics";
 

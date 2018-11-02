@@ -26,7 +26,7 @@
 #include "util/cpu_info.h"
 #include "util/logging.h"
 
-namespace palo {
+namespace doris {
 
 TEST(BitUtil, Ceil) {
     EXPECT_EQ(BitUtil::ceil(0, 1), 0);
@@ -53,13 +53,13 @@ TEST(BitUtil, Popcount) {
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    palo::init_glog("be-test");
+    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
-    palo::CpuInfo::init();
+    doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }
 

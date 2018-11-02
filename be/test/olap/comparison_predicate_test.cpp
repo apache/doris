@@ -27,7 +27,7 @@
 #include "runtime/vectorized_row_batch.h"
 #include "util/logging.h"
 
-namespace palo {
+namespace doris {
 
 namespace datetime {
 
@@ -947,18 +947,18 @@ TEST_F(TestLessPredicate, DATETIME_COLUMN) {
     ASSERT_EQ(datetime::to_datetime_string(*(col_data + sel[0])), "2017-09-08 00:01:00");
 }
 
-} // namespace palo
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    palo::init_glog("be-test");
-    int ret = palo::OLAP_SUCCESS;
+    doris::init_glog("be-test");
+    int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
-    palo::CpuInfo::init();
+    doris::CpuInfo::init();
     ret = RUN_ALL_TESTS();
     google::protobuf::ShutdownProtobufLibrary();
     return ret;

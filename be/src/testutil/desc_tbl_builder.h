@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_TESTUTIL_DESC_TBL_BUILDER_H
-#define BDG_PALO_BE_SRC_TESTUTIL_DESC_TBL_BUILDER_H
+#ifndef DORIS_BE_SRC_TESTUTIL_DESC_TBL_BUILDER_H
+#define DORIS_BE_SRC_TESTUTIL_DESC_TBL_BUILDER_H
 
 #include "runtime/runtime_state.h"
 
 #include "runtime/types.h"
 
-namespace palo {
+namespace doris {
 
 class ObjectPool;
 class TupleDescBuilder;
@@ -71,6 +71,6 @@ class TupleDescBuilder {
         std::vector<TypeDescriptor> _slot_types;
 };
 
-} // end namespace palo
+} // end namespace doris
 
-#endif // BDG_PALO_BE_SRC_TESTUTIL_DESC_TBL_BUILDER_H
+#endif // DORIS_BE_SRC_TESTUTIL_DESC_TBL_BUILDER_H

@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UTIL_DEBUG_COUNTERS_H
-#define BDG_PALO_BE_SRC_COMMON_UTIL_DEBUG_COUNTERS_H
+#ifndef DORIS_BE_SRC_COMMON_UTIL_DEBUG_COUNTERS_H
+#define DORIS_BE_SRC_COMMON_UTIL_DEBUG_COUNTERS_H
 
 #include "util/runtime_profile.h"
 
 #define ENABLE_DEBUG_COUNTERS 1
 
-namespace palo {
+namespace doris {
 
 // Runtime counters have a two-phase lifecycle - creation and update. This is not
 // convenient for debugging where we would like to add and remove counters with a minimum
@@ -68,4 +68,4 @@ public:
 
 }
 
-#endif // BDG_PALO_BE_SRC_COMMON_UTIL_DEBUG_COUNTERS_H
+#endif // DORIS_BE_SRC_COMMON_UTIL_DEBUG_COUNTERS_H

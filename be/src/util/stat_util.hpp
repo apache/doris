@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UTIL_STAT_UTIL_HPP
-#define BDG_PALO_BE_SRC_COMMON_UTIL_STAT_UTIL_HPP
+#ifndef DORIS_BE_SRC_COMMON_UTIL_STAT_UTIL_HPP
+#define DORIS_BE_SRC_COMMON_UTIL_STAT_UTIL_HPP
 
 #include <math.h>
 
-namespace palo {
+namespace doris {
 
 class StatUtil {
 public:

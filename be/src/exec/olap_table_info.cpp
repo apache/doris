@@ -24,7 +24,7 @@
 #include "util/debug_util.h"
 #include "util/string_parser.hpp"
 
-namespace palo {
+namespace doris {
 
 void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
     pindex->set_id(index_id);

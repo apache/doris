@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXEC_CSV_SCAN_NODE_H
-#define BDG_PALO_BE_SRC_QUERY_EXEC_CSV_SCAN_NODE_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_CSV_SCAN_NODE_H
+#define DORIS_BE_SRC_QUERY_EXEC_CSV_SCAN_NODE_H
 
 #include <fstream>
 #include <sstream>
@@ -28,7 +28,7 @@
 #include "exec/scan_node.h"
 #include "runtime/descriptors.h"
 
-namespace palo {
+namespace doris {
 
 class TextConverter;
 class Tuple;
@@ -136,7 +136,7 @@ private:
     std::map<std::string, SlotDescriptor*> _column_slot_map;
 };
 
-} // end namespace palo
+} // end namespace doris
 
-#endif // BDG_PALO_BE_SRC_QUERY_EXEC_CSV_SCAN_NODE_H
+#endif // DORIS_BE_SRC_QUERY_EXEC_CSV_SCAN_NODE_H
 

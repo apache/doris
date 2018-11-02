@@ -27,7 +27,7 @@
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 
-namespace palo {
+namespace doris {
 
 MysqlScanNode::MysqlScanNode(ObjectPool* pool, const TPlanNode& tnode,
                              const DescriptorTbl& descs)

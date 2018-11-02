@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_MULTI_PRECISION_H
-#define BDG_PALO_BE_RUNTIME_MULTI_PRECISION_H
+#ifndef DORIS_BE_RUNTIME_MULTI_PRECISION_H
+#define DORIS_BE_RUNTIME_MULTI_PRECISION_H
 
-namespace palo {
+namespace doris {
 
 /// Get the high and low bits of an int128_t
 inline uint64_t high_bits(__int128 x) {

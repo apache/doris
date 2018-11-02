@@ -19,7 +19,7 @@
 #include <gen_cpp/column_data_file.pb.h>
 #include "olap/column_file/run_length_byte_writer.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 BitFieldWriter::BitFieldWriter(OutStream* output) : 
@@ -105,4 +105,4 @@ void BitFieldWriter::get_position(PositionEntryWriter* index_entry) const {
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris

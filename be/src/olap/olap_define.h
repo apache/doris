@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_OLAP_DEFINE_H
-#define BDG_PALO_BE_SRC_OLAP_OLAP_DEFINE_H
+#ifndef DORIS_BE_SRC_OLAP_OLAP_DEFINE_H
+#define DORIS_BE_SRC_OLAP_OLAP_DEFINE_H
 
 #include <cstdlib>
 #include <sstream>
@@ -24,7 +24,7 @@
 
 #include <stdint.h>
 
-namespace palo {
+namespace doris {
 // 以下是一些统一的define
 // 命令返回的Signature的长度
 static const uint32_t OLAP_COMMAND_SIGNATURE_LEN = 4;
@@ -60,7 +60,7 @@ static const uint16_t OLAP_STRING_MAX_BYTES = sizeof(StringLengthType);
 
 enum OLAPDataVersion {
     OLAP_V1 = 0,
-    PALO_V1 = 1,
+    DORIS_V1 = 1,
 };
 
 // storage_root_path下不同类型文件夹名称
@@ -77,7 +77,7 @@ static const std::string PENDING_DELTA_PREFIX = "/pending_delta";
 static const std::string INCREMENTAL_DELTA_PREFIX = "/incremental_delta";
 static const std::string CLONE_PREFIX = "/clone";
 
-static const int32_t OLAP_DATA_VERSION_APPLIED = PALO_V1;
+static const int32_t OLAP_DATA_VERSION_APPLIED = DORIS_V1;
 
 // column文件大小的伸缩性
 static const float OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE = 0.9f;
@@ -410,6 +410,6 @@ const std::string TABLET_SCHEMA_HASH_KEY = "schema_hash";
 #define BUILD_VERSION "Unknow"
 #endif
 
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_OLAP_DEFINE_H
+#endif // DORIS_BE_SRC_OLAP_OLAP_DEFINE_H

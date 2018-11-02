@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_BE_RUNTIME_FREE_POOL_H
-#define BDG_PALO_BE_SRC_QUERY_BE_RUNTIME_FREE_POOL_H
+#ifndef DORIS_BE_SRC_QUERY_BE_RUNTIME_FREE_POOL_H
+#define DORIS_BE_SRC_QUERY_BE_RUNTIME_FREE_POOL_H
 
 #include <stdio.h>
 #include <string.h>
@@ -25,7 +25,7 @@
 #include "runtime/mem_pool.h"
 #include "util/bit_util.h"
 
-namespace palo {
+namespace doris {
 
 // Implementation of a free pool to recycle allocations. The pool is broken
 // up into 64 lists, one for each power of 2. Each allocation is rounded up

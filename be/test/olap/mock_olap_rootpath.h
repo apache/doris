@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_TEST_OLAP_MOCK_OLAP_ROOTPATH_H
-#define BDG_PALO_BE_TEST_OLAP_MOCK_OLAP_ROOTPATH_H
+#ifndef DORIS_BE_TEST_OLAP_MOCK_OLAP_ROOTPATH_H
+#define DORIS_BE_TEST_OLAP_MOCK_OLAP_ROOTPATH_H
 
-namespace palo {
+namespace doris {
 
 class MockOLAPRootPath : public OLAPRootPath {
 public:
     MOCK_METHOD1(set_cluster_id, OLAPStatus(int32_t cluster_id));
 };  // class MockOLAPRootPath
-}  // namespace palo
-#endif  // BDG_PALO_BE_TEST_OLAP_MOCK_OLAP_ROOTPATH_H
+}  // namespace doris
+#endif  // DORIS_BE_TEST_OLAP_MOCK_OLAP_ROOTPATH_H

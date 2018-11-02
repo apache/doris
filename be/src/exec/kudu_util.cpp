@@ -32,7 +32,7 @@ using kudu::client::KuduClient;
 using kudu::client::KuduClientBuilder;
 using kudu::client::KuduColumnSchema;
 
-namespace palo {
+namespace doris {
 
 bool KuduClientIsSupported() {
   // The value below means the client is actually a stubbed client. This should mean

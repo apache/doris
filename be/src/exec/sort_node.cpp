@@ -21,7 +21,7 @@
 #include "runtime/runtime_state.h"
 // #include "runtime/sorted_run_merger.h"
 
-namespace palo {
+namespace doris {
 
 SortNode::SortNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
     : ExecNode(pool, tnode, descs),

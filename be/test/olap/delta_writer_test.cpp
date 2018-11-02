@@ -34,7 +34,7 @@
 #include "olap/options.h"
 #include "olap/olap_header_manager.h"
 
-namespace palo {
+namespace doris {
 
 // This is DeltaWriter unit test which used by streaming load.
 // And also it should take schema change into account after streaming load.
@@ -53,9 +53,9 @@ void set_up() {
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
 
-    palo::EngineOptions options;
+    doris::EngineOptions options;
     options.store_paths = paths;
-    palo::OLAPEngine::open(options, &k_engine);
+    doris::OLAPEngine::open(options, &k_engine);
 }
 
 void tear_down() {
@@ -646,22 +646,22 @@ TEST_F(TestSchemaChange, schema_change) {
     ASSERT_EQ(OLAP_SUCCESS, res);
 }
 
-} // namespace palo
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    palo::init_glog("be-test");
-    int ret = palo::OLAP_SUCCESS;
+    doris::init_glog("be-test");
+    int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
-    palo::CpuInfo::init();
+    doris::CpuInfo::init();
 
-    palo::set_up();
+    doris::set_up();
     ret = RUN_ALL_TESTS();
-    palo::tear_down();
+    doris::tear_down();
 
     google::protobuf::ShutdownProtobufLibrary();
     return ret;

@@ -42,7 +42,7 @@ using rocksdb::Iterator;
 using rocksdb::Status;
 using rocksdb::kDefaultColumnFamilyName;
 
-namespace palo {
+namespace doris {
 
 const std::string HEADER_PREFIX = "hdr_";
 

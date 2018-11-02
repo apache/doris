@@ -28,7 +28,7 @@
 #include "common/object_pool.h"
 #include "util/logging.h"
 
-namespace palo {
+namespace doris {
 
 // mock
 class JsonFunctionTest : public testing::Test {
@@ -163,11 +163,11 @@ TEST_F(JsonFunctionTest, double)
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    palo::init_glog("be-test");
+    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

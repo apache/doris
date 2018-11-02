@@ -27,7 +27,7 @@
 #include "runtime/client_cache.h"
 #include "util/thrift_util.h"
 
-namespace palo {
+namespace doris {
 
 BrokerMgr::BrokerMgr(ExecEnv* exec_env) : 
         _exec_env(exec_env), _thread_stop(false), _ping_thread(&BrokerMgr::ping_worker, this) {

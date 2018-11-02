@@ -19,7 +19,7 @@
 
 #include <memory>
 
-namespace palo {
+namespace doris {
 
 class CpuMetrics;
 class MemoryMetrics;

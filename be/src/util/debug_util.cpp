@@ -51,7 +51,7 @@ void DumpStackTraceToString(std::string* stacktrace);
 }
 }
 
-namespace palo {
+namespace doris {
 
 #define THRIFT_ENUM_OUTPUT_FN_IMPL(E, MAP) \
     std::ostream& operator<<(std::ostream& os, const E::type& e) {\

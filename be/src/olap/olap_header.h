@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_OLAP_HEADER_H
-#define BDG_PALO_BE_SRC_OLAP_OLAP_HEADER_H
+#ifndef DORIS_BE_SRC_OLAP_OLAP_HEADER_H
+#define DORIS_BE_SRC_OLAP_OLAP_HEADER_H
 
 #include <list>
 #include <string>
@@ -28,7 +28,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 
-namespace palo {
+namespace doris {
 // Class for managing olap table header.
 class OLAPHeader : public OLAPHeaderMessage {
 public:
@@ -151,6 +151,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(OLAPHeader);
 };
 
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_OLAP_HEADER_H
+#endif // DORIS_BE_SRC_OLAP_OLAP_HEADER_H

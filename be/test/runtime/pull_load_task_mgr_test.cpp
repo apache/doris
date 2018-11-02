@@ -24,7 +24,7 @@
 #include "gen_cpp/Types_types.h"
 #include "util/cpu_info.h"
 
-namespace palo {
+namespace doris {
 
 class PullLoadTaskMgrTest : public testing::Test {
 public:
@@ -210,7 +210,7 @@ TEST_F(PullLoadTaskMgrTest, Deregister2) {
 
 int main(int argc, char** argv) {
     // init_glog("be-test");
-    palo::CpuInfo::init();
+    doris::CpuInfo::init();
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

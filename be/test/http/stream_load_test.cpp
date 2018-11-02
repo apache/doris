@@ -27,11 +27,11 @@
 #include "http/http_channel.h"
 #include "http/http_request.h"
 #include "runtime/exec_env.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 
 class mg_connection;
 
-namespace palo {
+namespace doris {
 
 std::string k_response_str;
 
@@ -76,7 +76,7 @@ private:
 };
 
 TEST_F(StreamLoadActionTest, no_auth) {
-    PaloMetrics::instance()->initialize("StreamLoadActionTest");
+    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     ExecEnv env;
     StreamLoadAction action(&env);
 
@@ -91,7 +91,7 @@ TEST_F(StreamLoadActionTest, no_auth) {
 
 #if 0
 TEST_F(StreamLoadActionTest, no_content_length) {
-    PaloMetrics::instance()->initialize("StreamLoadActionTest");
+    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     ExecEnv env;
     StreamLoadAction action(&env);
 
@@ -106,7 +106,7 @@ TEST_F(StreamLoadActionTest, no_content_length) {
 }
 
 TEST_F(StreamLoadActionTest, unknown_encoding) {
-    PaloMetrics::instance()->initialize("StreamLoadActionTest");
+    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     ExecEnv env;
     StreamLoadAction action(&env);
 
@@ -123,7 +123,7 @@ TEST_F(StreamLoadActionTest, unknown_encoding) {
 #endif
 
 TEST_F(StreamLoadActionTest, normal) {
-    PaloMetrics::instance()->initialize("StreamLoadActionTest");
+    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     ExecEnv env;
     StreamLoadAction action(&env);
 
@@ -144,7 +144,7 @@ TEST_F(StreamLoadActionTest, normal) {
 }
 
 TEST_F(StreamLoadActionTest, put_fail) {
-    PaloMetrics::instance()->initialize("StreamLoadActionTest");
+    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     ExecEnv env;
     StreamLoadAction action(&env);
 
@@ -167,7 +167,7 @@ TEST_F(StreamLoadActionTest, put_fail) {
 }
 
 TEST_F(StreamLoadActionTest, commit_fail) {
-    PaloMetrics::instance()->initialize("StreamLoadActionTest");
+    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     ExecEnv env;
     StreamLoadAction action(&env);
 
@@ -188,7 +188,7 @@ TEST_F(StreamLoadActionTest, commit_fail) {
 }
 
 TEST_F(StreamLoadActionTest, begin_fail) {
-    PaloMetrics::instance()->initialize("StreamLoadActionTest");
+    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     ExecEnv env;
     StreamLoadAction action(&env);
 
@@ -210,7 +210,7 @@ TEST_F(StreamLoadActionTest, begin_fail) {
 
 #if 0
 TEST_F(StreamLoadActionTest, receive_failed) {
-    PaloMetrics::instance()->initialize("StreamLoadActionTest");
+    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     ExecEnv env;
     StreamLoadAction action(&env);
 
@@ -227,7 +227,7 @@ TEST_F(StreamLoadActionTest, receive_failed) {
 #endif
 
 TEST_F(StreamLoadActionTest, plan_fail) {
-    PaloMetrics::instance()->initialize("StreamLoadActionTest");
+    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     ExecEnv env;
     StreamLoadAction action(&env);
 
@@ -250,6 +250,6 @@ TEST_F(StreamLoadActionTest, plan_fail) {
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);
-    palo::CpuInfo::init();
+    doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }

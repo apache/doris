@@ -21,7 +21,7 @@
 
 #include "util/cpu_info.h"
 
-namespace palo {
+namespace doris {
 
 class StringUtilTest : public testing::Test {
 public:
@@ -75,6 +75,6 @@ TEST_F(StringUtilTest, normal) {
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
-    palo::CpuInfo::init();
+    doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }

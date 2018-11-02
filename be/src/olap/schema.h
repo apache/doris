@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_SCHEMA_H
-#define BDG_PALO_BE_SRC_OLAP_SCHEMA_H
+#ifndef DORIS_BE_SRC_OLAP_SCHEMA_H
+#define DORIS_BE_SRC_OLAP_SCHEMA_H
 
 #include <vector>
 
@@ -24,7 +24,7 @@
 #include "olap/types.h"
 #include "runtime/descriptors.h"
 
-namespace palo {
+namespace doris {
 
 class ColumnSchema {
 public:
@@ -162,6 +162,6 @@ private:
     std::vector<int> _hll_col_ids;
 };
 
-} // namespace palo
+} // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_SCHEMA_H
+#endif // DORIS_BE_SRC_OLAP_SCHEMA_H

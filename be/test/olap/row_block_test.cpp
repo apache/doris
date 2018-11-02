@@ -32,7 +32,7 @@ using std::string;
 using std::endl;
 using std::stringstream;
 
-namespace palo {
+namespace doris {
 
 class TestRowBlock : public testing::Test {
 public:
@@ -796,12 +796,12 @@ TEST_F(TestRowBlock, pos_limit) {
 // @brief Test Stub
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    palo::init_glog("be-test");
-    int ret = palo::OLAP_SUCCESS;
+    doris::init_glog("be-test");
+    int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
     ret = RUN_ALL_TESTS();
     return ret; 

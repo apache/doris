@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXEC_BLOCKING_JOIN_NODE_H
-#define BDG_PALO_BE_SRC_QUERY_EXEC_BLOCKING_JOIN_NODE_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_BLOCKING_JOIN_NODE_H
+#define DORIS_BE_SRC_QUERY_EXEC_BLOCKING_JOIN_NODE_H
 
 #include <boost/scoped_ptr.hpp>
 #include <boost/thread.hpp>
@@ -25,7 +25,7 @@
 #include "exec/exec_node.h"
 #include "gen_cpp/PlanNodes_types.h"
 
-namespace palo {
+namespace doris {
 
 class MemPool;
 class RowBatch;

@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXPRS_IN_PREDICATE_H
-#define BDG_PALO_BE_SRC_QUERY_EXPRS_IN_PREDICATE_H
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_IN_PREDICATE_H
+#define DORIS_BE_SRC_QUERY_EXPRS_IN_PREDICATE_H
 
 #include <string>
 #include <boost/shared_ptr.hpp>
@@ -25,7 +25,7 @@
 #include "runtime/raw_value.h"
 #include "exprs/hybird_set.h"
 
-namespace palo {
+namespace doris {
 
 // has two method:
 // 1. construct from TExprNode

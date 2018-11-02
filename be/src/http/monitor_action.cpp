@@ -25,7 +25,7 @@
 #include "http/rest_monitor_iface.h"
 #include "common/status.h"
 
-namespace palo {
+namespace doris {
 
 const std::string MODULE_KEY = "module";
 

@@ -24,7 +24,7 @@
 
 using std::string;
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 class TestBloomFilter : public testing::Test {
@@ -90,7 +90,7 @@ TEST_F(TestBloomFilter, add_and_test_bytes) {
     bf.add_bytes(bytes.c_str(), bytes.size());
     ASSERT_TRUE(bf.test_bytes(bytes.c_str(), bytes.size()));
 
-    bytes = "palo";
+    bytes = "doris";
     bf.add_bytes(bytes.c_str(), bytes.size());
     ASSERT_TRUE(bf.test_bytes(bytes.c_str(), bytes.size()));
 
@@ -109,7 +109,7 @@ TEST_F(TestBloomFilter, bloom_filter_info) {
     BloomFilter bf;
     bf.init(8, 0.1);
 
-    bytes = "palo";
+    bytes = "doris";
     bf.add_bytes(bytes.c_str(), bytes.size());
     string buffer_expect = "bit_num:64 hash_function_num:6 "
             "bit_set:0000000000000000101000000000000000000010100000000000000000101000";
@@ -154,15 +154,15 @@ TEST_F(TestBloomFilter, bloom_filter_info) {
 }
 
 } // namespace column_file
-} // namespace palo
+} // namespace doris
 
 int main(int argc, char **argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    palo::init_glog("be-test");
+    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

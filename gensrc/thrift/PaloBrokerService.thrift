@@ -13,7 +13,7 @@
 // under the License.
 
 namespace java org.apache.doris.thrift
-namespace cpp palo
+namespace cpp doris
 
 enum TBrokerOperationStatusCode {
     OK = 0;

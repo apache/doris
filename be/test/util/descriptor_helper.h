@@ -22,7 +22,7 @@
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/Types_types.h"
 
-namespace palo {
+namespace doris {
 
 class TDescriptorTableBuilder {
 public:

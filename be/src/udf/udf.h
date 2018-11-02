@@ -15,20 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_UDF_UDF_H
-#define BDG_PALO_BE_UDF_UDF_H
+#ifndef DORIS_BE_UDF_UDF_H
+#define DORIS_BE_UDF_UDF_H
 
 #include <boost/cstdint.hpp>
 #include <string.h>
 
-// This is the only Palo header required to develop UDFs and UDAs. This header
+// This is the only Doris header required to develop UDFs and UDAs. This header
 // contains the types that need to be used and the FunctionContext object. The context
-// object serves as the interface object between the UDF/UDA and the palo process.
-namespace palo {
+// object serves as the interface object between the UDF/UDA and the doris process.
+namespace doris {
 class FunctionContextImpl;
 }
 
-namespace palo_udf {
+namespace doris_udf {
 
 // All input and output values will be one of the structs below. The struct is a simple
 // object containing a boolean to store if the value is NULL and the value itself. The
@@ -48,7 +48,7 @@ struct DecimalVal;
 // and manage memory.
 class FunctionContext {
 public:
-    enum PaloVersion {
+    enum DorisVersion {
         V2_0,
     };
 
@@ -111,8 +111,8 @@ public:
         THREAD_LOCAL,
     };
 
-    // Returns the version of Palo that's currently running.
-    PaloVersion version() const;
+    // Returns the version of Doris that's currently running.
+    DorisVersion version() const;
 
     // Returns the user that is running the query. Returns NULL if it is not
     // available.
@@ -171,7 +171,7 @@ public:
 
     // Returns the underlying opaque implementation object. The UDF/UDA should not
     // use this. This is used internally.
-    palo::FunctionContextImpl* impl() {
+    doris::FunctionContextImpl* impl() {
         return _impl;
     }
 
@@ -216,14 +216,14 @@ public:
     ~FunctionContext();
 
 private:
-    friend class palo::FunctionContextImpl;
+    friend class doris::FunctionContextImpl;
     FunctionContext();
 
     // Disable copy ctor and assignment operator
     FunctionContext(const FunctionContext& other);
     FunctionContext& operator=(const FunctionContext& other);
 
-    palo::FunctionContextImpl* _impl; // Owned by this object.
+    doris::FunctionContextImpl* _impl; // Owned by this object.
 };
 
 //----------------------------------------------------------------------------
@@ -305,17 +305,17 @@ typedef void (*UdfClose)(FunctionContext* context,
 // the intermediate type.
 //
 // If the UDA needs a fixed byte width intermediate buffer, the type should be
-// TYPE_FIXED_BUFFER and Palo will allocate the buffer. If the UDA needs an unknown
+// TYPE_FIXED_BUFFER and Doris will allocate the buffer. If the UDA needs an unknown
 // sized buffer, it should use TYPE_STRING and allocate it from the FunctionContext
 // manually.
 // For UDAs that need a complex data structure as the intermediate state, the
 // intermediate type should be string and the UDA can cast the ptr to the structure
 // it is using.
 //
-// Memory Management: For allocations that are not returned to Palo, the UDA
+// Memory Management: For allocations that are not returned to Doris, the UDA
 // should use the FunctionContext::Allocate()/Free() methods. For StringVal allocations
-// returned to Palo (e.g. UdaSerialize()), the UDA should allocate the result
-// via StringVal(FunctionContext*, int) ctor and Palo will automatically handle
+// returned to Doris (e.g. UdaSerialize()), the UDA should allocate the result
+// via StringVal(FunctionContext*, int) ctor and Doris will automatically handle
 // freeing it.
 //
 // For clarity in documenting the UDA interface, the various types will be typedefed
@@ -719,17 +719,17 @@ struct LargeIntVal : public AnyVal {
 typedef uint8_t* BufferVal;
 }
 
-using palo_udf::BooleanVal;
-using palo_udf::TinyIntVal;
-using palo_udf::SmallIntVal;
-using palo_udf::IntVal;
-using palo_udf::BigIntVal;
-using palo_udf::LargeIntVal;
-using palo_udf::FloatVal;
-using palo_udf::DoubleVal;
-using palo_udf::StringVal;
-using palo_udf::DecimalVal;
-using palo_udf::DateTimeVal;
-using palo_udf::FunctionContext;
+using doris_udf::BooleanVal;
+using doris_udf::TinyIntVal;
+using doris_udf::SmallIntVal;
+using doris_udf::IntVal;
+using doris_udf::BigIntVal;
+using doris_udf::LargeIntVal;
+using doris_udf::FloatVal;
+using doris_udf::DoubleVal;
+using doris_udf::StringVal;
+using doris_udf::DecimalVal;
+using doris_udf::DateTimeVal;
+using doris_udf::FunctionContext;
 
 #endif

@@ -18,7 +18,7 @@
 #include "util/arena.h"
 #include <assert.h>
 
-namespace palo {
+namespace doris {
 
 static const int kBlockSize = 4096;
 
@@ -78,4 +78,4 @@ char* Arena::AllocateNewBlock(size_t block_bytes) {
     return result;
 }
 
-}  // namespace palo
+}  // namespace doris

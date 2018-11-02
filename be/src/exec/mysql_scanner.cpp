@@ -20,7 +20,7 @@
 
 #include "common/logging.h"
 
-namespace palo {
+namespace doris {
 
 MysqlScanner::MysqlScanner(const MysqlScannerParam& param)
     : _my_param(param),

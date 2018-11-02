@@ -46,10 +46,10 @@
 // using namespace llvm;
 using std::list;
 
-namespace palo {
+namespace doris {
 
 const char* PartitionedAggregationNode::_s_llvm_class_name =
-        "class.palo::PartitionedAggregationNode";
+        "class.doris::PartitionedAggregationNode";
 
 PartitionedAggregationNode::PartitionedAggregationNode(
         ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs) :
@@ -1122,12 +1122,12 @@ void PartitionedAggregationNode::close_partitions() {
 // void UpdateSlot(FunctionContext* fn_ctx, AggTuple* agg_tuple, char** row)
 //
 // The IR for sum(double_col) is:
-// define void @UpdateSlot(%"class.palo_udf::FunctionContext"* %fn_ctx,
+// define void @UpdateSlot(%"class.doris_udf::FunctionContext"* %fn_ctx,
 //                         { i8, double }* %agg_tuple,
-//                         %"class.palo::TupleRow"* %row) #20 {
+//                         %"class.doris::TupleRow"* %row) #20 {
 // entry:
-//   %src = call { i8, double } @GetSlotRef(%"class.palo::ExprContext"* inttoptr
-//     (i64 128241264 to %"class.palo::ExprContext"*), %"class.palo::TupleRow"* %row)
+//   %src = call { i8, double } @GetSlotRef(%"class.doris::ExprContext"* inttoptr
+//     (i64 128241264 to %"class.doris::ExprContext"*), %"class.doris::TupleRow"* %row)
 //   %0 = extractvalue { i8, double } %src, 0
 //   %is_null = trunc i8 %0 to i1
 //   br i1 %is_null, label %ret, label %src_not_null
@@ -1146,29 +1146,29 @@ void PartitionedAggregationNode::close_partitions() {
 // }
 //
 // The IR for ndv(double_col) is:
-// define void @UpdateSlot(%"class.palo_udf::FunctionContext"* %fn_ctx,
-//                         { i8, %"struct.palo::StringValue" }* %agg_tuple,
-//                         %"class.palo::TupleRow"* %row) #20 {
+// define void @UpdateSlot(%"class.doris_udf::FunctionContext"* %fn_ctx,
+//                         { i8, %"struct.doris::StringValue" }* %agg_tuple,
+//                         %"class.doris::TupleRow"* %row) #20 {
 // entry:
 //   %dst_lowered_ptr = alloca { i64, i8* }
 //   %src_lowered_ptr = alloca { i8, double }
-//   %src = call { i8, double } @GetSlotRef(%"class.palo::ExprContext"* inttoptr
-//     (i64 120530832 to %"class.palo::ExprContext"*), %"class.palo::TupleRow"* %row)
+//   %src = call { i8, double } @GetSlotRef(%"class.doris::ExprContext"* inttoptr
+//     (i64 120530832 to %"class.doris::ExprContext"*), %"class.doris::TupleRow"* %row)
 //   %0 = extractvalue { i8, double } %src, 0
 //   %is_null = trunc i8 %0 to i1
 //   br i1 %is_null, label %ret, label %src_not_null
 //
 // src_not_null:                                     ; preds = %entry
 //   %dst_slot_ptr = getelementptr inbounds
-//     { i8, %"struct.palo::StringValue" }* %agg_tuple, i32 0, i32 1
-//   call void @SetNotNull({ i8, %"struct.palo::StringValue" }* %agg_tuple)
-//   %dst_val = load %"struct.palo::StringValue"* %dst_slot_ptr
+//     { i8, %"struct.doris::StringValue" }* %agg_tuple, i32 0, i32 1
+//   call void @SetNotNull({ i8, %"struct.doris::StringValue" }* %agg_tuple)
+//   %dst_val = load %"struct.doris::StringValue"* %dst_slot_ptr
 //   store { i8, double } %src, { i8, double }* %src_lowered_ptr
 //   %src_unlowered_ptr = bitcast { i8, double }* %src_lowered_ptr
-//                        to %"struct.palo_udf::DoubleVal"*
-//   %ptr = extractvalue %"struct.palo::StringValue" %dst_val, 0
+//                        to %"struct.doris_udf::DoubleVal"*
+//   %ptr = extractvalue %"struct.doris::StringValue" %dst_val, 0
 //   %dst_stringval = insertvalue { i64, i8* } zeroinitializer, i8* %ptr, 1
-//   %len = extractvalue %"struct.palo::StringValue" %dst_val, 1
+//   %len = extractvalue %"struct.doris::StringValue" %dst_val, 1
 //   %1 = extractvalue { i64, i8* } %dst_stringval, 0
 //   %2 = zext i32 %len to i64
 //   %3 = shl i64 %2, 32
@@ -1177,18 +1177,18 @@ void PartitionedAggregationNode::close_partitions() {
 //   %dst_stringval1 = insertvalue { i64, i8* } %dst_stringval, i64 %5, 0
 //   store { i64, i8* } %dst_stringval1, { i64, i8* }* %dst_lowered_ptr
 //   %dst_unlowered_ptr = bitcast { i64, i8* }* %dst_lowered_ptr
-//                        to %"struct.palo_udf::StringVal"*
-//   call void @HllUpdate(%"class.palo_udf::FunctionContext"* %fn_ctx,
-//                        %"struct.palo_udf::DoubleVal"* %src_unlowered_ptr,
-//                        %"struct.palo_udf::StringVal"* %dst_unlowered_ptr)
+//                        to %"struct.doris_udf::StringVal"*
+//   call void @HllUpdate(%"class.doris_udf::FunctionContext"* %fn_ctx,
+//                        %"struct.doris_udf::DoubleVal"* %src_unlowered_ptr,
+//                        %"struct.doris_udf::StringVal"* %dst_unlowered_ptr)
 //   %anyval_result = load { i64, i8* }* %dst_lowered_ptr
 //   %6 = extractvalue { i64, i8* } %anyval_result, 1
-//   %7 = insertvalue %"struct.palo::StringValue" zeroinitializer, i8* %6, 0
+//   %7 = insertvalue %"struct.doris::StringValue" zeroinitializer, i8* %6, 0
 //   %8 = extractvalue { i64, i8* } %anyval_result, 0
 //   %9 = ashr i64 %8, 32
 //   %10 = trunc i64 %9 to i32
-//   %11 = insertvalue %"struct.palo::StringValue" %7, i32 %10, 1
-//   store %"struct.palo::StringValue" %11, %"struct.palo::StringValue"* %dst_slot_ptr
+//   %11 = insertvalue %"struct.doris::StringValue" %7, i32 %10, 1
+//   store %"struct.doris::StringValue" %11, %"struct.doris::StringValue"* %dst_slot_ptr
 //   br label %ret
 //
 // ret:                                              ; preds = %src_not_null, %entry
@@ -1360,27 +1360,27 @@ llvm::Function* PartitionedAggregationNode::codegen_update_slot(
 //
 
 // ; Function Attrs: alwaysinline
-// define void @update_tuple(%"class.palo::PartitionedAggregationNode"* %this_ptr,
-//                          %"class.palo_udf::FunctionContext"** %agg_fn_ctxs,
-//                          %"class.palo::Tuple"* %tuple,
-//                          %"class.palo::TupleRow"* %row,
+// define void @update_tuple(%"class.doris::PartitionedAggregationNode"* %this_ptr,
+//                          %"class.doris_udf::FunctionContext"** %agg_fn_ctxs,
+//                          %"class.doris::Tuple"* %tuple,
+//                          %"class.doris::TupleRow"* %row,
 //                          i1 %is_merge) #20 {
 // entry:
-//   %tuple1 = bitcast %"class.palo::Tuple"* %tuple to { i8, i64, i64, double }*
+//   %tuple1 = bitcast %"class.doris::Tuple"* %tuple to { i8, i64, i64, double }*
 //   %src_slot = getelementptr inbounds { i8, i64, i64, double }* %tuple1, i32 0, i32 1
 //   %count_star_val = load i64* %src_slot
 //   %count_star_inc = add i64 %count_star_val, 1
 //   store i64 %count_star_inc, i64* %src_slot
-//   %0 = getelementptr %"class.palo_udf::FunctionContext"** %agg_fn_ctxs, i32 1
-//   %fn_ctx = load %"class.palo_udf::FunctionContext"** %0
-//   call void @UpdateSlot(%"class.palo_udf::FunctionContext"* %fn_ctx,
+//   %0 = getelementptr %"class.doris_udf::FunctionContext"** %agg_fn_ctxs, i32 1
+//   %fn_ctx = load %"class.doris_udf::FunctionContext"** %0
+//   call void @UpdateSlot(%"class.doris_udf::FunctionContext"* %fn_ctx,
 //                         { i8, i64, i64, double }* %tuple1,
-//                         %"class.palo::TupleRow"* %row)
-//   %1 = getelementptr %"class.palo_udf::FunctionContext"** %agg_fn_ctxs, i32 2
-//   %fn_ctx2 = load %"class.palo_udf::FunctionContext"** %1
-//   call void @UpdateSlot5(%"class.palo_udf::FunctionContext"* %fn_ctx2,
+//                         %"class.doris::TupleRow"* %row)
+//   %1 = getelementptr %"class.doris_udf::FunctionContext"** %agg_fn_ctxs, i32 2
+//   %fn_ctx2 = load %"class.doris_udf::FunctionContext"** %1
+//   call void @UpdateSlot5(%"class.doris_udf::FunctionContext"* %fn_ctx2,
 //                          { i8, i64, i64, double }* %tuple1,
-//                          %"class.palo::TupleRow"* %row)
+//                          %"class.doris::TupleRow"* %row)
 //   ret void
 // }
 Function* PartitionedAggregationNode::codegen_update_tuple() {

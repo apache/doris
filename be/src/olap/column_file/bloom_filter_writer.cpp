@@ -19,7 +19,7 @@
 
 #include <vector>
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 BloomFilterIndexWriter::~BloomFilterIndexWriter() {
@@ -108,4 +108,4 @@ OLAPStatus BloomFilterIndexWriter::write_to_buffer(char* buffer, size_t buffer_s
 }
 
 } // namespace column_file
-} // namespace palo
+} // namespace doris

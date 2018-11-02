@@ -17,7 +17,7 @@
 
 #include "null_load_error_hub.h"
 
-namespace palo {
+namespace doris {
 
 NullLoadErrorHub::NullLoadErrorHub() {
 }
@@ -47,5 +47,5 @@ std::string NullLoadErrorHub::debug_string() const {
     return out.str();
 }
 
-} // end namespace palo
+} // end namespace doris
 

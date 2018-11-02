@@ -22,7 +22,7 @@
 #include "olap/utils.h"
 #include "util/mem_util.hpp"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 OutStreamFactory::OutStreamFactory(CompressKind compress_kind, uint32_t stream_buffer_size) : 
@@ -416,4 +416,4 @@ uint32_t OutStream::crc32(uint32_t checksum) const {
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris

@@ -23,7 +23,7 @@
 
 using std::vector;
 
-namespace palo {
+namespace doris {
 
 bool BufferedTupleStream2::deep_copy(TupleRow* row) {
     if (_nullable_tuple) {
@@ -182,4 +182,4 @@ bool BufferedTupleStream2::copy_collections(const Tuple* tuple,
 }
 #endif
 
-} // end namespace palo
+} // end namespace doris

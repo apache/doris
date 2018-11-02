@@ -40,7 +40,7 @@
 
 // This object appends n-int32s to the end of a normal tuple object to maintain the
 // lengths of the string buffers in the tuple.
-namespace palo {
+namespace doris {
 // TODO: pass in maximum size; enforce by setting limit in mempool
 // TODO: have a Status ExecNode::init(const TPlanNode&) member function
 // that does initialization outside of c'tor, so we can indicate errors

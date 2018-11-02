@@ -16,7 +16,7 @@
 // under the License.
 
 namespace java org.apache.doris.thrift
-namespace cpp palo
+namespace cpp doris
 
 include "Exprs.thrift"
 include "Opcodes.thrift"

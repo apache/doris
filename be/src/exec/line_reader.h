@@ -19,7 +19,7 @@
 
 #include "common/status.h"
 
-namespace palo {
+namespace doris {
 
 // This class is used for CSV scanner, to read content line by line
 class LineReader {

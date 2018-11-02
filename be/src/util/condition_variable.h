@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_UTIL_CONDITION_VARIABLE_H
-#define BDG_PALO_BE_SRC_UTIL_CONDITION_VARIABLE_H
+#ifndef DORIS_BE_SRC_UTIL_CONDITION_VARIABLE_H
+#define DORIS_BE_SRC_UTIL_CONDITION_VARIABLE_H
 
 #include <boost/thread/pthread/timespec.hpp>
 #include <boost/thread/mutex.hpp>
 #include <pthread.h>
 #include <unistd.h>
 
-namespace palo {
+namespace doris {
 
 /// Simple wrapper around POSIX pthread condition variable. This has lower overhead than
 /// boost's implementation as it doesn't implement boost thread interruption.

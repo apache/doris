@@ -26,7 +26,7 @@
 #include "util/network_util.h"
 #include "util/cidr.h"
 
-namespace palo {
+namespace doris {
 
 static const std::string PRIORITY_CIDR_SEPARATOR = ";";
 

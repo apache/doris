@@ -19,7 +19,7 @@
 #include "util/arena.h"
 #include "util/random.h"
 
-namespace palo {
+namespace doris {
 
 class ArenaTest : public testing::Test { };
 
@@ -73,7 +73,7 @@ TEST_F(ArenaTest, Simple) {
     }
 }
 
-}  // namespace palo
+}  // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

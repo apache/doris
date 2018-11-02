@@ -18,10 +18,10 @@
 """
 This script will generate two headers that describe all of the clang cross compiled
 functions.
-The script outputs (run: 'palo/common/function-registry/gen_functions.py')
-  - be/src/generated-sources/palo-ir/palo-ir-functions.h
+The script outputs (run: 'doris/common/function-registry/gen_functions.py')
+  - be/src/generated-sources/doris-ir/doris-ir-functions.h
     This file contains enums for all of the cross compiled functions
-  - be/src/generated-sources/palo-ir/palo-ir-function-names.h
+  - be/src/generated-sources/doris-ir/doris-ir-function-names.h
     This file contains a mapping of <string, enum>
 
 Mapping of enum to compiled function name.  The compiled function name only has to
@@ -73,16 +73,16 @@ ir_functions = [
 #    ["STRING_TO_FLOAT", "IrStringToFloat"],
 #    ["STRING_TO_DOUBLE", "IrStringToDouble"],
 #    ["STRING_IS_NULL", "IrIsNullString"],
-    ["HLL_UPDATE_BOOLEAN", "hll_updateIN8palo_udf10BooleanVal"],
-    ["HLL_UPDATE_TINYINT", "hll_updateIN8palo_udf10TinyIntVal"],
-    ["HLL_UPDATE_SMALLINT", "hll_updateIN8palo_udf11SmallIntVal"],
-    ["HLL_UPDATE_INT", "hll_updateIN8palo_udf6IntVal"],
-    ["HLL_UPDATE_BIGINT", "hll_updateIN8palo_udf9BigIntVal"],
-    ["HLL_UPDATE_FLOAT", "hll_updateIN8palo_udf8FloatVal"],
-    ["HLL_UPDATE_DOUBLE", "hll_updateIN8palo_udf9DoubleVal"],
-    ["HLL_UPDATE_STRING", "hll_updateIN8palo_udf9StringVal"],
-    ["HLL_UPDATE_TIMESTAMP", "hll_updateIN8palo_udf11DateTimeVal"],
-    ["HLL_UPDATE_DECIMAL", "hll_updateIN8palo_udf10DecimalVal"],
+    ["HLL_UPDATE_BOOLEAN", "hll_updateIN8doris_udf10BooleanVal"],
+    ["HLL_UPDATE_TINYINT", "hll_updateIN8doris_udf10TinyIntVal"],
+    ["HLL_UPDATE_SMALLINT", "hll_updateIN8doris_udf11SmallIntVal"],
+    ["HLL_UPDATE_INT", "hll_updateIN8doris_udf6IntVal"],
+    ["HLL_UPDATE_BIGINT", "hll_updateIN8doris_udf9BigIntVal"],
+    ["HLL_UPDATE_FLOAT", "hll_updateIN8doris_udf8FloatVal"],
+    ["HLL_UPDATE_DOUBLE", "hll_updateIN8doris_udf9DoubleVal"],
+    ["HLL_UPDATE_STRING", "hll_updateIN8doris_udf9StringVal"],
+    ["HLL_UPDATE_TIMESTAMP", "hll_updateIN8doris_udf11DateTimeVal"],
+    ["HLL_UPDATE_DECIMAL", "hll_updateIN8doris_udf10DecimalVal"],
     ["HLL_MERGE", "hll_merge"],
     ["CODEGEN_ANYVAL_DATETIME_VAL_EQ", "datetime_val_eq"],
     ["CODEGEN_ANYVAL_STRING_VAL_EQ", "string_val_eq"],
@@ -114,10 +114,10 @@ enums_preamble = '\
 // This is a generated file, DO NOT EDIT IT.\n\
 // To add new functions, see be/src/codegen/gen_ir_descriptions.py.\n\
 \n\
-#ifndef PALO_IR_FUNCTIONS_H\n\
-#define PALO_IR_FUNCTIONS_H\n\
+#ifndef DORIS_IR_FUNCTIONS_H\n\
+#define DORIS_IR_FUNCTIONS_H\n\
 \n\
-namespace palo {\n\
+namespace doris {\n\
 \n\
 class IRFunction {\n\
  public:\n\
@@ -152,12 +152,12 @@ names_preamble = '\
 // This is a generated file, DO NOT EDIT IT.\n\
 // To add new functions, see be/src/codegen/gen_ir_descriptions.py.\n\
 \n\
-#ifndef PALO_IR_FUNCTION_NAMES_H\n\
-#define PALO_IR_FUNCTION_NAMES_H\n\
+#ifndef DORIS_IR_FUNCTION_NAMES_H\n\
+#define DORIS_IR_FUNCTION_NAMES_H\n\
 \n\
-#include "palo_ir/palo_ir_functions.h"\n\
+#include "doris_ir/doris_ir_functions.h"\n\
 \n\
-namespace palo {\n\
+namespace doris {\n\
 \n\
 static struct {\n\
   std::string fn_name; \n\
@@ -171,16 +171,16 @@ names_epilogue = '\
 \n\
 #endif\n'
 
-BE_PATH = os.environ['DORIS_HOME'] + "/gensrc/build/palo_ir/"
+BE_PATH = os.environ['DORIS_HOME'] + "/gensrc/build/doris_ir/"
 if not os.path.exists(BE_PATH):
     os.makedirs(BE_PATH)
 
 if __name__ == "__main__":
     print "Generating IR description files"
-    enums_file = open(BE_PATH + 'palo_ir_functions.h', 'w')
+    enums_file = open(BE_PATH + 'doris_ir_functions.h', 'w')
     enums_file.write(enums_preamble)
 
-    names_file = open(BE_PATH + 'palo_ir_names.h', 'w')
+    names_file = open(BE_PATH + 'doris_ir_names.h', 'w')
     names_file.write(names_preamble)
 
     idx = 0

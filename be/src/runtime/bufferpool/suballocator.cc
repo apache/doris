@@ -25,7 +25,7 @@
 #include "common/names.h"
 #include "gutil/strings/substitute.h"
 
-namespace palo {
+namespace doris {
 
 constexpr int Suballocator::LOG_MAX_ALLOCATION_BYTES;
 constexpr int64_t Suballocator::MAX_ALLOCATION_BYTES;

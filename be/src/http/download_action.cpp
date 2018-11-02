@@ -38,7 +38,7 @@
 #include "util/filesystem_util.h"
 #include "runtime/exec_env.h"
 
-namespace palo {
+namespace doris {
 
 const std::string FILE_PARAMETER = "file";
 const std::string DB_PARAMETER = "db";
@@ -261,5 +261,5 @@ Status DownloadAction::check_log_path_is_allowed(const std::string& file_path) {
     return Status("file path Not Allowed.");
 }
 
-} // end namespace palo
+} // end namespace doris
 

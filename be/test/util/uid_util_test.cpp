@@ -20,7 +20,7 @@
 #include <gtest/gtest.h>
 #include <iostream>
 
-namespace palo {
+namespace doris {
 class UidUtilTest : public testing::Test {
 public:
     UidUtilTest() { }
@@ -89,7 +89,7 @@ TEST_F(UidUtilTest, Hash) {
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
-    palo::CpuInfo::init();
+    doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }
 

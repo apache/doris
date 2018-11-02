@@ -28,9 +28,9 @@
 #include "runtime/string_value.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
-const char* Tuple::_s_llvm_class_name = "class.palo::Tuple";
+const char* Tuple::_s_llvm_class_name = "class.doris::Tuple";
 
 int64_t Tuple::total_byte_size(const TupleDescriptor& desc) const {
     int64_t result = desc.byte_size();

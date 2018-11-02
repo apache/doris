@@ -32,7 +32,7 @@
 #include <thrift/transport/TSocket.h>
 #include <thrift/transport/TServerSocket.h>
 
-namespace palo {
+namespace doris {
 
 // Helper class that starts a server in a separate thread, and handles
 // the inter-thread communication to monitor whether it started

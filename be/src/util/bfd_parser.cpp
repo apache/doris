@@ -21,7 +21,7 @@
 
 #include "common/logging.h"
 
-namespace palo {
+namespace doris {
 
 struct BfdFindCtx {
     BfdFindCtx(bfd_symbol** syms_, bfd_vma pc_)

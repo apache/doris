@@ -27,7 +27,7 @@
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 
-namespace palo {
+namespace doris {
 
 class ExecEnv;
 class TBrokerRangeDesc;

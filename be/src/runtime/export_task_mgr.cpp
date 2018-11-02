@@ -27,7 +27,7 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/MasterService_types.h"
 
-namespace palo {
+namespace doris {
 
 #define VLOG_EXPORT VLOG(2)
 
@@ -237,4 +237,4 @@ void ExportTaskMgr::report_to_master(PlanFragmentExecutor* executor) {
             << " id=" << print_id(request.taskId);
 }
 
-} // end namespace palo
+} // end namespace doris

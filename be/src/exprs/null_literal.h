@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXPRS_NULL_LITERAL_H
-#define BDG_PALO_BE_SRC_QUERY_EXPRS_NULL_LITERAL_H
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_NULL_LITERAL_H
+#define DORIS_BE_SRC_QUERY_EXPRS_NULL_LITERAL_H
 
 #include "exprs/expr.h"
 
@@ -24,7 +24,7 @@ namespace llvm {
 class Function;
 }
 
-namespace palo {
+namespace doris {
 
 class TExprNode;
 
@@ -36,16 +36,16 @@ public:
     }
     // NullLiteral(PrimitiveType type);
     virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
-    virtual palo_udf::BooleanVal get_boolean_val(ExprContext*, TupleRow*);
-    virtual palo_udf::TinyIntVal get_tiny_int_val(ExprContext*, TupleRow*);
-    virtual palo_udf::SmallIntVal get_small_int_val(ExprContext*, TupleRow*);
-    virtual palo_udf::IntVal get_int_val(ExprContext*, TupleRow*);
-    virtual palo_udf::BigIntVal get_big_int_val(ExprContext*, TupleRow*);
-    virtual palo_udf::FloatVal get_float_val(ExprContext*, TupleRow*);
-    virtual palo_udf::DoubleVal get_double_val(ExprContext*, TupleRow*);
-    virtual palo_udf::StringVal get_string_val(ExprContext*, TupleRow*);
-    virtual palo_udf::DateTimeVal get_datetime_val(ExprContext*, TupleRow*);
-    virtual palo_udf::DecimalVal get_decimal_val(ExprContext*, TupleRow*);
+    virtual doris_udf::BooleanVal get_boolean_val(ExprContext*, TupleRow*);
+    virtual doris_udf::TinyIntVal get_tiny_int_val(ExprContext*, TupleRow*);
+    virtual doris_udf::SmallIntVal get_small_int_val(ExprContext*, TupleRow*);
+    virtual doris_udf::IntVal get_int_val(ExprContext*, TupleRow*);
+    virtual doris_udf::BigIntVal get_big_int_val(ExprContext*, TupleRow*);
+    virtual doris_udf::FloatVal get_float_val(ExprContext*, TupleRow*);
+    virtual doris_udf::DoubleVal get_double_val(ExprContext*, TupleRow*);
+    virtual doris_udf::StringVal get_string_val(ExprContext*, TupleRow*);
+    virtual doris_udf::DateTimeVal get_datetime_val(ExprContext*, TupleRow*);
+    virtual doris_udf::DecimalVal get_decimal_val(ExprContext*, TupleRow*);
 
 protected:
     friend class Expr;

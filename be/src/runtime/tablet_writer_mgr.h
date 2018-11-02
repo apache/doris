@@ -32,7 +32,7 @@
 
 #include "service/brpc.h"
 
-namespace palo {
+namespace doris {
 
 class ExecEnv;
 class TabletsChannel;
@@ -55,7 +55,7 @@ struct TabletsChannelKey {
 struct TabletsChannelKeyHasher {
     std::size_t operator()(const TabletsChannelKey& key) const {
         size_t seed = key.id.hash();
-        return palo::HashUtil::hash(&key.index_id, sizeof(key.index_id), seed);
+        return doris::HashUtil::hash(&key.index_id, sizeof(key.index_id), seed);
     }
 };
 

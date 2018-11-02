@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_RUNTIME_SPILL_SORTER_H
-#define BDG_PALO_BE_SRC_RUNTIME_SPILL_SORTER_H
+#ifndef DORIS_BE_SRC_RUNTIME_SPILL_SORTER_H
+#define DORIS_BE_SRC_RUNTIME_SPILL_SORTER_H
 
 #include <deque>
 
 #include "runtime/buffered_block_mgr2.h"
 #include "util/tuple_row_compare.h"
 
-namespace palo {
+namespace doris {
 
 class SortedRunMerger;
 class RuntimeProfile;
@@ -214,6 +214,6 @@ private:
     RuntimeProfile::Counter* _sorted_data_size;
 };
 
-} // namespace palo
+} // namespace doris
 
-#endif // BDG_PALO_BE_SRC_RUNTIME_SPILL_SORTER_H
+#endif // DORIS_BE_SRC_RUNTIME_SPILL_SORTER_H

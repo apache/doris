@@ -37,7 +37,7 @@
 #include "exprs/expr.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 class SorterTest : public testing::Test {
 public:

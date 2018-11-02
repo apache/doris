@@ -17,7 +17,7 @@
 
 #include "util/metrics.h"
 
-namespace palo {
+namespace doris {
 
 MetricLabels MetricLabels::EmptyLabels;
 

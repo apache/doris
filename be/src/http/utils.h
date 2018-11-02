@@ -21,7 +21,7 @@
 
 #include "http/http_common.h"
 
-namespace palo {
+namespace doris {
 
 class HttpRequest;
 class HttpAuthInfo;

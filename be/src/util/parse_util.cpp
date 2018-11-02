@@ -20,7 +20,7 @@
 #include "util/mem_info.h"
 #include "util/string_parser.hpp"
 
-namespace palo {
+namespace doris {
 
 int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, bool* is_percent) {
     if (mem_spec_str.empty()) {

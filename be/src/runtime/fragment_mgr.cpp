@@ -31,7 +31,7 @@
 #include "runtime/datetime_value.h"
 #include "util/stopwatch.hpp"
 #include "util/debug_util.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 #include "util/thrift_util.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
@@ -40,7 +40,7 @@
 #include "gen_cpp/FrontendService.h"
 #include <thrift/protocol/TDebugProtocol.h>
 
-namespace palo {
+namespace doris {
 
 std::string to_load_error_http_path(const std::string& file_name) {
     std::stringstream url;
@@ -200,8 +200,8 @@ Status FragmentExecState::execute() {
         _executor.open();
         _executor.close();
     }
-    PaloMetrics::fragment_requests_total.increment(1);
-    PaloMetrics::fragment_request_duration_us.increment(duration_ns / 1000);
+    DorisMetrics::fragment_requests_total.increment(1);
+    DorisMetrics::fragment_request_duration_us.increment(duration_ns / 1000);
     return Status::OK;
 }
 

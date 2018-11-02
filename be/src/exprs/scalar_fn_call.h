@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXPRS_SCALAR_FN_CALL_H
-#define BDG_PALO_BE_SRC_QUERY_EXPRS_SCALAR_FN_CALL_H
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_SCALAR_FN_CALL_H
+#define DORIS_BE_SRC_QUERY_EXPRS_SCALAR_FN_CALL_H
 
 #include <string>
 
 #include "exprs/expr.h"
 #include "udf/udf.h"
 
-namespace palo {
+namespace doris {
 
 class TExprNode;
 
@@ -67,18 +67,18 @@ protected:
 
     virtual bool is_constant() const;
 
-    virtual palo_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::IntVal get_int_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::BigIntVal get_big_int_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::LargeIntVal get_large_int_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::FloatVal get_float_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::DoubleVal get_double_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::StringVal get_string_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::DateTimeVal get_datetime_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::DecimalVal get_decimal_val(ExprContext* context, TupleRow*);
-    // virtual palo_udf::ArrayVal GetArrayVal(ExprContext* context, TupleRow*);
+    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::IntVal get_int_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::BigIntVal get_big_int_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::LargeIntVal get_large_int_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::FloatVal get_float_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::DoubleVal get_double_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::StringVal get_string_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::DateTimeVal get_datetime_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::DecimalVal get_decimal_val(ExprContext* context, TupleRow*);
+    // virtual doris_udf::ArrayVal GetArrayVal(ExprContext* context, TupleRow*);
 
 private:
     /// If this function has var args, children()[_vararg_start_idx] is the first vararg
@@ -120,7 +120,7 @@ private:
     /// Evaluates the children exprs and stores the results in input_vals. Used in the
     /// interpreted path.
     void evaluate_children(ExprContext* context, TupleRow* row,
-                          std::vector<palo_udf::AnyVal*>* input_vals);
+                          std::vector<doris_udf::AnyVal*>* input_vals);
 
     /// Function to call _scalar_fn. Used in the interpreted path.
     template<typename RETURN_TYPE>

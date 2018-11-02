@@ -30,7 +30,7 @@
 
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 bool DiskInfo::_s_initialized;
 std::vector<DiskInfo::Disk> DiskInfo::_s_disks;

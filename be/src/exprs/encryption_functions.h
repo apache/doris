@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXPRS_ENCRYPTION_FUNCTIONS_H
-#define BDG_PALO_BE_SRC_QUERY_EXPRS_ENCRYPTION_FUNCTIONS_H
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_ENCRYPTION_FUNCTIONS_H
+#define DORIS_BE_SRC_QUERY_EXPRS_ENCRYPTION_FUNCTIONS_H
 
 #include <stdint.h>
 #include "udf/udf.h"
 #include "udf/udf_internal.h"
 
-namespace palo {
+namespace doris {
 
 class Expr;
 struct ExprValue;
@@ -31,18 +31,18 @@ class TupleRow;
 class EncryptionFunctions {
 public:
     static void init();
-    static palo_udf::StringVal aes_encrypt(palo_udf::FunctionContext* context,
-            const palo_udf::StringVal& val1, const palo_udf::StringVal& val2);
-    static palo_udf::StringVal aes_decrypt(palo_udf::FunctionContext* context,
-            const palo_udf::StringVal& val1, const palo_udf::StringVal& val2);
-    static palo_udf::StringVal from_base64(palo_udf::FunctionContext* context,
-            const palo_udf::StringVal& val1);
-    static palo_udf::StringVal to_base64(palo_udf::FunctionContext* context,
-            const palo_udf::StringVal& val1);
-    static palo_udf::StringVal md5sum(palo_udf::FunctionContext* ctx, 
-                                      int num_args, const palo_udf::StringVal* args);
-    static palo_udf::StringVal md5(palo_udf::FunctionContext* ctx, 
-                                   const palo_udf::StringVal& src);
+    static doris_udf::StringVal aes_encrypt(doris_udf::FunctionContext* context,
+            const doris_udf::StringVal& val1, const doris_udf::StringVal& val2);
+    static doris_udf::StringVal aes_decrypt(doris_udf::FunctionContext* context,
+            const doris_udf::StringVal& val1, const doris_udf::StringVal& val2);
+    static doris_udf::StringVal from_base64(doris_udf::FunctionContext* context,
+            const doris_udf::StringVal& val1);
+    static doris_udf::StringVal to_base64(doris_udf::FunctionContext* context,
+            const doris_udf::StringVal& val1);
+    static doris_udf::StringVal md5sum(doris_udf::FunctionContext* ctx, 
+                                      int num_args, const doris_udf::StringVal* args);
+    static doris_udf::StringVal md5(doris_udf::FunctionContext* ctx, 
+                                   const doris_udf::StringVal& src);
 };
 
 }

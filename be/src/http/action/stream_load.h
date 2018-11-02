@@ -25,7 +25,7 @@
 #include "http/message_body_sink.h"
 #include "runtime/client_cache.h"
 
-namespace palo {
+namespace doris {
 
 class ExecEnv;
 class TStreamLoadPutRequest;

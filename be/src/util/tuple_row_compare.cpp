@@ -27,7 +27,7 @@ using llvm::Function;
 using llvm::PointerType;
 using llvm::Value;
 
-namespace palo {
+namespace doris {
 
 bool TupleRowComparator::codegen(RuntimeState* state) {
     Function* fn = codegen_compare(state);
@@ -47,25 +47,25 @@ bool TupleRowComparator::codegen(RuntimeState* state) {
 // Example IR for comparing an int column then a float column:
 //
 // ; Function Attrs: alwaysinline
-// define i32 @Compare(%"class.palo::ExprContext"** %key_expr_ctxs_lhs,
-//                     %"class.palo::ExprContext"** %key_expr_ctxs_rhs,
-//                     %"class.palo::TupleRow"* %lhs,
-//                     %"class.palo::TupleRow"* %rhs) #20 {
+// define i32 @Compare(%"class.doris::ExprContext"** %key_expr_ctxs_lhs,
+//                     %"class.doris::ExprContext"** %key_expr_ctxs_rhs,
+//                     %"class.doris::TupleRow"* %lhs,
+//                     %"class.doris::TupleRow"* %rhs) #20 {
 // entry:
-//   %type13 = alloca %"struct.palo::TypeDescriptor"
+//   %type13 = alloca %"struct.doris::TypeDescriptor"
 //   %0 = alloca float
 //   %1 = alloca float
-//   %type = alloca %"struct.palo::TypeDescriptor"
+//   %type = alloca %"struct.doris::TypeDescriptor"
 //   %2 = alloca i32
 //   %3 = alloca i32
-//   %4 = getelementptr %"class.palo::ExprContext"** %key_expr_ctxs_lhs, i32 0
-//   %5 = load %"class.palo::ExprContext"** %4
+//   %4 = getelementptr %"class.doris::ExprContext"** %key_expr_ctxs_lhs, i32 0
+//   %5 = load %"class.doris::ExprContext"** %4
 //   %lhs_value = call i64 @GetSlotRef(
-//       %"class.palo::ExprContext"* %5, %"class.palo::TupleRow"* %lhs)
-//   %6 = getelementptr %"class.palo::ExprContext"** %key_expr_ctxs_rhs, i32 0
-//   %7 = load %"class.palo::ExprContext"** %6
+//       %"class.doris::ExprContext"* %5, %"class.doris::TupleRow"* %lhs)
+//   %6 = getelementptr %"class.doris::ExprContext"** %key_expr_ctxs_rhs, i32 0
+//   %7 = load %"class.doris::ExprContext"** %6
 //   %rhs_value = call i64 @GetSlotRef(
-//       %"class.palo::ExprContext"* %7, %"class.palo::TupleRow"* %rhs)
+//       %"class.doris::ExprContext"* %7, %"class.doris::TupleRow"* %rhs)
 //   %is_null = trunc i64 %lhs_value to i1
 //   %is_null1 = trunc i64 %rhs_value to i1
 //   %both_null = and i1 %is_null, %is_null1
@@ -92,12 +92,12 @@ bool TupleRowComparator::codegen(RuntimeState* state) {
 //   %12 = trunc i64 %11 to i32
 //   store i32 %12, i32* %2
 //   %13 = bitcast i32* %2 to i8*
-//   store %"struct.palo::TypeDescriptor" { i32 5, i32 -1, i32 -1, i32 -1,
+//   store %"struct.doris::TypeDescriptor" { i32 5, i32 -1, i32 -1, i32 -1,
 //                                        %"class.std::vector.44" zeroinitializer,
 //                                        %"class.std::vector.49" zeroinitializer },
-//         %"struct.palo::TypeDescriptor"* %type
-//   %result = call i32 @_ZN4palo8RawValue7CompareEPKvS2_RKNS_10ColumnTypeE(
-//       i8* %10, i8* %13, %"struct.palo::TypeDescriptor"* %type)
+//         %"struct.doris::TypeDescriptor"* %type
+//   %result = call i32 @_ZN4doris8RawValue7CompareEPKvS2_RKNS_10ColumnTypeE(
+//       i8* %10, i8* %13, %"struct.doris::TypeDescriptor"* %type)
 //   %14 = icmp ne i32 %result, 0
 //   br i1 %14, label %result_nonzero, label %next_key
 //
@@ -105,14 +105,14 @@ bool TupleRowComparator::codegen(RuntimeState* state) {
 //   ret i32 %result
 //
 // next_key:                                         ; preds = %rhs_non_null, %entry
-//   %15 = getelementptr %"class.palo::ExprContext"** %key_expr_ctxs_lhs, i32 1
-//   %16 = load %"class.palo::ExprContext"** %15
+//   %15 = getelementptr %"class.doris::ExprContext"** %key_expr_ctxs_lhs, i32 1
+//   %16 = load %"class.doris::ExprContext"** %15
 //   %lhs_value3 = call i64 @GetSlotRef1(
-//       %"class.palo::ExprContext"* %16, %"class.palo::TupleRow"* %lhs)
-//   %17 = getelementptr %"class.palo::ExprContext"** %key_expr_ctxs_rhs, i32 1
-//   %18 = load %"class.palo::ExprContext"** %17
+//       %"class.doris::ExprContext"* %16, %"class.doris::TupleRow"* %lhs)
+//   %17 = getelementptr %"class.doris::ExprContext"** %key_expr_ctxs_rhs, i32 1
+//   %18 = load %"class.doris::ExprContext"** %17
 //   %rhs_value4 = call i64 @GetSlotRef1(
-//       %"class.palo::ExprContext"* %18, %"class.palo::TupleRow"* %rhs)
+//       %"class.doris::ExprContext"* %18, %"class.doris::TupleRow"* %rhs)
 //   %is_null5 = trunc i64 %lhs_value3 to i1
 //   %is_null6 = trunc i64 %rhs_value4 to i1
 //   %both_null8 = and i1 %is_null5, %is_null6
@@ -141,12 +141,12 @@ bool TupleRowComparator::codegen(RuntimeState* state) {
 //   %25 = bitcast i32 %24 to float
 //   store float %25, float* %0
 //   %26 = bitcast float* %0 to i8*
-//   store %"struct.palo::TypeDescriptor" { i32 7, i32 -1, i32 -1, i32 -1,
+//   store %"struct.doris::TypeDescriptor" { i32 7, i32 -1, i32 -1, i32 -1,
 //                                        %"class.std::vector.44" zeroinitializer,
 //                                        %"class.std::vector.49" zeroinitializer },
-//         %"struct.palo::TypeDescriptor"* %type13
-//   %result14 = call i32 @_ZN4palo8RawValue7CompareEPKvS2_RKNS_10ColumnTypeE(
-//       i8* %22, i8* %26, %"struct.palo::TypeDescriptor"* %type13)
+//         %"struct.doris::TypeDescriptor"* %type13
+//   %result14 = call i32 @_ZN4doris8RawValue7CompareEPKvS2_RKNS_10ColumnTypeE(
+//       i8* %22, i8* %26, %"struct.doris::TypeDescriptor"* %type13)
 //   %27 = icmp ne i32 %result14, 0
 //   br i1 %27, label %result_nonzero15, label %next_key2
 //

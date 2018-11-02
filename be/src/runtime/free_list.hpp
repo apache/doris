@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_BE_RUNTIME_FREE_LIST_H
-#define BDG_PALO_BE_SRC_QUERY_BE_RUNTIME_FREE_LIST_H
+#ifndef DORIS_BE_SRC_QUERY_BE_RUNTIME_FREE_LIST_H
+#define DORIS_BE_SRC_QUERY_BE_RUNTIME_FREE_LIST_H
 
 #include <stdio.h>
 #include <string.h>
@@ -25,7 +25,7 @@
 #include <string>
 #include "common/logging.h"
 
-namespace palo {
+namespace doris {
 
 // Implementation of a free list:
 // The free list is made up of nodes which contain a pointer to the next node

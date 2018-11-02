@@ -140,7 +140,7 @@ ${DORIS_TEST_BINARY_DIR}/util/filesystem_util_test
 ${DORIS_TEST_BINARY_DIR}/util/internal_queue_test
 ${DORIS_TEST_BINARY_DIR}/util/cidr_test
 ${DORIS_TEST_BINARY_DIR}/util/new_metrics_test
-${DORIS_TEST_BINARY_DIR}/util/palo_metrics_test
+${DORIS_TEST_BINARY_DIR}/util/doris_metrics_test
 ${DORIS_TEST_BINARY_DIR}/util/system_metrics_test
 ${DORIS_TEST_BINARY_DIR}/util/core_local_test
 ${DORIS_TEST_BINARY_DIR}/util/arena_test

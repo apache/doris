@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXEC_OLAP_SCANNER_H
-#define BDG_PALO_BE_SRC_QUERY_EXEC_OLAP_SCANNER_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_OLAP_SCANNER_H
+#define DORIS_BE_SRC_QUERY_EXEC_OLAP_SCANNER_H
 
 #include <list>
 #include <vector>
@@ -40,7 +40,7 @@
 #include "olap/olap_engine.h"
 #include "olap/reader.h"
 
-namespace palo {
+namespace doris {
 
 class OlapScanNode;
 class OLAPReader;
@@ -53,7 +53,7 @@ public:
         RuntimeState* runtime_state,
         OlapScanNode* parent,
         bool aggregation,
-        PaloScanRange* scan_range,
+        DorisScanRange* scan_range,
         const std::vector<OlapScanRange>& key_ranges);
 
     ~OlapScanner();
@@ -82,7 +82,7 @@ public:
     void update_counter();
 private:
     Status _prepare(
-        PaloScanRange* scan_range,
+        DorisScanRange* scan_range,
         const std::vector<OlapScanRange>& key_ranges,
         const std::vector<TCondition>& filters,
         const std::vector<TCondition>& is_nulls);
@@ -140,6 +140,6 @@ private:
     bool _is_closed = false;
 };
 
-} // namespace palo
+} // namespace doris
 
 #endif

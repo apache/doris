@@ -26,7 +26,7 @@ using llvm::BasicBlock;
 using llvm::Function;
 using llvm::Value;
 
-namespace palo {
+namespace doris {
 
 NullLiteral::NullLiteral(const TExprNode& node) : 
         Expr(node) {

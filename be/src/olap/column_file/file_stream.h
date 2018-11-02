@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_FILE_STREAM_H
-#define BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_FILE_STREAM_H
+#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_FILE_STREAM_H
+#define DORIS_BE_SRC_OLAP_COLUMN_FILE_FILE_STREAM_H
 
 #include <gen_cpp/column_data_file.pb.h>
 
@@ -32,7 +32,7 @@
 #include "olap/olap_common.h"
 #include "util/runtime_profile.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 // 定义输入数据流接口
@@ -315,6 +315,6 @@ inline OLAPStatus ReadOnlyFileStream::read_all(char* buffer, uint64_t* buffer_si
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_FILE_STREAM_H
+#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_FILE_STREAM_H

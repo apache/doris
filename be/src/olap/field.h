@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_FIELD_H
-#define BDG_PALO_BE_SRC_OLAP_FIELD_H
+#ifndef DORIS_BE_SRC_OLAP_FIELD_H
+#define DORIS_BE_SRC_OLAP_FIELD_H
 
 #include <string>
 
@@ -31,7 +31,7 @@
 #include "util/hash_util.hpp"
 #include "util/mem_util.hpp"
 
-namespace palo {
+namespace doris {
 
 // Field内部参数为Field*的方法都要求实例类型和当前类型一致，否则会产生无法预知的错误
 // 出于效率的考虑，大部分函数实现均没有对参数进行检查
@@ -267,6 +267,6 @@ inline uint32_t Field::hash_code(char* data, uint32_t seed) const {
     return _type_info->hash_code(data + 1, seed);
 }
 
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_FIELD_H
+#endif // DORIS_BE_SRC_OLAP_FIELD_H

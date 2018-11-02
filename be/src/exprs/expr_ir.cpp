@@ -26,10 +26,10 @@
 // Dummy function to force compilation of UDF types.
 // The arguments are pointers to prevent Clang from lowering the struct types
 // (e.g. IntVal={bool, i32} can be coerced to i64).
-void dummy(palo_udf::FunctionContext*, palo_udf::BooleanVal*, palo_udf::TinyIntVal*,
-    palo_udf::SmallIntVal*, palo_udf::IntVal*, palo_udf::BigIntVal*,
-    palo_udf::FloatVal*, palo_udf::DoubleVal*, palo_udf::StringVal*,
-    palo_udf::DateTimeVal*, palo_udf::DecimalVal*, palo::ExprContext*) { }
+void dummy(doris_udf::FunctionContext*, doris_udf::BooleanVal*, doris_udf::TinyIntVal*,
+    doris_udf::SmallIntVal*, doris_udf::IntVal*, doris_udf::BigIntVal*,
+    doris_udf::FloatVal*, doris_udf::DoubleVal*, doris_udf::StringVal*,
+    doris_udf::DateTimeVal*, doris_udf::DecimalVal*, doris::ExprContext*) { }
 #endif
 
 // The following are compute functions that are cross-compiled to both native and IR
@@ -37,7 +37,7 @@ void dummy(palo_udf::FunctionContext*, palo_udf::BooleanVal*, palo_udf::TinyIntV
 // code. In the codegen'd path, we load the IR functions and replace the Get*Val() calls
 // with the appropriate child's codegen'd compute function.
 
-namespace palo {
+namespace doris {
 // Static wrappers around Get*Val() functions. We'd like to be able to call these from
 // directly from native code as well as from generated IR functions.
 

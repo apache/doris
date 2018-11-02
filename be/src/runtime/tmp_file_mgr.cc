@@ -44,9 +44,9 @@ using boost::uuids::random_generator;
 using std::string;
 using std::vector;
 
-namespace palo {
+namespace doris {
 
-const std::string _s_tmp_sub_dir_name = "palo-scratch";
+const std::string _s_tmp_sub_dir_name = "doris-scratch";
 const uint64_t _s_available_space_threshold_mb = 1024;
 
 // Metric keys
@@ -278,4 +278,4 @@ Status TmpFileMgr::File::remove() {
     return Status::OK;
 }
 
-} //namespace palo
+} //namespace doris

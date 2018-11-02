@@ -21,7 +21,7 @@
 
 #include "common/logging.h"
 
-namespace palo {
+namespace doris {
 
 class JsonUtilTest : public testing::Test {
 public:

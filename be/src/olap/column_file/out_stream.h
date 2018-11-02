@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_OUT_STREAM_H
-#define BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_OUT_STREAM_H
+#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_OUT_STREAM_H
+#define DORIS_BE_SRC_OLAP_COLUMN_FILE_OUT_STREAM_H
 
 #include "olap/column_file/byte_buffer.h"
 #include "olap/column_file/compress.h"
@@ -24,7 +24,7 @@
 #include "olap/column_file/stream_name.h"
 #include "olap/olap_define.h"
 
-namespace palo {
+namespace doris {
 class FileHandler;
 namespace column_file {
 
@@ -184,5 +184,5 @@ protected:
 */
 
 }  // namespace column_file
-}  // namespace palo
-#endif // BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_OUT_STREAM_H
+}  // namespace doris
+#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_OUT_STREAM_H

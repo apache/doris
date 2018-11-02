@@ -30,14 +30,14 @@
 #include "common/logging.h"
 #include "util/debug_util.h"
 
-#if PALO_UDF_SDK_BUILD
+#if DORIS_UDF_SDK_BUILD
 // For the SDK build, we are building the .lib that the developers would use to
 // write UDFs. They want to link against this to run their UDFs in a test environment.
 // Pulling in free-pool is very undesirable since it pulls in many other libraries.
 // Instead, we'll implement a dummy version that is not used.
 // When they build their library to a .so, they'd use the version of FunctionContext
 // in the main binary, which does include FreePool.
-namespace palo {
+namespace doris {
 class FreePool {
 public:
     FreePool(MemPool*) { }
@@ -76,11 +76,11 @@ public:
 #include "runtime/runtime_state.h"
 #endif
 
-namespace palo {
+namespace doris {
 
-const char* FunctionContextImpl::_s_llvm_functioncontext_name = "class.palo_udf::FunctionContext";
+const char* FunctionContextImpl::_s_llvm_functioncontext_name = "class.doris_udf::FunctionContext";
 
-FunctionContextImpl::FunctionContextImpl(palo_udf::FunctionContext* parent) : 
+FunctionContextImpl::FunctionContextImpl(doris_udf::FunctionContext* parent) : 
         _varargs_buffer(nullptr),
         _varargs_buffer_size(0),
         _num_updates(0),
@@ -89,7 +89,7 @@ FunctionContextImpl::FunctionContextImpl(palo_udf::FunctionContext* parent) :
         _pool(NULL),
         _state(NULL),
         _debug(false),
-        _version(palo_udf::FunctionContext::V2_0),
+        _version(doris_udf::FunctionContext::V2_0),
         _num_warnings(0),
         _thread_local_fn_state(nullptr),
         _fragment_local_fn_state(nullptr),
@@ -133,7 +133,7 @@ void FunctionContextImpl::free_local_allocations() {
     _local_allocations.clear();
 }
 
-void FunctionContextImpl::set_constant_args(const std::vector<palo_udf::AnyVal*>& constant_args) {
+void FunctionContextImpl::set_constant_args(const std::vector<doris_udf::AnyVal*>& constant_args) {
     _constant_args = constant_args;
 }
 
@@ -157,13 +157,13 @@ bool FunctionContextImpl::check_local_allocations_empty() {
     return false;
 }
 
-palo_udf::FunctionContext* FunctionContextImpl::create_context(
+doris_udf::FunctionContext* FunctionContextImpl::create_context(
         RuntimeState* state, MemPool* pool,
-        const palo_udf::FunctionContext::TypeDesc& return_type,
-        const std::vector<palo_udf::FunctionContext::TypeDesc>& arg_types,
+        const doris_udf::FunctionContext::TypeDesc& return_type,
+        const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
         int varargs_buffer_size, bool debug) {
-    palo_udf::FunctionContext::TypeDesc invalid_type;
-    invalid_type.type = palo_udf::FunctionContext::INVALID_TYPE;
+    doris_udf::FunctionContext::TypeDesc invalid_type;
+    invalid_type.type = doris_udf::FunctionContext::INVALID_TYPE;
     invalid_type.precision = 0;
     invalid_type.scale = 0;
     return FunctionContextImpl::create_context(
@@ -171,13 +171,13 @@ palo_udf::FunctionContext* FunctionContextImpl::create_context(
             arg_types, varargs_buffer_size, debug);
 }
 
-palo_udf::FunctionContext* FunctionContextImpl::create_context(
+doris_udf::FunctionContext* FunctionContextImpl::create_context(
         RuntimeState* state, MemPool* pool,
-        const palo_udf::FunctionContext::TypeDesc& intermediate_type,
-        const palo_udf::FunctionContext::TypeDesc& return_type,
-        const std::vector<palo_udf::FunctionContext::TypeDesc>& arg_types,
+        const doris_udf::FunctionContext::TypeDesc& intermediate_type,
+        const doris_udf::FunctionContext::TypeDesc& return_type,
+        const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
         int varargs_buffer_size, bool debug) {
-    palo_udf::FunctionContext* ctx = new palo_udf::FunctionContext();
+    doris_udf::FunctionContext* ctx = new doris_udf::FunctionContext();
     ctx->_impl->_state = state;
     ctx->_impl->_pool = new FreePool(pool);
     ctx->_impl->_intermediate_type = intermediate_type;
@@ -197,7 +197,7 @@ palo_udf::FunctionContext* FunctionContextImpl::create_context(
 }
 
 FunctionContext* FunctionContextImpl::clone(MemPool* pool) {
-    palo_udf::FunctionContext* new_context =
+    doris_udf::FunctionContext* new_context =
         create_context(_state, pool, _intermediate_type, _return_type, _arg_types,
                       _varargs_buffer_size, _debug);
     new_context->_impl->_constant_args = _constant_args;
@@ -207,18 +207,18 @@ FunctionContext* FunctionContextImpl::clone(MemPool* pool) {
 
 }
 
-namespace palo_udf {
+namespace doris_udf {
 static const int MAX_WARNINGS = 1000;
 
 FunctionContext* FunctionContext::create_test_context() {
     FunctionContext* context = new FunctionContext();
     context->impl()->_debug = true;
     context->impl()->_state = NULL;
-    context->impl()->_pool = new palo::FreePool(NULL);
+    context->impl()->_pool = new doris::FreePool(NULL);
     return context;
 }
 
-FunctionContext::FunctionContext() : _impl(new palo::FunctionContextImpl(this)) {
+FunctionContext::FunctionContext() : _impl(new doris::FunctionContextImpl(this)) {
 }
 
 FunctionContext::~FunctionContext() {
@@ -230,7 +230,7 @@ FunctionContext::~FunctionContext() {
     delete _impl;
 }
 
-FunctionContext::PaloVersion FunctionContext::version() const {
+FunctionContext::DorisVersion FunctionContext::version() const {
     return _impl->_version;
 }
 
@@ -244,7 +244,7 @@ const char* FunctionContext::user() const {
 
 FunctionContext::UniqueId FunctionContext::query_id() const {
     UniqueId id;
-#if PALO_UDF_SDK_BUILD
+#if DORIS_UDF_SDK_BUILD
     id.hi = id.lo = 0;
 #else
     id.hi = _impl->_state->query_id().hi;
@@ -417,8 +417,8 @@ bool DecimalVal::operator==(const DecimalVal& other) const {
     }
 
     // TODO(lingbin): implement DecimalVal's own cmp method 
-    palo::DecimalValue value1 = palo::DecimalValue::from_decimal_val(*this);
-    palo::DecimalValue value2 = palo::DecimalValue::from_decimal_val(other);
+    doris::DecimalValue value1 = doris::DecimalValue::from_decimal_val(*this);
+    doris::DecimalValue value2 = doris::DecimalValue::from_decimal_val(other);
     return value1 == value2;
 }
 

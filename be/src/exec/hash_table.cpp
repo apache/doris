@@ -26,7 +26,7 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 
 using llvm::BasicBlock;
 using llvm::Value;
@@ -36,10 +36,10 @@ using llvm::PointerType;
 using llvm::LLVMContext;
 using llvm::PHINode;
 
-namespace palo {
+namespace doris {
 
 const float HashTable::MAX_BUCKET_OCCUPANCY_FRACTION = 0.75f;
-const char* HashTable::_s_llvm_class_name = "class.palo::HashTable";
+const char* HashTable::_s_llvm_class_name = "class.doris::HashTable";
 
 HashTable::HashTable(const vector<ExprContext*>& build_expr_ctxs,
                      const vector<ExprContext*>& probe_expr_ctxs,
@@ -78,8 +78,8 @@ HashTable::HashTable(const vector<ExprContext*>& build_expr_ctxs,
     memset(_nodes, 0, _nodes_capacity * _node_byte_size);
 
 #if 0
-    if (PaloMetrics::hash_table_total_bytes() != NULL) {
-        PaloMetrics::hash_table_total_bytes()->increment(_nodes_capacity * _node_byte_size);
+    if (DorisMetrics::hash_table_total_bytes() != NULL) {
+        DorisMetrics::hash_table_total_bytes()->increment(_nodes_capacity * _node_byte_size);
     }
 #endif
 
@@ -98,8 +98,8 @@ void HashTable::close() {
     delete[] _expr_value_null_bits;
     free(_nodes);
 #if 0
-    if (PaloMetrics::hash_table_total_bytes() != NULL) {
-        PaloMetrics::hash_table_total_bytes()->increment(-_nodes_capacity * _node_byte_size);
+    if (DorisMetrics::hash_table_total_bytes() != NULL) {
+        DorisMetrics::hash_table_total_bytes()->increment(-_nodes_capacity * _node_byte_size);
     }
 #endif
     _mem_tracker->release(_nodes_capacity * _node_byte_size);
@@ -270,8 +270,8 @@ void HashTable::grow_node_array() {
     _nodes = new_nodes; 
 
 #if 0
-    if (PaloMetrics::hash_table_total_bytes() != NULL) {
-        PaloMetrics::hash_table_total_bytes()->increment(new_size - old_size);
+    if (DorisMetrics::hash_table_total_bytes() != NULL) {
+        DorisMetrics::hash_table_total_bytes()->increment(new_size - old_size);
     }
 #endif
 
@@ -384,7 +384,7 @@ static void codegen_assign_null_value(
 //                        %"class.impala::TupleRow"* %row) {
 // entry:
 //   %null_ptr = alloca i1
-//   %0 = bitcast %"class.palo::TupleRow"* %row to i8**
+//   %0 = bitcast %"class.doris::TupleRow"* %row to i8**
 //   %eval = call i32 @SlotRef(i8** %0, i8* null, i1* %null_ptr)
 //   %1 = load i1* %null_ptr
 //   br i1 %1, label %null, label %not_null

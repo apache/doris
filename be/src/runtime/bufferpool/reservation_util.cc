@@ -19,7 +19,7 @@
 
 #include <algorithm>
 
-namespace palo {
+namespace doris {
 
 // Most operators that accumulate memory use reservations, so the majority of memory
 // should be allocated to buffer reservations, as a heuristic.

@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_OLAP_COMMON_H
-#define BDG_PALO_BE_SRC_OLAP_OLAP_COMMON_H
+#ifndef DORIS_BE_SRC_OLAP_OLAP_COMMON_H
+#define DORIS_BE_SRC_OLAP_OLAP_COMMON_H
 
 #include <netinet/in.h>
 
@@ -32,7 +32,7 @@
 #include "gen_cpp/Types_types.h" 
 #include "olap/olap_define.h"
 
-namespace palo {
+namespace doris {
 
 typedef int32_t SchemaHash;
 typedef int64_t VersionHash;
@@ -240,6 +240,6 @@ typedef std::set<uint32_t> UniqueIdSet;
 // Column unique Id -> column id map
 typedef std::map<ColumnId, ColumnId> UniqueIdToColumnIdMap;
 
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_OLAP_COMMON_H
+#endif // DORIS_BE_SRC_OLAP_OLAP_COMMON_H

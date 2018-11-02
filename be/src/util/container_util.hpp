@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON__UTIL_CONTAINER_UTIL_HPP
-#define BDG_PALO_BE_SRC_COMMON__UTIL_CONTAINER_UTIL_HPP
+#ifndef DORIS_BE_SRC_COMMON__UTIL_CONTAINER_UTIL_HPP
+#define DORIS_BE_SRC_COMMON__UTIL_CONTAINER_UTIL_HPP
 
 #include <map>
 #include <boost/unordered_map.hpp>
@@ -24,7 +24,7 @@
 #include "util/hash_util.hpp"
 #include "gen_cpp/Types_types.h"
 
-namespace palo {
+namespace doris {
 
 // Hash function for TNetworkAddress. This function must be called hash_value to be picked
 // up properly by boost.

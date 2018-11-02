@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_UDF_UDF_DEBUG_H
-#define BDG_PALO_BE_UDF_UDF_DEBUG_H
+#ifndef DORIS_BE_UDF_UDF_DEBUG_H
+#define DORIS_BE_UDF_UDF_DEBUG_H
 
 #include <string>
 #include <sstream>
 #include "udf/udf.h"
 
-namespace palo_udf {
+namespace doris_udf {
 
 template<typename T>
 std::string debug_string(const T& val) {

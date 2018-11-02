@@ -18,7 +18,7 @@
 #include "exec/local_file_writer.h"
 #include "util/error_util.h"
 
-namespace palo {
+namespace doris {
 
 LocalFileWriter::LocalFileWriter(const std::string& path, int64_t start_offset)
         : _path(path), _start_offset(start_offset), _fp(nullptr) {
@@ -75,4 +75,4 @@ void LocalFileWriter::close() {
     }
 }
 
-} // end namespace palo
+} // end namespace doris

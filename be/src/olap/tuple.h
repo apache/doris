@@ -20,7 +20,7 @@
 #include <string>
 #include <vector>
 
-namespace palo {
+namespace doris {
 
 class OlapTuple {
 public:

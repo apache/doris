@@ -33,7 +33,7 @@ using std::ifstream;
 using std::string;
 using std::vector;
 
-namespace palo {
+namespace doris {
 
 #define TABLE_PARAM_VALIDATE() \
     do { \

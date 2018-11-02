@@ -38,7 +38,7 @@
 #include "util/thrift_util.h"
 #include "util/runtime_profile.h"
 
-namespace palo {
+namespace doris {
 
 ExecEnv* FrontendHelper::_s_exec_env;
 

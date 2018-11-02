@@ -36,8 +36,8 @@ using llvm::Type;
 using llvm::Value;
 using llvm::BasicBlock;
 using llvm::LLVMContext;
-namespace palo {
-const char* HashJoinNode::_s_llvm_class_name = "class.palo::HashJoinNode";
+namespace doris {
+const char* HashJoinNode::_s_llvm_class_name = "class.doris::HashJoinNode";
 
 HashJoinNode::HashJoinNode(
         ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs) :

@@ -29,7 +29,7 @@
 
 using std::vector;
 
-namespace palo {
+namespace doris {
 
 // BatchedRowSupplier returns individual rows in a batch obtained from a sorted input
 // run (a RunBatchSupplier). Used as the heap element in the min heap maintained by the
@@ -198,4 +198,4 @@ Status SortedRunMerger::get_next(RowBatch* output_batch, bool* eos) {
     return Status::OK;
 }
 
-} // namespace palo
+} // namespace doris

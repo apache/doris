@@ -37,19 +37,19 @@ using std::list;
 using std::string;
 using std::vector;
 
-namespace palo {
+namespace doris {
 
     
 Pusher::Pusher(OLAPEngine* engine, const TPushReq& push_req) :
         _push_req(push_req), _engine(engine) {
-    _download_status = PALO_SUCCESS;
+    _download_status = DORIS_SUCCESS;
 }
 
 Pusher::~Pusher() {
 }
 
 AgentStatus Pusher::init() {
-    AgentStatus status = PALO_SUCCESS;
+    AgentStatus status = DORIS_SUCCESS;
 
     if (_is_init) {
         OLAP_LOG_DEBUG("has been inited");
@@ -64,11 +64,11 @@ AgentStatus Pusher::init() {
     if (olap_table.get() == NULL) {
         OLAP_LOG_WARNING("get tables failed. tablet_id: %ld, schema_hash: %ld",
                          _push_req.tablet_id, _push_req.schema_hash);
-        status = PALO_PUSH_INVALID_TABLE;
+        status = DORIS_PUSH_INVALID_TABLE;
     }
 
     // Empty remote_path
-    if (status == PALO_SUCCESS && !_push_req.__isset.http_file_path) {
+    if (status == DORIS_SUCCESS && !_push_req.__isset.http_file_path) {
         _is_init = true;
         return status;
     }
@@ -77,7 +77,7 @@ AgentStatus Pusher::init() {
     string remote_full_path;
     string tmp_file_dir;
 
-    if (status == PALO_SUCCESS) {
+    if (status == DORIS_SUCCESS) {
         remote_full_path = _push_req.http_file_path;
 
         // Get local download path
@@ -85,13 +85,13 @@ AgentStatus Pusher::init() {
         string root_path = olap_table->storage_root_path_name();
 
         status = _get_tmp_file_dir(root_path, &tmp_file_dir);
-        if (PALO_SUCCESS != status) {
+        if (DORIS_SUCCESS != status) {
             LOG(WARNING) << "get local path failed. tmp file dir: " << tmp_file_dir;
         }
     }
 
     // Set download param
-    if (status == PALO_SUCCESS) {
+    if (status == DORIS_SUCCESS) {
         string tmp_file_name;
         _get_file_name_from_path(_push_req.http_file_path, &tmp_file_name);
 
@@ -108,7 +108,7 @@ AgentStatus Pusher::init() {
 
 // Get replica root path
 AgentStatus Pusher::_get_tmp_file_dir(const string& root_path, string* download_path) {
-    AgentStatus status = PALO_SUCCESS;
+    AgentStatus status = DORIS_SUCCESS;
     *download_path = root_path + DPP_PREFIX;
 
     // Check path exist
@@ -120,7 +120,7 @@ AgentStatus Pusher::_get_tmp_file_dir(const string& root_path, string* download_
         boost::filesystem::create_directories(*download_path, error_code);
 
         if (0 != error_code) {
-            status = PALO_ERROR;
+            status = DORIS_ERROR;
             LOG(WARNING) << "create download dir failed.path: "
                          << *download_path << ", error code: " << error_code;
         }
@@ -132,7 +132,7 @@ AgentStatus Pusher::_get_tmp_file_dir(const string& root_path, string* download_
 AgentStatus Pusher::_download_file() {
     OLAP_LOG_INFO("begin download file. tablet=%d", _push_req.tablet_id);
     time_t start = time(NULL);
-    AgentStatus status = PALO_SUCCESS;
+    AgentStatus status = DORIS_SUCCESS;
 
     status = _file_downloader->download_file();
 
@@ -145,7 +145,7 @@ AgentStatus Pusher::_download_file() {
     if (_push_req.__isset.http_file_size) {
         rate = (double) _push_req.http_file_size / cost / 1024;
     }
-    if (status == PALO_SUCCESS) {
+    if (status == DORIS_SUCCESS) {
         OLAP_LOG_INFO("down load file success. local_file=%s, remote_file=%s, "
                       "tablet=%d, cost=%ld, file size: %ld B, download rate: %f KB/s",
                 _downloader_param.local_file_path.c_str(),
@@ -168,11 +168,11 @@ void Pusher::_get_file_name_from_path(const string& file_path, string* file_name
 }
 
 AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
-    AgentStatus status = PALO_SUCCESS;
+    AgentStatus status = DORIS_SUCCESS;
 
     if (!_is_init) {
         OLAP_LOG_WARNING("has not init yet. tablet_id: %d", _push_req.tablet_id);
-        return PALO_ERROR;
+        return DORIS_ERROR;
     }
 
     // Remote file not empty, need to download
@@ -201,7 +201,7 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
 
                 if (_push_req.timeout < now) {
                     OLAP_LOG_WARNING("push time out");
-                    status = PALO_PUSH_TIME_OUT;
+                    status = DORIS_PUSH_TIME_OUT;
                     break;
                 }
             }
@@ -229,7 +229,7 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
 #endif
 
             status = _download_status;
-            if (_push_req.__isset.http_file_size && status == PALO_SUCCESS) {
+            if (_push_req.__isset.http_file_size && status == DORIS_SUCCESS) {
                 // Check file size
                 boost::filesystem::path local_file_path(_downloader_param.local_file_path);
                 uint64_t local_file_size = boost::filesystem::file_size(local_file_path);
@@ -241,11 +241,11 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
                     OLAP_LOG_WARNING(
                             "download_file size error. file_size: %d, local_file_size: %d",
                             file_size, local_file_size);
-                    status = PALO_FILE_DOWNLOAD_FAILED;
+                    status = DORIS_FILE_DOWNLOAD_FAILED;
                 }
             }
             
-            if (status == PALO_SUCCESS) {
+            if (status == DORIS_SUCCESS) {
                 _push_req.http_file_path = _downloader_param.local_file_path;
                 break;
             }
@@ -255,16 +255,16 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
         }
     }
 
-    if (status == PALO_SUCCESS) {
+    if (status == DORIS_SUCCESS) {
         // Load delta file
         time_t push_begin = time(NULL);
         OLAPStatus push_status = _engine->push(_push_req, tablet_infos);
         time_t push_finish = time(NULL);
         OLAP_LOG_INFO("Push finish, cost time: %ld", push_finish - push_begin);
         if (push_status == OLAPStatus::OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
-            status = PALO_PUSH_HAD_LOADED;
+            status = DORIS_PUSH_HAD_LOADED;
         } else if (push_status != OLAPStatus::OLAP_SUCCESS) {
-            status = PALO_ERROR;
+            status = DORIS_ERROR;
         }
     }
 
@@ -279,4 +279,4 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
 
     return status;
 }
-} // namespace palo
+} // namespace doris

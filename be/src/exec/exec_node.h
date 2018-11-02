@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXEC_EXEC_NODE_H
-#define BDG_PALO_BE_SRC_QUERY_EXEC_EXEC_NODE_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_EXEC_NODE_H
+#define DORIS_BE_SRC_QUERY_EXEC_EXEC_NODE_H
 
 #include <sstream>
 #include <vector>
@@ -34,7 +34,7 @@ namespace llvm {
 class Function;
 }
 
-namespace palo {
+namespace doris {
 
 class Expr;
 class ExprContext;

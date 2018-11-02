@@ -28,7 +28,7 @@
 #include "runtime/decimal_value.h"
 #include "util/string_parser.hpp"
 
-namespace palo {
+namespace doris {
 
 const char* MathFunctions::_s_alphanumeric_chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -582,14 +582,14 @@ DecimalVal MathFunctions::negative_decimal(
 
 LEAST_FNS();
 
-#define LEAST_NONNUMERIC_FN(TYPE_NAME, TYPE, PALO_TYPE) \
+#define LEAST_NONNUMERIC_FN(TYPE_NAME, TYPE, DORIS_TYPE) \
     TYPE MathFunctions::least(\
             FunctionContext* ctx, int num_args, const TYPE* args) { \
         if (args[0].is_null) return TYPE::null(); \
-        PALO_TYPE result_val = PALO_TYPE::from_##TYPE_NAME(args[0]); \
+        DORIS_TYPE result_val = DORIS_TYPE::from_##TYPE_NAME(args[0]); \
         for (int i = 1; i < num_args; ++i) { \
             if (args[i].is_null) return TYPE::null(); \
-            PALO_TYPE val = PALO_TYPE::from_##TYPE_NAME(args[i]); \
+            DORIS_TYPE val = DORIS_TYPE::from_##TYPE_NAME(args[i]); \
             if (val < result_val) result_val = val; \
         } \
         TYPE result; \
@@ -627,14 +627,14 @@ LEAST_NONNUMERIC_FNS();
 
 GREATEST_FNS();
 
-#define GREATEST_NONNUMERIC_FN(TYPE_NAME, TYPE, PALO_TYPE) \
+#define GREATEST_NONNUMERIC_FN(TYPE_NAME, TYPE, DORIS_TYPE) \
     TYPE MathFunctions::greatest(\
             FunctionContext* ctx, int num_args, const TYPE* args) { \
         if (args[0].is_null) return TYPE::null(); \
-        PALO_TYPE result_val = PALO_TYPE::from_##TYPE_NAME(args[0]); \
+        DORIS_TYPE result_val = DORIS_TYPE::from_##TYPE_NAME(args[0]); \
         for (int i = 1; i < num_args; ++i) { \
             if (args[i].is_null) return TYPE::null(); \
-            PALO_TYPE val = PALO_TYPE::from_##TYPE_NAME(args[i]); \
+            DORIS_TYPE val = DORIS_TYPE::from_##TYPE_NAME(args[i]); \
             if (val > result_val) result_val = val; \
         } \
         TYPE result; \

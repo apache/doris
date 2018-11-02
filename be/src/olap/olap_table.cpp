@@ -53,7 +53,7 @@ using std::stringstream;
 using std::vector;
 using boost::filesystem::path;
 
-namespace palo {
+namespace doris {
 
 OLAPTablePtr OLAPTable::create_from_header_file(
         TTabletId tablet_id, TSchemaHash schema_hash,
@@ -2229,4 +2229,4 @@ OLAPStatus OLAPTable::test_version(const Version& version) {
     return res;
 }
 
-}  // namespace palo
+}  // namespace doris

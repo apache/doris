@@ -34,7 +34,7 @@ using llvm::PHINode;
 using llvm::PointerType;
 using llvm::Value;
 
-namespace palo {
+namespace doris {
 
 SlotRef::SlotRef(const TExprNode& node) :
         Expr(node, true),
@@ -138,9 +138,9 @@ std::string SlotRef::debug_string() const {
 // (Note: some of the GEPs that look like no-ops are because certain offsets are 0
 // in this slot descriptor.)
 //
-// define { i8, i64 } @get_slot_ref(i8** %context, %"class.palo::TupleRow"* %row) {
+// define { i8, i64 } @get_slot_ref(i8** %context, %"class.doris::TupleRow"* %row) {
 // entry:
-//   %cast_row_ptr = bitcast %"class.palo::TupleRow"* %row to i8**
+//   %cast_row_ptr = bitcast %"class.doris::TupleRow"* %row to i8**
 //   %tuple_addr = getelementptr i8** %cast_row_ptr, i32 0
 //   %tuple_ptr = load i8** %tuple_addr
 //   br label %check_slot_null

@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_EXEC_SPILL_SORT_NODE_H
-#define BDG_PALO_BE_SRC_EXEC_SPILL_SORT_NODE_H
+#ifndef DORIS_BE_SRC_EXEC_SPILL_SORT_NODE_H
+#define DORIS_BE_SRC_EXEC_SPILL_SORT_NODE_H
 
 #include "exec/exec_node.h"
 #include "exec/sort_exec_exprs.h"
 #include "runtime/spill_sorter.h"
 #include "runtime/buffered_block_mgr2.h"
 
-namespace palo {
+namespace doris {
 
 // Node that implements a full sort of its input with a fixed memory budget, spilling
 // to disk if the input is larger than available memory.
@@ -74,6 +74,6 @@ private:
     /////////////////////////////////////////
 };
 
-} // end namespace palo
+} // end namespace doris
 
-#endif // BDG_PALO_BE_SRC_EXEC_SPILL_SORT_NODE_H
+#endif // DORIS_BE_SRC_EXEC_SPILL_SORT_NODE_H

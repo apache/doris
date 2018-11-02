@@ -33,7 +33,7 @@
 
 #define TIMEZONE_DATABASE "be/files/date_time_zonespec.csv"
 
-namespace palo {
+namespace doris {
 
 boost::local_time::tz_database TimezoneDatabase::_s_tz_database;
 std::vector<std::string> TimezoneDatabase::_s_tz_region_list;
@@ -540,7 +540,7 @@ TimezoneDatabase::TimezoneDatabase() {
     // interface only loads this format from a file.  We don't want to raise
     // an error here since this is done when the backend is created and this
     // information might not actually get used by any queries.
-    char filestr[] = "/tmp/palo.tzdb.XXXXXXX";
+    char filestr[] = "/tmp/doris.tzdb.XXXXXXX";
     FILE* file = NULL;
     int fd = -1;
 

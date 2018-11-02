@@ -31,7 +31,7 @@ using namespace std;
 using namespace boost;
 using namespace llvm;
 
-namespace palo {
+namespace doris {
 
 class LlvmCodeGenTest : public testing::Test {
 private:
@@ -288,7 +288,7 @@ TEST_F(LlvmCodeGenTest, StringValue) {
     ObjectPool pool;
 
     scoped_ptr<LlvmCodeGen> codegen;
-    Status status = LlvmCodeGen::load_palo_ir(&pool, &codegen);
+    Status status = LlvmCodeGen::load_doris_ir(&pool, &codegen);
     EXPECT_TRUE(status.ok());
     EXPECT_TRUE(codegen.get() != NULL);
 
@@ -330,7 +330,7 @@ TEST_F(LlvmCodeGenTest, MemcpyTest) {
     ObjectPool pool;
 
     scoped_ptr<LlvmCodeGen> codegen;
-    Status status = LlvmCodeGen::load_palo_ir(&pool, &codegen);
+    Status status = LlvmCodeGen::load_doris_ir(&pool, &codegen);
     ASSERT_TRUE(status.ok());
     ASSERT_TRUE(codegen.get() != NULL);
 
@@ -372,7 +372,7 @@ TEST_F(LlvmCodeGenTest, HashTest) {
     const char* data2 = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
     scoped_ptr<LlvmCodeGen> codegen;
-    Status status = LlvmCodeGen::load_palo_ir(&pool, &codegen);
+    Status status = LlvmCodeGen::load_doris_ir(&pool, &codegen);
     ASSERT_TRUE(status.ok());
     ASSERT_TRUE(codegen.get() != NULL);
 
@@ -445,11 +445,11 @@ TEST_F(LlvmCodeGenTest, HashTest) {
 }
 
 int main(int argc, char** argv) {
-    palo::CpuInfo::Init();
-    palo::DiskInfo::Init();
-    palo::MemInfo::Init();
+    doris::CpuInfo::Init();
+    doris::DiskInfo::Init();
+    doris::MemInfo::Init();
     ::testing::InitGoogleTest(&argc, argv);
-    palo::LlvmCodeGen::initialize_llvm();
+    doris::LlvmCodeGen::initialize_llvm();
     return RUN_ALL_TESTS();
 }
 

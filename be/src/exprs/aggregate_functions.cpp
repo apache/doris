@@ -31,20 +31,20 @@
 // TODO: this file should be cross compiled and then all of the builtin
 // aggregate functions will have a codegen enabled path. Then we can remove
 // the custom code in aggregation node.
-namespace palo {
-using palo_udf::FunctionContext;
-using palo_udf::BooleanVal;
-using palo_udf::TinyIntVal;
-using palo_udf::SmallIntVal;
-using palo_udf::IntVal;
-using palo_udf::BigIntVal;
-using palo_udf::LargeIntVal;
-using palo_udf::FloatVal;
-using palo_udf::DoubleVal;
-using palo_udf::DecimalVal;
-using palo_udf::DateTimeVal;
-using palo_udf::StringVal;
-using palo_udf::AnyVal;
+namespace doris {
+using doris_udf::FunctionContext;
+using doris_udf::BooleanVal;
+using doris_udf::TinyIntVal;
+using doris_udf::SmallIntVal;
+using doris_udf::IntVal;
+using doris_udf::BigIntVal;
+using doris_udf::LargeIntVal;
+using doris_udf::FloatVal;
+using doris_udf::DoubleVal;
+using doris_udf::DecimalVal;
+using doris_udf::DateTimeVal;
+using doris_udf::StringVal;
+using doris_udf::AnyVal;
 
 // Delimiter to use if the separator is NULL.
 static const StringVal DEFAULT_STRING_CONCAT_DELIM((uint8_t*)", ", 2);
@@ -225,7 +225,7 @@ void AggregateFunctions::avg_remove(FunctionContext* ctx, const T& src, StringVa
     DCHECK_GE(avg->count, 0);
 }
 
-void AggregateFunctions::decimal_avg_remove(palo_udf::FunctionContext* ctx,
+void AggregateFunctions::decimal_avg_remove(doris_udf::FunctionContext* ctx,
         const DecimalVal& src,
         StringVal* dst) {
     // Remove doesn't need to explicitly check the number of calls to Update() or Remove()
@@ -1005,7 +1005,7 @@ void AggregateFunctions::hll_union_agg_merge(FunctionContext* ctx, const StringV
     }
 }
 
-palo_udf::StringVal AggregateFunctions::hll_union_agg_finalize(palo_udf::FunctionContext* ctx, 
+doris_udf::StringVal AggregateFunctions::hll_union_agg_finalize(doris_udf::FunctionContext* ctx, 
                                                                const StringVal& src) {
     double estimate = hll_algorithm(src);
     std::stringstream out;
@@ -1016,7 +1016,7 @@ palo_udf::StringVal AggregateFunctions::hll_union_agg_finalize(palo_udf::Functio
     return result_str;
 }
 
-int64_t AggregateFunctions::hll_algorithm(const palo_udf::StringVal& src) {
+int64_t AggregateFunctions::hll_algorithm(const doris_udf::StringVal& src) {
     DCHECK(!src.is_null);
     DCHECK_EQ(src.len, HLL_SETS_BYTES_NUM);
     
@@ -2019,28 +2019,28 @@ template void AggregateFunctions::sum_remove<DecimalVal, DecimalVal>(
 template void AggregateFunctions::sum_remove<LargeIntVal, LargeIntVal>(
     FunctionContext*, const LargeIntVal& src, LargeIntVal* dst);
 
-template void AggregateFunctions::avg_update<palo_udf::BooleanVal>(
-    palo_udf::FunctionContext*, palo_udf::BooleanVal const&, palo_udf::StringVal*);
-template void AggregateFunctions::avg_update<palo_udf::IntVal>(
-    palo_udf::FunctionContext*, palo_udf::IntVal const&, palo_udf::StringVal*);
-template void AggregateFunctions::avg_remove<palo_udf::IntVal>(
-    palo_udf::FunctionContext*, palo_udf::IntVal const&, palo_udf::StringVal*);
-template void AggregateFunctions::avg_update<palo_udf::BigIntVal>(
-    palo_udf::FunctionContext*, palo_udf::BigIntVal const&, palo_udf::StringVal*);
-template void AggregateFunctions::avg_remove<palo_udf::BigIntVal>(
-    palo_udf::FunctionContext*, palo_udf::BigIntVal const&, palo_udf::StringVal*);
-template void AggregateFunctions::avg_update<palo_udf::FloatVal>(
-    palo_udf::FunctionContext*, palo_udf::FloatVal const&, palo_udf::StringVal*);
-template void AggregateFunctions::avg_remove<palo_udf::FloatVal>(
-    palo_udf::FunctionContext*, palo_udf::FloatVal const&, palo_udf::StringVal*);
-template void AggregateFunctions::avg_update<palo_udf::DoubleVal>(
-    palo_udf::FunctionContext*, palo_udf::DoubleVal const&, palo_udf::StringVal*);
-template void AggregateFunctions::avg_remove<palo_udf::DoubleVal>(
-    palo_udf::FunctionContext*, palo_udf::DoubleVal const&, palo_udf::StringVal*);
-//template void AggregateFunctions::AvgUpdate<palo_udf::LargeIntVal>(
-//palo_udf::FunctionContext*, palo_udf::LargeIntVal const&, palo_udf::StringVal*);
-//template void AggregateFunctions::AvgRemove<palo_udf::LargeIntVal>(
-//palo_udf::FunctionContext*, palo_udf::LargeIntVal const&, palo_udf::StringVal*);
+template void AggregateFunctions::avg_update<doris_udf::BooleanVal>(
+    doris_udf::FunctionContext*, doris_udf::BooleanVal const&, doris_udf::StringVal*);
+template void AggregateFunctions::avg_update<doris_udf::IntVal>(
+    doris_udf::FunctionContext*, doris_udf::IntVal const&, doris_udf::StringVal*);
+template void AggregateFunctions::avg_remove<doris_udf::IntVal>(
+    doris_udf::FunctionContext*, doris_udf::IntVal const&, doris_udf::StringVal*);
+template void AggregateFunctions::avg_update<doris_udf::BigIntVal>(
+    doris_udf::FunctionContext*, doris_udf::BigIntVal const&, doris_udf::StringVal*);
+template void AggregateFunctions::avg_remove<doris_udf::BigIntVal>(
+    doris_udf::FunctionContext*, doris_udf::BigIntVal const&, doris_udf::StringVal*);
+template void AggregateFunctions::avg_update<doris_udf::FloatVal>(
+    doris_udf::FunctionContext*, doris_udf::FloatVal const&, doris_udf::StringVal*);
+template void AggregateFunctions::avg_remove<doris_udf::FloatVal>(
+    doris_udf::FunctionContext*, doris_udf::FloatVal const&, doris_udf::StringVal*);
+template void AggregateFunctions::avg_update<doris_udf::DoubleVal>(
+    doris_udf::FunctionContext*, doris_udf::DoubleVal const&, doris_udf::StringVal*);
+template void AggregateFunctions::avg_remove<doris_udf::DoubleVal>(
+    doris_udf::FunctionContext*, doris_udf::DoubleVal const&, doris_udf::StringVal*);
+//template void AggregateFunctions::AvgUpdate<doris_udf::LargeIntVal>(
+//doris_udf::FunctionContext*, doris_udf::LargeIntVal const&, doris_udf::StringVal*);
+//template void AggregateFunctions::AvgRemove<doris_udf::LargeIntVal>(
+//doris_udf::FunctionContext*, doris_udf::LargeIntVal const&, doris_udf::StringVal*);
 
 template void AggregateFunctions::sum<BooleanVal, BigIntVal>(
     FunctionContext*, const BooleanVal& src, BigIntVal* dst);
@@ -2074,16 +2074,16 @@ template void AggregateFunctions::min<DoubleVal>(
 template void AggregateFunctions::min<StringVal>(
     FunctionContext*, const StringVal& src, StringVal* dst);
 
-template void AggregateFunctions::avg_remove<palo_udf::BooleanVal>(
-    palo_udf::FunctionContext*, palo_udf::BooleanVal const&, palo_udf::StringVal*);
-template void AggregateFunctions::avg_update<palo_udf::TinyIntVal>(
-    palo_udf::FunctionContext*, palo_udf::TinyIntVal const&, palo_udf::StringVal*);
-template void AggregateFunctions::avg_remove<palo_udf::TinyIntVal>(
-    palo_udf::FunctionContext*, palo_udf::TinyIntVal const&, palo_udf::StringVal*);
-template void AggregateFunctions::avg_update<palo_udf::SmallIntVal>(
-    palo_udf::FunctionContext*, palo_udf::SmallIntVal const&, palo_udf::StringVal*);
-template void AggregateFunctions::avg_remove<palo_udf::SmallIntVal>(
-    palo_udf::FunctionContext*, palo_udf::SmallIntVal const&, palo_udf::StringVal*);
+template void AggregateFunctions::avg_remove<doris_udf::BooleanVal>(
+    doris_udf::FunctionContext*, doris_udf::BooleanVal const&, doris_udf::StringVal*);
+template void AggregateFunctions::avg_update<doris_udf::TinyIntVal>(
+    doris_udf::FunctionContext*, doris_udf::TinyIntVal const&, doris_udf::StringVal*);
+template void AggregateFunctions::avg_remove<doris_udf::TinyIntVal>(
+    doris_udf::FunctionContext*, doris_udf::TinyIntVal const&, doris_udf::StringVal*);
+template void AggregateFunctions::avg_update<doris_udf::SmallIntVal>(
+    doris_udf::FunctionContext*, doris_udf::SmallIntVal const&, doris_udf::StringVal*);
+template void AggregateFunctions::avg_remove<doris_udf::SmallIntVal>(
+    doris_udf::FunctionContext*, doris_udf::SmallIntVal const&, doris_udf::StringVal*);
 
 template void AggregateFunctions::max<BooleanVal>(
     FunctionContext*, const BooleanVal& src, BooleanVal* dst);
@@ -2309,9 +2309,9 @@ template void AggregateFunctions::first_val_rewrite_update<DecimalVal>(
 
 
 //template void AggregateFunctions::FirstValUpdate<impala::StringValue>(
-//    palo_udf::FunctionContext*, impala::StringValue const&, impala::StringValue*);
-template void AggregateFunctions::first_val_update<palo_udf::DecimalVal>(
-    palo_udf::FunctionContext*, palo_udf::DecimalVal const&, palo_udf::DecimalVal*);
+//    doris_udf::FunctionContext*, impala::StringValue const&, impala::StringValue*);
+template void AggregateFunctions::first_val_update<doris_udf::DecimalVal>(
+    doris_udf::FunctionContext*, doris_udf::DecimalVal const&, doris_udf::DecimalVal*);
 
 template void AggregateFunctions::last_val_update<BooleanVal>(
     FunctionContext*, const BooleanVal& src, BooleanVal* dst);

@@ -17,7 +17,7 @@
 
 #include "exec/local_file_reader.h"
 
-namespace palo {
+namespace doris {
 
 LocalFileReader::LocalFileReader(const std::string& path, int64_t start_offset) 
         : _path(path), _start_offset(start_offset), _eof(false), _fp(nullptr) {

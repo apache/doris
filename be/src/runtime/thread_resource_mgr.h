@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_THREAD_RESOURCE_MGR_H
-#define BDG_PALO_BE_RUNTIME_THREAD_RESOURCE_MGR_H
+#ifndef DORIS_BE_RUNTIME_THREAD_RESOURCE_MGR_H
+#define DORIS_BE_RUNTIME_THREAD_RESOURCE_MGR_H
 
 #include <stdlib.h>
 
@@ -30,7 +30,7 @@
 
 #include "common/status.h"
 
-namespace palo {
+namespace doris {
 
 // Singleton object to manage CPU (aka thread) resources for the process.
 // Conceptually, there is a fixed pool of threads that are shared between

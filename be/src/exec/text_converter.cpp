@@ -25,7 +25,7 @@
 #include "text_converter.h"
 #include "util/string_parser.hpp"
 
-namespace palo {
+namespace doris {
 
 TextConverter::TextConverter(char escape_char)
     : _escape_char(escape_char) {

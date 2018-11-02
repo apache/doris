@@ -41,7 +41,7 @@
 #define ARITHMETIC_RIGHT_SHIFT 1
 #include <thrift/protocol/TCompactProtocol.h>
 
-namespace palo {
+namespace doris {
 
 ThriftSerializer::ThriftSerializer(bool compact, int initial_buffer_size) :
         _mem_buffer(new apache::thrift::transport::TMemoryBuffer(initial_buffer_size)) {

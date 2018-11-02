@@ -22,7 +22,7 @@
 #include "common/logging.h"
 #include "gen_cpp/Types_types.h"
 
-namespace palo {
+namespace doris {
 
 static pthread_key_t s_resource_key;
 static bool s_is_init = false;

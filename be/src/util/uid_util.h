@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_UTIL_UID_UTIL_H
-#define BDG_PALO_BE_SRC_UTIL_UID_UTIL_H
+#ifndef DORIS_BE_SRC_UTIL_UID_UTIL_H
+#define DORIS_BE_SRC_UTIL_UID_UTIL_H
 
 #include <ostream>
 
@@ -30,7 +30,7 @@
 #include "util/debug_util.h"
 #include "util/hash_util.hpp"
 
-namespace palo {
+namespace doris {
 
 // convert int to a hex format string, buf must enough to hold coverted hex string
 template<typename T>
@@ -65,7 +65,7 @@ struct UniqueId {
     }
 
     size_t hash(size_t seed = 0) const {
-        return palo::HashUtil::hash(this, sizeof(*this), seed);
+        return doris::HashUtil::hash(this, sizeof(*this), seed);
     }
 
     bool operator==(const UniqueId& rhs) const {
@@ -88,7 +88,7 @@ struct UniqueId {
 };
 
 // This function must be called 'hash_value' to be picked up by boost.
-inline std::size_t hash_value(const palo::TUniqueId& id) {
+inline std::size_t hash_value(const doris::TUniqueId& id) {
     std::size_t seed = 0;
     boost::hash_combine(seed, id.lo);
     boost::hash_combine(seed, id.hi);
@@ -111,18 +111,18 @@ inline TUniqueId generate_uuid() {
 
 std::ostream& operator<<(std::ostream& os, const UniqueId& uid);
 
-} // namespace palo
+} // namespace doris
 
 namespace std {
 
 template<>
-struct hash<palo::UniqueId> {
-    size_t operator()(const palo::UniqueId& uid) const {
+struct hash<doris::UniqueId> {
+    size_t operator()(const doris::UniqueId& uid) const {
         return uid.hash();
     }
 };
 
 }
 
-#endif // BDG_PALO_BE_SRC_UTIL_UID_UTIL_H
+#endif // DORIS_BE_SRC_UTIL_UID_UTIL_H
 

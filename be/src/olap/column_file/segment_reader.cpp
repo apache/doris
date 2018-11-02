@@ -28,7 +28,7 @@
 #include "olap/row_block.h"
 #include "olap/rowset.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 static const uint32_t MIN_FILTER_BLOCK_NUM = 10;
@@ -953,4 +953,4 @@ OLAPStatus SegmentReader::_load_to_vectorized_row_batch(
 }
 
 }  // namespace column_file
-}  //unamespace palo
+}  //unamespace doris

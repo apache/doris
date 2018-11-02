@@ -23,7 +23,7 @@
 #include "olap/utils.h"
 
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 SegmentWriter::SegmentWriter(
@@ -277,4 +277,4 @@ OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris

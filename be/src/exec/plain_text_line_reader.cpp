@@ -30,7 +30,7 @@
 // #define OUTPUT_CHUNK (32)
 // leave these 2 size small for debuging
 
-namespace palo {
+namespace doris {
 
 PlainTextLineReader::PlainTextLineReader(
         RuntimeProfile* profile,

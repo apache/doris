@@ -17,7 +17,7 @@
 
 #include "olap/column_file/bloom_filter_reader.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 BloomFilterIndexReader::~BloomFilterIndexReader() {
@@ -66,4 +66,4 @@ size_t BloomFilterIndexReader::entry_count() {
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris

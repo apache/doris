@@ -25,7 +25,7 @@
 
 #include "olap/utils.h"
 
-namespace palo {
+namespace doris {
 
 // compatible with old multi path configuration:
 // /path1,2014;/path2,2048

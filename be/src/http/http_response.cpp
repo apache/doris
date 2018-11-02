@@ -17,7 +17,7 @@
 
 #include "http/http_response.h"
 
-namespace palo {
+namespace doris {
 
 static std::string s_text_content_type = "text/plain; charset=UTF-8";
 

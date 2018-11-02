@@ -29,7 +29,7 @@
 #include "util/logging.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 class CsvScanNodeBenchTest : public testing::Test {
 public:
@@ -330,16 +330,16 @@ TEST_F(CsvScanNodeBenchTest, NormalUse) {
     }
 }
 
-} // end namespace palo
+} // end namespace doris
 
 int main(int argc, char** argv) {
     ProfilerStart("profile_scan_bench");
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!palo::config::init(conffile.c_str(), false)) {
+    // if (!doris::config::init(conffile.c_str(), false)) {
     //     fprintf(stderr, "error read config file. \n");
     //     return -1;
     // }
-    palo::init_glog("be-test");
+    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
 
     RUN_ALL_TESTS();

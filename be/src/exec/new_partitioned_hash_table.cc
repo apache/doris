@@ -32,17 +32,17 @@
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "util/debug_util.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 
 #include "common/names.h"
 
-using namespace palo;
+using namespace doris;
 // using namespace llvm;
 using namespace strings;
 
 // DEFINE_bool(enable_quadratic_probing, true, "Enable quadratic probing hash table");
 
-const char* NewPartitionedHashTableCtx::LLVM_CLASS_NAME = "class.palo::NewPartitionedHashTableCtx";
+const char* NewPartitionedHashTableCtx::LLVM_CLASS_NAME = "class.doris::NewPartitionedHashTableCtx";
 
 // Random primes to multiply the seed with.
 static uint32_t SEED_PRIMES[] = {
@@ -471,8 +471,8 @@ void NewPartitionedHashTable::Close() {
   if ((num_buckets_ > LARGE_HT) || (num_probes_ > HEAVILY_USED)) VLOG(2) << PrintStats();
   for (auto& data_page : data_pages_) allocator_->Free(move(data_page));
   data_pages_.clear();
-  //if (PaloMetrics::hash_table_total_bytes() != NULL) {
-  //  PaloMetrics::hash_table_total_bytes()->increment(-total_data_page_size_);
+  //if (DorisMetrics::hash_table_total_bytes() != NULL) {
+  //  DorisMetrics::hash_table_total_bytes()->increment(-total_data_page_size_);
   //}
   if (bucket_allocation_ != nullptr) allocator_->Free(move(bucket_allocation_));
 }
@@ -551,7 +551,7 @@ bool NewPartitionedHashTable::GrowNodeArray(Status* status) {
   if (!status->ok() || allocation == nullptr) return false;
   next_node_ = reinterpret_cast<DuplicateNode*>(allocation->data());
   data_pages_.push_back(std::move(allocation));
-  //PaloMetrics::hash_table_total_bytes()->increment(DATA_PAGE_SIZE);
+  //DorisMetrics::hash_table_total_bytes()->increment(DATA_PAGE_SIZE);
   node_remaining_current_page_ = DATA_PAGE_SIZE / sizeof(DuplicateNode);
   total_data_page_size_ += DATA_PAGE_SIZE;
   return true;

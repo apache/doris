@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef INF_PALO_QE_SRC_BE_RUNTIME_BUFFERED_TUPLE_STREAM_H
-#define INF_PALO_QE_SRC_BE_RUNTIME_BUFFERED_TUPLE_STREAM_H
+#ifndef INF_DORIS_QE_SRC_BE_RUNTIME_BUFFERED_TUPLE_STREAM_H
+#define INF_DORIS_QE_SRC_BE_RUNTIME_BUFFERED_TUPLE_STREAM_H
 
 #include "common/status.h"
 #include "runtime/buffered_block_mgr.h"
 #include <boost/scoped_ptr.hpp>
 #include "util/runtime_profile.h"
 
-namespace palo {
+namespace doris {
 
 class BufferedBlockMgr;
 class RuntimeProfile;

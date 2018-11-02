@@ -32,13 +32,13 @@
 #include "olap/utils.h"
 #include "json2pb/pb_to_json.h"
 
-using palo::OlapStore;
-using palo::OlapMeta;
-using palo::OlapHeaderManager;
-using palo::OLAPHeader;
-using palo::OLAPStatus;
-using palo::OLAP_SUCCESS;
-using palo::Status;
+using doris::OlapStore;
+using doris::OlapMeta;
+using doris::OlapHeaderManager;
+using doris::OLAPHeader;
+using doris::OLAPStatus;
+using doris::OLAP_SUCCESS;
+using doris::Status;
 
 const std::string HEADER_PREFIX = "hdr_";
 
@@ -97,7 +97,7 @@ int main(int argc, char** argv) {
     if (FLAGS_operation == "get_header") {
         std::string value;
         OLAPStatus s = OlapHeaderManager::get_json_header(store.get(), FLAGS_tablet_id, FLAGS_schema_hash, &value);
-        if (s == palo::OLAP_ERR_META_KEY_NOT_FOUND) {
+        if (s == doris::OLAP_ERR_META_KEY_NOT_FOUND) {
             std::cout << "no header for tablet_id:" << FLAGS_tablet_id
                     << " schema_hash:" << FLAGS_schema_hash;
             return 0;

@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  BDG_PALO_BE_SRC_QUERY_MYSQL_MYSQL_GLOBAL_H
-#define  BDG_PALO_BE_SRC_QUERY_MYSQL_MYSQL_GLOBAL_H
+#ifndef  DORIS_BE_SRC_QUERY_MYSQL_MYSQL_GLOBAL_H
+#define  DORIS_BE_SRC_QUERY_MYSQL_MYSQL_GLOBAL_H
 
 #include <stdint.h>
 #include <float.h>
 
-namespace palo {
+namespace doris {
 
 typedef unsigned char uchar;
 
@@ -54,5 +54,5 @@ typedef unsigned char uchar;
 /* -[digits].[frac] */
 #define MAX_DECIMAL_STR_LENGTH   29
 
-#endif  //_PALO_BE_SRC_QUERY_MYSQL_MYSQL_GLOBAL_H_
+#endif  //_DORIS_BE_SRC_QUERY_MYSQL_MYSQL_GLOBAL_H_
 }

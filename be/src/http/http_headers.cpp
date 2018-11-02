@@ -17,7 +17,7 @@
 
 #include "http/http_headers.h"
 
-namespace palo {
+namespace doris {
 
 const char* HttpHeaders::ACCEPT = "Accept";
 const char* HttpHeaders::ACCEPT_CHARSET = "Accept-Charset";

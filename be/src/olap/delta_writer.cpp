@@ -20,7 +20,7 @@
 #include "olap/schema.h"
 #include "olap/rowset.h"
 
-namespace palo {
+namespace doris {
 
 OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
     *writer = new DeltaWriter(req);
@@ -225,4 +225,4 @@ OLAPStatus DeltaWriter::cancel() {
     return OLAP_SUCCESS;
 }
 
-}  // namespace palo
+}  // namespace doris
