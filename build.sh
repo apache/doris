@@ -178,7 +178,7 @@ if [ ${BUILD_BE} -eq 1 ]; then
 fi
 
 echo "***************************************"
-echo "Successfully build Palo."
+echo "Successfully build Doris"
 echo "***************************************"
 
 if [[ ! -z ${DORIS_POST_BUILD_HOOK} ]]; then
