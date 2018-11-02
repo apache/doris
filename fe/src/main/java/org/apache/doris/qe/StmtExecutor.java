@@ -17,6 +17,10 @@
 
 package org.apache.doris.qe;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.DdlStmt;
@@ -65,11 +69,6 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TabletCommitInfo;
-
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -505,7 +504,10 @@ public class StmtExecutor {
             context.setKilled();
         } else {
             // Check auth
-            if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            // Only user itself and user with admin priv can kill connection
+            if (!killCtx.getQualifiedUser().equals(ConnectContext.get().getQualifiedUser())
+                    && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
+                                                                              PrivPredicate.ADMIN)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, id);
             }
 
