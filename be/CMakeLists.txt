@@ -458,7 +458,6 @@ set(DORIS_LINK_LIBS
     DorisGen
     Webserver
     TestUtil
-    AES
     ${WL_END_GROUP}
 )
 
@@ -557,7 +556,6 @@ add_subdirectory(${SRC_DIR}/exprs)
 add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/testutil)
-add_subdirectory(${SRC_DIR}/aes)
 add_subdirectory(${SRC_DIR}/tools)
 
 # Utility CMake function to make specifying tests and benchmarks less verbose
