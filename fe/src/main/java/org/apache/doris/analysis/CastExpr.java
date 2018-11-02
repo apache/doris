@@ -140,7 +140,7 @@ public class CastExpr extends Expr {
                 if (toType.getPrimitiveType() == PrimitiveType.DATE) {
                     typeName = "date_val";
                 }
-                String beSymbol = "palo::" + beClass + "::cast_to_"
+                String beSymbol = "doris::" + beClass + "::cast_to_"
                         + typeName;
                 functionSet.addBuiltin(ScalarFunction.createBuiltin(getFnName(toType),
                         Lists.newArrayList(fromType), false, toType, beSymbol, null, null, true));

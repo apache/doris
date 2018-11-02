@@ -114,7 +114,7 @@ cc_registry_preamble = '\
 using namespace boost::posix_time;\n\
 using namespace boost::gregorian;\n\
 \n\
-namespace palo {\n\
+namespace doris {\n\
 \n\
 void OpcodeRegistry::init() {\n'
 
