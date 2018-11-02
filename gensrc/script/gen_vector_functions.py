@@ -397,7 +397,7 @@ cc_preamble = '\
 using namespace boost;\n\
 using namespace std;\n\
 \n\
-namespace palo { \n\
+namespace doris { \n\
 \n'
 
 cc_epilogue = '\
@@ -407,10 +407,10 @@ h_preamble = '\
 // This is a generated file, DO NOT EDIT IT.\n\
 // To add new functions, see impala/common/function-registry/gen_vector_functions.py\n\
 \n\
-#ifndef BDG_PALO_OPCODE_VECTOR_FUNCTIONS_H\n\
-#define BDG_PALO_OPCODE_VECTOR_FUNCTIONS_H\n\
+#ifndef DORIS_OPCODE_VECTOR_FUNCTIONS_H\n\
+#define DORIS_OPCODE_VECTOR_FUNCTIONS_H\n\
 \n\
-namespace palo {\n\
+namespace doris {\n\
 class Expr;\n\
 class OpcodeRegistry;\n\
 class VectorizedRowBatch;\n\

@@ -143,7 +143,7 @@ cat >"${GEN_CPP_DIR}/version.h" <<EOF
 #ifndef PALO_GEN_CPP_VERSION_H
 #define PALO_GEN_CPP_VERSION_H
 
-namespace palo {
+namespace doris {
 
 #define PALO_BUILD_VERSION "${build_version}"
 #define PALO_BUILD_HASH    "${build_hash}"
