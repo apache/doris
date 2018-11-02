@@ -17,7 +17,7 @@
 
 #include <stdint.h>
 
-namespace palo {
+namespace doris {
 
 enum AesMode {
     AES_128_ECB,

@@ -23,7 +23,7 @@
 
 #include "exprs/base64.h"
 
-namespace palo {
+namespace doris {
 
 class AesUtilTest : public testing::Test {
 public:
