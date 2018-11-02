@@ -233,7 +233,6 @@ public class InsertStmt extends DdlStmt {
                 sink.init(loadId, transactionId, db.getId());
             }
         }
-        LOG.info("analyzer is {}", analyzer.getDescTbl().debugString());
     }
 
     private void analyzeTargetTable(Analyzer analyzer) throws AnalysisException {
