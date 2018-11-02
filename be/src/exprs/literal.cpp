@@ -30,7 +30,7 @@ using llvm::Function;
 using llvm::Type;
 using llvm::Value;
 
-namespace palo {
+namespace doris {
 
 Literal::Literal(const TExprNode& node) : 
         Expr(node) {
@@ -170,7 +170,7 @@ StringVal Literal::get_string_val(ExprContext* context, TupleRow* row) {
 
 // IR produced for bigint literal 10:
 //
-// define { i8, i64 } @Literal(i8* %context, %"class.palo::TupleRow"* %row) {
+// define { i8, i64 } @Literal(i8* %context, %"class.doris::TupleRow"* %row) {
 // entry:
 //   ret { i8, i64 } { i8 0, i64 10 }
 // }

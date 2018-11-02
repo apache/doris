@@ -25,7 +25,7 @@ namespace brpc {
 class Server;
 }
 
-namespace palo {
+namespace doris {
 
 class ExecEnv;
 

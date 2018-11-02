@@ -28,7 +28,7 @@
 #include "util/mem_info.h"
 #include "util/network_util.h"
 #include "util/thrift_util.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
@@ -50,9 +50,9 @@
 #include "exprs/hll_hash_function.h"
 #include "olap/options.h"
 
-namespace palo {
+namespace doris {
 
-bool k_palo_exit = false;
+bool k_doris_exit = false;
 
 void* tcmalloc_gc_thread(void* dummy) {
     while (1) {
@@ -105,7 +105,7 @@ void* memory_maintenance_thread(void* dummy) {
     return NULL;
 }
 
-static void init_palo_metrics(const std::vector<StorePath>& store_paths) {
+static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     bool init_system_metrics = config::enable_system_metrics;
     std::set<std::string> disk_devices;
     std::vector<std::string> network_interfaces;
@@ -125,12 +125,12 @@ static void init_palo_metrics(const std::vector<StorePath>& store_paths) {
             return;
         }
     }
-    PaloMetrics::instance()->initialize(
-        "palo_be", init_system_metrics, disk_devices, network_interfaces);
+    DorisMetrics::instance()->initialize(
+        "doris_be", init_system_metrics, disk_devices, network_interfaces);
 }
 
 void sigterm_handler(int signo) {
-    k_palo_exit = true;
+    k_doris_exit = true;
 }
 
 int install_signal(int signo, void(*handler)(int)) {
@@ -197,7 +197,7 @@ void init_daemon(int argc, char** argv, const std::vector<StorePath>& paths) {
     LOG(INFO) << CpuInfo::debug_string();
     LOG(INFO) << DiskInfo::debug_string();
     LOG(INFO) << MemInfo::debug_string();
-    init_palo_metrics(paths);
+    init_doris_metrics(paths);
     init_signals();
 }
 

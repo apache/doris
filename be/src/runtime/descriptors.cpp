@@ -31,7 +31,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "exprs/expr.h"
 
-namespace palo {
+namespace doris {
 using boost::algorithm::join;
 
 const int RowDescriptor::INVALID_IDX = -1;

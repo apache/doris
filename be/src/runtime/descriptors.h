@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_DESCRIPTORS_H
-#define BDG_PALO_BE_RUNTIME_DESCRIPTORS_H
+#ifndef DORIS_BE_RUNTIME_DESCRIPTORS_H
+#define DORIS_BE_RUNTIME_DESCRIPTORS_H
 
 #include <vector>
 #include <tr1/unordered_map>
@@ -40,7 +40,7 @@ class PointerType;
 class StructType;
 };
 
-namespace palo {
+namespace doris {
 
 class LlvmCodeGen;
 class ObjectPool;

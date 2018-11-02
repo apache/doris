@@ -24,7 +24,7 @@
 #include "common/logging.h"
 #include "util/cpu_info.h"
 
-namespace palo {
+namespace doris {
 
 ThreadResourceMgr::ThreadResourceMgr(int threads_quota) {
     DCHECK_GE(threads_quota, 0);

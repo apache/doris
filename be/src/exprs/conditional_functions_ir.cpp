@@ -19,7 +19,7 @@
 #include "exprs/conditional_functions.h"
 #include "udf/udf.h"
 
-namespace palo {
+namespace doris {
 
 #define IF_NULL_COMPUTE_FUNCTION(type, type_name) \
     type IfNullExpr::get_##type_name(ExprContext* context, TupleRow* row) { \

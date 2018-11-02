@@ -17,7 +17,7 @@
 
 #include "exec/read_write_util.h"
 
-namespace palo {
+namespace doris {
 
 int ReadWriteUtil::put_zint(int32_t integer, uint8_t* buf) {
     // Move the sign bit to the first bit.

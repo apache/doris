@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_UTIL_JSON_UTIL_H
-#define BDG_PALO_BE_SRC_UTIL_JSON_UTIL_H
+#ifndef DORIS_BE_SRC_UTIL_JSON_UTIL_H
+#define DORIS_BE_SRC_UTIL_JSON_UTIL_H
 
 #include <string>
 
@@ -27,7 +27,7 @@
 #include "util/pretty_printer.h"
 #include "util/template_util.h"
 
-namespace palo {
+namespace doris {
 
 /// ToJsonValue() converts 'value' into a rapidjson::Value in 'out_val'. The type of
 /// 'out_val' depends on the value of 'type'. If type != TUnit::NONE and 'value' is

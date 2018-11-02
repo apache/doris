@@ -30,7 +30,7 @@
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 namespace stream_load {
 
 Status k_add_batch_status;
@@ -249,8 +249,8 @@ public:
     virtual ~TestInternalService() { }
 
     void transmit_data(::google::protobuf::RpcController* controller,
-                       const ::palo::PTransmitDataParams* request,
-                       ::palo::PTransmitDataResult* response,
+                       const ::doris::PTransmitDataParams* request,
+                       ::doris::PTransmitDataResult* response,
                        ::google::protobuf::Closure* done) override {
         done->Run();
     }
@@ -923,7 +923,7 @@ TEST_F(OlapTableSinkTest, decimal) {
 }
 
 int main(int argc, char* argv[]) {
-    palo::CpuInfo::init();
+    doris::CpuInfo::init();
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

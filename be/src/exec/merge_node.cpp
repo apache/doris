@@ -25,7 +25,7 @@
 
 using std::vector;
 
-namespace palo {
+namespace doris {
 
 MergeNode::MergeNode(ObjectPool* pool, const TPlanNode& tnode,
                      const DescriptorTbl& descs) :

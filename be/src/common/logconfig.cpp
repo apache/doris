@@ -24,7 +24,7 @@
 #include <glog/vlog_is_on.h>
 #include "common/config.h"
 
-namespace palo {
+namespace doris {
 
 static bool logging_initialized = false;
 
@@ -147,4 +147,4 @@ void shutdown_logging() {
     google::ShutdownGoogleLogging();
 }
 
-} // namespace palo
+} // namespace doris

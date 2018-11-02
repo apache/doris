@@ -23,7 +23,7 @@
 #include "service/brpc.h"
 #include "service/internal_service.h"
 
-namespace palo {
+namespace doris {
 
 BRpcService::BRpcService(ExecEnv* exec_env)
         : _exec_env(exec_env),

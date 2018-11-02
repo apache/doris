@@ -21,7 +21,7 @@
 #include "util/runtime_profile.h"
 #include "runtime/mem_tracker.h"
 
-namespace palo {
+namespace doris {
 
 //BufferedBlockMgr::BlockMgrsMap BufferedBlockMgr::query_to_block_mgrs_;
 //SpinLock BufferedBlockMgr::static_block_mgrs_lock_;
@@ -92,4 +92,4 @@ Status BufferedBlockMgr::get_new_block(Block** block) {
     return get_new_block(block, _max_block_size);
 }
 
-} // namespace palo
+} // namespace doris

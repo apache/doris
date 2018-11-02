@@ -44,7 +44,7 @@ using std::string;
 using std::stringstream;
 using std::vector;
 
-namespace palo {
+namespace doris {
 
 bool version_entity_sorter(const VersionEntity& a, const VersionEntity& b) {
     if (a.version.first != b.version.first) {
@@ -2435,5 +2435,5 @@ OLAPStatus SchemaChange::create_init_version(
     return res;
 }
 
-}  // namespace palo
+}  // namespace doris
 

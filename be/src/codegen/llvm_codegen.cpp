@@ -45,8 +45,8 @@
 
 #include "common/logging.h"
 #include "codegen/subexpr_elimination.h"
-#include "codegen/palo_ir_data.h"
-#include "palo_ir/palo_ir_names.h"
+#include "codegen/doris_ir_data.h"
+#include "doris_ir/doris_ir_names.h"
 #include "util/cpu_info.h"
 #include "util/path_builder.h"
 
@@ -58,7 +58,7 @@ using llvm::PassManagerBuilder;
 using llvm::DataLayout;
 using llvm::FunctionPassManager;
 
-namespace palo {
+namespace doris {
 
 static std::mutex s_llvm_initialization_lock;
 static bool s_llvm_initialized = false;
@@ -172,7 +172,7 @@ Status LlvmCodeGen::load_module_from_memory(
     return Status::OK;
 }
 
-Status LlvmCodeGen::load_palo_ir(
+Status LlvmCodeGen::load_doris_ir(
         ObjectPool* pool, 
         const std::string& id,
         boost::scoped_ptr<LlvmCodeGen>* codegen_ret) {
@@ -182,13 +182,13 @@ Status LlvmCodeGen::load_palo_ir(
     llvm::StringRef module_ir;
     std::string module_name;
     if (CpuInfo::is_supported(CpuInfo::SSE4_2)) {
-        module_ir = llvm::StringRef(reinterpret_cast<const char*>(palo_sse_llvm_ir),
-                              palo_sse_llvm_ir_len);
-        module_name = "Palo IR with SSE support";
+        module_ir = llvm::StringRef(reinterpret_cast<const char*>(doris_sse_llvm_ir),
+                              doris_sse_llvm_ir_len);
+        module_name = "Doris IR with SSE support";
     } else {
-        module_ir = llvm::StringRef(reinterpret_cast<const char*>(palo_no_sse_llvm_ir),
-                              palo_no_sse_llvm_ir_len);
-        module_name = "Palo IR with no SSE support";
+        module_ir = llvm::StringRef(reinterpret_cast<const char*>(doris_no_sse_llvm_ir),
+                              doris_no_sse_llvm_ir_len);
+        module_name = "Doris IR with no SSE support";
     }
     boost::scoped_ptr<llvm::MemoryBuffer> module_ir_buf(
         llvm::MemoryBuffer::getMemBuffer(module_ir, "", false));
@@ -449,7 +449,7 @@ llvm::Function* LlvmCodeGen::get_function(IRFunction::Type function) {
 
 // There is an llvm bug (#10957) that causes the first step of the verifier to always
 // abort the process if it runs into an issue and ignores ReturnStatusAction.  This
-// would cause Palo to go down if one query has a problem.
+// would cause Doris to go down if one query has a problem.
 // To work around this, we will copy that step here and not abort on error.
 // TODO: doesn't seem there is much traction in getting this fixed but we'll see
 bool LlvmCodeGen::verify_function(llvm::Function* fn) {

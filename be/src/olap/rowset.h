@@ -37,7 +37,7 @@
 #include "olap/olap_index.h"
 #include "olap/utils.h"
 
-namespace palo {
+namespace doris {
 
 // Class for managing OLAP table indices
 // For fast key lookup, we maintain a sparse index for every data file. The

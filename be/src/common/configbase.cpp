@@ -26,7 +26,7 @@
 #include "common/config.h"
 #undef  __IN_CONFIGBASE_CPP__
 
-namespace palo {
+namespace doris {
 namespace config {
 
 std::list<Register::Field>* Register::_s_fieldlist = NULL;
@@ -272,4 +272,4 @@ bool init(const char* filename, bool fillconfmap) {
 }
 
 } // namespace config
-} // namespace palo
+} // namespace doris

@@ -27,7 +27,7 @@
 #include "runtime/exec_env.h"
 #include "util/thrift_util.h"
 
-namespace palo {
+namespace doris {
 
 BrokerWriter::BrokerWriter(
         ExecEnv* env,
@@ -55,7 +55,7 @@ inline BrokerServiceClientCache* client_cache(ExecEnv* env) {
 }
 
 inline const std::string& client_id(ExecEnv* env, const TNetworkAddress& addr) {
-    static std::string s_client_id = "palo_unit_test";
+    static std::string s_client_id = "doris_unit_test";
     return s_client_id;
 }
 #else
@@ -234,4 +234,4 @@ void BrokerWriter::close() {
     _is_closed = true;
 }
 
-} // end namespace palo
+} // end namespace doris

@@ -19,7 +19,7 @@
 
 #include <boost/algorithm/string.hpp>
 
-namespace palo {
+namespace doris {
     CsvScanner::CsvScanner(const std::vector<std::string>& csv_file_paths) :
             _is_open(false),
             _file_paths(csv_file_paths),
@@ -88,5 +88,5 @@ namespace palo {
         *eos = false;
         return Status::OK;
     }
-} // end namespace palo
+} // end namespace doris
 

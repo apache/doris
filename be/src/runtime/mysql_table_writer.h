@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_MYSQL_TABLE_WRITER_H
-#define BDG_PALO_BE_RUNTIME_MYSQL_TABLE_WRITER_H
+#ifndef DORIS_BE_RUNTIME_MYSQL_TABLE_WRITER_H
+#define DORIS_BE_RUNTIME_MYSQL_TABLE_WRITER_H
 
 #include <string>
 #include <vector>
@@ -24,7 +24,7 @@
 
 #include "common/status.h"
 
-namespace palo {
+namespace doris {
 
 struct MysqlConnInfo {
     std::string host;

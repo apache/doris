@@ -17,7 +17,7 @@
 
 #include "udf/udf_internal.h"
 
-namespace palo_udf {
+namespace doris_udf {
 bool FunctionContext::is_arg_constant(int i) const {
     if (i < 0 || i >= _impl->_constant_args.size()) {
         return false;

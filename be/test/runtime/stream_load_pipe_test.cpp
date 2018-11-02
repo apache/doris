@@ -21,7 +21,7 @@
 
 #include <thread>
 
-namespace palo {
+namespace doris {
 
 class StreamLoadPipeTest : public testing::Test {
 public:

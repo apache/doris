@@ -28,14 +28,14 @@
 #include "util/thrift_util.h"
 #include "util/thrift_server.h"
 #include "util/debug_util.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/pull_load_task_mgr.h"
 #include "runtime/export_task_mgr.h"
 #include "runtime/result_buffer_mgr.h"
 
-namespace palo {
+namespace doris {
 
 using apache::thrift::TException;
 using apache::thrift::TProcessor;
@@ -72,7 +72,7 @@ Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer*
                                exec_env->metrics(),
                                config::be_service_threads);
 
-    LOG(INFO) << "PaloInternalService listening on " << port;
+    LOG(INFO) << "DorisInternalService listening on " << port;
 
     return Status::OK;
 }
@@ -228,4 +228,4 @@ void BackendService::get_tablet_stat(TTabletStatResult& result) {
     OLAPEngine::get_instance()->get_tablet_stat(result);
 }
 
-} // namespace palo
+} // namespace doris

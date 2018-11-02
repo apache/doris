@@ -44,7 +44,7 @@
 
 using llvm::Function;
 
-namespace palo {
+namespace doris {
 
 #define DS_SUCCESS(x) ((x) >= 0)
 
@@ -56,7 +56,7 @@ OlapScanNode::OlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
         _tuple_idx(0),
         _eos(false),
         _scanner_pool(new ObjectPool()),
-        _max_materialized_row_batches(config::palo_scanner_queue_size),
+        _max_materialized_row_batches(config::doris_scanner_queue_size),
         _start(false),
         _scanner_done(false),
         _transfer_done(false),
@@ -350,12 +350,12 @@ Status OlapScanNode::close(RuntimeState* state) {
 Status OlapScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
     for (auto& scan_range : scan_ranges) {
         DCHECK(scan_range.scan_range.__isset.palo_scan_range);
-        boost::shared_ptr<PaloScanRange> palo_scan_range(
-            new PaloScanRange(scan_range.scan_range.palo_scan_range));
-        RETURN_IF_ERROR(palo_scan_range->init());
-        VLOG(1) << "palo_scan_range table=" << scan_range.scan_range.palo_scan_range.table_name <<
+        boost::shared_ptr<DorisScanRange> doris_scan_range(
+            new DorisScanRange(scan_range.scan_range.palo_scan_range));
+        RETURN_IF_ERROR(doris_scan_range->init());
+        VLOG(1) << "doris_scan_range table=" << scan_range.scan_range.palo_scan_range.table_name <<
                 " version" << scan_range.scan_range.palo_scan_range.version;
-        _palo_scan_ranges.push_back(palo_scan_range);
+        _doris_scan_ranges.push_back(doris_scan_range);
         COUNTER_UPDATE(_tablet_counter, 1);
     }
 
@@ -516,10 +516,10 @@ Status OlapScanNode::build_olap_filters() {
 
 Status OlapScanNode::select_scan_ranges() {
 
-    std::list<boost::shared_ptr<PaloScanRange> >::iterator scan_range_iter
-        = _palo_scan_ranges.begin();
+    std::list<boost::shared_ptr<DorisScanRange> >::iterator scan_range_iter
+        = _doris_scan_ranges.begin();
 
-    while (scan_range_iter != _palo_scan_ranges.end()) {
+    while (scan_range_iter != _doris_scan_ranges.end()) {
         if (!select_scan_range(*scan_range_iter)) {
             if ((*scan_range_iter)->scan_range().partition_column_ranges.size() != 0) {
                 VLOG(1) << "Remove ScanRange: ["
@@ -529,7 +529,7 @@ Status OlapScanNode::select_scan_ranges() {
                 VLOG(1) << "Remove ScanRange";
             }
 
-            _palo_scan_ranges.erase(scan_range_iter++);
+            _doris_scan_ranges.erase(scan_range_iter++);
         } else {
             scan_range_iter++;
         }
@@ -566,9 +566,9 @@ Status OlapScanNode::build_scan_key() {
 
 Status OlapScanNode::split_scan_range() {
     std::vector<OlapScanRange> sub_ranges;
-    VLOG(1) << "_palo_scan_ranges.size()=" << _palo_scan_ranges.size();
+    VLOG(1) << "_doris_scan_ranges.size()=" << _doris_scan_ranges.size();
 
-    for (auto scan_range : _palo_scan_ranges) {
+    for (auto scan_range : _doris_scan_ranges) {
         sub_ranges.clear();
         RETURN_IF_ERROR(get_sub_scan_range(scan_range, &sub_ranges));
 
@@ -605,7 +605,7 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
 
     // scan range per therad
     for (int i = 0; i < key_range_size;) {
-        boost::shared_ptr<PaloScanRange> scan_range = _query_scan_ranges[i];
+        boost::shared_ptr<DorisScanRange> scan_range = _query_scan_ranges[i];
         std::vector<OlapScanRange> key_ranges;
         key_ranges.push_back(_query_key_ranges[i]);
         ++i;
@@ -700,9 +700,9 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
                         << pred->hybird_set()->size();
 
                 // 1.2 Skip if InPredicate value size larger then max_scan_key_num
-                if (pred->hybird_set()->size() > config::palo_max_scan_key_num) {
+                if (pred->hybird_set()->size() > config::doris_max_scan_key_num) {
                     LOG(WARNING) << "Predicate value num " << pred->hybird_set()->size()
-                                 << " excede limit " << config::palo_max_scan_key_num;
+                                 << " excede limit " << config::doris_max_scan_key_num;
                     continue;
                 }
 
@@ -940,7 +940,7 @@ Status OlapScanNode::normalize_binary_predicate(SlotDescriptor* slot, ColumnValu
     return Status::OK;
 }
 
-bool OlapScanNode::select_scan_range(boost::shared_ptr<PaloScanRange> scan_range) {
+bool OlapScanNode::select_scan_range(boost::shared_ptr<DorisScanRange> scan_range) {
     std::map<std::string, ColumnValueRangeType>::iterator iter
         = _column_value_ranges.begin();
 
@@ -958,7 +958,7 @@ bool OlapScanNode::select_scan_range(boost::shared_ptr<PaloScanRange> scan_range
 }
 
 Status OlapScanNode::get_sub_scan_range(
-        boost::shared_ptr<PaloScanRange> scan_range,
+        boost::shared_ptr<DorisScanRange> scan_range,
         std::vector<OlapScanRange>* sub_range) {
     std::vector<OlapScanRange> scan_key_range;
     RETURN_IF_ERROR(_scan_keys.get_key_range(&scan_key_range));
@@ -973,7 +973,7 @@ Status OlapScanNode::get_sub_scan_range(
     } else {
         if (!EngineMetaReader::get_hints(
                     scan_range,
-                    config::palo_scan_range_row_count,
+                    config::doris_scan_range_row_count,
                     _scan_keys.begin_include(),
                     _scan_keys.end_include(),
                     scan_key_range,
@@ -1025,8 +1025,8 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
         mem_consume = state->fragment_mem_tracker()->consumption();
     }
     int max_thread = _max_materialized_row_batches;
-    if (config::palo_scanner_row_num > state->batch_size()) {
-        max_thread /= config::palo_scanner_row_num / state->batch_size();
+    if (config::doris_scanner_row_num > state->batch_size()) {
+        max_thread /= config::doris_scanner_row_num / state->batch_size();
     }
     // read from scanner
     while (LIKELY(status.ok())) {
@@ -1160,7 +1160,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     // judge if we need to yield. So we record all raw data read in this round
     // scan, if this exceed threshold, we yield this thread.
     int64_t raw_rows_read = scanner->raw_rows_read();
-    int64_t raw_rows_threshold = raw_rows_read + config::palo_scanner_row_num;
+    int64_t raw_rows_threshold = raw_rows_read + config::doris_scanner_row_num;
     while (!eos && raw_rows_read < raw_rows_threshold) {
         if (UNLIKELY(_transfer_done)) {
             eos = true;
@@ -1253,4 +1253,4 @@ void OlapScanNode::debug_string(
     std::stringstream* /* out */) const {
 }
 
-} // namespace palo
+} // namespace doris

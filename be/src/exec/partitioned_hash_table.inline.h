@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_EXEC_PARTITIONED_HASH_TABLE_INLINE_H
-#define BDG_PALO_BE_SRC_EXEC_PARTITIONED_HASH_TABLE_INLINE_H
+#ifndef DORIS_BE_SRC_EXEC_PARTITIONED_HASH_TABLE_INLINE_H
+#define DORIS_BE_SRC_EXEC_PARTITIONED_HASH_TABLE_INLINE_H
 
 #include "exec/partitioned_hash_table.h"
 
-namespace palo {
+namespace doris {
 
 inline bool PartitionedHashTableCtx::eval_and_hash_build(TupleRow* row, uint32_t* hash) {
     bool has_null = EvalBuildRow(row);
@@ -374,6 +374,6 @@ inline void PartitionedHashTableCtx::set_level(int level) {
     _level = level;
 }
 
-} // end namespace palo
+} // end namespace doris
 
-#endif // BDG_PALO_BE_SRC_EXEC_PARTITIONED_HASH_TABLE_INLINE_H
+#endif // DORIS_BE_SRC_EXEC_PARTITIONED_HASH_TABLE_INLINE_H

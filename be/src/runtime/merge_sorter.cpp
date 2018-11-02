@@ -24,7 +24,7 @@
 #include <boost/foreach.hpp>
 #include "runtime/mem_tracker.h"
 
-namespace palo {
+namespace doris {
 // A run is a sequence of blocks containing tuples that are or will eventually be in
 // sorted order.
 // A run may maintain two sequences of blocks - one containing the tuples themselves,
@@ -666,4 +666,4 @@ Status MergeSorter::sort_run() {
     _unsorted_run = NULL;
     return Status::OK;
 }
-} // namespace palo
+} // namespace doris

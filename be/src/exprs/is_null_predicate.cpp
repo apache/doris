@@ -18,7 +18,7 @@
 #include "exprs/is_null_predicate.h"
 #include "udf/udf.h"
 
-namespace palo {
+namespace doris {
 
 void IsNullPredicate::init() {
 }

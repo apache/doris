@@ -26,7 +26,7 @@
 #include "common/logging.h"
 #include "gen_cpp/FrontendService.h"
 
-namespace palo {
+namespace doris {
 
 using std::string;
 using apache::thrift::TException; 

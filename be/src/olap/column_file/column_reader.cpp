@@ -22,7 +22,7 @@
 #include "olap/column_file/file_stream.h"
 #include "olap/olap_define.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 IntegerColumnReader::IntegerColumnReader(uint32_t column_unique_id): 
         _eof(false),
@@ -1356,4 +1356,4 @@ OLAPStatus LargeIntColumnReader::next_vector(
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris

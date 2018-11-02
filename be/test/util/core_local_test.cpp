@@ -26,7 +26,7 @@
 #include "util/stopwatch.hpp"
 #include "time.h"
 
-namespace palo {
+namespace doris {
 
 // Fixture for testing class Decompressor
 class CoreLocalTest : public ::testing::Test {

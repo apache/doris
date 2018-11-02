@@ -19,7 +19,7 @@
 
 #include <vector>
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 PositionEntryWriter::PositionEntryWriter() : _positions_count(0), _statistics_size(0) {
@@ -182,4 +182,4 @@ OLAPStatus StreamIndexWriter::write_to_buffer(char* buffer, size_t buffer_size) 
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris

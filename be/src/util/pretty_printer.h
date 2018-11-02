@@ -30,7 +30,7 @@
 /// Truncate a double to offset decimal places.
 #define DOUBLE_TRUNCATE(val, offset) floor(val * pow(10, offset)) / pow(10, offset)
 
-namespace palo {
+namespace doris {
 
 /// Methods for printing numeric values with optional units, or other types with an
 /// applicable operator<<.

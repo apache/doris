@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_ATOMIC_H
-#define BDG_PALO_BE_SRC_OLAP_ATOMIC_H
+#ifndef DORIS_BE_SRC_OLAP_ATOMIC_H
+#define DORIS_BE_SRC_OLAP_ATOMIC_H
 
-namespace palo {
+namespace doris {
 
 #define LOCK_PREFIX "lock "
 
@@ -226,6 +226,6 @@ atomic_inc_short(short int* v) {
     return *v;
 }
 
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_ATOMIC_H
+#endif // DORIS_BE_SRC_OLAP_ATOMIC_H

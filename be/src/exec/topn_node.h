@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXEC_TOPN_NODE_H
-#define BDG_PALO_BE_SRC_QUERY_EXEC_TOPN_NODE_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_TOPN_NODE_H
+#define DORIS_BE_SRC_QUERY_EXEC_TOPN_NODE_H
 
 #include <boost/scoped_ptr.hpp>
 #include <queue>
@@ -25,7 +25,7 @@
 #include "runtime/descriptors.h"
 #include "util/tuple_row_compare.h"
 
-namespace palo {
+namespace doris {
 
 class MemPool;
 class RuntimeState;

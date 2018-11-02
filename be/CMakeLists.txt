@@ -455,7 +455,7 @@ set(DORIS_LINK_LIBS
     Service
     Udf
     Util
-    PaloGen
+    DorisGen
     Webserver
     TestUtil
     AES

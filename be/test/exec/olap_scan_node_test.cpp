@@ -41,7 +41,7 @@
 #include "util/runtime_profile.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 class OlapScanNodeTest : public ::testing::Test {
 public:
@@ -170,23 +170,23 @@ public:
 
         {
             TScanRangeParams param;
-            TPaloScanRange palo_scan_range;
+            TPaloScanRange doris_scan_range;
             TNetworkAddress host;
             host.__set_hostname("host");
             host.__set_port(9999);
-            palo_scan_range.hosts.push_back(host);
-            palo_scan_range.__set_schema_hash("462300563");
-            palo_scan_range.__set_version("94");
-            palo_scan_range.__set_version_hash("422202811388534102");
-            palo_scan_range.engine_table_name.push_back("PaloTestStats");
-            palo_scan_range.__set_db_name("olap");
+            doris_scan_range.hosts.push_back(host);
+            doris_scan_range.__set_schema_hash("462300563");
+            doris_scan_range.__set_version("94");
+            doris_scan_range.__set_version_hash("422202811388534102");
+            doris_scan_range.engine_table_name.push_back("DorisTestStats");
+            doris_scan_range.__set_db_name("olap");
             //TKeyRange key_range;
             //key_range.__set_column_type(to_thrift(TYPE_BIGINT));
             //key_range.__set_begin_key(-5000);
             //key_range.__set_end_key(5000);
             //key_range.__set_column_name("UrlId");
-            //palo_scan_range.partition_column_ranges.push_back(key_range);
-            param.scan_range.__set_palo_scan_range(palo_scan_range);
+            //doris_scan_range.partition_column_ranges.push_back(key_range);
+            param.scan_range.__set_doris_scan_range(doris_scan_range);
             _scan_ranges.push_back(param);
 
         }
@@ -437,12 +437,12 @@ TEST_F(OlapScanNodeTest, PushDownInPredicateCase) {
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
     init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
-    palo::CpuInfo::Init();
+    doris::CpuInfo::Init();
     return RUN_ALL_TESTS();
 }

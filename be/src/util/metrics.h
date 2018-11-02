@@ -29,7 +29,7 @@
 #include "util/spinlock.h"
 #include "util/core_local.h"
 
-namespace palo {
+namespace doris {
 
 class MetricRegistry;
 

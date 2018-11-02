@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXPRS_UDF_BUILTINS_H
-#define BDG_PALO_BE_SRC_QUERY_EXPRS_UDF_BUILTINS_H
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_UDF_BUILTINS_H
+#define DORIS_BE_SRC_QUERY_EXPRS_UDF_BUILTINS_H
 
 #include "udf/udf.h"
 
-namespace palo {
+namespace doris {
 
 // Builtins written against the UDF interface. The builtins in the other files
 // should be replaced to the UDF interface as well.
@@ -28,23 +28,23 @@ namespace palo {
 // implemented.
 class UdfBuiltins {
 public:
-    static palo_udf::DoubleVal abs(palo_udf::FunctionContext* context, 
-                                   const palo_udf::DoubleVal& v);
-    static palo_udf::DecimalVal decimal_abs(palo_udf::FunctionContext* context, 
-                                  const palo_udf::DecimalVal& v);
-    static palo_udf::BigIntVal add_two_number(
-            palo_udf::FunctionContext* context,
-            const palo_udf::BigIntVal& v1,
-            const palo_udf::BigIntVal& v2);
-    static  palo_udf::StringVal sub_string(
-            palo_udf::FunctionContext* context,
-            const palo_udf::StringVal& v1,
-            const palo_udf::IntVal& begin,
-            const palo_udf::IntVal& len);
-    static palo_udf::DoubleVal pi(palo_udf::FunctionContext* context);
+    static doris_udf::DoubleVal abs(doris_udf::FunctionContext* context, 
+                                   const doris_udf::DoubleVal& v);
+    static doris_udf::DecimalVal decimal_abs(doris_udf::FunctionContext* context, 
+                                  const doris_udf::DecimalVal& v);
+    static doris_udf::BigIntVal add_two_number(
+            doris_udf::FunctionContext* context,
+            const doris_udf::BigIntVal& v1,
+            const doris_udf::BigIntVal& v2);
+    static  doris_udf::StringVal sub_string(
+            doris_udf::FunctionContext* context,
+            const doris_udf::StringVal& v1,
+            const doris_udf::IntVal& begin,
+            const doris_udf::IntVal& len);
+    static doris_udf::DoubleVal pi(doris_udf::FunctionContext* context);
 
-    static palo_udf::StringVal lower(palo_udf::FunctionContext* context, 
-                                     const palo_udf::StringVal&);
+    static doris_udf::StringVal lower(doris_udf::FunctionContext* context, 
+                                     const doris_udf::StringVal&);
 };
 
 }

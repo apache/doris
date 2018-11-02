@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SERVICE_BACKEND_SERVICE_H
-#define BDG_PALO_BE_SERVICE_BACKEND_SERVICE_H
+#ifndef DORIS_BE_SERVICE_BACKEND_SERVICE_H
+#define DORIS_BE_SERVICE_BACKEND_SERVICE_H
 
 #include <memory>
 #include "agent/agent_server.h"
@@ -24,7 +24,7 @@
 #include "gen_cpp/BackendService.h"
 #include <thrift/protocol/TDebugProtocol.h>
 
-namespace palo {
+namespace doris {
 
 class ExecEnv;
 class ThriftServer;
@@ -111,7 +111,7 @@ public:
         _agent_server->delete_etl_files(result, request);
     }
 
-    // PaloServer service
+    // DorisServer service
     virtual void exec_plan_fragment(TExecPlanFragmentResult& return_val,
                                     const TExecPlanFragmentParams& params);
 
@@ -154,6 +154,6 @@ private:
     std::unique_ptr<AgentServer> _agent_server;
 };
 
-} // namespace palo
+} // namespace doris
 
-#endif // BDG_PALO_BE_SERVICE_BACKEND_SERVICE_H
+#endif // DORIS_BE_SERVICE_BACKEND_SERVICE_H

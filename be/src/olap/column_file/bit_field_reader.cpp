@@ -21,7 +21,7 @@
 #include "olap/column_file/in_stream.h"
 #include "olap/column_file/run_length_byte_reader.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 BitFieldReader::BitFieldReader(ReadOnlyFileStream* input) : 
@@ -129,5 +129,5 @@ OLAPStatus BitFieldReader::skip(uint64_t num_values) {
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris
 

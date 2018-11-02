@@ -34,7 +34,7 @@ using std::unique_ptr;
 using std::vector;
 
 
-namespace palo {
+namespace doris {
 
 Merger::Merger(OLAPTablePtr table, Rowset* index, ReaderType type) : 
         _table(table),
@@ -121,4 +121,4 @@ OLAPStatus Merger::merge(const vector<IData*>& olap_data_arr,
     return has_error ? OLAP_ERR_OTHER_ERROR : OLAP_SUCCESS;
 }
 
-}  // namespace palo
+}  // namespace doris

@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_EXEC_ENV_H
-#define BDG_PALO_BE_RUNTIME_EXEC_ENV_H
+#ifndef DORIS_BE_RUNTIME_EXEC_ENV_H
+#define DORIS_BE_RUNTIME_EXEC_ENV_H
 
 #include <boost/scoped_ptr.hpp>
 #include <boost/shared_ptr.hpp>
@@ -33,7 +33,7 @@
 #include "util/thread_pool.hpp"
 #include "olap/options.h"
 
-namespace palo {
+namespace doris {
 
 class DataStreamMgr;
 class ResultBufferMgr;

@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_BE_RUNTIME_STRING_SEARCH_H
-#define BDG_PALO_BE_SRC_QUERY_BE_RUNTIME_STRING_SEARCH_H
+#ifndef DORIS_BE_SRC_QUERY_BE_RUNTIME_STRING_SEARCH_H
+#define DORIS_BE_SRC_QUERY_BE_RUNTIME_STRING_SEARCH_H
 
 #include <vector>
 #include <cstring>
@@ -25,7 +25,7 @@
 #include "common/logging.h"
 #include "runtime/string_value.h"
 
-namespace palo {
+namespace doris {
 
 // TODO: This can be sped up with SIDD_CMP_EQUAL_ORDERED or at the very least rewritten
 // from published algorithms.

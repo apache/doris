@@ -55,10 +55,10 @@
 // using namespace llvm;
 using namespace strings;
 
-namespace palo {
+namespace doris {
 
 const char* NewPartitionedAggregationNode::LLVM_CLASS_NAME =
-    "class.palo::NewPartitionedAggregationNode";
+    "class.doris::NewPartitionedAggregationNode";
 
 /// The minimum reduction factor (input rows divided by output rows) to grow hash tables
 /// in a streaming preaggregation, given that the hash tables are currently the given

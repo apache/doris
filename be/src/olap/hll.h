@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_HLL_H
-#define BDG_PALO_BE_SRC_OLAP_HLL_H
+#ifndef DORIS_BE_SRC_OLAP_HLL_H
+#define DORIS_BE_SRC_OLAP_HLL_H
 
 #include <math.h>
 #include <stdio.h>
@@ -27,7 +27,7 @@
 #include "olap/olap_common.h"
 // #include "olap/olap_define.h"
 
-namespace palo {
+namespace doris {
 
 const static int HLL_COLUMN_PRECISION = 14;
 const static int HLL_EXPLICLIT_INT64_NUM = 160;
@@ -150,6 +150,6 @@ public:
     static void init_context(HllContext* context);
 };
 
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_HLL_H
+#endif // DORIS_BE_SRC_OLAP_HLL_H

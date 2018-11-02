@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_INTERNAL_H
-#define BDG_PALO_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_INTERNAL_H
+#ifndef DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_INTERNAL_H
+#define DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_INTERNAL_H
 
 #include "disk_io_mgr.h"
 
@@ -33,7 +33,7 @@
 
 // This file contains internal structures to the IoMgr. Users of the IoMgr do
 // not need to include this file.
-namespace palo {
+namespace doris {
 
 // Per disk state
 struct DiskIoMgr::DiskQueue {
@@ -466,7 +466,7 @@ private:
     std::vector<PerDiskState> _disk_states;
 };
 
-} // namespace palo
+} // namespace doris
 
-#endif // BDG_PALO_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_INTERNAL_H
+#endif // DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_INTERNAL_H
 

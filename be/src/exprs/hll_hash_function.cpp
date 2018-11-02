@@ -27,10 +27,10 @@
 #include "olap/olap_common.h"
 #include "olap/utils.h"
 
-namespace palo {
+namespace doris {
 
-using palo_udf::BigIntVal;
-using palo_udf::StringVal;
+using doris_udf::BigIntVal;
+using doris_udf::StringVal;
 
 const int HllHashFunctions::HLL_INIT_EXPLICT_SET_SIZE = 10;
 const int HllHashFunctions::HLL_EMPTY_SET_SIZE = 1;
@@ -38,7 +38,7 @@ const int HllHashFunctions::HLL_EMPTY_SET_SIZE = 1;
 void HllHashFunctions::init() {
 }
 
-StringVal HllHashFunctions::create_string_result(palo_udf::FunctionContext* ctx, 
+StringVal HllHashFunctions::create_string_result(doris_udf::FunctionContext* ctx, 
                                                      const StringVal& val, const bool is_null) {
     StringVal result;
     if (is_null) {
@@ -58,12 +58,12 @@ StringVal HllHashFunctions::create_string_result(palo_udf::FunctionContext* ctx,
     return result;
 }
 
-StringVal HllHashFunctions::hll_hash(palo_udf::FunctionContext* ctx, 
+StringVal HllHashFunctions::hll_hash(doris_udf::FunctionContext* ctx, 
                                      const StringVal& input) {
     return create_string_result(ctx, input, input.is_null);
 }
     
-StringVal HllHashFunctions::hll_cardinality(palo_udf::FunctionContext* ctx, 
+StringVal HllHashFunctions::hll_cardinality(doris_udf::FunctionContext* ctx, 
                                             const StringVal& input) {
     if (input.is_null) {
         return StringVal::null();

@@ -26,7 +26,7 @@
 #include "util/runtime_profile.h"
 #include "util/disk_info.h"
 #include "util/filesystem_util.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 #include "util/debug_util.h"
 #include "util/uid_util.h"
 #include "util/pretty_printer.h"
@@ -45,7 +45,7 @@ using boost::scoped_array;
 using boost::shared_ptr;
 using boost::unique_lock;
 
-namespace palo {
+namespace doris {
 
 BufferedBlockMgr2::BlockMgrsMap BufferedBlockMgr2::_s_query_to_block_mgrs;
 SpinLock BufferedBlockMgr2::_s_block_mgrs_lock;
@@ -796,8 +796,8 @@ Status BufferedBlockMgr2::write_unpinned_block(Block* block) {
     ++_writes_issued;
     if (_writes_issued == 1) {
 #if 0
-        if (PaloMetrics::num_queries_spilled() != NULL) {
-            PaloMetrics::num_queries_spilled()->increment(1);
+        if (DorisMetrics::num_queries_spilled() != NULL) {
+            DorisMetrics::num_queries_spilled()->increment(1);
         }
 #endif
     }
@@ -1318,5 +1318,5 @@ Status BufferedBlockMgr2::init_tmp_files() {
     return Status::OK;
 }
 
-} // namespace palo
+} // namespace doris
 

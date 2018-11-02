@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXEC_TEXT_CONVERTER_HPP
-#define BDG_PALO_BE_SRC_QUERY_EXEC_TEXT_CONVERTER_HPP
+#ifndef DORIS_BE_SRC_QUERY_EXEC_TEXT_CONVERTER_HPP
+#define DORIS_BE_SRC_QUERY_EXEC_TEXT_CONVERTER_HPP
 
 #include "text_converter.h"
 
@@ -32,7 +32,7 @@
 #include "util/string_parser.hpp"
 #include "olap/utils.h"
 
-namespace palo {
+namespace doris {
 
 // Note: this function has a codegen'd version.  Changing this function requires
 // corresponding changes to CodegenWriteSlot.

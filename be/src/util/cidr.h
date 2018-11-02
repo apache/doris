@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UTIL_CIDR_H
-#define BDG_PALO_BE_SRC_COMMON_UTIL_CIDR_H
+#ifndef DORIS_BE_SRC_COMMON_UTIL_CIDR_H
+#define DORIS_BE_SRC_COMMON_UTIL_CIDR_H
 
 #include <string>
 
-namespace palo {
+namespace doris {
 
 // Classless Inter-Domain Routing
 class CIDR {
@@ -38,6 +38,6 @@ private:
     uint32_t _netmask;
 };
 
-} // end namespace palo
+} // end namespace doris
 
-#endif // BDG_PALO_BE_SRC_COMMON_UTIL_CIDR_H
+#endif // DORIS_BE_SRC_COMMON_UTIL_CIDR_H

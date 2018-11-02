@@ -23,7 +23,7 @@
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
 
-namespace palo {
+namespace doris {
 
 void AggregationNode::process_row_batch_no_grouping(RowBatch* batch, MemPool* pool) {
     for (int i = 0; i < batch->num_rows(); ++i) {

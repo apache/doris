@@ -26,7 +26,7 @@ using std::map;
 using std::nothrow;
 using std::string;
 
-namespace palo {
+namespace doris {
 
 Field* Field::create(const FieldInfo& field_info) {
     Field* field = new Field(field_info);
@@ -72,4 +72,4 @@ Field::Field(const FieldInfo& field_info)
     _finalize_func = get_finalize_func(field_info.aggregation, field_info.type);
 }
 
-}  // namespace palo
+}  // namespace doris

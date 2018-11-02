@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_ROW_CURSOR_H
-#define BDG_PALO_BE_SRC_OLAP_ROW_CURSOR_H
+#ifndef DORIS_BE_SRC_OLAP_ROW_CURSOR_H
+#define DORIS_BE_SRC_OLAP_ROW_CURSOR_H
 
 #include <string>
 #include <vector>
@@ -26,7 +26,7 @@
 #include "olap/olap_define.h"
 #include "olap/tuple.h"
 
-namespace palo {
+namespace doris {
 class Field;
 
 // 代理一行数据的操作
@@ -250,6 +250,6 @@ inline uint32_t RowCursor::hash_code(uint32_t seed) const {
     return seed;
 }
 
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_ROW_CURSOR_H
+#endif // DORIS_BE_SRC_OLAP_ROW_CURSOR_H

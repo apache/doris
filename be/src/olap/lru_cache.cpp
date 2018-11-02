@@ -34,7 +34,7 @@
 using std::string;
 using std::stringstream;
 
-namespace palo {
+namespace doris {
 
 uint32_t CacheKey::hash(const char* data, size_t n, uint32_t seed) const {
     // Similar to murmur hash
@@ -425,4 +425,4 @@ Cache* new_lru_cache(size_t capacity) {
     return new ShardedLRUCache(capacity);
 }
 
-}  // namespace palo
+}  // namespace doris

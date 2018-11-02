@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_AGENT_TOPIC_LISTENER_H
-#define BDG_PALO_BE_SRC_AGENT_TOPIC_LISTENER_H
+#ifndef DORIS_BE_SRC_AGENT_TOPIC_LISTENER_H
+#define DORIS_BE_SRC_AGENT_TOPIC_LISTENER_H
 
 #include "gen_cpp/AgentService_types.h"
 
-namespace palo {
+namespace doris {
   
 class TopicListener {
 

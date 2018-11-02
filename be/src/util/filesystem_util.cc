@@ -34,7 +34,7 @@ using std::vector;
 
 // boost::filesystem functions must be given an errcode parameter to avoid the variants
 // of those functions that throw exceptions.
-namespace palo {
+namespace doris {
 
 Status FileSystemUtil::create_directory(const string& directory) {
     error_code errcode;
@@ -198,5 +198,5 @@ bool FileSystemUtil::contain_path(
     return std::equal(parent.begin(), parent.end(), sub.begin());
 }
 
-} // end namespace palo
+} // end namespace doris
 

@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-namespace palo {
+namespace doris {
 
 class BrpcStubCacheTest : public testing::Test {
 public:

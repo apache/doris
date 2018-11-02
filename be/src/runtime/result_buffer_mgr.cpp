@@ -23,7 +23,7 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/types.pb.h"
 
-namespace palo {
+namespace doris {
 
 std::size_t hash_value(const TUniqueId& fragment_id) {
     uint32_t value = RawValue::get_hash_value(&fragment_id.lo, TypeDescriptor(TYPE_BIGINT), 0);

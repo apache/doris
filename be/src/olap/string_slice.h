@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_STRING_SLICE_H
-#define BDG_PALO_BE_SRC_OLAP_STRING_SLICE_H
+#ifndef DORIS_BE_SRC_OLAP_STRING_SLICE_H
+#define DORIS_BE_SRC_OLAP_STRING_SLICE_H
 
 #include <assert.h>
 #include <map>
@@ -27,7 +27,7 @@
 
 #include "olap/olap_define.h"
 
-namespace palo {
+namespace doris {
 
 /// @brief A wrapper around externally allocated data.
 ///
@@ -210,6 +210,6 @@ struct StringSliceMap {
     typedef std::map<StringSlice, T, StringSlice::Comparator> type;
 };
 
-}  // namespace palo
+}  // namespace doris
 
-#endif  // BDG_PALO_BE_SRC_OLAP_STRING_SLICE_H
+#endif  // DORIS_BE_SRC_OLAP_STRING_SLICE_H

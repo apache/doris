@@ -22,7 +22,7 @@
 #include "olap/column_file/out_stream.h"
 #include "olap/column_file/serialize.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 RunLengthIntegerWriter::RunLengthIntegerWriter(OutStream* output, bool is_singed) : 
@@ -732,5 +732,5 @@ void RunLengthIntegerWriter::get_position(PositionEntryWriter* index_entry, bool
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris
 

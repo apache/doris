@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_AGENT_MOCK_MOCK_FILE_DOWNLOADER_H
-#define BDG_PALO_BE_SRC_AGENT_MOCK_MOCK_FILE_DOWNLOADER_H
+#ifndef DORIS_BE_SRC_AGENT_MOCK_MOCK_FILE_DOWNLOADER_H
+#define DORIS_BE_SRC_AGENT_MOCK_MOCK_FILE_DOWNLOADER_H
 
 #include "gmock/gmock.h"
 #include "agent/file_downloader.h"
 
-namespace palo {
+namespace doris {
 
 class MockFileDownloader : public FileDownloader {
 public:
@@ -30,5 +30,5 @@ public:
     MOCK_METHOD1(list_file_dir, AgentStatus(std::string* file_list_string));
     MOCK_METHOD1(get_length, AgentStatus(uint64_t* length));
 };  // class MockFileDownloader
-}  // namespace palo
-#endif  // BDG_PALO_BE_SRC_AGENT_MOCK_MOCK_FILE_DOWNLOADER_H
+}  // namespace doris
+#endif  // DORIS_BE_SRC_AGENT_MOCK_MOCK_FILE_DOWNLOADER_H

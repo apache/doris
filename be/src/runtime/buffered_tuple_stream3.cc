@@ -44,7 +44,7 @@
 #define CHECK_CONSISTENCY_FULL() CheckConsistencyFull()
 #endif
 
-using namespace palo;
+using namespace doris;
 using namespace strings;
 
 using BufferHandle = BufferPool::BufferHandle;

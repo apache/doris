@@ -59,10 +59,10 @@ using llvm::CallInst;
 using llvm::ConstantInt;
 using llvm::Value;
 using std::vector;
-namespace palo {
+namespace doris {
 
-const char* Expr::_s_llvm_class_name = "class.palo::Expr";
-const char* Expr::_s_get_constant_symbol_prefix = "_ZN4palo4Expr12get_constant";
+const char* Expr::_s_llvm_class_name = "class.doris::Expr";
+const char* Expr::_s_get_constant_symbol_prefix = "_ZN4doris4Expr12get_constant";
 
 template<class T>
 bool parse_string(const std::string& str, T* val) {
@@ -692,7 +692,7 @@ TExprNodeType::type Expr::type_without_cast(const Expr* expr) {
     return expr->_node_type;
 }
 
-palo_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
+doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
     if (!is_constant()) {
         return NULL;
     }

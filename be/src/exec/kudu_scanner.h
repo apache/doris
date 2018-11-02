@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef PALO_EXEC_KUDU_SCANNER_H
-#define PALO_EXEC_KUDU_SCANNER_H
+#ifndef DORIS_EXEC_KUDU_SCANNER_H
+#define DORIS_EXEC_KUDU_SCANNER_H
 
 #include <boost/scoped_ptr.hpp>
 #include <kudu/client/client.h>
@@ -24,7 +24,7 @@
 #include "exec/kudu_scan_node.h"
 #include "runtime/descriptors.h"
 
-namespace palo {
+namespace doris {
 
 class MemPool;
 class RowBatch;

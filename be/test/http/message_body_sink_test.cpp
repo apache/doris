@@ -24,7 +24,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-namespace palo {
+namespace doris {
 
 class MessageBodySinkTest : public testing::Test {
 public:

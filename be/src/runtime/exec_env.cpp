@@ -64,14 +64,14 @@
 #include "runtime/pull_load_task_mgr.h"
 #include "runtime/snapshot_loader.h"
 #include "util/pretty_printer.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 #include "util/brpc_stub_cache.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/TPaloBrokerService.h"
 #include "gen_cpp/HeartbeatService_types.h"
 
-namespace palo {
+namespace doris {
 
 ExecEnv* ExecEnv::_exec_env = nullptr;
 
@@ -95,12 +95,12 @@ ExecEnv::ExecEnv(const std::vector<StorePath>& paths) :
         _pool_mem_trackers(new PoolMemTrackerRegistry),
         _thread_mgr(new ThreadResourceMgr),
         _thread_pool(new PriorityThreadPool(
-                config::palo_scanner_thread_pool_thread_num,
-                config::palo_scanner_thread_pool_queue_size)),
+                config::doris_scanner_thread_pool_thread_num,
+                config::doris_scanner_thread_pool_queue_size)),
         _etl_thread_pool(new ThreadPool(
                 config::etl_thread_pool_size,
                 config::etl_thread_pool_queue_size)),
-        _cgroups_mgr(new CgroupsMgr(this, config::palo_cgroups)),
+        _cgroups_mgr(new CgroupsMgr(this, config::doris_cgroups)),
         _fragment_mgr(new FragmentMgr(this)),
         _master_info(new TMasterInfo()),
         _etl_job_mgr(new EtlJobMgr(this)),
@@ -116,9 +116,9 @@ ExecEnv::ExecEnv(const std::vector<StorePath>& paths) :
         _brpc_stub_cache(new BrpcStubCache()),
         _enable_webserver(true),
         _tz_database(TimezoneDatabase()) {
-    _client_cache->init_metrics(PaloMetrics::metrics(), "backend");
-    _frontend_client_cache->init_metrics(PaloMetrics::metrics(), "frontend");
-    _broker_client_cache->init_metrics(PaloMetrics::metrics(), "broker");
+    _client_cache->init_metrics(DorisMetrics::metrics(), "backend");
+    _frontend_client_cache->init_metrics(DorisMetrics::metrics(), "frontend");
+    _broker_client_cache->init_metrics(DorisMetrics::metrics(), "broker");
     _result_mgr->init();
     _cgroups_mgr->init_cgroups();
     _etl_job_mgr->init();
@@ -205,7 +205,7 @@ Status ExecEnv::start_services() {
         LOG(INFO) << "Webserver is disabled";
     }
 
-    RETURN_IF_ERROR(_tmp_file_mgr->init(PaloMetrics::metrics()));
+    RETURN_IF_ERROR(_tmp_file_mgr->init(DorisMetrics::metrics()));
 
     return Status::OK;
 }
@@ -257,7 +257,7 @@ Status ExecEnv::start_webserver() {
     PprofActions::setup(this, _ev_http_server.get());
 
     {
-        auto action = _object_pool.add(new MetricsAction(PaloMetrics::metrics()));
+        auto action = _object_pool.add(new MetricsAction(DorisMetrics::metrics()));
         _ev_http_server->register_handler(HttpMethod::GET, "/metrics", action);
     }
 
@@ -301,7 +301,7 @@ const std::string& ExecEnv::token() const {
 }
 
 MetricRegistry* ExecEnv::metrics() const {
-    return PaloMetrics::metrics();
+    return DorisMetrics::metrics();
 }
 
 }

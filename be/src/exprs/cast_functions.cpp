@@ -26,7 +26,7 @@
 #include "util/string_parser.hpp"
 #include "string_functions.h"
 
-namespace palo {
+namespace doris {
 
 void CastFunctions::init() {
 }

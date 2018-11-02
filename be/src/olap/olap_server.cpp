@@ -34,7 +34,7 @@
 
 using std::string;
 
-namespace palo {
+namespace doris {
 
 // number of running SCHEMA-CHANGE threads
 volatile uint32_t g_schema_change_active_threads = 0;
@@ -241,4 +241,4 @@ void* OLAPEngine::_cumulative_compaction_thread_callback(void* arg) {
     return NULL;
 }
 
-}  // namespace palo
+}  // namespace doris

@@ -24,7 +24,7 @@
 
 #include "common/logging.h"
 
-namespace palo {
+namespace doris {
 
 struct ByteBuffer;
 using ByteBufferPtr = std::shared_ptr<ByteBuffer>;

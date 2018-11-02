@@ -37,7 +37,7 @@ using llvm::LLVMContext;
 using llvm::PHINode;
 using llvm::Value;
 
-namespace palo {
+namespace doris {
 
 Expr* BinaryPredicate::from_thrift(const TExprNode& node) {
     switch (node.opcode) {
@@ -237,18 +237,18 @@ std::string BinaryPredicate::debug_string() const {
 // null handling as well as many branches so this is pretty complicated.  The IR
 // for x && y is:
 //
-// define i16 @Add(%"class.palo::ExprContext"* %context,
-//                 %"class.palo::TupleRow"* %row) #20 {
+// define i16 @Add(%"class.doris::ExprContext"* %context,
+//                 %"class.doris::TupleRow"* %row) #20 {
 // entry:
-//   %lhs_val = call { i8, i64 } @get_slot_ref(%"class.palo::ExprContext"* %context,
-//                                             %"class.palo::TupleRow"* %row)
+//   %lhs_val = call { i8, i64 } @get_slot_ref(%"class.doris::ExprContext"* %context,
+//                                             %"class.doris::TupleRow"* %row)
 //   %0 = extractvalue { i8, i64 } %lhs_val, 0
 //   %lhs_is_null = trunc i8 %0 to i1
 //   br i1 %lhs_is_null, label %null, label %lhs_not_null
 //
 // lhs_not_null:                                     ; preds = %entry
-//   %rhs_val = call { i8, i64 } @get_slot_ref(%"class.palo::ExprContext"* %context,
-//                                             %"class.palo::TupleRow"* %row)
+//   %rhs_val = call { i8, i64 } @get_slot_ref(%"class.doris::ExprContext"* %context,
+//                                             %"class.doris::TupleRow"* %row)
 //   %1 = extractvalue { i8, i64 } %lhs_val, 0
 //   %rhs_is_null = trunc i8 %1 to i1
 //   br i1 %rhs_is_null, label %null, label %rhs_not_null
@@ -390,7 +390,7 @@ BINARY_PRED_INT_FNS(LargeIntVal, get_large_int_val);
 BINARY_PRED_FLOAT_FNS(FloatVal, get_float_val);
 BINARY_PRED_FLOAT_FNS(DoubleVal, get_double_val);
 
-#define COMPLICATE_BINARY_PRED_FN(CLASS, TYPE, FN, PALO_TYPE, FROM_FUNC, OP) \
+#define COMPLICATE_BINARY_PRED_FN(CLASS, TYPE, FN, DORIS_TYPE, FROM_FUNC, OP) \
     BooleanVal CLASS::get_boolean_val(ExprContext* ctx, TupleRow* row) { \
         TYPE v1 = _children[0]->FN(ctx, row); \
         if (v1.is_null) { \
@@ -400,8 +400,8 @@ BINARY_PRED_FLOAT_FNS(DoubleVal, get_double_val);
         if (v2.is_null) { \
             return BooleanVal::null(); \
         } \
-        PALO_TYPE pv1 = PALO_TYPE::FROM_FUNC(v1); \
-        PALO_TYPE pv2 = PALO_TYPE::FROM_FUNC(v2); \
+        DORIS_TYPE pv1 = DORIS_TYPE::FROM_FUNC(v1); \
+        DORIS_TYPE pv2 = DORIS_TYPE::FROM_FUNC(v2); \
         return BooleanVal(pv1 OP pv2); \
     } \
     Status CLASS::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) { \
@@ -409,13 +409,13 @@ BINARY_PRED_FLOAT_FNS(DoubleVal, get_double_val);
     } \
 
 
-#define COMPLICATE_BINARY_PRED_FNS(TYPE, FN, PALO_TYPE, FROM_FUNC) \
-    COMPLICATE_BINARY_PRED_FN(Eq##TYPE##Pred, TYPE, FN, PALO_TYPE, FROM_FUNC, ==) \
-    COMPLICATE_BINARY_PRED_FN(Ne##TYPE##Pred, TYPE, FN, PALO_TYPE, FROM_FUNC, !=) \
-    COMPLICATE_BINARY_PRED_FN(Lt##TYPE##Pred, TYPE, FN, PALO_TYPE, FROM_FUNC, <) \
-    COMPLICATE_BINARY_PRED_FN(Le##TYPE##Pred, TYPE, FN, PALO_TYPE, FROM_FUNC, <=) \
-    COMPLICATE_BINARY_PRED_FN(Gt##TYPE##Pred, TYPE, FN, PALO_TYPE, FROM_FUNC, >) \
-    COMPLICATE_BINARY_PRED_FN(Ge##TYPE##Pred, TYPE, FN, PALO_TYPE, FROM_FUNC, >=)
+#define COMPLICATE_BINARY_PRED_FNS(TYPE, FN, DORIS_TYPE, FROM_FUNC) \
+    COMPLICATE_BINARY_PRED_FN(Eq##TYPE##Pred, TYPE, FN, DORIS_TYPE, FROM_FUNC, ==) \
+    COMPLICATE_BINARY_PRED_FN(Ne##TYPE##Pred, TYPE, FN, DORIS_TYPE, FROM_FUNC, !=) \
+    COMPLICATE_BINARY_PRED_FN(Lt##TYPE##Pred, TYPE, FN, DORIS_TYPE, FROM_FUNC, <) \
+    COMPLICATE_BINARY_PRED_FN(Le##TYPE##Pred, TYPE, FN, DORIS_TYPE, FROM_FUNC, <=) \
+    COMPLICATE_BINARY_PRED_FN(Gt##TYPE##Pred, TYPE, FN, DORIS_TYPE, FROM_FUNC, >) \
+    COMPLICATE_BINARY_PRED_FN(Ge##TYPE##Pred, TYPE, FN, DORIS_TYPE, FROM_FUNC, >=)
 
 COMPLICATE_BINARY_PRED_FNS(DecimalVal, get_decimal_val, DecimalValue, from_decimal_val)
 

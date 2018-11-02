@@ -23,9 +23,9 @@
 
 #include "codegen/llvm_codegen.h"
 
-namespace palo {
+namespace doris {
 
-const char* TypeDescriptor::s_llvm_class_name = "struct.palo::TypeDescriptor";
+const char* TypeDescriptor::s_llvm_class_name = "struct.doris::TypeDescriptor";
 
 TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx) : 
         len(-1), precision(-1), scale(-1) {
@@ -103,7 +103,7 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
         node.type = TTypeNodeType::SCALAR;
         node.__set_scalar_type(TScalarType());
         TScalarType& scalar_type = node.scalar_type;
-        scalar_type.__set_type(palo::to_thrift(type));
+        scalar_type.__set_type(doris::to_thrift(type));
         if (type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_HLL) {
             // DCHECK_NE(len, -1);
             scalar_type.__set_len(len);
@@ -121,7 +121,7 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
     auto node = ptype->add_types();
     node->set_type(TTypeNodeType::SCALAR);
     auto scalar_type = node->mutable_scalar_type();
-    scalar_type->set_type(palo::to_thrift(type));
+    scalar_type->set_type(doris::to_thrift(type));
     if (type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_HLL) {
         scalar_type->set_len(len);
     } else if (type == TYPE_DECIMAL) {

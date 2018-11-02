@@ -55,7 +55,7 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/FrontendService.h"
 
-namespace palo {
+namespace doris {
 
 // context used to handle mini-load in asynchronous mode
 struct MiniLoadCtx {

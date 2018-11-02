@@ -21,7 +21,7 @@
 
 #include "common/status.h"
 
-namespace palo {
+namespace doris {
 
 class FileReader {
 public:

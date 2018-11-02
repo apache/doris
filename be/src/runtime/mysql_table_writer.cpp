@@ -22,7 +22,7 @@
 #include "runtime/tuple_row.h"
 #include "exprs/expr.h"
 
-namespace palo {
+namespace doris {
 
 std::string MysqlConnInfo::debug_string() const {
     std::stringstream ss;

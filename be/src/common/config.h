@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_CONFIG_H
-#define BDG_PALO_BE_SRC_COMMON_CONFIG_H
+#ifndef DORIS_BE_SRC_COMMON_CONFIG_H
+#define DORIS_BE_SRC_COMMON_CONFIG_H
 
 #include "configbase.h"
 
-namespace palo {
+namespace doris {
 namespace config {
     // cluster id
     CONF_Int32(cluster_id, "-1");
@@ -139,16 +139,16 @@ namespace config {
     CONF_Int64(web_log_bytes, "1048576");
     // number of threads available to serve backend execution requests
     CONF_Int32(be_service_threads, "64");
-    // key=value pair of default query options for Palo, separated by ','
+    // key=value pair of default query options for Doris, separated by ','
     CONF_String(default_query_options, "");
 
-    // If non-zero, Palo will output memory usage every log_mem_usage_interval'th fragment completion.
+    // If non-zero, Doris will output memory usage every log_mem_usage_interval'th fragment completion.
     CONF_Int32(log_mem_usage_interval, "0");
     // if non-empty, enable heap profiling and output to specified directory.
     CONF_String(heap_profile_dir, "");
 
-    // cgroups allocated for palo
-    CONF_String(palo_cgroups, "");
+    // cgroups allocated for doris
+    CONF_String(doris_cgroups, "");
 
     // Controls the number of threads to run work per core.  It's common to pick 2x
     // or 3x the number of cores.  This keeps the cores busy without causing excessive
@@ -163,27 +163,27 @@ namespace config {
     // Local directory to copy UDF libraries from HDFS into
     CONF_String(local_library_dir, "${UDF_RUNTIME_DIR}");
     // number of olap scanner thread pool size
-    CONF_Int32(palo_scanner_thread_pool_thread_num, "48");
+    CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
     // number of olap scanner thread pool size
-    CONF_Int32(palo_scanner_thread_pool_queue_size, "102400");
+    CONF_Int32(doris_scanner_thread_pool_queue_size, "102400");
     // number of etl thread pool size
     CONF_Int32(etl_thread_pool_size, "8");
     // number of etl thread pool size
     CONF_Int32(etl_thread_pool_queue_size, "256");
-    // port on which to run Palo test backend
+    // port on which to run Doris test backend
     CONF_Int32(port, "20001");
     // default thrift client connect timeout(in seconds)
     CONF_Int32(thrift_connect_timeout_seconds, "3");
     // max row count number for single scan range
-    CONF_Int32(palo_scan_range_row_count, "524288");
+    CONF_Int32(doris_scan_range_row_count, "524288");
     // size of scanner queue between scanner thread and compute thread
-    CONF_Int32(palo_scanner_queue_size, "1024");
+    CONF_Int32(doris_scanner_queue_size, "1024");
     // single read execute fragment row size
-    CONF_Int32(palo_scanner_row_num, "16384");
+    CONF_Int32(doris_scanner_row_num, "16384");
     // number of max scan keys
-    CONF_Int32(palo_max_scan_key_num, "1024");
+    CONF_Int32(doris_max_scan_key_num, "1024");
     // return_row / total_row
-    CONF_Int32(palo_max_pushdown_conjuncts_return_rate, "90");
+    CONF_Int32(doris_max_pushdown_conjuncts_return_rate, "90");
     // (Advanced) Maximum size of per-query receive-side buffer
     CONF_Int32(exchg_node_buffer_size_bytes, "10485760");
     // insert sort threadhold for sorter
@@ -387,6 +387,6 @@ namespace config {
     CONF_Bool(force_recovery, "false");
 } // namespace config
 
-} // namespace palo
+} // namespace doris
 
-#endif // BDG_PALO_BE_SRC_COMMON_CONFIG_H
+#endif // DORIS_BE_SRC_COMMON_CONFIG_H

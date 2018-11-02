@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_AGGREGATE_FUNC_H
-#define BDG_PALO_BE_SRC_OLAP_AGGREGATE_FUNC_H
+#ifndef DORIS_BE_SRC_OLAP_AGGREGATE_FUNC_H
+#define DORIS_BE_SRC_OLAP_AGGREGATE_FUNC_H
 
 #include "olap/field_info.h"
 #include "olap/hll.h"
 #include "olap/types.h"
 #include "util/arena.h"
 
-namespace palo {
+namespace doris {
 
 using AggregateFunc = void (*)(char* left, const char* right, Arena* arena);
 using FinalizeFunc = void (*)(char* data);
@@ -273,6 +273,6 @@ extern AggregateFunc get_aggregate_func(const FieldAggregationMethod agg_method,
 extern FinalizeFunc get_finalize_func(const FieldAggregationMethod agg_method,
                                       const FieldType field_type);
 
-} // namespace palo
+} // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_AGGREGATE_FUNC_H
+#endif // DORIS_BE_SRC_OLAP_AGGREGATE_FUNC_H

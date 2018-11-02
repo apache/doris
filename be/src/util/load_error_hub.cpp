@@ -22,7 +22,7 @@
 
 #include "gen_cpp/PaloInternalService_types.h"
 
-namespace palo {
+namespace doris {
 
 Status LoadErrorHub::create_hub(const TLoadErrorHubInfo* t_hub_info,
                                           std::unique_ptr<LoadErrorHub>* hub) {
@@ -57,5 +57,5 @@ Status LoadErrorHub::create_hub(const TLoadErrorHubInfo* t_hub_info,
     return Status::OK;
 }
 
-} // end namespace palo
+} // end namespace doris
 

@@ -20,7 +20,7 @@
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
 
-namespace palo 
+namespace doris 
 {
 
 SchemaScanner::ColumnDesc SchemaDummyScanner::_s_dummy_columns[] = {

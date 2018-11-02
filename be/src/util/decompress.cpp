@@ -26,7 +26,7 @@
 #include <bzlib.h>
 #include <snappy/snappy.h>
 
-namespace palo {
+namespace doris {
 
 GzipDecompressor::GzipDecompressor(MemPool* mem_pool, bool reuse_buffer, bool is_deflate) : 
         Codec(mem_pool, reuse_buffer),

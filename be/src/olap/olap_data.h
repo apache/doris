@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_OLAP_DATA_H
-#define BDG_PALO_BE_SRC_OLAP_OLAP_DATA_H
+#ifndef DORIS_BE_SRC_OLAP_OLAP_DATA_H
+#define DORIS_BE_SRC_OLAP_OLAP_DATA_H
 
 #include <map>
 #include <string>
@@ -29,7 +29,7 @@
 #include "olap/olap_table.h"
 #include "olap/row_block.h"
 
-namespace palo {
+namespace doris {
 
 // Row Storage Table is deprecated.
 // This file will be removed in succedent release.
@@ -366,6 +366,6 @@ private:
     RowCursor* _helper_cursor;
 };
 
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_OLAP_DATA_H
+#endif // DORIS_BE_SRC_OLAP_OLAP_DATA_H

@@ -24,7 +24,7 @@
 
 using std::string;
 
-namespace palo {
+namespace doris {
 
 StringValue FromStdString(const string& str) {
     char* ptr = const_cast<char*>(str.c_str());
@@ -86,15 +86,15 @@ TEST(StringValueTest, TestCompare) {
 int main(int argc, char** argv) {
 #if 0
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
     init_glog("be-test");
-    palo::CpuInfo::Init();
+    doris::CpuInfo::Init();
 #endif
     ::testing::InitGoogleTest(&argc, argv);
-    palo::CpuInfo::init();
+    doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }
 

@@ -52,7 +52,7 @@ DEFINE_int32(num_cores, 0, "(Advanced) If > 0, it sets the number of cores avail
     " Impala. Setting it to 0 means Impala will use all available cores on the machine"
     " according to /proc/cpuinfo.");
 
-namespace palo {
+namespace doris {
 // Helper function to warn if a given file does not contain an expected string as its
 // first line. If the file cannot be opened, no error is reported.
 void WarnIfFileNotEqual(
@@ -67,7 +67,7 @@ void WarnIfFileNotEqual(
 }
 } // end anonymous namespace
 
-namespace palo {
+namespace doris {
 
 bool CpuInfo::initialized_ = false;
 int64_t CpuInfo::hardware_flags_ = 0;

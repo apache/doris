@@ -49,7 +49,7 @@ using std::string;
 using std::to_string;
 using std::vector;
 
-namespace palo {
+namespace doris {
 
 AgentServer::AgentServer(ExecEnv* exec_env,
                          const TMasterInfo& master_info) :
@@ -187,7 +187,7 @@ AgentServer::AgentServer(ExecEnv* exec_env,
     // Add subscriber here and register listeners
     TopicListener* user_resource_listener = new UserResourceListener(exec_env, master_info);
     LOG(INFO) << "Register user resource listener";
-    _topic_subscriber->register_listener(palo::TTopicType::type::RESOURCE, user_resource_listener);
+    _topic_subscriber->register_listener(doris::TTopicType::type::RESOURCE, user_resource_listener);
 #endif
 }
 
@@ -522,4 +522,4 @@ void AgentServer::delete_etl_files(TAgentResult& result,
     status.to_thrift(&result.status);
 }
 
-}  // namesapce palo
+}  // namesapce doris

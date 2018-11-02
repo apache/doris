@@ -17,7 +17,7 @@
 
 #include "http/http_parser.h"
 
-namespace palo {
+namespace doris {
 
 std::ostream& operator<<(std::ostream& os, const HttpChunkParseCtx& ctx) {
     os << "HttpChunkParseCtx(" 

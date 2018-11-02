@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef INF_PALO_QE_SRC_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR_H
-#define INF_PALO_QE_SRC_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR_H
+#ifndef INF_DORIS_QE_SRC_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR_H
+#define INF_DORIS_QE_SRC_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR_H
 
 #include <boost/shared_ptr.hpp>
 #include <boost/scoped_ptr.hpp>
@@ -26,7 +26,7 @@
 #include "common/logging.h"
 #include <list>
 
-namespace palo {
+namespace doris {
 
 class RuntimeState;
 
@@ -165,6 +165,6 @@ private:
 
 }; // class BufferedBlockMgr
 
-} // namespace palo.
+} // namespace doris.
 
 #endif

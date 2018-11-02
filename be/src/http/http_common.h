@@ -19,7 +19,7 @@
 
 #include <string>
 
-namespace palo {
+namespace doris {
 
 struct HttpAuthInfo {
     std::string user;

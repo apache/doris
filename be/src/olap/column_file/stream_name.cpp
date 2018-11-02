@@ -17,7 +17,7 @@
 
 #include "olap/column_file/stream_name.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 StreamName::StreamName(uint32_t unique_column_id, StreamInfoMessage::Kind kind) : 
@@ -48,4 +48,4 @@ bool StreamName::operator == (const StreamName& another) const {
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris

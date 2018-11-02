@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef INF_PALO_BE_SRC_EXEC_ANALYTIC_EVAL_NODE_H
-#define INF_PALO_BE_SRC_EXEC_ANALYTIC_EVAL_NODE_H
+#ifndef INF_DORIS_BE_SRC_EXEC_ANALYTIC_EVAL_NODE_H
+#define INF_DORIS_BE_SRC_EXEC_ANALYTIC_EVAL_NODE_H
 
 #include "exec/exec_node.h"
 #include "exprs/expr.h"
@@ -26,7 +26,7 @@
 #include "runtime/tuple.h"
 #include "thrift/protocol/TDebugProtocol.h"
 
-namespace palo {
+namespace doris {
 
 class AggFnEvaluator;
 
@@ -234,7 +234,7 @@ private:
 
     // FunctionContext for each analytic function. String data returned by the analytic
     // functions is allocated via these contexts.
-    std::vector<palo_udf::FunctionContext*> _fn_ctxs;
+    std::vector<doris_udf::FunctionContext*> _fn_ctxs;
 
     // Queue of tuples which are ready to be set in output rows, with the index into
     // the _input_stream stream of the last TupleRow that gets the Tuple. Pairs are

@@ -24,7 +24,7 @@
 #include "http/http_request.h"
 #include "util/url_coding.h"
 
-namespace palo {
+namespace doris {
 
 class HttpUtilsTest : public testing::Test {
 public:
@@ -38,20 +38,20 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
         HttpRequest req;
         std::string auth = "Basic ";
         std::string encoded_str;
-        base64_encode("palo:passwd", &encoded_str);
+        base64_encode("doris:passwd", &encoded_str);
         auth += encoded_str;
         req._headers.emplace(HttpHeaders::AUTHORIZATION, auth);
         std::string user;
         std::string passwd;
         auto res = parse_basic_auth(req, &user, &passwd);
         ASSERT_TRUE(res);
-        ASSERT_STREQ("palo", user.data());
+        ASSERT_STREQ("doris", user.data());
         ASSERT_STREQ("passwd", passwd.data());
     }
     {
         HttpRequest req;
         std::string auth = "Basic ";
-        std::string encoded_str = "palo:passwd";
+        std::string encoded_str = "doris:passwd";
         auth += encoded_str;
         req._headers.emplace(HttpHeaders::AUTHORIZATION, auth);
         std::string user;
@@ -63,7 +63,7 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
         HttpRequest req;
         std::string auth = "Basic ";
         std::string encoded_str;
-        base64_encode("palopasswd", &encoded_str);
+        base64_encode("dorispasswd", &encoded_str);
         auth += encoded_str;
         req._headers.emplace(HttpHeaders::AUTHORIZATION, auth);
         std::string user;
@@ -75,7 +75,7 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
         HttpRequest req;
         std::string auth = "Basic";
         std::string encoded_str;
-        base64_encode("palo:passwd", &encoded_str);
+        base64_encode("doris:passwd", &encoded_str);
         auth += encoded_str;
         req._headers.emplace(HttpHeaders::AUTHORIZATION, auth);
         std::string user;

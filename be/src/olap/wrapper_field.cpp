@@ -17,7 +17,7 @@
 
 #include "olap/wrapper_field.h"
 
-namespace palo {
+namespace doris {
 
 WrapperField* WrapperField::create(const FieldInfo& info, uint32_t len) {
     bool is_string_type =

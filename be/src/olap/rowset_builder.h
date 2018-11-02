@@ -19,7 +19,7 @@
 
 #include "olap/writer.h"
 
-namespace palo {
+namespace doris {
 
 class Rowset;
 

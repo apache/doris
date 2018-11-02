@@ -17,7 +17,7 @@
 
 #include "olap/aggregate_func.h"
 
-namespace palo {
+namespace doris {
 
 struct AggregateFuncMapHash {
     size_t operator()(const std::pair<FieldAggregationMethod, FieldType>& pair) const {
@@ -150,4 +150,4 @@ FinalizeFunc get_finalize_func(const FieldAggregationMethod agg_method,
     return AggregateFuncResolver::get_instance()->get_finalize_func(agg_method, field_type);
 }
 
-} // namespace palo
+} // namespace doris

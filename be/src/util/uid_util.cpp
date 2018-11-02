@@ -17,7 +17,7 @@
 
 #include "util/uid_util.h"
 
-namespace palo {
+namespace doris {
 
 std::ostream& operator<<(std::ostream& os, const UniqueId& uid) {
     os << uid.to_string();

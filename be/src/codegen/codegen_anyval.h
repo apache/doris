@@ -25,7 +25,7 @@ class Type;
 class Value;
 }
 
-namespace palo {
+namespace doris {
 
 /// Class for handling AnyVal subclasses during codegen. Codegen functions should use this
 /// wrapper instead of creating or manipulating *Val values directly in most cases. This is

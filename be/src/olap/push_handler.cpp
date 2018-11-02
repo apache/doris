@@ -32,7 +32,7 @@ using std::map;
 using std::string;
 using std::vector;
 
-namespace palo {
+namespace doris {
 
 // Process push command, the main logical is as follows:
 //    a. related tables not exist:
@@ -1284,4 +1284,4 @@ string PushHandler::_debug_version_list(const Versions& versions) const {
     return txt.str();
 }
 
-}  // namespace palo
+}  // namespace doris

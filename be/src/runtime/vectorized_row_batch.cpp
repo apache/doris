@@ -20,7 +20,7 @@
 #include "common/logging.h"
 #include "olap/row_block.h"
 
-namespace palo {
+namespace doris {
 
 VectorizedRowBatch::VectorizedRowBatch(
         const std::vector<FieldInfo>& schema,
@@ -138,4 +138,4 @@ void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
     row_block->mem_pool()->acquire_data(_mem_pool.get(), false);
 }
 
-} // namespace palo
+} // namespace doris

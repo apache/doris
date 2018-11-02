@@ -22,7 +22,7 @@
 #include "olap/olap_table.h"
 #include "olap/row_block.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 ColumnData::ColumnData(Rowset* olap_index) :
@@ -634,4 +634,4 @@ uint64_t ColumnData::get_filted_rows() {
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris

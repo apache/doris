@@ -22,7 +22,7 @@
 
 #include <boost/scoped_ptr.hpp>
 #include <boost/shared_array.hpp>
-#include "codegen/palo_ir.h"
+#include "codegen/doris_ir.h"
 #include "common/compiler_util.h"
 #include "common/status.h"
 #include "exprs/agg_fn.h"
@@ -38,7 +38,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 
-namespace palo {
+namespace doris {
 
 class MemPool;
 class MemTracker;
@@ -239,12 +239,12 @@ class NewAggFnEvaluator {
   /// Staging input values used by the interpreted Update() / Merge() paths.
   /// It stores the evaluation results of input expressions to be passed to the
   /// Update() / Merge() function.
-  std::vector<palo_udf::AnyVal*> staging_input_vals_;
+  std::vector<doris_udf::AnyVal*> staging_input_vals_;
 
   /// Staging intermediate and merged values used in the interpreted
   /// Update() / Merge() paths.
-  palo_udf::AnyVal* staging_intermediate_val_ = nullptr;
-  palo_udf::AnyVal* staging_merge_input_val_ = nullptr;
+  doris_udf::AnyVal* staging_intermediate_val_ = nullptr;
+  doris_udf::AnyVal* staging_merge_input_val_ = nullptr;
 
   /// Use Create() instead.
   NewAggFnEvaluator(const AggFn& agg_fn, MemPool* mem_pool, MemTracker* tracker, bool is_clone);
@@ -275,10 +275,10 @@ class NewAggFnEvaluator {
 
   /// Writes the result in src into dst pointed to by dst_slot_desc
   inline void SetDstSlot(
-      const palo_udf::AnyVal* src, const SlotDescriptor& dst_slot_desc, Tuple* dst);
+      const doris_udf::AnyVal* src, const SlotDescriptor& dst_slot_desc, Tuple* dst);
 
   // Sets 'dst' to the value from 'slot'.
-  void set_any_val(const void* slot, const TypeDescriptor& type, palo_udf::AnyVal* dst);
+  void set_any_val(const void* slot, const TypeDescriptor& type, doris_udf::AnyVal* dst);
 };
 
 inline void NewAggFnEvaluator::Add(const TupleRow* row, Tuple* dst) {

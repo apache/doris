@@ -34,7 +34,7 @@
 #include "common/logging.h"
 #include "util/json_util.h"
 
-namespace palo {
+namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
@@ -77,4 +77,4 @@ void MetaAction::handle(HttpRequest *req) {
     }
 }
 
-} // end namespace palo
+} // end namespace doris

@@ -170,7 +170,7 @@ using std::vector;
         }\
     } while (0)
 
-namespace palo {
+namespace doris {
 __thread char OLAPNoticeLog::_buf[BUF_SIZE]; // buffer instance
 __thread int OLAPNoticeLog::_len = 0;        // len instance
 
@@ -1706,4 +1706,4 @@ void write_log_info(char *buf, size_t buf_len, const char *fmt, ...) {
     va_end(args);
 }
 
-}  // namespace palo
+}  // namespace doris

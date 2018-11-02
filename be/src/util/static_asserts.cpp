@@ -21,7 +21,7 @@
 #include "runtime/string_value.h"
 #include "runtime/datetime_value.h"
 
-namespace palo {
+namespace doris {
 // This class is unused.  It contains static (compile time) asserts.
 // This is useful to validate struct sizes and other similar things
 // at compile time.  If these asserts fail, the compile will fail.

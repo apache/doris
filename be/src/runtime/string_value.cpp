@@ -19,9 +19,9 @@
 #include "runtime/string_value.h"
 #include <cstring>
 
-namespace palo {
+namespace doris {
 
-const char* StringValue::s_llvm_class_name = "struct.palo::StringValue";
+const char* StringValue::s_llvm_class_name = "struct.doris::StringValue";
 
 std::string StringValue::debug_string() const {
     return std::string(ptr, len);

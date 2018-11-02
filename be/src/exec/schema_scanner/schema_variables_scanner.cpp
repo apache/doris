@@ -21,7 +21,7 @@
 #include "runtime/runtime_state.h"
 #include "exec/schema_scanner/frontend_helper.h"
 
-namespace palo {
+namespace doris {
 
 SchemaScanner::ColumnDesc SchemaVariablesScanner::_s_vars_columns[] = {
     //   name,       type,          size

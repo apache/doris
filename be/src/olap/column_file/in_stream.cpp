@@ -20,7 +20,7 @@
 #include "olap/column_file/byte_buffer.h"
 #include "olap/column_file/out_stream.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 InStream::InStream(
@@ -314,4 +314,4 @@ OLAPStatus InStream::skip(uint64_t skip_length) {
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris

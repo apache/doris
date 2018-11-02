@@ -25,7 +25,7 @@
 
 using llvm::Function;
 
-namespace palo {
+namespace doris {
 
 #define CONDITIONAL_CODEGEN_FN(expr_class) \
     Status expr_class::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) { \

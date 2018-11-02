@@ -25,7 +25,7 @@
 #include "gen_cpp/Types_types.h"
 #include "util/hash_util.hpp"
 
-namespace palo {
+namespace doris {
 
 class ExecEnv;
 

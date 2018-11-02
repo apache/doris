@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_PRIMITIVE_TYPE_H
-#define BDG_PALO_BE_RUNTIME_PRIMITIVE_TYPE_H
+#ifndef DORIS_BE_RUNTIME_PRIMITIVE_TYPE_H
+#define DORIS_BE_RUNTIME_PRIMITIVE_TYPE_H
 
 #include <string>
 
@@ -28,7 +28,7 @@
 #include "runtime/large_int_value.h"
 #include "runtime/string_value.h"
 
-namespace palo {
+namespace doris {
 
 enum PrimitiveType {
     INVALID_TYPE = 0,

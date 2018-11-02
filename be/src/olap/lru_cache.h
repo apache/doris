@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_LRU_CACHE_H
-#define BDG_PALO_BE_SRC_OLAP_LRU_CACHE_H
+#ifndef DORIS_BE_SRC_OLAP_LRU_CACHE_H
+#define DORIS_BE_SRC_OLAP_LRU_CACHE_H
 
 #include <stdint.h>
 #include <string.h>
@@ -28,7 +28,7 @@
 #include "olap/olap_common.h"
 #include "olap/utils.h"
 
-namespace palo {
+namespace doris {
 
 #define OLAP_CACHE_STRING_TO_BUF(cur, str, r_len)   \
     do{ \
@@ -393,6 +393,6 @@ namespace palo {
             uint64_t _last_id;
     };
 
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_LRU_CACHE_H
+#endif // DORIS_BE_SRC_OLAP_LRU_CACHE_H

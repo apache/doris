@@ -13,8 +13,8 @@
 //  along with this program; if not, write to the Free Software
 //  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301  USA 
 
-#ifndef BDG_PALO_BE_EXPRS_MY_AES_IMPL_H
-#define BDG_PALO_BE_EXPRS_MY_AES_IMPL_H
+#ifndef DORIS_BE_EXPRS_MY_AES_IMPL_H
+#define DORIS_BE_EXPRS_MY_AES_IMPL_H
 
 /** Maximum supported key kength */
 const int MAX_AES_KEY_LENGTH = 256;
@@ -27,7 +27,7 @@ const int MAX_AES_KEY_LENGTH = 256;
 typedef uint32_t uint;
 typedef uint8_t uint8;
 
-namespace palo {
+namespace doris {
 
 extern uint *my_aes_opmode_key_sizes;
 void my_aes_create_key(const unsigned char *key, uint key_length,

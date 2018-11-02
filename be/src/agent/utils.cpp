@@ -57,7 +57,7 @@ using apache::thrift::transport::TSocket;
 using apache::thrift::transport::TBufferedTransport;
 using apache::thrift::transport::TTransportException;
 
-namespace palo {
+namespace doris {
 
 
 AgentServerClient::AgentServerClient(const TBackend backend) :
@@ -76,7 +76,7 @@ AgentServerClient::~AgentServerClient() {
 AgentStatus AgentServerClient::make_snapshot(
         const TSnapshotRequest& snapshot_request,
         TAgentResult* result) {
-    AgentStatus status = PALO_SUCCESS;
+    AgentStatus status = DORIS_SUCCESS;
 
     TAgentResult thrift_result;
     try {
@@ -88,7 +88,7 @@ AgentStatus AgentServerClient::make_snapshot(
         OLAP_LOG_WARNING("agent clinet make snapshot, "
                          "get exception, error: %s", e.what());
         _transport->close();
-        status = PALO_ERROR;
+        status = DORIS_ERROR;
     }
 
     return status;
@@ -97,7 +97,7 @@ AgentStatus AgentServerClient::make_snapshot(
 AgentStatus AgentServerClient::release_snapshot(
         const string& snapshot_path,
         TAgentResult* result) {
-    AgentStatus status = PALO_SUCCESS;
+    AgentStatus status = DORIS_SUCCESS;
 
     try {
         _transport->open();
@@ -107,7 +107,7 @@ AgentStatus AgentServerClient::release_snapshot(
         OLAP_LOG_WARNING("agent clinet make snapshot, "
                          "get exception, error: %s", e.what());
         _transport->close();
-        status = PALO_ERROR;
+        status = DORIS_ERROR;
     }
     
     return status;
@@ -134,7 +134,7 @@ AgentStatus MasterServerClient::finish_task(
         LOG(WARNING) << "master client. get client from cache failed. host: "
                      << _master_info.network_address.hostname << ". port: " << _master_info.network_address.port
                      << ". code: " << client_status.code();
-        return PALO_ERROR;
+        return DORIS_ERROR;
     }
 
     try {
@@ -150,7 +150,7 @@ AgentStatus MasterServerClient::finish_task(
                                  _master_info.network_address.hostname.c_str(),
                                  _master_info.network_address.port,
                                  client_status.code());
-                return PALO_ERROR;
+                return DORIS_ERROR;
             }
 
             client->finishTask(*result, request);
@@ -161,10 +161,10 @@ AgentStatus MasterServerClient::finish_task(
                          _master_info.network_address.hostname.c_str(),
                          _master_info.network_address.port,
                          e.what());
-        return PALO_ERROR;
+        return DORIS_ERROR;
     }
 
-    return PALO_SUCCESS;
+    return DORIS_SUCCESS;
 }
 
 AgentStatus MasterServerClient::report(const TReportRequest request, TMasterResult* result) {
@@ -181,7 +181,7 @@ AgentStatus MasterServerClient::report(const TReportRequest request, TMasterResu
                          _master_info.network_address.hostname.c_str(),
                          _master_info.network_address.port,
                          client_status.code());
-        return PALO_ERROR;
+        return DORIS_ERROR;
     }
 
     try {
@@ -200,7 +200,7 @@ AgentStatus MasterServerClient::report(const TReportRequest request, TMasterResu
                                      _master_info.network_address.hostname.c_str(),
                                      _master_info.network_address.port,
                                      client_status.code());
-                    return PALO_ERROR;
+                    return DORIS_ERROR;
                 }   
 
                 client->report(*result, request);
@@ -208,16 +208,16 @@ AgentStatus MasterServerClient::report(const TReportRequest request, TMasterResu
                 // TIMED_OUT exception. do not retry
                 // actually we don't care what FE returns.
                 OLAP_LOG_WARNING("master client, report failed: %s", e.what());
-                return PALO_ERROR;
+                return DORIS_ERROR;
             }   
         }   
     } catch (TException& e) {
         LOG(WARNING) << "master client. finish report failed. host: " << _master_info.network_address.hostname
                     << ". port: " << _master_info.network_address.port << ". code: " << client_status.code();
-        return PALO_ERROR;
+        return DORIS_ERROR;
     }
 
-    return PALO_SUCCESS;
+    return DORIS_SUCCESS;
 }
 
 AgentStatus AgentUtils::rsync_from_remote(
@@ -246,59 +246,59 @@ AgentStatus AgentUtils::rsync_from_remote(
     fp = popen(cmd_stream.str().c_str(), "r");
 
     if (fp == NULL) {
-        return PALO_ERROR;
+        return DORIS_ERROR;
     }
 
     ret_code = pclose(fp);
     if (ret_code != 0) {
-        return PALO_ERROR;
+        return DORIS_ERROR;
     }
 
-    return PALO_SUCCESS;
+    return DORIS_SUCCESS;
 }
 
 std::string AgentUtils::print_agent_status(AgentStatus status) {
     switch (status) {
-    case PALO_SUCCESS:
-        return "PALO_SUCCESS";
-    case PALO_ERROR:
-        return "PALO_ERROR";
-    case PALO_TASK_REQUEST_ERROR:
-        return "PALO_TASK_REQUEST_ERROR";
-    case PALO_FILE_DOWNLOAD_INVALID_PARAM:
-        return "PALO_FILE_DOWNLOAD_INVALID_PARAM";
-    case PALO_FILE_DOWNLOAD_INSTALL_OPT_FAILED:
-        return "PALO_FILE_DOWNLOAD_INSTALL_OPT_FAILED";
-    case PALO_FILE_DOWNLOAD_CURL_INIT_FAILED:
-        return "PALO_FILE_DOWNLOAD_CURL_INIT_FAILED";
-    case PALO_FILE_DOWNLOAD_FAILED:
-        return "PALO_FILE_DOWNLOAD_FAILED";
-    case PALO_FILE_DOWNLOAD_GET_LENGTH_FAILED:
-        return "PALO_FILE_DOWNLOAD_GET_LENGTH_FAILED";
-    case PALO_FILE_DOWNLOAD_NOT_EXIST:
-        return "PALO_FILE_DOWNLOAD_NOT_EXIST";
-    case PALO_FILE_DOWNLOAD_LIST_DIR_FAIL:
-        return "PALO_FILE_DOWNLOAD_LIST_DIR_FAIL";
-    case PALO_CREATE_TABLE_EXIST:
-        return "PALO_CREATE_TABLE_EXIST";
-    case PALO_CREATE_TABLE_DIFF_SCHEMA_EXIST:
-        return "PALO_CREATE_TABLE_DIFF_SCHEMA_EXIST";
-    case PALO_CREATE_TABLE_NOT_EXIST:
-        return "PALO_CREATE_TABLE_NOT_EXIST";
-    case PALO_DROP_TABLE_NOT_EXIST:
-        return "PALO_DROP_TABLE_NOT_EXIST";
-    case PALO_PUSH_INVALID_TABLE:
-        return "PALO_PUSH_INVALID_TABLE";
-    case PALO_PUSH_INVALID_VERSION:
-        return "PALO_PUSH_INVALID_VERSION";
-    case PALO_PUSH_TIME_OUT:
-        return "PALO_PUSH_TIME_OUT";
-    case PALO_PUSH_HAD_LOADED:
-        return "PALO_PUSH_HAD_LOADED";
-    case PALO_TIMEOUT:
-        return "PALO_TIMEOUT";
-    case PALO_INTERNAL_ERROR:
-        return "PALO_INTERNAL_ERROR";
+    case DORIS_SUCCESS:
+        return "DORIS_SUCCESS";
+    case DORIS_ERROR:
+        return "DORIS_ERROR";
+    case DORIS_TASK_REQUEST_ERROR:
+        return "DORIS_TASK_REQUEST_ERROR";
+    case DORIS_FILE_DOWNLOAD_INVALID_PARAM:
+        return "DORIS_FILE_DOWNLOAD_INVALID_PARAM";
+    case DORIS_FILE_DOWNLOAD_INSTALL_OPT_FAILED:
+        return "DORIS_FILE_DOWNLOAD_INSTALL_OPT_FAILED";
+    case DORIS_FILE_DOWNLOAD_CURL_INIT_FAILED:
+        return "DORIS_FILE_DOWNLOAD_CURL_INIT_FAILED";
+    case DORIS_FILE_DOWNLOAD_FAILED:
+        return "DORIS_FILE_DOWNLOAD_FAILED";
+    case DORIS_FILE_DOWNLOAD_GET_LENGTH_FAILED:
+        return "DORIS_FILE_DOWNLOAD_GET_LENGTH_FAILED";
+    case DORIS_FILE_DOWNLOAD_NOT_EXIST:
+        return "DORIS_FILE_DOWNLOAD_NOT_EXIST";
+    case DORIS_FILE_DOWNLOAD_LIST_DIR_FAIL:
+        return "DORIS_FILE_DOWNLOAD_LIST_DIR_FAIL";
+    case DORIS_CREATE_TABLE_EXIST:
+        return "DORIS_CREATE_TABLE_EXIST";
+    case DORIS_CREATE_TABLE_DIFF_SCHEMA_EXIST:
+        return "DORIS_CREATE_TABLE_DIFF_SCHEMA_EXIST";
+    case DORIS_CREATE_TABLE_NOT_EXIST:
+        return "DORIS_CREATE_TABLE_NOT_EXIST";
+    case DORIS_DROP_TABLE_NOT_EXIST:
+        return "DORIS_DROP_TABLE_NOT_EXIST";
+    case DORIS_PUSH_INVALID_TABLE:
+        return "DORIS_PUSH_INVALID_TABLE";
+    case DORIS_PUSH_INVALID_VERSION:
+        return "DORIS_PUSH_INVALID_VERSION";
+    case DORIS_PUSH_TIME_OUT:
+        return "DORIS_PUSH_TIME_OUT";
+    case DORIS_PUSH_HAD_LOADED:
+        return "DORIS_PUSH_HAD_LOADED";
+    case DORIS_TIMEOUT:
+        return "DORIS_TIMEOUT";
+    case DORIS_INTERNAL_ERROR:
+        return "DORIS_INTERNAL_ERROR";
     default:
         return "UNKNOWM";
     }
@@ -370,4 +370,4 @@ bool AgentUtils::write_json_to_file(const map<string, string>& info, const strin
     return true; 
 } 
 
-}  // namespace palo
+}  // namespace doris

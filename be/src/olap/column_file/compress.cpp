@@ -20,7 +20,7 @@
 #include "olap/column_file/byte_buffer.h"
 #include "olap/utils.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 OLAPStatus lzo_compress(ByteBuffer* in, ByteBuffer* out, bool* smaller) {
@@ -100,4 +100,4 @@ OLAPStatus lz4_decompress(ByteBuffer* in, ByteBuffer* out) {
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris

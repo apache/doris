@@ -33,7 +33,7 @@
 #include "olap/olap_engine.h"
 #include "runtime/exec_env.h"
 
-namespace palo {
+namespace doris {
 
 const std::string PATH = "path";
 const std::string TABLET_ID = "tablet_id";
@@ -119,5 +119,5 @@ void ReloadTabletAction::reload(
     }
 } 
 
-} // end namespace palo
+} // end namespace doris
 

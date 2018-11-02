@@ -46,7 +46,7 @@
 #include "service/backend_options.h"
 #include "runtime/exec_env.h"
 #include "runtime/snapshot_loader.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 
 using std::deque;
 using std::list;
@@ -58,7 +58,7 @@ using std::stringstream;
 using std::to_string;
 using std::vector;
 
-namespace palo {
+namespace doris {
 
 const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
 const uint32_t TASK_FINISH_MAX_RETRY = 3;
@@ -318,14 +318,14 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
     int32_t try_time = 0;
 
     while (try_time < TASK_FINISH_MAX_RETRY) {
-        PaloMetrics::finish_task_requests_total.increment(1);
+        DorisMetrics::finish_task_requests_total.increment(1);
         AgentStatus client_status = _master_client->finish_task(finish_task_request, &result);
 
-        if (client_status == PALO_SUCCESS) {
+        if (client_status == DORIS_SUCCESS) {
             OLAP_LOG_INFO("finish task success.result: %d", result.status.status_code);
             break;
         } else {
-            PaloMetrics::finish_task_requests_failed.increment(1);
+            DorisMetrics::finish_task_requests_failed.increment(1);
             OLAP_LOG_WARNING("finish task failed.result: %d", result.status.status_code);
             try_time += 1;
         }
@@ -487,7 +487,7 @@ void* TaskWorkerPool::_drop_table_worker_thread_callback(void* arg_this) {
         TStatus task_status;
 
         AgentStatus status = worker_pool_this->_drop_table(drop_tablet_req);
-        if (status != PALO_SUCCESS) {
+        if (status != DORIS_SUCCESS) {
             OLAP_LOG_WARNING(
                 "drop table failed! signature: %ld", agent_task_req.signature);
             error_msgs.push_back("drop table failed!");
@@ -561,7 +561,7 @@ void TaskWorkerPool::_alter_table(
         int64_t signature,
         const TTaskType::type task_type,
         TFinishTaskRequest* finish_task_request) {
-    AgentStatus status = PALO_SUCCESS;
+    AgentStatus status = DORIS_SUCCESS;
     TStatus task_status;
     vector<string> error_msgs;
 
@@ -578,7 +578,7 @@ void TaskWorkerPool::_alter_table(
         EnumToString(TTaskType, task_type, task_name);
         LOG(WARNING) << "schema change type invalid. type: " << task_name << ", "
             << "signature: " << signature;
-        status = PALO_TASK_REQUEST_ERROR;
+        status = DORIS_TASK_REQUEST_ERROR;
         break;
     }
 
@@ -588,7 +588,7 @@ void TaskWorkerPool::_alter_table(
     // Check last schema change status, if failed delete tablet file
     // Do not need to adjust delete success or not
     // Because if delete failed create rollup will failed
-    if (status == PALO_SUCCESS) {
+    if (status == DORIS_SUCCESS) {
         // Check lastest schema change status
         AlterTableStatus alter_table_status = _show_alter_table_status(
                 base_tablet_id,
@@ -603,7 +603,7 @@ void TaskWorkerPool::_alter_table(
             drop_tablet_req.__set_schema_hash(alter_tablet_request.new_tablet_req.tablet_schema.schema_hash);
             status = _drop_table(drop_tablet_req);
 
-            if (status != PALO_SUCCESS) {
+            if (status != DORIS_SUCCESS) {
                 OLAP_LOG_WARNING("delete failed rollup file failed, status: %d, "
                                  "signature: %ld.",
                                  status, signature);
@@ -612,7 +612,7 @@ void TaskWorkerPool::_alter_table(
             }
         }
 
-        if (status == PALO_SUCCESS) {
+        if (status == DORIS_SUCCESS) {
             if (alter_table_status == ALTER_TABLE_FINISHED
                     || alter_table_status == ALTER_TABLE_FAILED
                     || alter_table_status == ALTER_TABLE_WAITING) {
@@ -630,14 +630,14 @@ void TaskWorkerPool::_alter_table(
                     break;
                 }
                 if (ret != OLAPStatus::OLAP_SUCCESS) {
-                    status = PALO_ERROR;
+                    status = DORIS_ERROR;
                     LOG(WARNING) << process_name << " failed. signature: " << signature << " status: " << status;
                 }
             }
         }
     }
 
-    if (status == PALO_SUCCESS) {
+    if (status == DORIS_SUCCESS) {
         ++_s_report_version;
         LOG(INFO) << process_name << " finished. signature: " << signature;
     }
@@ -649,7 +649,7 @@ void TaskWorkerPool::_alter_table(
     finish_task_request->__set_signature(signature);
 
     vector<TTabletInfo> finish_tablet_infos;
-    if (status == PALO_SUCCESS) {
+    if (status == DORIS_SUCCESS) {
         TTabletInfo tablet_info;
         status = _get_tablet_info(
                 alter_tablet_request.new_tablet_req.tablet_id,
@@ -657,7 +657,7 @@ void TaskWorkerPool::_alter_table(
                 signature,
                 &tablet_info);
 
-        if (status != PALO_SUCCESS) {
+        if (status != DORIS_SUCCESS) {
             OLAP_LOG_WARNING("%s success, but get new tablet info failed."
                              "tablet_id: %ld, schema_hash: %ld, signature: %ld.",
                              process_name.c_str(),
@@ -669,12 +669,12 @@ void TaskWorkerPool::_alter_table(
         }
     }
 
-    if (status == PALO_SUCCESS) {
+    if (status == DORIS_SUCCESS) {
         finish_task_request->__set_finish_tablet_infos(finish_tablet_infos);
         LOG(INFO) << process_name << " success. signature: " << signature;
         error_msgs.push_back(process_name + " success");
         task_status.__set_status_code(TStatusCode::OK);
-    } else if (status == PALO_TASK_REQUEST_ERROR) {
+    } else if (status == DORIS_TASK_REQUEST_ERROR) {
         OLAP_LOG_WARNING("alter table request task type invalid. "
                          "signature: %ld", signature);
         error_msgs.push_back("alter table request new tablet id or schema count invalid.");
@@ -710,7 +710,7 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
 #ifndef BE_TEST
     while (true) {
 #endif
-        AgentStatus status = PALO_SUCCESS;
+        AgentStatus status = DORIS_SUCCESS;
         TAgentTaskRequest agent_task_req;
         TPushReq push_req;
         string user;
@@ -759,7 +759,7 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
             status = worker_pool_this->_pusher->init();
 #endif
 
-            if (status == PALO_SUCCESS) {
+            if (status == DORIS_SUCCESS) {
                 uint32_t retry_time = 0;
                 while (retry_time < PUSH_MAX_RETRY) {
 #ifndef BE_TEST
@@ -767,14 +767,14 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
 #else
                     status = worker_pool_this->_pusher->process(&tablet_infos);
 #endif
-                    if (status == PALO_PUSH_HAD_LOADED) {
+                    if (status == DORIS_PUSH_HAD_LOADED) {
                         OLAP_LOG_WARNING("transaction exists when realtime push, "
                                          "but unfinished, do not report to fe, signature: %ld",
                                          agent_task_req.signature);
                         break;  // not retry any more
                     }
                     // Internal error, need retry
-                    if (status == PALO_ERROR) {
+                    if (status == DORIS_ERROR) {
                         OLAP_LOG_WARNING("push internal error, need retry.signature: %ld",
                                          agent_task_req.signature);
                         retry_time += 1;
@@ -789,14 +789,14 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
             if (delete_data_status != OLAPStatus::OLAP_SUCCESS) {
                 OLAP_LOG_WARNING("delete data failed. status: %d, signature: %ld",
                                  delete_data_status, agent_task_req.signature);
-                status = PALO_ERROR;
+                status = DORIS_ERROR;
             }
         } else {
-            status = PALO_TASK_REQUEST_ERROR;
+            status = DORIS_TASK_REQUEST_ERROR;
         }
 
 #ifndef BE_TEST
-        if (status == PALO_PUSH_HAD_LOADED) {
+        if (status == DORIS_PUSH_HAD_LOADED) {
             // remove the task and not return to fe
             worker_pool_this->_remove_task_info(
                 agent_task_req.task_type, agent_task_req.signature, user);
@@ -816,7 +816,7 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
             finish_task_request.__set_request_version_hash(push_req.version_hash);
         }
 
-        if (status == PALO_SUCCESS) {
+        if (status == DORIS_SUCCESS) {
             OLAP_LOG_DEBUG("push ok.signature: %ld", agent_task_req.signature);
             error_msgs.push_back("push success");
 
@@ -824,7 +824,7 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
 
             task_status.__set_status_code(TStatusCode::OK);
             finish_task_request.__set_finish_tablet_infos(tablet_infos);
-        } else if (status == PALO_TASK_REQUEST_ERROR) {
+        } else if (status == DORIS_TASK_REQUEST_ERROR) {
             OLAP_LOG_WARNING("push request push_type invalid. type: %d, signature: %ld",
                              push_req.push_type, agent_task_req.signature);
             error_msgs.push_back("push request push_type invalid.");
@@ -1022,7 +1022,7 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
 #ifndef BE_TEST
     while (true) {
 #endif
-        AgentStatus status = PALO_SUCCESS;
+        AgentStatus status = DORIS_SUCCESS;
         TAgentTaskRequest agent_task_req;
         TCloneReq clone_req;
 
@@ -1037,7 +1037,7 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
             worker_pool_this->_tasks.pop_front();
         }
 
-        PaloMetrics::clone_requests_total.increment(1);
+        DorisMetrics::clone_requests_total.increment(1);
         // Try to register to cgroups_mgr
         CgroupsMgr::apply_system_cgroup();
         OLAP_LOG_INFO("get clone task. signature: %ld", agent_task_req.signature);
@@ -1069,14 +1069,14 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                                                    &error_msgs,
                                                    &missing_versions,
                                                    &allow_incremental_clone);
-            if (status == PALO_SUCCESS) {
+            if (status == DORIS_SUCCESS) {
                 OLAPStatus olap_status = worker_pool_this->_env->olap_engine()->
                     finish_clone(tablet, local_data_path, clone_req.committed_version, allow_incremental_clone);
                 if (olap_status != OLAP_SUCCESS) {
                     LOG(WARNING) << "failed to finish incremental clone. [table=" << tablet->full_name()
                                  << " res=" << olap_status << "]";
                     error_msgs.push_back("incremental clone error.");
-                    status = PALO_ERROR;
+                    status = DORIS_ERROR;
                 }
             } else {
                 // begin to full clone if incremental failed
@@ -1088,7 +1088,7 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                                                        &src_file_path,
                                                        &error_msgs,
                                                        NULL, NULL);
-                if (status == PALO_SUCCESS) {
+                if (status == DORIS_SUCCESS) {
                     LOG(INFO) << "download successfully when full clone. [table=" << tablet->full_name()
                               << " src_host=" << src_host.host << " src_file_path=" << src_file_path
                               << " local_data_path=" << local_data_path << "]";
@@ -1100,7 +1100,7 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                         LOG(WARNING) << "fail to finish full clone. [table=" << tablet->full_name()
                                      << " res=" << olap_status << "]";
                         error_msgs.push_back("full clone error.");
-                        status = PALO_ERROR;
+                        status = DORIS_ERROR;
                     }
                 }
             }
@@ -1115,10 +1115,10 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                 OLAP_LOG_WARNING("clone get local root path failed. signature: %ld",
                                  agent_task_req.signature);
                 error_msgs.push_back("clone get local root path failed.");
-                status = PALO_ERROR;
+                status = DORIS_ERROR;
             }
 
-            if (status == PALO_SUCCESS) {
+            if (status == DORIS_SUCCESS) {
                 stringstream tablet_dir_stream;
                 tablet_dir_stream << local_shard_root_path
                                   << "/" << clone_req.tablet_id
@@ -1132,7 +1132,7 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                                                        NULL, NULL);
             }
 
-            if (status == PALO_SUCCESS) {
+            if (status == DORIS_SUCCESS) {
                 LOG(INFO) << "clone copy done. src_host: " << src_host.host
                           << " src_file_path: " << src_file_path;
                 // Load header
@@ -1147,13 +1147,13 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                                  << "' schema_hash: " << clone_req.schema_hash << ". status: " << load_header_status
                                  << ". signature: " << agent_task_req.signature;
                     error_msgs.push_back("load header failed.");
-                    status = PALO_ERROR;
+                    status = DORIS_ERROR;
                 }
             }
 
 #ifndef BE_TEST
             // Clean useless dir, if failed, ignore it.
-            if (status != PALO_SUCCESS && status != PALO_CREATE_TABLE_EXIST) {
+            if (status != DORIS_SUCCESS && status != DORIS_CREATE_TABLE_EXIST) {
                 stringstream local_data_path_stream;
                 local_data_path_stream << local_shard_root_path
                                        << "/" << clone_req.tablet_id;
@@ -1178,20 +1178,20 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
 
         // Get clone tablet info
         vector<TTabletInfo> tablet_infos;
-        if (status == PALO_SUCCESS || status == PALO_CREATE_TABLE_EXIST) {
+        if (status == DORIS_SUCCESS || status == DORIS_CREATE_TABLE_EXIST) {
             TTabletInfo tablet_info;
             AgentStatus get_tablet_info_status = worker_pool_this->_get_tablet_info(
                     clone_req.tablet_id,
                     clone_req.schema_hash,
                     agent_task_req.signature,
                     &tablet_info);
-            if (get_tablet_info_status != PALO_SUCCESS) {
+            if (get_tablet_info_status != DORIS_SUCCESS) {
                 OLAP_LOG_WARNING("clone success, but get tablet info failed."
                                  "tablet id: %ld, schema hash: %ld, signature: %ld",
                                  clone_req.tablet_id, clone_req.schema_hash,
                                  agent_task_req.signature);
                 error_msgs.push_back("clone success, but get tablet info failed.");
-                status = PALO_ERROR;
+                status = DORIS_ERROR;
             } else if (
                 (clone_req.__isset.committed_version
                         && clone_req.__isset.committed_version_hash)
@@ -1215,13 +1215,13 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                 drop_req.tablet_id = clone_req.tablet_id;
                 drop_req.schema_hash = clone_req.schema_hash;
                 AgentStatus drop_status = worker_pool_this->_drop_table(drop_req);
-                if (drop_status != PALO_SUCCESS) {
+                if (drop_status != DORIS_SUCCESS) {
                     // just log
                     OLAP_LOG_WARNING(
                         "drop stale cloned table failed! tabelt id: %ld", clone_req.tablet_id);
                 }
 
-                status = PALO_ERROR;
+                status = DORIS_ERROR;
             } else {
                 OLAP_LOG_INFO("clone get tablet info success. "
                               "tablet id: %ld, schema hash: %ld, signature: %ld "
@@ -1241,8 +1241,8 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
         finish_task_request.__set_signature(agent_task_req.signature);
 
         TStatusCode::type status_code = TStatusCode::OK;
-        if (status != PALO_SUCCESS && status != PALO_CREATE_TABLE_EXIST) {
-            PaloMetrics::clone_requests_failed.increment(1);
+        if (status != DORIS_SUCCESS && status != DORIS_CREATE_TABLE_EXIST) {
+            DorisMetrics::clone_requests_failed.increment(1);
             status_code = TStatusCode::RUNTIME_ERROR;
             OLAP_LOG_WARNING("clone failed. signature: %ld",
                              agent_task_req.signature);
@@ -1274,7 +1274,7 @@ AgentStatus TaskWorkerPool::_clone_copy(
         vector<string>* error_msgs,
         const vector<Version>* missing_versions,
         bool* allow_incremental_clone) {
-    AgentStatus status = PALO_SUCCESS;
+    AgentStatus status = DORIS_SUCCESS;
 
     std::string token = _master_info.token;
     for (auto src_backend : clone_req.src_backends) {
@@ -1287,7 +1287,7 @@ AgentStatus TaskWorkerPool::_clone_copy(
         AgentServerClient agent_client(*src_host);
 #endif
         TAgentResult make_snapshot_result;
-        status = PALO_SUCCESS;
+        status = DORIS_SUCCESS;
 
         LOG(INFO) << "pre make snapshot. backend_ip: " << src_host->host;
         TSnapshotRequest snapshot_request;
@@ -1330,7 +1330,7 @@ AgentStatus TaskWorkerPool::_clone_copy(
                 OLAP_LOG_WARNING("clone make snapshot success, "
                                  "but get src file path failed. signature: %ld",
                                  signature);
-                status = PALO_ERROR;
+                status = DORIS_ERROR;
                 continue;
             }
         } else {
@@ -1338,7 +1338,7 @@ AgentStatus TaskWorkerPool::_clone_copy(
                          << ". schema_hash: " << clone_req.schema_hash << ". backend_ip: " << src_host->host
                          << ". backend_port: " << src_host->be_port << ". signature: " << signature;
             error_msgs->push_back("make snapshot failed. backend_ip: " + src_host->host);
-            status = PALO_ERROR;
+            status = DORIS_ERROR;
             continue;
         }
 
@@ -1346,7 +1346,7 @@ AgentStatus TaskWorkerPool::_clone_copy(
         stringstream src_file_full_path_stream;
         stringstream local_file_full_path_stream;
 
-        if (status == PALO_SUCCESS) {
+        if (status == DORIS_SUCCESS) {
             src_file_full_path_stream << *src_file_path
                                       << "/" << clone_req.tablet_id
                                       << "/" << clone_req.schema_hash << "/";
@@ -1357,7 +1357,7 @@ AgentStatus TaskWorkerPool::_clone_copy(
 
 #ifndef BE_TEST
         // Check local path exist, if exist, remove it, then create the dir
-        if (status == PALO_SUCCESS) {
+        if (status == DORIS_SUCCESS) {
             boost::filesystem::path local_file_full_dir(local_file_full_path);
             if (boost::filesystem::exists(local_file_full_dir)) {
                 boost::filesystem::remove_all(local_file_full_dir);
@@ -1377,20 +1377,20 @@ AgentStatus TaskWorkerPool::_clone_copy(
         FileDownloader* file_downloader_ptr = new FileDownloader(downloader_param);
         if (file_downloader_ptr == NULL) {
             OLAP_LOG_WARNING("clone copy create file downloader failed. try next backend");
-            status = PALO_ERROR;
+            status = DORIS_ERROR;
         }
 #endif
 
         string file_list_str;
-        AgentStatus download_status = PALO_SUCCESS;
+        AgentStatus download_status = DORIS_SUCCESS;
         uint32_t download_retry_time = 0;
-        while (status == PALO_SUCCESS && download_retry_time < DOWNLOAD_FILE_MAX_RETRY) {
+        while (status == DORIS_SUCCESS && download_retry_time < DOWNLOAD_FILE_MAX_RETRY) {
 #ifndef BE_TEST
             download_status = file_downloader_ptr->list_file_dir(&file_list_str);
 #else
             download_status = _file_downloader_ptr->list_file_dir(&file_list_str);
 #endif
-            if (download_status != PALO_SUCCESS) {
+            if (download_status != DORIS_SUCCESS) {
                 OLAP_LOG_WARNING("clone get remote file list failed. backend_ip: %s, "
                                  "src_file_path: %s, signature: %ld",
                                  src_host->host.c_str(),
@@ -1413,13 +1413,13 @@ AgentStatus TaskWorkerPool::_clone_copy(
 #endif
 
         vector<string> file_name_list;
-        if (download_status != PALO_SUCCESS) {
+        if (download_status != DORIS_SUCCESS) {
             OLAP_LOG_WARNING("clone get remote file list failed over max time. backend_ip: %s, "
                              "src_file_path: %s, signature: %ld",
                              src_host->host.c_str(),
                              downloader_param.remote_file_path.c_str(),
                              signature);
-            status = PALO_ERROR;
+            status = DORIS_ERROR;
         } else {
             size_t start_position = 0;
             size_t end_position = file_list_str.find("\n");
@@ -1468,7 +1468,7 @@ AgentStatus TaskWorkerPool::_clone_copy(
             file_downloader_ptr = new FileDownloader(downloader_param);
             if (file_downloader_ptr == NULL) {
                 OLAP_LOG_WARNING("clone copy create file downloader failed. try next backend");
-                status = PALO_ERROR;
+                status = DORIS_ERROR;
                 break;
             }
 #endif
@@ -1478,7 +1478,7 @@ AgentStatus TaskWorkerPool::_clone_copy(
 #else
                 download_status = _file_downloader_ptr->get_length(&file_size);
 #endif
-                if (download_status != PALO_SUCCESS) {
+                if (download_status != DORIS_SUCCESS) {
                     OLAP_LOG_WARNING("clone copy get file length failed. backend_ip: %s, "
                                      "src_file_path: %s, signature: %ld",
                                      src_host->host.c_str(),
@@ -1499,13 +1499,13 @@ AgentStatus TaskWorkerPool::_clone_copy(
                 file_downloader_ptr = NULL;
             }
 #endif
-            if (download_status != PALO_SUCCESS) {
+            if (download_status != DORIS_SUCCESS) {
                 OLAP_LOG_WARNING("clone copy get file length failed over max time. "
                                  "backend_ip: %s, src_file_path: %s, signature: %ld",
                                  src_host->host.c_str(),
                                  downloader_param.remote_file_path.c_str(),
                                  signature);
-                status = PALO_ERROR;
+                status = DORIS_ERROR;
                 break;
             }
 
@@ -1521,7 +1521,7 @@ AgentStatus TaskWorkerPool::_clone_copy(
             file_downloader_ptr = new FileDownloader(downloader_param);
             if (file_downloader_ptr == NULL) {
                 OLAP_LOG_WARNING("clone copy create file downloader failed. try next backend");
-                status = PALO_ERROR;
+                status = DORIS_ERROR;
                 break;
             }
 #endif
@@ -1531,7 +1531,7 @@ AgentStatus TaskWorkerPool::_clone_copy(
 #else
                 download_status = _file_downloader_ptr->download_file();
 #endif
-                if (download_status != PALO_SUCCESS) {
+                if (download_status != DORIS_SUCCESS) {
                     OLAP_LOG_WARNING("download file failed. backend_ip: %s, "
                                      "src_file_path: %s, signature: %ld",
                                      src_host->host.c_str(),
@@ -1548,7 +1548,7 @@ AgentStatus TaskWorkerPool::_clone_copy(
                                          src_host->host.c_str(),
                                          downloader_param.remote_file_path.c_str(),
                                          signature, file_size, local_file_size);
-                        download_status = PALO_FILE_DOWNLOAD_FAILED;
+                        download_status = DORIS_FILE_DOWNLOAD_FAILED;
                     } else {
                         chmod(downloader_param.local_file_path.c_str(), S_IRUSR | S_IWUSR);
                         break;
@@ -1567,13 +1567,13 @@ AgentStatus TaskWorkerPool::_clone_copy(
             }
 #endif
 
-            if (download_status != PALO_SUCCESS) {
+            if (download_status != DORIS_SUCCESS) {
                 OLAP_LOG_WARNING("download file failed over max retry. backend_ip: %s, "
                                  "src_file_path: %s, signature: %ld",
                                  src_host->host.c_str(),
                                  downloader_param.remote_file_path.c_str(),
                                  signature);
-                status = PALO_ERROR;
+                status = DORIS_ERROR;
                 break;
             }
         } // Clone files from remote backend
@@ -1594,7 +1594,7 @@ AgentStatus TaskWorkerPool::_clone_copy(
                          << ". signature: " << signature;
         }
 
-        if (status == PALO_SUCCESS) {
+        if (status == DORIS_SUCCESS) {
             break;
         }
     } // clone copy from one backend
@@ -1789,12 +1789,12 @@ void* TaskWorkerPool::_report_task_worker_thread_callback(void* arg_this) {
             request.__set_tasks(_s_task_signatures);
         }
 
-        PaloMetrics::report_task_requests_total.increment(1);
+        DorisMetrics::report_task_requests_total.increment(1);
         TMasterResult result;
         AgentStatus status = worker_pool_this->_master_client->report(request, &result);
 
-        if (status != PALO_SUCCESS) {
-            PaloMetrics::report_task_requests_failed.increment(1);
+        if (status != DORIS_SUCCESS) {
+            DorisMetrics::report_task_requests_failed.increment(1);
             LOG(WARNING) << "finish report task failed. status:" << status << ", "
                 << "master host:" << worker_pool_this->_master_info.network_address.hostname << ", "
                 << "port:" << worker_pool_this->_master_info.network_address.port;
@@ -1842,12 +1842,12 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
         }
         request.__set_disks(disks);
 
-        PaloMetrics::report_disk_requests_total.increment(1);
+        DorisMetrics::report_disk_requests_total.increment(1);
         TMasterResult result;
         AgentStatus status = worker_pool_this->_master_client->report(request, &result);
 
-        if (status != PALO_SUCCESS) {
-            PaloMetrics::report_disk_requests_failed.increment(1);
+        if (status != DORIS_SUCCESS) {
+            DorisMetrics::report_disk_requests_failed.increment(1);
             LOG(WARNING) << "finish report disk state failed. status:" << status << ", "
                 << "master host:" << worker_pool_this->_master_info.network_address.hostname << ", "
                 << "port:" << worker_pool_this->_master_info.network_address.port;
@@ -1877,7 +1877,7 @@ void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) 
     request.__set_force_recovery(config::force_recovery);
     request.__set_backend(worker_pool_this->_backend);
     request.__isset.tablets = true;
-    AgentStatus status = PALO_SUCCESS;
+    AgentStatus status = DORIS_SUCCESS;
 
 #ifndef BE_TEST
     while (true) {
@@ -1916,8 +1916,8 @@ void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) 
         TMasterResult result;
         status = worker_pool_this->_master_client->report(request, &result);
 
-        if (status != PALO_SUCCESS) {
-            PaloMetrics::report_all_tablets_requests_failed.increment(1);
+        if (status != DORIS_SUCCESS) {
+            DorisMetrics::report_all_tablets_requests_failed.increment(1);
             LOG(WARNING) << "finish report olap table state failed. status:" << status << ", "
                 << "master host:" << worker_pool_this->_master_info.network_address.hostname << ", "
                 << "port:" << worker_pool_this->_master_info.network_address.port;
@@ -2219,10 +2219,10 @@ AlterTableStatus TaskWorkerPool::_show_alter_table_status(
 }
 
 AgentStatus TaskWorkerPool::_drop_table(const TDropTabletReq& req) {
-    AgentStatus status = PALO_SUCCESS;
+    AgentStatus status = DORIS_SUCCESS;
     OLAPStatus drop_status = _env->olap_engine()->drop_table(req.tablet_id, req.schema_hash);
     if (drop_status != OLAP_SUCCESS && drop_status != OLAP_ERR_TABLE_NOT_FOUND) {
-        status = PALO_ERROR;
+        status = DORIS_ERROR;
     }
     return status;
 }
@@ -2232,7 +2232,7 @@ AgentStatus TaskWorkerPool::_get_tablet_info(
         const TSchemaHash schema_hash,
         int64_t signature,
         TTabletInfo* tablet_info) {
-    AgentStatus status = PALO_SUCCESS;
+    AgentStatus status = DORIS_SUCCESS;
 
     tablet_info->__set_tablet_id(tablet_id);
     tablet_info->__set_schema_hash(schema_hash);
@@ -2240,7 +2240,7 @@ AgentStatus TaskWorkerPool::_get_tablet_info(
     if (olap_status != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("get tablet info failed. status: %d, signature: %ld",
                          olap_status, signature);
-        status = PALO_ERROR;
+        status = DORIS_ERROR;
     }
     return status;
 }
@@ -2281,7 +2281,7 @@ void* TaskWorkerPool::_move_dir_thread_callback(void* arg_this) {
                     true /* TODO */,
                     &error_msgs);
 
-        if (status != PALO_SUCCESS) {
+        if (status != DORIS_SUCCESS) {
             status_code = TStatusCode::RUNTIME_ERROR;
             OLAP_LOG_WARNING("failed to move dir: %s, tablet id: %ld, signature: %ld, job id: %ld",
                     move_dir_req.src.c_str(), move_dir_req.tablet_id, agent_task_req.signature,
@@ -2324,7 +2324,7 @@ AgentStatus TaskWorkerPool::_move_dir(
         OLAP_LOG_INFO("failed to get tablet: %ld, schema hash: %d",
                 tablet_id, schema_hash);
         error_msgs->push_back("failed to get tablet");
-        return PALO_TASK_REQUEST_ERROR;
+        return DORIS_TASK_REQUEST_ERROR;
     }
 
     std::string dest_tablet_dir = tablet->construct_dir_path();
@@ -2337,10 +2337,10 @@ AgentStatus TaskWorkerPool::_move_dir(
         OLAP_LOG_WARNING("move failed. job id: %ld, msg: %s",
             job_id, status.get_error_msg().c_str());
         error_msgs->push_back(status.get_error_msg());
-        return PALO_INTERNAL_ERROR;
+        return DORIS_INTERNAL_ERROR;
     }
 
-    return PALO_SUCCESS;
+    return DORIS_SUCCESS;
 }
 
 void* TaskWorkerPool::_recover_tablet_thread_callback(void* arg_this) {
@@ -2399,4 +2399,4 @@ void* TaskWorkerPool::_recover_tablet_thread_callback(void* arg_this) {
     return (void*)0;
 }
 
-}  // namespace palo
+}  // namespace doris

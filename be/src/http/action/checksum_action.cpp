@@ -33,7 +33,7 @@
 #include "olap/olap_engine.h"
 #include "runtime/exec_env.h"
 
-namespace palo {
+namespace doris {
 
 const std::string TABLET_ID = "tablet_id";
 // do not use name "VERSION",
@@ -141,4 +141,4 @@ int64_t ChecksumAction::do_checksum(int64_t tablet_id, int64_t version, int64_t 
     return static_cast<int64_t>(checksum);
 } 
 
-} // end namespace palo
+} // end namespace doris

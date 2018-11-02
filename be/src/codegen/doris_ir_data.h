@@ -15,16 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_CODEGEN_PALO_IR_DATA_H
-#define BDG_PALO_BE_SRC_QUERY_CODEGEN_PALO_IR_DATA_H
+#ifndef DORIS_BE_SRC_QUERY_CODEGEN_DORIS_IR_DATA_H
+#define DORIS_BE_SRC_QUERY_CODEGEN_DORIS_IR_DATA_H
 
 /// Header with declarations of Impala IR data. Definitions of the arrays are generated
 /// separately.
 
-extern const unsigned char palo_sse_llvm_ir[];
-extern const size_t palo_sse_llvm_ir_len;
+extern const unsigned char doris_sse_llvm_ir[];
+extern const size_t doris_sse_llvm_ir_len;
 
-extern const unsigned char palo_no_sse_llvm_ir[];
-extern const size_t palo_no_sse_llvm_ir_len;
+extern const unsigned char doris_no_sse_llvm_ir[];
+extern const size_t doris_no_sse_llvm_ir_len;
 
 #endif

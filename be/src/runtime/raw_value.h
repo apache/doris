@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_RAW_VALUE_H
-#define BDG_PALO_BE_RUNTIME_RAW_VALUE_H
+#ifndef DORIS_BE_RUNTIME_RAW_VALUE_H
+#define DORIS_BE_RUNTIME_RAW_VALUE_H
 
 #include <string>
 
@@ -28,7 +28,7 @@
 #include "util/hash_util.hpp"
 #include "util/types.h"
 
-namespace palo {
+namespace doris {
 
 class MemPool;
 class SlotDescriptor;
@@ -349,7 +349,7 @@ inline uint32_t RawValue::get_hash_value_fvn(
     }
 }
 
-// NOTE: this is just for split data, decimal use old palo hash function
+// NOTE: this is just for split data, decimal use old doris hash function
 // Because crc32 hardware is not equal with zlib crc32
 inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, uint32_t seed) {
     // Hash_combine with v = 0

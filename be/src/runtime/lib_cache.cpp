@@ -27,7 +27,7 @@
 #include "util/hash_util.hpp"
 #include "util/path_builder.h"
 
-namespace palo {
+namespace doris {
 
 boost::scoped_ptr<LibCache> LibCache::_s_instance;
 

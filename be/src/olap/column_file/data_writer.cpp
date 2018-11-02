@@ -24,7 +24,7 @@
 #include "olap/row_block.h"
 
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 ColumnDataWriter::ColumnDataWriter(OLAPTablePtr table, Rowset* index, bool is_push_write)
@@ -271,5 +271,5 @@ MemPool* ColumnDataWriter::mem_pool() {
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris
 

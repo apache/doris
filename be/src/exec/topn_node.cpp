@@ -34,7 +34,7 @@
 #include "util/tuple_row_compare.h"
 #include <gperftools/profiler.h>
 
-namespace palo {
+namespace doris {
 
 TopNNode::TopNNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs) :
         ExecNode(pool, tnode, descs),

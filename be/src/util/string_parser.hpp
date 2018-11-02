@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UTIL_STRING_PARSER_H
-#define BDG_PALO_BE_SRC_COMMON_UTIL_STRING_PARSER_H
+#ifndef DORIS_BE_SRC_COMMON_UTIL_STRING_PARSER_H
+#define DORIS_BE_SRC_COMMON_UTIL_STRING_PARSER_H
 
 #include <cmath>
 #include <cstdint>
@@ -29,7 +29,7 @@
 #include "common/compiler_util.h"
 #include "runtime/primitive_type.h"
 
-namespace palo {
+namespace doris {
 
 // Utility functions for doing atoi/atof on non-null terminated strings.  On micro benchmarks,
 // this is significantly faster than libc (atoi/strtol and atof/strtod).
@@ -495,6 +495,6 @@ inline int StringParser::StringParseTraits<__int128>::max_ascii_len() {
     return 39;
 }
 
-} // end namespace palo
+} // end namespace doris
 
-#endif // end of BDG_PALO_BE_SRC_COMMON_UTIL_STRING_PARSER_HPP
+#endif // end of DORIS_BE_SRC_COMMON_UTIL_STRING_PARSER_HPP

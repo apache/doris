@@ -21,7 +21,7 @@
 
 #include "util/byte_buffer.h"
 
-namespace palo {
+namespace doris {
 
 class HttpChannel;
 class BodySink;

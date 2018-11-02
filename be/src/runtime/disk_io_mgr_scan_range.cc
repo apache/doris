@@ -30,7 +30,7 @@ using boost::lock_guard;
 using boost::unique_lock;
 using boost::mutex;
 
-namespace palo {
+namespace doris {
 
 // A very large max value to prevent things from going out of control. Not
 // expected to ever hit this value (1GB of buffered data per range).
@@ -314,8 +314,8 @@ Status DiskIoMgr::ScanRange::open() {
     }
     // }
 #if 0
-    if (PaloMetrics::io_mgr_num_open_files() != NULL) {
-        PaloMetrics::io_mgr_num_open_files()->increment(1L);
+    if (DorisMetrics::io_mgr_num_open_files() != NULL) {
+        DorisMetrics::io_mgr_num_open_files()->increment(1L);
     }
 #endif
     return Status::OK;
@@ -364,8 +364,8 @@ void DiskIoMgr::ScanRange::close() {
         _local_file = NULL;
     }
 #if 0
-    if (PaloMetrics::io_mgr_num_open_files() != NULL) {
-        PaloMetrics::io_mgr_num_open_files()->increment(-1L);
+    if (DorisMetrics::io_mgr_num_open_files() != NULL) {
+        DorisMetrics::io_mgr_num_open_files()->increment(-1L);
     }
 #endif
 }
@@ -496,5 +496,5 @@ Status DiskIoMgr::ScanRange::read(char* buffer, int64_t* bytes_read, bool* eosr)
  *   return Status::OK;
  * }
  */
-} // namespace palo
+} // namespace doris
 

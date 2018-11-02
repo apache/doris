@@ -34,7 +34,7 @@ using std::string;
 using std::vector;
 using apache::thrift::transport::TProcessor;
 
-namespace palo {
+namespace doris {
 
 HeartbeatServer::HeartbeatServer(TMasterInfo* master_info) :
         _master_info(master_info),
@@ -141,7 +141,7 @@ AgentStatus create_heartbeat_server(
         TMasterInfo* local_master_info) {
     HeartbeatServer* heartbeat_server = new (nothrow) HeartbeatServer(local_master_info);
     if (heartbeat_server == NULL) {
-        return PALO_ERROR;
+        return DORIS_ERROR;
     }
 
     heartbeat_server->init_cluster_id();
@@ -155,6 +155,6 @@ AgentStatus create_heartbeat_server(
             server_port,
             exec_env->metrics(),
             worker_thread_num);
-    return PALO_SUCCESS;
+    return DORIS_SUCCESS;
 }
-}  // namesapce palo
+}  // namesapce doris

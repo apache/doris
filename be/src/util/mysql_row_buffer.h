@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  BDG_PALO_BE_SRC_QUERY_MYSQL_MYSQL_ROW_BUFFER_H
-#define  BDG_PALO_BE_SRC_QUERY_MYSQL_MYSQL_ROW_BUFFER_H
+#ifndef  DORIS_BE_SRC_QUERY_MYSQL_MYSQL_ROW_BUFFER_H
+#define  DORIS_BE_SRC_QUERY_MYSQL_MYSQL_ROW_BUFFER_H
 
 #include <stdint.h>
 
-namespace palo {
+namespace doris {
 
 // helper for construct MySQL send row
 // Now only support text protocol
@@ -68,6 +68,6 @@ private:
 
 }
 
-#endif  // BDG_PALO_BE_SRC_QUERY_MYSQL_MYSQL_ROW_BUFFER_H
+#endif  // DORIS_BE_SRC_QUERY_MYSQL_MYSQL_ROW_BUFFER_H
 
 /* vim: set ts=4 sw=4 sts=4 tw=100 noet: */

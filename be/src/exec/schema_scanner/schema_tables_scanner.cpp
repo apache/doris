@@ -21,7 +21,7 @@
 #include "runtime/string_value.h"
 #include "runtime/datetime_value.h"
 
-namespace palo 
+namespace doris 
 {
 
 SchemaScanner::ColumnDesc SchemaTablesScanner::_s_tbls_columns[] = {

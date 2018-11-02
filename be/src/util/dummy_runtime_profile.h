@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_UTIL_DEBUG_RUNTIME_PROFILE_H
-#define BDG_PALO_BE_SRC_UTIL_DEBUG_RUNTIME_PROFILE_H
+#ifndef DORIS_BE_SRC_UTIL_DEBUG_RUNTIME_PROFILE_H
+#define DORIS_BE_SRC_UTIL_DEBUG_RUNTIME_PROFILE_H
 
 #include "common/object_pool.h"
 #include "util/runtime_profile.h"
 
-namespace palo {
+namespace doris {
 class DummyProfile {
 public:
     DummyProfile() : _pool(), _profile(new RuntimeProfile(&_pool, "dummy", false)) {}

@@ -27,7 +27,7 @@
 #include "runtime/tuple_row.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 class TupleRowLessThan {
 public:

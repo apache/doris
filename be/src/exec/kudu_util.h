@@ -21,7 +21,7 @@
 #include <kudu/client/callbacks.h>
 #include <kudu/client/client.h>
 
-namespace palo {
+namespace doris {
 
 class Status;
 

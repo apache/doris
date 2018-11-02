@@ -32,7 +32,7 @@
 #include "util/thrift_util.h"
 #include "gen_cpp/FrontendService.h"
 
-namespace palo {
+namespace doris {
 
 ClientCacheHelper::~ClientCacheHelper() {
     for (auto& it : _client_map) {

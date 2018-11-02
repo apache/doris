@@ -23,7 +23,7 @@
 #include "util/logging.h"
 #include "common/logging.h"
 
-namespace palo_udf {
+namespace doris_udf {
 
 DoubleVal zero_udf(FunctionContext* context) {
     return DoubleVal(0);
@@ -214,7 +214,7 @@ TEST(UdfTest, TestVarArgs) {
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }

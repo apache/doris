@@ -42,7 +42,7 @@
 #include "util/file_utils.h"
 #include "olap/olap_header_manager.h"
 
-namespace palo {
+namespace doris {
 
 static const char* const kMtabPath = "/etc/mtab";
 static const char* const kTestFilePath = "/.testfile";

@@ -27,7 +27,7 @@
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 
-namespace palo {
+namespace doris {
 
 template<class T>
 int compare_value(const void* left_value,  const void* right_value) {

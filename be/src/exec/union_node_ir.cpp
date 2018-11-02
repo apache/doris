@@ -18,7 +18,7 @@
 #include "exec/union_node.h"
 #include "runtime/tuple_row.h"
 
-namespace palo {
+namespace doris {
 
 void IR_ALWAYS_INLINE UnionNode::materialize_exprs(const std::vector<ExprContext*>& exprs,
         TupleRow* row, uint8_t* tuple_buf, RowBatch* dst_batch) {

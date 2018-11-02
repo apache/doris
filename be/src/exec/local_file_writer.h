@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_EXEC_LOCAL_FILE_WRITER_H
-#define BDG_PALO_BE_SRC_EXEC_LOCAL_FILE_WRITER_H
+#ifndef DORIS_BE_SRC_EXEC_LOCAL_FILE_WRITER_H
+#define DORIS_BE_SRC_EXEC_LOCAL_FILE_WRITER_H
 
 #include <stdio.h>
 
 #include "exec/file_writer.h"
 
-namespace palo {
+namespace doris {
 
 class LocalFileWriter : public FileWriter {
 public:
@@ -41,6 +41,6 @@ private:
     FILE* _fp;
 };
 
-} // end namespace palo
+} // end namespace doris
 
-#endif // BDG_PALO_BE_SRC_EXEC_LOCAL_FILE_WRITER_H
+#endif // DORIS_BE_SRC_EXEC_LOCAL_FILE_WRITER_H

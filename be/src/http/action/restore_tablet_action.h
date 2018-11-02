@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  BDG_PALO_BE_SRC_HTTP_RESTORE_TABLET_ACTION_H
-#define  BDG_PALO_BE_SRC_HTTP_RESTORE_TABLET_ACTION_H
+#ifndef  DORIS_BE_SRC_HTTP_RESTORE_TABLET_ACTION_H
+#define  DORIS_BE_SRC_HTTP_RESTORE_TABLET_ACTION_H
 
 #include <boost/scoped_ptr.hpp>
 #include <map>
@@ -26,7 +26,7 @@
 #include "gen_cpp/AgentService_types.h"
 #include "common/status.h"
 
-namespace palo {
+namespace doris {
 
 class ExecEnv;
 
@@ -60,5 +60,5 @@ private:
     std::map<std::string, std::string> _tablet_path_map;
 }; // end class RestoreTabletAction
 
-} // end namespace palo
-#endif // BDG_PALO_BE_SRC_HTTP_RESTORE_TABLET_ACTION_H
+} // end namespace doris
+#endif // DORIS_BE_SRC_HTTP_RESTORE_TABLET_ACTION_H

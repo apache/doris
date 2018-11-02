@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UTIL_RANDOM_H
-#define BDG_PALO_BE_SRC_COMMON_UTIL_RANDOM_H
+#ifndef DORIS_BE_SRC_COMMON_UTIL_RANDOM_H
+#define DORIS_BE_SRC_COMMON_UTIL_RANDOM_H
 
 #include <stdint.h>
 
-namespace palo {
+namespace doris {
 
 // A very simple random number generator.  Not especially good at
 // generating truly random bits, but good enough for our needs in this
@@ -72,6 +72,6 @@ public:
     }
 };
 
-}  // namespace palo
+}  // namespace doris
 
-#endif  //BDG_PALO_BE_SRC_COMMON_UTIL_RANDOM_H
+#endif  //DORIS_BE_SRC_COMMON_UTIL_RANDOM_H

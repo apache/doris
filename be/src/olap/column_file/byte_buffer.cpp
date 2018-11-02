@@ -19,7 +19,7 @@
 #include <sys/mman.h>
 #include "olap/utils.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 ByteBuffer::ByteBuffer() : 
@@ -195,4 +195,4 @@ OLAPStatus ByteBuffer::put(const char* src, uint64_t src_size, uint64_t offset,
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris

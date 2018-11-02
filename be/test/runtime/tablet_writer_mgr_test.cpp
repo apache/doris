@@ -33,7 +33,7 @@
 #include "util/thrift_util.h"
 #include "olap/delta_writer.h"
 
-namespace palo {
+namespace doris {
 
 std::unordered_map<int64_t, int> _k_tablet_recorder;
 OLAPStatus open_status;
@@ -675,6 +675,6 @@ TEST_F(TabletWriterMgrTest, duplicate_packet) {
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);
-    palo::CpuInfo::init();
+    doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }

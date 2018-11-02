@@ -17,7 +17,7 @@
 
 #include "runtime/tuple_row.h"
 
-namespace palo {
-const char* TupleRow::_s_llvm_class_name = "class.palo::TupleRow";
+namespace doris {
+const char* TupleRow::_s_llvm_class_name = "class.doris::TupleRow";
 }
 

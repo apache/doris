@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXPRS_ES_FUNCTIONS_H
-#define BDG_PALO_BE_SRC_QUERY_EXPRS_ES_FUNCTIONS_H
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_ES_FUNCTIONS_H
+#define DORIS_BE_SRC_QUERY_EXPRS_ES_FUNCTIONS_H
 
 #include "udf/udf.h"
 
-namespace palo {
+namespace doris {
 
 class Expr;
 class OpcodeRegistry;
@@ -31,9 +31,9 @@ public:
     static void init();
 
     // used to push down query conditions to es.
-    static palo_udf::BooleanVal match(
-        palo_udf::FunctionContext* ctx, const palo_udf::StringVal& col, 
-            const palo_udf::StringVal& condition);
+    static doris_udf::BooleanVal match(
+        doris_udf::FunctionContext* ctx, const doris_udf::StringVal& col, 
+            const doris_udf::StringVal& condition);
 
 };
 

@@ -54,7 +54,7 @@ static short s_decoding_table[256] = {
 
 static int s_mod_table[] = {0, 2, 1};
 
-namespace palo {
+namespace doris {
 
 size_t base64_encode2(const unsigned char *data,
                      size_t length,
