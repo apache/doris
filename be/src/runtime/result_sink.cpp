@@ -28,7 +28,7 @@
 #include "runtime/result_writer.h"
 #include "runtime/mem_tracker.h"
 
-namespace palo {
+namespace doris {
 
 ResultSink::ResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr,
                        const TResultSink& sink, int buffer_size)

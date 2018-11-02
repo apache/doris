@@ -17,7 +17,7 @@
 
 syntax="proto2";
 
-package palo;
+package doris;
 
 message PStatus {
     required int32 status_code = 1;

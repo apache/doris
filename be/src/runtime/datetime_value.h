@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_DATETIME_VALUE_H
-#define BDG_PALO_BE_RUNTIME_DATETIME_VALUE_H
+#ifndef DORIS_BE_RUNTIME_DATETIME_VALUE_H
+#define DORIS_BE_RUNTIME_DATETIME_VALUE_H
 
 #include <stdint.h>
 
@@ -26,7 +26,7 @@
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
 
-namespace palo {
+namespace doris {
 
 enum TimeUnit {
     MICROSECOND,
@@ -395,12 +395,12 @@ public:
         return *this;
     }
 
-    void to_datetime_val(palo_udf::DateTimeVal* tv) const {
+    void to_datetime_val(doris_udf::DateTimeVal* tv) const {
         tv->packed_time = to_int64_datetime_packed();
         tv->type = _type;
     }
 
-    static DateTimeValue from_datetime_val(const palo_udf::DateTimeVal& tv) {
+    static DateTimeValue from_datetime_val(const doris_udf::DateTimeVal& tv) {
         DateTimeValue value;
         value.from_packed_time(tv.packed_time);
         if (tv.type == TIME_DATE) {
@@ -549,9 +549,9 @@ std::size_t hash_value(DateTimeValue const& value);
 
 namespace std {
     template<>
-    struct hash<palo::DateTimeValue> {
-        size_t operator()(const palo::DateTimeValue& v) const {
-            return palo::hash_value(v);
+    struct hash<doris::DateTimeValue> {
+        size_t operator()(const doris::DateTimeValue& v) const {
+            return doris::hash_value(v);
         }
     };
 }

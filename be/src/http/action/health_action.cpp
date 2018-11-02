@@ -26,7 +26,7 @@
 #include "http/http_headers.h"
 #include "http/http_status.h"
 
-namespace palo {
+namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
@@ -50,5 +50,5 @@ void HealthAction::handle(HttpRequest *req) {
 #endif
 }
 
-} // end namespace palo
+} // end namespace doris
 

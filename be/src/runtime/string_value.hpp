@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_BE_RUNTIME_STRING_VALUE_INLINE_H
-#define BDG_PALO_BE_SRC_QUERY_BE_RUNTIME_STRING_VALUE_INLINE_H
+#ifndef DORIS_BE_SRC_QUERY_BE_RUNTIME_STRING_VALUE_INLINE_H
+#define DORIS_BE_SRC_QUERY_BE_RUNTIME_STRING_VALUE_INLINE_H
 
 #include "runtime/string_value.h"
 #include <cstring>
@@ -25,7 +25,7 @@
 #include "util/sse_util.hpp"
 #endif
 
-namespace palo {
+namespace doris {
 
 // Compare two strings using sse4.2 intrinsics if they are available. This code assumes
 // that the trivial cases are already handled (i.e. one string is empty).

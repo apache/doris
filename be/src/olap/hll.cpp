@@ -29,7 +29,7 @@ using std::nothrow;
 using std::string;
 using std::stringstream;
 
-namespace palo {
+namespace doris {
 
 void HllSetResolver::parse() {
     // skip LengthValueType
@@ -229,4 +229,4 @@ void HllSetHelper::init_context(HllContext* context) {
     context->has_sparse_or_full = false;
 }
 
-}  // namespace palo
+}  // namespace doris

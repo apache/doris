@@ -32,7 +32,7 @@
 #include "util/url_coding.h"
 #include "util/container_util.hpp"
 
-namespace palo {
+namespace doris {
 
 // Thread counters name
 static const std::string THREAD_TOTAL_TIME = "TotalWallClockTime";

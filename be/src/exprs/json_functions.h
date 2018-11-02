@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXPRS_JSON_FUNCTIONS_H
-#define BDG_PALO_BE_SRC_QUERY_EXPRS_JSON_FUNCTIONS_H
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_JSON_FUNCTIONS_H
+#define DORIS_BE_SRC_QUERY_EXPRS_JSON_FUNCTIONS_H
 
 #include <rapidjson/document.h>
 #include "runtime/string_value.h"
 
-namespace palo {
+namespace doris {
 
 enum JsonFunctionType {
     JSON_FUN_INT = 0, JSON_FUN_DOUBLE, JSON_FUN_STRING
@@ -34,15 +34,15 @@ class TupleRow;
 class JsonFunctions {
 public:
     static void init();
-    static palo_udf::IntVal get_json_int(
-        palo_udf::FunctionContext* context, const palo_udf::StringVal& json_str,
-        const palo_udf::StringVal& path);
-    static palo_udf::StringVal get_json_string(
-        palo_udf::FunctionContext* context, const palo_udf::StringVal& json_str,
-        const palo_udf::StringVal& path);
-    static palo_udf::DoubleVal get_json_double(
-        palo_udf::FunctionContext* context, const palo_udf::StringVal& json_str,
-        const palo_udf::StringVal& path);
+    static doris_udf::IntVal get_json_int(
+        doris_udf::FunctionContext* context, const doris_udf::StringVal& json_str,
+        const doris_udf::StringVal& path);
+    static doris_udf::StringVal get_json_string(
+        doris_udf::FunctionContext* context, const doris_udf::StringVal& json_str,
+        const doris_udf::StringVal& path);
+    static doris_udf::DoubleVal get_json_double(
+        doris_udf::FunctionContext* context, const doris_udf::StringVal& json_str,
+        const doris_udf::StringVal& path);
 
     static rapidjson::Value* get_json_object(
             const std::string& json_string, const std::string& path_string,

@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_TYPES_H
-#define BDG_PALO_BE_SRC_OLAP_TYPES_H
+#ifndef DORIS_BE_SRC_OLAP_TYPES_H
+#define DORIS_BE_SRC_OLAP_TYPES_H
 
 #include <math.h>
 #include <stdio.h>
@@ -34,7 +34,7 @@
 #include "util/mem_util.hpp"
 #include "util/types.h"
 
-namespace palo {
+namespace doris {
 
 class TypeInfo {
 public:
@@ -873,6 +873,6 @@ struct TypeTraits : public FieldTypeTraits<field_type> {
     static const int32_t size = sizeof(CppType);
 };
 
-} // namespace palo
+} // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_TYPES_H
+#endif // DORIS_BE_SRC_OLAP_TYPES_H

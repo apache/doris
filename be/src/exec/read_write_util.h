@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXEC_READ_WRITE_UTIL_H
-#define BDG_PALO_BE_SRC_QUERY_EXEC_READ_WRITE_UTIL_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_READ_WRITE_UTIL_H
+#define DORIS_BE_SRC_QUERY_EXEC_READ_WRITE_UTIL_H
 
 #include <boost/cstdint.hpp>
 #include <sstream>
 #include "common/logging.h"
 #include "common/status.h"
 
-namespace palo {
+namespace doris {
 
 #define RETURN_IF_FALSE(x) if (UNLIKELY(!(x))) return false
 

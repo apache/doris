@@ -34,7 +34,7 @@
 #include "common/logging.h"
 #include "util/url_coding.h"
 
-namespace palo {
+namespace doris {
 
 static std::string s_empty = "";
 

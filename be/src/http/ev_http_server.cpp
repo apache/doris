@@ -35,7 +35,7 @@
 #include "http/http_channel.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 static void on_chunked(struct evhttp_request* ev_req, void* param) {
     HttpRequest* request = (HttpRequest*)ev_req->on_free_cb_arg;

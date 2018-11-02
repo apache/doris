@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXPRS_DECIMAL_OPERATORS_H
-#define BDG_PALO_BE_SRC_QUERY_EXPRS_DECIMAL_OPERATORS_H
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_DECIMAL_OPERATORS_H
+#define DORIS_BE_SRC_QUERY_EXPRS_DECIMAL_OPERATORS_H
 
 #include <stdint.h>
 #include "runtime/decimal_value.h"
 #include "udf/udf.h"
 
-namespace palo {
+namespace doris {
 
 class Expr;
 struct ExprValue;

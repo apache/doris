@@ -17,7 +17,7 @@
 
 #include "util/spinlock.h"
 
-namespace palo {
+namespace doris {
 
 void SpinLock::slow_acquire() {
     while (true) {
@@ -34,5 +34,5 @@ void SpinLock::slow_acquire() {
     }
 }
 
-} // end namespace palo
+} // end namespace doris
 

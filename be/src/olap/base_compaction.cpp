@@ -31,14 +31,14 @@
 #include "olap/rowset.h"
 #include "olap/olap_table.h"
 #include "olap/utils.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 
 using std::list;
 using std::map;
 using std::string;
 using std::vector;
 
-namespace palo {
+namespace doris {
 
 OLAPStatus BaseCompaction::init(OLAPTablePtr table, bool is_manual_trigger) {
     // 表在首次查询或PUSH等操作时，会被加载到内存
@@ -116,12 +116,12 @@ OLAPStatus BaseCompaction::run() {
     }
 
     {
-        PaloMetrics::base_compaction_deltas_total.increment(_need_merged_versions.size());
+        DorisMetrics::base_compaction_deltas_total.increment(_need_merged_versions.size());
         int64_t merge_bytes = 0;
         for (IData* i_data : base_data_sources) {
             merge_bytes += i_data->olap_index()->data_size();
         }
-        PaloMetrics::base_compaction_bytes_total.increment(merge_bytes);
+        DorisMetrics::base_compaction_bytes_total.increment(merge_bytes);
     }
 
     // 保存生成base文件时候累积的行数
@@ -545,4 +545,4 @@ OLAPStatus BaseCompaction::_validate_delete_file_action() {
     return OLAP_SUCCESS;
 }
 
-}  // namespace palo
+}  // namespace doris

@@ -18,7 +18,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "util/bit_util.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 
 #include <algorithm>
 #include <stdio.h>
@@ -26,7 +26,7 @@
 
 #include "common/names.h"
 
-using namespace palo;
+using namespace doris;
 
 #define MEM_POOL_POISON (0x66aa77bb)
 
@@ -52,7 +52,7 @@ MemPool::ChunkInfo::ChunkInfo(int64_t size, uint8_t* buf)
   : data(buf),
     size(size),
     allocated_bytes(0) {
-   PaloMetrics::memory_pool_bytes_total.increment(size);
+   DorisMetrics::memory_pool_bytes_total.increment(size);
 }
 
 MemPool::~MemPool() {
@@ -66,7 +66,7 @@ MemPool::~MemPool() {
   //TODO chenhao , check all using MemPool and open it
   //DCHECK(chunks_.empty()) << "Must call FreeAll() or AcquireData() for this pool";
 
-  PaloMetrics::memory_pool_bytes_total.increment(-total_bytes_released);
+  DorisMetrics::memory_pool_bytes_total.increment(-total_bytes_released);
 
   //DCHECK_EQ(zero_length_region_, MEM_POOL_POISON);
 }
@@ -94,7 +94,7 @@ void MemPool::free_all() {
   total_reserved_bytes_ = 0;
 
   mem_tracker_->release(total_bytes_released);
-  PaloMetrics::memory_pool_bytes_total.increment(-total_bytes_released);
+  DorisMetrics::memory_pool_bytes_total.increment(-total_bytes_released);
 }
 
 bool MemPool::FindChunk(size_t min_size, bool check_limits) {

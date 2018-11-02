@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXPRS_SLOT_REF_H
-#define BDG_PALO_BE_SRC_QUERY_EXPRS_SLOT_REF_H
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_SLOT_REF_H
+#define DORIS_BE_SRC_QUERY_EXPRS_SLOT_REF_H
 
 #include "exprs/expr.h"
 
-namespace palo {
+namespace doris {
 
 // Reference to a single slot of a tuple.
 // We inline this here in order for Expr::get_value() to be able
@@ -66,18 +66,18 @@ public:
     }
     virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) override;
 
-    virtual palo_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::IntVal get_int_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::BigIntVal get_big_int_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::LargeIntVal get_large_int_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::FloatVal get_float_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::DoubleVal get_double_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::StringVal get_string_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::DateTimeVal get_datetime_val(ExprContext* context, TupleRow*);
-    virtual palo_udf::DecimalVal get_decimal_val(ExprContext* context, TupleRow*);
-    // virtual palo_udf::ArrayVal GetArrayVal(ExprContext* context, TupleRow*);
+    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::IntVal get_int_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::BigIntVal get_big_int_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::LargeIntVal get_large_int_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::FloatVal get_float_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::DoubleVal get_double_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::StringVal get_string_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::DateTimeVal get_datetime_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::DecimalVal get_decimal_val(ExprContext* context, TupleRow*);
+    // virtual doris_udf::ArrayVal GetArrayVal(ExprContext* context, TupleRow*);
 
 private:
     int _tuple_idx;  // within row

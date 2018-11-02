@@ -24,7 +24,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 
-namespace palo {
+namespace doris {
 
 class OlapTablePartitionParamTest : public testing::Test {
 public:
@@ -422,7 +422,7 @@ TEST_F(OlapTablePartitionParamTest, NodesInfo) {
     TPaloNodesInfo tinfo;
     tinfo.nodes.resize(1);
     tinfo.nodes[0].id = 1;
-    PaloNodesInfo nodes(tinfo);
+    DorisNodesInfo nodes(tinfo);
     {
         auto node = nodes.find_node(1);
         ASSERT_TRUE(node != nullptr);

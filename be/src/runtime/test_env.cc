@@ -17,18 +17,18 @@
 
 #include "runtime/test_env.h"
 #include "util/disk_info.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 
 using boost::shared_ptr;
 
-namespace palo {
+namespace doris {
 
 boost::scoped_ptr<MetricRegistry> TestEnv::_s_static_metrics;
 
 TestEnv::TestEnv() {
     if (_s_static_metrics == NULL) {
         _s_static_metrics.reset(new MetricRegistry("test_env"));
-        // PaloMetrics::create_metrics(_s_static_metrics.get());
+        // DorisMetrics::create_metrics(_s_static_metrics.get());
     }
     _exec_env.reset(new ExecEnv());
     _exec_env->init_for_tests();
@@ -112,4 +112,4 @@ int64_t TestEnv::calculate_mem_tracker(int max_buffers, int block_size) {
     return max_buffers * static_cast<int64_t>(block_size);
 }
 
-} // end namespace palo
+} // end namespace doris

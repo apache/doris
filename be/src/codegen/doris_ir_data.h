@@ -15,20 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_CODGEN_PALO_IR_H
-#define BDG_PALO_BE_SRC_QUERY_CODGEN_PALO_IR_H
-#ifdef IR_COMPILE
-// For cross compiling to IR, we need functions decorated in specific ways.  For
-// functions that we will replace with codegen, we need them not inlined (otherwise
-// we can't find the function by name.  For functions where the non-codegen'd version
-// is too long for the compiler to inline, we might still want to inline it since
-// the codegen'd version is suitable for inling.
-// In the non-ir case (g++), we will just default to whatever the compiler thought
-// best at that optimization setting.
-#define IR_NO_INLINE __attribute__((noinline))
-#define IR_ALWAYS_INLINE __attribute__((always_inline))
-#else
-#define IR_NO_INLINE
-#define IR_ALWAYS_INLINE
-#endif
+#ifndef DORIS_BE_SRC_QUERY_CODEGEN_DORIS_IR_DATA_H
+#define DORIS_BE_SRC_QUERY_CODEGEN_DORIS_IR_DATA_H
+
+/// Header with declarations of Impala IR data. Definitions of the arrays are generated
+/// separately.
+
+extern const unsigned char doris_sse_llvm_ir[];
+extern const size_t doris_sse_llvm_ir_len;
+
+extern const unsigned char doris_no_sse_llvm_ir[];
+extern const size_t doris_no_sse_llvm_ir_len;
+
 #endif

@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_BHP_LIB_H
-#define BDG_PALO_BE_SRC_OLAP_BHP_LIB_H
+#ifndef DORIS_BE_SRC_OLAP_BHP_LIB_H
+#define DORIS_BE_SRC_OLAP_BHP_LIB_H
 
 #include <stddef.h>
 
-namespace palo {
+namespace doris {
 
 inline int memcmp_sse(const void* buf1, const  void* buf2, unsigned int count) {
     int result ;
@@ -790,6 +790,6 @@ inline int check_sse4_2() {
     return ret;
 }
 
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_BHP_LIB_H
+#endif // DORIS_BE_SRC_OLAP_BHP_LIB_H

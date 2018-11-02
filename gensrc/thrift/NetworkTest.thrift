@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-namespace cpp palotest
+namespace cpp doristest
 
 struct ThriftDataParams {
   1: required string data

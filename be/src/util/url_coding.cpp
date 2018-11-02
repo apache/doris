@@ -24,7 +24,7 @@
 
 #include "common/logging.h"
 
-namespace palo {
+namespace doris {
 
 static inline void url_encode(const char* in, int in_len, std::string* out) {
     (*out).reserve(in_len);

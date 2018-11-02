@@ -17,7 +17,7 @@
 
 #include "exprs/hybird_set.h"
 
-namespace palo {
+namespace doris {
 
 HybirdSetBase* HybirdSetBase::create_set(PrimitiveType type) {
     switch (type) {

@@ -36,7 +36,7 @@
 #include "olap/file_helper.h"
 #include "util/defer_op.h"
 
-namespace palo {
+namespace doris {
 
 Status FileUtils::create_dir(const std::string& dir_path) {
     try {

@@ -30,9 +30,9 @@
 #include "runtime/mem_tracker.h"
 #include "util/mem_util.hpp"
 #include "util/network_util.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 
-namespace palo {
+namespace doris {
 
 static const std::string SCANNER_THREAD_TOTAL_WALLCLOCK_TIME =
     "ScannerThreadsTotalWallClockTime";
@@ -43,7 +43,7 @@ OlapScanner::OlapScanner(
         RuntimeState* runtime_state,
         OlapScanNode* parent,
         bool aggregation,
-        PaloScanRange* scan_range,
+        DorisScanRange* scan_range,
         const std::vector<OlapScanRange>& key_ranges)
             : _runtime_state(runtime_state),
             _parent(parent),
@@ -68,7 +68,7 @@ OlapScanner::~OlapScanner() {
 }
 
 Status OlapScanner::_prepare(
-        PaloScanRange* scan_range, const std::vector<OlapScanRange>& key_ranges,
+        DorisScanRange* scan_range, const std::vector<OlapScanRange>& key_ranges,
         const std::vector<TCondition>& filters, const std::vector<TCondition>& is_nulls) {
     // Get olap table
     TTabletId tablet_id = scan_range->scan_range().tablet_id;
@@ -238,7 +238,7 @@ Status OlapScanner::get_batch(
     bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
     Tuple *tuple = reinterpret_cast<Tuple*>(tuple_buf);
 
-    int64_t raw_rows_threshold = raw_rows_read() + config::palo_scanner_row_num;
+    int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     {
         SCOPED_TIMER(_parent->_scan_timer);
         while (true) {
@@ -327,12 +327,12 @@ Status OlapScanner::get_batch(
                     if (_num_rows_read > 32768) {
                         int32_t pushdown_return_rate
                             = _num_rows_read * 100 / (_num_rows_read + _num_rows_pushed_cond_filtered);
-                        if (pushdown_return_rate > config::palo_max_pushdown_conjuncts_return_rate) {
+                        if (pushdown_return_rate > config::doris_max_pushdown_conjuncts_return_rate) {
                             _use_pushdown_conjuncts = false;
                             VLOG(2) << "Stop Using PushDown Conjuncts. "
                                 << "PushDownReturnRate: " << pushdown_return_rate << "%"
                                 << " MaxPushDownReturnRate: "
-                                << config::palo_max_pushdown_conjuncts_return_rate << "%";
+                                << config::doris_max_pushdown_conjuncts_return_rate << "%";
                         }
                     }
                 }
@@ -442,8 +442,8 @@ void OlapScanner::update_counter() {
 
     COUNTER_UPDATE(_parent->_index_load_timer, _reader->stats().index_load_ns);
 
-    PaloMetrics::query_scan_bytes.increment(_reader->stats().compressed_bytes_read);
-    PaloMetrics::query_scan_rows.increment(_reader->stats().raw_rows_read);
+    DorisMetrics::query_scan_bytes.increment(_reader->stats().compressed_bytes_read);
+    DorisMetrics::query_scan_rows.increment(_reader->stats().raw_rows_read);
 
     _has_update_counter = true;
 }
@@ -459,4 +459,4 @@ Status OlapScanner::close(RuntimeState* state) {
     return Status::OK;
 }
 
-} // namespace palo
+} // namespace doris

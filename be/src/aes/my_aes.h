@@ -69,7 +69,7 @@ enum my_aes_opmode
 
 /** String representations of the supported AES modes. Keep in sync with my_aes_opmode */
 extern const char *my_aes_opmode_names[];
-namespace palo {
+namespace doris {
 /**
   Encrypt a buffer using AES
 

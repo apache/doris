@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_RUNTIME_DECIMAL_VALUE_H
-#define BDG_PALO_BE_SRC_QUERY_RUNTIME_DECIMAL_VALUE_H
+#ifndef DORIS_BE_SRC_QUERY_RUNTIME_DECIMAL_VALUE_H
+#define DORIS_BE_SRC_QUERY_RUNTIME_DECIMAL_VALUE_H
 
 #include <cctype>
 #include <climits>
@@ -33,7 +33,7 @@
 #include "gutil/strings/numbers.h"
 #include "util/mysql_global.h"
 
-namespace palo {
+namespace doris {
 
 // The number of digits per "big digits"
 static const int32_t DIG_PER_DEC1 = 9;
@@ -377,7 +377,7 @@ public:
         return value;
     }
 
-    static DecimalValue from_decimal_val(const palo_udf::DecimalVal& val) {
+    static DecimalValue from_decimal_val(const doris_udf::DecimalVal& val) {
         DecimalValue result;
         result._int_length = val.int_len;
         result._frac_length = val.frac_len;
@@ -388,7 +388,7 @@ public:
         return result;
     }
 
-    void to_decimal_val(palo_udf::DecimalVal* value) const {
+    void to_decimal_val(doris_udf::DecimalVal* value) const {
         value->int_len = _int_length;
         value->frac_len = _frac_length;
         value->sign = _sign;
@@ -596,15 +596,15 @@ inline const int32_t* DecimalValue::get_first_no_zero_index(
 
 std::size_t hash_value(DecimalValue const& value);
 
-} // end namespace palo
+} // end namespace doris
 
 namespace std {
     template<>
-    struct hash<palo::DecimalValue> {
-        size_t operator()(const palo::DecimalValue& v) const {
-            return palo::hash_value(v);
+    struct hash<doris::DecimalValue> {
+        size_t operator()(const doris::DecimalValue& v) const {
+            return doris::hash_value(v);
         }
     };
 }
 
-#endif // BDG_PALO_BE_SRC_QUERY_RUNTIME_DECIMAL_VALUE_H
+#endif // DORIS_BE_SRC_QUERY_RUNTIME_DECIMAL_VALUE_H

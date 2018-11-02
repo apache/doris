@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_STREAM_INDEX_WRITER_H
-#define BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_STREAM_INDEX_WRITER_H
+#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_STREAM_INDEX_WRITER_H
+#define DORIS_BE_SRC_OLAP_COLUMN_FILE_STREAM_INDEX_WRITER_H
 
 #include <vector>
 
 #include "olap/column_file/file_stream.h"
 #include "olap/column_file/stream_index_common.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 // 目前写入和读取分离了，主要是因为写入用了一个定长的buffer
@@ -77,5 +77,5 @@ protected:
 };
 
 }  // namespace column_file
-}  // namespace palo
-#endif // BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_STREAM_INDEX_WRITER_H
+}  // namespace doris
+#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_STREAM_INDEX_WRITER_H

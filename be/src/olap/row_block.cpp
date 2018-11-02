@@ -34,7 +34,7 @@ using std::pair;
 using std::upper_bound;
 using std::vector;
 
-namespace palo {
+namespace doris {
 
 RowBlock::RowBlock(const vector<FieldInfo>& tablet_schema) :
         _capacity(0),
@@ -361,4 +361,4 @@ inline bool RowBlock::_check_memory_limit(size_t buf_len) const {
     return buf_len <= max_unpacked_row_block_size;
 }
 
-}  // namespace palo
+}  // namespace doris

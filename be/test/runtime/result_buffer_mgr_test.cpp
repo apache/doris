@@ -22,7 +22,7 @@
 #include "runtime/buffer_control_block.h"
 #include "gen_cpp/PaloInternalService_types.h"
 
-namespace palo {
+namespace doris {
 
 class ResultBufferMgrTest : public testing::Test {
 public:
@@ -119,13 +119,13 @@ TEST_F(ResultBufferMgrTest, cancel_no_block) {
 }
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    // palo::init_glog("be-test");
+    // doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
-    palo::CpuInfo::init();
+    doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }
 /* vim: set ts=4 sw=4 sts=4 tw=100 */

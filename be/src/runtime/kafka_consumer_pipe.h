@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_RUNTIME_KAFKA_COMSUMER_PIPE_H
-#define BDG_PALO_BE_SRC_RUNTIME_KAFKA_COMSUMER_PIPE_H
+#ifndef DORIS_BE_SRC_RUNTIME_KAFKA_COMSUMER_PIPE_H
+#define DORIS_BE_SRC_RUNTIME_KAFKA_COMSUMER_PIPE_H
 
 #include <stdint.h>
 
@@ -29,7 +29,7 @@
 #include "exec/file_reader.h"
 #include "http/message_body_sink.h"
 
-namespace palo {
+namespace doris {
 
 class KafkaConsumerPipe : public MessageBodySink, public FileReader {
 public:
@@ -45,6 +45,6 @@ private:
     }
 };
 
-} // end namespace palo
+} // end namespace doris
 
-#endif // BDG_PALO_BE_SRC_RUNTIME_KAFKA_COMSUMER_PIPE_H
+#endif // DORIS_BE_SRC_RUNTIME_KAFKA_COMSUMER_PIPE_H

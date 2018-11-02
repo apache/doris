@@ -18,7 +18,7 @@
 #include "util/url_parser.h"
 #include "runtime/string_value.hpp"
 
-namespace palo {
+namespace doris {
 
 const StringValue UrlParser::_s_url_authority(const_cast<char*>("AUTHORITY"), 9);
 const StringValue UrlParser::_s_url_file(const_cast<char*>("FILE"), 4);

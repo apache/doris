@@ -16,7 +16,7 @@
 // under the License.
 // Define file format struct, like data header, index header.
 
-package palo;
+package doris;
 
 import "olap_common.proto";
 import "types.proto";

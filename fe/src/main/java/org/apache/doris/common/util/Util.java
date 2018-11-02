@@ -17,12 +17,10 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.common.Config;
-
 import com.google.common.collect.Lists;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -307,6 +305,21 @@ public class Util {
             }
         }
         return directory.delete();
+    }
+
+    public static String dumpThread(Thread t, int lineNum) {
+        StringBuilder sb = new StringBuilder();
+        StackTraceElement[] elements = t.getStackTrace();
+        sb.append("dump thread: ").append(t.getName()).append(", id: ").append(t.getId()).append("\n");
+        int count = lineNum;
+        for (StackTraceElement element : elements) {
+            if (count == 0) {
+                break;
+            }
+            sb.append("    ").append(element.toString()).append("\n");
+            --count;
+        }
+        return sb.toString();
     }
 }
 

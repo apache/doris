@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  BDG_PALO_BE_SRC_QUERY_EXEC_OLAP_COMMON_H
-#define  BDG_PALO_BE_SRC_QUERY_EXEC_OLAP_COMMON_H
+#ifndef  DORIS_BE_SRC_QUERY_EXEC_OLAP_COMMON_H
+#define  DORIS_BE_SRC_QUERY_EXEC_OLAP_COMMON_H
 
 #include <boost/variant.hpp>
 #include <boost/lexical_cast.hpp>
@@ -34,7 +34,7 @@
 
 #include "olap/tuple.h"
 
-namespace palo {
+namespace doris {
 
 template<class T>
 std::string cast_to_string(T value) {
@@ -251,10 +251,10 @@ typedef boost::variant <
         ColumnValueRange<DateTimeValue>,
         ColumnValueRange<DecimalValue> > ColumnValueRangeType;
 
-class PaloScanRange {
+class DorisScanRange {
 public:
-    PaloScanRange(const TPaloScanRange& palo_scan_range)
-        : _scan_range(palo_scan_range)  {
+    DorisScanRange(const TPaloScanRange& doris_scan_range)
+        : _scan_range(doris_scan_range)  {
     }
 
     Status init();
@@ -663,8 +663,8 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
     }
 
     if (range.is_fixed_value_range()) {
-        if ((_begin_scan_keys.empty() && range.get_fixed_value_size() > config::palo_max_scan_key_num)
-                || range.get_fixed_value_size() * _begin_scan_keys.size() > config::palo_max_scan_key_num) {
+        if ((_begin_scan_keys.empty() && range.get_fixed_value_size() > config::doris_max_scan_key_num)
+                || range.get_fixed_value_size() * _begin_scan_keys.size() > config::doris_max_scan_key_num) {
             if (range.is_range_value_convertible()) {
                 range.convert_to_range_value();
             } else {
@@ -674,12 +674,12 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
     } else {
         if (range.is_fixed_value_convertible() && _is_convertible) {
             if (_begin_scan_keys.empty()) {
-                if (range.get_convertible_fixed_value_size() < config::palo_max_scan_key_num) {
+                if (range.get_convertible_fixed_value_size() < config::doris_max_scan_key_num) {
                     range.convert_to_fixed_value();
                 }
             } else {
                 if (range.get_convertible_fixed_value_size() * _begin_scan_keys.size()
-                        < config::palo_max_scan_key_num) {
+                        < config::doris_max_scan_key_num) {
                     range.convert_to_fixed_value();
                 }
             }
@@ -760,7 +760,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
     return Status::OK;
 }
 
-}  // namespace palo
+}  // namespace doris
 
 #endif
 

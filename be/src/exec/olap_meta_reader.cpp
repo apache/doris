@@ -31,10 +31,10 @@
 #include "runtime/runtime_state.h"
 #include "runtime/mem_pool.h"
 
-namespace palo {
+namespace doris {
 
 Status EngineMetaReader::get_hints(
-        boost::shared_ptr<PaloScanRange> scan_range,
+        boost::shared_ptr<DorisScanRange> scan_range,
         int block_row_count,
         bool is_begin_include,
         bool is_end_include,
@@ -113,4 +113,4 @@ Status EngineMetaReader::get_hints(
     return Status::OK;
 }
 
-} // namespace palo
+} // namespace doris

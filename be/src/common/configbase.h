@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_CONFIGBASE_H
-#define BDG_PALO_BE_SRC_COMMON_CONFIGBASE_H
+#ifndef DORIS_BE_SRC_COMMON_CONFIGBASE_H
+#define DORIS_BE_SRC_COMMON_CONFIGBASE_H
 
 #include <stdint.h>
 #include <list>
 #include <map>
 #include <vector>
 
-namespace palo {
+namespace doris {
 namespace config {
 
 class Register {
@@ -120,6 +120,6 @@ extern std::map<std::string, std::string>* confmap;
 bool init(const char* filename, bool fillconfmap = false);
 
 } // namespace config
-} // namespace palo
+} // namespace doris
 
-#endif // BDG_PALO_BE_SRC_COMMON_CONFIGBASE_H
+#endif // DORIS_BE_SRC_COMMON_CONFIGBASE_H

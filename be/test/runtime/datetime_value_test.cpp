@@ -24,7 +24,7 @@
 #include "common/logging.h"
 #include "util/logging.h"
 
-namespace palo {
+namespace doris {
 
 class DateTimeValueTest : public testing::Test {
 public:
@@ -1374,14 +1374,14 @@ TEST_F(DateTimeValueTest, packed_time) {
     }
 
     {
-        palo_udf::DateTimeVal tv;
+        doris_udf::DateTimeVal tv;
         tv.packed_time = 1830650338932162560L;
         tv.type = TIME_DATETIME;
         DateTimeValue v1 = DateTimeValue::from_datetime_val(tv);
         v1.to_string(buf);
         ASSERT_STREQ("2001-02-03 12:34:56", buf);
 
-        palo_udf::DateTimeVal tv2;
+        doris_udf::DateTimeVal tv2;
         v1.to_datetime_val(&tv2);
 
         ASSERT_TRUE(tv == tv2);
@@ -1393,11 +1393,11 @@ TEST_F(DateTimeValueTest, packed_time) {
 
 int main(int argc, char** argv) {
     // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!palo::config::init(conffile.c_str(), false)) {
+    // if (!doris::config::init(conffile.c_str(), false)) {
     //     fprintf(stderr, "error read config file. \n");
     //     return -1;
     // }
-    // palo::init_glog("be-test");
+    // doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

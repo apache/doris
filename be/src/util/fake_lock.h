@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_UTIL_FAKE_LOCK_H
-#define BDG_PALO_BE_SRC_UTIL_FAKE_LOCK_H
+#ifndef DORIS_BE_SRC_UTIL_FAKE_LOCK_H
+#define DORIS_BE_SRC_UTIL_FAKE_LOCK_H
 
 #include "gutil/macros.h"
 
-namespace palo {
+namespace doris {
 
 // Implementation of Boost's lockable interface that does nothing. Used to replace an
 // actual lock implementation in template classes in if no thread safety is needed.
@@ -35,6 +35,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(FakeLock);
 };
 
-} // namespace palo
+} // namespace doris
 
-#endif // BDG_PALO_BE_SRC_UTIL_FAKE_LOCK_H
+#endif // DORIS_BE_SRC_UTIL_FAKE_LOCK_H

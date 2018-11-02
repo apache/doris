@@ -34,7 +34,7 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/FrontendService.h"
 
-namespace palo {
+namespace doris {
 
 #define VLOG_ETL VLOG(2)
 

@@ -17,7 +17,7 @@
 
 #include "olap/types.h"
 
-namespace palo {
+namespace doris {
 
 template<typename TypeTraitsClass>
 TypeInfo::TypeInfo(TypeTraitsClass t)
@@ -78,4 +78,4 @@ TypeInfo* get_type_info(FieldType field_type) {
     return TypeInfoResolver::get_instance()->get_type_info(field_type);
 }
 
-} // namespace palo
+} // namespace doris

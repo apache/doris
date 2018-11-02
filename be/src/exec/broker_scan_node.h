@@ -29,7 +29,7 @@
 #include "exec/scan_node.h"
 #include "gen_cpp/PaloInternalService_types.h"
 
-namespace palo {
+namespace doris {
 
 class RuntimeState;
 class PartRangeKey;

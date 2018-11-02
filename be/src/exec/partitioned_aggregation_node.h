@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_EXEC_PARTITIONED_AGGREGATION_NODE_H
-#define BDG_PALO_BE_SRC_EXEC_PARTITIONED_AGGREGATION_NODE_H
+#ifndef DORIS_BE_SRC_EXEC_PARTITIONED_AGGREGATION_NODE_H
+#define DORIS_BE_SRC_EXEC_PARTITIONED_AGGREGATION_NODE_H
 
 #include <functional>
 #include <boost/scoped_ptr.hpp>
@@ -33,7 +33,7 @@ namespace llvm {
     class Function;
 }
 
-namespace palo {
+namespace doris {
 
 class AggFnEvaluator;
 class LlvmCodeGen;
@@ -174,7 +174,7 @@ private:
     // (non-grouping) case. Otherwise they are only used to clone FunctionContexts for the
     // partitions.
     // TODO: we really need to plumb through CHAR(N) for intermediate types.
-    std::vector<palo_udf::FunctionContext*> _agg_fn_ctxs;
+    std::vector<doris_udf::FunctionContext*> _agg_fn_ctxs;
     boost::scoped_ptr<MemPool> _agg_fn_pool;
 
     // Exprs used to evaluate input rows
@@ -318,7 +318,7 @@ private:
         boost::scoped_ptr<PartitionedHashTable> hash_tbl;
 
         // Clone of parent's _agg_fn_ctxs and backing MemPool.
-        std::vector<palo_udf::FunctionContext*> agg_fn_ctxs;
+        std::vector<doris_udf::FunctionContext*> agg_fn_ctxs;
         boost::scoped_ptr<MemPool> agg_fn_pool;
 
         // Tuple stream used to store aggregated rows. When the partition is not spilled,
@@ -345,7 +345,7 @@ private:
     // occurred. When returning NULL, sets *status. If 'stream' is set and its small
     // buffers get full, it will attempt to switch to IO-buffers.
     Tuple* construct_intermediate_tuple(
-            const std::vector<palo_udf::FunctionContext*>& agg_fn_ctxs,
+            const std::vector<doris_udf::FunctionContext*>& agg_fn_ctxs,
             MemPool* pool, BufferedTupleStream2* stream, Status* status);
 
     // Updates the given aggregation intermediate tuple with aggregation values computed
@@ -356,7 +356,7 @@ private:
     // is_merge() == true.
     // This function is replaced by codegen (which is why we don't use a vector argument
     // for agg_fn_ctxs).
-    void update_tuple(palo_udf::FunctionContext** agg_fn_ctxs, Tuple* tuple, TupleRow* row,
+    void update_tuple(doris_udf::FunctionContext** agg_fn_ctxs, Tuple* tuple, TupleRow* row,
             bool is_merge = false);
 
     // Called on the intermediate tuple of each group after all input rows have been
@@ -368,7 +368,7 @@ private:
     // the finalized/serialized aggregate values is returned.
     // TODO: Coordinate the allocation of new tuples with the release of memory
     // so as not to make memory consumption blow up.
-    Tuple* get_output_tuple(const std::vector<palo_udf::FunctionContext*>& agg_fn_ctxs,
+    Tuple* get_output_tuple(const std::vector<doris_udf::FunctionContext*>& agg_fn_ctxs,
             Tuple* tuple, MemPool* pool);
 
     // Do the aggregation for all tuple rows in the batch when there is no grouping.
@@ -450,7 +450,7 @@ private:
     void close_partitions();
 
     // Calls finalizes on all tuples starting at 'it'.
-    void cleanup_hash_tbl(const std::vector<palo_udf::FunctionContext*>& agg_fn_ctxs,
+    void cleanup_hash_tbl(const std::vector<doris_udf::FunctionContext*>& agg_fn_ctxs,
             PartitionedHashTable::Iterator it);
 
     // Codegen UpdateSlot(). Returns NULL if codegen is unsuccessful.
@@ -477,6 +477,6 @@ private:
     }
 };
 
-} // end namespace palo
+} // end namespace doris
 
-#endif // BDG_PALO_BE_SRC_EXEC_PARTITIONED_AGGREGATION_NODE_H
+#endif // DORIS_BE_SRC_EXEC_PARTITIONED_AGGREGATION_NODE_H

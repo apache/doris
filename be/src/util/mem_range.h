@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_UTIL_MEM_RANGE_H
-#define BDG_PALO_BE_SRC_UTIL_MEM_RANGE_H
+#ifndef DORIS_BE_SRC_UTIL_MEM_RANGE_H
+#define DORIS_BE_SRC_UTIL_MEM_RANGE_H
 
 #include <cstdint>
 
 #include "common/logging.h"
 
-namespace palo {
+namespace doris {
 
 /// Represents a range of memory. This is a convenient alternative to passing around
 /// a separate pointer and length.

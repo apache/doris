@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_RESULT_SINK_H
-#define  BDG_PALO_BE_RUNTIME_RESULT_SINK_H
+#ifndef DORIS_BE_RUNTIME_RESULT_SINK_H
+#define  DORIS_BE_RUNTIME_RESULT_SINK_H
 
 #include "common/status.h"
 #include "exec/data_sink.h"
@@ -24,7 +24,7 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 
-namespace palo {
+namespace doris {
 
 class ObjectPool;
 class RowBatch;

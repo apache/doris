@@ -17,7 +17,7 @@
 
 syntax="proto2";
 
-package palo;
+package doris;
 
 message PScalarType {
     // TPrimitiveType, use int32 to avoid redefine Enum

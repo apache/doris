@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXPRS_AGG_FN_EVALUATOR_H
-#define BDG_PALO_BE_SRC_QUERY_EXPRS_AGG_FN_EVALUATOR_H
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_AGG_FN_EVALUATOR_H
+#define DORIS_BE_SRC_QUERY_EXPRS_AGG_FN_EVALUATOR_H
 
 #include <string>
 #include <vector>
@@ -32,7 +32,7 @@
 #include "exprs/expr_context.h"
 #include "runtime/tuple.h"
 
-namespace palo {
+namespace doris {
 
 class AggregationNode;
 class TExprNode;
@@ -122,16 +122,16 @@ public:
     // Updates the intermediate state dst based on adding the input src row. This can be
     // called either to drive the UDA's update() or merge() function depending on
     // is_merge_. That is, from the caller, it doesn't mater.
-    void add(palo_udf::FunctionContext* agg_fn_ctx, TupleRow* src, Tuple* dst);
+    void add(doris_udf::FunctionContext* agg_fn_ctx, TupleRow* src, Tuple* dst);
 
     // Updates the intermediate state dst to remove the input src row, i.e. undoes
     // add(src, dst). Only used internally for analytic fn builtins.
-    void remove(palo_udf::FunctionContext* agg_fn_ctx, TupleRow* src, Tuple* dst);
+    void remove(doris_udf::FunctionContext* agg_fn_ctx, TupleRow* src, Tuple* dst);
     // Puts the finalized value from Tuple* src in Tuple* dst just as finalize() does.
     // However, unlike finalize(), get_value() does not clean up state in src. get_value()
     // can be called repeatedly with the same src. Only used internally for analytic fn
     // builtins.
-    void get_value(palo_udf::FunctionContext* agg_fn_ctx, Tuple* src, Tuple* dst);
+    void get_value(doris_udf::FunctionContext* agg_fn_ctx, Tuple* src, Tuple* dst);
 
 
     // Functions for different phases of the aggregation.
@@ -179,18 +179,18 @@ public:
 
     void choose_update_or_merge(FunctionContext* agg_fn_ctx, TupleRow* row, Tuple* dst);
     static void add(const std::vector<AggFnEvaluator*>& evaluators,
-                const std::vector<palo_udf::FunctionContext*>& fn_ctxs, TupleRow* src, Tuple* dst);
+                const std::vector<doris_udf::FunctionContext*>& fn_ctxs, TupleRow* src, Tuple* dst);
     static void remove(const std::vector<AggFnEvaluator*>& evaluators,
-                const std::vector<palo_udf::FunctionContext*>& fn_ctxs, TupleRow* src, Tuple* dst);
+                const std::vector<doris_udf::FunctionContext*>& fn_ctxs, TupleRow* src, Tuple* dst);
     static void get_value(const std::vector<AggFnEvaluator*>& evaluators,
-             const std::vector<palo_udf::FunctionContext*>& fn_ctxs, Tuple* src, Tuple* dst);
+             const std::vector<doris_udf::FunctionContext*>& fn_ctxs, Tuple* src, Tuple* dst);
     static void finalize(const std::vector<AggFnEvaluator*>& evaluators,
-                const std::vector<palo_udf::FunctionContext*>& fn_ctxs, Tuple*
+                const std::vector<doris_udf::FunctionContext*>& fn_ctxs, Tuple*
                 src, Tuple* dst);
     static void init(const std::vector<AggFnEvaluator*>& evaluators,
-        const std::vector<palo_udf::FunctionContext*>& fn_ctxs, Tuple* dst);
+        const std::vector<doris_udf::FunctionContext*>& fn_ctxs, Tuple* dst);
     static void serialize(const std::vector<AggFnEvaluator*>& evaluators,
-                const std::vector<palo_udf::FunctionContext*>& fn_ctxs, Tuple* dst);
+                const std::vector<doris_udf::FunctionContext*>& fn_ctxs, Tuple* dst);
 
     const std::string& fn_name() const {
         return _fn.name.function_name;
@@ -242,16 +242,16 @@ private:
     // Context to run the aggregate functions.
     // TODO: this and _pool make this not thread safe but they are easy to duplicate
     // per thread.
-    // boost::scoped_ptr<palo_udf::FunctionContext> _ctx;
+    // boost::scoped_ptr<doris_udf::FunctionContext> _ctx;
 
     // Created to a subclass of AnyVal for type(). We use this to convert values
     // from the UDA interface to the Expr interface.
     // These objects are allocated in the runtime state's object pool.
     // TODO: this is awful, remove this when exprs are updated.
-    std::vector<palo_udf::AnyVal*> _staging_input_vals;
-    palo_udf::AnyVal* _staging_intermediate_val;
-    palo_udf::AnyVal* _staging_merge_input_val;
-    // palo_udf::AnyVal* _staging_output_val;
+    std::vector<doris_udf::AnyVal*> _staging_input_vals;
+    doris_udf::AnyVal* _staging_intermediate_val;
+    doris_udf::AnyVal* _staging_merge_input_val;
+    // doris_udf::AnyVal* _staging_output_val;
 
     // Function ptrs to the aggregate function. This is either populated from the
     // opcode registry for builtins or from the external binary for native UDAs.
@@ -296,34 +296,34 @@ private:
         const SlotDescriptor* dst_slot_desc, Tuple* dst, void* fn);
 
     // Writes the result in src into dst pointed to by _output_slot_desc
-    void set_output_slot(const palo_udf::AnyVal* src, const SlotDescriptor* dst_slot_desc,
+    void set_output_slot(const doris_udf::AnyVal* src, const SlotDescriptor* dst_slot_desc,
             Tuple* dst);
     // Sets 'dst' to the value from 'slot'.
-    void set_any_val(const void* slot, const TypeDescriptor& type, palo_udf::AnyVal* dst);
+    void set_any_val(const void* slot, const TypeDescriptor& type, doris_udf::AnyVal* dst);
 };
 
 inline void AggFnEvaluator::add(
-    palo_udf::FunctionContext* agg_fn_ctx, TupleRow* row, Tuple* dst) {
+    doris_udf::FunctionContext* agg_fn_ctx, TupleRow* row, Tuple* dst) {
     agg_fn_ctx->impl()->increment_num_updates();
     update(agg_fn_ctx, row, dst, _is_merge ? _merge_fn : _update_fn, NULL);
 }
 inline void AggFnEvaluator::remove(
-    palo_udf::FunctionContext* agg_fn_ctx, TupleRow* row, Tuple* dst) {
+    doris_udf::FunctionContext* agg_fn_ctx, TupleRow* row, Tuple* dst) {
     agg_fn_ctx->impl()->increment_num_removes();
     update(agg_fn_ctx, row, dst, _remove_fn, NULL);
 }
 
 inline void AggFnEvaluator::finalize(
-    palo_udf::FunctionContext* agg_fn_ctx, Tuple* src, Tuple* dst) {
+    doris_udf::FunctionContext* agg_fn_ctx, Tuple* src, Tuple* dst) {
     serialize_or_finalize(agg_fn_ctx, src, _output_slot_desc, dst, _finalize_fn);
 }
 inline void AggFnEvaluator::get_value(
-    palo_udf::FunctionContext* agg_fn_ctx, Tuple* src, Tuple* dst) {
+    doris_udf::FunctionContext* agg_fn_ctx, Tuple* src, Tuple* dst) {
     serialize_or_finalize(agg_fn_ctx, src, _output_slot_desc, dst, _get_value_fn);
 }
 
 inline void AggFnEvaluator::init(const std::vector<AggFnEvaluator*>& evaluators,
-        const std::vector<palo_udf::FunctionContext*>& fn_ctxs, Tuple* dst) {
+        const std::vector<doris_udf::FunctionContext*>& fn_ctxs, Tuple* dst) {
     DCHECK_EQ(evaluators.size(), fn_ctxs.size());
 
     for (int i = 0; i < evaluators.size(); ++i) {
@@ -331,7 +331,7 @@ inline void AggFnEvaluator::init(const std::vector<AggFnEvaluator*>& evaluators,
     }
 }
 inline void AggFnEvaluator::add(const std::vector<AggFnEvaluator*>& evaluators,
-        const std::vector<palo_udf::FunctionContext*>& fn_ctxs, TupleRow* src, Tuple* dst) {
+        const std::vector<doris_udf::FunctionContext*>& fn_ctxs, TupleRow* src, Tuple* dst) {
     DCHECK_EQ(evaluators.size(), fn_ctxs.size());
 
     for (int i = 0; i < evaluators.size(); ++i) {
@@ -339,7 +339,7 @@ inline void AggFnEvaluator::add(const std::vector<AggFnEvaluator*>& evaluators,
     }
 }
 inline void AggFnEvaluator::remove(const std::vector<AggFnEvaluator*>& evaluators,
-        const std::vector<palo_udf::FunctionContext*>& fn_ctxs, TupleRow* src, Tuple* dst) {
+        const std::vector<doris_udf::FunctionContext*>& fn_ctxs, TupleRow* src, Tuple* dst) {
     DCHECK_EQ(evaluators.size(), fn_ctxs.size());
 
     for (int i = 0; i < evaluators.size(); ++i) {
@@ -347,7 +347,7 @@ inline void AggFnEvaluator::remove(const std::vector<AggFnEvaluator*>& evaluator
     }
 }
 inline void AggFnEvaluator::serialize(const std::vector<AggFnEvaluator*>& evaluators,
-        const std::vector<palo_udf::FunctionContext*>& fn_ctxs, Tuple* dst) {
+        const std::vector<doris_udf::FunctionContext*>& fn_ctxs, Tuple* dst) {
     DCHECK_EQ(evaluators.size(), fn_ctxs.size());
 
     for (int i = 0; i < evaluators.size(); ++i) {
@@ -355,7 +355,7 @@ inline void AggFnEvaluator::serialize(const std::vector<AggFnEvaluator*>& evalua
     }
 }
 inline void AggFnEvaluator::get_value(const std::vector<AggFnEvaluator*>& evaluators,
-        const std::vector<palo_udf::FunctionContext*>& fn_ctxs, Tuple* src, Tuple* dst) {
+        const std::vector<doris_udf::FunctionContext*>& fn_ctxs, Tuple* src, Tuple* dst) {
     DCHECK_EQ(evaluators.size(), fn_ctxs.size());
 
     for (int i = 0; i < evaluators.size(); ++i) {
@@ -363,7 +363,7 @@ inline void AggFnEvaluator::get_value(const std::vector<AggFnEvaluator*>& evalua
     }
 }
 inline void AggFnEvaluator::finalize(const std::vector<AggFnEvaluator*>&  evaluators,
-        const std::vector<palo_udf::FunctionContext*>& fn_ctxs, Tuple* src, Tuple* dst) {
+        const std::vector<doris_udf::FunctionContext*>& fn_ctxs, Tuple* src, Tuple* dst) {
     DCHECK_EQ(evaluators.size(), fn_ctxs.size());
 
     for (int i = 0; i < evaluators.size(); ++i) {

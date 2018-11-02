@@ -1,11 +1,11 @@
 """
-This module is palo builtin functions
+This module is doris builtin functions
 """
 
 import sys
 import os
 from string import Template
-import palo_builtins_functions
+import doris_builtins_functions
 
 java_registry_preamble = '\
 // Licensed to the Apache Software Foundation (ASF) under one \n\
@@ -27,7 +27,7 @@ java_registry_preamble = '\
 // This is a generated file, DO NOT EDIT.\n\
 // To add new functions, see the generator at\n\
 // common/function-registry/gen_builtins_catalog.py or the function list at\n\
-// common/function-registry/palo_builtins_functions.py.\n\
+// common/function-registry/doris_builtins_functions.py.\n\
 \n\
 package org.apache.doris.builtins;\n\
 \n\
@@ -42,7 +42,7 @@ java_registry_epilogue = '\
   }\n\
 }\n'
 
-FE_PATH = "../java/org.apache.doris/builtins/"
+FE_PATH = "../java/org/apache/doris/builtins/"
 
 # This contains all the metadata to describe all the builtins.
 # Each meta data entry is itself a map to store all the meta data
@@ -54,7 +54,7 @@ def add_function(fn_meta_data, user_visible):
     """add function
     """
     assert 4 <= len(fn_meta_data) <= 6, \
-            "Invalid function entry in palo_builtins_functions.py:\n\t" + repr(fn_meta_data)
+            "Invalid function entry in doris_builtins_functions.py:\n\t" + repr(fn_meta_data)
     entry = {}
     entry["sql_names"] = fn_meta_data[0]
     entry["ret_type"] = fn_meta_data[1]
@@ -115,9 +115,9 @@ def generate_fe_registry_init(filename):
     java_registry_file.close()
 
 # Read the function metadata inputs
-for function in palo_builtins_functions.visible_functions:
+for function in doris_builtins_functions.visible_functions:
     add_function(function, True)
-for function in palo_builtins_functions.invisible_functions:
+for function in doris_builtins_functions.invisible_functions:
     add_function(function, False)
 
 if not os.path.exists(FE_PATH):

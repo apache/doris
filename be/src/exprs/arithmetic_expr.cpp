@@ -30,7 +30,7 @@ using llvm::LLVMContext;
 using llvm::PHINode;
 using llvm::Value;
 
-namespace palo {
+namespace doris {
 
 Expr* ArithmeticExpr::from_thrift(const TExprNode& node) {
     switch (node.opcode) {
@@ -175,18 +175,18 @@ BITNOT_FNS()
 // null handling as well as many branches so this is pretty complicated.  The IR 
 // for x && y is:
 //
-// define i16 @Add(%"class.palo::ExprContext"* %context,
-//                 %"class.palo::TupleRow"* %row) #20 {
+// define i16 @Add(%"class.doris::ExprContext"* %context,
+//                 %"class.doris::TupleRow"* %row) #20 {
 // entry:
-//   %lhs_val = call { i8, i64 } @get_slot_ref(%"class.palo::ExprContext"* %context,
-//                                             %"class.palo::TupleRow"* %row)
+//   %lhs_val = call { i8, i64 } @get_slot_ref(%"class.doris::ExprContext"* %context,
+//                                             %"class.doris::TupleRow"* %row)
 //   %0 = extractvalue { i8, i64 } %lhs_val, 0
 //   %lhs_is_null = trunc i8 %0 to i1
 //   br i1 %lhs_is_null, label %null, label %lhs_not_null
 // 
 // lhs_not_null:                                     ; preds = %entry
-//   %rhs_val = call { i8, i64 } @get_slot_ref(%"class.palo::ExprContext"* %context,
-//                                             %"class.palo::TupleRow"* %row)
+//   %rhs_val = call { i8, i64 } @get_slot_ref(%"class.doris::ExprContext"* %context,
+//                                             %"class.doris::TupleRow"* %row)
 //   %1 = extractvalue { i8, i64 } %lhs_val, 0
 //   %rhs_is_null = trunc i8 %1 to i1
 //   br i1 %rhs_is_null, label %null, label %rhs_not_null
@@ -519,11 +519,11 @@ Status BitXorExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function**
 // null handling as well as many branches so this is pretty complicated.  The IR 
 // for x && y is:
 //
-// define i16 @Add(%"class.palo::ExprContext"* %context,
-//                 %"class.palo::TupleRow"* %row) #20 {
+// define i16 @Add(%"class.doris::ExprContext"* %context,
+//                 %"class.doris::TupleRow"* %row) #20 {
 // entry:
-//   %lhs_val = call { i8, i64 } @get_slot_ref(%"class.palo::ExprContext"* %context,
-//                                             %"class.palo::TupleRow"* %row)
+//   %lhs_val = call { i8, i64 } @get_slot_ref(%"class.doris::ExprContext"* %context,
+//                                             %"class.doris::TupleRow"* %row)
 //   %0 = extractvalue { i8, i64 } %lhs_val, 0
 //   %lhs_is_null = trunc i8 %0 to i1
 //   br i1 %lhs_is_null, label %null, label %lhs_not_null

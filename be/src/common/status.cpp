@@ -22,7 +22,7 @@
 #include "common/logging.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 // NOTE: this is statically initialized and we must be very careful what
 // functions these constructors call.  In particular, we cannot call

@@ -46,7 +46,7 @@ using std::string;
 using std::upper_bound;
 using std::vector;
 
-namespace palo {
+namespace doris {
 
 OLAPData::OLAPData(Rowset* index) :
         IData(OLAP_DATA_FILE, index),
@@ -1105,4 +1105,4 @@ GET_ROW_BLOCK_ERROR:
     return res;
 }
 
-}  // namespace palo
+}  // namespace doris

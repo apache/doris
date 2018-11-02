@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_LIB_CACHE_H
-#define BDG_PALO_BE_RUNTIME_LIB_CACHE_H
+#ifndef DORIS_BE_RUNTIME_LIB_CACHE_H
+#define DORIS_BE_RUNTIME_LIB_CACHE_H
 
 #include <string>
 #include <boost/scoped_ptr.hpp>
@@ -26,7 +26,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 
-namespace palo {
+namespace doris {
 
 class RuntimeState;
 

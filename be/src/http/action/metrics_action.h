@@ -19,7 +19,7 @@
 
 #include "http/http_handler.h"
 
-namespace palo {
+namespace doris {
 
 class Webserver;
 class ExecEnv;

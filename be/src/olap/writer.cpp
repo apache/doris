@@ -24,7 +24,7 @@
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
 
-namespace palo {
+namespace doris {
 
 IWriter* IWriter::create(OLAPTablePtr table, Rowset *index, bool is_push_write) {
     IWriter* writer = NULL;
@@ -262,4 +262,4 @@ MemPool* OLAPDataWriter::mem_pool() {
     return _row_block->mem_pool();
 }
 
-}  // namespace palo
+}  // namespace doris

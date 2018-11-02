@@ -43,7 +43,7 @@ using std::stringstream;
 using std::unordered_map;
 using std::vector;
 
-namespace palo {
+namespace doris {
 // related static functions of version graph
 
 // Construct version graph(using adjacency list) from header's information.
@@ -1060,4 +1060,4 @@ const PDelta* OLAPHeader::get_base_version() const {
     return nullptr;
 }
 
-}  // namespace palo
+}  // namespace doris

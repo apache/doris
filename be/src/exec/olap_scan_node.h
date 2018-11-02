@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  BDG_PALO_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
-#define  BDG_PALO_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
+#ifndef  DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
+#define  DORIS_BE_SRC_QUERY_EXEC_OLAP_SCAN_NODE_H
 
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/scoped_ptr.hpp>
@@ -37,7 +37,7 @@
 #include "util/progress_updater.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 enum TransferStatus {
     READ_ROWBATCH = 1,
@@ -149,9 +149,9 @@ protected:
     template<class T>
     Status normalize_binary_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
 
-    bool select_scan_range(boost::shared_ptr<PaloScanRange> scan_range);
+    bool select_scan_range(boost::shared_ptr<DorisScanRange> scan_range);
     Status get_sub_scan_range(
-        boost::shared_ptr<PaloScanRange> scan_range,
+        boost::shared_ptr<DorisScanRange> scan_range,
         std::vector<OlapScanRange>* sub_range);
     void transfer_thread(RuntimeState* state);
     //void vectorized_scanner_thread(OlapScanner* scanner);
@@ -172,7 +172,7 @@ private:
     std::vector<TCondition> _is_null_vector;
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
-    // palo scan node used to scan palo
+    // doris scan node used to scan doris
     TOlapScanNode _olap_scan_node;
     // tuple descriptors
     const TupleDescriptor* _tuple_desc;
@@ -188,9 +188,9 @@ private:
 
     OlapScanKeys _scan_keys;
 
-    std::list<boost::shared_ptr<PaloScanRange> > _palo_scan_ranges;
+    std::list<boost::shared_ptr<DorisScanRange> > _doris_scan_ranges;
 
-    std::vector<boost::shared_ptr<PaloScanRange> > _query_scan_ranges;
+    std::vector<boost::shared_ptr<DorisScanRange> > _query_scan_ranges;
     std::vector<OlapScanRange> _query_key_ranges;
 
     std::vector<TCondition> _olap_filter;
@@ -273,6 +273,6 @@ private:
     RuntimeProfile::Counter* _index_load_timer = nullptr;
 };
 
-} // namespace palo
+} // namespace doris
 
 #endif

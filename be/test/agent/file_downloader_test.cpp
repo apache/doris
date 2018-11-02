@@ -29,7 +29,7 @@ using ::testing::SetArgPointee;
 using std::string;
 using std::stringstream;
 
-namespace palo {
+namespace doris {
 
 TEST(FileDownloaderTest, TestWriteFileCallback) {
     FileDownloader::FileDownloaderParam param;
@@ -95,35 +95,35 @@ TEST(FileDownloaderTest, TestInstallOpt) {
     param.curl_opt_timeout = 100;
 
     FileDownloader file_downloader(param);
-    AgentStatus ret = PALO_SUCCESS;
+    AgentStatus ret = DORIS_SUCCESS;
 
     // Test for get length
     char errbuf[CURL_ERROR_SIZE];
     ret = file_downloader._install_opt(FileDownloader::OutputType::NONE, curl, errbuf, NULL, NULL);
-    EXPECT_EQ(PALO_SUCCESS, ret);
+    EXPECT_EQ(DORIS_SUCCESS, ret);
     
     // Test for get dir list
     stringstream* output_string_stream = NULL;
     ret = file_downloader._install_opt(
             FileDownloader::OutputType::STREAM, curl, errbuf, output_string_stream, NULL);
-    EXPECT_EQ(PALO_SUCCESS, ret);
+    EXPECT_EQ(DORIS_SUCCESS, ret);
     
     // Test for downlod file
     FileHandler* file_handler = new FileHandler();
     ret = file_downloader._install_opt(
             FileDownloader::OutputType::FILE, curl, errbuf, NULL, file_handler);
-    EXPECT_EQ(PALO_SUCCESS, ret);
+    EXPECT_EQ(DORIS_SUCCESS, ret);
 }
 
-}  // namespace palo
+}  // namespace doris
 
 int main(int argc, char **argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    palo::init_glog("be-test");
+    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

@@ -28,7 +28,7 @@
 #include "util/pretty_printer.h"
 #include "common/status.h"
 
-namespace palo {
+namespace doris {
 //using namespace strings;
 
 // The first NUM_SMALL_BLOCKS of the tuple stream are made of blocks less than the

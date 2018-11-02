@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_DELETE_HANDLER_H
-#define BDG_PALO_BE_SRC_OLAP_DELETE_HANDLER_H
+#ifndef DORIS_BE_SRC_OLAP_DELETE_HANDLER_H
+#define DORIS_BE_SRC_OLAP_DELETE_HANDLER_H
 
 #include <string>
 #include <vector>
@@ -29,7 +29,7 @@
 #include "olap/olap_table.h"
 #include "olap/row_cursor.h"
 
-namespace palo {
+namespace doris {
 
 // 实现了删除条件的存储，移除和显示功能
 // *  存储删除条件：
@@ -194,5 +194,5 @@ private:
     std::vector<DeleteConditions> _del_conds;
 };
 
-}  // namespace palo
-#endif // BDG_PALO_BE_SRC_OLAP_DELETE_HANDLER_H
+}  // namespace doris
+#endif // DORIS_BE_SRC_OLAP_DELETE_HANDLER_H

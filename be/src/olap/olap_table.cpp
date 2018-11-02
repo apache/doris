@@ -53,7 +53,7 @@ using std::stringstream;
 using std::vector;
 using boost::filesystem::path;
 
-namespace palo {
+namespace doris {
 
 OLAPTablePtr OLAPTable::create_from_header_file(
         TTabletId tablet_id, TSchemaHash schema_hash,
@@ -760,30 +760,32 @@ void OLAPTable::load_pending_data() {
                 break;
             }
 
-            if (_num_key_fields != pending_rowset.column_pruning_size()) {
-                LOG(WARNING) << "column pruning size is error when load pending data."
-                             << "column_pruning_size=" << pending_rowset.column_pruning_size() << ", "
-                             << "num_key_fields=" << _num_key_fields;
-                error_pending_data.insert(rowset->transaction_id());
-                break;
-            }
-            std::vector<std::pair<std::string, std::string>> column_statistics_string(_num_key_fields);
-            std::vector<bool> null_vec(_num_key_fields);
-            for (size_t j = 0; j < _num_key_fields; ++j) {
-                ColumnPruning column_pruning = pending_rowset.column_pruning(j);
-                column_statistics_string[j].first = column_pruning.min();
-                column_statistics_string[j].second = column_pruning.max();
-                if (column_pruning.has_null_flag()) {
-                    null_vec[j] = column_pruning.null_flag();
-                } else {
-                    null_vec[j] = false;
+            if (pending_rowset.column_pruning_size() != 0) {
+                if (_num_key_fields != pending_rowset.column_pruning_size()) {
+                    LOG(WARNING) << "column pruning size is error when load pending data."
+                        << "column_pruning_size=" << pending_rowset.column_pruning_size() << ", "
+                        << "num_key_fields=" << _num_key_fields;
+                    error_pending_data.insert(rowset->transaction_id());
+                    break;
                 }
-            }
+                std::vector<std::pair<std::string, std::string>> column_statistics_string(_num_key_fields);
+                std::vector<bool> null_vec(_num_key_fields);
+                for (size_t j = 0; j < _num_key_fields; ++j) {
+                    ColumnPruning column_pruning = pending_rowset.column_pruning(j);
+                    column_statistics_string[j].first = column_pruning.min();
+                    column_statistics_string[j].second = column_pruning.max();
+                    if (column_pruning.has_null_flag()) {
+                        null_vec[j] = column_pruning.null_flag();
+                    } else {
+                        null_vec[j] = false;
+                    }
+                }
 
-            if (rowset->add_column_statistics(column_statistics_string, null_vec) != OLAP_SUCCESS) {
-                LOG(WARNING) << "fail to set column statistics when load pending data";
-                error_pending_data.insert(pending_delta.transaction_id());
-                break;
+                if (rowset->add_column_statistics(column_statistics_string, null_vec) != OLAP_SUCCESS) {
+                    LOG(WARNING) << "fail to set column statistics when load pending data";
+                    error_pending_data.insert(pending_delta.transaction_id());
+                    break;
+                }
             }
 
             if (rowset->load() != OLAP_SUCCESS) {
@@ -1182,32 +1184,34 @@ Rowset* OLAPTable::_construct_index_from_version(const PDelta* delta, int32_t ro
         return nullptr;
     }
 
-    if (_num_key_fields != prowset->column_pruning_size()) {
-        LOG(WARNING) << "column pruning size error, " << "table=" << full_name() << ", "
+    if (prowset->column_pruning_size() != 0) {
+        if (_num_key_fields != prowset->column_pruning_size()) {
+            LOG(WARNING) << "column pruning size error, " << "table=" << full_name() << ", "
                 << "version=" << version.first << "-" << version.second << ", "
                 << "version_hash=" << delta->version_hash() << ", "
                 << "column_pruning_size=" << prowset->column_pruning_size() << ", "
                 << "num_key_fields=" << _num_key_fields;
-        SAFE_DELETE(rowset);
-        return nullptr;
-    }
-    vector<pair<string, string>> column_statistic_strings(_num_key_fields);
-    std::vector<bool> null_vec(_num_key_fields);
-    for (size_t j = 0; j < _num_key_fields; ++j) {
-        ColumnPruning column_pruning = prowset->column_pruning(j);
-        column_statistic_strings[j].first = column_pruning.min();
-        column_statistic_strings[j].second = column_pruning.max();
-        if (column_pruning.has_null_flag()) {
-            null_vec[j] = column_pruning.null_flag();
-        } else {
-            null_vec[j] = false;
+            SAFE_DELETE(rowset);
+            return nullptr;
         }
-    }
+        vector<pair<string, string>> column_statistic_strings(_num_key_fields);
+        std::vector<bool> null_vec(_num_key_fields);
+        for (size_t j = 0; j < _num_key_fields; ++j) {
+            ColumnPruning column_pruning = prowset->column_pruning(j);
+            column_statistic_strings[j].first = column_pruning.min();
+            column_statistic_strings[j].second = column_pruning.max();
+            if (column_pruning.has_null_flag()) {
+                null_vec[j] = column_pruning.null_flag();
+            } else {
+                null_vec[j] = false;
+            }
+        }
 
-    res = rowset->add_column_statistics(column_statistic_strings, null_vec);
-    if (res != OLAP_SUCCESS) {
-        SAFE_DELETE(rowset);
-        return nullptr;
+        res = rowset->add_column_statistics(column_statistic_strings, null_vec);
+        if (res != OLAP_SUCCESS) {
+            SAFE_DELETE(rowset);
+            return nullptr;
+        }
     }
 
     res = rowset->load();
@@ -2225,4 +2229,4 @@ OLAPStatus OLAPTable::test_version(const Version& version) {
     return res;
 }
 
-}  // namespace palo
+}  // namespace doris

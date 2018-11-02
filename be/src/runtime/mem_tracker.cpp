@@ -27,7 +27,7 @@
 #include "gutil/strings/substitute.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 #include "util/debug_util.h"
 #include "util/mem_info.h"
 #include "util/pretty_printer.h"
@@ -40,7 +40,7 @@
 
 #include "runtime/bufferpool/reservation_tracker_counters.h"
 
-namespace palo {
+namespace doris {
 
 const std::string MemTracker::COUNTER_NAME = "PeakMemoryUsage";
 
@@ -357,5 +357,5 @@ bool MemTracker::GcMemory(int64_t max_consumption) {
     return curr_consumption > max_consumption;
 }
 
-} // end namespace palo
+} // end namespace doris
 

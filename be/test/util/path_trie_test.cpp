@@ -21,7 +21,7 @@
 #include "util/logging.h"
 #include "util/path_trie.hpp"
 
-namespace palo {
+namespace doris {
 
 class PathTrieTest : public testing::Test {
 };
@@ -171,11 +171,11 @@ TEST_F(PathTrieTest, EmptyTest) {
 
 int main(int argc, char* argv[]) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    palo::init_glog("be-test");
+    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

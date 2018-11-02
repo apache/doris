@@ -22,7 +22,7 @@
 #include "util/url_coding.h"
 #include "util/logging.h"
 
-namespace palo {
+namespace doris {
 
 // Tests encoding/decoding of input.  If expected_encoded is non-empty, the
 // encoded string is validated against it.
@@ -86,8 +86,8 @@ TEST(UrlCodingTest, BlankString) {
 }
 
 TEST(UrlCodingTest, PathSeparators) {
-    test_url("/home/palo/directory/", "%2Fhome%2Fpalo%2Fdirectory%2F", false);
-    test_url("/home/palo/directory/", "%2Fhome%2Fpalo%2Fdirectory%2F", true);
+    test_url("/home/doris/directory/", "%2Fhome%2Fdoris%2Fdirectory%2F", false);
+    test_url("/home/doris/directory/", "%2Fhome%2Fdoris%2Fdirectory%2F", true);
 }
 
 TEST(Base64Test, Basic) {
@@ -110,7 +110,7 @@ TEST(HtmlEscapingTest, Basic) {
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }

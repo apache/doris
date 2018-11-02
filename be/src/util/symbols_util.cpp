@@ -25,13 +25,13 @@
 using boost::algorithm::split_regex;
 using boost::regex;
 
-namespace palo {
+namespace doris {
 // For the rules about gcc-compatible name mangling, see:
 // http://mentorembedded.github.io/cxx-abi/abi.html#mangling
 // This implementation *is* not generally compatible. It is harded coded to
 // only work with functions that implement the UDF or UDA signature. That is,
 // functions of the form:
-//   namespace::Function(palo_udf::FunctionContext*, const palo_udf::AnyVal&, etc)
+//   namespace::Function(doris_udf::FunctionContext*, const doris_udf::AnyVal&, etc)
 //
 // The general idea is to walk the types left to right and output them. This happens
 // in a single pass. User literals are output as <len><literal>. There are many reserved,
@@ -75,7 +75,7 @@ std::string SymbolsUtil::demangle_no_args(const std::string& symbol) {
 
 std::string SymbolsUtil::demangle_name_only(const std::string& symbol) {
     std::string fn_name = demangle_no_args(symbol);
-    // Chop off namespace and/or class name if present (e.g. "palo::foo" => "foo")
+    // Chop off namespace and/or class name if present (e.g. "doris::foo" => "foo")
     // TODO: fix for templates
     return fn_name.substr(fn_name.find_last_of(':') + 1);
 }
@@ -119,8 +119,8 @@ static void append_seq_id(int seq_id, std::stringstream* out) {
 static void append_any_val_type(
         int namespace_id, const TypeDescriptor& type, std::stringstream* s) {
     (*s) << "N";
-    // All the AnyVal types are in the palo_udf namespace, that token
-    // already came with palo_udf::FunctionContext
+    // All the AnyVal types are in the doris_udf namespace, that token
+    // already came with doris_udf::FunctionContext
     append_seq_id(namespace_id, s);
 
     switch (type.type) {
@@ -163,7 +163,7 @@ static void append_any_val_type(
     default:
         DCHECK(false) << "NYI: " << type.debug_string();
     }
-    (*s) << "E"; // end palo_udf namespace
+    (*s) << "E"; // end doris_udf namespace
 }
 
 std::string SymbolsUtil::mangle_user_function(const std::string& fn_name,
@@ -178,8 +178,8 @@ std::string SymbolsUtil::mangle_user_function(const std::string& fn_name,
     // next time we see the same token, we output the index instead.
     int seq_id = 0;
 
-    // Sequence id for the palo_udf namespace token
-    int palo_udf_seq_id = -1;
+    // Sequence id for the doris_udf namespace token
+    int doris_udf_seq_id = -1;
 
     std::stringstream ss;
     ss << MANGLE_PREFIX;
@@ -194,8 +194,8 @@ std::string SymbolsUtil::mangle_user_function(const std::string& fn_name,
         ss << "E"; // End fn namespace
     }
     ss << "PN"; // First argument and start of FunctionContext namespace
-    append_mangled_token("palo_udf", &ss);
-    palo_udf_seq_id = seq_id++;
+    append_mangled_token("doris_udf", &ss);
+    doris_udf_seq_id = seq_id++;
     append_mangled_token("FunctionContext", &ss);
     ++seq_id;
     ss << "E"; // E indicates end of namespace
@@ -226,8 +226,8 @@ std::string SymbolsUtil::mangle_user_function(const std::string& fn_name,
         }
 
         ss << "K"; // This indicates it is const
-        seq_id += 2; // For palo_udf::*Val, which is two tokens.
-        append_any_val_type(palo_udf_seq_id, arg_types[i], &ss);
+        seq_id += 2; // For doris_udf::*Val, which is two tokens.
+        append_any_val_type(doris_udf_seq_id, arg_types[i], &ss);
         argument_map[arg_types[i].type] = seq_id;
     }
 
@@ -243,7 +243,7 @@ std::string SymbolsUtil::mangle_user_function(const std::string& fn_name,
             // This is always last and a pointer type.
             append_seq_id(argument_map[ret_arg_type->type] - 2, &ss);
         } else {
-            append_any_val_type(palo_udf_seq_id, *ret_arg_type, &ss);
+            append_any_val_type(doris_udf_seq_id, *ret_arg_type, &ss);
         }
     }
 
@@ -274,7 +274,7 @@ std::string SymbolsUtil::mangle_prepare_or_close_function(const std::string& fn_
     }
 
     ss << "PN"; // FunctionContext* argument and start of FunctionContext namespace
-    append_mangled_token("palo_udf", &ss);
+    append_mangled_token("doris_udf", &ss);
     append_mangled_token("FunctionContext", &ss);
     ss << "E"; // E indicates end of namespace
 

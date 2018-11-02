@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-namespace palo {
+namespace doris {
 namespace column_file {
 namespace ser {
 

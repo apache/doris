@@ -32,7 +32,7 @@
 
 using namespace llvm;
 
-namespace palo {
+namespace doris {
 
 UnionNode::UnionNode(ObjectPool* pool, const TPlanNode& tnode,
     const DescriptorTbl& descs)

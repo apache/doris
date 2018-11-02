@@ -15,16 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_CODEGEN_PALO_IR_DATA_H
-#define BDG_PALO_BE_SRC_QUERY_CODEGEN_PALO_IR_DATA_H
+package org.apache.doris.common.util;
 
-/// Header with declarations of Impala IR data. Definitions of the arrays are generated
-/// separately.
+import java.util.concurrent.locks.ReentrantLock;
 
-extern const unsigned char palo_sse_llvm_ir[];
-extern const size_t palo_sse_llvm_ir_len;
+/*
+ * This Lock is for exposing the getOwner() method,
+ * which is a protected method of ReentrantLock
+ */
+public class QueryableReentrantLock extends ReentrantLock {
+    private static final long serialVersionUID = 1L;
 
-extern const unsigned char palo_no_sse_llvm_ir[];
-extern const size_t palo_no_sse_llvm_ir_len;
+    public QueryableReentrantLock() {
+        super();
+    }
 
-#endif
+    public QueryableReentrantLock(boolean fair) {
+        super(fair);
+    }
+
+    @Override
+    public Thread getOwner() {
+        return super.getOwner();
+    }
+}

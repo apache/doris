@@ -21,7 +21,7 @@
 
 #include <boost/assign.hpp>
 
-namespace palo {
+namespace doris {
 
 Status ThriftClientImpl::open() {
     try {

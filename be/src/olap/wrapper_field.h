@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_WRAPPER_FIELD_H
-#define BDG_PALO_BE_SRC_OLAP_WRAPPER_FIELD_H
+#ifndef DORIS_BE_SRC_OLAP_WRAPPER_FIELD_H
+#define DORIS_BE_SRC_OLAP_WRAPPER_FIELD_H
 
 #include "olap/field.h"
 #include "olap/olap_define.h"
 #include "util/hash_util.hpp"
 
-namespace palo {
+namespace doris {
 
 class WrapperField {
 public:

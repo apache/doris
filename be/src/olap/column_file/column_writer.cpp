@@ -20,7 +20,7 @@
 #include "olap/column_file/bit_field_writer.h"
 #include "olap/file_helper.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 ColumnWriter* ColumnWriter::create(uint32_t column_id,
@@ -964,4 +964,4 @@ void LargeIntColumnWriter::record_position() {
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris

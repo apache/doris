@@ -36,7 +36,7 @@
 //    "scratch files. This is multiplied by the number of active scratch directories to "
 //    "obtain the target number of scratch write I/Os per query.");
 
-namespace palo {
+namespace doris {
 
 constexpr int BufferPool::LOG_MAX_BUFFER_BYTES;
 constexpr int64_t BufferPool::MAX_BUFFER_BYTES;

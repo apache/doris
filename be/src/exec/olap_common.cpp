@@ -26,7 +26,7 @@
 
 #include "exec/olap_utils.h"
 
-namespace palo {
+namespace doris {
 
 template<>
 std::string cast_to_string(__int128 value) {
@@ -65,7 +65,7 @@ Status OlapScanKeys::get_key_range(std::vector<OlapScanRange>* key_range) {
     return Status::OK;
 }
 
-Status PaloScanRange::init() {
+Status DorisScanRange::init() {
     if (!_scan_range.__isset.partition_column_ranges) {
         return Status::OK;
     }
@@ -163,7 +163,7 @@ Status PaloScanRange::init() {
     return Status::OK;
 }
 
-int PaloScanRange::has_intersection(const std::string column_name,
+int DorisScanRange::has_intersection(const std::string column_name,
                                    ColumnValueRangeType& value_range) {
     IsEmptyValueRangeVisitor empty_visitor;
 
@@ -184,6 +184,6 @@ int PaloScanRange::has_intersection(const std::string column_name,
     }
 }
 
-}  // namespace palo
+}  // namespace doris
 
 /* vim: set expandtab ts=4 sw=4 sts=4 tw=100: */

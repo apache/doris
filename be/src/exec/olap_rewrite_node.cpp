@@ -27,7 +27,7 @@
 #include "runtime/tuple.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 OlapRewriteNode::OlapRewriteNode(ObjectPool* pool,
                                  const TPlanNode& tnode,

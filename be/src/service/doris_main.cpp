@@ -44,7 +44,7 @@
 #include "agent/heartbeat_server.h"
 #include "agent/status.h"
 #include "agent/topic_subscriber.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 #include "olap/options.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
@@ -59,15 +59,15 @@ static void help(const char*);
 
 extern "C" { void __lsan_do_leak_check(); }
 
-namespace palo {
-extern bool k_palo_exit;
+namespace doris {
+extern bool k_doris_exit;
 }
 
 int main(int argc, char** argv) {
     // check if print version or help
     if (argc > 1) {
         if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) {
-            puts(palo::get_build_version(false).c_str());
+            puts(doris::get_build_version(false).c_str());
             exit(0);
         } else if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-?") == 0) {
             help(basename(argv[0]));
@@ -80,7 +80,7 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
-    using palo::Status;
+    using doris::Status;
     using std::string;
 
     // open pid file, obtain file lock and save pid
@@ -106,7 +106,7 @@ int main(int argc, char** argv) {
     }
 
     string conffile = string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
@@ -116,88 +116,88 @@ int main(int argc, char** argv) {
         "tcmalloc.aggressive_memory_decommit", 21474836480);
 #endif
 
-    std::vector<palo::StorePath> paths;
-    auto olap_res = palo::parse_conf_store_paths(palo::config::storage_root_path, &paths);
-    if (olap_res != palo::OLAP_SUCCESS) {
-        LOG(FATAL) << "parse config storage path failed, path=" << palo::config::storage_root_path;
+    std::vector<doris::StorePath> paths;
+    auto olap_res = doris::parse_conf_store_paths(doris::config::storage_root_path, &paths);
+    if (olap_res != doris::OLAP_SUCCESS) {
+        LOG(FATAL) << "parse config storage path failed, path=" << doris::config::storage_root_path;
         exit(-1);
     }
 
-    palo::LlvmCodeGen::initialize_llvm();
-    palo::init_daemon(argc, argv, paths);
+    doris::LlvmCodeGen::initialize_llvm();
+    doris::init_daemon(argc, argv, paths);
 
-    palo::ResourceTls::init();
-    if (!palo::BackendOptions::init()) {
+    doris::ResourceTls::init();
+    if (!doris::BackendOptions::init()) {
         exit(-1);
     }
 
     // options
-    palo::EngineOptions options;
+    doris::EngineOptions options;
     options.store_paths = paths;
-    palo::OLAPEngine* engine = nullptr;
-    auto st = palo::OLAPEngine::open(options, &engine);
+    doris::OLAPEngine* engine = nullptr;
+    auto st = doris::OLAPEngine::open(options, &engine);
     if (!st.ok()) {
         LOG(FATAL) << "fail to open OLAPEngine, res=" << st.get_error_msg();
         exit(-1);
     }
 
     // start backend service for the coordinator on be_port
-    palo::ExecEnv exec_env(paths);
+    doris::ExecEnv exec_env(paths);
     exec_env.set_olap_engine(engine);
 
-    palo::FrontendHelper::setup(&exec_env);
-    palo::ThriftServer* be_server = nullptr;
+    doris::FrontendHelper::setup(&exec_env);
+    doris::ThriftServer* be_server = nullptr;
 
-    EXIT_IF_ERROR(palo::BackendService::create_service(
+    EXIT_IF_ERROR(doris::BackendService::create_service(
             &exec_env,
-            palo::config::be_port,
+            doris::config::be_port,
             &be_server));
     Status status = be_server->start();
     if (!status.ok()) {
-        LOG(ERROR) << "Palo Be server did not start correctly, exiting";
-        palo::shutdown_logging();
+        LOG(ERROR) << "Doris Be server did not start correctly, exiting";
+        doris::shutdown_logging();
         exit(1);
     }
 
-    palo::BRpcService brpc_service(&exec_env);
-    status = brpc_service.start(palo::config::brpc_port);
+    doris::BRpcService brpc_service(&exec_env);
+    status = brpc_service.start(doris::config::brpc_port);
     if (!status.ok()) {
         LOG(ERROR) << "BRPC service did not start correctly, exiting";
-        palo::shutdown_logging();
+        doris::shutdown_logging();
         exit(1);
     }
 
     status = exec_env.start_services();
     if (!status.ok()) {
-        LOG(ERROR) << "Palo Be services did not start correctly, exiting";
-        palo::shutdown_logging();
+        LOG(ERROR) << "Doris Be services did not start correctly, exiting";
+        doris::shutdown_logging();
         exit(1);
     }
 
-    palo::TMasterInfo* master_info = exec_env.master_info();
+    doris::TMasterInfo* master_info = exec_env.master_info();
     // start heart beat server
-    palo::ThriftServer* heartbeat_thrift_server;
-    palo::AgentStatus heartbeat_status = palo::create_heartbeat_server(
+    doris::ThriftServer* heartbeat_thrift_server;
+    doris::AgentStatus heartbeat_status = doris::create_heartbeat_server(
             &exec_env,
-            palo::config::heartbeat_service_port,
+            doris::config::heartbeat_service_port,
             &heartbeat_thrift_server,
-            palo::config::heartbeat_service_thread_count,
+            doris::config::heartbeat_service_thread_count,
             master_info);
 
-    if (palo::AgentStatus::PALO_SUCCESS != heartbeat_status) {
+    if (doris::AgentStatus::DORIS_SUCCESS != heartbeat_status) {
         LOG(ERROR) << "Heartbeat services did not start correctly, exiting";
-        palo::shutdown_logging();
+        doris::shutdown_logging();
         exit(1);
     }
 
     status = heartbeat_thrift_server->start();
     if (!status.ok()) {
-        LOG(ERROR) << "Palo BE HeartBeat Service did not start correctly, exiting";
-        palo::shutdown_logging();
+        LOG(ERROR) << "Doris BE HeartBeat Service did not start correctly, exiting";
+        doris::shutdown_logging();
         exit(1);
     }
 
-    while (!palo::k_palo_exit) {
+    while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)
         __lsan_do_leak_check();
 #endif
@@ -213,7 +213,7 @@ int main(int argc, char** argv) {
 }
 
 static void help(const char* progname) {
-    printf("%s is the Palo backend server.\n\n", progname);
+    printf("%s is the Doris backend server.\n\n", progname);
     printf("Usage:\n  %s [OPTION]...\n\n", progname);
     printf("Options:\n");
     printf("  -v, --version      output version information, then exit\n");

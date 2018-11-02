@@ -17,7 +17,7 @@
 
 #include "timestamp_functions.h"
 
-namespace palo {
+namespace doris {
 const char* TimezoneDatabase::_s_timezone_database_str =
 "\"ID\",\"STD ABBR\",\"STD NAME\",\"DST ABBR\",\"DST NAME\",\"GMT offset\",\"DST adjustment\",\
 \"DST Start Date rule\",\"Start time\",\"DST End date rule\",\"End time\"\n\

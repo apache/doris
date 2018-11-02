@@ -28,7 +28,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.hpp"
 #include "util/debug_util.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 
 // using namespace llvm;
 
@@ -49,9 +49,9 @@ using llvm::PHINode;
 using llvm::ConstantFP;
 using llvm::APFloat;
 
-namespace palo {
+namespace doris {
 
-const char* PartitionedHashTableCtx::_s_llvm_class_name = "class.palo::PartitionedHashTableCtx";
+const char* PartitionedHashTableCtx::_s_llvm_class_name = "class.doris::PartitionedHashTableCtx";
 
 // Random primes to multiply the seed with.
 static uint32_t SEED_PRIMES[] = {
@@ -279,8 +279,8 @@ void PartitionedHashTable::close() {
         _data_pages[i]->del();
     }
 #if 0
-    if (PaloMetrics::hash_table_total_bytes() != NULL) {
-        PaloMetrics::hash_table_total_bytes()->increment(-_total_data_page_size);
+    if (DorisMetrics::hash_table_total_bytes() != NULL) {
+        DorisMetrics::hash_table_total_bytes()->increment(-_total_data_page_size);
     }
 #endif
     _data_pages.clear();
@@ -372,8 +372,8 @@ bool PartitionedHashTable::grow_node_array() {
     _data_pages.push_back(block);
     _next_node = block->allocate<DuplicateNode>(page_size);
 #if 0
-    if (PaloMetrics::hash_table_total_bytes() != NULL) {
-        PaloMetrics::hash_table_total_bytes()->increment(page_size);
+    if (DorisMetrics::hash_table_total_bytes() != NULL) {
+        DorisMetrics::hash_table_total_bytes()->increment(page_size);
     }
 #endif
     _node_remaining_current_page = page_size / sizeof(DuplicateNode);
@@ -942,5 +942,5 @@ Function* PartitionedHashTableCtx::codegen_equals(RuntimeState* state) {
 }
 #endif
 
-} // namespace palo
+} // namespace doris
 

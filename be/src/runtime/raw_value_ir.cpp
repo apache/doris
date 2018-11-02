@@ -18,7 +18,7 @@
 #include "runtime/raw_value.h"
 #include "util/types.h"
 
-namespace palo {
+namespace doris {
 
 int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type) {
     const StringValue* string_value1;

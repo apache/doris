@@ -19,7 +19,7 @@
 
 #include "exec/exec_node.h"
 
-namespace palo {
+namespace doris {
 
 /// Node that returns an empty result set, i.e., just sets eos_ in GetNext().
 /// Corresponds to EmptySetNode.java in the FE.

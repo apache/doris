@@ -17,7 +17,7 @@
 
 #include "exec/sort_exec_exprs.h"
 
-namespace palo {
+namespace doris {
 
 Status SortExecExprs::init(const TSortInfo& sort_info, ObjectPool* pool) {
     return init(sort_info.ordering_exprs,
@@ -78,4 +78,4 @@ void SortExecExprs::close(RuntimeState* state) {
     Expr::close(_rhs_ordering_expr_ctxs, state);
 }
 
-} //namespace palo
+} //namespace doris

@@ -24,7 +24,7 @@
 #include "util/thread_pool.hpp"
 #include "util/logging.h"
 
-namespace palo {
+namespace doris {
 
 const int NUM_THREADS = 5;
 int g_thread_counters[NUM_THREADS];
@@ -72,7 +72,7 @@ TEST(ThreadPoolTest, BasicTest) {
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }

@@ -25,7 +25,7 @@
 
 #include <boost/algorithm/string/case_conv.hpp> // to_lower_copy
 
-namespace palo {
+namespace doris {
 
 struct StringCaseHasher {
 public:

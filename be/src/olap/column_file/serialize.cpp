@@ -20,7 +20,7 @@
 #include "olap/column_file/file_stream.h"
 #include "olap/column_file/out_stream.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 namespace ser {
 
@@ -278,5 +278,5 @@ OLAPStatus read_ints(ReadOnlyFileStream* input, int64_t* data, uint32_t count, u
 
 } // namespace ser
 } // namespace column_file
-} // namespace palo
+} // namespace doris
 

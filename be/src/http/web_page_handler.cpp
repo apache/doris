@@ -31,7 +31,7 @@
 #include "util/disk_info.h"
 #include "util/mem_info.h"
 
-namespace palo {
+namespace doris {
 
 static std::string s_html_content_type = "text/html";
 
@@ -102,7 +102,7 @@ void WebPageHandler::handle(HttpRequest *req) {
 static const std::string PAGE_HEADER = 
     "<!DOCTYPE html>"
     " <html>"
-    "   <head><title>Palo</title>"
+    "   <head><title>Doris</title>"
     " <link href='www/bootstrap/css/bootstrap.min.css' rel='stylesheet' media='screen'>"
     "  <style>"
     "  body {"

@@ -29,7 +29,7 @@
 #include "exec/exec_node.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 class InOpTest : public ::testing::Test {
 public:

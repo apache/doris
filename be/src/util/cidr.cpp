@@ -23,7 +23,7 @@
 
 #include "common/logging.h"
 
-namespace palo {
+namespace doris {
 
 CIDR::CIDR() : _address(0), _netmask(0xffffffff) {
 }
@@ -112,4 +112,4 @@ bool CIDR::contains(const std::string& ip) {
     return contains(ip_int);
 }
 
-} // end namespace palo
+} // end namespace doris

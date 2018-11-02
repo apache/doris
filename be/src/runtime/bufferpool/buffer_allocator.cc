@@ -33,7 +33,7 @@
 
 //DECLARE_bool(disable_mem_pools);
 
-namespace palo {
+namespace doris {
 
 /// Decrease 'bytes_remaining' by up to 'max_decrease', down to a minimum of 0.
 /// If 'require_full_decrease' is true, only decrease if we can decrease it

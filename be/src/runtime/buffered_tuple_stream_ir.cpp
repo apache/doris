@@ -20,7 +20,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/tuple_row.h"
 
-namespace palo {
+namespace doris {
 bool BufferedTupleStream::deep_copy(TupleRow* row, uint8_t** dst) {
     if (_nullable_tuple) {
         return deep_copy_internal<true>(row, dst);

@@ -18,12 +18,12 @@
 #ifdef IR_COMPILE
 #include "exec/partitioned_hash_table.h"
 
-namespace palo {
+namespace doris {
 
 uint32_t PartitionedHashTableCtx::get_hash_seed() const {
     return _seeds[_level];
 }
 
-} // end namespace palo
+} // end namespace doris
 
 #endif

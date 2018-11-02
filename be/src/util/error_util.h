@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_UTIL_ERROR_UTIL_H
-#define BDG_PALO_BE_SRC_UTIL_ERROR_UTIL_H
+#ifndef DORIS_BE_SRC_UTIL_ERROR_UTIL_H
+#define DORIS_BE_SRC_UTIL_ERROR_UTIL_H
 
 #include <string>
 #include <vector>
@@ -29,7 +29,7 @@
 // #include "gen-cpp/ImpalaInternalService_types.h"
 // #include "gutil/strings/substitute.h"
 
-namespace palo {
+namespace doris {
 
 // Returns the error message for errno. We should not use strerror directly
 // as that is not thread safe.
@@ -168,6 +168,6 @@ std::string print_error_map_to_string(const ErrorLogMap& errors);
 
 #endif // end '#if 0': comment these code
 
-} // end namespace palo
+} // end namespace doris
 
-#endif // BDG_PALO_BE_SRC_UTIL_ERROR_UTIL_H
+#endif // DORIS_BE_SRC_UTIL_ERROR_UTIL_H

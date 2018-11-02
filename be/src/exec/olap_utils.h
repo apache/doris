@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  BDG_PALO_BE_SRC_QUERY_EXEC_OLAP_UTILS_H
-#define  BDG_PALO_BE_SRC_QUERY_EXEC_OLAP_UTILS_H
+#ifndef  DORIS_BE_SRC_QUERY_EXEC_OLAP_UTILS_H
+#define  DORIS_BE_SRC_QUERY_EXEC_OLAP_UTILS_H
 
 #include <math.h>
 
@@ -26,7 +26,7 @@
 #include "runtime/datetime_value.h"
 #include "olap/tuple.h"
 
-namespace palo {
+namespace doris {
 
 typedef bool (*CompareLargeFunc)(const void*, const void*);
 
@@ -222,7 +222,7 @@ inline SQLFilterOp to_olap_filter_type(TExprOpcode::type type, bool opposite) {
     return FILTER_IN;
 }
 
-} // namespace palo
+} // namespace doris
 
 #endif
 

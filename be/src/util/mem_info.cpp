@@ -31,7 +31,7 @@
 #include "util/pretty_printer.h"
 #include "util/string_parser.hpp"
 
-namespace palo {
+namespace doris {
 
 bool MemInfo::_s_initialized = false;
 int64_t MemInfo::_s_physical_mem = -1;

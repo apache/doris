@@ -35,11 +35,11 @@
 #include "util/runtime_profile.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 //using namespace testing;
 //using namespace olap::storage;
-//using namespace palo;
+//using namespace doris;
 //using namespace std;
 
 class TestOlapScanNode : public testing::Test {
@@ -223,18 +223,18 @@ public:
 
         {
             TScanRangeParams param;
-            TPaloScanRange palo_scan_range;
+            TPaloScanRange doris_scan_range;
             TNetworkAddress host;
             host.__set_hostname("host");
             host.__set_port(port);
-            palo_scan_range.hosts.push_back(host);
-            palo_scan_range.__set_schema_hash("1709394");
-            palo_scan_range.__set_version("0");
-            palo_scan_range.__set_version_hash("2709394");
+            doris_scan_range.hosts.push_back(host);
+            doris_scan_range.__set_schema_hash("1709394");
+            doris_scan_range.__set_version("0");
+            doris_scan_range.__set_version_hash("2709394");
             config::olap_index_name = "userid_type_planid_unitid_winfoid";
-            palo_scan_range.engine_table_name.push_back("clickuserid_online");
-            palo_scan_range.__set_db_name("fc");
-            param.scan_range.__set_palo_scan_range(palo_scan_range);
+            doris_scan_range.engine_table_name.push_back("clickuserid_online");
+            doris_scan_range.__set_db_name("fc");
+            param.scan_range.__set_doris_scan_range(doris_scan_range);
             _scan_ranges.push_back(param);
         }
     }
@@ -307,8 +307,8 @@ TEST_F(TestOlapScanNode, SimpleTest) {
 }
 
 TEST_F(TestOlapScanNode, MultiColumnSingleVersionTest) {
-    _scan_ranges[0].scan_range.palo_scan_range.__set_version("0");
-    _scan_ranges[0].scan_range.palo_scan_range.__set_version_hash("2709394");
+    _scan_ranges[0].scan_range.doris_scan_range.__set_version("0");
+    _scan_ranges[0].scan_range.doris_scan_range.__set_version_hash("2709394");
     vector<string> data;
     read_data(0, &data);
 
@@ -345,8 +345,8 @@ TEST_F(TestOlapScanNode, MultiColumnSingleVersionTest) {
 }
 
 TEST_F(TestOlapScanNode, MultiColumnMultiVersionTest) {
-    _scan_ranges[0].scan_range.palo_scan_range.__set_version("9");
-    _scan_ranges[0].scan_range.palo_scan_range.__set_version_hash("0");
+    _scan_ranges[0].scan_range.doris_scan_range.__set_version("9");
+    _scan_ranges[0].scan_range.doris_scan_range.__set_version_hash("0");
     vector<string> data;
     read_data(9, &data);
 
@@ -387,13 +387,13 @@ TEST_F(TestOlapScanNode, MultiColumnMultiVersionTest) {
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
     init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
-    palo::CpuInfo::init();
+    doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }
 

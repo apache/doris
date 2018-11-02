@@ -24,7 +24,7 @@
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/Descriptors_constants.h"
 
-namespace palo {
+namespace doris {
 
 const char* const Codec::DEFAULT_COMPRESSION =
     "org.apache.hadoop.io.compress.DefaultCodec";

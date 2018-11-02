@@ -25,7 +25,7 @@
 #include "service/brpc.h"
 #include "util/spinlock.h"
 
-namespace palo {
+namespace doris {
 
 // map used 
 class BrpcStubCache {

@@ -35,7 +35,7 @@ using std::string;
 using std::vector;
 using std::set;
 
-namespace palo {
+namespace doris {
 
 class TmpFileMgrTest : public ::testing::Test {
 protected:
@@ -204,7 +204,7 @@ TEST_F(TmpFileMgrTest, TestReportError) {
 
 TEST_F(TmpFileMgrTest, TestAllocateFails) {
     string tmp_dir("/tmp/tmp-file-mgr-test.1");
-    string scratch_subdir = tmp_dir + "/palo-scratch";
+    string scratch_subdir = tmp_dir + "/doris-scratch";
     vector<string> tmp_dirs(1, tmp_dir);
     EXPECT_TRUE(FileSystemUtil::create_directory(tmp_dir).ok());
     TmpFileMgr tmp_file_mgr;
@@ -233,19 +233,19 @@ TEST_F(TmpFileMgrTest, TestAllocateFails) {
     FileSystemUtil::remove_paths(tmp_dirs);
 }
 
-} // end namespace palo
+} // end namespace doris
 
 int main(int argc, char** argv) {
     // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!palo::config::init(conffile.c_str(), false)) {
+    // if (!doris::config::init(conffile.c_str(), false)) {
     //     fprintf(stderr, "error read config file. \n");
     //     return -1;
     // }
-    palo::config::query_scratch_dirs = "/tmp";
-    palo::init_glog("be-test");
+    doris::config::query_scratch_dirs = "/tmp";
+    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
 
-    palo::DiskInfo::init();
+    doris::DiskInfo::init();
 
     return RUN_ALL_TESTS();
 }

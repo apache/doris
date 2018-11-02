@@ -26,7 +26,7 @@
 using namespace std;
 using namespace boost;
 
-namespace palo {
+namespace doris {
 
 // Fixture for testing class Decompressor
 class DecompressorTest : public ::testing::Test {
@@ -107,7 +107,7 @@ TEST_F(DecompressorTest, SnappyBlocked) {
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }

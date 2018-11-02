@@ -26,9 +26,9 @@
 
 #include "common/logging.h"
 
-namespace palo {
+namespace doris {
 
-const char* DateTimeValue::_s_llvm_class_name = "class.palo::DateTimeValue";
+const char* DateTimeValue::_s_llvm_class_name = "class.doris::DateTimeValue";
 
 const uint64_t log_10_int[] = {
     1, 10, 100, 1000, 10000UL, 100000UL, 1000000UL, 10000000UL,

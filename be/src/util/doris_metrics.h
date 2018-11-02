@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UTIL_PALO_METRICS_H
-#define BDG_PALO_BE_SRC_COMMON_UTIL_PALO_METRICS_H
+#ifndef DORIS_BE_SRC_COMMON_UTIL_DORIS_METRICS_H
+#define DORIS_BE_SRC_COMMON_UTIL_DORIS_METRICS_H
 
 #include <set>
 #include <string>
@@ -24,11 +24,11 @@
 
 #include "util/metrics.h"
 
-namespace palo {
+namespace doris {
 
 class SystemMetrics;
 
-class PaloMetrics {
+class DorisMetrics {
 public:
     // counters
     static IntCounter fragment_requests_total;
@@ -91,7 +91,7 @@ public:
     static IntGauge process_fd_num_limit_soft;
     static IntGauge process_fd_num_limit_hard;
 
-    ~PaloMetrics();
+    ~DorisMetrics();
     // call before calling metrics
     void initialize(
         const std::string& name,
@@ -99,11 +99,11 @@ public:
         const std::set<std::string>& disk_devices = std::set<std::string>(),
         const std::vector<std::string>& network_interfaces = std::vector<std::string>());
 
-    static PaloMetrics* instance() { return &_s_palo_metrics; }
-    static MetricRegistry* metrics() { return _s_palo_metrics._metrics; }
+    static DorisMetrics* instance() { return &_s_doris_metrics; }
+    static MetricRegistry* metrics() { return _s_doris_metrics._metrics; }
 private:
     // Don't allow constrctor
-    PaloMetrics();
+    DorisMetrics();
 
     void update();
     void _update_process_thread_num();
@@ -112,7 +112,7 @@ private:
 private:
     static const char* _s_hook_name;
 
-    static PaloMetrics _s_palo_metrics;
+    static DorisMetrics _s_doris_metrics;
 
     MetricRegistry* _metrics;
     SystemMetrics* _system_metrics;

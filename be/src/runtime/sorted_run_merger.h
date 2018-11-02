@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_RUNTIME_SORTED_RUN_MERGER_H
-#define BDG_PALO_BE_SRC_RUNTIME_SORTED_RUN_MERGER_H
+#ifndef DORIS_BE_SRC_RUNTIME_SORTED_RUN_MERGER_H
+#define DORIS_BE_SRC_RUNTIME_SORTED_RUN_MERGER_H
 
 #include <boost/scoped_ptr.hpp>
 #include <boost/thread/mutex.hpp>
@@ -24,7 +24,7 @@
 #include "common/object_pool.h"
 #include "util/tuple_row_compare.h"
 
-namespace palo {
+namespace doris {
 
 class RowBatch;
 class RowDescriptor;
@@ -101,6 +101,6 @@ private:
     RuntimeProfile::Counter* _get_next_batch_timer;
 };
 
-} // namespace palo
+} // namespace doris
 
-#endif // BDG_PALO_BE_SRC_RUNTIME_SORTED_RUN_MERGER_H
+#endif // DORIS_BE_SRC_RUNTIME_SORTED_RUN_MERGER_H

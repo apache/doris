@@ -18,7 +18,7 @@
 #include "agent/topic_subscriber.h"
 #include "common/logging.h"
 
-namespace palo {
+namespace doris {
 
 TopicSubscriber::TopicSubscriber() {
 }
@@ -58,4 +58,4 @@ void TopicSubscriber::handle_updates(const TAgentPublishRequest& agent_publish_r
         }    
     }
 }
-} // namespace palo
+} // namespace doris

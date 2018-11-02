@@ -17,7 +17,7 @@
 
 #include "olap/column_file/stream_index_reader.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 PositionEntryReader::PositionEntryReader() :
@@ -150,4 +150,4 @@ OLAPStatus StreamIndexReader::_parse_header(FieldType type) {
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris

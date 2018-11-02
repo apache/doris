@@ -34,7 +34,7 @@
 using std::numeric_limits;
 
 
-namespace palo {
+namespace doris {
 
 InitialReservations::InitialReservations(ObjectPool* obj_pool,
     ReservationTracker* query_reservation, MemTracker* query_mem_tracker,

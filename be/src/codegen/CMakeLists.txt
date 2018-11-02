@@ -22,8 +22,8 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/codegen")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/codegen")
 
 # Generated C files for IR
-set(IR_SSE_C_FILE ${GENSRC_DIR}/palo_ir/palo_sse_ir.cpp)
-set(IR_NO_SSE_C_FILE ${GENSRC_DIR}/palo_ir/palo_no_sse_ir.cpp)
+set(IR_SSE_C_FILE ${GENSRC_DIR}/doris_ir/doris_sse_ir.cpp)
+set(IR_NO_SSE_C_FILE ${GENSRC_DIR}/doris_ir/doris_no_sse_ir.cpp)
 
 add_library(CodeGen STATIC
     codegen_anyval.cpp
@@ -37,8 +37,8 @@ add_dependencies(CodeGen gen_ir_descriptions compile_to_ir_sse compile_to_ir_no_
 
 # output cross compile to ir metadata
 set(IR_DESC_GEN_OUTPUT
-    ${GENSRC_DIR}/palo_ir/palo_ir_names.h
-    ${GENSRC_DIR}/palo_ir/palo_ir_functions.h
+    ${GENSRC_DIR}/doris_ir/doris_ir_names.h
+    ${GENSRC_DIR}/doris_ir/doris_ir_functions.h
 )
 
 add_custom_command(
@@ -50,11 +50,11 @@ add_custom_command(
 )
 add_custom_target(gen_ir_descriptions ALL DEPENDS ${IR_DESC_GEN_OUTPUT})
 
-set(IR_INPUT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/palo_ir.cpp)
-set(IR_SSE_TMP_OUTPUT_FILE "${GENSRC_DIR}/palo_ir/palo_sse_tmp.bc")
-set(IR_NO_SSE_TMP_OUTPUT_FILE "${GENSRC_DIR}/palo_ir/palo_no_sse_tmp.bc")
-set(IR_SSE_OUTPUT_FILE "${GENSRC_DIR}/palo_ir/palo_sse.bc")
-set(IR_NO_SSE_OUTPUT_FILE "${GENSRC_DIR}/palo_ir/palo_no_sse.bc")
+set(IR_INPUT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/doris_ir.cpp)
+set(IR_SSE_TMP_OUTPUT_FILE "${GENSRC_DIR}/doris_ir/doris_sse_tmp.bc")
+set(IR_NO_SSE_TMP_OUTPUT_FILE "${GENSRC_DIR}/doris_ir/doris_no_sse_tmp.bc")
+set(IR_SSE_OUTPUT_FILE "${GENSRC_DIR}/doris_ir/doris_sse.bc")
+set(IR_NO_SSE_OUTPUT_FILE "${GENSRC_DIR}/doris_ir/doris_no_sse.bc")
 set(IR_SSE_TMP_C_FILE ${IR_SSE_C_FILE}.tmp)
 set(IR_NO_SSE_TMP_C_FILE ${IR_NO_SSE_C_FILE}.tmp)
 
@@ -85,7 +85,7 @@ add_custom_target(compile_to_ir_no_sse DEPENDS ${IR_NO_SSE_OUTPUT_FILE})
 # Convert LLVM bytecode to C array.
 add_custom_command(
   OUTPUT ${IR_SSE_C_FILE}
-  COMMAND $ENV{DORIS_HOME}/gensrc/script/file2array.sh -n -v palo_sse_llvm_ir ${IR_SSE_OUTPUT_FILE} > ${IR_SSE_TMP_C_FILE}
+  COMMAND $ENV{DORIS_HOME}/gensrc/script/file2array.sh -n -v doris_sse_llvm_ir ${IR_SSE_OUTPUT_FILE} > ${IR_SSE_TMP_C_FILE}
   COMMAND mv ${IR_SSE_TMP_C_FILE} ${IR_SSE_C_FILE}
   DEPENDS $ENV{DORIS_HOME}/gensrc/script/file2array.sh
   DEPENDS ${IR_SSE_OUTPUT_FILE}
@@ -94,7 +94,7 @@ add_custom_command(
 # Convert LLVM bytecode to C array.
 add_custom_command(
   OUTPUT ${IR_NO_SSE_C_FILE}
-  COMMAND $ENV{DORIS_HOME}/gensrc/script/file2array.sh -n -v palo_no_sse_llvm_ir ${IR_NO_SSE_OUTPUT_FILE} > ${IR_NO_SSE_TMP_C_FILE}
+  COMMAND $ENV{DORIS_HOME}/gensrc/script/file2array.sh -n -v doris_no_sse_llvm_ir ${IR_NO_SSE_OUTPUT_FILE} > ${IR_NO_SSE_TMP_C_FILE}
   COMMAND mv ${IR_NO_SSE_TMP_C_FILE} ${IR_NO_SSE_C_FILE}
   DEPENDS $ENV{DORIS_HOME}/gensrc/script/file2array.sh
   DEPENDS ${IR_NO_SSE_OUTPUT_FILE}

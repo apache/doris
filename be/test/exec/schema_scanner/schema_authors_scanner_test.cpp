@@ -23,7 +23,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/descriptors.h"
 
-namespace palo {
+namespace doris {
 
 class SchemaAuthorScannerTest : public testing::Test {
 public:
@@ -97,7 +97,7 @@ TEST_F(SchemaAuthorScannerTest, invalid_param) {
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }

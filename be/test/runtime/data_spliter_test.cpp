@@ -30,7 +30,7 @@
 #include "gen_cpp/Types_types.h"
 #include "olap/olap_main.cpp"
 
-namespace palo {
+namespace doris {
 
 class DataSplitTest : public testing::Test {
 public:
@@ -270,16 +270,16 @@ TEST_F(DataSplitTest, NoData) {
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
     // 覆盖be.conf中的配置
-    palo::config::storage_root_path = "./test_run/mini_load";
-    palo::create_dirs(palo::config::storage_root_path);
-    palo::touch_all_singleton();
+    doris::config::storage_root_path = "./test_run/mini_load";
+    doris::create_dirs(doris::config::storage_root_path);
+    doris::touch_all_singleton();
 
-    palo::CpuInfo::init();
+    doris::CpuInfo::init();
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

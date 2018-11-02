@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXEC_CSV_SCANNER_H
-#define BDG_PALO_BE_SRC_QUERY_EXEC_CSV_SCANNER_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_CSV_SCANNER_H
+#define DORIS_BE_SRC_QUERY_EXEC_CSV_SCANNER_H
 
 #include <fstream>
 #include <string>
@@ -24,7 +24,7 @@
 
 #include "common/status.h"
 
-namespace palo {
+namespace doris {
 
 class CsvScanner {
 public:
@@ -41,6 +41,6 @@ private:
     int32_t _current_file_idx;
 };
 
-} // end namespace palo
-#endif // BDG_PALO_BE_SRC_QUERY_EXEC_CSV_SCANNER_H
+} // end namespace doris
+#endif // DORIS_BE_SRC_QUERY_EXEC_CSV_SCANNER_H
 

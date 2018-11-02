@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXEC_OLAP_META_READER_H
-#define BDG_PALO_BE_SRC_QUERY_EXEC_OLAP_META_READER_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_OLAP_META_READER_H
+#define DORIS_BE_SRC_QUERY_EXEC_OLAP_META_READER_H
 
 #include <boost/shared_ptr.hpp>
 #include <list>
@@ -30,7 +30,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"
 
-namespace palo {
+namespace doris {
 
 class StorageShowHints;
 class RuntimeProfile;
@@ -41,7 +41,7 @@ class RuntimeProfile;
 class EngineMetaReader {
 public:
     static Status get_hints(
-        boost::shared_ptr<PaloScanRange> scan_range,
+        boost::shared_ptr<DorisScanRange> scan_range,
         int block_row_count,
         bool is_begin_include,
         bool is_end_include,
@@ -50,6 +50,6 @@ public:
         RuntimeProfile* profile);
 };
 
-} // namespace palo
+} // namespace doris
 
 #endif

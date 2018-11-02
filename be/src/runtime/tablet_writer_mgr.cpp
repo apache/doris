@@ -31,7 +31,7 @@
 #include "olap/delta_writer.h"
 #include "olap/lru_cache.h"
 
-namespace palo {
+namespace doris {
 
 // channel that process all data for this load
 class TabletsChannel {

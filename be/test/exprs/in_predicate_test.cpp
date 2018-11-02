@@ -25,7 +25,7 @@
 #include "runtime/runtime_state.h"
 #include "common/object_pool.h"
 
-namespace palo {
+namespace doris {
 
 // mock
 class InPredicateTest : public testing::Test {
@@ -130,13 +130,13 @@ TEST_F(InPredicateTest, 100_const) {
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
     init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
-    palo::CpuInfo::init();
+    doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }
 

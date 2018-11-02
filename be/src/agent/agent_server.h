@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_AGENT_AGENT_SERVER_H
-#define BDG_PALO_BE_SRC_AGENT_AGENT_SERVER_H
+#ifndef DORIS_BE_SRC_AGENT_AGENT_SERVER_H
+#define DORIS_BE_SRC_AGENT_AGENT_SERVER_H
 
 #include "thrift/transport/TTransportUtils.h"
 #include "agent/status.h"
@@ -29,7 +29,7 @@
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
 
-namespace palo {
+namespace doris {
 
 class AgentServer {
 public:
@@ -119,5 +119,5 @@ private:
     
     TopicSubscriber* _topic_subscriber;   
 };  // class AgentServer
-}  // namespace palo
-#endif  // BDG_PALO_BE_SRC_AGENT_AGENT_SERVER_H
+}  // namespace doris
+#endif  // DORIS_BE_SRC_AGENT_AGENT_SERVER_H

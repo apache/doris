@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_MYSQL_TABLE_SINK_H
-#define BDG_PALO_BE_RUNTIME_MYSQL_TABLE_SINK_H
+#ifndef DORIS_BE_RUNTIME_MYSQL_TABLE_SINK_H
+#define DORIS_BE_RUNTIME_MYSQL_TABLE_SINK_H
 
 #include <vector>
 
@@ -24,7 +24,7 @@
 #include "exec/data_sink.h"
 #include "runtime/mysql_table_writer.h"
 
-namespace palo {
+namespace doris {
 
 class RowDescriptor;
 class TExpr;

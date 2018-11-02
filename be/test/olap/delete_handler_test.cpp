@@ -35,11 +35,11 @@
 #include "util/logging.h"
 
 using namespace std;
-using namespace palo;
+using namespace doris;
 using namespace boost::assign;
 using google::protobuf::RepeatedPtrField;
 
-namespace palo {
+namespace doris {
 
 static const uint32_t MAX_PATH_LEN = 1024;
 static OLAPEngine* k_engine = nullptr;
@@ -54,9 +54,9 @@ void set_up() {
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
 
-    palo::EngineOptions options;
+    doris::EngineOptions options;
     options.store_paths = paths;
-    palo::OLAPEngine::open(options, &k_engine);
+    doris::OLAPEngine::open(options, &k_engine);
 }
 
 void tear_down() {
@@ -1111,21 +1111,21 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     _delete_handler.finalize();
 }
 
-}  // namespace palo
+}  // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    palo::init_glog("be-test");
-    int ret = palo::OLAP_SUCCESS;
+    doris::init_glog("be-test");
+    int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
 
-    palo::set_up();
+    doris::set_up();
     ret = RUN_ALL_TESTS();
-    palo::tear_down();
+    doris::tear_down();
 
     google::protobuf::ShutdownProtobufLibrary();
     return ret;

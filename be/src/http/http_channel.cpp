@@ -29,7 +29,7 @@
 #include "http/http_status.h"
 #include "common/logging.h"
 
-namespace palo {
+namespace doris {
 
 // Send Unauthorized status with basic challenge
 void HttpChannel::send_basic_challenge(HttpRequest* req, const std::string& realm) {

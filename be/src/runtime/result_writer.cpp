@@ -28,7 +28,7 @@
 
 #include "gen_cpp/PaloInternalService_types.h"
 
-namespace palo {
+namespace doris {
 
 ResultWriter::ResultWriter(
         BufferControlBlock* sinker,

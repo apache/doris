@@ -29,7 +29,7 @@
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 
-namespace palo {
+namespace doris {
 
 BrokerScanNode::BrokerScanNode(
         ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs) : 

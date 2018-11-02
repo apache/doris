@@ -34,7 +34,7 @@ add_library(Util STATIC
   disk_info.cpp
   hash_util.hpp
   json_util.cpp
-  palo_metrics.cpp
+  doris_metrics.cpp
   mem_info.cpp
   metrics.cpp
   murmur_hash3.cpp

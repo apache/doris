@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXEC_AGGREGATION_NODE_H
-#define BDG_PALO_BE_SRC_QUERY_EXEC_AGGREGATION_NODE_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_AGGREGATION_NODE_H
+#define DORIS_BE_SRC_QUERY_EXEC_AGGREGATION_NODE_H
 
 #include <boost/scoped_ptr.hpp>
 #include <functional>
@@ -32,7 +32,7 @@ namespace llvm {
 class Function;
 }
 
-namespace palo {
+namespace doris {
 
 class AggFnEvaluator;
 class LlvmCodeGen;
@@ -77,7 +77,7 @@ private:
     std::vector<AggFnEvaluator*> _aggregate_evaluators;
 
     /// FunctionContext for each agg fn and backing pool.
-    std::vector<palo_udf::FunctionContext*> _agg_fn_ctxs;
+    std::vector<doris_udf::FunctionContext*> _agg_fn_ctxs;
     boost::scoped_ptr<MemPool> _agg_fn_pool;
   
     // Exprs used to evaluate input rows

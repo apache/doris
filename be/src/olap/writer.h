@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_WRITER_H
-#define BDG_PALO_BE_SRC_OLAP_WRITER_H
+#ifndef DORIS_BE_SRC_OLAP_WRITER_H
+#define DORIS_BE_SRC_OLAP_WRITER_H
 
 #include "olap/olap_table.h"
 #include "olap/schema.h"
 #include "olap/wrapper_field.h"
 
-namespace palo {
+namespace doris {
 class OLAPData;
 class Rowset;
 class OLAPTable;
@@ -175,6 +175,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(OLAPDataWriter);
 };
 
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_WRITER_H
+#endif // DORIS_BE_SRC_OLAP_WRITER_H

@@ -30,7 +30,7 @@
 #include "util/thrift_util.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 class PullLoadTaskCtx {
 public:

@@ -31,7 +31,7 @@
 #include "exec/broker_writer.h"
 #include <thrift/protocol/TDebugProtocol.h>
 
-namespace palo {
+namespace doris {
 
 ExportSink::ExportSink(ObjectPool* pool,
                        const RowDescriptor& row_desc,

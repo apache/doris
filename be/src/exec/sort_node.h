@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef INF_PALO_QE_SRC_BE_EXEC_SORT_NODE_H
-#define INF_PALO_QE_SRC_BE_EXEC_SORT_NODE_H
+#ifndef INF_DORIS_QE_SRC_BE_EXEC_SORT_NODE_H
+#define INF_DORIS_QE_SRC_BE_EXEC_SORT_NODE_H
 
 #include "exec/exec_node.h"
 #include "exec/sort_exec_exprs.h"
 #include "runtime/merge_sorter.h"
 #include "runtime/buffered_block_mgr.h"
 
-namespace palo {
+namespace doris {
 
 // Node that implements a full sort of its input with a fixed memory budget, spilling
 // to disk if the input is larger than available memory.

@@ -35,7 +35,7 @@ using std::nothrow;
 using std::set;
 using std::vector;
 
-namespace palo {
+namespace doris {
 
 class CollectIterator {
 public:
@@ -389,7 +389,7 @@ OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, bool* eof) {
             break;
         }
 
-        if (_aggregation && merged_count > config::palo_scanner_row_num) {
+        if (_aggregation && merged_count > config::doris_scanner_row_num) {
             break;
         }
         // break while can NOT doing aggregation
@@ -437,7 +437,7 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, bool* eof) {
             //   1. DUP_KEYS keys type has no semantic to aggregate,
             //   2. to make cost of  each scan round reasonable, we will control merged_count.
             if (_olap_table->keys_type() == KeysType::DUP_KEYS
-                || (_aggregation && merged_count > config::palo_scanner_row_num)) {
+                || (_aggregation && merged_count > config::doris_scanner_row_num)) {
                 row_cursor->finalize_one_merge(_value_cids);
                 break;
             }
@@ -1131,4 +1131,4 @@ OLAPStatus Reader::_init_delete_condition(const ReaderParams& read_params) {
     }
 }
 
-}  // namespace palo
+}  // namespace doris

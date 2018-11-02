@@ -51,7 +51,7 @@
 #include "util/brpc_stub_cache.h"
 #include "util/ref_count_closure.h"
 
-namespace palo {
+namespace doris {
  
 // A channel sends data asynchronously via calls to transmit_data
 // to a single destination ipaddress/node.

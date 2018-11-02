@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UTIL_THRIFT_UTIL_H
-#define BDG_PALO_BE_SRC_COMMON_UTIL_THRIFT_UTIL_H
+#ifndef DORIS_BE_SRC_COMMON_UTIL_THRIFT_UTIL_H
+#define DORIS_BE_SRC_COMMON_UTIL_THRIFT_UTIL_H
 
 #include <boost/shared_ptr.hpp>
 #include <thrift/protocol/TBinaryProtocol.h>
@@ -28,7 +28,7 @@
 
 #include "common/status.h"
 
-namespace palo {
+namespace doris {
 
 class TNetworkAddress;
 class ThriftServer;

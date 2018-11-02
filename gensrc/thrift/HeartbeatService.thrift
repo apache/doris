@@ -12,7 +12,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-namespace cpp palo
+namespace cpp doris
 namespace java org.apache.doris.thrift
 
 include "Status.thrift"

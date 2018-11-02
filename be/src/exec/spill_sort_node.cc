@@ -22,7 +22,7 @@
 #include "runtime/sorted_run_merger.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 SpillSortNode::SpillSortNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs) :
         ExecNode(pool, tnode, descs),
@@ -174,4 +174,4 @@ Status SpillSortNode::sort_input(RuntimeState* state) {
     return Status::OK;
 }
 
-} // end namespace palo
+} // end namespace doris

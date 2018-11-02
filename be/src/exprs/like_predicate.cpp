@@ -23,7 +23,7 @@
 #include "exprs/string_functions.h"
 #include "runtime/string_value.hpp"
 
-namespace palo {
+namespace doris {
 
 // A regex to match any regex pattern is equivalent to a substring search.
 static const RE2 SUBSTRING_RE(

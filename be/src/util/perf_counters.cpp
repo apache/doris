@@ -31,7 +31,7 @@
 
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 #define COUNTER_SIZE (sizeof(void*))
 #define BUFFER_SIZE 256

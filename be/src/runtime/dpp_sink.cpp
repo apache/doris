@@ -37,7 +37,7 @@
 #include "util/debug_util.h"
 #include "olap/field.h"
 
-namespace palo {
+namespace doris {
 
 template<typename T>
 static void update_min(SlotRef *ref, TupleRow *agg_row, TupleRow *row) {

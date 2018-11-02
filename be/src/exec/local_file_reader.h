@@ -22,7 +22,7 @@
 
 #include "exec/file_reader.h"
 
-namespace palo {
+namespace doris {
 
 class LocalFileReader : public FileReader {
 public:

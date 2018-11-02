@@ -30,7 +30,7 @@
 #include "util/uid_util.h"
 #include "service/brpc.h"
 
-namespace palo {
+namespace doris {
 namespace stream_load {
 
 NodeChannel::NodeChannel(OlapTableSink* parent, int64_t index_id,
@@ -410,7 +410,7 @@ Status OlapTableSink::init(const TDataSink& t_sink) {
     _partition = _pool->add(new OlapTablePartitionParam(_schema, table_sink.partition));
     RETURN_IF_ERROR(_partition->init());
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
-    _nodes_info = _pool->add(new PaloNodesInfo(table_sink.nodes_info));
+    _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
 
     return Status::OK;
 }

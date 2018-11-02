@@ -26,7 +26,7 @@
 #include "runtime/exec_env.h"
 #include "util/metrics.h"
 
-namespace palo {
+namespace doris {
 
 class PrometheusMetricsVisitor : public MetricsVisitor {
 public:

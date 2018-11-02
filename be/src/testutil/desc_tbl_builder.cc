@@ -24,7 +24,7 @@
 
 using std::vector;
 
-namespace palo {
+namespace doris {
 
 DescriptorTblBuilder::DescriptorTblBuilder(ObjectPool* obj_pool) : _obj_pool(obj_pool) {
 }
@@ -118,4 +118,4 @@ TTupleDescriptor DescriptorTblBuilder::build_tuple(
     return result;
 }
 
-} // end namespace palo
+} // end namespace doris

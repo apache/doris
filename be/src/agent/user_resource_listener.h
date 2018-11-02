@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_AGENT_USER_RESOURCE_LISTENER_H 
-#define BDG_PALO_BE_SRC_AGENT_USER_RESOURCE_LISTENER_H
+#ifndef DORIS_BE_SRC_AGENT_USER_RESOURCE_LISTENER_H 
+#define DORIS_BE_SRC_AGENT_USER_RESOURCE_LISTENER_H
 
 #include <string>
 #include "agent/topic_listener.h"
@@ -26,14 +26,14 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "runtime/exec_env.h"
 
-namespace palo {
+namespace doris {
 
 class UserResourceListener : public TopicListener {
 
 public:
     ~UserResourceListener();
     // Input parameters:
-    //   root_cgroups_path: root cgroups allocated by admin to palo
+    //   root_cgroups_path: root cgroups allocated by admin to doris
     UserResourceListener(ExecEnv* exec_env, const TMasterInfo& master_info);
     // This method should be async
     virtual void handle_update(const TAgentServiceVersion::type& protocol_version, 

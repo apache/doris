@@ -28,7 +28,7 @@
 // #include "util/decimal_util.h"
 #include "util/string_parser.hpp"
 
-namespace palo {
+namespace doris {
 
 void DecimalOperators::init() {
 }

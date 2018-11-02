@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXEC_SCAN_NODE_H
-#define BDG_PALO_BE_SRC_QUERY_EXEC_SCAN_NODE_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_SCAN_NODE_H
+#define DORIS_BE_SRC_QUERY_EXEC_SCAN_NODE_H
 
 #include <string>
 #include "exec/exec_node.h"
 #include "util/runtime_profile.h"
 #include "gen_cpp/PaloInternalService_types.h"
 
-namespace palo {
+namespace doris {
 
 class TScanRange;
 

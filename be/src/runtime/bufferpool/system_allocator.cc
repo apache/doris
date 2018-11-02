@@ -38,7 +38,7 @@
 //    "(Advanced) If true, advise operating system to back large memory buffers with huge "
 //    "pages");
 
-namespace palo {
+namespace doris {
 
 /// These are the page sizes on x86-64. We could parse /proc/meminfo to programmatically
 /// get this, but it is unlikely to change unless we port to a different architecture.

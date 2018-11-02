@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UITL_BIT_UTIL_H
-#define BDG_PALO_BE_SRC_COMMON_UITL_BIT_UTIL_H
+#ifndef DORIS_BE_SRC_COMMON_UITL_BIT_UTIL_H
+#define DORIS_BE_SRC_COMMON_UITL_BIT_UTIL_H
 
 #include <endian.h>
 
@@ -24,7 +24,7 @@
 #include "util/cpu_info.h"
 #include "gutil/bits.h"
 
-namespace palo {
+namespace doris {
 
 // Utility class to do standard bit tricks
 // TODO: is this in boost or something else like that?

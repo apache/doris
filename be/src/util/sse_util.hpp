@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UTIL_SSE_UTIL_H
-#define BDG_PALO_BE_SRC_COMMON_UTIL_SSE_UTIL_H
+#ifndef DORIS_BE_SRC_COMMON_UTIL_SSE_UTIL_H
+#define DORIS_BE_SRC_COMMON_UTIL_SSE_UTIL_H
 
 #include <nmmintrin.h>
 #include <smmintrin.h>
 
-namespace palo {
+namespace doris {
 
 // This class contains constants useful for text processing with SSE4.2
 // intrinsics.

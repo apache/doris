@@ -22,10 +22,10 @@
 #include "olap/lru_cache.h"
 #include "util/logging.h"
 
-using namespace palo;
+using namespace doris;
 using namespace std;
 
-namespace palo {
+namespace doris {
 
 void PutFixed32(std::string* dst, uint32_t value) {
     char buf[sizeof(value)];
@@ -234,15 +234,15 @@ TEST_F(CacheTest, NewId) {
     ASSERT_NE(a, b);
 }
 
-}  // namespace palo
+}  // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    palo::init_glog("be-test");
+    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

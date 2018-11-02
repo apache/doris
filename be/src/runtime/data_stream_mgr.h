@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_RUNTIME_DATA_STREAM_MGR_H
-#define BDG_PALO_BE_SRC_RUNTIME_DATA_STREAM_MGR_H
+#ifndef DORIS_BE_SRC_RUNTIME_DATA_STREAM_MGR_H
+#define DORIS_BE_SRC_RUNTIME_DATA_STREAM_MGR_H
 
 #include <list>
 #include <set>
@@ -39,7 +39,7 @@ class Closure;
 }
 }
 
-namespace palo {
+namespace doris {
 
 class DescriptorTbl;
 class DataStreamRecvr;
@@ -50,7 +50,7 @@ class PUniqueId;
 
 // Singleton class which manages all incoming data streams at a backend node. It
 // provides both producer and consumer functionality for each data stream.
-// - paloBackend service threads use this to add incoming data to streams
+// - dorisBackend service threads use this to add incoming data to streams
 //   in response to TransmitData rpcs (add_data()) or to signal end-of-stream conditions
 //   (close_sender()).
 // - Exchange nodes extract data from an incoming stream via a DataStreamRecvr,
@@ -118,8 +118,8 @@ private:
 
     // less-than ordering for pair<TUniqueId, PlanNodeId>
     struct ComparisonOp {
-        bool operator()(const std::pair<palo::TUniqueId, PlanNodeId>& a,
-                const std::pair<palo::TUniqueId, PlanNodeId>& b) {
+        bool operator()(const std::pair<doris::TUniqueId, PlanNodeId>& a,
+                const std::pair<doris::TUniqueId, PlanNodeId>& b) {
             if (a.first.hi < b.first.hi) {
                 return true;
             } else if (a.first.hi > b.first.hi) {

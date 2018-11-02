@@ -176,6 +176,10 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
      */
     public static PrivEntry read(DataInput in) throws IOException {
         String className = Text.readString(in);
+        if (className.startsWith("com.baidu.palo")) {
+            // we need to be compatible with former class name
+            className = className.replaceFirst("com.baidu.palo", "org.apache.doris");
+        }
         PrivEntry privEntry = null;
         try {
             Class<? extends PrivEntry> derivedClass = (Class<? extends PrivEntry>) Class.forName(className);

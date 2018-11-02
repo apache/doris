@@ -40,7 +40,7 @@
 #include "olap/olap_common.h"
 #include "olap/utils.h"
 
-namespace palo {
+namespace doris {
 
 class StringRef {
 public:
@@ -669,5 +669,5 @@ void CsvScanNode::hll_hash(const char* src, int len, std::string* result) {
     }
 }
 
-} // end namespace palo
+} // end namespace doris
 

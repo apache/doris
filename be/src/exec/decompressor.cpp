@@ -17,7 +17,7 @@
 
 #include "exec/decompressor.h"
 
-namespace palo {
+namespace doris {
 
 Status Decompressor::create_decompressor(CompressType type,
                                          Decompressor** decompressor) {
@@ -230,14 +230,14 @@ std::string Bzip2Decompressor::debug_info() {
 // Lz4Frame
 // Lz4 version: 1.7.5
 // define LZ4F_VERSION = 100
-const unsigned Lz4FrameDecompressor::PALO_LZ4F_VERSION = 100;
+const unsigned Lz4FrameDecompressor::DORIS_LZ4F_VERSION = 100;
 
 Lz4FrameDecompressor::~Lz4FrameDecompressor() {
     LZ4F_freeDecompressionContext(_dctx);
 }
 
 Status Lz4FrameDecompressor::init() {
-    size_t ret = LZ4F_createDecompressionContext(&_dctx, PALO_LZ4F_VERSION);
+    size_t ret = LZ4F_createDecompressionContext(&_dctx, DORIS_LZ4F_VERSION);
     if (LZ4F_isError(ret)) {
         std::stringstream ss;
         ss << "LZ4F_dctx creation error: " << std::string(LZ4F_getErrorName(ret));
@@ -324,7 +324,7 @@ std::string Lz4FrameDecompressor::debug_info() {
     std::stringstream ss;
     ss << "Lz4FrameDecompressor."
        << " expect dec buf size: " << _expect_dec_buf_size
-       << " Lz4 Frame Version: " << PALO_LZ4F_VERSION;
+       << " Lz4 Frame Version: " << DORIS_LZ4F_VERSION;
     return ss.str();
 }
 

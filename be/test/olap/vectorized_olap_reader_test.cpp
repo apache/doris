@@ -38,10 +38,10 @@
 #include "util/logging.h"
 
 using namespace testing;
-using namespace palo;
+using namespace doris;
 using namespace std;
 
-namespace palo {
+namespace doris {
 
 void set_up() {
     config::storage_root_path = "./test_run/data_test";
@@ -878,21 +878,21 @@ TEST_F(TestVectorizedOLAPReader, column_test) {
     ASSERT_TRUE(eof);
 }
 
-}  // namespace palo
+}  // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    palo::init_glog("be-test");
+    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
 
-    int ret = palo::OLAP_SUCCESS;
-    palo::set_up();
+    int ret = doris::OLAP_SUCCESS;
+    doris::set_up();
     ret = RUN_ALL_TESTS();
-    palo::tear_down();
+    doris::tear_down();
 
     google::protobuf::ShutdownProtobufLibrary();
     return ret;

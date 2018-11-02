@@ -22,7 +22,7 @@
 #include "runtime/decimal_value.h"
 #include "udf/udf.h"
 
-namespace palo {
+namespace doris {
 // Note: we explicitly pass by reference because passing by value has special ABI rules
 
 // Used by CodegenAnyVal::Eq()

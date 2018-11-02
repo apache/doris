@@ -22,9 +22,9 @@
 #include <iostream>
 #include <utility>
 
-namespace palo {
+namespace doris {
 
-const char* DecimalValue::_s_llvm_class_name = "class.palo::DecimalValue";
+const char* DecimalValue::_s_llvm_class_name = "class.doris::DecimalValue";
 
 // set the 1st param if the second param is smaller.
 template<typename T> inline void set_if_smaller(T* num1_ptr, const T num2) {
@@ -1249,4 +1249,4 @@ int DecimalValue::round(DecimalValue *to, int scale, DecimalRoundMode mode) {
     return error;
 }
 
-} // end namespace palo
+} // end namespace doris

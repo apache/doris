@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_OLAP_HEADER_MANAGER_H
-#define BDG_PALO_BE_SRC_OLAP_OLAP_HEADER_MANAGER_H
+#ifndef DORIS_BE_SRC_OLAP_OLAP_HEADER_MANAGER_H
+#define DORIS_BE_SRC_OLAP_OLAP_HEADER_MANAGER_H
 
 #include <string>
 
@@ -24,7 +24,7 @@
 #include "olap/olap_define.h"
 #include "olap/store.h"
 
-namespace palo {
+namespace doris {
 
 // Helper Class for managing olap table headers of one root path.
 class OlapHeaderManager {
@@ -53,4 +53,4 @@ public:
 
 }
 
-#endif // BDG_PALO_BE_SRC_OLAP_OLAP_HEADER_MANAGER_H
+#endif // DORIS_BE_SRC_OLAP_OLAP_HEADER_MANAGER_H

@@ -25,7 +25,7 @@
 #include "util/path_trie.hpp"
 #include "http/http_method.h"
 
-namespace palo {
+namespace doris {
 
 class HttpHandler;
 class HttpRequest;

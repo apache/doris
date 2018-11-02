@@ -18,99 +18,99 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 
 #include "util/debug_util.h"
 #include "util/file_utils.h"
 #include "util/system_metrics.h"
 
-namespace palo {
+namespace doris {
 
-const char* PaloMetrics::_s_hook_name = "palo_metrics";
+const char* DorisMetrics::_s_hook_name = "doris_metrics";
 
-PaloMetrics PaloMetrics::_s_palo_metrics;
+DorisMetrics DorisMetrics::_s_doris_metrics;
 
 // counters
-IntCounter PaloMetrics::fragment_requests_total;
-IntCounter PaloMetrics::fragment_request_duration_us;
-IntCounter PaloMetrics::http_requests_total;
-IntCounter PaloMetrics::http_request_duration_us;
-IntCounter PaloMetrics::http_request_send_bytes;
-IntCounter PaloMetrics::query_scan_bytes;
-IntCounter PaloMetrics::query_scan_rows;
-IntCounter PaloMetrics::ranges_processed_total;
-IntCounter PaloMetrics::push_requests_success_total;
-IntCounter PaloMetrics::push_requests_fail_total;
-IntCounter PaloMetrics::push_request_duration_us;
-IntCounter PaloMetrics::push_request_write_bytes;
-IntCounter PaloMetrics::push_request_write_rows;
-IntCounter PaloMetrics::create_tablet_requests_total;
-IntCounter PaloMetrics::create_tablet_requests_failed;
-IntCounter PaloMetrics::drop_tablet_requests_total;
+IntCounter DorisMetrics::fragment_requests_total;
+IntCounter DorisMetrics::fragment_request_duration_us;
+IntCounter DorisMetrics::http_requests_total;
+IntCounter DorisMetrics::http_request_duration_us;
+IntCounter DorisMetrics::http_request_send_bytes;
+IntCounter DorisMetrics::query_scan_bytes;
+IntCounter DorisMetrics::query_scan_rows;
+IntCounter DorisMetrics::ranges_processed_total;
+IntCounter DorisMetrics::push_requests_success_total;
+IntCounter DorisMetrics::push_requests_fail_total;
+IntCounter DorisMetrics::push_request_duration_us;
+IntCounter DorisMetrics::push_request_write_bytes;
+IntCounter DorisMetrics::push_request_write_rows;
+IntCounter DorisMetrics::create_tablet_requests_total;
+IntCounter DorisMetrics::create_tablet_requests_failed;
+IntCounter DorisMetrics::drop_tablet_requests_total;
 
-IntCounter PaloMetrics::report_all_tablets_requests_total;
-IntCounter PaloMetrics::report_all_tablets_requests_failed;
-IntCounter PaloMetrics::report_tablet_requests_total;
-IntCounter PaloMetrics::report_tablet_requests_failed;
-IntCounter PaloMetrics::report_disk_requests_total;
-IntCounter PaloMetrics::report_disk_requests_failed;
-IntCounter PaloMetrics::report_task_requests_total;
-IntCounter PaloMetrics::report_task_requests_failed;
+IntCounter DorisMetrics::report_all_tablets_requests_total;
+IntCounter DorisMetrics::report_all_tablets_requests_failed;
+IntCounter DorisMetrics::report_tablet_requests_total;
+IntCounter DorisMetrics::report_tablet_requests_failed;
+IntCounter DorisMetrics::report_disk_requests_total;
+IntCounter DorisMetrics::report_disk_requests_failed;
+IntCounter DorisMetrics::report_task_requests_total;
+IntCounter DorisMetrics::report_task_requests_failed;
 
-IntCounter PaloMetrics::schema_change_requests_total;
-IntCounter PaloMetrics::schema_change_requests_failed;
-IntCounter PaloMetrics::create_rollup_requests_total;
-IntCounter PaloMetrics::create_rollup_requests_failed;
-IntCounter PaloMetrics::storage_migrate_requests_total;
-IntCounter PaloMetrics::delete_requests_total;
-IntCounter PaloMetrics::delete_requests_failed;
-IntCounter PaloMetrics::cancel_delete_requests_total;
-IntCounter PaloMetrics::clone_requests_total;
-IntCounter PaloMetrics::clone_requests_failed;
+IntCounter DorisMetrics::schema_change_requests_total;
+IntCounter DorisMetrics::schema_change_requests_failed;
+IntCounter DorisMetrics::create_rollup_requests_total;
+IntCounter DorisMetrics::create_rollup_requests_failed;
+IntCounter DorisMetrics::storage_migrate_requests_total;
+IntCounter DorisMetrics::delete_requests_total;
+IntCounter DorisMetrics::delete_requests_failed;
+IntCounter DorisMetrics::cancel_delete_requests_total;
+IntCounter DorisMetrics::clone_requests_total;
+IntCounter DorisMetrics::clone_requests_failed;
 
-IntCounter PaloMetrics::finish_task_requests_total;
-IntCounter PaloMetrics::finish_task_requests_failed;
+IntCounter DorisMetrics::finish_task_requests_total;
+IntCounter DorisMetrics::finish_task_requests_failed;
 
-IntCounter PaloMetrics::base_compaction_deltas_total;
-IntCounter PaloMetrics::base_compaction_bytes_total;
-IntCounter PaloMetrics::base_compaction_request_total;
-IntCounter PaloMetrics::base_compaction_request_failed;
-IntCounter PaloMetrics::cumulative_compaction_deltas_total;
-IntCounter PaloMetrics::cumulative_compaction_bytes_total;
-IntCounter PaloMetrics::cumulative_compaction_request_total;
-IntCounter PaloMetrics::cumulative_compaction_request_failed;
+IntCounter DorisMetrics::base_compaction_deltas_total;
+IntCounter DorisMetrics::base_compaction_bytes_total;
+IntCounter DorisMetrics::base_compaction_request_total;
+IntCounter DorisMetrics::base_compaction_request_failed;
+IntCounter DorisMetrics::cumulative_compaction_deltas_total;
+IntCounter DorisMetrics::cumulative_compaction_bytes_total;
+IntCounter DorisMetrics::cumulative_compaction_request_total;
+IntCounter DorisMetrics::cumulative_compaction_request_failed;
 
 // gauges
-IntGauge PaloMetrics::memory_pool_bytes_total;
-IntGauge PaloMetrics::process_thread_num;
-IntGauge PaloMetrics::process_fd_num_used;
-IntGauge PaloMetrics::process_fd_num_limit_soft;
-IntGauge PaloMetrics::process_fd_num_limit_hard;
+IntGauge DorisMetrics::memory_pool_bytes_total;
+IntGauge DorisMetrics::process_thread_num;
+IntGauge DorisMetrics::process_fd_num_used;
+IntGauge DorisMetrics::process_fd_num_limit_soft;
+IntGauge DorisMetrics::process_fd_num_limit_hard;
 
-PaloMetrics::PaloMetrics() : _metrics(nullptr), _system_metrics(nullptr) {
+DorisMetrics::DorisMetrics() : _metrics(nullptr), _system_metrics(nullptr) {
 }
 
-PaloMetrics::~PaloMetrics() {
+DorisMetrics::~DorisMetrics() {
     delete _system_metrics;
     delete _metrics;
 }
 
-void PaloMetrics::initialize(const std::string& name,
+void DorisMetrics::initialize(const std::string& name,
                              bool init_system_metrics,
                              const std::set<std::string>& disk_devices,
                              const std::vector<std::string>& network_interfaces) {
     _metrics = new MetricRegistry(name);
-#define REGISTER_PALO_METRIC(name) _metrics->register_metric(#name, &name)
+#define REGISTER_DORIS_METRIC(name) _metrics->register_metric(#name, &name)
 
-    // You can put PaloMetrics's metrics initial code here
-    REGISTER_PALO_METRIC(fragment_requests_total);
-    REGISTER_PALO_METRIC(fragment_request_duration_us);
-    REGISTER_PALO_METRIC(http_requests_total);
-    REGISTER_PALO_METRIC(http_request_duration_us);
-    REGISTER_PALO_METRIC(http_request_send_bytes);
-    REGISTER_PALO_METRIC(query_scan_bytes);
-    REGISTER_PALO_METRIC(query_scan_rows);
-    REGISTER_PALO_METRIC(ranges_processed_total);
+    // You can put DorisMetrics's metrics initial code here
+    REGISTER_DORIS_METRIC(fragment_requests_total);
+    REGISTER_DORIS_METRIC(fragment_request_duration_us);
+    REGISTER_DORIS_METRIC(http_requests_total);
+    REGISTER_DORIS_METRIC(http_request_duration_us);
+    REGISTER_DORIS_METRIC(http_request_send_bytes);
+    REGISTER_DORIS_METRIC(query_scan_bytes);
+    REGISTER_DORIS_METRIC(query_scan_rows);
+    REGISTER_DORIS_METRIC(ranges_processed_total);
 
     // push request
     _metrics->register_metric(
@@ -119,9 +119,9 @@ void PaloMetrics::initialize(const std::string& name,
     _metrics->register_metric(
         "push_requests_total", MetricLabels().add("status", "FAIL"),
         &push_requests_fail_total);
-    REGISTER_PALO_METRIC(push_request_duration_us);
-    REGISTER_PALO_METRIC(push_request_write_bytes);
-    REGISTER_PALO_METRIC(push_request_write_rows);
+    REGISTER_DORIS_METRIC(push_request_duration_us);
+    REGISTER_DORIS_METRIC(push_request_write_bytes);
+    REGISTER_DORIS_METRIC(push_request_write_rows);
 
 #define REGISTER_ENGINE_REQUEST_METRIC(type, status, metric) \
     _metrics->register_metric( \
@@ -173,13 +173,13 @@ void PaloMetrics::initialize(const std::string& name,
         &cumulative_compaction_bytes_total);
 
     // Gauge
-    REGISTER_PALO_METRIC(memory_pool_bytes_total);
-    REGISTER_PALO_METRIC(process_thread_num);
-    REGISTER_PALO_METRIC(process_fd_num_used);
-    REGISTER_PALO_METRIC(process_fd_num_limit_soft);
-    REGISTER_PALO_METRIC(process_fd_num_limit_hard);
+    REGISTER_DORIS_METRIC(memory_pool_bytes_total);
+    REGISTER_DORIS_METRIC(process_thread_num);
+    REGISTER_DORIS_METRIC(process_fd_num_used);
+    REGISTER_DORIS_METRIC(process_fd_num_limit_soft);
+    REGISTER_DORIS_METRIC(process_fd_num_limit_hard);
 
-    _metrics->register_hook(_s_hook_name, std::bind(&PaloMetrics::update, this));
+    _metrics->register_hook(_s_hook_name, std::bind(&DorisMetrics::update, this));
 
     if (init_system_metrics) {
         _system_metrics = new SystemMetrics();
@@ -187,14 +187,14 @@ void PaloMetrics::initialize(const std::string& name,
     }
 }
 
-void PaloMetrics::update() {
+void DorisMetrics::update() {
     _update_process_thread_num();
     _update_process_fd_num();
 }
 
-// get num of thread of palo_be process
+// get num of thread of doris_be process
 // from /proc/pid/task
-void PaloMetrics::_update_process_thread_num() {
+void DorisMetrics::_update_process_thread_num() {
     int64_t pid = getpid();
     std::stringstream ss;
     ss << "/proc/" << pid << "/task/";
@@ -210,8 +210,8 @@ void PaloMetrics::_update_process_thread_num() {
     process_thread_num.set_value(count);
 }
 
-// get num of file descriptor of palo_be process
-void PaloMetrics::_update_process_fd_num() {
+// get num of file descriptor of doris_be process
+void DorisMetrics::_update_process_fd_num() {
     int64_t pid = getpid();
 
     // fd used

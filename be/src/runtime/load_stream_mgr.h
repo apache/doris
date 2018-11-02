@@ -24,7 +24,7 @@
 #include "runtime/stream_load_pipe.h" // for StreamLoadPipe
 #include "util/uid_util.h" // for std::hash for UniqueId
 
-namespace palo {
+namespace doris {
 
 // used to register all streams in process so that other module can get this stream
 class LoadStreamMgr {

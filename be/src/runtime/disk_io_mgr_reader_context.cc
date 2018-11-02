@@ -17,7 +17,7 @@
 
 #include "runtime/disk_io_mgr_internal.h"
 
-namespace palo {
+namespace doris {
 
 using std::string;
 using std::stringstream;
@@ -323,5 +323,5 @@ bool DiskIoMgr::RequestContext::validate() const {
     return true;
 }
 
-} // namespace palo
+} // namespace doris
 

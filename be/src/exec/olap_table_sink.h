@@ -34,7 +34,7 @@
 #include "util/thrift_util.h"
 #include "util/ref_count_closure.h"
 
-namespace palo {
+namespace doris {
 
 class Bitmap;
 class MemTracker;
@@ -213,7 +213,7 @@ private:
     std::shared_ptr<OlapTableSchemaParam> _schema;
     OlapTablePartitionParam* _partition = nullptr;
     OlapTableLocationParam* _location = nullptr;
-    PaloNodesInfo* _nodes_info = nullptr;
+    DorisNodesInfo* _nodes_info = nullptr;
 
     RuntimeProfile* _profile = nullptr;
     MemTracker* _mem_tracker = nullptr;

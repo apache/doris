@@ -26,9 +26,9 @@
 #include "util/runtime_profile.h"
 #include "gen_cpp/PlanNodes_types.h"
 
-namespace palo {
+namespace doris {
 
-const char* BlockingJoinNode::LLVM_CLASS_NAME = "class.palo::BlockingJoinNode";
+const char* BlockingJoinNode::LLVM_CLASS_NAME = "class.doris::BlockingJoinNode";
 
 BlockingJoinNode::BlockingJoinNode(const std::string& node_name,
                                    const TJoinOp::type join_op,

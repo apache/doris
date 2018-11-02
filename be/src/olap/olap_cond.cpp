@@ -31,7 +31,7 @@ using std::pair;
 using std::string;
 using std::vector;
 
-using palo::column_file::ColumnStatistics;
+using doris::column_file::ColumnStatistics;
 
 //此文件主要用于对用户发送的查询条件和删除条件进行处理，逻辑上二者都可以分为三层
 //Condtiion->Condcolumn->Cond
@@ -53,7 +53,7 @@ using palo::column_file::ColumnStatistics;
 //  2. 过滤block是在SegmentReader里面,直接调用del_eval
 //  3. 过滤version实在Reader里面,调用delta_pruning_filter
 
-namespace palo {
+namespace doris {
 
 static CondOp parse_op_type(const string& op) {
     if (op.size() > 2) {
@@ -668,5 +668,5 @@ int Conditions::delete_pruning_filter(
     return ret;
 }
 
-}  // namespace palo
+}  // namespace doris
 

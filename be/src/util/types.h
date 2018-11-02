@@ -17,7 +17,7 @@
 
 #pragma once
 
-namespace palo {
+namespace doris {
 
 // Because __int128 in memory is not aligned, but GCC7 will generate SSE instruction
 // for __int128 load/store. This will cause segment fault.

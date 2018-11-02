@@ -20,32 +20,32 @@
 #include <sstream>
 #include <stdlib.h>
 
-namespace palo {
+namespace doris {
 
-const char* PathBuilder::_s_palo_home;
+const char* PathBuilder::_s_doris_home;
 
-void PathBuilder::load_palo_home() {
-    if (_s_palo_home != NULL) {
+void PathBuilder::load_doris_home() {
+    if (_s_doris_home != NULL) {
         return;
     }
 
-    _s_palo_home = getenv("DORIS_HOME");
+    _s_doris_home = getenv("DORIS_HOME");
 }
 
 void PathBuilder::get_full_path(const std::string& path, std::string* full_path) {
-    load_palo_home();
+    load_doris_home();
     std::stringstream s;
-    s << _s_palo_home << "/" << path;
+    s << _s_doris_home << "/" << path;
     *full_path = s.str();
 }
 
 void PathBuilder::get_full_build_path(const std::string& path, std::string* full_path) {
-    load_palo_home();
+    load_doris_home();
     std::stringstream s;
 #ifdef NDEBUG
-    s << _s_palo_home << "/be/build/release/" << path;
+    s << _s_doris_home << "/be/build/release/" << path;
 #else
-    s << _s_palo_home << "/be/build/debug/" << path;
+    s << _s_doris_home << "/be/build/debug/" << path;
 #endif
     *full_path = s.str();
 }

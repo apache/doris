@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UTIL_PATH_BUILDER_H
-#define BDG_PALO_BE_SRC_COMMON_UTIL_PATH_BUILDER_H
+#ifndef DORIS_BE_SRC_COMMON_UTIL_PATH_BUILDER_H
+#define DORIS_BE_SRC_COMMON_UTIL_PATH_BUILDER_H
 
 #include <string>
 
-namespace palo {
+namespace doris {
 
-// Utility class to construct full paths relative to the palo_home path.
+// Utility class to construct full paths relative to the doris_home path.
 class PathBuilder {
 public:
     // Sets full_path to <DORIS_HOME>/path
@@ -33,10 +33,10 @@ public:
 
 private:
     // Cache of env['DORIS_HOME']
-    static const char* _s_palo_home;
+    static const char* _s_doris_home;
 
-    // Load _s_palo_home if it is not already loaded
-    static void load_palo_home();
+    // Load _s_doris_home if it is not already loaded
+    static void load_doris_home();
 };
 
 }

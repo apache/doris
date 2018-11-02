@@ -45,7 +45,7 @@ using kudu::client::KuduScanBatch;
 using kudu::client::KuduSchema;
 using kudu::client::KuduTable;
 
-namespace palo {
+namespace doris {
 
 const string MODE_READ_AT_SNAPSHOT = "READ_AT_SNAPSHOT";
 

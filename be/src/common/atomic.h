@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_ATOMIC_H
-#define BDG_PALO_BE_SRC_COMMON_ATOMIC_H
+#ifndef DORIS_BE_SRC_COMMON_ATOMIC_H
+#define DORIS_BE_SRC_COMMON_ATOMIC_H
 
 #include <algorithm>
 
@@ -24,7 +24,7 @@
 #include "gutil/atomicops.h"
 #include "gutil/macros.h"
 
-namespace palo {
+namespace doris {
 
 class AtomicUtil {
 public:
@@ -201,6 +201,6 @@ private:
     AtomicInt<intptr_t> _ptr;
 };
 
-} // end namespace palo
+} // end namespace doris
 
-#endif // BDG_PALO_BE_SRC_COMMON_ATOMIC_H
+#endif // DORIS_BE_SRC_COMMON_ATOMIC_H

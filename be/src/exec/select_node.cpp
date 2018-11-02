@@ -23,7 +23,7 @@
 #include "runtime/raw_value.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 SelectNode::SelectNode(
     ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)

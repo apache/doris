@@ -25,7 +25,7 @@
 #include "util/metrics.h"
 #include "util/stopwatch.hpp"
 
-namespace palo {
+namespace doris {
 
 class MetricsTest : public testing::Test {
 public:

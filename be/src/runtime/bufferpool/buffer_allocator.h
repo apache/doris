@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_BUFFER_ALLOCATOR_H
-#define BDG_PALO_BE_RUNTIME_BUFFER_ALLOCATOR_H
+#ifndef DORIS_BE_RUNTIME_BUFFER_ALLOCATOR_H
+#define DORIS_BE_RUNTIME_BUFFER_ALLOCATOR_H
 
 #include <boost/scoped_ptr.hpp>
 
@@ -24,7 +24,7 @@
 #include "runtime/bufferpool/free_list.h"
 #include "util/aligned_new.h"
 
-namespace palo {
+namespace doris {
 
 /// The internal buffer allocator used by BufferPool to allocator power-of-two sized
 /// buffers. BufferAllocator builds on top of SystemAllocator by adding caching of

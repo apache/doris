@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_EXEC_BROKER_WRITER_H
-#define BDG_PALO_BE_SRC_EXEC_BROKER_WRITER_H
+#ifndef DORIS_BE_SRC_EXEC_BROKER_WRITER_H
+#define DORIS_BE_SRC_EXEC_BROKER_WRITER_H
 
 #include <stdint.h>
 
@@ -28,7 +28,7 @@
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 
-namespace palo {
+namespace doris {
 
 class ExecEnv;
 class TBrokerRangeDesc;
@@ -64,6 +64,6 @@ private:
     int _addr_idx;
 };
 
-} // end namespace palo
+} // end namespace doris
 
-#endif // BDG_PALO_BE_SRC_EXEC_BROKER_WRITER_H
+#endif // DORIS_BE_SRC_EXEC_BROKER_WRITER_H

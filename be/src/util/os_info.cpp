@@ -27,7 +27,7 @@
 
 #include "common/names.h"
 
-namespace palo {
+namespace doris {
 
 bool OsInfo::initialized_ = false;
 string OsInfo::os_version_ = "Unknown";

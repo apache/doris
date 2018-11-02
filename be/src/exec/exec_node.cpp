@@ -65,7 +65,7 @@ using llvm::Value;
 using llvm::LLVMContext;
 using llvm::BasicBlock;
 
-namespace palo {
+namespace doris {
 
 const std::string ExecNode::ROW_THROUGHPUT_COUNTER = "RowsReturnedRate";
 

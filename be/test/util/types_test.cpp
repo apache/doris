@@ -21,7 +21,7 @@
 
 #include "runtime/large_int_value.h"
 
-namespace palo {
+namespace doris {
 
 class TypesTest : public ::testing::Test {
 protected:

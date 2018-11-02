@@ -20,7 +20,7 @@
 #include <map>
 #include <string>
 
-namespace palo {
+namespace doris {
 
 static std::map<std::string, HttpMethod> s_method_by_desc = 
         {

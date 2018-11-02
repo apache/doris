@@ -25,7 +25,7 @@
 
 #include "common/logging.h"
 
-namespace palo {
+namespace doris {
 
 class LargeIntValueTest : public testing::Test {
 public:
@@ -91,11 +91,11 @@ TEST_F(LargeIntValueTest, largeint_to_string) {
     }
 }
 
-} // end namespace palo
+} // end namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }

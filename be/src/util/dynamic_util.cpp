@@ -20,7 +20,7 @@
 #include <dlfcn.h>
 #include <sstream>
 
-namespace palo {
+namespace doris {
 
 Status dynamic_lookup(void* handle, const char* symbol, void** fn_ptr) {
     *(void**)(fn_ptr) = dlsym(handle, symbol);

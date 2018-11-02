@@ -25,7 +25,7 @@
 
 #include "common/status.h"
 
-namespace palo {
+namespace doris {
 
 enum CompressType {
     UNCOMPRESSED,
@@ -145,7 +145,7 @@ private:
 private:
     LZ4F_dctx* _dctx;
     size_t _expect_dec_buf_size;
-    const static unsigned PALO_LZ4F_VERSION;
+    const static unsigned DORIS_LZ4F_VERSION;
 };
 
 class LzopDecompressor : public Decompressor {

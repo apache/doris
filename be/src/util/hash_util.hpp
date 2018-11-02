@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UTIL_HASH_UTIL_HPP
-#define BDG_PALO_BE_SRC_COMMON_UTIL_HASH_UTIL_HPP
+#ifndef DORIS_BE_SRC_COMMON_UTIL_HASH_UTIL_HPP
+#define DORIS_BE_SRC_COMMON_UTIL_HASH_UTIL_HPP
 
 #include "common/logging.h"
 #include "common/compiler_util.h"
@@ -33,7 +33,7 @@
 #include "util/murmur_hash3.h"
 #include "gen_cpp/Types_types.h"
 
-namespace palo {
+namespace doris {
 
 // Utility class to compute hash values.
 class HashUtil {
@@ -277,21 +277,21 @@ public:
 
 namespace std {
 template<>
-struct hash<palo::TUniqueId> {
-    std::size_t operator()(const palo::TUniqueId& id) const {
+struct hash<doris::TUniqueId> {
+    std::size_t operator()(const doris::TUniqueId& id) const {
         std::size_t seed = 0;
-        seed = palo::HashUtil::hash(&id.lo, sizeof(id.lo), seed);
-        seed = palo::HashUtil::hash(&id.hi, sizeof(id.hi), seed);
+        seed = doris::HashUtil::hash(&id.lo, sizeof(id.lo), seed);
+        seed = doris::HashUtil::hash(&id.hi, sizeof(id.hi), seed);
         return seed;
     }
 };
 
 template<>
-struct hash<palo::TNetworkAddress> {
-    size_t operator()(const palo::TNetworkAddress& address) const {
+struct hash<doris::TNetworkAddress> {
+    size_t operator()(const doris::TNetworkAddress& address) const {
         std::size_t seed = 0;
-        seed = palo::HashUtil::hash(address.hostname.data(), address.hostname.size(), seed);
-        seed = palo::HashUtil::hash(&address.port, 4, seed);
+        seed = doris::HashUtil::hash(address.hostname.data(), address.hostname.size(), seed);
+        seed = doris::HashUtil::hash(&address.port, 4, seed);
         return seed;
     }
 };
@@ -301,18 +301,18 @@ struct hash<palo::TNetworkAddress> {
 template<>
 struct hash<__int128> {
     std::size_t operator()(const __int128& val) const {
-        return palo::HashUtil::hash(&val, sizeof(val), 0);
+        return doris::HashUtil::hash(&val, sizeof(val), 0);
     }
 };
 #endif
 
 template<>
-struct hash<std::pair<palo::TUniqueId, int64_t>> {
-    size_t operator()(const std::pair<palo::TUniqueId, int64_t>& pair) const {
+struct hash<std::pair<doris::TUniqueId, int64_t>> {
+    size_t operator()(const std::pair<doris::TUniqueId, int64_t>& pair) const {
         size_t seed = 0;
-        seed = palo::HashUtil::hash(&pair.first.lo, sizeof(pair.first.lo), seed);
-        seed = palo::HashUtil::hash(&pair.first.hi, sizeof(pair.first.hi), seed);
-        seed = palo::HashUtil::hash(&pair.second, sizeof(pair.second), seed);
+        seed = doris::HashUtil::hash(&pair.first.lo, sizeof(pair.first.lo), seed);
+        seed = doris::HashUtil::hash(&pair.first.hi, sizeof(pair.first.hi), seed);
+        seed = doris::HashUtil::hash(&pair.second, sizeof(pair.second), seed);
         return seed;
     }
 };

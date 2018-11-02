@@ -33,7 +33,7 @@
 #include "runtime/runtime_state.h"
 #include "util/logging.h"
 
-namespace palo {
+namespace doris {
 
 Status DataSink::create_data_sink(
         ObjectPool* pool,
@@ -141,4 +141,4 @@ Status DataSink::prepare(RuntimeState* state) {
     return Status::OK;
 }
 
-}  // namespace palo
+}  // namespace doris

@@ -19,7 +19,7 @@
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
 
-namespace palo {
+namespace doris {
 
 SchemaScanner::ColumnDesc SchemaCharsetsScanner::_s_css_columns[] = {
     //   name,       type,          size

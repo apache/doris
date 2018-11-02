@@ -33,7 +33,7 @@
   @param rkey       [out]      Real key (used by OpenSSL/YaSSL)
   @param opmode     [out]      encryption mode
 */
-namespace palo {
+namespace doris {
 void my_aes_create_key(const unsigned char *key, uint key_length,
                        uint8 *rkey, enum my_aes_opmode opmode)
 {

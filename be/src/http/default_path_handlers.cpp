@@ -31,7 +31,7 @@
 #include "util/pretty_printer.h"
 #include "http/web_page_handler.h"
 
-namespace palo {
+namespace doris {
 
 // Writes the last config::web_log_bytes of the INFO logfile to a webpage
 // Note to get best performance, set GLOG_logbuflevel=-1 to prevent log buffering

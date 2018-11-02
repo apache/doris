@@ -48,12 +48,12 @@ using std::multiset;
 using boost::scoped_ptr;
 using boost::thread;
 
-namespace palo {
+namespace doris {
 
-class PaloTestBackend : public BackendServiceIf {
+class DorisTestBackend : public BackendServiceIf {
 public:
-    PaloTestBackend(DataStreamMgr* stream_mgr) : _mgr(stream_mgr) {}
-    virtual ~PaloTestBackend() {}
+    DorisTestBackend(DataStreamMgr* stream_mgr) : _mgr(stream_mgr) {}
+    virtual ~DorisTestBackend() {}
 
     virtual void exec_plan_fragment(
             TExecPlanFragmentResult& return_val, const TExecPlanFragmentParams& params) {}
@@ -519,7 +519,7 @@ protected:
 
     // Start backend in separate thread.
     void start_backend() {
-        boost::shared_ptr<PaloTestBackend> handler(new PaloTestBackend(_stream_mgr));
+        boost::shared_ptr<DorisTestBackend> handler(new DorisTestBackend(_stream_mgr));
         boost::shared_ptr<apache::thrift::TProcessor> processor(
                 new BackendServiceProcessor(handler));
         _server = new ThriftServer("DataStreamTest backend", processor, config::port, NULL);
@@ -694,25 +694,25 @@ TEST_F(DataStreamTest, BasicTest) {
 
 int main(int argc, char** argv) {
     // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!palo::config::init(conffile.c_str(), false)) {
+    // if (!doris::config::init(conffile.c_str(), false)) {
     //     fprintf(stderr, "error read config file. conffile path= %s\n", conffile.c_str());
     //     return -1;
     // }
-    palo::config::query_scratch_dirs = "/tmp";
-    palo::config::max_free_io_buffers = 128;
-    palo::config::disable_mem_pools = false;
-    palo::config::min_buffer_size = 1024;
-    palo::config::read_size = 8388608;
-    palo::config::port = 2001;
-    palo::config::thrift_connect_timeout_seconds = 20;
+    doris::config::query_scratch_dirs = "/tmp";
+    doris::config::max_free_io_buffers = 128;
+    doris::config::disable_mem_pools = false;
+    doris::config::min_buffer_size = 1024;
+    doris::config::read_size = 8388608;
+    doris::config::port = 2001;
+    doris::config::thrift_connect_timeout_seconds = 20;
 
-    palo::init_glog("be-test");
+    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
 
-    palo::CpuInfo::init();
-    palo::DiskInfo::init();
-    palo::MemInfo::init();
-    palo::LlvmCodeGen::initialize_llvm();
+    doris::CpuInfo::init();
+    doris::DiskInfo::init();
+    doris::MemInfo::init();
+    doris::LlvmCodeGen::initialize_llvm();
 
     return RUN_ALL_TESTS();
 }

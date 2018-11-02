@@ -23,7 +23,7 @@
 #include "http/http_request.h"
 #include "util/url_coding.h"
 
-namespace palo {
+namespace doris {
 
 bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* passwd) {
     const char k_basic[] = "Basic ";
