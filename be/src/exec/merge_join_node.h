@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXEC_MERGE_JOIN_NODE_H
-#define BDG_PALO_BE_SRC_QUERY_EXEC_MERGE_JOIN_NODE_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_MERGE_JOIN_NODE_H
+#define DORIS_BE_SRC_QUERY_EXEC_MERGE_JOIN_NODE_H
 
 #include <boost/scoped_ptr.hpp>
 #include <boost/unordered_set.hpp>
@@ -27,7 +27,7 @@
 #include "runtime/row_batch.h"
 #include "gen_cpp/PlanNodes_types.h"  // for TJoinOp
 
-namespace palo {
+namespace doris {
 
 class MemPool;
 class TupleRow;

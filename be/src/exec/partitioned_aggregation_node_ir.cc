@@ -22,7 +22,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 
-namespace palo {
+namespace doris {
 
 Status PartitionedAggregationNode::process_batch_no_grouping(
         RowBatch* batch, PartitionedHashTableCtx* ht_ctx) {
@@ -140,4 +140,4 @@ template Status PartitionedAggregationNode::process_batch<false>(
 template Status PartitionedAggregationNode::process_batch<true>(
     RowBatch*, PartitionedHashTableCtx*);
 
-} // end namespace palo
+} // end namespace doris

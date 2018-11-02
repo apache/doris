@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  BDG_PALO_BE_SRC_QUERY_EXEC_SCHEMA_SCAN_NODE_H
-#define  BDG_PALO_BE_SRC_QUERY_EXEC_SCHEMA_SCAN_NODE_H
+#ifndef  DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCAN_NODE_H
+#define  DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCAN_NODE_H
 
 #include <boost/scoped_ptr.hpp>
 
@@ -25,7 +25,7 @@
 #include "gen_cpp/Descriptors_types.h"
 #include "runtime/descriptors.h"
 
-namespace palo {
+namespace doris {
 
 class TextConverter;
 class Tuple;

@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXPRS_LIKE_PREDICATE_H
-#define BDG_PALO_BE_SRC_QUERY_EXPRS_LIKE_PREDICATE_H
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_LIKE_PREDICATE_H
+#define DORIS_BE_SRC_QUERY_EXPRS_LIKE_PREDICATE_H
 
 #include <string>
 #include <memory>
@@ -26,15 +26,15 @@
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/string_search.hpp"
 
-namespace palo {
+namespace doris {
 
 class LikePredicate {
 public:
     static void init();
 
 private:
-    typedef palo_udf::BooleanVal (*LikePredicateFunction) (
-        palo_udf::FunctionContext*, const palo_udf::StringVal&, const palo_udf::StringVal&);
+    typedef doris_udf::BooleanVal (*LikePredicateFunction) (
+        doris_udf::FunctionContext*, const doris_udf::StringVal&, const doris_udf::StringVal&);
 
     struct LikePredicateState {
         char escape_char;
@@ -79,95 +79,95 @@ private:
     friend class OpcodeRegistry;
 
     static void like_prepare(
-        palo_udf::FunctionContext* context,
-        palo_udf::FunctionContext::FunctionStateScope scope);
+        doris_udf::FunctionContext* context,
+        doris_udf::FunctionContext::FunctionStateScope scope);
 
-    static palo_udf::BooleanVal like(
-        palo_udf::FunctionContext* context,
-        const palo_udf::StringVal& val, 
-        const palo_udf::StringVal& pattern);
+    static doris_udf::BooleanVal like(
+        doris_udf::FunctionContext* context,
+        const doris_udf::StringVal& val, 
+        const doris_udf::StringVal& pattern);
 
     static void like_close(
-        palo_udf::FunctionContext* context,
-        palo_udf::FunctionContext::FunctionStateScope scope);
+        doris_udf::FunctionContext* context,
+        doris_udf::FunctionContext::FunctionStateScope scope);
 
     static void regex_prepare(
-        palo_udf::FunctionContext* context,
-        palo_udf::FunctionContext::FunctionStateScope scope);
+        doris_udf::FunctionContext* context,
+        doris_udf::FunctionContext::FunctionStateScope scope);
 
-    static palo_udf::BooleanVal regex(
-        palo_udf::FunctionContext* context,
-        const palo_udf::StringVal& val,
-        const palo_udf::StringVal& pattern);
+    static doris_udf::BooleanVal regex(
+        doris_udf::FunctionContext* context,
+        const doris_udf::StringVal& val,
+        const doris_udf::StringVal& pattern);
 
     /// Prepare function for regexp_like() when a third optional parameter is used
     static void regexp_like_prepare(
-        palo_udf::FunctionContext* context,
-        palo_udf::FunctionContext::FunctionStateScope scope);
+        doris_udf::FunctionContext* context,
+        doris_udf::FunctionContext::FunctionStateScope scope);
 
     /// Handles regexp_like() when 3 parameters are passed to it
-    static palo_udf::BooleanVal regexp_like(
-        palo_udf::FunctionContext* context,
-        const palo_udf::StringVal& val, 
-        const palo_udf::StringVal& pattern,
-        const palo_udf::StringVal& match_parameter);
+    static doris_udf::BooleanVal regexp_like(
+        doris_udf::FunctionContext* context,
+        const doris_udf::StringVal& val, 
+        const doris_udf::StringVal& pattern,
+        const doris_udf::StringVal& match_parameter);
 
     static void regex_close(
-        palo_udf::FunctionContext*,
-        palo_udf::FunctionContext::FunctionStateScope scope);
+        doris_udf::FunctionContext*,
+        doris_udf::FunctionContext::FunctionStateScope scope);
 
-    static palo_udf::BooleanVal regex_fn(
-        palo_udf::FunctionContext* context,
-        const palo_udf::StringVal& val,
-        const palo_udf::StringVal& pattern);
+    static doris_udf::BooleanVal regex_fn(
+        doris_udf::FunctionContext* context,
+        const doris_udf::StringVal& val,
+        const doris_udf::StringVal& pattern);
 
-    static palo_udf::BooleanVal like_fn(
-        palo_udf::FunctionContext* context,
-        const palo_udf::StringVal& val,
-        const palo_udf::StringVal& pattern);
+    static doris_udf::BooleanVal like_fn(
+        doris_udf::FunctionContext* context,
+        const doris_udf::StringVal& val,
+        const doris_udf::StringVal& pattern);
 
     /// Handling of like predicates that map to strstr
-    static palo_udf::BooleanVal constant_substring_fn(
-        palo_udf::FunctionContext* context,
-        const palo_udf::StringVal& val, 
-        const palo_udf::StringVal& pattern);
+    static doris_udf::BooleanVal constant_substring_fn(
+        doris_udf::FunctionContext* context,
+        const doris_udf::StringVal& val, 
+        const doris_udf::StringVal& pattern);
 
     /// Handling of like predicates that can be implemented using strncmp
-    static palo_udf::BooleanVal constant_starts_with_fn(
-        palo_udf::FunctionContext* context,
-        const palo_udf::StringVal& val,
-        const palo_udf::StringVal& pattern);
+    static doris_udf::BooleanVal constant_starts_with_fn(
+        doris_udf::FunctionContext* context,
+        const doris_udf::StringVal& val,
+        const doris_udf::StringVal& pattern);
 
     /// Handling of like predicates that can be implemented using strncmp
-    static palo_udf::BooleanVal constant_ends_with_fn(
-        palo_udf::FunctionContext* context,
-        const palo_udf::StringVal& val,
-        const palo_udf::StringVal& pattern);
+    static doris_udf::BooleanVal constant_ends_with_fn(
+        doris_udf::FunctionContext* context,
+        const doris_udf::StringVal& val,
+        const doris_udf::StringVal& pattern);
 
     /// Handling of like predicates that can be implemented using strcmp
-    static palo_udf::BooleanVal constant_equals_fn(
-        palo_udf::FunctionContext* context,
-        const palo_udf::StringVal& val,
-        const palo_udf::StringVal& pattern);
+    static doris_udf::BooleanVal constant_equals_fn(
+        doris_udf::FunctionContext* context,
+        const doris_udf::StringVal& val,
+        const doris_udf::StringVal& pattern);
 
-    static palo_udf::BooleanVal constant_regex_fn_partial(
-        palo_udf::FunctionContext* context, const palo_udf::StringVal& val,
-        const palo_udf::StringVal& pattern);
+    static doris_udf::BooleanVal constant_regex_fn_partial(
+        doris_udf::FunctionContext* context, const doris_udf::StringVal& val,
+        const doris_udf::StringVal& pattern);
 
-    static palo_udf::BooleanVal constant_regex_fn(
-        palo_udf::FunctionContext* context,
-        const palo_udf::StringVal& val, 
-        const palo_udf::StringVal& pattern);
+    static doris_udf::BooleanVal constant_regex_fn(
+        doris_udf::FunctionContext* context,
+        const doris_udf::StringVal& val, 
+        const doris_udf::StringVal& pattern);
 
-    static palo_udf::BooleanVal regex_match(
-        palo_udf::FunctionContext* context, const palo_udf::StringVal& val,
-        const palo_udf::StringVal& pattern, bool is_like_pattern);
+    static doris_udf::BooleanVal regex_match(
+        doris_udf::FunctionContext* context, const doris_udf::StringVal& val,
+        const doris_udf::StringVal& pattern, bool is_like_pattern);
 
     /// Convert a LIKE pattern (with embedded % and _) into the corresponding
     /// regular expression pattern. Escaped chars are copied verbatim.
     static void convert_like_pattern(
-        palo_udf::FunctionContext* context,
-        const palo_udf::StringVal& pattern,
+        doris_udf::FunctionContext* context,
+        const doris_udf::StringVal& pattern,
         std::string* re_pattern);
 
     static void remove_escape_character(std::string* search_string);

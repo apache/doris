@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_BLOOM_FILTER_HPP
-#define BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_BLOOM_FILTER_HPP
+#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_BLOOM_FILTER_HPP
+#define DORIS_BE_SRC_OLAP_COLUMN_FILE_BLOOM_FILTER_HPP
 
 #include <math.h>
 
@@ -27,7 +27,7 @@
 #include "olap/utils.h"
 #include "util/hash_util.hpp"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 static const uint64_t DEFAULT_SEED = 104729;
@@ -298,6 +298,6 @@ private:
 };
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_BLOOM_FILTER_HPP
+#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_BLOOM_FILTER_HPP

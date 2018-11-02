@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_UTIL_DATE_FUNC_H
-#define BDG_PALO_BE_SRC_UTIL_DATE_FUNC_H
+#ifndef DORIS_BE_SRC_UTIL_DATE_FUNC_H
+#define DORIS_BE_SRC_UTIL_DATE_FUNC_H
 
 #include <stdint.h>
 #include <time.h>
@@ -24,7 +24,7 @@
 
 #include "olap/field.h"
 
-namespace palo {
+namespace doris {
 
 static uint64_t timestamp_from_datetime(const std::string& datetime_str) {
     tm time_tm;
@@ -63,6 +63,6 @@ static uint24_t timestamp_from_date(const std::string& date_str) {
     return uint24_t(value);
 }
 
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_UTIL_DATE_FUNC_H
+#endif // DORIS_BE_SRC_UTIL_DATE_FUNC_H

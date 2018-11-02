@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_IN_LIST_PREDICATE_H
-#define BDG_PALO_BE_SRC_OLAP_IN_LIST_PREDICATE_H
+#ifndef DORIS_BE_SRC_OLAP_IN_LIST_PREDICATE_H
+#define DORIS_BE_SRC_OLAP_IN_LIST_PREDICATE_H
 
 #include <stdint.h>
 #include <set>
 #include "olap/column_predicate.h"
 
-namespace palo {
+namespace doris {
 
 class VectorizedRowBatch;
 
@@ -41,6 +41,6 @@ private: \
 IN_LIST_PRED_CLASS_DEFINE(InListPredicate)
 IN_LIST_PRED_CLASS_DEFINE(NotInListPredicate)
 
-} //namespace palo
+} //namespace doris
 
-#endif //BDG_PALO_BE_SRC_OLAP_IN_LIST_PREDICATE_H
+#endif //DORIS_BE_SRC_OLAP_IN_LIST_PREDICATE_H

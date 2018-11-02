@@ -18,7 +18,7 @@
 #ifdef IR_COMPILE
 #include "exec/new_partitioned_hash_table.h"
 
-using namespace palo;
+using namespace doris;
 
 uint32_t NewPartitionedHashTableCtx::GetHashSeed() const { return seeds_[level_]; }
 

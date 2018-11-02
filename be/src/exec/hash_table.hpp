@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXEC_HASH_TABLE_HPP
-#define BDG_PALO_BE_SRC_QUERY_EXEC_HASH_TABLE_HPP
+#ifndef DORIS_BE_SRC_QUERY_EXEC_HASH_TABLE_HPP
+#define DORIS_BE_SRC_QUERY_EXEC_HASH_TABLE_HPP
 
 #include "exec/hash_table.h"
 
-namespace palo {
+namespace doris {
 
 inline HashTable::Iterator HashTable::find(TupleRow* probe_row) {
     bool has_nulls = eval_probe_row(probe_row);

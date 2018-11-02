@@ -26,7 +26,7 @@
 #include "exec/text_converter.hpp"
 #include "gen_cpp/DataSinks_types.h"
 
-namespace palo {
+namespace doris {
 
 PartRangeKey PartRangeKey::_s_pos_infinite(1);
 PartRangeKey PartRangeKey::_s_neg_infinite(-1);

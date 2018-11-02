@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef INF_PALO_QE_SRC_BE_EXEC_SORT_EXEC_EXPRS_H
-#define INF_PALO_QE_SRC_BE_EXEC_SORT_EXEC_EXPRS_H
+#ifndef INF_DORIS_QE_SRC_BE_EXEC_SORT_EXEC_EXPRS_H
+#define INF_DORIS_QE_SRC_BE_EXEC_SORT_EXEC_EXPRS_H
 
 #include "exprs/expr.h"
 #include "runtime/runtime_state.h"
 
-namespace palo {
+namespace doris {
 
 class MemTracker;
 

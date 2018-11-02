@@ -23,7 +23,7 @@
 
 using llvm::Function;
 
-namespace palo {
+namespace doris {
 
 TupleIsNullPredicate::TupleIsNullPredicate(const TExprNode& node) : 
         Predicate(node),

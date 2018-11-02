@@ -23,7 +23,7 @@
 
 #include "service/brpc.h"
  
-namespace palo {
+namespace doris {
 
 template<typename T>
 class RefCountClosure : public google::protobuf::Closure {

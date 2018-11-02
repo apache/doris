@@ -33,7 +33,7 @@
 
 using std::string;
 
-namespace palo {
+namespace doris {
 
 FileHandler::FileHandler() :
         _fd(-1),
@@ -435,4 +435,4 @@ off_t FileHandlerWithBuf::length() const {
     return stat_data.st_size;
 }
 
-}  // namespace palo
+}  // namespace doris

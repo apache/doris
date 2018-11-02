@@ -29,7 +29,7 @@
 
 #include <boost/foreach.hpp>
 
-namespace palo {
+namespace doris {
 
 InetAddress::InetAddress(struct sockaddr* addr) {
     this->addr = *(struct sockaddr_in*)addr;

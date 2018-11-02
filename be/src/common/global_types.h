@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_COMMON_GLOBAL_TYPES_H
-#define BDG_PALO_BE_SRC_COMMON_COMMON_GLOBAL_TYPES_H
+#ifndef DORIS_BE_SRC_COMMON_COMMON_GLOBAL_TYPES_H
+#define DORIS_BE_SRC_COMMON_COMMON_GLOBAL_TYPES_H
 
-namespace palo {
+namespace doris {
 
 // for now, these are simply ints; if we find we need to generate ids in the
 // backend, we can also introduce separate classes for these to make them

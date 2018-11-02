@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_AGENT_MOCK_MOCK_PUSHER_H
-#define BDG_PALO_BE_SRC_AGENT_MOCK_MOCK_PUSHER_H
+#ifndef DORIS_BE_SRC_AGENT_MOCK_MOCK_PUSHER_H
+#define DORIS_BE_SRC_AGENT_MOCK_MOCK_PUSHER_H
 
 #include "gmock/gmock.h"
 #include "agent/pusher.h"
 
-namespace palo {
+namespace doris {
 
 class MockPusher : public Pusher {
 public:
@@ -29,5 +29,5 @@ public:
     MOCK_METHOD0(init, AgentStatus());
     MOCK_METHOD1(process, AgentStatus(std::vector<TTabletInfo>* tablet_infos));
 };  // class MockPusher
-}  // namespace palo
-#endif  // BDG_PALO_BE_SRC_AGENT_SERVICE_PUSHER_H
+}  // namespace doris
+#endif  // DORIS_BE_SRC_AGENT_SERVICE_PUSHER_H

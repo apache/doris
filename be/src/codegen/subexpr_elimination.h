@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_CODEGEN_SUBEXPR_ELIMINATION_H
-#define BDG_PALO_BE_SRC_QUERY_CODEGEN_SUBEXPR_ELIMINATION_H
+#ifndef DORIS_BE_SRC_QUERY_CODEGEN_SUBEXPR_ELIMINATION_H
+#define DORIS_BE_SRC_QUERY_CODEGEN_SUBEXPR_ELIMINATION_H
 
 #include "common/status.h"
 #include "codegen/llvm_codegen.h"
 
-namespace palo {
+namespace doris {
 
 // Optimization pass to remove redundant exprs.
 // TODO: make this into a llvm function pass (i.e. implement FunctionPass interface).

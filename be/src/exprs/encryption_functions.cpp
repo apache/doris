@@ -27,7 +27,7 @@
 #include <boost/smart_ptr.hpp>
 #include "runtime/string_value.h"
 
-namespace palo {
+namespace doris {
 void EncryptionFunctions::init() {
 }
 

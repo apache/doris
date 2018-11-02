@@ -28,7 +28,7 @@
 #include "runtime/buffer_control_block.h"
 #include "runtime/result_buffer_mgr.h"
 
-namespace palo {
+namespace doris {
 
 PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
         : _exec_env(exec_env),

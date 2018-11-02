@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef PALO_BE_SRC_RUNTIME_VECTORIZED_ROW_BATCH_H
-#define PALO_BE_SRC_RUNTIME_VECTORIZED_ROW_BATCH_H
+#ifndef DORIS_BE_SRC_RUNTIME_VECTORIZED_ROW_BATCH_H
+#define DORIS_BE_SRC_RUNTIME_VECTORIZED_ROW_BATCH_H
 
 #include <cstddef>
 #include <memory>
@@ -32,7 +32,7 @@
 #include "util/mem_util.hpp"
 #include "olap/row_cursor.h"
 
-namespace palo {
+namespace doris {
 
 class VectorizedRowBatch;
 class RowBlock;
@@ -156,6 +156,6 @@ private:
 
 }
 
-#endif  // _PALO_BE_SRC_RUNTIME_VECTORIZED_ROW_BATCH_H
+#endif  // _DORIS_BE_SRC_RUNTIME_VECTORIZED_ROW_BATCH_H
 
 /* vim: set expandtab ts=4 sw=4 sts=4 tw=100: */

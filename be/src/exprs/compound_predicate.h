@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXPRS_COMPOUND_PREDICATE_H
-#define BDG_PALO_BE_SRC_QUERY_EXPRS_COMPOUND_PREDICATE_H
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_COMPOUND_PREDICATE_H
+#define DORIS_BE_SRC_QUERY_EXPRS_COMPOUND_PREDICATE_H
 
 #include <string>
 #include "exprs/predicate.h"
@@ -26,7 +26,7 @@ namespace llvm {
 class Function;
 }
 
-namespace palo {
+namespace doris {
 
 class CompoundPredicate: public Predicate {
 public:
@@ -56,7 +56,7 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override { 
         return pool->add(new AndPredicate(*this));
     }
-    virtual palo_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
 
     virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
         return CompoundPredicate::codegen_compute_fn(true, state, fn);
@@ -82,7 +82,7 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override { 
         return pool->add(new OrPredicate(*this));
     }
-    virtual palo_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
 
     virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
         return CompoundPredicate::codegen_compute_fn(false, state, fn);
@@ -108,7 +108,7 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override { 
         return pool->add(new NotPredicate(*this));
     }
-    virtual palo_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
 
     virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
         return get_codegend_compute_fn_wrapper(state, fn);

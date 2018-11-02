@@ -40,8 +40,8 @@
 
 #include "common/names.h"
 
-using namespace palo;
-using namespace palo_udf;
+using namespace doris;
+using namespace doris_udf;
 using namespace llvm;
 using std::move;
 

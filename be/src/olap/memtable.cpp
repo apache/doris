@@ -23,7 +23,7 @@
 #include "util/runtime_profile.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 MemTable::MemTable(Schema* schema, std::vector<FieldInfo>* field_infos,
                    std::vector<uint32_t>* col_ids, TupleDescriptor* tuple_desc,
@@ -160,4 +160,4 @@ OLAPStatus MemTable::close(IWriter* writer) {
     return flush(writer);
 }
 
-} // namespace palo
+} // namespace doris

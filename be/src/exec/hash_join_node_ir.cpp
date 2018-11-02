@@ -19,7 +19,7 @@
 #include "exec/hash_table.hpp"
 #include "runtime/row_batch.h"
 
-namespace palo {
+namespace doris {
 
 // Functions in this file are cross compiled to IR with clang.
 

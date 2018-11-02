@@ -24,7 +24,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 
-using namespace palo;
+using namespace doris;
 
 Status NewPartitionedAggregationNode::ProcessBatchNoGrouping(RowBatch* batch) {
   Tuple* output_tuple = singleton_output_tuple_;

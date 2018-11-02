@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-namespace cpp palo
+namespace cpp doris
 namespace java org.apache.doris.thrift
 
 // Metric and counter data types.

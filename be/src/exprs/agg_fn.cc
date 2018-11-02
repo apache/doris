@@ -25,10 +25,10 @@
 
 #include "common/names.h"
 
-using namespace palo_udf;
+using namespace doris_udf;
 using namespace llvm;
 
-namespace palo {
+namespace doris {
 
 AggFn::AggFn(const TExprNode& tnode, const SlotDescriptor& intermediate_slot_desc,
     const SlotDescriptor& output_slot_desc)

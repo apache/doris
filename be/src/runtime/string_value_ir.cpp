@@ -17,9 +17,9 @@
 
 #ifdef IR_COMPILE
 #include "runtime/string_value.hpp"
-#include "codegen/palo_ir.h"
+#include "codegen/doris_ir.h"
 
-namespace palo {
+namespace doris {
 int ir_string_compare(const char* s1, int n1, const char* s2, int n2) {
     return string_compare(s1, n1, s2, n2, std::min(n1, n2));
 }

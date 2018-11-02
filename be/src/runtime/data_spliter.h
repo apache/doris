@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_DATA_SPLITER_H
-#define BDG_PALO_BE_RUNTIME_DATA_SPLITER_H
+#ifndef DORIS_BE_RUNTIME_DATA_SPLITER_H
+#define DORIS_BE_RUNTIME_DATA_SPLITER_H
 
 #include <unordered_map>
 #include <string>
@@ -27,7 +27,7 @@
 #include "runtime/dpp_sink_internal.h"
 #include "util/runtime_profile.h"
 
-namespace palo {
+namespace doris {
 
 class RowDescriptor;
 class RuntimeState;

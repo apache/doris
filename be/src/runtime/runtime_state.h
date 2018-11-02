@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_RUNTIME_RUNTIME_STATE_H
-#define BDG_PALO_BE_SRC_QUERY_RUNTIME_RUNTIME_STATE_H
+#ifndef DORIS_BE_SRC_QUERY_RUNTIME_RUNTIME_STATE_H
+#define DORIS_BE_SRC_QUERY_RUNTIME_RUNTIME_STATE_H
 
 #include "common/object_pool.h"
 
@@ -39,7 +39,7 @@
 #include "gen_cpp/PaloInternalService_types.h"  // for TQueryOptions
 #include "util/runtime_profile.h"
 
-namespace palo {
+namespace doris {
 
 class DescriptorTbl;
 class ObjectPool;
@@ -647,4 +647,4 @@ private:
 
 }
 
-#endif // end of BDG_PALO_BE_SRC_QUERY_RUNTIME_RUNTIME_STATE_H
+#endif // end of DORIS_BE_SRC_QUERY_RUNTIME_RUNTIME_STATE_H

@@ -17,7 +17,7 @@
 
 syntax="proto2";
 
-package palo;
+package doris;
 
 import "types.proto";
 

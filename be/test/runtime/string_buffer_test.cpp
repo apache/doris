@@ -23,7 +23,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 
-namespace palo {
+namespace doris {
 
 void validate_string(const std::string& std_str, const StringBuffer& str) {
     EXPECT_EQ(std_str.empty(), str.empty());
@@ -77,7 +77,7 @@ TEST(StringBufferTest, Basic) {
 int main(int argc, char** argv) {
 #if 0
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }

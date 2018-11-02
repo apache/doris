@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_STREAM_NAME_H
-#define BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_STREAM_NAME_H
+#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_STREAM_NAME_H
+#define DORIS_BE_SRC_OLAP_COLUMN_FILE_STREAM_NAME_H
 
 #include <gen_cpp/column_data_file.pb.h>
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 // 定义流的名字，是流的唯一标识符
@@ -46,6 +46,6 @@ private:
 };
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_STREAM_NAME_H
+#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_STREAM_NAME_H

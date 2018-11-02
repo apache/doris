@@ -17,7 +17,7 @@
 
 #include "exec/pl_task_root.h"
 
-namespace palo {
+namespace doris {
 
 ExchangeNode::ExchangeNode(
         ObjectPool* pool, 

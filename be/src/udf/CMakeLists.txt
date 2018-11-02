@@ -21,24 +21,24 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/udf")
 # where to put generated binaries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/udf")
 
-# Build this library twice. Once to be linked into the main Palo. This version
+# Build this library twice. Once to be linked into the main Doris. This version
 # can have dependencies on our other libs. The second version is shipped as part
 # of the UDF sdk, which can't use other libs.
 add_library(Udf udf.cpp udf_ir.cpp)
-add_library(PaloUdf udf.cpp udf_ir.cpp)
-set_target_properties(PaloUdf PROPERTIES COMPILE_FLAGS "-DPALO_UDF_SDK_BUILD")
+add_library(DorisUdf udf.cpp udf_ir.cpp)
+set_target_properties(DorisUdf PROPERTIES COMPILE_FLAGS "-DDORIS_UDF_SDK_BUILD")
 
-# We can't use the normal link list since we want to pick up libPaloUdf (the external
+# We can't use the normal link list since we want to pick up libDorisUdf (the external
 # library) rather than the interal libUdf.
 set (UDF_TEST_LINK_LIBS
   -Wl,--start-group
   Common
   GlobalFlags
-  PaloUdf
+  DorisUdf
   Runtime
   Util
   -Wl,--end-group
-# Below are all external dependencies.  They should some after the palo libs.
+# Below are all external dependencies.  They should some after the doris libs.
   ${Boost_LIBRARIES}
   glogstatic
   gflagsstatic

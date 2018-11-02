@@ -22,7 +22,7 @@
 #include <vector>
 
 #include "olap/olap_engine.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 
 using std::list;
 using std::nothrow;
@@ -30,7 +30,7 @@ using std::sort;
 using std::vector;
 
 
-namespace palo {
+namespace doris {
 
 OLAPStatus CumulativeCompaction::init(OLAPTablePtr table) {
     LOG(INFO) << "init cumulative compaction handler. [table=" << table->full_name() << "]";
@@ -125,12 +125,12 @@ OLAPStatus CumulativeCompaction::run() {
     }
 
     {
-        PaloMetrics::cumulative_compaction_deltas_total.increment(_need_merged_versions.size());
+        DorisMetrics::cumulative_compaction_deltas_total.increment(_need_merged_versions.size());
         int64_t merge_bytes = 0;
         for (IData* i_data : _data_source) {
             merge_bytes += i_data->olap_index()->data_size();
         }
-        PaloMetrics::cumulative_compaction_bytes_total.increment(merge_bytes);
+        DorisMetrics::cumulative_compaction_bytes_total.increment(merge_bytes);
     }
 
     do {
@@ -548,5 +548,5 @@ OLAPStatus CumulativeCompaction::_roll_back(const vector<Rowset*>& old_olap_indi
     return res;    
 }
 
-}  // namespace palo
+}  // namespace doris
 

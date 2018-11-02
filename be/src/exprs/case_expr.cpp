@@ -32,7 +32,7 @@ using llvm::PHINode;
 using llvm::PointerType;
 using llvm::Value;
 
-namespace palo {
+namespace doris {
 
 struct CaseExprState {
     // Space to store the values being compared in the interpreted path. This makes it
@@ -96,17 +96,17 @@ std::string CaseExpr::debug_string() const {
 }
 
 // Sample IR output when there is a case expression and else expression
-// define i16 @CaseExpr(%"class.palo::ExprContext"* %context,
-//                      %"class.palo::TupleRow"* %row) #20 {
+// define i16 @CaseExpr(%"class.doris::ExprContext"* %context,
+//                      %"class.doris::TupleRow"* %row) #20 {
 // eval_case_expr:
-//   %case_val = call i64 @GetSlotRef(%"class.palo::ExprContext"* %context,
-//                                    %"class.palo::TupleRow"* %row)
+//   %case_val = call i64 @GetSlotRef(%"class.doris::ExprContext"* %context,
+//                                    %"class.doris::TupleRow"* %row)
 //   %is_null = trunc i64 %case_val to i1
 //   br i1 %is_null, label %return_else_expr, label %eval_first_when_expr
 //
 // eval_first_when_expr:                             ; preds = %eval_case_expr
-//   %when_val = call i64 @Literal(%"class.palo::ExprContext"* %context,
-//                                 %"class.palo::TupleRow"* %row)
+//   %when_val = call i64 @Literal(%"class.doris::ExprContext"* %context,
+//                                 %"class.doris::TupleRow"* %row)
 //   %is_null1 = trunc i64 %when_val to i1
 //   br i1 %is_null1, label %return_else_expr, label %check_when_expr_block
 //
@@ -119,28 +119,28 @@ std::string CaseExpr::debug_string() const {
 //   br i1 %eq, label %return_then_expr, label %return_else_expr
 //
 // return_then_expr:                                 ; preds = %check_when_expr_block
-//   %then_val = call i16 @Literal12(%"class.palo::ExprContext"* %context,
-//                                   %"class.palo::TupleRow"* %row)
+//   %then_val = call i16 @Literal12(%"class.doris::ExprContext"* %context,
+//                                   %"class.doris::TupleRow"* %row)
 //   ret i16 %then_val
 //
 // return_else_expr:                                 ; preds = %check_when_expr_block, %eval_first_when_expr, %eval_case_expr
-//   %else_val = call i16 @Literal13(%"class.palo::ExprContext"* %context,
-//                                   %"class.palo::TupleRow"* %row)
+//   %else_val = call i16 @Literal13(%"class.doris::ExprContext"* %context,
+//                                   %"class.doris::TupleRow"* %row)
 //   ret i16 %else_val
 // }
 //
 // Sample IR output when there is case expression and no else expression
-// define i16 @CaseExpr(%"class.palo::ExprContext"* %context,
-//                      %"class.palo::TupleRow"* %row) #20 {
+// define i16 @CaseExpr(%"class.doris::ExprContext"* %context,
+//                      %"class.doris::TupleRow"* %row) #20 {
 // eval_case_expr:
-//   %case_val = call i64 @GetSlotRef(%"class.palo::ExprContext"* %context,
-//                                    %"class.palo::TupleRow"* %row)
+//   %case_val = call i64 @GetSlotRef(%"class.doris::ExprContext"* %context,
+//                                    %"class.doris::TupleRow"* %row)
 //   %is_null = trunc i64 %case_val to i1
 //   br i1 %is_null, label %return_null, label %eval_first_when_expr
 //
 // eval_first_when_expr:                             ; preds = %eval_case_expr
-//   %when_val = call i64 @Literal(%"class.palo::ExprContext"* %context,
-//                                 %"class.palo::TupleRow"* %row)
+//   %when_val = call i64 @Literal(%"class.doris::ExprContext"* %context,
+//                                 %"class.doris::TupleRow"* %row)
 //   %is_null1 = trunc i64 %when_val to i1
 //   br i1 %is_null1, label %return_null, label %check_when_expr_block
 //
@@ -153,8 +153,8 @@ std::string CaseExpr::debug_string() const {
 //   br i1 %eq, label %return_then_expr, label %return_null
 //
 // return_then_expr:                                 ; preds = %check_when_expr_block
-//   %then_val = call i16 @Literal12(%"class.palo::ExprContext"* %context,
-//                                   %"class.palo::TupleRow"* %row)
+//   %then_val = call i16 @Literal12(%"class.doris::ExprContext"* %context,
+//                                   %"class.doris::TupleRow"* %row)
 //   ret i16 %then_val
 //
 // return_null:                                      ; preds = %check_when_expr_block, %eval_first_when_expr, %eval_case_expr
@@ -162,11 +162,11 @@ std::string CaseExpr::debug_string() const {
 // }
 //
 // Sample IR output when there is no case expr and else expression
-// define i16 @CaseExpr(%"class.palo::ExprContext"* %context,
-//                      %"class.palo::TupleRow"* %row) #20 {
+// define i16 @CaseExpr(%"class.doris::ExprContext"* %context,
+//                      %"class.doris::TupleRow"* %row) #20 {
 // eval_first_when_expr:
 //   %when_val = call i16 @Eq_IntVal_IntValWrapper1(
-//       %"class.palo::ExprContext"* %context, %"class.palo::TupleRow"* %row)
+//       %"class.doris::ExprContext"* %context, %"class.doris::TupleRow"* %row)
 //   %is_null = trunc i16 %when_val to i1
 //   br i1 %is_null, label %return_else_expr, label %check_when_expr_block
 //
@@ -177,13 +177,13 @@ std::string CaseExpr::debug_string() const {
 //   br i1 %val, label %return_then_expr, label %return_else_expr
 //
 // return_then_expr:                                 ; preds = %check_when_expr_block
-//   %then_val = call i16 @Literal14(%"class.palo::ExprContext"* %context,
-//                                   %"class.palo::TupleRow"* %row)
+//   %then_val = call i16 @Literal14(%"class.doris::ExprContext"* %context,
+//                                   %"class.doris::TupleRow"* %row)
 //   ret i16 %then_val
 //
 // return_else_expr:                                 ; preds = %check_when_expr_block, %eval_first_when_expr
-//   %else_val = call i16 @Literal15(%"class.palo::ExprContext"* %context,
-//                                   %"class.palo::TupleRow"* %row)
+//   %else_val = call i16 @Literal15(%"class.doris::ExprContext"* %context,
+//                                   %"class.doris::TupleRow"* %row)
 //   ret i16 %else_val
 // }
 Status CaseExpr::get_codegend_compute_fn(RuntimeState* state, Function** fn) {

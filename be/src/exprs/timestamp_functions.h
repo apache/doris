@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXPRS_TIMESTAMP_FUNCTIONS_H
-#define BDG_PALO_BE_SRC_QUERY_EXPRS_TIMESTAMP_FUNCTIONS_H
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_TIMESTAMP_FUNCTIONS_H
+#define DORIS_BE_SRC_QUERY_EXPRS_TIMESTAMP_FUNCTIONS_H
 
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/date_time/gregorian/gregorian.hpp>
@@ -26,7 +26,7 @@
 #include "runtime/string_value.h"
 #include "runtime/datetime_value.h"
 
-namespace palo {
+namespace doris {
 
 class Expr;
 class OpcodeRegistry;
@@ -36,127 +36,127 @@ class TimestampFunctions {
 public:
     static void init();
     /// Returns the current time.
-    static palo_udf::IntVal to_unix(palo_udf::FunctionContext* context);
+    static doris_udf::IntVal to_unix(doris_udf::FunctionContext* context);
     /// Converts 'tv_val' to a unix time_t
-    static palo_udf::IntVal to_unix(
-        palo_udf::FunctionContext* context, const palo_udf::DateTimeVal& tv_val);
+    static doris_udf::IntVal to_unix(
+        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& tv_val);
     /// Parses 'string_val' based on the format 'fmt'.
-    static palo_udf::IntVal to_unix(
-        palo_udf::FunctionContext* context, const palo_udf::StringVal& string_val,
-        const palo_udf::StringVal& fmt);
+    static doris_udf::IntVal to_unix(
+        doris_udf::FunctionContext* context, const doris_udf::StringVal& string_val,
+        const doris_udf::StringVal& fmt);
     /// Return a timestamp string from a unix time_t
     /// Optional second argument is the format of the string.
     /// TIME is the integer type of the unix time argument.
-    static palo_udf::StringVal from_unix(
-        palo_udf::FunctionContext* context, const palo_udf::IntVal& unix_time);
-    static palo_udf::StringVal from_unix(
-        palo_udf::FunctionContext* context, const palo_udf::IntVal& unix_time,
-        const palo_udf::StringVal& fmt);
+    static doris_udf::StringVal from_unix(
+        doris_udf::FunctionContext* context, const doris_udf::IntVal& unix_time);
+    static doris_udf::StringVal from_unix(
+        doris_udf::FunctionContext* context, const doris_udf::IntVal& unix_time,
+        const doris_udf::StringVal& fmt);
 
     // Functions to extract parts of the timestamp, return integers.
-    static palo_udf::IntVal year(
-        palo_udf::FunctionContext* context, const palo_udf::DateTimeVal& ts_val);
-    static palo_udf::IntVal quarter(
-        palo_udf::FunctionContext* context, const palo_udf::DateTimeVal& ts_val);
-    static palo_udf::IntVal month(
-        palo_udf::FunctionContext* context, const palo_udf::DateTimeVal& ts_val);
-    static palo_udf::IntVal day_of_month(
-        palo_udf::FunctionContext* context, const palo_udf::DateTimeVal& ts_val);
-    static palo_udf::IntVal day_of_year(
-        palo_udf::FunctionContext* context, const palo_udf::DateTimeVal& ts_val);
-    static palo_udf::IntVal week_of_year(
-        palo_udf::FunctionContext* context, const palo_udf::DateTimeVal& ts_val);
-    static palo_udf::IntVal hour(
-        palo_udf::FunctionContext* context, const palo_udf::DateTimeVal& ts_val);
-    static palo_udf::IntVal minute(
-        palo_udf::FunctionContext* context, const palo_udf::DateTimeVal& ts_val);
-    static palo_udf::IntVal second(
-        palo_udf::FunctionContext* context, const palo_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal year(
+        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal quarter(
+        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal month(
+        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal day_of_month(
+        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal day_of_year(
+        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal week_of_year(
+        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal hour(
+        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal minute(
+        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal second(
+        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
 
     // Date/time functions.
-    static palo_udf::DateTimeVal now(palo_udf::FunctionContext* context);
-    static palo_udf::DateTimeVal curtime(palo_udf::FunctionContext* context);
-    static palo_udf::DateTimeVal to_date(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val);
-    static palo_udf::IntVal date_diff(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val1,
-        const palo_udf::DateTimeVal& ts_val2);
-    static palo_udf::DateTimeVal time_diff(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val1,
-        const palo_udf::DateTimeVal& ts_val2);
+    static doris_udf::DateTimeVal now(doris_udf::FunctionContext* context);
+    static doris_udf::DateTimeVal curtime(doris_udf::FunctionContext* context);
+    static doris_udf::DateTimeVal to_date(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal date_diff(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1,
+        const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::DateTimeVal time_diff(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1,
+        const doris_udf::DateTimeVal& ts_val2);
 
-    static palo_udf::DateTimeVal years_add(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val,
-        const palo_udf::IntVal& count);
-    static palo_udf::DateTimeVal years_sub(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val,
-        const palo_udf::IntVal& count);
-    static palo_udf::DateTimeVal months_add(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val,
-        const palo_udf::IntVal& count);
-    static palo_udf::DateTimeVal months_sub(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val,
-        const palo_udf::IntVal& count);
-    static palo_udf::DateTimeVal weeks_add(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val,
-        const palo_udf::IntVal& count);
-    static palo_udf::DateTimeVal weeks_sub(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val,
-        const palo_udf::IntVal& count);
-    static palo_udf::DateTimeVal days_add(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val,
-        const palo_udf::IntVal& count);
-    static palo_udf::DateTimeVal days_sub(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val,
-        const palo_udf::IntVal& count);
-    static palo_udf::DateTimeVal hours_add(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val,
-        const palo_udf::IntVal& count);
-    static palo_udf::DateTimeVal hours_sub(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val,
-        const palo_udf::IntVal& count);
-    static palo_udf::DateTimeVal minutes_add(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val,
-        const palo_udf::IntVal& count);
-    static palo_udf::DateTimeVal minutes_sub(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val,
-        const palo_udf::IntVal& count);
-    static palo_udf::DateTimeVal seconds_add(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val,
-        const palo_udf::IntVal& count);
-    static palo_udf::DateTimeVal seconds_sub(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val,
-        const palo_udf::IntVal& count);
-    static palo_udf::DateTimeVal micros_add(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val,
-        const palo_udf::IntVal& count);
-    static palo_udf::DateTimeVal micros_sub(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val,
-        const palo_udf::IntVal& count);
+    static doris_udf::DateTimeVal years_add(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+        const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal years_sub(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+        const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal months_add(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+        const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal months_sub(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+        const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal weeks_add(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+        const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal weeks_sub(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+        const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal days_add(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+        const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal days_sub(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+        const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal hours_add(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+        const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal hours_sub(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+        const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal minutes_add(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+        const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal minutes_sub(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+        const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal seconds_add(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+        const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal seconds_sub(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+        const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal micros_add(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+        const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal micros_sub(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+        const doris_udf::IntVal& count);
 
-    static palo_udf::StringVal date_format(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val,
-        const palo_udf::StringVal& format);
-    static palo_udf::DateTimeVal from_days(
-        palo_udf::FunctionContext* ctx, const palo_udf::IntVal& days);
-    static palo_udf::IntVal to_days(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val);
-    static palo_udf::DateTimeVal str_to_date(
-        palo_udf::FunctionContext* ctx, const palo_udf::StringVal& str,
-        const palo_udf::StringVal& format);
-    static palo_udf::StringVal month_name(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val);
-    static palo_udf::StringVal day_name(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val);
+    static doris_udf::StringVal date_format(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+        const doris_udf::StringVal& format);
+    static doris_udf::DateTimeVal from_days(
+        doris_udf::FunctionContext* ctx, const doris_udf::IntVal& days);
+    static doris_udf::IntVal to_days(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::DateTimeVal str_to_date(
+        doris_udf::FunctionContext* ctx, const doris_udf::StringVal& str,
+        const doris_udf::StringVal& format);
+    static doris_udf::StringVal month_name(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::StringVal day_name(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
 
-    static palo_udf::DateTimeVal timestamp(
-        palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& val);
+    static doris_udf::DateTimeVal timestamp(
+        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& val);
 
     // Helper for add/sub functions on the time portion.
     template <TimeUnit unit>
-    static palo_udf::DateTimeVal timestamp_time_op(
-            palo_udf::FunctionContext* ctx, const palo_udf::DateTimeVal& ts_val,
-            const palo_udf::IntVal& count, bool is_add);
+    static doris_udf::DateTimeVal timestamp_time_op(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
+            const doris_udf::IntVal& count, bool is_add);
 
     // Convert a timestamp to or from a particular timezone based time.
     static void* from_utc(Expr* e, TupleRow* row);

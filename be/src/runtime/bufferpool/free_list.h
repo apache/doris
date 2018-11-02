@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_BUFFERPOOL_FREE_LIST_H
-#define BDG_PALO_BE_RUNTIME_BUFFERPOOL_FREE_LIST_H
+#ifndef DORIS_BE_RUNTIME_BUFFERPOOL_FREE_LIST_H
+#define DORIS_BE_RUNTIME_BUFFERPOOL_FREE_LIST_H
 
 #include <algorithm>
 #include <cstdint>
@@ -28,7 +28,7 @@
 #include "gutil/macros.h"
 #include "runtime/bufferpool/buffer_pool.h"
 
-namespace palo {
+namespace doris {
 
 using BufferHandle = BufferPool::BufferHandle;
 

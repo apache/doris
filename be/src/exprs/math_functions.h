@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXPRS_MATH_FUNCTIONS_H
-#define BDG_PALO_BE_SRC_QUERY_EXPRS_MATH_FUNCTIONS_H
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_MATH_FUNCTIONS_H
+#define DORIS_BE_SRC_QUERY_EXPRS_MATH_FUNCTIONS_H
 
 #include <stdint.h>
 #include "util/string_parser.hpp"
 
-namespace palo {
+namespace doris {
 
 class Expr;
 struct ExprValue;
@@ -31,139 +31,139 @@ class MathFunctions {
 public:
     static void init();
 
-    static palo_udf::DoubleVal pi(palo_udf::FunctionContext* ctx);
-    static palo_udf::DoubleVal e(palo_udf::FunctionContext* ctx);
+    static doris_udf::DoubleVal pi(doris_udf::FunctionContext* ctx);
+    static doris_udf::DoubleVal e(doris_udf::FunctionContext* ctx);
 
-    static palo_udf::DoubleVal abs(palo_udf::FunctionContext*, const palo_udf::DoubleVal&);
-    static palo_udf::FloatVal sign(
-        palo_udf::FunctionContext* ctx, const palo_udf::DoubleVal& v);
+    static doris_udf::DoubleVal abs(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
+    static doris_udf::FloatVal sign(
+        doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& v);
 
-    static palo_udf::DoubleVal sin(palo_udf::FunctionContext*, const palo_udf::DoubleVal&);
-    static palo_udf::DoubleVal asin(palo_udf::FunctionContext*, const palo_udf::DoubleVal&);
-    static palo_udf::DoubleVal cos(palo_udf::FunctionContext*, const palo_udf::DoubleVal&);
-    static palo_udf::DoubleVal acos(palo_udf::FunctionContext*, const palo_udf::DoubleVal&);
-    static palo_udf::DoubleVal tan(palo_udf::FunctionContext*, const palo_udf::DoubleVal&);
-    static palo_udf::DoubleVal atan(palo_udf::FunctionContext*, const palo_udf::DoubleVal&);
+    static doris_udf::DoubleVal sin(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
+    static doris_udf::DoubleVal asin(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
+    static doris_udf::DoubleVal cos(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
+    static doris_udf::DoubleVal acos(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
+    static doris_udf::DoubleVal tan(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
+    static doris_udf::DoubleVal atan(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
 
-    static palo_udf::BigIntVal ceil(palo_udf::FunctionContext*, const palo_udf::DoubleVal&);
-    static palo_udf::BigIntVal floor(palo_udf::FunctionContext*, const palo_udf::DoubleVal&);
-    static palo_udf::BigIntVal round(
-        palo_udf::FunctionContext* ctx, const palo_udf::DoubleVal& v);
-    static palo_udf::DoubleVal round_up_to(
-        palo_udf::FunctionContext* ctx, const palo_udf::DoubleVal& v,
-        const palo_udf::IntVal& scale);
-    static palo_udf::DoubleVal truncate(
-        palo_udf::FunctionContext* ctx, const palo_udf::DoubleVal& v, 
-        const palo_udf::IntVal& scale);
+    static doris_udf::BigIntVal ceil(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
+    static doris_udf::BigIntVal floor(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
+    static doris_udf::BigIntVal round(
+        doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& v);
+    static doris_udf::DoubleVal round_up_to(
+        doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& v,
+        const doris_udf::IntVal& scale);
+    static doris_udf::DoubleVal truncate(
+        doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& v, 
+        const doris_udf::IntVal& scale);
 
-    static palo_udf::DoubleVal ln(palo_udf::FunctionContext*, const palo_udf::DoubleVal&);
-    static palo_udf::DoubleVal log(
-        palo_udf::FunctionContext* ctx, const palo_udf::DoubleVal& base, 
-        const palo_udf::DoubleVal& v);
-    static palo_udf::DoubleVal log2(
-        palo_udf::FunctionContext* ctx, const palo_udf::DoubleVal& v);
-    static palo_udf::DoubleVal log10(palo_udf::FunctionContext*, const palo_udf::DoubleVal&);
-    static palo_udf::DoubleVal exp(palo_udf::FunctionContext*, const palo_udf::DoubleVal&);
+    static doris_udf::DoubleVal ln(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
+    static doris_udf::DoubleVal log(
+        doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& base, 
+        const doris_udf::DoubleVal& v);
+    static doris_udf::DoubleVal log2(
+        doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& v);
+    static doris_udf::DoubleVal log10(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
+    static doris_udf::DoubleVal exp(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
 
-    static palo_udf::DoubleVal radians(
-        palo_udf::FunctionContext* ctx, const palo_udf::DoubleVal& v);
-    static palo_udf::DoubleVal degrees(
-        palo_udf::FunctionContext* ctx, const palo_udf::DoubleVal& v);
+    static doris_udf::DoubleVal radians(
+        doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& v);
+    static doris_udf::DoubleVal degrees(
+        doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& v);
 
-    static palo_udf::DoubleVal sqrt(palo_udf::FunctionContext*, const palo_udf::DoubleVal&);
-    static palo_udf::DoubleVal pow(
-        palo_udf::FunctionContext* ctx, const palo_udf::DoubleVal& base,
-        const palo_udf::DoubleVal& exp);
+    static doris_udf::DoubleVal sqrt(doris_udf::FunctionContext*, const doris_udf::DoubleVal&);
+    static doris_udf::DoubleVal pow(
+        doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& base,
+        const doris_udf::DoubleVal& exp);
 
     /// Used for both Rand() and RandSeed()
     static void rand_prepare(
-        palo_udf::FunctionContext*, palo_udf::FunctionContext::FunctionStateScope);
-    static palo_udf::DoubleVal rand(palo_udf::FunctionContext*);
-    static palo_udf::DoubleVal rand_seed(
-        palo_udf::FunctionContext*, const palo_udf::BigIntVal& seed);
+        doris_udf::FunctionContext*, doris_udf::FunctionContext::FunctionStateScope);
+    static doris_udf::DoubleVal rand(doris_udf::FunctionContext*);
+    static doris_udf::DoubleVal rand_seed(
+        doris_udf::FunctionContext*, const doris_udf::BigIntVal& seed);
 
-    static palo_udf::StringVal bin(
-        palo_udf::FunctionContext* ctx, const palo_udf::BigIntVal& v);
-    static palo_udf::StringVal hex_int(
-        palo_udf::FunctionContext* ctx, const palo_udf::BigIntVal& v);
-    static palo_udf::StringVal hex_string(
-        palo_udf::FunctionContext* ctx, const palo_udf::StringVal& s);
-    static palo_udf::StringVal unhex(
-        palo_udf::FunctionContext* ctx, const palo_udf::StringVal& s);
+    static doris_udf::StringVal bin(
+        doris_udf::FunctionContext* ctx, const doris_udf::BigIntVal& v);
+    static doris_udf::StringVal hex_int(
+        doris_udf::FunctionContext* ctx, const doris_udf::BigIntVal& v);
+    static doris_udf::StringVal hex_string(
+        doris_udf::FunctionContext* ctx, const doris_udf::StringVal& s);
+    static doris_udf::StringVal unhex(
+        doris_udf::FunctionContext* ctx, const doris_udf::StringVal& s);
 
-    static palo_udf::StringVal conv_int(
-        palo_udf::FunctionContext* ctx, const palo_udf::BigIntVal& num,
-        const palo_udf::TinyIntVal& src_base, const palo_udf::TinyIntVal& dest_base);
-    static palo_udf::StringVal conv_string(
-        palo_udf::FunctionContext* ctx, const palo_udf::StringVal& num_str,
-        const palo_udf::TinyIntVal& src_base, const palo_udf::TinyIntVal& dest_base);
+    static doris_udf::StringVal conv_int(
+        doris_udf::FunctionContext* ctx, const doris_udf::BigIntVal& num,
+        const doris_udf::TinyIntVal& src_base, const doris_udf::TinyIntVal& dest_base);
+    static doris_udf::StringVal conv_string(
+        doris_udf::FunctionContext* ctx, const doris_udf::StringVal& num_str,
+        const doris_udf::TinyIntVal& src_base, const doris_udf::TinyIntVal& dest_base);
 
-    static palo_udf::BigIntVal pmod_bigint(
-        palo_udf::FunctionContext* ctx, const palo_udf::BigIntVal& a, 
-        const palo_udf::BigIntVal& b);
-    static palo_udf::DoubleVal pmod_double(
-        palo_udf::FunctionContext* ctx, const palo_udf::DoubleVal& a, 
-        const palo_udf::DoubleVal& b);
-    static palo_udf::FloatVal fmod_float(
-        palo_udf::FunctionContext*, const palo_udf::FloatVal&, 
-        const palo_udf::FloatVal&);
-    static palo_udf::DoubleVal fmod_double(
-        palo_udf::FunctionContext*, const palo_udf::DoubleVal&, 
-        const palo_udf::DoubleVal&);
+    static doris_udf::BigIntVal pmod_bigint(
+        doris_udf::FunctionContext* ctx, const doris_udf::BigIntVal& a, 
+        const doris_udf::BigIntVal& b);
+    static doris_udf::DoubleVal pmod_double(
+        doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& a, 
+        const doris_udf::DoubleVal& b);
+    static doris_udf::FloatVal fmod_float(
+        doris_udf::FunctionContext*, const doris_udf::FloatVal&, 
+        const doris_udf::FloatVal&);
+    static doris_udf::DoubleVal fmod_double(
+        doris_udf::FunctionContext*, const doris_udf::DoubleVal&, 
+        const doris_udf::DoubleVal&);
 
-    static palo_udf::BigIntVal positive_bigint(
-        palo_udf::FunctionContext* ctx, const palo_udf::BigIntVal& val);
-    static palo_udf::DoubleVal positive_double(
-        palo_udf::FunctionContext* ctx, const palo_udf::DoubleVal& val);
-    static palo_udf::DecimalVal positive_decimal(
-        palo_udf::FunctionContext* ctx, const palo_udf::DecimalVal& val);
-    static palo_udf::BigIntVal negative_bigint(
-        palo_udf::FunctionContext* ctx, const palo_udf::BigIntVal& val);
-    static palo_udf::DoubleVal negative_double(
-        palo_udf::FunctionContext* ctx, const palo_udf::DoubleVal& val);
-    static palo_udf::DecimalVal negative_decimal(
-        palo_udf::FunctionContext* ctx, const palo_udf::DecimalVal& val);
+    static doris_udf::BigIntVal positive_bigint(
+        doris_udf::FunctionContext* ctx, const doris_udf::BigIntVal& val);
+    static doris_udf::DoubleVal positive_double(
+        doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& val);
+    static doris_udf::DecimalVal positive_decimal(
+        doris_udf::FunctionContext* ctx, const doris_udf::DecimalVal& val);
+    static doris_udf::BigIntVal negative_bigint(
+        doris_udf::FunctionContext* ctx, const doris_udf::BigIntVal& val);
+    static doris_udf::DoubleVal negative_double(
+        doris_udf::FunctionContext* ctx, const doris_udf::DoubleVal& val);
+    static doris_udf::DecimalVal negative_decimal(
+        doris_udf::FunctionContext* ctx, const doris_udf::DecimalVal& val);
 
-    static palo_udf::TinyIntVal least(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::TinyIntVal* args);
-    static palo_udf::TinyIntVal greatest(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::TinyIntVal* args);
-    static palo_udf::SmallIntVal least(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::SmallIntVal* val);
-    static palo_udf::SmallIntVal greatest(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::SmallIntVal* val);
-    static palo_udf::IntVal least(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::IntVal* val);
-    static palo_udf::IntVal greatest(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::IntVal* val);
-    static palo_udf::BigIntVal least(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::BigIntVal* val);
-    static palo_udf::BigIntVal greatest(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::BigIntVal* val);
-    static palo_udf::LargeIntVal least(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::LargeIntVal* val);
-    static palo_udf::LargeIntVal greatest(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::LargeIntVal* val);
-    static palo_udf::FloatVal least(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::FloatVal* val);
-    static palo_udf::FloatVal greatest(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::FloatVal* val);
-    static palo_udf::DoubleVal least(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::DoubleVal* val);
-    static palo_udf::DoubleVal greatest(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::DoubleVal* val);
-    static palo_udf::StringVal least(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::StringVal* val);
-    static palo_udf::StringVal greatest(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::StringVal* val);
-    static palo_udf::DateTimeVal least(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::DateTimeVal* val);
-    static palo_udf::DateTimeVal greatest(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::DateTimeVal* val);
-    static palo_udf::DecimalVal least(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::DecimalVal* val);
-    static palo_udf::DecimalVal greatest(
-        palo_udf::FunctionContext* ctx, int num_args, const palo_udf::DecimalVal* val);
+    static doris_udf::TinyIntVal least(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::TinyIntVal* args);
+    static doris_udf::TinyIntVal greatest(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::TinyIntVal* args);
+    static doris_udf::SmallIntVal least(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::SmallIntVal* val);
+    static doris_udf::SmallIntVal greatest(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::SmallIntVal* val);
+    static doris_udf::IntVal least(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::IntVal* val);
+    static doris_udf::IntVal greatest(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::IntVal* val);
+    static doris_udf::BigIntVal least(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::BigIntVal* val);
+    static doris_udf::BigIntVal greatest(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::BigIntVal* val);
+    static doris_udf::LargeIntVal least(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::LargeIntVal* val);
+    static doris_udf::LargeIntVal greatest(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::LargeIntVal* val);
+    static doris_udf::FloatVal least(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::FloatVal* val);
+    static doris_udf::FloatVal greatest(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::FloatVal* val);
+    static doris_udf::DoubleVal least(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::DoubleVal* val);
+    static doris_udf::DoubleVal greatest(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::DoubleVal* val);
+    static doris_udf::StringVal least(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::StringVal* val);
+    static doris_udf::StringVal greatest(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::StringVal* val);
+    static doris_udf::DateTimeVal least(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::DateTimeVal* val);
+    static doris_udf::DateTimeVal greatest(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::DateTimeVal* val);
+    static doris_udf::DecimalVal least(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::DecimalVal* val);
+    static doris_udf::DecimalVal greatest(
+        doris_udf::FunctionContext* ctx, int num_args, const doris_udf::DecimalVal* val);
 
 private:
     static const int32_t MIN_BASE = 2;
@@ -172,8 +172,8 @@ private:
 
     // Converts src_num in decimal to dest_base,
     // and fills expr_val.string_val with the result.
-    static palo_udf::StringVal decimal_to_base(
-        palo_udf::FunctionContext* ctx, int64_t src_num, int8_t dest_base);
+    static doris_udf::StringVal decimal_to_base(
+        doris_udf::FunctionContext* ctx, int64_t src_num, int8_t dest_base);
 
     // Converts src_num representing a number in src_base but encoded in decimal
     // into its actual decimal number.

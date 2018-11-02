@@ -30,7 +30,7 @@ using llvm::PHINode;
 using llvm::Value;
 using llvm::LLVMContext;
 
-namespace palo {
+namespace doris {
 
 CompoundPredicate::CompoundPredicate(const TExprNode& node) :
         Predicate(node) {

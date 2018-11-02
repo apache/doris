@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_INITIAL_RESERVATIONS_H
-#define BDG_PALO_BE_RUNTIME_INITIAL_RESERVATIONS_H
+#ifndef DORIS_BE_RUNTIME_INITIAL_RESERVATIONS_H
+#define DORIS_BE_RUNTIME_INITIAL_RESERVATIONS_H
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h" // for TUniqueId
@@ -24,7 +24,7 @@
 #include "runtime/bufferpool/reservation_tracker.h"
 #include "util/spinlock.h"
 
-namespace palo {
+namespace doris {
 
 class ObjectPool;
 

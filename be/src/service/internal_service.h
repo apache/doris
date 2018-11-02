@@ -25,7 +25,7 @@ namespace brpc {
 class Controller;
 }
 
-namespace palo {
+namespace doris {
 
 class ExecEnv;
 
@@ -35,8 +35,8 @@ public:
     virtual ~PInternalServiceImpl();
 
     void transmit_data(::google::protobuf::RpcController* controller,
-                       const ::palo::PTransmitDataParams* request,
-                       ::palo::PTransmitDataResult* response,
+                       const ::doris::PTransmitDataParams* request,
+                       ::doris::PTransmitDataResult* response,
                        ::google::protobuf::Closure* done) override;
 
     void exec_plan_fragment(

@@ -18,7 +18,7 @@
 #include "runtime/primitive_type.h"
 #include <sstream>
 
-namespace palo {
+namespace doris {
 //to_tcolumn_type_thrift only test
 TColumnType to_tcolumn_type_thrift(TPrimitiveType::type ttype) {
     TColumnType t;

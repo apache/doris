@@ -15,16 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_NEW_EXPRS_AGG_FN_H
-#define BDG_PALO_BE_SRC_QUERY_NEW_EXPRS_AGG_FN_H
+#ifndef DORIS_BE_SRC_QUERY_NEW_EXPRS_AGG_FN_H
+#define DORIS_BE_SRC_QUERY_NEW_EXPRS_AGG_FN_H
 
 #include "exprs/expr.h"
 #include "runtime/descriptors.h"
 #include "udf/udf.h"
 
-namespace palo {
+namespace doris {
 
-using palo_udf::FunctionContext;
+using doris_udf::FunctionContext;
 
 class LlvmCodeGen;
 class MemPool;

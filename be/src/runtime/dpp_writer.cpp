@@ -28,7 +28,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 
-namespace palo {
+namespace doris {
 
 DppWriter::DppWriter(
             int32_t schema_hash, 

@@ -32,7 +32,7 @@
 
 using std::vector;
 
-namespace palo {
+namespace doris {
 
 const int RowBatch::AT_CAPACITY_MEM_USAGE = 8 * 1024 * 1024;
 const int RowBatch::FIXED_LEN_BUFFER_LIMIT = AT_CAPACITY_MEM_USAGE / 2;
@@ -665,4 +665,4 @@ void RowBatch::add_buffer(BufferPool::ClientHandle* client,
     _buffers.push_back(std::move(buffer_info));
     if (flush == FlushMode::FLUSH_RESOURCES) mark_flush_resources();
 }
-} // end namespace palo
+} // end namespace doris

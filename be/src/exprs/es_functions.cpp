@@ -22,7 +22,7 @@
 #include "util/debug_util.h"
 #include "runtime/tuple_row.h"
 
-namespace palo {
+namespace doris {
 
 void ESFunctions::init() {
 }
@@ -32,4 +32,4 @@ BooleanVal ESFunctions::match(FunctionContext* ctx, const StringVal& col,
     return BooleanVal(true);
 }
 
-} // palo
+} // doris

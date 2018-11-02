@@ -28,7 +28,7 @@ using std::stringstream;
 using std::vector;
 using std::ostream;
 
-namespace palo {
+namespace doris {
 
 string get_str_err_msg() {
     // Save errno. "<<" could reset it.

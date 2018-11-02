@@ -30,7 +30,7 @@ using llvm::LLVMContext;
 using llvm::PHINode;
 using llvm::Value;
 
-namespace palo {
+namespace doris {
 
 Expr* CastExpr::from_thrift(const TExprNode& node) {
     switch (node.child_type) {
@@ -168,11 +168,11 @@ CAST_FROM_DOUBLE(FloatVal, get_float_val)
 
 // IR codegen for cast expression
 //
-// define i16 @cast(%"class.palo::ExprContext"* %context,
-//                 %"class.palo::TupleRow"* %row) #20 {
+// define i16 @cast(%"class.doris::ExprContext"* %context,
+//                 %"class.doris::TupleRow"* %row) #20 {
 // entry:
-//   %child_val = call { i8, i64 } @get_slot_ref(%"class.palo::ExprContext"* %context,
-//                                             %"class.palo::TupleRow"* %row)
+//   %child_val = call { i8, i64 } @get_slot_ref(%"class.doris::ExprContext"* %context,
+//                                             %"class.doris::TupleRow"* %row)
 //   %0 = extractvalue { i8, i64 } %child_val, 0
 //   %child_is_null = trunc i8 %0 to i1
 //   br i1 %child_is_null, label %ret, label %child_not_null

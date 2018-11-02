@@ -24,7 +24,7 @@
 #include "gutil/strings/numbers.h"
 #include "util/mysql_global.h"
 
-namespace palo {
+namespace doris {
 
 // the first byte:
 // <= 250: length

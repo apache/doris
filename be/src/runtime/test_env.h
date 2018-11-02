@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_TEST_QUERY_RUNTIME_TEST_ENV_H
-#define BDG_PALO_BE_TEST_QUERY_RUNTIME_TEST_ENV_H
+#ifndef DORIS_BE_TEST_QUERY_RUNTIME_TEST_ENV_H
+#define DORIS_BE_TEST_QUERY_RUNTIME_TEST_ENV_H
 
 #include "runtime/buffered_block_mgr2.h"
 #include "runtime/disk_io_mgr.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 
-namespace palo {
+namespace doris {
 
 // Helper testing class that creates an environment with a buffered-block-mgr similar
 // to the one Impala's runtime is using.
@@ -89,6 +89,6 @@ private:
     std::vector<boost::shared_ptr<RuntimeState> > _query_states;
 };
 
-} // end namespace palo
+} // end namespace doris
 
-#endif // BDG_PALO_BE_TEST_QUERY_RUNTIME_TEST_ENV_H
+#endif // DORIS_BE_TEST_QUERY_RUNTIME_TEST_ENV_H

@@ -19,7 +19,7 @@
 
 #include "olap/column_file/out_stream.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 const int32_t RunLengthByteWriter::MIN_REPEAT_SIZE;
@@ -148,5 +148,5 @@ void RunLengthByteWriter::get_position(PositionEntryWriter* index_entry) const {
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris
 

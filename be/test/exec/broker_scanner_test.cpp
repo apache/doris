@@ -34,7 +34,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "exprs/cast_functions.h"
 
-namespace palo {
+namespace doris {
 
 class BrokerScannerTest : public testing::Test {
 public:
@@ -319,7 +319,7 @@ void BrokerScannerTest::init_params() {
         cast_expr.fn.has_var_args = false;
         cast_expr.fn.__set_signature("casttoint(VARCHAR(*))");
         cast_expr.fn.__isset.scalar_fn = true;
-        cast_expr.fn.scalar_fn.symbol = "palo::CastFunctions::cast_to_int_val";
+        cast_expr.fn.scalar_fn.symbol = "doris::CastFunctions::cast_to_int_val";
 
         TExprNode slot_ref;
         slot_ref.node_type = TExprNodeType::SLOT_REF;
@@ -664,15 +664,15 @@ TEST_F(BrokerScannerTest, normal9) {
     ASSERT_TRUE(eof);
 }
 
-} // end namespace palo
+} // end namespace doris
 
 int main(int argc, char** argv) {
     // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!palo::config::init(conffile.c_str(), false)) {
+    // if (!doris::config::init(conffile.c_str(), false)) {
     //     fprintf(stderr, "error read config file. \n");
     //     return -1;
     // }
-    // palo::init_glog("be-test");
+    // doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_RESERVATION_TRACKER_H
-#define BDG_PALO_BE_RUNTIME_RESERVATION_TRACKER_H
+#ifndef DORIS_BE_RUNTIME_RESERVATION_TRACKER_H
+#define DORIS_BE_RUNTIME_RESERVATION_TRACKER_H
 
 #include <stdint.h>
 #include <boost/scoped_ptr.hpp>
@@ -27,7 +27,7 @@
 #include "common/status.h"
 #include "util/spinlock.h"
 
-namespace palo {
+namespace doris {
 
 class DummyProfile;
 class MemTracker;

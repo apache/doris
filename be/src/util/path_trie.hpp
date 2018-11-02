@@ -22,7 +22,7 @@
 #include <string>
 #include <vector>
 
-namespace palo {
+namespace doris {
 
 // This tree is usd for manage restful api path.
 template<class T>

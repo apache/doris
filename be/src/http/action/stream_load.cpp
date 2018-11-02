@@ -50,11 +50,11 @@
 #include "util/debug_util.h"
 #include "util/json_util.h"
 #include "util/metrics.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 #include "util/time.h"
 #include "util/uid_util.h"
 
-namespace palo {
+namespace doris {
 
 IntCounter k_streaming_load_requests_total;
 IntCounter k_streaming_load_bytes;
@@ -197,13 +197,13 @@ std::string StreamLoadContext::to_json() const {
 }
 
 StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
-    PaloMetrics::metrics()->register_metric("streaming_load_requests_total",
+    DorisMetrics::metrics()->register_metric("streaming_load_requests_total",
                                             &k_streaming_load_requests_total);
-    PaloMetrics::metrics()->register_metric("streaming_load_bytes",
+    DorisMetrics::metrics()->register_metric("streaming_load_bytes",
                                             &k_streaming_load_bytes);
-    PaloMetrics::metrics()->register_metric("streaming_load_duration_ms",
+    DorisMetrics::metrics()->register_metric("streaming_load_duration_ms",
                                             &k_streaming_load_duration_ms);
-    PaloMetrics::metrics()->register_metric("streaming_load_current_processing",
+    DorisMetrics::metrics()->register_metric("streaming_load_current_processing",
                                             &k_streaming_load_current_processing);
 }
 

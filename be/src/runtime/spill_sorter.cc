@@ -38,7 +38,7 @@ using boost::function;
 using boost::mem_fn;
 using boost::scoped_ptr;
 
-namespace palo {
+namespace doris {
 
 // Number of pinned blocks required for a merge.
 const int BLOCKS_REQUIRED_FOR_MERGE = 3;

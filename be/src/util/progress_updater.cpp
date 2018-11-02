@@ -19,7 +19,7 @@
 
 #include "common/logging.h"
 
-namespace palo {
+namespace doris {
 
 ProgressUpdater::ProgressUpdater(const std::string& label, int64_t total, int period) :
         _label(label), _logging_level(2), _total(total), _update_period(period),

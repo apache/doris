@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXEC_ROW_BATCH_LIST_H
-#define BDG_PALO_BE_SRC_QUERY_EXEC_ROW_BATCH_LIST_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_ROW_BATCH_LIST_H
+#define DORIS_BE_SRC_QUERY_EXEC_ROW_BATCH_LIST_H
 
 #include <vector>
 #include <string>
@@ -25,7 +25,7 @@
 #include "runtime/row_batch.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 class TupleRow;
 class RowDescriptor;

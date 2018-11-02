@@ -22,7 +22,7 @@
 #include "util/debug_util.h"
 #include "runtime/tuple_row.h"
 
-namespace palo {
+namespace doris {
 
 void UtilityFunctions::init() {
 }

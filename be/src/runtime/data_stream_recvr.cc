@@ -47,7 +47,7 @@ using boost::try_mutex;
 using boost::lock_guard;
 using boost::mem_fn;
 
-namespace palo {
+namespace doris {
 
 // Implements a blocking queue of row batches from one or more senders. One queue
 // is maintained per sender if _is_merging is true for the enclosing receiver, otherwise

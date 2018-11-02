@@ -39,7 +39,7 @@
 
 #include "common/logging.h"
 #include "codegen/subexpr_elimination.h"
-#include "palo_ir/palo_ir_names.h"
+#include "doris_ir/doris_ir_names.h"
 #include "util/cpu_info.h"
 #include "util/path_builder.h"
 
@@ -51,7 +51,7 @@ using llvm::StoreInst;
 using llvm::Function;
 using llvm::Value;
 using llvm::DominatorTree;
-namespace palo {
+namespace doris {
 
 SubExprElimination::SubExprElimination(LlvmCodeGen* codegen) : _codegen(codegen) {
 }

@@ -33,7 +33,7 @@ using std::ifstream;
 using std::string;
 using std::vector;
 
-namespace palo {
+namespace doris {
 
 MemIndex::MemIndex()
     : _key_length(0),
@@ -481,4 +481,4 @@ const OLAPIndexOffset MemIndex::get_relative_offset(iterator_offset_t absolute_o
     offset.offset = absolute_offset - _meta[offset.segment].range.first;
     return offset;
 }
-}  // namespace palo
+}  // namespace doris

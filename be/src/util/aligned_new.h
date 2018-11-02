@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_UTIL_ALIGNED_NEW_H_
-#define BDG_PALO_BE_SRC_UTIL_ALIGNED_NEW_H_
+#ifndef DORIS_BE_SRC_UTIL_ALIGNED_NEW_H_
+#define DORIS_BE_SRC_UTIL_ALIGNED_NEW_H_
 
 #include <memory>
 
 #include "common/compiler_util.h"
 #include "common/logging.h"
 
-namespace palo {
+namespace doris {
 
 // Objects that should be allocated, for performance or correctness reasons, at alignment
 // greater than that promised by the global new (16) can inherit publicly from AlignedNew.

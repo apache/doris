@@ -26,7 +26,7 @@
 
 #include "gen_cpp/BackendService.h"
 
-namespace palo {
+namespace doris {
 
 // Mock fragment mgr
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb) {
@@ -221,16 +221,16 @@ TEST_F(ExportTaskMgrTest, FinishUnknowJob) {
 
 int main(int argc, char** argv) {
     // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!palo::config::init(conffile.c_str(), false)) {
+    // if (!doris::config::init(conffile.c_str(), false)) {
     //     fprintf(stderr, "error read config file. \n");
     //     return -1;
     // }
 
-    palo::config::read_size = 8388608;
-    palo::config::min_buffer_size = 1024;
-    palo::CpuInfo::init();
-    palo::DiskInfo::init();
-    palo::config::pull_load_task_dir = "/tmp";
+    doris::config::read_size = 8388608;
+    doris::config::min_buffer_size = 1024;
+    doris::CpuInfo::init();
+    doris::DiskInfo::init();
+    doris::config::pull_load_task_dir = "/tmp";
 
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

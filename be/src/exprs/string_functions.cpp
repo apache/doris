@@ -26,7 +26,7 @@
 #include "util/url_parser.h"
 
 // NOTE: be careful not to use string::append.  It is not performant.
-namespace palo {
+namespace doris {
 
 void StringFunctions::init() {
 }

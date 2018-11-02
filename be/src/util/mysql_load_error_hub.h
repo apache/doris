@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_UTIL_MYSQL_LOAD_ERROR_HUB_H
-#define BDG_PALO_BE_SRC_UTIL_MYSQL_LOAD_ERROR_HUB_H
+#ifndef DORIS_BE_SRC_UTIL_MYSQL_LOAD_ERROR_HUB_H
+#define DORIS_BE_SRC_UTIL_MYSQL_LOAD_ERROR_HUB_H
 
 #include <sstream>
 #include <string>
@@ -28,7 +28,7 @@
 #include "util/load_error_hub.h"
 #include "gen_cpp/PaloInternalService_types.h"
 
-namespace palo {
+namespace doris {
 
 // For now every load job has its own mysql connection,
 // and we use short connection to avoid to many connections.
@@ -97,7 +97,7 @@ private:
 
 }; // end class MysqlLoadErrorHub
 
-} // end namespace palo
+} // end namespace doris
 
-#endif // BDG_PALO_BE_SRC_UTIL_MYSQL_LOAD_ERROR_HUB_H
+#endif // DORIS_BE_SRC_UTIL_MYSQL_LOAD_ERROR_HUB_H
 

@@ -36,7 +36,7 @@ using ::testing::Return;
 using ::testing::SetArgPointee;
 using std::string;
 
-namespace palo {
+namespace doris {
 
 const std::string header_path = "./be/test/olap/test_data/header.txt";
 
@@ -112,7 +112,7 @@ TEST_F(OlapHeaderManagerTest, TestLoad) {
     ASSERT_EQ(_json_header, json_header_read);
 }
 
-}  // namespace palo
+}  // namespace doris
 
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);

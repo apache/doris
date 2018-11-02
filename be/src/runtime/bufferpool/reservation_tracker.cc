@@ -29,7 +29,7 @@
 #include "common/names.h"
 #include "olap/utils.h"
 
-namespace palo {
+namespace doris {
 
 ReservationTracker::ReservationTracker() {}
 

@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UTIL_SYMBOLS_UTIL_H
-#define BDG_PALO_BE_SRC_COMMON_UTIL_SYMBOLS_UTIL_H
+#ifndef DORIS_BE_SRC_COMMON_UTIL_SYMBOLS_UTIL_H
+#define DORIS_BE_SRC_COMMON_UTIL_SYMBOLS_UTIL_H
 
 #include <string>
 #include <vector>
 
 #include "runtime/types.h"
 
-namespace palo {
+namespace doris {
 
 /// Utility class to manipulate c++/IR symbols, mangling and demangling names.
 class SymbolsUtil {
@@ -39,13 +39,13 @@ public:
     /// Returns the fully-qualified function name of 'symbol' (i.e. it strips the arguments
     /// but retains any namespace and class names). 'symbol' may be mangled or unmangled.
     /// Returns the original input if it cannot be demangled.
-    /// Example: "palo::foo(int arg1)" => "palo::foo"
+    /// Example: "doris::foo(int arg1)" => "doris::foo"
     static std::string demangle_no_args(const std::string& symbol);
 
     /// Returns the function name of 'symbol' (i.e., it strips the arguments and any
     /// namespace/class qualifiers). 'symbol' may be mangled or unmangled.
     /// Returns the original input if it cannot be demangled.
-    /// Example: "palo::foo(int arg1)" => "foo"
+    /// Example: "doris::foo(int arg1)" => "foo"
     static std::string demangle_name_only(const std::string& symbol);
 
     /// Mangles fn_name with 'arg_types' to the function signature for user functions.
@@ -63,7 +63,7 @@ public:
         bool has_var_args, TypeDescriptor* ret_argument);
 
     /// Mangles fn_name assuming arguments
-    /// (palo_udf::FunctionContext*, palo_udf::FunctionContext::FunctionStateScope).
+    /// (doris_udf::FunctionContext*, doris_udf::FunctionContext::FunctionStateScope).
     static std::string mangle_prepare_or_close_function(const std::string& fn_name);
 };
 

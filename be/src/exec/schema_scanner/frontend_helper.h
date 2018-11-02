@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  BDG_PALO_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_FRONTEND_HELPER_H
-#define  BDG_PALO_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_FRONTEND_HELPER_H
+#ifndef  DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_FRONTEND_HELPER_H
+#define  DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_FRONTEND_HELPER_H
 
 #include "common/status.h"
 #include "runtime/exec_env.h"
 #include "gen_cpp/FrontendService_types.h"
 
-namespace palo {
+namespace doris {
 
 // this class is a helper for jni call. easy for unit test
 class FrontendHelper {

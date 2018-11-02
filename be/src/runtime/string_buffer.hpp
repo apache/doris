@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_BE_RUNTIME_STRING_BUFFER_H
-#define BDG_PALO_BE_SRC_QUERY_BE_RUNTIME_STRING_BUFFER_H
+#ifndef DORIS_BE_SRC_QUERY_BE_RUNTIME_STRING_BUFFER_H
+#define DORIS_BE_SRC_QUERY_BE_RUNTIME_STRING_BUFFER_H
 
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.h"
 
-namespace palo {
+namespace doris {
 
 // Dynamic-sizable string (similar to std::string) but without as many
 // copies and allocations.

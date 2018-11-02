@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_UTIL_NULL_LOAD_ERROR_HUB_H
-#define BDG_PALO_BE_SRC_UTIL_NULL_LOAD_ERROR_HUB_H
+#ifndef DORIS_BE_SRC_UTIL_NULL_LOAD_ERROR_HUB_H
+#define DORIS_BE_SRC_UTIL_NULL_LOAD_ERROR_HUB_H
 
 #include <sstream>
 #include <string>
@@ -27,7 +27,7 @@
 
 #include "load_error_hub.h"
 
-namespace palo {
+namespace doris {
 
 //  do not export error.
 //  only record some metric to some memory(like total error row) for now.
@@ -52,8 +52,8 @@ private:
 
 }; // end class NullLoadErrorHub
 
-} // end namespace palo
+} // end namespace doris
 
-#endif // BDG_PALO_BE_SRC_UTIL_NULL_LOAD_ERROR_HUB_H
+#endif // DORIS_BE_SRC_UTIL_NULL_LOAD_ERROR_HUB_H
 
 

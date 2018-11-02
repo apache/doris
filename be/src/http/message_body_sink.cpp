@@ -27,7 +27,7 @@
 
 #include "util/runtime_profile.h"
 
-namespace palo {
+namespace doris {
 
 MessageBodyFileSink::~MessageBodyFileSink() {
     if (_fd >= 0) {

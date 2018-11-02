@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_DATA_STREAM_SENDER_H
-#define BDG_PALO_BE_RUNTIME_DATA_STREAM_SENDER_H
+#ifndef DORIS_BE_RUNTIME_DATA_STREAM_SENDER_H
+#define DORIS_BE_RUNTIME_DATA_STREAM_SENDER_H
 
 #include <vector>
 #include <string>
@@ -28,7 +28,7 @@
 #include "util/runtime_profile.h"
 #include "gen_cpp/data.pb.h"  // for PRowBatch
 
-namespace palo {
+namespace doris {
 
 class ExprContext;
 class RowBatch;

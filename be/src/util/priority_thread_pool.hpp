@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UTIL_PRIORITY_THREAD_POOL_HPP
-#define BDG_PALO_BE_SRC_COMMON_UTIL_PRIORITY_THREAD_POOL_HPP
+#ifndef DORIS_BE_SRC_COMMON_UTIL_PRIORITY_THREAD_POOL_HPP
+#define DORIS_BE_SRC_COMMON_UTIL_PRIORITY_THREAD_POOL_HPP
 
 #include "util/blocking_priority_queue.hpp"
 
@@ -24,7 +24,7 @@
 #include <boost/thread/mutex.hpp>
 #include <boost/bind/mem_fn.hpp>
 
-namespace palo {
+namespace doris {
 
 // Simple threadpool which processes items (of type T) in parallel which were placed on a
 // blocking queue by Offer(). Each item is processed by a single user-supplied method.

@@ -31,25 +31,25 @@
 #include "util/cpu_info.h"
 #include "util/runtime_profile.h"
 
-namespace palo {
+namespace doris {
 
-void construct_scan_range(TPaloScanRange* palo_scan_range) {
+void construct_scan_range(TPaloScanRange* doris_scan_range) {
     TNetworkAddress host;
     host.__set_hostname("jx-ps-dise174.jx");
     host.__set_port(8010);
-    palo_scan_range->hosts.push_back(host);
-    palo_scan_range->__set_schema_hash("216424022");
-    palo_scan_range->__set_version("0");
-    palo_scan_range->__set_version_hash("3997217299075720338");
-    palo_scan_range->engine_table_name.push_back("ShowQStats");
-    palo_scan_range->__set_db_name("olap");
+    doris_scan_range->hosts.push_back(host);
+    doris_scan_range->__set_schema_hash("216424022");
+    doris_scan_range->__set_version("0");
+    doris_scan_range->__set_version_hash("3997217299075720338");
+    doris_scan_range->engine_table_name.push_back("ShowQStats");
+    doris_scan_range->__set_db_name("olap");
     TKeyRange key_range;
     key_range.__set_column_type(to_thrift(TYPE_INT));
     key_range.__set_begin_key(-1000);
     key_range.__set_end_key(1000);
     key_range.__set_column_name("partition_column");
-    palo_scan_range->partition_column_ranges.push_back(key_range);
-    palo_scan_range->__isset.partition_column_ranges = true;
+    doris_scan_range->partition_column_ranges.push_back(key_range);
+    doris_scan_range->__isset.partition_column_ranges = true;
 }
 
 class ColumnValueRangeTest : public ::testing::Test {
@@ -518,7 +518,7 @@ TEST_F(OlapScanKeysTest, ExtendFixedAndRangeTest) {
 
 TEST_F(OlapScanKeysTest, ExtendRangeTest) {
     OlapScanKeys scan_keys;
-    config::palo_max_scan_key_num = 1;
+    config::doris_max_scan_key_num = 1;
 
     ColumnValueRange<int64_t> range2("col", TYPE_BIGINT,
                                      std::numeric_limits<int64_t>::min(), std::numeric_limits<int64_t>::max());
@@ -610,7 +610,7 @@ TEST_F(OlapScanKeysTest, EachtypeTest) {
     }
 }
 
-class PaloScanRangeTest : public ::testing::Test {
+class DorisScanRangeTest : public ::testing::Test {
 public:
     void SetUp() {
 
@@ -621,7 +621,7 @@ public:
     }
 };
 
-TEST_F(PaloScanRangeTest, ToOlapFilterTest) {
+TEST_F(DorisScanRangeTest, ToOlapFilterTest) {
     ColumnValueRange<int32_t> range("col", TYPE_INT,
                                     std::numeric_limits<int32_t>::min(), std::numeric_limits<int32_t>::max());
     ASSERT_EQ(range.to_olap_filter(), std::string(""));
@@ -659,11 +659,11 @@ TEST_F(PaloScanRangeTest, ToOlapFilterTest) {
     ASSERT_EQ(range.to_olap_filter(), std::string("col*=30|40"));
 }
 
-TEST_F(PaloScanRangeTest, RangeIntersectionTest) {
-    TPaloScanRange palo_scan_range;
-    construct_scan_range(&palo_scan_range);
+TEST_F(DorisScanRangeTest, RangeIntersectionTest) {
+    TPaloScanRange doris_scan_range;
+    construct_scan_range(&doris_scan_range);
 
-    PaloScanRange scan_range(palo_scan_range);
+    DorisScanRange scan_range(doris_scan_range);
 
     ASSERT_TRUE(scan_range.init().ok());
 
@@ -711,11 +711,11 @@ TEST_F(PaloScanRangeTest, RangeIntersectionTest) {
     ASSERT_EQ(1, scan_range.has_intersection("partition_column", range_type));
 }
 
-TEST_F(PaloScanRangeTest, FixedIntersectionTest) {
-    TPaloScanRange palo_scan_range;
-    construct_scan_range(&palo_scan_range);
+TEST_F(DorisScanRangeTest, FixedIntersectionTest) {
+    TPaloScanRange doris_scan_range;
+    construct_scan_range(&doris_scan_range);
 
-    PaloScanRange scan_range(palo_scan_range);
+    DorisScanRange scan_range(doris_scan_range);
 
     ASSERT_TRUE(scan_range.init().ok());
 
@@ -745,12 +745,12 @@ TEST_F(PaloScanRangeTest, FixedIntersectionTest) {
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
     init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
-    palo::CpuInfo::Init();
+    doris::CpuInfo::Init();
     return RUN_ALL_TESTS();
 }

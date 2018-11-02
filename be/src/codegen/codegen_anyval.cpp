@@ -25,19 +25,19 @@ using llvm::Value;
 using llvm::ConstantInt;
 using llvm::Constant;
 
-namespace palo {
+namespace doris {
 
-const char* CodegenAnyVal::_s_llvm_booleanval_name   = "struct.palo_udf::BooleanVal";
-const char* CodegenAnyVal::_s_llvm_tinyintval_name   = "struct.palo_udf::TinyIntVal";
-const char* CodegenAnyVal::_s_llvm_smallintval_name  = "struct.palo_udf::SmallIntVal";
-const char* CodegenAnyVal::_s_llvm_intval_name       = "struct.palo_udf::IntVal";
-const char* CodegenAnyVal::_s_llvm_bigintval_name    = "struct.palo_udf::BigIntVal";
-const char* CodegenAnyVal::_s_llvm_largeintval_name  = "struct.palo_udf::LargeIntVal";
-const char* CodegenAnyVal::_s_llvm_floatval_name     = "struct.palo_udf::FloatVal";
-const char* CodegenAnyVal::_s_llvm_doubleval_name    = "struct.palo_udf::DoubleVal";
-const char* CodegenAnyVal::_s_llvm_stringval_name    = "struct.palo_udf::StringVal";
-const char* CodegenAnyVal::_s_llvm_datetimeval_name = "struct.palo_udf::DateTimeVal";
-const char* CodegenAnyVal::_s_llvm_decimalval_name   = "struct.palo_udf::DecimalVal";
+const char* CodegenAnyVal::_s_llvm_booleanval_name   = "struct.doris_udf::BooleanVal";
+const char* CodegenAnyVal::_s_llvm_tinyintval_name   = "struct.doris_udf::TinyIntVal";
+const char* CodegenAnyVal::_s_llvm_smallintval_name  = "struct.doris_udf::SmallIntVal";
+const char* CodegenAnyVal::_s_llvm_intval_name       = "struct.doris_udf::IntVal";
+const char* CodegenAnyVal::_s_llvm_bigintval_name    = "struct.doris_udf::BigIntVal";
+const char* CodegenAnyVal::_s_llvm_largeintval_name  = "struct.doris_udf::LargeIntVal";
+const char* CodegenAnyVal::_s_llvm_floatval_name     = "struct.doris_udf::FloatVal";
+const char* CodegenAnyVal::_s_llvm_doubleval_name    = "struct.doris_udf::DoubleVal";
+const char* CodegenAnyVal::_s_llvm_stringval_name    = "struct.doris_udf::StringVal";
+const char* CodegenAnyVal::_s_llvm_datetimeval_name = "struct.doris_udf::DateTimeVal";
+const char* CodegenAnyVal::_s_llvm_decimalval_name   = "struct.doris_udf::DecimalVal";
 
 Type* CodegenAnyVal::get_lowered_type(LlvmCodeGen* cg, const TypeDescriptor& type) {
     switch (type.type) {
@@ -51,7 +51,7 @@ Type* CodegenAnyVal::get_lowered_type(LlvmCodeGen* cg, const TypeDescriptor& typ
         return cg->bigint_type();
     case TYPE_BIGINT: // { i8, i64 }
         return llvm::StructType::get(cg->tinyint_type(), cg->bigint_type(), NULL);
-    case TYPE_LARGEINT: // %"struct.palo_udf::LargeIntVal" (isn't lowered)
+    case TYPE_LARGEINT: // %"struct.doris_udf::LargeIntVal" (isn't lowered)
         // = { {i8}, [15 x i8], i128 }
         return cg->get_type(_s_llvm_largeintval_name);
     case TYPE_FLOAT: // i64
@@ -63,10 +63,10 @@ Type* CodegenAnyVal::get_lowered_type(LlvmCodeGen* cg, const TypeDescriptor& typ
     case TYPE_HLL:
         return llvm::StructType::get(cg->bigint_type(), cg->ptr_type(), NULL);
     case TYPE_DATE:
-    case TYPE_DATETIME: // %"struct.palo_udf::DateTimeVal" (isn't lowered) 
+    case TYPE_DATETIME: // %"struct.doris_udf::DateTimeVal" (isn't lowered) 
         // = { {i8}, i64, i32 }
         return cg->get_type(_s_llvm_datetimeval_name);
-    case TYPE_DECIMAL: // %"struct.palo_udf::DecimalVal" (isn't lowered)
+    case TYPE_DECIMAL: // %"struct.doris_udf::DecimalVal" (isn't lowered)
         // = { {i8}, i8, i8, i8, [9 x i32] }
         return cg->get_type(_s_llvm_decimalval_name);
     default:

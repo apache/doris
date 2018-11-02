@@ -28,7 +28,7 @@
 #include "util/runtime_profile.h"
 #include "gen_cpp/PlanNodes_types.h"
 
-namespace palo {
+namespace doris {
 
 ExchangeNode::ExchangeNode(
         ObjectPool* pool,

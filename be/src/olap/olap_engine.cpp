@@ -46,7 +46,7 @@
 #include "olap/utils.h"
 #include "olap/writer.h"
 #include "util/time.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
 
 using apache::thrift::ThriftDebugString;
@@ -68,7 +68,7 @@ using std::string;
 using std::stringstream;
 using std::vector;
 
-namespace palo {
+namespace doris {
 
 OLAPEngine* OLAPEngine::_s_instance = nullptr;
 const std::string HTTP_REQUEST_PREFIX = "/api/_tablet/_download?";
@@ -1156,7 +1156,7 @@ OLAPStatus OLAPEngine::drop_table(
         TTabletId tablet_id, SchemaHash schema_hash, bool keep_files) {
     LOG(INFO) << "begin to process drop table."
         << "table=" << tablet_id << ", schema_hash=" << schema_hash;
-    PaloMetrics::drop_tablet_requests_total.increment(1);
+    DorisMetrics::drop_tablet_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -1511,7 +1511,7 @@ void OLAPEngine::_build_tablet_info(OLAPTablePtr olap_table, TTabletInfo* tablet
 }
 
 OLAPStatus OLAPEngine::report_tablet_info(TTabletInfo* tablet_info) {
-    PaloMetrics::report_tablet_requests_total.increment(1);
+    DorisMetrics::report_tablet_requests_total.increment(1);
     OLAP_LOG_INFO("begin to process report tablet info. "
                   "[table=%ld schema_hash=%d]",
                   tablet_info->tablet_id, tablet_info->schema_hash);
@@ -1533,7 +1533,7 @@ OLAPStatus OLAPEngine::report_tablet_info(TTabletInfo* tablet_info) {
 
 OLAPStatus OLAPEngine::report_all_tablets_info(std::map<TTabletId, TTablet>* tablets_info) {
     OLAP_LOG_INFO("begin to process report all tablets info.");
-    PaloMetrics::report_all_tablets_requests_total.increment(1);
+    DorisMetrics::report_all_tablets_requests_total.increment(1);
 
     if (tablets_info == NULL) {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
@@ -2039,7 +2039,7 @@ void OLAPEngine::_cancel_unfinished_schema_change() {
                 continue;
             }
 
-            // PALO-3741. Upon restart, it should not clear schema change request.
+            // DORIS-3741. Upon restart, it should not clear schema change request.
             new_olap_table->set_schema_change_status(
                     ALTER_TABLE_FAILED, new_olap_table->schema_hash(), -1);
             olap_table->set_schema_change_status(
@@ -2138,7 +2138,7 @@ OLAPStatus OLAPEngine::create_table(const TCreateTabletReq& request) {
     OLAP_LOG_INFO("begin to process create table. [tablet=%ld, schema_hash=%d]",
                   request.tablet_id, request.tablet_schema.schema_hash);
 
-    PaloMetrics::create_tablet_requests_total.increment(1);
+    DorisMetrics::create_tablet_requests_total.increment(1);
 
     // 1. Make sure create_table operation is idempotent:
     //    return success if table with same tablet_id and schema_hash exist,
@@ -2208,7 +2208,7 @@ OLAPStatus OLAPEngine::create_table(const TCreateTabletReq& request) {
 
     // 7. clear environment
     if (res != OLAP_SUCCESS) {
-        PaloMetrics::create_tablet_requests_failed.increment(1);
+        DorisMetrics::create_tablet_requests_failed.increment(1);
         if (is_table_added) {
             OLAPStatus status = drop_table(
                     request.tablet_id, request.tablet_schema.schema_hash);
@@ -2228,7 +2228,7 @@ OLAPStatus OLAPEngine::schema_change(const TAlterTabletReq& request) {
     OLAP_LOG_INFO("begin to schema change. [base_table=%ld new_table=%ld]",
                   request.base_tablet_id, request.new_tablet_req.tablet_id);
 
-    PaloMetrics::schema_change_requests_total.increment(1);
+    DorisMetrics::schema_change_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -2239,7 +2239,7 @@ OLAPStatus OLAPEngine::schema_change(const TAlterTabletReq& request) {
         OLAP_LOG_WARNING("failed to do schema change. "
                          "[base_table=%ld new_table=%ld] [res=%d]",
                          request.base_tablet_id, request.new_tablet_req.tablet_id, res);
-        PaloMetrics::schema_change_requests_failed.increment(1);
+        DorisMetrics::schema_change_requests_failed.increment(1);
         return res;
     }
 
@@ -2254,7 +2254,7 @@ OLAPStatus OLAPEngine::create_rollup_table(const TAlterTabletReq& request) {
                   "[base_table=%ld new_table=%ld]",
                   request.base_tablet_id, request.new_tablet_req.tablet_id);
 
-    PaloMetrics::create_rollup_requests_total.increment(1);
+    DorisMetrics::create_rollup_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -2265,7 +2265,7 @@ OLAPStatus OLAPEngine::create_rollup_table(const TAlterTabletReq& request) {
         OLAP_LOG_WARNING("failed to do rollup. "
                          "[base_table=%ld new_table=%ld] [res=%d]",
                          request.base_tablet_id, request.new_tablet_req.tablet_id, res);
-        PaloMetrics::create_rollup_requests_failed.increment(1);
+        DorisMetrics::create_rollup_requests_failed.increment(1);
         return res;
     }
 
@@ -2390,7 +2390,7 @@ OLAPStatus OLAPEngine::cancel_delete(const TCancelDeleteDataReq& request) {
     OLAP_LOG_INFO("begin to process cancel delete. [table=%ld version=%ld]",
                   request.tablet_id, request.version);
 
-    PaloMetrics::cancel_delete_requests_total.increment(1);
+    DorisMetrics::cancel_delete_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -2438,7 +2438,7 @@ OLAPStatus OLAPEngine::delete_data(
         vector<TTabletInfo>* tablet_info_vec) {
     OLAP_LOG_INFO("begin to process delete data. [request='%s']",
                   ThriftDebugString(request).c_str());
-    PaloMetrics::delete_requests_total.increment(1);
+    DorisMetrics::delete_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -2467,7 +2467,7 @@ OLAPStatus OLAPEngine::delete_data(
         OLAP_LOG_WARNING("fail to push empty version for delete data. "
                          "[res=%d table='%s']",
                          res, table->full_name().c_str());
-        PaloMetrics::delete_requests_failed.increment(1);
+        DorisMetrics::delete_requests_failed.increment(1);
         return res;
     }
 
@@ -2496,7 +2496,7 @@ string OLAPEngine::get_info_before_incremental_clone(OLAPTablePtr tablet,
     // prevent lastest version not replaced (if need to rewrite) after node restart
     const PDelta* least_complete_version = tablet->least_complete_version(*missing_versions);
     if (least_complete_version != NULL) {
-        // TODO: Used in upgraded. If old Palo version, version can be converted.
+        // TODO: Used in upgraded. If old Doris version, version can be converted.
         Version version(least_complete_version->start_version(), least_complete_version->end_version()); 
         missing_versions->push_back(version);
         LOG(INFO) << "least complete version for incremental clone. table=" << tablet->full_name() << ", "
@@ -2786,7 +2786,7 @@ OLAPStatus OLAPEngine::push(
 
     if (tablet_info_vec == NULL) {
         OLAP_LOG_WARNING("invalid output parameter which is null pointer.");
-        PaloMetrics::push_requests_fail_total.increment(1);
+        DorisMetrics::push_requests_fail_total.increment(1);
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
 
@@ -2795,7 +2795,7 @@ OLAPStatus OLAPEngine::push(
     if (NULL == olap_table.get()) {
         OLAP_LOG_WARNING("false to find table. [table=%ld schema_hash=%d]",
                          request.tablet_id, request.schema_hash);
-        PaloMetrics::push_requests_fail_total.increment(1);
+        DorisMetrics::push_requests_fail_total.increment(1);
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
@@ -2821,16 +2821,16 @@ OLAPStatus OLAPEngine::push(
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to push delta, table=" << olap_table->full_name().c_str()
             << ",cost=" << PrettyPrinter::print(duration_ns, TUnit::TIME_NS);
-        PaloMetrics::push_requests_fail_total.increment(1);
+        DorisMetrics::push_requests_fail_total.increment(1);
     } else {
         LOG(INFO) << "success to push delta, table=" << olap_table->full_name().c_str()
             << ",cost=" << PrettyPrinter::print(duration_ns, TUnit::TIME_NS);
-        PaloMetrics::push_requests_success_total.increment(1);
-        PaloMetrics::push_request_duration_us.increment(duration_ns / 1000);
-        PaloMetrics::push_request_write_bytes.increment(push_handler.write_bytes());
-        PaloMetrics::push_request_write_rows.increment(push_handler.write_rows());
+        DorisMetrics::push_requests_success_total.increment(1);
+        DorisMetrics::push_request_duration_us.increment(duration_ns / 1000);
+        DorisMetrics::push_request_write_bytes.increment(push_handler.write_bytes());
+        DorisMetrics::push_request_write_rows.increment(push_handler.write_rows());
     }
     return res;
 }
 
-}  // namespace palo
+}  // namespace doris

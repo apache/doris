@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_BUFFERPOOL_RESERVATION_UTIL_H_
-#define BDG_PALO_BE_RUNTIME_BUFFERPOOL_RESERVATION_UTIL_H_
+#ifndef DORIS_BE_RUNTIME_BUFFERPOOL_RESERVATION_UTIL_H_
+#define DORIS_BE_RUNTIME_BUFFERPOOL_RESERVATION_UTIL_H_
 
 #include <stdint.h>
 
-namespace palo {
+namespace doris {
 
 /// Utility code related to buffer reservations.
 class ReservationUtil {

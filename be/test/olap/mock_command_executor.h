@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_MOCK_MOCK_COMMAND_EXECUTOR_H
-#define BDG_PALO_BE_SRC_OLAP_MOCK_MOCK_COMMAND_EXECUTOR_H
+#ifndef DORIS_BE_SRC_OLAP_MOCK_MOCK_COMMAND_EXECUTOR_H
+#define DORIS_BE_SRC_OLAP_MOCK_MOCK_COMMAND_EXECUTOR_H
 
 #include "gmock/gmock.h"
 #include "olap/olap_engine.h"
 
-namespace palo {
+namespace doris {
 
 class MockCommandExecutor : public OLAPEngine {
 public:
@@ -107,6 +107,6 @@ public:
                     bool is_incremental_clone));
 };
 
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_MOCK_MOCK_COMMAND_EXECUTOR_H
+#endif // DORIS_BE_SRC_OLAP_MOCK_MOCK_COMMAND_EXECUTOR_H

@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR2_H
-#define BDG_PALO_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR2_H
+#ifndef DORIS_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR2_H
+#define DORIS_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR2_H
 
 #include <boost/ptr_container/ptr_vector.hpp>
 #include <boost/scoped_array.hpp>
@@ -26,7 +26,7 @@
 #include "runtime/disk_io_mgr.h"
 #include "runtime/tmp_file_mgr.h"
 
-namespace palo {
+namespace doris {
 
 class RuntimeState;
 
@@ -640,7 +640,7 @@ private:
 
 }; // class BufferedBlockMgr2
 
-} // end namespace palo
+} // end namespace doris
 
-#endif // BDG_PALO_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR2_H
+#endif // DORIS_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR2_H
 

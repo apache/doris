@@ -22,7 +22,7 @@
 #include "util/metrics.h"
 #include "util/logging.h"
 
-namespace palo {
+namespace doris {
 
 TEST(MemTestTest, SingleTrackerNoLimit) {
     MemTracker t(-1);
@@ -251,15 +251,15 @@ TEST(MemTestTest, GcFunctions) {
 }
 #endif // enf #if 0
 
-} // end namespace palo
+} // end namespace doris
 
 int main(int argc, char** argv) {
     // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!palo::config::init(conffile.c_str(), false)) {
+    // if (!doris::config::init(conffile.c_str(), false)) {
     //     fprintf(stderr, "error read config file. \n");
     //     return -1;
     // }
-    palo::init_glog("be-test");
+    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
 
     return RUN_ALL_TESTS();

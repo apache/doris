@@ -17,7 +17,7 @@
 
 #include "exec/empty_set_node.h"
 
-namespace palo {
+namespace doris {
 
 EmptySetNode::EmptySetNode(ObjectPool* pool, const TPlanNode& tnode,
                      const DescriptorTbl& descs)

@@ -32,7 +32,7 @@
 #include "runtime/primitive_type.h"
 #include "gen_cpp/Types_types.h"
 
-namespace palo {
+namespace doris {
 
 struct TestDataTuple {
     int8_t tiny_val;
@@ -211,7 +211,7 @@ TEST_F(DppWriterTest, normalCase) {
 
 int main(int argc, char** argv) {
     // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!palo::config::init(conffile.c_str(), false)) {
+    // if (!doris::config::init(conffile.c_str(), false)) {
     //     fprintf(stderr, "error read config file. \n");
     //     return -1;
     // }

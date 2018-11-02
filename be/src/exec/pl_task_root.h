@@ -19,7 +19,7 @@
 
 #include "exec/exec_node.h"
 
-namespace palo {
+namespace doris {
 
 // Pull load task root
 class PlTaskRoot : public ExecNode {

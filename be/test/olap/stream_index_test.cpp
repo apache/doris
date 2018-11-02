@@ -34,7 +34,7 @@
 
 using namespace std;
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 class TestStreamIndex : public testing::Test {
@@ -388,12 +388,12 @@ TEST_F(TestStreamIndex, statistic) {
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    palo::init_glog("be-test");
-    int ret = palo::OLAP_SUCCESS;
+    doris::init_glog("be-test");
+    int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
     ret = RUN_ALL_TESTS();
     google::protobuf::ShutdownProtobufLibrary();

@@ -33,7 +33,7 @@ using ::testing::Return;
 using ::testing::SetArgPointee;
 using std::string;
 
-namespace palo {
+namespace doris {
 
 class OlapMetaTest : public testing::Test {
 public:
@@ -115,7 +115,7 @@ TEST_F(OlapMetaTest, TestIterate) {
     ASSERT_EQ(OLAP_SUCCESS, s);
 }
 
-}  // namespace palo
+}  // namespace doris
 
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);

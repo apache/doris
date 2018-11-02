@@ -20,7 +20,7 @@
 #include "exec/line_reader.h"
 #include "util/runtime_profile.h"
 
-namespace palo {
+namespace doris {
 
 class FileReader;
 class Decompressor;

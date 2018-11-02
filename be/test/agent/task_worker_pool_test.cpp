@@ -39,7 +39,7 @@ using ::testing::SetArgPointee;
 using std::string;
 using std::deque;
 
-namespace palo {
+namespace doris {
 
 MockFileDownloader::MockFileDownloader(const FileDownloaderParam& param):FileDownloader(param) {
 }
@@ -376,13 +376,13 @@ TEST(TaskWorkerPoolTest, TestFinishTask) {
     TFinishTaskRequest finish_task_request;
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(TASK_FINISH_MAX_RETRY)
-            .WillRepeatedly(Return(PALO_ERROR));
+            .WillRepeatedly(Return(DORIS_ERROR));
     task_worker_pool._finish_task(finish_task_request);
 
     // Finish task success
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
     task_worker_pool._finish_task(finish_task_request);
 
     task_worker_pool._master_client = original_master_server_client;
@@ -416,7 +416,7 @@ TEST(TaskWorkerPoolTest, TestCreateTable) {
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -431,7 +431,7 @@ TEST(TaskWorkerPoolTest, TestCreateTable) {
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -472,7 +472,7 @@ TEST(TaskWorkerPoolTest, TestDropTableTask) {
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -487,7 +487,7 @@ TEST(TaskWorkerPoolTest, TestDropTableTask) {
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -540,7 +540,7 @@ TEST(TaskWorkerPoolTest, TestSchemaChange) {
             .Times(0);
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -565,7 +565,7 @@ TEST(TaskWorkerPoolTest, TestSchemaChange) {
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -593,7 +593,7 @@ TEST(TaskWorkerPoolTest, TestSchemaChange) {
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -619,7 +619,7 @@ TEST(TaskWorkerPoolTest, TestSchemaChange) {
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -674,7 +674,7 @@ TEST(TaskWorkerPoolTest, TestRollup) {
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -717,12 +717,12 @@ TEST(TaskWorkerPoolTest, TestPush) {
     agent_task_request.push_req.push_type = TPushType::LOAD;
     EXPECT_CALL(mock_pusher, init())
             .Times(1)
-            .WillOnce(Return(PALO_ERROR));
+            .WillOnce(Return(DORIS_ERROR));
     EXPECT_CALL(mock_pusher, process(_))
             .Times(0);
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -734,13 +734,13 @@ TEST(TaskWorkerPoolTest, TestPush) {
     // Push type load, push init success, push failed
     EXPECT_CALL(mock_pusher, init())
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
     EXPECT_CALL(mock_pusher, process(_))
             .Times(PUSH_MAX_RETRY)
-            .WillRepeatedly(Return(PALO_ERROR));
+            .WillRepeatedly(Return(DORIS_ERROR));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -752,13 +752,13 @@ TEST(TaskWorkerPoolTest, TestPush) {
     // Push type load, push init success, push success
     EXPECT_CALL(mock_pusher, init())
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
     EXPECT_CALL(mock_pusher, process(_))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -774,7 +774,7 @@ TEST(TaskWorkerPoolTest, TestPush) {
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -789,7 +789,7 @@ TEST(TaskWorkerPoolTest, TestPush) {
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -830,7 +830,7 @@ TEST(TaskWorkerPoolTest, TestPublishVersionTask) {
             .WillRepeatedly(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -845,7 +845,7 @@ TEST(TaskWorkerPoolTest, TestPublishVersionTask) {
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -930,10 +930,10 @@ TEST(TaskWorkerPoolTest, TestClone) {
             .Times(1);
     EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request2, _))
             .Times(clone_req.src_backends.size())
-            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request, _))
             .Times(clone_req.src_backends.size())
-            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_agent_server_client, release_snapshot(_, _))
             .Times(0);
     EXPECT_CALL(mock_command_executor, finish_clone(_, _, _, _))
@@ -942,7 +942,7 @@ TEST(TaskWorkerPoolTest, TestClone) {
             .Times(0);
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -968,21 +968,21 @@ TEST(TaskWorkerPoolTest, TestClone) {
             .WillOnce(Return("./test_data/5/6"));
     EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request2, _))
             .Times(1)
-            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, list_file_dir(_))
             .Times(1)
             .WillOnce(
-                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(PALO_SUCCESS)));
+                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(DORIS_SUCCESS)));
     uint64_t file_size = 4;
     EXPECT_CALL(mock_file_downloader, get_length(_))
             .Times(3)
-            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, download_file())
             .Times(3)
-            .WillRepeatedly(Return(PALO_SUCCESS));
+            .WillRepeatedly(Return(DORIS_SUCCESS));
     EXPECT_CALL(mock_agent_server_client, release_snapshot(_, _))
             .Times(1)
-            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_command_executor, finish_clone(_, _, _, _))
             .Times(1)
             .WillOnce(Return(OLAP_ERR_OTHER_ERROR));
@@ -990,7 +990,7 @@ TEST(TaskWorkerPoolTest, TestClone) {
             .Times(0);
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -1012,20 +1012,20 @@ TEST(TaskWorkerPoolTest, TestClone) {
             .WillOnce(Return("./test_data/5/6"));
     EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request2, _))
             .Times(1)
-            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, list_file_dir(_))
             .Times(1)
             .WillOnce(
-                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(PALO_SUCCESS)));
+                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, get_length(_))
             .Times(3)
-            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, download_file())
             .Times(3)
-            .WillRepeatedly(Return(PALO_SUCCESS));
+            .WillRepeatedly(Return(DORIS_SUCCESS));
     EXPECT_CALL(mock_agent_server_client, release_snapshot(_, _))
             .Times(1)
-            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_command_executor, finish_clone(_, _, _, _))
             .Times(1)
             .WillOnce(Return(OLAP_SUCCESS));
@@ -1034,7 +1034,7 @@ TEST(TaskWorkerPoolTest, TestClone) {
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -1057,23 +1057,23 @@ TEST(TaskWorkerPoolTest, TestClone) {
             .WillOnce(Return("./test_data/5/6"));
     EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request2, _))
             .Times(clone_req.src_backends.size())
-            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request, _))
             .Times(1)
-            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, list_file_dir(_))
             .Times(1)
             .WillOnce(
-                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(PALO_SUCCESS)));
+                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, get_length(_))
             .Times(3)
-            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, download_file())
             .Times(3)
-            .WillRepeatedly(Return(PALO_SUCCESS));
+            .WillRepeatedly(Return(DORIS_SUCCESS));
     EXPECT_CALL(mock_agent_server_client, release_snapshot(_, _))
             .Times(1)
-            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_command_executor, finish_clone(_, _, _, _))
             .Times(1)
             .WillOnce(Return(OLAP_ERR_OTHER_ERROR));
@@ -1081,7 +1081,7 @@ TEST(TaskWorkerPoolTest, TestClone) {
             .Times(0);
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -1104,23 +1104,23 @@ TEST(TaskWorkerPoolTest, TestClone) {
             .WillOnce(Return("./test_data/5/6"));
     EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request2, _))
             .Times(clone_req.src_backends.size())
-            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request, _))
             .Times(1)
-            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, list_file_dir(_))
             .Times(1)
             .WillOnce(
-                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(PALO_SUCCESS)));
+                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, get_length(_))
             .Times(3)
-            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, download_file())
             .Times(3)
-            .WillRepeatedly(Return(PALO_SUCCESS));
+            .WillRepeatedly(Return(DORIS_SUCCESS));
     EXPECT_CALL(mock_agent_server_client, release_snapshot(_, _))
             .Times(1)
-            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_command_executor, finish_clone(_, _, _, _))
             .Times(1)
             .WillOnce(Return(OLAP_SUCCESS));
@@ -1128,7 +1128,7 @@ TEST(TaskWorkerPoolTest, TestClone) {
             .Times(1);
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -1151,7 +1151,7 @@ TEST(TaskWorkerPoolTest, TestClone) {
             .Times(0);
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -1172,16 +1172,16 @@ TEST(TaskWorkerPoolTest, TestClone) {
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request, _))
             .Times(clone_req.src_backends.size())
-            .WillOnce(DoAll(SetArgPointee<1>(agent_result), Return(PALO_SUCCESS)))
-            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)))
-            .WillOnce(DoAll(SetArgPointee<1>(agent_result), Return(PALO_SUCCESS)));
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result), Return(DORIS_SUCCESS)))
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result2), Return(DORIS_SUCCESS)))
+            .WillOnce(DoAll(SetArgPointee<1>(agent_result), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_agent_server_client, release_snapshot(_, _))
             .Times(0);
     EXPECT_CALL(mock_command_executor, report_tablet_info(_))
             .Times(0);
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -1210,18 +1210,18 @@ TEST(TaskWorkerPoolTest, TestClone) {
     snapshot_request.__set_schema_hash(agent_task_request.clone_req.schema_hash);
     EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request, _))
             .Times(clone_req.src_backends.size())
-            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result2), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, list_file_dir(_))
             .Times(clone_req.src_backends.size() * DOWNLOAD_FILE_MAX_RETRY)
-            .WillRepeatedly(Return(PALO_ERROR));
+            .WillRepeatedly(Return(DORIS_ERROR));
     EXPECT_CALL(mock_agent_server_client, release_snapshot(_, _))
             .Times(clone_req.src_backends.size())
-            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_command_executor, report_tablet_info(_))
             .Times(0);
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -1246,22 +1246,22 @@ TEST(TaskWorkerPoolTest, TestClone) {
     snapshot_request.__set_schema_hash(agent_task_request.clone_req.schema_hash);
     EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request, _))
             .Times(clone_req.src_backends.size())
-            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result2), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, list_file_dir(_))
             .Times(clone_req.src_backends.size())
             .WillRepeatedly(
-                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(PALO_SUCCESS)));
+                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, get_length(_))
             .Times(clone_req.src_backends.size() * DOWNLOAD_FILE_MAX_RETRY)
-            .WillRepeatedly(Return(PALO_ERROR));
+            .WillRepeatedly(Return(DORIS_ERROR));
     EXPECT_CALL(mock_agent_server_client, release_snapshot(_, _))
             .Times(clone_req.src_backends.size())
-            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_command_executor, report_tablet_info(_))
             .Times(0);
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -1287,25 +1287,25 @@ TEST(TaskWorkerPoolTest, TestClone) {
     snapshot_request.__set_schema_hash(agent_task_request.clone_req.schema_hash);
     EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request, _))
             .Times(clone_req.src_backends.size())
-            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result2), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, list_file_dir(_))
             .Times(clone_req.src_backends.size())
             .WillRepeatedly(
-                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(PALO_SUCCESS)));
+                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, get_length(_))
             .Times(clone_req.src_backends.size())
-            .WillRepeatedly(Return(PALO_SUCCESS));
+            .WillRepeatedly(Return(DORIS_SUCCESS));
     EXPECT_CALL(mock_file_downloader, download_file())
             .Times(clone_req.src_backends.size() * DOWNLOAD_FILE_MAX_RETRY)
-            .WillRepeatedly(Return(PALO_ERROR));
+            .WillRepeatedly(Return(DORIS_ERROR));
     EXPECT_CALL(mock_agent_server_client, release_snapshot(_, _))
             .Times(clone_req.src_backends.size())
-            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_command_executor, report_tablet_info(_))
             .Times(0);
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -1331,26 +1331,26 @@ TEST(TaskWorkerPoolTest, TestClone) {
     snapshot_request.__set_schema_hash(agent_task_request.clone_req.schema_hash);
     EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request, _))
             .Times(clone_req.src_backends.size())
-            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result2), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, list_file_dir(_))
             .Times(clone_req.src_backends.size())
             .WillRepeatedly(
-                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(PALO_SUCCESS)));
+                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(DORIS_SUCCESS)));
     file_size = 5;
     EXPECT_CALL(mock_file_downloader, get_length(_))
             .Times(clone_req.src_backends.size())
-            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, download_file())
             .Times(clone_req.src_backends.size() * DOWNLOAD_FILE_MAX_RETRY)
-            .WillRepeatedly(Return(PALO_SUCCESS));
+            .WillRepeatedly(Return(DORIS_SUCCESS));
     EXPECT_CALL(mock_agent_server_client, release_snapshot(_, _))
             .Times(clone_req.src_backends.size())
-            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_command_executor, report_tablet_info(_))
             .Times(0);
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -1376,29 +1376,29 @@ TEST(TaskWorkerPoolTest, TestClone) {
     snapshot_request.__set_schema_hash(agent_task_request.clone_req.schema_hash);
     EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request, _))
             .Times(1)
-            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result2), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, list_file_dir(_))
             .Times(1)
             .WillRepeatedly(
-                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(PALO_SUCCESS)));
+                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(DORIS_SUCCESS)));
     file_size = 4;
     EXPECT_CALL(mock_file_downloader, get_length(_))
             .Times(3)
-            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, download_file())
             .Times(3)
-            .WillRepeatedly(Return(PALO_SUCCESS));
+            .WillRepeatedly(Return(DORIS_SUCCESS));
     EXPECT_CALL(mock_command_executor, load_header(_, _, _))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_agent_server_client, release_snapshot(_, _))
             .Times(1)
-            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_command_executor, report_tablet_info(_))
             .Times(0);
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
     
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -1425,30 +1425,30 @@ TEST(TaskWorkerPoolTest, TestClone) {
     snapshot_request.__set_schema_hash(agent_task_request.clone_req.schema_hash);
     EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request, _))
             .Times(1)
-            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result2), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, list_file_dir(_))
             .Times(1)
             .WillRepeatedly(
-                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(PALO_SUCCESS)));
+                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(DORIS_SUCCESS)));
     file_size = 4;
     EXPECT_CALL(mock_file_downloader, get_length(_))
             .Times(3)
-            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, download_file())
             .Times(3)
-            .WillRepeatedly(Return(PALO_SUCCESS));
+            .WillRepeatedly(Return(DORIS_SUCCESS));
     EXPECT_CALL(mock_command_executor, load_header(_, _, _))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_agent_server_client, release_snapshot(_, _))
             .Times(1)
-            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(PALO_ERROR)));
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(DORIS_ERROR)));
     EXPECT_CALL(mock_command_executor, report_tablet_info(_))
             .Times(1)
             .WillOnce(Return(OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -1475,30 +1475,30 @@ TEST(TaskWorkerPoolTest, TestClone) {
     snapshot_request.__set_schema_hash(agent_task_request.clone_req.schema_hash);
     EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request, _))
             .Times(1)
-            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result2), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result2), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, list_file_dir(_))
             .Times(1)
             .WillRepeatedly(
-                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(PALO_SUCCESS)));
+                    DoAll(SetArgPointee<0>("1.hdr\n1.idx\n1.dat"), Return(DORIS_SUCCESS)));
     file_size = 4;
     EXPECT_CALL(mock_file_downloader, get_length(_))
             .Times(3)
-            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<0>(file_size), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_file_downloader, download_file())
             .Times(3)
-            .WillRepeatedly(Return(PALO_SUCCESS));
+            .WillRepeatedly(Return(DORIS_SUCCESS));
     EXPECT_CALL(mock_command_executor, load_header(_, _, _))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_agent_server_client, release_snapshot(_, _))
             .Times(1)
-            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(PALO_SUCCESS)));
+            .WillRepeatedly(DoAll(SetArgPointee<1>(agent_result), Return(DORIS_SUCCESS)));
     EXPECT_CALL(mock_command_executor, report_tablet_info(_))
             .Times(1)
             .WillOnce(Return(OLAP_SUCCESS));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -1541,7 +1541,7 @@ TEST(TaskWorkerPoolTest, TestCancelDeleteData) {
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -1556,7 +1556,7 @@ TEST(TaskWorkerPoolTest, TestCancelDeleteData) {
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
 
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
@@ -1593,13 +1593,13 @@ TEST(TaskWorkerPoolTest, TestReportTask) {
     // Report failed
     EXPECT_CALL(mock_master_server_client, report(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_ERROR));
+            .WillOnce(Return(DORIS_ERROR));
     task_worker_pool._report_task_worker_thread_callback(&task_worker_pool);
 
     // Report success
     EXPECT_CALL(mock_master_server_client, report(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
     task_worker_pool._report_task_worker_thread_callback(&task_worker_pool);
 
     task_worker_pool._command_executor = original_command_executor;
@@ -1643,7 +1643,7 @@ TEST(TaskWorkerPoolTest, TestReportDiskState) {
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_master_server_client, report(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_ERROR));
+            .WillOnce(Return(DORIS_ERROR));
     task_worker_pool._report_disk_state_worker_thread_callback(&task_worker_pool);
 
     // Get root path success, report success
@@ -1652,7 +1652,7 @@ TEST(TaskWorkerPoolTest, TestReportDiskState) {
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_master_server_client, report(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
     task_worker_pool._report_disk_state_worker_thread_callback(&task_worker_pool);
 
     task_worker_pool._command_executor = original_command_executor;
@@ -1691,7 +1691,7 @@ TEST(TaskWorkerPoolTest, TestReportOlapTable) {
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_master_server_client, report(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_ERROR));
+            .WillOnce(Return(DORIS_ERROR));
     task_worker_pool._report_olap_table_worker_thread_callback(&task_worker_pool);
 
     // Get tablet info success, report success
@@ -1700,7 +1700,7 @@ TEST(TaskWorkerPoolTest, TestReportOlapTable) {
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_master_server_client, report(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
     task_worker_pool._report_olap_table_worker_thread_callback(&task_worker_pool);
 
     task_worker_pool._command_executor = original_command_executor;
@@ -1738,7 +1738,7 @@ TEST(TaskWorkerPoolTest, TestMakeSnapshot) {
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
     task_worker_pool._make_snapshot_thread_callback(&task_worker_pool);
     EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(0, task_worker_pool._tasks.size());    
@@ -1752,7 +1752,7 @@ TEST(TaskWorkerPoolTest, TestMakeSnapshot) {
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
     task_worker_pool._make_snapshot_thread_callback(&task_worker_pool);
     EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
 
@@ -1791,7 +1791,7 @@ TEST(TaskWorkerPoolTest, TestReleaseSnapshot) {
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
     task_worker_pool._release_snapshot_thread_callback(&task_worker_pool);
     EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(0, task_worker_pool._tasks.size());    
@@ -1805,7 +1805,7 @@ TEST(TaskWorkerPoolTest, TestReleaseSnapshot) {
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
     task_worker_pool._release_snapshot_thread_callback(&task_worker_pool);
     EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
 
@@ -1832,14 +1832,14 @@ TEST(TaskWorkerPoolTest, TestShowAlterTableStatus) {
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     AgentStatus status = task_worker_pool._get_tablet_info(1, 2, 123456, &tablet_info);
-    EXPECT_EQ(PALO_ERROR, status);
+    EXPECT_EQ(DORIS_ERROR, status);
 
     // Get tablet info success
     EXPECT_CALL(mock_command_executor, report_tablet_info(_))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     status = task_worker_pool._get_tablet_info(1, 2, 123456, &tablet_info);
-    EXPECT_EQ(PALO_SUCCESS, status);
+    EXPECT_EQ(DORIS_SUCCESS, status);
 
     task_worker_pool._command_executor = original_command_executor;
 }
@@ -1887,14 +1887,14 @@ TEST(TaskWorkerPoolTest, TestGetTabletInfo) {
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     AgentStatus status = task_worker_pool._get_tablet_info(1, 2, 123456, &tablet_info);
-    EXPECT_EQ(PALO_ERROR, status);
+    EXPECT_EQ(DORIS_ERROR, status);
     
     // Report tablet info success
     EXPECT_CALL(mock_command_executor, report_tablet_info(_))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     status = task_worker_pool._get_tablet_info(1, 2, 123456, &tablet_info);
-    EXPECT_EQ(PALO_SUCCESS, status);
+    EXPECT_EQ(DORIS_SUCCESS, status);
 
     task_worker_pool._command_executor = original_command_executor;
 }
@@ -1903,11 +1903,11 @@ TEST(TaskWorkerPoolTest, TestGetTabletInfo) {
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    palo::init_glog("be-test");
+    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

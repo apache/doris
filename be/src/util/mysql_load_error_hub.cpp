@@ -19,7 +19,7 @@
 
 #include "util/defer_op.h"
 
-namespace palo {
+namespace doris {
 
 MysqlLoadErrorHub::MysqlLoadErrorHub(const TMysqlErrorHubInfo& info) : _info(info) {
 }
@@ -146,5 +146,5 @@ std::string MysqlLoadErrorHub::debug_string() const {
     return out.str();
 }
 
-} // end namespace palo
+} // end namespace doris
 

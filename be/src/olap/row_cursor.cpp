@@ -24,7 +24,7 @@ using std::nothrow;
 using std::string;
 using std::vector;
 
-namespace palo {
+namespace doris {
 RowCursor::RowCursor() :
         _key_column_num(0),
         _fixed_len(0),
@@ -494,4 +494,4 @@ OLAPStatus RowCursor::get_first_different_column_id(const RowCursor& other,
     return OLAP_SUCCESS;
 }
 
-}  // namespace palo
+}  // namespace doris

@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UTIL_BLOCKING_QUEUE_HPP
-#define BDG_PALO_BE_SRC_COMMON_UTIL_BLOCKING_QUEUE_HPP
+#ifndef DORIS_BE_SRC_COMMON_UTIL_BLOCKING_QUEUE_HPP
+#define DORIS_BE_SRC_COMMON_UTIL_BLOCKING_QUEUE_HPP
 
 #include <list>
 #include <unistd.h>
@@ -26,7 +26,7 @@
 #include "common/logging.h"
 #include "util/stopwatch.hpp"
 
-namespace palo {
+namespace doris {
 
 // Fixed capacity FIFO queue, where both BlockingGet and BlockingPut operations block
 // if the queue is empty or full, respectively.

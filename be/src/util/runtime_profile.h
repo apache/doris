@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UTIL_RUNTIME_PROFILE_H
-#define BDG_PALO_BE_SRC_COMMON_UTIL_RUNTIME_PROFILE_H
+#ifndef DORIS_BE_SRC_COMMON_UTIL_RUNTIME_PROFILE_H
+#define DORIS_BE_SRC_COMMON_UTIL_RUNTIME_PROFILE_H
 
 #include <boost/function.hpp>
 #include <boost/scoped_ptr.hpp>
@@ -31,7 +31,7 @@
 #include "util/stopwatch.hpp"
 #include "gen_cpp/RuntimeProfile_types.h"
 
-namespace palo {
+namespace doris {
 
 // Define macros for updating counters.  The macros make it very easy to disable
 // all counters at compile time.  Set this to 0 to remove counters.  This is useful

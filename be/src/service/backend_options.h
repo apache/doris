@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SERVICE_BACKEND_OPTIONS_H
-#define BDG_PALO_BE_SERVICE_BACKEND_OPTIONS_H
+#ifndef DORIS_BE_SERVICE_BACKEND_OPTIONS_H
+#define DORIS_BE_SERVICE_BACKEND_OPTIONS_H
 
 #include <string>
 #include <vector>
 #include <gutil/macros.h>
 
-namespace palo {
+namespace doris {
 
 class CIDR;
 
@@ -43,4 +43,4 @@ private:
 
 }
 
-#endif //BDG_PALO_BE_SERVICE_BACKEND_OPTIONS_H
+#endif //DORIS_BE_SERVICE_BACKEND_OPTIONS_H

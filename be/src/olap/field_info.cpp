@@ -21,7 +21,7 @@
 using std::nothrow;
 using std::string;
 
-namespace palo {
+namespace doris {
 
 FieldType FieldInfo::get_field_type_by_string(const string& type_str) {
     string upper_type_str = type_str;
@@ -231,4 +231,4 @@ uint32_t FieldInfo::get_field_length_by_type(TPrimitiveType::type type, uint32_t
     }
 }
 
-}  // namespace palo
+}  // namespace doris

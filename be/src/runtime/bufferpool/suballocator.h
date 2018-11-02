@@ -23,7 +23,7 @@
 
 #include "runtime/bufferpool/buffer_pool.h"
 
-namespace palo {
+namespace doris {
 
 class Suballocation;
 

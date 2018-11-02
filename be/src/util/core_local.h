@@ -27,7 +27,7 @@
 #include "common/compiler_util.h"
 #include "gutil/macros.h"
 
-namespace palo {
+namespace doris {
 
 class CoreDataAllocator {
 public:

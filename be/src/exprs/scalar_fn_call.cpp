@@ -36,7 +36,7 @@ using llvm::Function;
 using llvm::FunctionType;
 using llvm::BasicBlock;
 using llvm::Type;
-namespace palo {
+namespace doris {
 
 ScalarFnCall::ScalarFnCall(const TExprNode& node) : 
         Expr(node),
@@ -265,8 +265,8 @@ bool ScalarFnCall::is_constant() const {
 //   store i64 %arg_val4, i64* inttoptr (i64 89111096 to i64*)
 //   %result = call { i8, double }
 //      @_Z14VarSumMultiplyPN10impala_udf15FunctionContextERKNS_9DoubleValEiPKNS_6IntValE(
-//        %"class.palo_udf::FunctionContext"* inttoptr
-//            (i64 37522464 to %"class.palo_udf::FunctionContext"*),
+//        %"class.doris_udf::FunctionContext"* inttoptr
+//            (i64 37522464 to %"class.doris_udf::FunctionContext"*),
 //        {i8, double }* %arg_ptr,
 //        i32 4,
 //        i64* inttoptr (i64 89111072 to i64*))
@@ -448,7 +448,7 @@ Status ScalarFnCall::get_udf(RuntimeState* state, Function** udf) {
                 codegen->get_ptr_type(CodegenAnyVal::get_unlowered_type(codegen, type())));
         }
 
-        arg_types.push_back(codegen->get_ptr_type("class.palo_udf::FunctionContext"));
+        arg_types.push_back(codegen->get_ptr_type("class.doris_udf::FunctionContext"));
         for (int i = 0; i < num_fixed_args(); ++i) {
             Type* arg_type = codegen->get_ptr_type(
                 CodegenAnyVal::get_unlowered_type(codegen, _children[i]->type()));

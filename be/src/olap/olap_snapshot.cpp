@@ -41,7 +41,7 @@
 #include "olap/push_handler.h"
 #include "olap/store.h"
 #include "util/file_utils.h"
-#include "util/palo_metrics.h"
+#include "util/doris_metrics.h"
 
 using boost::filesystem::canonical;
 using boost::filesystem::copy_file;
@@ -55,7 +55,7 @@ using std::stringstream;
 using std::vector;
 using std::list;
 
-namespace palo {
+namespace doris {
 
 OLAPStatus OLAPEngine::make_snapshot(
         const TSnapshotRequest& request,
@@ -638,7 +638,7 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
     OLAP_LOG_INFO("begin to process storage media migrate. "
                   "[tablet_id=%ld schema_hash=%d dest_storage_medium=%d]",
                   tablet_id, schema_hash, storage_medium);
-    PaloMetrics::storage_migrate_requests_total.increment(1);
+    DorisMetrics::storage_migrate_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
     OLAPTablePtr tablet = get_table(tablet_id, schema_hash);
@@ -808,4 +808,4 @@ OLAPStatus OLAPEngine::_generate_new_header(
     return res;
 }
 
-}  // namespace palo
+}  // namespace doris

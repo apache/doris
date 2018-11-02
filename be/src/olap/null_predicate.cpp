@@ -20,7 +20,7 @@
 #include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
 
-namespace palo {
+namespace doris {
 
 NullPredicate::NullPredicate(int32_t column_id, bool is_null)
     : _column_id(column_id), _is_null(is_null) {}
@@ -60,4 +60,4 @@ void NullPredicate::evaluate(VectorizedRowBatch* batch) const {
     }
 }
 
-} //namespace palo
+} //namespace doris

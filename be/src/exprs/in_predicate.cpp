@@ -26,7 +26,7 @@
 #include "runtime/string_value.hpp"
 #include "runtime/runtime_state.h"
 
-namespace palo {
+namespace doris {
 
 InPredicate::InPredicate(const TExprNode& node) : 
         Predicate(node),

@@ -19,7 +19,7 @@
 
 #include <sstream>
 
-using namespace palo;
+using namespace doris;
 
 std::string Bitmap::DebugString(bool print_bits) const {
   int64_t words = BitUtil::round_up(num_bits_, 64) / 64;

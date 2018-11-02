@@ -22,7 +22,7 @@
 
 #include "common/logging.h"
 
-namespace palo {
+namespace doris {
 
 constexpr int BLOCK_SIZE = 4096;
 struct alignas(CACHE_LINE_SIZE) CoreDataBlock {

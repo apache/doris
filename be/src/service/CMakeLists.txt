@@ -28,18 +28,18 @@ add_library(Service
     internal_service.cpp
 )
 
-add_executable(palo_be
-    palo_main.cpp
+add_executable(doris_be
+    doris_main.cpp
 )
 
 # This permits libraries loaded by dlopen to link to the symbols in the program.
-# set_target_properties(palo_be PROPERTIES LINK_FLAGS -pthread)
+# set_target_properties(doris_be PROPERTIES LINK_FLAGS -pthread)
 
-target_link_libraries(palo_be
+target_link_libraries(doris_be
     ${DORIS_LINK_LIBS}
 )
 
 install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
 
-install(TARGETS palo_be
+install(TARGETS doris_be
     DESTINATION ${OUTPUT_DIR}/lib/)

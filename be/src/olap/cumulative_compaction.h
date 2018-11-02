@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_CUMULATIVE_COMPACTION_H
-#define BDG_PALO_BE_SRC_OLAP_CUMULATIVE_COMPACTION_H
+#ifndef DORIS_BE_SRC_OLAP_CUMULATIVE_COMPACTION_H
+#define DORIS_BE_SRC_OLAP_CUMULATIVE_COMPACTION_H
 
 #include <list>
 #include <map>
@@ -28,7 +28,7 @@
 #include "olap/olap_define.h"
 #include "olap/olap_table.h"
 
-namespace palo {
+namespace doris {
 
 class Rowset;
 
@@ -179,6 +179,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(CumulativeCompaction);
 };
 
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_CUMULATIVE_COMPACTION_H
+#endif // DORIS_BE_SRC_OLAP_CUMULATIVE_COMPACTION_H

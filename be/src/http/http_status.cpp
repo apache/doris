@@ -20,7 +20,7 @@
 #include <map>
 #include <string>
 
-namespace palo {
+namespace doris {
 
 static std::map<HttpStatus, std::string> s_reason_map = {
     { HttpStatus::CONTINUE,                         "Continue" },

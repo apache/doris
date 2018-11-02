@@ -45,12 +45,12 @@ using std::string;
 using std::stringstream;
 using std::vector;
 
-// Note: This is the default scratch dir created by palo.
+// Note: This is the default scratch dir created by doris.
 // config::query_scratch_dirs + TmpFileMgr::_s_tmp_sub_dir_name.
-const static string SCRATCH_DIR = "/tmp/palo-scratch";
+const static string SCRATCH_DIR = "/tmp/doris-scratch";
 
 // This suffix is appended to a tmp dir
-const static string SCRATCH_SUFFIX = "/palo-scratch";
+const static string SCRATCH_SUFFIX = "/doris-scratch";
 
 // Number of millieconds to wait to ensure write completes
 const static int WRITE_WAIT_MILLIS = 500;
@@ -58,7 +58,7 @@ const static int WRITE_WAIT_MILLIS = 500;
 // How often to check for write completion
 const static int WRITE_CHECK_INTERVAL_MILLIS = 10;
 
-namespace palo {
+namespace doris {
 
 class BufferedBlockMgrTest : public ::testing::Test {
 protected:
@@ -1269,26 +1269,26 @@ TEST_F(BufferedBlockMgrTest, CreateDestroyMulti) {
     CreateDestroyMulti();
 }
 
-} // end namespace palo
+} // end namespace doris
 
 int main(int argc, char** argv) {
     // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!palo::config::init(conffile.c_str(), false)) {
+    // if (!doris::config::init(conffile.c_str(), false)) {
     //     fprintf(stderr, "error read config file. \n");
     //     return -1;
     // }
-    palo::config::query_scratch_dirs = "/tmp";
-    // palo::config::max_free_io_buffers = 128;
-    palo::config::read_size = 8388608;
-    palo::config::min_buffer_size = 1024;
+    doris::config::query_scratch_dirs = "/tmp";
+    // doris::config::max_free_io_buffers = 128;
+    doris::config::read_size = 8388608;
+    doris::config::min_buffer_size = 1024;
 
-    palo::config::disable_mem_pools = false;
+    doris::config::disable_mem_pools = false;
 
-    palo::init_glog("be-test");
+    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
 
-    palo::CpuInfo::init();
-    palo::DiskInfo::init();
+    doris::CpuInfo::init();
+    doris::DiskInfo::init();
 
     return RUN_ALL_TESTS();
 }

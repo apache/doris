@@ -46,7 +46,7 @@ using boost::scoped_ptr;
 static const int BATCH_SIZE = 250;
 static const uint32_t PRIME = 479001599;
 
-namespace palo {
+namespace doris {
 
 static const StringValue STRINGS[] = {
     StringValue("ABC"),
@@ -832,22 +832,22 @@ TEST_F(ArrayTupleStreamTest, TestArrayDeepCopy) {
 
 int main(int argc, char** argv) {
     // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!palo::config::init(conffile.c_str(), false)) {
+    // if (!doris::config::init(conffile.c_str(), false)) {
     //     fprintf(stderr, "error read config file. \n");
     //     return -1;
     // }
-    palo::config::query_scratch_dirs = "/tmp";
-    // palo::config::max_free_io_buffers = 128;
-    palo::config::read_size = 8388608;
-    palo::config::min_buffer_size = 1024;
+    doris::config::query_scratch_dirs = "/tmp";
+    // doris::config::max_free_io_buffers = 128;
+    doris::config::read_size = 8388608;
+    doris::config::min_buffer_size = 1024;
 
-    palo::config::disable_mem_pools = false;
+    doris::config::disable_mem_pools = false;
 
-    palo::init_glog("be-test");
+    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
 
-    palo::CpuInfo::init();
-    palo::DiskInfo::init();
+    doris::CpuInfo::init();
+    doris::DiskInfo::init();
 
     return RUN_ALL_TESTS();
 }

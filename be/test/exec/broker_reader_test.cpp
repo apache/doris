@@ -30,7 +30,7 @@
 #include "util/cpu_info.h"
 #include "util/stopwatch.hpp"
 
-namespace palo {
+namespace doris {
 
 class RuntimeState;
 
@@ -80,16 +80,16 @@ TEST_F(BrokerReaderTest, normal) {
     LOG(INFO) << "get from broker " << total_size << " bytes using " << watch.elapsed_time();
 }
 
-} // end namespace palo
+} // end namespace doris
 
 int main(int argc, char** argv) {
     // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!palo::config::init(conffile.c_str(), false)) {
+    // if (!doris::config::init(conffile.c_str(), false)) {
     //     fprintf(stderr, "error read config file. \n");
     //     return -1;
     // }
-    // palo::init_glog("be-test");
-    palo::CpuInfo::init();
+    // doris::init_glog("be-test");
+    doris::CpuInfo::init();
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

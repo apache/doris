@@ -24,7 +24,7 @@
 #include <bzlib.h>
 #include <snappy/snappy.h>
 
-namespace palo {
+namespace doris {
 
 GzipCompressor::GzipCompressor(Format format, MemPool* mem_pool, bool reuse_buffer) : 
         Codec(mem_pool, reuse_buffer),

@@ -28,9 +28,9 @@
 
 static const int MAX_TUPLE_POOL_SIZE = 8 * 1024 * 1024; // 8MB
 
-namespace palo {
+namespace doris {
 
-using palo_udf::BigIntVal;
+using doris_udf::BigIntVal;
 
 AnalyticEvalNode::AnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
                                    const DescriptorTbl& descs) :
@@ -157,7 +157,7 @@ Status AnalyticEvalNode::prepare(RuntimeState* state) {
     DCHECK_EQ(_result_tuple_desc->slots().size(), _evaluators.size());
 
     for (int i = 0; i < _evaluators.size(); ++i) {
-        palo_udf::FunctionContext* ctx;
+        doris_udf::FunctionContext* ctx;
         RETURN_IF_ERROR(_evaluators[i]->prepare(state, child(0)->row_desc(), _mem_pool.get(),
                 _intermediate_tuple_desc->slots()[i], _result_tuple_desc->slots()[i],
                 mem_tracker(), &ctx));
@@ -583,7 +583,7 @@ inline void AnalyticEvalNode::init_next_partition(int64_t stream_idx) {
 
 inline bool AnalyticEvalNode::prev_row_compare(ExprContext* pred_ctx) {
     DCHECK(pred_ctx != NULL);
-    palo_udf::BooleanVal result = pred_ctx->get_boolean_val(_child_tuple_cmp_row);
+    doris_udf::BooleanVal result = pred_ctx->get_boolean_val(_child_tuple_cmp_row);
     DCHECK(!result.is_null);
 
     return result.val;

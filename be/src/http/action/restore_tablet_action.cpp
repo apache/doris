@@ -40,7 +40,7 @@
 
 using boost::filesystem::path;
 
-namespace palo {
+namespace doris {
 
 const std::string TABLET_ID = "tablet_id";
 const std::string SCHEMA_HASH = "schema_hash";
@@ -278,7 +278,7 @@ bool RestoreTabletAction::_get_timestamp_and_count_from_schema_hash_path(
     path time_label_path = schema_hash_path.parent_path().parent_path();
     std::string time_label = time_label_path.filename().string();
     std::vector<std::string> parts;
-    palo::split_string<char>(time_label, '.', &parts);
+    doris::split_string<char>(time_label, '.', &parts);
     if (parts.size() != 2) {
         LOG(WARNING) << "invalid time label:" << time_label;
         return false;
@@ -293,4 +293,4 @@ void RestoreTabletAction::_clear_key(const std::string& key) {
     _tablet_path_map.erase(key);
 }
 
-} // end namespace palo
+} // end namespace doris

@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_H
-#define BDG_PALO_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_H
+#ifndef DORIS_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_H
+#define DORIS_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_H
 
 #include <vector>
 
@@ -25,7 +25,7 @@
 #include "common/status.h"
 #include "runtime/buffered_block_mgr2.h"
 
-namespace palo {
+namespace doris {
 
 class BufferedBlockMgr2;
 class RuntimeProfile;
@@ -416,6 +416,6 @@ private:
     int compute_num_null_indicator_bytes(int block_size) const;
 };
 
-} // end namespace palo
+} // end namespace doris
 
-#endif // BDG_PALO_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_H
+#endif // DORIS_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_H

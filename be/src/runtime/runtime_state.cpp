@@ -44,7 +44,7 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/bufferpool/reservation_tracker.h"
 
-namespace palo {
+namespace doris {
 
 RuntimeState::RuntimeState(
         const TUniqueId& fragment_instance_id,
@@ -273,7 +273,7 @@ Status RuntimeState::create_block_mgr() {
 }
 
 Status RuntimeState::create_codegen() {
-    RETURN_IF_ERROR(LlvmCodeGen::load_palo_ir(
+    RETURN_IF_ERROR(LlvmCodeGen::load_doris_ir(
             _obj_pool.get(), print_id(fragment_instance_id()), &_codegen));
     _codegen->enable_optimizations(true);
     _profile.add_child(_codegen->runtime_profile(), true, NULL);
@@ -489,5 +489,5 @@ Status RuntimeState::get_codegen(LlvmCodeGen** codegen) {
 Status RuntimeState::StartSpilling(MemTracker* mem_tracker) {
     return Status("Mem limit exceeded.");
 }
-} // end namespace palo
+} // end namespace doris
 

@@ -26,7 +26,7 @@
 #include "util/bit_util.h"
 #include "util/byte_buffer.h"
 
-namespace palo {
+namespace doris {
 
 // StreamLoadPipe use to transfer data from producer to consumer
 // Data in pip is stored in chunks.

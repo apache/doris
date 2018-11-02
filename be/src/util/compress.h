@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UTIL_COMPRESS_H
-#define BDG_PALO_BE_SRC_COMMON_UTIL_COMPRESS_H
+#ifndef DORIS_BE_SRC_COMMON_UTIL_COMPRESS_H
+#define DORIS_BE_SRC_COMMON_UTIL_COMPRESS_H
 
 // We need zlib.h here to declare _stream below.
 #include <zlib.h>
@@ -24,7 +24,7 @@
 #include "util/codec.h"
 #include "runtime/mem_pool.h"
 
-namespace palo {
+namespace doris {
 
 // Different compression classes.  The classes all expose the same API and
 // abstracts the underlying calls to the compression libraries.

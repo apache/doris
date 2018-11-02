@@ -20,7 +20,7 @@
 #include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
 
-namespace palo {
+namespace doris {
 
 #define IN_LIST_PRED_CONSTRUCTOR(CLASS) \
 template<class type> \
@@ -115,4 +115,4 @@ IN_LIST_PRED_CONSTRUCTOR_DECLARATION(NotInListPredicate)
 
 IN_LIST_PRED_EVALUATE_DECLARATION(InListPredicate)
 IN_LIST_PRED_EVALUATE_DECLARATION(NotInListPredicate)
-} //namespace palo
+} //namespace doris

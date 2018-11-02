@@ -39,7 +39,7 @@
 #include "util/logging.h"
 #include "util/cpu_info.h"
 
-namespace palo {
+namespace doris {
 
 class ResultSinkTest : public testing::Test {
 public:
@@ -93,13 +93,13 @@ TEST_F(ResultSinkTest, init_normal) {
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    palo::init_glog("be-test");
+    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
-    palo::CpuInfo::init();
+    doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }
 

@@ -27,7 +27,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_engine.h"
 
-namespace palo {
+namespace doris {
 
 class OLAPRootPath;
 class OLAPEngine;

@@ -23,7 +23,7 @@
 #include "runtime/datetime_value.h"
 #include "exec/schema_scanner/frontend_helper.h"
 
-namespace palo {
+namespace doris {
 
 SchemaScanner::ColumnDesc SchemaColumnsScanner::_s_col_columns[] = {
     //   name,       type,          size,                     is_null

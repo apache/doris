@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UTIL_URL_PARSER_H
-#define BDG_PALO_BE_SRC_COMMON_UTIL_URL_PARSER_H
+#ifndef DORIS_BE_SRC_COMMON_UTIL_URL_PARSER_H
+#define DORIS_BE_SRC_COMMON_UTIL_URL_PARSER_H
 
 #include "runtime/string_value.h"
 #include "runtime/string_search.hpp"
 
-namespace palo {
+namespace doris {
 
 // TODO: For now, our parse_url may not behave exactly like Hive
 // when given malformed URLs.

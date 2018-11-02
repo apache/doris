@@ -19,7 +19,7 @@
 
 #include <boost/bind.hpp>
 
-namespace palo {
+namespace doris {
 
 const string ScanNode::_s_bytes_read_counter = "BytesRead";
 const string ScanNode::_s_rows_read_counter = "RowsRead";

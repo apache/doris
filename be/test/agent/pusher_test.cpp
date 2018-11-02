@@ -35,7 +35,7 @@ using ::testing::SetArgPointee;
 using std::string;
 using std::vector;
 
-namespace palo {
+namespace doris {
 
 MockFileDownloader::MockFileDownloader(const FileDownloaderParam& param):FileDownloader(param) {
 }
@@ -57,7 +57,7 @@ TEST(PusherTest, TestInit) {
             .Times(1)
             .WillOnce(Return(std::shared_ptr<OLAPTable>(olap_table)));
     AgentStatus ret = pusher.init();
-    EXPECT_EQ(PALO_PUSH_INVALID_TABLE, ret);
+    EXPECT_EQ(DORIS_PUSH_INVALID_TABLE, ret);
 
     // not init, can get olap table, and empty remote path
     olap_table = new OLAPTable(new OLAPHeader("./test_data/header"), nullptr);
@@ -65,12 +65,12 @@ TEST(PusherTest, TestInit) {
             .Times(1)
             .WillOnce(Return(std::shared_ptr<OLAPTable>(olap_table)));
     ret = pusher.init();
-    EXPECT_EQ(PALO_SUCCESS, ret);
+    EXPECT_EQ(DORIS_SUCCESS, ret);
     EXPECT_TRUE(pusher._is_init);
 
     // has inited
     ret = pusher.init();
-    EXPECT_EQ(PALO_SUCCESS, ret);
+    EXPECT_EQ(DORIS_SUCCESS, ret);
     pusher._engine = tmp;
 
     // not inited, remote path not empty
@@ -86,7 +86,7 @@ TEST(PusherTest, TestInit) {
             .Times(1)
             .WillOnce(Return(std::shared_ptr<OLAPTable>(olap_table)));
     ret = pusher2.init();
-    EXPECT_EQ(PALO_SUCCESS, ret);
+    EXPECT_EQ(DORIS_SUCCESS, ret);
     EXPECT_TRUE(pusher2._is_init);
     EXPECT_STREQ(http_file_path.c_str(), pusher2._downloader_param.remote_file_path.c_str());
     EXPECT_EQ(0, strncmp(
@@ -105,12 +105,12 @@ TEST(PusherTest, TestGetTmpFileDir) {
     string root_path = "./test_data/dpp_download_file";
     string download_path;
     AgentStatus ret = pusher._get_tmp_file_dir(root_path, &download_path);
-    EXPECT_EQ(PALO_SUCCESS, ret);
+    EXPECT_EQ(DORIS_SUCCESS, ret);
     EXPECT_STREQ("./test_data/dpp_download_file/dpp_download", download_path.c_str());
 
     // download path exist
     ret = pusher._get_tmp_file_dir(root_path, &download_path);
-    EXPECT_EQ(PALO_SUCCESS, ret);
+    EXPECT_EQ(DORIS_SUCCESS, ret);
 }
 
 TEST(PusherTest, TestDownloadFile){
@@ -122,17 +122,17 @@ TEST(PusherTest, TestDownloadFile){
     MockFileDownloader mock_file_downloader(param);
     EXPECT_CALL(mock_file_downloader, download_file())
             .Times(1)
-            .WillOnce(Return(PALO_SUCCESS));
+            .WillOnce(Return(DORIS_SUCCESS));
     pusher._file_downloader = &mock_file_downloader;
     AgentStatus ret = pusher._download_file();
-    EXPECT_EQ(PALO_SUCCESS, ret);
+    EXPECT_EQ(DORIS_SUCCESS, ret);
 
     // download failed
     EXPECT_CALL(mock_file_downloader, download_file())
             .Times(1)
-            .WillOnce(Return(PALO_ERROR));
+            .WillOnce(Return(DORIS_ERROR));
     ret = pusher._download_file();
-    EXPECT_EQ(PALO_ERROR, ret);
+    EXPECT_EQ(DORIS_ERROR, ret);
 }
 
 TEST(PusherTest, TestGetFileNameFromPath) {
@@ -152,7 +152,7 @@ TEST(PusherTest, TestProcess) {
 
     // not init
     AgentStatus ret = pusher.process(&tablet_infos);
-    EXPECT_EQ(PALO_ERROR, ret);
+    EXPECT_EQ(DORIS_ERROR, ret);
 
     // init, remote file empty, push success, delete download file
     pusher._is_init = true;
@@ -174,7 +174,7 @@ TEST(PusherTest, TestProcess) {
     EXPECT_TRUE(boost::filesystem::exists(download_file_path));
 
     ret = pusher.process(&tablet_infos);
-    EXPECT_EQ(PALO_SUCCESS, ret);
+    EXPECT_EQ(DORIS_SUCCESS, ret);
     EXPECT_FALSE(boost::filesystem::exists(download_file_path));
 
     // init, remote file empty, push failed, delete download file
@@ -190,7 +190,7 @@ TEST(PusherTest, TestProcess) {
     EXPECT_TRUE(boost::filesystem::exists(download_file_path));
 
     ret = pusher.process(&tablet_infos);
-    EXPECT_EQ(PALO_ERROR, ret);
+    EXPECT_EQ(DORIS_ERROR, ret);
     EXPECT_FALSE(boost::filesystem::exists(download_file_path));
 
     pusher._engine = tmp;
@@ -207,35 +207,35 @@ TEST(PusherTest, TestProcess) {
     time_t now = time(NULL);
     pusher2._push_req.timeout = now - 100;
     ret = pusher2.process(&tablet_infos);
-    EXPECT_EQ(PALO_PUSH_TIME_OUT, ret);
+    EXPECT_EQ(DORIS_PUSH_TIME_OUT, ret);
 
     // init, remote file not empty, get remote file length success, download file failed
     now = time(NULL);
     pusher2._push_req.timeout = now + 100;
-    pusher2._download_status = PALO_ERROR;
+    pusher2._download_status = DORIS_ERROR;
     ret = pusher2.process(&tablet_infos);
-    EXPECT_EQ(PALO_ERROR, ret);
+    EXPECT_EQ(DORIS_ERROR, ret);
 
     // init, remote file not empty, get remote file length success, download file success
     // size diff
     string file_path = "./test_data/download_file";
     fp = fopen(file_path.c_str(), "w");
-    fputs("palo be test", fp);
+    fputs("doris be test", fp);
     fclose(fp);
     boost::filesystem::path local_file_path(file_path);
     uint64_t local_file_size = boost::filesystem::file_size(local_file_path);
     now = time(NULL);
     pusher2._push_req.timeout = now + 100;
-    pusher2._download_status = PALO_SUCCESS;
+    pusher2._download_status = DORIS_SUCCESS;
     pusher2._push_req.__set_http_file_size(local_file_size + 1);
     pusher2._downloader_param.local_file_path = file_path;
     ret = pusher2.process(&tablet_infos);
-    EXPECT_EQ(PALO_FILE_DOWNLOAD_FAILED, ret);
+    EXPECT_EQ(DORIS_FILE_DOWNLOAD_FAILED, ret);
 
     // init, remote file not empty, get remote file length success, download file success
     // size same, push failed
     fp = fopen(file_path.c_str(), "w");
-    fputs("palo be test", fp);
+    fputs("doris be test", fp);
     fclose(fp);
     now = time(NULL);
     tmp = pusher2._engine;
@@ -246,12 +246,12 @@ TEST(PusherTest, TestProcess) {
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     ret = pusher2.process(&tablet_infos);
-    EXPECT_EQ(PALO_ERROR, ret);
+    EXPECT_EQ(DORIS_ERROR, ret);
 
     // init, remote file not empty, get remote file length success, download file success
     // size same, push success
     fp = fopen(file_path.c_str(), "w");
-    fputs("palo be test", fp);
+    fputs("doris be test", fp);
     fclose(fp);
     now = time(NULL);
     pusher2._push_req.timeout = now + 100;
@@ -259,20 +259,20 @@ TEST(PusherTest, TestProcess) {
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     ret = pusher2.process(&tablet_infos);
-    EXPECT_EQ(PALO_SUCCESS, ret);
+    EXPECT_EQ(DORIS_SUCCESS, ret);
 
     pusher2._engine = tmp;
 }
 
-}  // namespace palo
+}  // namespace doris
 
 int main(int argc, char **argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!palo::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    palo::init_glog("be-test");
+    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

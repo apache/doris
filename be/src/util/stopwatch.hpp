@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_COMMON_UTIL_STOPWATCH_HPP
-#define BDG_PALO_BE_SRC_COMMON_UTIL_STOPWATCH_HPP
+#ifndef DORIS_BE_SRC_COMMON_UTIL_STOPWATCH_HPP
+#define DORIS_BE_SRC_COMMON_UTIL_STOPWATCH_HPP
 
 #include <boost/cstdint.hpp>
 #include <time.h>
 
-namespace palo {
+namespace doris {
 
 // Utility class to measure time.  This is measured using the cpu tick counter which
 // is very low overhead but can be inaccurate if the thread is switched away.  This

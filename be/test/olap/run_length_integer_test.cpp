@@ -26,7 +26,7 @@
 #include "olap/column_file/stream_index_reader.h"
 #include "util/logging.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 class TestRunLengthUnsignInteger : public testing::Test {
@@ -843,7 +843,7 @@ TEST_F(TestRunLengthSignInteger, DirectEncodingForDeltaOverflows2) {
 }
 
 int main(int argc, char** argv) {
-    int ret = palo::OLAP_SUCCESS;
+    int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
     ret = RUN_ALL_TESTS();
     google::protobuf::ShutdownProtobufLibrary();

@@ -21,7 +21,7 @@
 
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 InfoFunc::InfoFunc(const TExprNode& node) :
         Expr(node),

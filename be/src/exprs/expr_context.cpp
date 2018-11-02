@@ -30,9 +30,9 @@
 #include "util/debug_util.h"
 #include "exprs/anyval_util.h"
 
-namespace palo {
+namespace doris {
 
-const char* ExprContext::_s_llvm_class_name = "class.palo::ExprContext";
+const char* ExprContext::_s_llvm_class_name = "class.doris::ExprContext";
 
 ExprContext::ExprContext(Expr* root) :
         _fn_contexts_ptr(NULL),
@@ -101,8 +101,8 @@ void ExprContext::close(RuntimeState* state) {
 
 int ExprContext::register_func(
         RuntimeState* state,
-        const palo_udf::FunctionContext::TypeDesc& return_type,
-        const std::vector<palo_udf::FunctionContext::TypeDesc>& arg_types,
+        const doris_udf::FunctionContext::TypeDesc& return_type,
+        const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types,
         int varargs_buffer_size) {
     _fn_contexts.push_back(FunctionContextImpl::create_context(
             state, _pool.get(), return_type, arg_types, varargs_buffer_size, false));
@@ -268,7 +268,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         return NULL;
     }
     case TYPE_BOOLEAN: {
-        palo_udf::BooleanVal v = e->get_boolean_val(this, row);
+        doris_udf::BooleanVal v = e->get_boolean_val(this, row);
         if (v.is_null) {
             return NULL;
         }
@@ -276,7 +276,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         return &_result.bool_val;
     }
     case TYPE_TINYINT: {
-        palo_udf::TinyIntVal v = e->get_tiny_int_val(this, row);
+        doris_udf::TinyIntVal v = e->get_tiny_int_val(this, row);
         if (v.is_null) {
             return NULL;
         }
@@ -284,7 +284,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         return &_result.tinyint_val;
     }
     case TYPE_SMALLINT: {
-        palo_udf::SmallIntVal v = e->get_small_int_val(this, row);
+        doris_udf::SmallIntVal v = e->get_small_int_val(this, row);
         if (v.is_null) {
             return NULL;
         }
@@ -292,7 +292,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         return &_result.smallint_val;
     }
     case TYPE_INT: {
-        palo_udf::IntVal v = e->get_int_val(this, row);
+        doris_udf::IntVal v = e->get_int_val(this, row);
         if (v.is_null) {
             return NULL;
         }
@@ -300,7 +300,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         return &_result.int_val;
     }
     case TYPE_BIGINT: {
-        palo_udf::BigIntVal v = e->get_big_int_val(this, row);
+        doris_udf::BigIntVal v = e->get_big_int_val(this, row);
         if (v.is_null) {
             return NULL;
         }
@@ -308,7 +308,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         return &_result.bigint_val;
     }
     case TYPE_LARGEINT: {
-        palo_udf::LargeIntVal v = e->get_large_int_val(this, row);
+        doris_udf::LargeIntVal v = e->get_large_int_val(this, row);
         if (v.is_null) {
             return NULL;
         }
@@ -316,7 +316,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         return &_result.large_int_val;
     }
     case TYPE_FLOAT: {
-        palo_udf::FloatVal v = e->get_float_val(this, row);
+        doris_udf::FloatVal v = e->get_float_val(this, row);
         if (v.is_null) {
             return NULL;
         }
@@ -324,7 +324,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         return &_result.float_val;
     }
     case TYPE_DOUBLE: {
-        palo_udf::DoubleVal v = e->get_double_val(this, row);
+        doris_udf::DoubleVal v = e->get_double_val(this, row);
         if (v.is_null) {
             return NULL;
         }
@@ -334,7 +334,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL: {
-        palo_udf::StringVal v = e->get_string_val(this, row);
+        doris_udf::StringVal v = e->get_string_val(this, row);
         if (v.is_null) {
             return NULL;
         }
@@ -344,7 +344,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     }
 #if 0
     case TYPE_CHAR: {
-        palo_udf::StringVal v = e->get_string_val(this, row);
+        doris_udf::StringVal v = e->get_string_val(this, row);
         if (v.is_null) {
             return NULL;
         }
@@ -359,7 +359,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
 #endif
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        palo_udf::DateTimeVal v = e->get_datetime_val(this, row);
+        doris_udf::DateTimeVal v = e->get_datetime_val(this, row);
         if (v.is_null) {
             return NULL;
         }
@@ -377,7 +377,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
 #if 0
     case TYPE_ARRAY:
     case TYPE_MAP: {
-        palo_udf::ArrayVal v = e->GetArrayVal(this, row);
+        doris_udf::ArrayVal v = e->GetArrayVal(this, row);
         if (v.is_null) return NULL;
         _result.array_val.ptr = v.ptr;
         _result.array_val.num_tuples = v.num_tuples;

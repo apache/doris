@@ -21,7 +21,7 @@
 #include "olap/olap_data.h"
 #include "olap/rowset.h"
 
-namespace palo {
+namespace doris {
 
 IData* IData::create(Rowset* index) {
     IData* data = NULL;
@@ -107,4 +107,4 @@ int IData::delete_pruning_filter() {
     return ret;
 }
 
-}  // namespace palo
+}  // namespace doris

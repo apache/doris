@@ -17,7 +17,7 @@
 
 #include "exprs/new_agg_fn_evaluator.h"
 
-using namespace palo;
+using namespace doris;
 
 FunctionContext* NewAggFnEvaluator::agg_fn_ctx() const {
   return agg_fn_ctx_.get();

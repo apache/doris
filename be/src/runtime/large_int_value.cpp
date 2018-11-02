@@ -21,7 +21,7 @@
 
 #include <string>
 
-namespace palo {
+namespace doris {
 
 std::ostream& operator<<(std::ostream& os, __int128 const& value) {
     std::ostream::sentry s(os);

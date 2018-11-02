@@ -26,7 +26,7 @@
 #include "util/runtime_profile.h"
 #include "util/debug_util.h"
 
-namespace palo {
+namespace doris {
 
 MysqlTableSink::MysqlTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                const std::vector<TExpr>& t_exprs) :

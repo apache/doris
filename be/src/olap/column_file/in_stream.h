@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_IN_STREAM_H
-#define BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_IN_STREAM_H
+#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_IN_STREAM_H
+#define DORIS_BE_SRC_OLAP_COLUMN_FILE_IN_STREAM_H
 
 #include <gen_cpp/column_data_file.pb.h>
 
@@ -30,7 +30,7 @@
 #include "olap/column_file/stream_index_reader.h"
 #include "olap/olap_common.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 // 提供Column Reader的Seek位置, 由于ColumnReader的seek需要多个position地址
@@ -201,6 +201,6 @@ inline OLAPStatus InStream::read(char* buffer, uint64_t* buf_size) {
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_IN_STREAM_H
+#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_IN_STREAM_H

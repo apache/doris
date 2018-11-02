@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_SEGMENT_READER_H
-#define BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_SEGMENT_READER_H
+#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_SEGMENT_READER_H
+#define DORIS_BE_SRC_OLAP_COLUMN_FILE_SEGMENT_READER_H
 
 #include <gen_cpp/column_data_file.pb.h>
 #include <gen_cpp/olap_common.pb.h>
@@ -44,7 +44,7 @@
 
 #include "olap/column_predicate.h"
 
-namespace palo {
+namespace doris {
 
 class Rowset;
 
@@ -276,7 +276,7 @@ private:
     static const uint32_t CURRENT_COLUMN_DATA_VERSION = 1;
 
     std::string _file_name;                // 文件名
-    palo::FileHandler _file_handler;             // 文件handler
+    doris::FileHandler _file_handler;             // 文件handler
 
     OLAPTable* _table;
     Rowset* _olap_index;
@@ -364,6 +364,6 @@ private:
 };
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris
 
-#endif // BDG_PALO_BE_SRC_OLAP_COLUMN_FILE_SEGMENT_READER_H
+#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_SEGMENT_READER_H

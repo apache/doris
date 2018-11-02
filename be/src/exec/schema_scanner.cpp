@@ -24,9 +24,9 @@
 #include "exec/schema_scanner/schema_charsets_scanner.h"
 #include "exec/schema_scanner/schema_collations_scanner.h"
 
-namespace palo {
+namespace doris {
 
-PaloServer* SchemaScanner::_s_palo_server;
+DorisServer* SchemaScanner::_s_doris_server;
 
 SchemaScanner::SchemaScanner(ColumnDesc* columns, int column_num)
     : _is_init(false),

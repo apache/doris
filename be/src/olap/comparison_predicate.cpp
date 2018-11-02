@@ -20,7 +20,7 @@
 #include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
 
-namespace palo {
+namespace doris {
 
 #define COMPARISON_PRED_CONSTRUCTOR(CLASS) \
     template<class type> \
@@ -150,4 +150,4 @@ COMPARISON_PRED_EVALUATE_DECLARATION(LessEqualPredicate)
 COMPARISON_PRED_EVALUATE_DECLARATION(GreaterPredicate)
 COMPARISON_PRED_EVALUATE_DECLARATION(GreaterEqualPredicate)
 
-} //namespace palo
+} //namespace doris

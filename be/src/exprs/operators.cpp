@@ -23,7 +23,7 @@
 
 #include <boost/cstdint.hpp>
 
-namespace palo {
+namespace doris {
 
 void Operators::init() {
 }
@@ -66,12 +66,12 @@ void Operators::init() {
         return BooleanVal(v1.val OP v2.val);\
     }
 
-#define BINARY_PREDICATE_NONNUMERIC_FN(NAME, TYPE_NAME, FUNC_NAME, TYPE, PALO_TYPE, OP) \
+#define BINARY_PREDICATE_NONNUMERIC_FN(NAME, TYPE_NAME, FUNC_NAME, TYPE, DORIS_TYPE, OP) \
     BooleanVal Operators::NAME##_##TYPE_NAME##_##TYPE_NAME(\
             FunctionContext* c, const TYPE& v1, const TYPE& v2) {\
         if (v1.is_null || v2.is_null) return BooleanVal::null();\
-        PALO_TYPE iv1 = PALO_TYPE::from_##FUNC_NAME(v1);\
-        PALO_TYPE iv2 = PALO_TYPE::from_##FUNC_NAME(v2);\
+        DORIS_TYPE iv1 = DORIS_TYPE::from_##FUNC_NAME(v1);\
+        DORIS_TYPE iv2 = DORIS_TYPE::from_##FUNC_NAME(v2);\
         return BooleanVal(iv1 OP iv2);\
     }
 
@@ -181,5 +181,5 @@ BINARY_PREDICATE_ALL_TYPES(gt, >);
 BINARY_PREDICATE_ALL_TYPES(lt, <);
 BINARY_PREDICATE_ALL_TYPES(ge, >=);
 BINARY_PREDICATE_ALL_TYPES(le, <=);
-} // namespace palo
+} // namespace doris
 

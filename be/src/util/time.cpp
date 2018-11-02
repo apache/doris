@@ -23,10 +23,10 @@
 
 #include "util/time.h"
 
-using namespace palo;
+using namespace doris;
 using namespace std;
 
-void palo::SleepForMs(const int64_t duration_ms) {
+void doris::SleepForMs(const int64_t duration_ms) {
   this_thread::sleep_for(chrono::milliseconds(duration_ms));
 }
 
@@ -105,32 +105,32 @@ static chrono::system_clock::time_point TimepointFromUnixMicros(int64_t us) {
   return chrono::system_clock::time_point(chrono::microseconds(us));
 }
 
-string palo::ToStringFromUnix(int64_t s, TimePrecision p) {
+string doris::ToStringFromUnix(int64_t s, TimePrecision p) {
   chrono::system_clock::time_point t = TimepointFromUnix(s);
   return ToString(t, p, false);
 }
 
-string palo::ToUtcStringFromUnix(int64_t s, TimePrecision p) {
+string doris::ToUtcStringFromUnix(int64_t s, TimePrecision p) {
   chrono::system_clock::time_point t = TimepointFromUnix(s);
   return ToString(t, p, true);
 }
 
-string palo::ToStringFromUnixMillis(int64_t ms, TimePrecision p) {
+string doris::ToStringFromUnixMillis(int64_t ms, TimePrecision p) {
   chrono::system_clock::time_point t = TimepointFromUnixMillis(ms);
   return ToString(t, p, false);
 }
 
-string palo::ToUtcStringFromUnixMillis(int64_t ms, TimePrecision p) {
+string doris::ToUtcStringFromUnixMillis(int64_t ms, TimePrecision p) {
   chrono::system_clock::time_point t = TimepointFromUnixMillis(ms);
   return ToString(t, p, true);
 }
 
-string palo::ToStringFromUnixMicros(int64_t us, TimePrecision p) {
+string doris::ToStringFromUnixMicros(int64_t us, TimePrecision p) {
   chrono::system_clock::time_point t = TimepointFromUnixMicros(us);
   return ToString(t, p, false);
 }
 
-string palo::ToUtcStringFromUnixMicros(int64_t us, TimePrecision p) {
+string doris::ToUtcStringFromUnixMicros(int64_t us, TimePrecision p) {
   chrono::system_clock::time_point t = TimepointFromUnixMicros(us);
   return ToString(t, p, true);
 }

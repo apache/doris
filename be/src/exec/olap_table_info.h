@@ -31,7 +31,7 @@
 #include "runtime/tuple.h"
 #include "runtime/raw_value.h"
 
-namespace palo {
+namespace doris {
 
 class MemPool;
 class MemTracker;
@@ -216,9 +216,9 @@ struct NodeInfo {
     }
 };
 
-class PaloNodesInfo {
+class DorisNodesInfo {
 public:
-    PaloNodesInfo(const TPaloNodesInfo& t_nodes) {
+    DorisNodesInfo(const TPaloNodesInfo& t_nodes) {
         for (auto& node : t_nodes.nodes) {
             _nodes.emplace(node.id, node);
         }

@@ -23,7 +23,7 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
-namespace palo {
+namespace doris {
 
 TEST(BlockingQueueTest, TestBasic) {
     int32_t i;

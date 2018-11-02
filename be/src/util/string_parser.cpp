@@ -17,7 +17,7 @@
 
 #include "string_parser.hpp"
 
-namespace palo {
+namespace doris {
 
 template<>
 __int128 StringParser::numeric_limits<__int128>(bool negative) {

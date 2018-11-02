@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_UTIL_TIME_H
-#define BDG_PALO_BE_UTIL_TIME_H
+#ifndef DORIS_BE_UTIL_TIME_H
+#define DORIS_BE_UTIL_TIME_H
 
 #include <stdint.h>
 #include <time.h>
@@ -25,7 +25,7 @@
 #include "gutil/walltime.h"
 
 /// Utilities for collecting timings.
-namespace palo {
+namespace doris {
 
 /// Returns a value representing a point in time that is unaffected by daylight savings or
 /// manual adjustments to the system clock. This should not be assumed to be a Unix

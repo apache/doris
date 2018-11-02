@@ -23,7 +23,7 @@
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Types_types.h"
 
-namespace palo {
+namespace doris {
 
 class DppSinkInternalTest : public testing::Test {
 public:

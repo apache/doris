@@ -21,7 +21,7 @@
 #include "olap/column_file/in_stream.h"
 #include "olap/column_file/serialize.h"
 
-namespace palo {
+namespace doris {
 namespace column_file {
 
 RunLengthIntegerReader::RunLengthIntegerReader(ReadOnlyFileStream* input, bool is_singed)
@@ -435,5 +435,5 @@ OLAPStatus RunLengthIntegerReader::skip(uint64_t num_values) {
 }
 
 }  // namespace column_file
-}  // namespace palo
+}  // namespace doris
 

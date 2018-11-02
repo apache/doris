@@ -23,7 +23,7 @@
 #include "exec/data_sink.h"
 #include "common/configbase.h"
 
-namespace palo {
+namespace doris {
 
 static Status s_prepare_status;
 static Status s_open_status;
@@ -122,6 +122,6 @@ TEST_F(FragmentMgrTest, PrepareFailed) {
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
-    palo::CpuInfo::init();
+    doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }

@@ -32,7 +32,7 @@
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/PaloInternalService_types.h"
 
-namespace palo {
+namespace doris {
 
 using boost::mutex;
 using boost::shared_ptr;

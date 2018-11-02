@@ -33,7 +33,7 @@ using std::list;
 
 using boost::scoped_ptr;
 
-namespace palo {
+namespace doris {
 
 // The first NUM_SMALL_BLOCKS of the tuple stream are made of blocks less than the
 // IO size. These blocks never spill.
@@ -710,4 +710,4 @@ int64_t BufferedTupleStream2::compute_row_size(TupleRow* row) const {
     return size;
 }
 
-} // end namespace palo
+} // end namespace doris

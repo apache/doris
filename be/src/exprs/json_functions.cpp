@@ -38,7 +38,7 @@
 #include "runtime/tuple_row.h"
 #include "rapidjson/error/en.h"
 
-namespace palo {
+namespace doris {
 
 static const re2::RE2 JSON_PATTERN("^([a-zA-Z0-9_\\-\\:\\s]*)(?:\\[([0-9]+)\\])?");
 

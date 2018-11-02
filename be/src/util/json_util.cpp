@@ -20,7 +20,7 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 
-namespace palo {
+namespace doris {
 
 std::string to_json(const Status& status) {
     rapidjson::StringBuffer s;

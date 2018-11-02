@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_RUNTIME_RESULT_BUFFER_MGR_H
-#define BDG_PALO_BE_RUNTIME_RESULT_BUFFER_MGR_H
+#ifndef DORIS_BE_RUNTIME_RESULT_BUFFER_MGR_H
+#define DORIS_BE_RUNTIME_RESULT_BUFFER_MGR_H
 
 #include <map>
 #include <vector>
@@ -28,7 +28,7 @@
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
 
-namespace palo {
+namespace doris {
 
 class TFetchDataResult;
 class BufferControlBlock;

@@ -24,7 +24,7 @@
 #include "olap/utils.h"
 #include "util/types.h"
 
-namespace palo {
+namespace doris {
 
 const int RawValue::ASCII_PRECISION = 16; // print 16 digits for double/float
 

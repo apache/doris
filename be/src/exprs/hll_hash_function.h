@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BDG_PALO_BE_SRC_QUERY_EXPRS_HLL_HASH_FUNCTION_H
-#define BDG_PALO_BE_SRC_QUERY_EXPRS_HLL_HASH_FUNCTION_H
+#ifndef DORIS_BE_SRC_QUERY_EXPRS_HLL_HASH_FUNCTION_H
+#define DORIS_BE_SRC_QUERY_EXPRS_HLL_HASH_FUNCTION_H
 
 #include "runtime/primitive_type.h"
 #include "udf/udf.h"
@@ -24,7 +24,7 @@
 #include "exprs/anyval_util.h"
 #include "runtime/datetime_value.h"
 
-namespace palo {
+namespace doris {
 
 class Expr;
 class OpcodeRegistry;
@@ -33,11 +33,11 @@ class TupleRow;
 class HllHashFunctions {
 public:
     static void init();
-    static StringVal hll_hash(palo_udf::FunctionContext* ctx, 
-                              const palo_udf::StringVal& dest_base);
-    static StringVal hll_cardinality(palo_udf::FunctionContext* ctx, 
-                                     const palo_udf::StringVal& dest_base);
-    static StringVal create_string_result(palo_udf::FunctionContext* ctx, 
+    static StringVal hll_hash(doris_udf::FunctionContext* ctx, 
+                              const doris_udf::StringVal& dest_base);
+    static StringVal hll_cardinality(doris_udf::FunctionContext* ctx, 
+                                     const doris_udf::StringVal& dest_base);
+    static StringVal create_string_result(doris_udf::FunctionContext* ctx, 
                                           const StringVal& str, const bool is_null);
 
     static const int HLL_INIT_EXPLICT_SET_SIZE;

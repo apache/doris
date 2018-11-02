@@ -28,7 +28,7 @@
 #include "util/random.h"
 #include "util/thread_pool.hpp"
 
-namespace palo {
+namespace doris {
 
 typedef uint64_t Key;
 const int random_seed = 301;
@@ -391,10 +391,10 @@ TEST_F(SkipTest, Concurrent3) { run_concurrent(3); }
 TEST_F(SkipTest, Concurrent4) { run_concurrent(4); }
 TEST_F(SkipTest, Concurrent5) { run_concurrent(5); }
 
-}  // namespace palo
+}  // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
-    palo::CpuInfo::init();
+    doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }

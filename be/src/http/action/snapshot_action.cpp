@@ -34,7 +34,7 @@
 #include "olap/olap_define.h"
 #include "olap/olap_engine.h"
 
-namespace palo {
+namespace doris {
 
 const std::string TABLET_ID = "tablet_id";
 const std::string SCHEMA_HASH = "schema_hash";
@@ -117,4 +117,4 @@ int64_t SnapshotAction::make_snapshot(int64_t tablet_id, int32_t schema_hash,
     return 0L;
 } 
 
-} // end namespace palo
+} // end namespace doris

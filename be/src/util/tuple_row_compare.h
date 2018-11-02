@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef INF_PALO_BE_SRC_UTIL_TUPLE_ROW_COMPARE_H
-#define INF_PALO_BE_SRC_UTIL_TUPLE_ROW_COMPARE_H
+#ifndef INF_DORIS_BE_SRC_UTIL_TUPLE_ROW_COMPARE_H
+#define INF_DORIS_BE_SRC_UTIL_TUPLE_ROW_COMPARE_H
 
 #include "exprs/expr.h"
 #include "exec/sort_exec_exprs.h"
@@ -29,7 +29,7 @@ namespace llvm {
 class Function;
 }
 
-namespace palo {
+namespace doris {
 
 class TupleRowComparator {
 public:

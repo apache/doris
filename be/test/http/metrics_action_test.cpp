@@ -24,7 +24,7 @@
 #include "http/http_channel.h"
 #include "util/metrics.h"
 
-namespace palo {
+namespace doris {
 
 // Mock part
 const char* s_expect_response = nullptr;
