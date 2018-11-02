@@ -41,11 +41,11 @@ public class IsNullPredicate extends Predicate {
             if (t.isNull()) continue;
             String isNullSymbol;
             if (t == Type.BOOLEAN) {
-                isNullSymbol = "_ZN4palo15IsNullPredicate7is_nullIN8palo_udf10BooleanValE" +
+                isNullSymbol = "_ZN5doris15IsNullPredicate7is_nullIN9doris_udf10BooleanValE" +
                         "EES3_PNS2_15FunctionContextERKT_";
             } else {
                 String udfType = Function.getUdfType(t.getPrimitiveType());
-                isNullSymbol = "_ZN4palo15IsNullPredicate7is_nullIN8palo_udf" +
+                isNullSymbol = "_ZN5doris15IsNullPredicate7is_nullIN9doris_udf" +
                         udfType.length() + udfType +
                         "EEENS2_10BooleanValEPNS2_15FunctionContextERKT_";
             }

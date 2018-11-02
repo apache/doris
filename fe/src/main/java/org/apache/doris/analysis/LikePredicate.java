@@ -55,15 +55,15 @@ public class LikePredicate extends Predicate {
         functionSet.addBuiltin(ScalarFunction.createBuiltin(
                 Operator.LIKE.name(), Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
                 false, Type.BOOLEAN,
-                "_ZN4palo13LikePredicate4likeEPN8palo_udf15FunctionContextERKNS1_9StringValES6_",
-                "_ZN4palo13LikePredicate12like_prepareEPN8palo_udf15FunctionContextENS2_18FunctionStateScopeE",
-                "_ZN4palo13LikePredicate10like_closeEPN8palo_udf15FunctionContextENS2_18FunctionStateScopeE", true));
+                "_ZN5doris13LikePredicate4likeEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
+                "_ZN5doris13LikePredicate12like_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE",
+                "_ZN5doris13LikePredicate10like_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE", true));
         functionSet.addBuiltin(ScalarFunction.createBuiltin(
                 Operator.REGEXP.name(), Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
                 false, Type.BOOLEAN,
-                "_ZN4palo13LikePredicate5regexEPN8palo_udf15FunctionContextERKNS1_9StringValES6_",
-                "_ZN4palo13LikePredicate13regex_prepareEPN8palo_udf15FunctionContextENS2_18FunctionStateScopeE",
-                "_ZN4palo13LikePredicate11regex_closeEPN8palo_udf15FunctionContextENS2_18FunctionStateScopeE", true));
+                "_ZN5doris13LikePredicate5regexEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
+                "_ZN5doris13LikePredicate13regex_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE",
+                "_ZN5doris13LikePredicate11regex_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE", true));
     }
 
     private final Operator op;

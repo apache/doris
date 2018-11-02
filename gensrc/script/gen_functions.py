@@ -584,7 +584,7 @@ cc_preamble = '\
 using namespace boost;\n\
 using namespace std;\n\
 \n\
-namespace palo { \n\
+namespace doris { \n\
 \n'
 
 cc_epilogue = '\
@@ -592,10 +592,10 @@ cc_epilogue = '\
 
 h_preamble = '\
 \n\
-#ifndef BDG_PALO_OPCODE_FUNCTIONS_H\n\
-#define BDG_PALO_OPCODE_FUNCTIONS_H\n\
+#ifndef DORIS_OPCODE_FUNCTIONS_H\n\
+#define DORIS_OPCODE_FUNCTIONS_H\n\
 \n\
-namespace palo {\n\
+namespace doris {\n\
 class Expr;\n\
 class OpcodeRegistry;\n\
 class TupleRow;\n\
