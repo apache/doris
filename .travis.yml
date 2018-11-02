@@ -7,6 +7,7 @@ script:
   - #telnet 180.76.144.218 8080
   - #302
   - try third
+  - try ut
   - curl http://180.76.144.218:8080/jenkins/github-webhook
   - #jenkins build a
   - export DORIS_HOME=`pwd`
