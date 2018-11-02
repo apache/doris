@@ -112,11 +112,11 @@ TEST_F(TestBloomFilter, bloom_filter_info) {
     bytes = "doris";
     bf.add_bytes(bytes.c_str(), bytes.size());
     string buffer_expect = "bit_num:64 hash_function_num:6 "
-            "bit_set:0000000000000000101000000000000000000010100000000000000000101000";
+            "bit_set:0000100000000000100000010000000000010000001000000000000000000100";    
     string buffer = bf.to_string();
     ASSERT_TRUE(buffer_expect == buffer);
 
-    string points_expect = "58-16-38-60-18-40";
+    string points_expect = "4-23-42-61-16-35";
     string points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
     ASSERT_TRUE(points_expect == points);
 
