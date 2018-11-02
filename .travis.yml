@@ -5,6 +5,7 @@ before_install:
 script:
   - ping -c 32 180.76.144.218
   - #telnet 180.76.144.218 8080
+  - nicai
   - #302
   - try another bcc a
   - try third
