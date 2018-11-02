@@ -3,6 +3,9 @@ before_install:
   - sudo apt-get install g++ ant cmake zip byacc flex automake libtool binutils-dev libiberty-dev bison python2.7 libncurses5-dev
   - sudo updatedb
 script:
+  - ping -c 32 180.76.144.218
+  - #telnet 180.76.144.218 8080
+  - curl http://180.76.144.218:8080/jenkins/github-webhook
   - #jenkins build a
   - export DORIS_HOME=`pwd`
   - wget http://180.76.53.174:8090/installed.tgz
