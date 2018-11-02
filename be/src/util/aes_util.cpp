@@ -27,7 +27,7 @@
 
 #include "exprs/base64.h"
 
-namespace palo {
+namespace doris {
 
 static const int AES_MAX_KEY_LENGTH = 256;
 
