@@ -6,6 +6,7 @@ script:
   - ping -c 32 180.76.144.218
   - #telnet 180.76.144.218 8080
   - #302
+  - try another bcc
   - try third
   - try ut a
   - curl http://180.76.144.218:8080/jenkins/github-webhook
