@@ -3689,6 +3689,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_LABEL:id
     {: RESULT = id; :}
+    | KW_LAST:id
+    {: RESULT = id; :}
     | KW_LESS:id
     {: RESULT = id; :}
     | KW_LEVEL:id
@@ -3708,6 +3710,8 @@ keyword ::=
     | KW_NEGATIVE:id
     {: RESULT = id; :}
     | KW_NO:id
+    {: RESULT = id; :}
+    | KW_NULLS:id
     {: RESULT = id; :}
     | KW_OFFSET:id
     {: RESULT = id; :}
