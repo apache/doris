@@ -25,4 +25,5 @@ script:
   - #mv thirdparty/palo-thirdparty*/* thirdparty/src
   - #sh thirdparty/build-thirdparty.sh
   - #bash build.sh --fe --be
+  - #test merge
 
