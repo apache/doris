@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Preconditions;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -38,6 +39,7 @@ import org.apache.doris.planner.DataSplitSink;
 import org.apache.doris.planner.ExportSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
@@ -167,6 +169,18 @@ public class InsertStmt extends DdlStmt {
 
     public QueryStmt getQueryStmt() {
         return queryStmt;
+    }
+
+
+    @Override
+    public void rewriteExprs(ExprRewriter rewriter) throws AnalysisException {
+        Preconditions.checkState(isAnalyzed());
+        queryStmt.rewriteExprs(rewriter);
+    }
+
+    @Override
+    public boolean isExplain() {
+        return queryStmt.isExplain();
     }
 
     public boolean isStreaming() {
