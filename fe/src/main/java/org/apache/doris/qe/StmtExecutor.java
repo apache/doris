@@ -394,21 +394,14 @@ public class StmtExecutor {
             lock(dbs);
             try {
                 parsedStmt.analyze(analyzer);
-                // TODO chenhao16, InsertStmt's QueryStmt rewrite
-                StatementBase originStmt = null;
-                if (parsedStmt instanceof InsertStmt) {
-                    originStmt = parsedStmt;
-                    parsedStmt = ((InsertStmt) parsedStmt).getQueryStmt();
-                }
-                if (parsedStmt instanceof QueryStmt) {
-                    QueryStmt queryStmt1 = (QueryStmt)parsedStmt;
-                    boolean isExplain = ((QueryStmt) parsedStmt).isExplain();
+                if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
+                    boolean isExplain = parsedStmt.isExplain();
                     // Apply expr and subquery rewrites.
                     boolean reAnalyze = false;
 
                     ExprRewriter rewriter = analyzer.getExprRewriter();
                     rewriter.reset();
-                    queryStmt1.rewriteExprs(rewriter);
+                    parsedStmt.rewriteExprs(rewriter);
                     reAnalyze = rewriter.changed();
                     if (analyzer.containSubquery()) {
                         StmtRewriter.rewrite(analyzer, parsedStmt);
@@ -420,27 +413,22 @@ public class StmtExecutor {
                         // types and column labels to restore them after the rewritten stmt has been
                         // reset() and re-analyzed.
                         List<Type> origResultTypes = Lists.newArrayList();
-                        for (Expr e: queryStmt1.getResultExprs()) {
+                        for (Expr e: parsedStmt.getResultExprs()) {
                             origResultTypes.add(e.getType());
                         }
                         List<String> origColLabels =
-                                Lists.newArrayList(queryStmt1.getColLabels());
+                                Lists.newArrayList(parsedStmt.getColLabels());
 
                         // Re-analyze the stmt with a new analyzer.
                         analyzer = new Analyzer(context.getCatalog(), context);
-                        // TODO chenhao16 , merge Impala
-                        // insert re-analyze
-                        if (originStmt != null) {
-                            originStmt.reset();
-                            originStmt.analyze(analyzer);
-                        } else {
-                            // query re-analyze
-                            parsedStmt.reset();
-                            parsedStmt.analyze(analyzer);
-                        }
+
+                        // query re-analyze
+                        parsedStmt.reset();
+                        parsedStmt.analyze(analyzer);
+
                         // Restore the original result types and column labels.
-                        queryStmt1.castResultExprs(origResultTypes);
-                        queryStmt1.setColLabels(origColLabels);
+                        parsedStmt.castResultExprs(origResultTypes);
+                        parsedStmt.setColLabels(origColLabels);
                         if (LOG.isTraceEnabled()) {
                             LOG.trace("rewrittenStmt: " + parsedStmt.toSql());
                         }
@@ -448,9 +436,6 @@ public class StmtExecutor {
                     }
                 }
 
-                if (originStmt != null && originStmt instanceof InsertStmt) {
-                    parsedStmt = originStmt;
-                }
                 // create plan
                 planner = new Planner();
                 if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
