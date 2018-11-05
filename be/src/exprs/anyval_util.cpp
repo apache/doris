@@ -139,7 +139,7 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
         out.len = type.len;
         break; 
     case TYPE_CHAR:
-        out.type = FunctionContext::TYPE_FIXED_BUFFER;
+        out.type = FunctionContext::TYPE_CHAR;
         out.len = type.len;
         break;
     case TYPE_DECIMAL:

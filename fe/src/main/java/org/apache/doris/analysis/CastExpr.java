@@ -38,24 +38,25 @@ import org.apache.logging.log4j.LogManager;
 public class CastExpr extends Expr {
     private static final Logger LOG = LogManager.getLogger(CastExpr.class);
 
-    private final Type targetType;
-    /**
-     * true if this is a "pre-analyzed" implicit cast
-     */
+    // Only set for explicit casts. Null for implicit casts.
+    private final TypeDef targetTypeDef;
+
+    // True if this is a "pre-analyzed" implicit cast.
     private final boolean isImplicit;
 
     // True if this cast does not change the type.
     private boolean noOp = false;
 
-    public CastExpr(Type targetType, Expr e, boolean isImplicit) {
+    public CastExpr(Type targetType, Expr e) {
         super();
-        Preconditions.checkArgument(targetType != Type.INVALID);
-        this.targetType = targetType;
-        this.isImplicit = isImplicit;
+        Preconditions.checkArgument(targetType.isValid());
         Preconditions.checkNotNull(e);
+        type = targetType;
+        targetTypeDef = null;
+        isImplicit = true;
+
         children.add(e);
         if (isImplicit) {
-            type = targetType;
             try {
                 analyze();
             } catch (AnalysisException ex) {
@@ -66,9 +67,20 @@ public class CastExpr extends Expr {
         }
     }
 
+    /**
+     * Copy c'tor used in clone().
+     */
+    protected CastExpr(TypeDef targetTypeDef, Expr e) {
+        Preconditions.checkNotNull(targetTypeDef);
+        Preconditions.checkNotNull(e);
+        this.targetTypeDef = targetTypeDef;
+        isImplicit = false;
+        children.add(e);
+    }
+
     protected CastExpr(CastExpr other) {
         super(other);
-        targetType = other.targetType;
+        targetTypeDef = other.targetTypeDef;
         isImplicit = other.isImplicit;
         noOp = other.noOp;
     }
@@ -94,42 +106,6 @@ public class CastExpr extends Expr {
                 if ((fromType.isBoolean() || fromType.isDateType()) && toType == Type.DECIMAL) {
                     continue;
                 }
-//                if (fromType.getPrimitiveType() == PrimitiveType.CHAR
-//                        && toType.getPrimitiveType() == PrimitiveType.CHAR) {
-//                    // Allow casting from CHAR(N) to Char(N)
-//                    String beSymbol = "impala::CastFunctions::CastToChar";
-//                    functionSet.addBuiltin(ScalarFunction.createBuiltin(getFnName(ScalarType.CHAR),
-//                            Lists.newArrayList((Type) ScalarType.createCharType(-1)), false,
-//                            ScalarType.CHAR, beSymbol, null, null, true));
-//                    continue;
-//                }
-//                if (fromType.getPrimitiveType() == PrimitiveType.VARCHAR
-//                        && toType.getPrimitiveType() == PrimitiveType.VARCHAR) {
-//                    // Allow casting from VARCHAR(N) to VARCHAR(M)
-//                    String beSymbol = "impala::CastFunctions::CastToStringVal";
-//                    functionSet.addBuiltin(ScalarFunction.createBuiltin(getFnName(ScalarType.VARCHAR),
-//                            Lists.newArrayList((Type) ScalarType.VARCHAR), false, ScalarType.VARCHAR,
-//                            beSymbol, null, null, true));
-//                    continue;
-//                }
-//                if (fromType.getPrimitiveType() == PrimitiveType.VARCHAR
-//                        && toType.getPrimitiveType() == PrimitiveType.CHAR) {
-//                    // Allow casting from VARCHAR(N) to CHAR(M)
-//                    String beSymbol = "impala::CastFunctions::CastToChar";
-//                    functionSet.addBuiltin(ScalarFunction.createBuiltin(getFnName(ScalarType.CHAR),
-//                            Lists.newArrayList((Type) ScalarType.VARCHAR), false, ScalarType.CHAR,
-//                            beSymbol, null, null, true));
-//                    continue;
-//                }
-//                if (fromType.getPrimitiveType() == PrimitiveType.CHAR
-//                        && toType.getPrimitiveType() == PrimitiveType.VARCHAR) {
-//                    // Allow casting from CHAR(N) to VARCHAR(M)
-//                    String beSymbol = "impala::CastFunctions::CastToStringVal";
-//                    functionSet.addBuiltin(ScalarFunction.createBuiltin(getFnName(ScalarType.VARCHAR),
-//                            Lists.newArrayList((Type) ScalarType.CHAR), false, ScalarType.VARCHAR,
-//                            beSymbol, null, null, true));
-//                    continue;
-//                }
 
                 // Disable no-op casts
                 if (fromType.equals(toType)) {
@@ -158,10 +134,10 @@ public class CastExpr extends Expr {
         if (isImplicit) {
             return getChild(0).toSql();
         }
-        if (targetType.isStringType()) {
+        if (type.isStringType()) {
             return "CAST(" + getChild(0).toSql() + " AS " + "CHARACTER" + ")";
         } else {
-            return "CAST(" + getChild(0).toSql() + " AS " + targetType.toString() + ")";
+            return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
         }
     }
 
@@ -193,7 +169,7 @@ public class CastExpr extends Expr {
         Type childType = getChild(0).getType();
 
         // this cast may result in loss of precision, but the user requested it
-        if (childType.equals(targetType)) {
+        if (childType.equals(type)) {
             noOp = true;
             return;
         }
@@ -219,7 +195,9 @@ public class CastExpr extends Expr {
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        type = targetType;
+        Preconditions.checkState(!isImplicit);
+        targetTypeDef.analyze(analyzer);
+        type = targetTypeDef.getType();
         analyze();
     }
 
