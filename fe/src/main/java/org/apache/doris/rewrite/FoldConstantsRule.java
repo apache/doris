@@ -145,7 +145,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
         return null;
     }
 
-    private void registerFunctions() {
+    private synchronized void registerFunctions() {
         Class clazz = FEFunctions.class;
         for (Method method : clazz.getDeclaredMethods()) {
             FEFunction annotation = method.getAnnotation(FEFunction.class);
