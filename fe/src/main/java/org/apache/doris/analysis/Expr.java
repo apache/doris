@@ -1205,7 +1205,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      *                           failure to convert a string literal to a date literal
      */
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        return new CastExpr(targetType, this, true);
+        return new CastExpr(targetType, this);
     }
 
     /**
