@@ -115,7 +115,7 @@ public class SysVariableDesc extends Expr {
     }
 
     @Override
-    public String toSql() {
+    public String toSqlImpl() {
         StringBuilder sb = new StringBuilder("@@");
         if (setType == SetType.GLOBAL) {
             sb.append("GLOBAL.");

@@ -154,7 +154,7 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public String toSql() {
+    public String toSqlImpl() {
         if (isImplicit) {
             return getChild(0).toSql();
         }

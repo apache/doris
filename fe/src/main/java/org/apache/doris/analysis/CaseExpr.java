@@ -103,7 +103,7 @@ public class CaseExpr extends Expr {
     }
 
     @Override
-    public String toSql() {
+    public String toSqlImpl() {
         StringBuilder output = new StringBuilder("CASE");
         int childIdx = 0;
         if (hasCaseExpr) {

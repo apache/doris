@@ -67,7 +67,7 @@ public class CompoundPredicate extends Predicate {
     }
 
     @Override
-    public String toSql() {
+    public String toSqlImpl() {
         if (children.size() == 1) {
             Preconditions.checkState(op == Operator.NOT);
             return "NOT " + getChild(0).toSql();

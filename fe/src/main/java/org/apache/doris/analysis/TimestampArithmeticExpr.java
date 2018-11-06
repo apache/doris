@@ -255,7 +255,7 @@ public class TimestampArithmeticExpr extends Expr {
     }
 
     @Override
-    public String toSql() {
+    public String toSqlImpl() {
         StringBuilder strBuilder = new StringBuilder();
         if (funcName != null) {
             // Function-call like version.

@@ -223,7 +223,7 @@ public class InPredicate extends Predicate {
     }
 
     @Override
-    public String toSql() {
+    public String toSqlImpl() {
         StringBuilder strBuilder = new StringBuilder();
         String notStr = (isNotIn) ? "NOT " : "";
         strBuilder.append(getChild(0).toSql() + " " + notStr + "IN (");

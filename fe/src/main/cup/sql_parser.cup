@@ -3139,7 +3139,10 @@ non_pred_expr ::=
   | arithmetic_expr:e
   {: RESULT = e; :}
   | LPAREN non_pred_expr:e RPAREN
-  {: RESULT = e; :}
+  {:
+    e.setPrintSqlInParens(true);
+    RESULT = e;
+  :}
   /* TODO(zc): add other trim function */
   | KW_TRIM:id LPAREN function_params:params RPAREN
   {: RESULT = new FunctionCallExpr(new FunctionName(null, id), params); :}
@@ -3365,7 +3368,10 @@ predicate ::=
   | like_predicate:p
   {: RESULT = p; :}
   | LPAREN predicate:p RPAREN
-  {: RESULT = p; :}
+  {:
+    p.setPrintSqlInParens(true);
+    RESULT = p;
+  :}
   ;
 
 comparison_predicate ::=
