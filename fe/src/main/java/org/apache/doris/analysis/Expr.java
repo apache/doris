@@ -409,6 +409,19 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return childTypes;
     }
 
+    public List<Expr> getChildrenWithoutCast() {
+        List<Expr> result = new ArrayList<>();
+        for (int i = 0; i < children.size(); ++i) {
+            if (children.get(i) instanceof CastExpr) {
+                CastExpr castExpr = (CastExpr) children.get(i);
+                result.add(castExpr.getChild(0));
+            } else {
+                result.add(children.get(i));
+            }
+        }
+        return result;
+    }
+
     /**
      * Helper function: analyze list of exprs
      *
