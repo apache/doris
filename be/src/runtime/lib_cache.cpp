@@ -124,13 +124,13 @@ LibCache::LibCacheEntry::~LibCacheEntry() {
 }
 
 Status LibCache::get_so_function_ptr(
-        const std::string& hdfs_lib_file, const std::string& symbol,
+        const std::string& hdfs_lib_file, const std::string& origin_symbol,
         void** fn_ptr, LibCacheEntry** ent, bool quiet) {
-    const std::string& real_symbol = get_real_symbol(symbol);
+    const std::string& symbol = get_real_symbol(origin_symbol);
     if (hdfs_lib_file.empty()) {
         // Just loading a function ptr in the current process. No need to take any locks.
         DCHECK(_current_process_handle != NULL);
-        RETURN_IF_ERROR(dynamic_lookup(_current_process_handle, real_symbol.c_str(), fn_ptr));
+        RETURN_IF_ERROR(dynamic_lookup(_current_process_handle, symbol.c_str(), fn_ptr));
         return Status::OK;
     }
     LibCacheEntry* entry = NULL;
@@ -146,13 +146,13 @@ Status LibCache::get_so_function_ptr(
     DCHECK(entry != NULL);
     DCHECK_EQ(entry->type, TYPE_SO);
 
-    LibCacheEntry::SymbolMap::iterator it = entry->symbol_cache.find(real_symbol);
+    LibCacheEntry::SymbolMap::iterator it = entry->symbol_cache.find(symbol);
     if (it != entry->symbol_cache.end()) {
         *fn_ptr = it->second;
     } else {
         RETURN_IF_ERROR(
-            dynamic_lookup(entry->shared_object_handle, real_symbol.c_str(), fn_ptr));
-        entry->symbol_cache[real_symbol] = *fn_ptr;
+            dynamic_lookup(entry->shared_object_handle, symbol.c_str(), fn_ptr));
+        entry->symbol_cache[symbol] = *fn_ptr;
     }
 
     DCHECK(*fn_ptr != NULL);
@@ -192,20 +192,20 @@ Status LibCache::get_local_lib_path(
 
 Status LibCache::check_symbol_exists(
         const std::string& hdfs_lib_file, LibType type,
-        const std::string& symbol, bool quiet) {
-    const std::string& real_symbol = get_real_symbol(symbol);
+        const std::string& origin_symbol, bool quiet) {
+    const std::string& symbol = get_real_symbol(origin_symbol);
     if (type == TYPE_SO) {
         void* dummy_ptr = NULL;
-        return get_so_function_ptr(hdfs_lib_file, real_symbol, &dummy_ptr, NULL, quiet);
+        return get_so_function_ptr(hdfs_lib_file, symbol, &dummy_ptr, NULL, quiet);
     } else if (type == TYPE_IR) {
         boost::unique_lock<boost::mutex> lock;
         LibCacheEntry* entry = NULL;
         RETURN_IF_ERROR(get_chache_entry(hdfs_lib_file, type, &lock, &entry));
         DCHECK(entry != NULL);
         DCHECK_EQ(entry->type, TYPE_IR);
-        if (entry->symbols.find(real_symbol) == entry->symbols.end()) {
+        if (entry->symbols.find(symbol) == entry->symbols.end()) {
             std::stringstream ss;
-            ss << "Symbol '" << real_symbol << "' does not exist in module: " << hdfs_lib_file
+            ss << "Symbol '" << symbol << "' does not exist in module: " << hdfs_lib_file
                 << " (local path: " << entry->local_path << ")";
             // return quiet ? Status::Expected(ss.str()) : Status(ss.str());
             return Status(ss.str());

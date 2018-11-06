@@ -19,6 +19,7 @@
 #define DORIS_BE_RUNTIME_LIB_CACHE_H
 
 #include <string>
+#include <regex>
 #include <boost/scoped_ptr.hpp>
 #include <boost/unordered_map.hpp>
 #include <boost/unordered_set.hpp>
@@ -163,32 +164,11 @@ private:
 
     // map "palo" to "doris" in symbol, only for grayscale upgrading
     std::string get_real_symbol(const std::string& symbol) {
-        const std::string& str1 = replace_all(symbol, "8palo_udf", "9doris_udf");
-        const std::string& str2 = replace_all(str1, "4palo", "5doris"); 
+        std::regex rx1("8palo_udf");
+        std::string str1 = std::regex_replace(symbol, rx1, "9doris_udf");
+        std::regex rx2("4palo");
+        std::string str2 = std::regex_replace(str1, rx2, "5doris");
         return str2;
-    }
-
-    std::string replace_all(const std::string& str, const std::string& find, const std::string& replace) {
-        if (str.empty() || find.empty()) {
-            return str;
-        }
-        std::stringstream ss;
-        std::size_t pos = str.find(find);
-        std::size_t last_pos = 0;
-        while (pos != std::string::npos) {
-            if (pos > 0) {
-                ss << str.substr(last_pos, pos - last_pos);
-            }
-            ss << replace;
-            last_pos = pos + find.length();
-            pos = str.find(find, last_pos);
-        }
-        if (last_pos != std::string::npos && last_pos != 0) {
-            ss << str.substr(last_pos, str.length() - last_pos);
-        } else {
-            return str;
-        }
-        return ss.str();
     }
  
     /// Utility function for generating a filename unique to this process and

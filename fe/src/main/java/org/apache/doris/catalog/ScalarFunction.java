@@ -160,7 +160,7 @@ public class ScalarFunction extends Function {
             }
         }
         String beClass = usesDecimal ? "DecimalOperators" : "Operators";
-        String symbol = "palo::" + beClass + "::" + beFn;
+        String symbol = "doris::" + beClass + "::" + beFn;
         return createBuiltinOperator(name, symbol, argTypes, retType);
     }
 
