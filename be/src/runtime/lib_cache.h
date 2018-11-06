@@ -161,6 +161,33 @@ private:
         const std::string& hdfs_lib_file, LibType type,
         boost::unique_lock<boost::mutex>* entry_lock, LibCacheEntry** entry);
 
+    // map "palo" to "doris" in symbol, only for grayscale upgrading
+    std::string get_real_symbol(const std::string& symbol) {
+        const std::string& str1 = replace_all(symbol, "8palo_udf", "9doris_udf");
+        const std::string& str2 = replace_all(str1, "4palo", "5doris"); 
+        return str2;
+    }
+
+    std::string replace_all(const std::string& str, const std::string& find, const std::string& replace) {
+        std::stringstream ss;
+        std::size_t pos = str.find(find);
+        std::size_t last_pos = pos;
+        while (pos != std::string::npos) {
+            if (pos > 0) {
+                ss << str.substr(0, pos);
+            }
+            ss << replace;
+            last_pos = pos;
+            pos = str.find(find, pos + find.length());
+        }
+        if (last_pos != std::string::npos) {
+            ss << str.substr(last_pos + find.length(), (str.length() - last_pos - 1));
+        } else {
+            return str;
+        }
+        return ss.str();
+    }
+ 
     /// Utility function for generating a filename unique to this process and
     /// 'hdfs_path'. This is to prevent multiple impalad processes or different library files
     /// with the same name from clobbering each other. 'hdfs_path' should be the full path
