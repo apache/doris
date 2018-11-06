@@ -336,13 +336,11 @@ public class StreamLoadScanNode extends ScanNode {
             if (srcType.isStringType()) {
                 return expr;
             } else {
-                CastExpr castExpr = new CastExpr(Type.VARCHAR, expr, true);
-                castExpr.analyze(analyzer);
+                CastExpr castExpr = (CastExpr)expr.castTo(Type.VARCHAR);
                 return castExpr;
             }
         } else if (dstType != srcType) {
-            CastExpr castExpr = new CastExpr(slotDesc.getType(), expr, true);
-            castExpr.analyze(analyzer);
+            CastExpr castExpr = (CastExpr)expr.castTo(slotDesc.getType());
             return castExpr;
         }
 

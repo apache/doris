@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.AggregateType;
@@ -189,7 +190,7 @@ parser code {:
     }
 :};
 
-// Total keywords of palo
+// Total keywords of doris
 terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_AS, KW_ASC, KW_AUTHORS, 
     KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BOOLEAN, KW_BOTH, KW_BROKER, KW_BACKENDS, KW_BY,
     KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CLUSTER, KW_CLUSTERS,
@@ -302,6 +303,8 @@ nonterminal OrderByElement order_by_element;
 nonterminal Boolean opt_order_param;
 nonterminal Boolean opt_nulls_order_param;
 nonterminal LimitElement limit_clause;
+nonterminal TypeDef type_def;
+nonterminal Type type;
 nonterminal Expr cast_expr, case_else_clause, analytic_expr;
 nonterminal LiteralExpr literal;
 nonterminal CaseExpr case_expr;
@@ -3016,17 +3019,49 @@ limit_clause ::=
   {: RESULT = new LimitElement(offset.longValue(), limit.longValue()); :}
   ;
 
+type ::=
+  KW_TINYINT
+  {: RESULT = Type.TINYINT; :}
+  | KW_SMALLINT
+  {: RESULT = Type.SMALLINT; :}
+  | KW_INT
+  {: RESULT = Type.INT; :}
+  | KW_BIGINT
+  {: RESULT = Type.BIGINT; :}
+  | KW_BOOLEAN
+  {: RESULT = Type.BOOLEAN; :}
+  | KW_FLOAT
+  {: RESULT = Type.FLOAT; :}
+  | KW_DOUBLE
+  {: RESULT = Type.DOUBLE; :}
+  | KW_DATE
+  {: RESULT = Type.DATE; :}
+  | KW_DATETIME
+  {: RESULT = Type.DATETIME; :}
+  | KW_VARCHAR LPAREN INTEGER_LITERAL:len RPAREN
+  {: RESULT = ScalarType.createVarcharType(len.intValue()); :}
+  | KW_VARCHAR
+  {: RESULT = ScalarType.createVarcharType(-1); :}
+  | KW_CHAR LPAREN INTEGER_LITERAL:len RPAREN
+  {: RESULT = ScalarType.createCharType(len.intValue()); :}
+  | KW_CHAR
+  {: RESULT = ScalarType.createCharType(-1); :}
+  | KW_DECIMAL LPAREN INTEGER_LITERAL:precision RPAREN
+  {: RESULT = ScalarType.createDecimalType(precision.intValue()); :}
+  | KW_DECIMAL LPAREN INTEGER_LITERAL:precision COMMA INTEGER_LITERAL:scale RPAREN
+  {: RESULT = ScalarType.createDecimalType(precision.intValue(), scale.intValue()); :}
+  | KW_DECIMAL
+  {: RESULT = ScalarType.createDecimalType(); :}
+  ;
+
+type_def ::=
+  type:t
+  {: RESULT = new TypeDef(t); :}
+  ;
+
 cast_expr ::=
-  KW_CAST LPAREN expr:e KW_AS KW_STRING RPAREN
-  {: RESULT = new CastExpr(Type.VARCHAR, e, false); :}
-  | KW_CAST LPAREN expr:e KW_AS primitive_type:targetType RPAREN
-  {: RESULT = new CastExpr(Type.fromPrimitiveType((PrimitiveType) targetType), e, false); :}
-  | KW_CAST LPAREN expr:e KW_AS primitive_type:targetType LPAREN non_pred_expr:e1 RPAREN RPAREN
-  {: RESULT = new CastExpr(Type.fromPrimitiveType((PrimitiveType) targetType), e, false); :}
-  | KW_CAST LPAREN expr:e KW_AS KW_CHAR opt_charset_name RPAREN
-  {: RESULT = new CastExpr(Type.fromPrimitiveType(PrimitiveType.VARCHAR), e, false); :}
-  | KW_CAST LPAREN expr:e KW_AS KW_CHAR LPAREN non_pred_expr:e1 RPAREN opt_charset_name RPAREN
-  {: RESULT = new CastExpr(Type.fromPrimitiveType(PrimitiveType.VARCHAR), e, false); :}
+  KW_CAST LPAREN expr:e KW_AS type_def:targetType RPAREN
+  {: RESULT = new CastExpr(targetType, e); :}
   ;
 
 case_expr ::=
