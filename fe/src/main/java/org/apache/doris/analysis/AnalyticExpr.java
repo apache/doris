@@ -785,7 +785,7 @@ public class AnalyticExpr extends Expr {
     }
 
     @Override
-    public String toSql() {
+    public String toSqlImpl() {
         if (sqlString != null) {
             return sqlString;
         }

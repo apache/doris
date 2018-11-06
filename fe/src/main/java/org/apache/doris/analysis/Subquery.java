@@ -51,7 +51,7 @@ public class Subquery extends Expr {
     public QueryStmt getStatement() { return stmt; }
 
     @Override
-    public String toSql() { return "(" + stmt.toSql() + ")"; }
+    public String toSqlImpl() { return "(" + stmt.toSql() + ")"; }
 
     /**
      * C'tor that initializes a Subquery from a QueryStmt.

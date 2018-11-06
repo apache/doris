@@ -150,7 +150,7 @@ public class ArithmeticExpr extends Expr {
     }
 
     @Override
-    public String toSql() {
+    public String toSqlImpl() {
         if (children.size() == 1) {
             return op.toString() + " " + getChild(0).toSql();
         } else {

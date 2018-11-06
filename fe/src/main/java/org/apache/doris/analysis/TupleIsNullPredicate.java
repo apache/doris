@@ -145,7 +145,7 @@ public class TupleIsNullPredicate extends Predicate {
     }
 
     @Override
-    public String toSql() {
+    public String toSqlImpl() {
         return "";
     }
 }

@@ -171,7 +171,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     @Override
-    public String toSql() {
+    public String toSqlImpl() {
         StringBuilder sb = new StringBuilder();
         sb.append(fnName).append("(");
         if (fnParams.isStar()) {
