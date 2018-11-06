@@ -37,6 +37,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.rewrite.FoldConstantsRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
 import org.apache.doris.thrift.TQueryGlobals;
 
@@ -237,6 +238,7 @@ public class Analyzer {
             // Binary predicates must be rewritten to a canonical form for both Kudu predicate
             // pushdown and Parquet row group pruning based on min/max statistics.
             rules.add(NormalizeBinaryPredicatesRule.INSTANCE);
+            rules.add(FoldConstantsRule.INSTANCE);
             exprRewriter_ = new ExprRewriter(rules);
         }
     };

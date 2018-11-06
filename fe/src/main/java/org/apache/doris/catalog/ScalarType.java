@@ -118,6 +118,47 @@ public class ScalarType extends Type {
         }
     }
 
+    public static ScalarType createType(String type) {
+        switch (type) {
+            case "INVALID_TYPE":
+                return INVALID;
+            case "NULL_TYPE":
+                return NULL;
+            case "BOOLEAN":
+                return BOOLEAN;
+            case "SMALLINT":
+                return SMALLINT;
+            case "TINYINT":
+                return TINYINT;
+            case "INT":
+                return INT;
+            case "BIGINT":
+                return BIGINT;
+            case "FLOAT":
+                return FLOAT;
+            case "DOUBLE":
+                return DOUBLE;
+            case "CHAR":
+                return CHAR;
+            case "VARCHAR":
+                return createVarcharType();
+            case "HLL":
+                return createHllType();
+            case "DATE":
+                return DATE;
+            case "DATETIME":
+                return DATETIME;
+            case "DECIMAL":
+                return (ScalarType) createDecimalType();
+            case "LARGEINT":
+                return LARGEINT;
+            default:
+                LOG.warn("type={}", type);
+                Preconditions.checkState(false);
+                return NULL;
+        }
+    }
+
     public static ScalarType createCharType(int len) {
         ScalarType type = new ScalarType(PrimitiveType.CHAR);
         type.len = len;
