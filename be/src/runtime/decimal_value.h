@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_RUNTIME_DECIMAL_VALUE_H
-#define DORIS_BE_SRC_QUERY_RUNTIME_DECIMAL_VALUE_H
+#ifndef DORIS_BE_SRC_RUNTIME_DECIMAL_VALUE_H
+#define DORIS_BE_SRC_RUNTIME_DECIMAL_VALUE_H
 
 #include <cctype>
 #include <climits>
