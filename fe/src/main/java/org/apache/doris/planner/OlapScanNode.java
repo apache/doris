@@ -93,8 +93,11 @@ public class OlapScanNode extends ScanNode {
     private long totalTabletsNum = 0;
     private long selectedIndexId = -1;
     private int selectedPartitionNum = 0;
+    private long totalBytes = 0;
 
     boolean isFinalized = false;
+
+    private HashSet<Long> scanBackendIds = new HashSet<>();
 
     /**
      * Constructs node to scan given data files of table 'tbl'.
@@ -143,8 +146,21 @@ public class OlapScanNode extends ScanNode {
             throw new UserException(e.getMessage());
         }
 
+        computeStats(analyzer);
         isFinalized = true;
     }
+
+    @Override
+    public void computeStats(Analyzer analyzer) {
+        if (cardinality > 0) {
+            avgRowSize = totalBytes / (float) cardinality;
+            if (hasLimit()) {
+                cardinality = Math.min(cardinality, limit);
+            }
+            numNodes = scanBackendIds.size();
+        }
+    }
+
 
     // private void analyzeVectorizedConjuncts(Analyzer analyzer) throws InternalException {
     //     for (SlotDescriptor slot : desc.getSlots()) {
@@ -434,6 +450,7 @@ public class OlapScanNode extends ScanNode {
 
             Collections.shuffle(replicas);
             boolean tabletIsNull = true;
+            boolean collectedStat = false;
             for (Replica replica : replicas) {
                 Backend backend = Catalog.getCurrentSystemInfo().getBackend(replica.getBackendId());
                 if (backend == null) {
@@ -447,6 +464,14 @@ public class OlapScanNode extends ScanNode {
                 scanRangeLocations.addToLocations(scanRangeLocation);
                 paloRange.addToHosts(new TNetworkAddress(ip, port));
                 tabletIsNull = false;
+
+                //for CBO
+                if (!collectedStat && replica.getRowCount() != -1) {
+                    cardinality += replica.getRowCount();
+                    totalBytes += replica.getDataSize();
+                    collectedStat = true;
+                }
+                scanBackendIds.add(backend.getId());
             }
             if (tabletIsNull) {
                 throw new UserException(tabletId + "have no alive replicas");
@@ -597,6 +622,18 @@ public class OlapScanNode extends ScanNode {
 
         output.append(prefix).append(String.format(
                     "buckets=%s/%s", selectedTabletsNum, totalTabletsNum));
+        output.append("\n");
+
+        output.append(prefix).append(String.format(
+                "cardinality=%s", cardinality));
+        output.append("\n");
+
+        output.append(prefix).append(String.format(
+                "avgRowSize=%s", avgRowSize));
+        output.append("\n");
+
+        output.append(prefix).append(String.format(
+                "numNodes=%s", numNodes));
         output.append("\n");
 
         return output.toString();
