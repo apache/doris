@@ -143,7 +143,6 @@ public class StreamLoadScanNodeTest {
         StreamLoadScanNode scanNode = new StreamLoadScanNode(new PlanNodeId(1), dstDesc, dstTable, request);
         new Expectations() {{
             dstTable.getBaseSchema(); result = columns;
-            castExpr.analyze((Analyzer) any);
         }};
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
