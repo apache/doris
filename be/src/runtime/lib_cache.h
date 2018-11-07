@@ -19,6 +19,7 @@
 #define DORIS_BE_RUNTIME_LIB_CACHE_H
 
 #include <string>
+#include <regex>
 #include <boost/scoped_ptr.hpp>
 #include <boost/unordered_map.hpp>
 #include <boost/unordered_set.hpp>
@@ -161,6 +162,15 @@ private:
         const std::string& hdfs_lib_file, LibType type,
         boost::unique_lock<boost::mutex>* entry_lock, LibCacheEntry** entry);
 
+    // map "palo" to "doris" in symbol, only for grayscale upgrading
+    std::string get_real_symbol(const std::string& symbol) {
+        static std::regex rx1("8palo_udf");
+        std::string str1 = std::regex_replace(symbol, rx1, "9doris_udf");
+        static std::regex rx2("4palo");
+        std::string str2 = std::regex_replace(str1, rx2, "5doris");
+        return str2;
+    }
+ 
     /// Utility function for generating a filename unique to this process and
     /// 'hdfs_path'. This is to prevent multiple impalad processes or different library files
     /// with the same name from clobbering each other. 'hdfs_path' should be the full path

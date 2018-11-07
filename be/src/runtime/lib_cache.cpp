@@ -124,8 +124,9 @@ LibCache::LibCacheEntry::~LibCacheEntry() {
 }
 
 Status LibCache::get_so_function_ptr(
-        const std::string& hdfs_lib_file, const std::string& symbol,
+        const std::string& hdfs_lib_file, const std::string& origin_symbol,
         void** fn_ptr, LibCacheEntry** ent, bool quiet) {
+    const std::string symbol = get_real_symbol(origin_symbol);
     if (hdfs_lib_file.empty()) {
         // Just loading a function ptr in the current process. No need to take any locks.
         DCHECK(_current_process_handle != NULL);
@@ -191,7 +192,8 @@ Status LibCache::get_local_lib_path(
 
 Status LibCache::check_symbol_exists(
         const std::string& hdfs_lib_file, LibType type,
-        const std::string& symbol, bool quiet) {
+        const std::string& origin_symbol, bool quiet) {
+    const std::string symbol = get_real_symbol(origin_symbol);
     if (type == TYPE_SO) {
         void* dummy_ptr = NULL;
         return get_so_function_ptr(hdfs_lib_file, symbol, &dummy_ptr, NULL, quiet);
