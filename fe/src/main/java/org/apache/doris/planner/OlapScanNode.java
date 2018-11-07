@@ -40,7 +40,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
@@ -155,7 +154,6 @@ public class OlapScanNode extends ScanNode {
     public void computeStats(Analyzer analyzer) {
         if (cardinality > 0) {
             avgRowSize = totalBytes / (float) cardinality;
-            cardinality = cardinality / FeConstants.default_replication_num; //the cardinality should be single replica
             if (hasLimit()) {
                 cardinality = Math.min(cardinality, limit);
             }
@@ -452,6 +450,7 @@ public class OlapScanNode extends ScanNode {
 
             Collections.shuffle(replicas);
             boolean tabletIsNull = true;
+            boolean collectedStat = false;
             for (Replica replica : replicas) {
                 Backend backend = Catalog.getCurrentSystemInfo().getBackend(replica.getBackendId());
                 if (backend == null) {
@@ -467,9 +466,10 @@ public class OlapScanNode extends ScanNode {
                 tabletIsNull = false;
 
                 //for CBO
-                if (replica.getRowCount() != -1) {
+                if (!collectedStat && replica.getRowCount() != -1) {
                     cardinality += replica.getRowCount();
                     totalBytes += replica.getDataSize();
+                    collectedStat = true;
                 }
                 scanBackendIds.add(backend.getId());
             }
