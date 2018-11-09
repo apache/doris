@@ -74,7 +74,6 @@ public class WebBaseAction extends BaseAction {
             + "  <script type=\"text/javascript\"> " + LINE_SEP
             + "    $(document).ready(function() { " + LINE_SEP
             + "      $('#table_id').dataTable({ " + LINE_SEP
-            + "        \"sScrollX\": \"100%\"," + LINE_SEP
             + "        \"aaSorting\": []," + LINE_SEP
             +       " });" + LINE_SEP
             + "    }); " + LINE_SEP
@@ -89,24 +88,14 @@ public class WebBaseAction extends BaseAction {
             + "<body>";
     protected static final String PAGE_FOOTER = "</div></body></html>";
     protected static final String NAVIGATION_BAR_PREFIX =
-              "  <div class=\"navbar navbar-inverse navbar-fixed-top\">"
-            + "    <div class=\"navbar-inner\">"
-            + "      <div class=\"container\">"
-            + "        <a class=\"btn btn-navbar\" data-toggle=\"collapse\" "
-            + "            data-target=\".nav-collapse\">"
-            + "          <span class=\"icon-bar\"></span>"
-            + "          <span class=\"icon-bar\"></span>"
-            + "          <span class=\"icon-bar\"></span>"
-            + "        </a>"
-            + "        <a class=\"brand\" href=\"/\">Palo</a>"
-            + "        <div class=\"nav-collapse collapse\">"
-            + "          <ul class=\"nav\">";
+              "  <nav class=\"navbar navbar-inverse navbar-fixed-top\" role=\"navigation\" style=\"text-align: center;\">"
+            + "    <div class=\"container-fluid\">"
+            + "    <div>"
+            + "      <ul class=\"nav nav-pills\" role=\"tablist\" style=\"display: inline-block;float: none; \">";
     protected static final String NAVIGATION_BAR_SUFFIX =
-              "          </ul>"
-            + "        </div>"
-            + "      </div>"
+              "      </ul>"
             + "    </div>"
-            + "  </div>"
+            + "  </nav>"
             + "  <div class=\"container\">";
 
     public WebBaseAction(ActionController controller) {
@@ -238,6 +227,9 @@ public class WebBaseAction extends BaseAction {
         sb.append(NAVIGATION_BAR_PREFIX);
 
         // TODO(lingbin): maybe should change to register the menu item?
+        sb.append("<li class=\"active\"><a href=\"/\">")
+            .append("Doris")
+            .append("</a></li>");
         if (request.isAuthorized()) {
             sb.append("<li><a href=\"/system\">")
                     .append("system")
@@ -263,7 +255,7 @@ public class WebBaseAction extends BaseAction {
         }
         sb.append("<li><a href=\"/help\">")
                 .append("help")
-                .append("</a></li>");
+                .append("</a></li></tr>");
 
         sb.append(NAVIGATION_BAR_SUFFIX);
     }
