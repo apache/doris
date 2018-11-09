@@ -19,6 +19,7 @@
 
 #include "common/status.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "gen_cpp/palo_internal_service.pb.h"
 #include "util/thread_pool.hpp"
 
 namespace brpc {
@@ -29,7 +30,8 @@ namespace doris {
 
 class ExecEnv;
 
-class PInternalServiceImpl : public PInternalService {
+template<typename T>
+class PInternalServiceImpl : public T {
 public:
     PInternalServiceImpl(ExecEnv* exec_env);
     virtual ~PInternalServiceImpl();

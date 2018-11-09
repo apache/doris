@@ -22,6 +22,7 @@
 
 #include "gen_cpp/Types_types.h" // TNetworkAddress
 #include "gen_cpp/internal_service.pb.h"
+#include "gen_cpp/palo_internal_service.pb.h"
 #include "service/brpc.h"
 #include "util/spinlock.h"
 
@@ -39,7 +40,7 @@ public:
         }
     }
 
-    PInternalService_Stub* get_stub(const butil::EndPoint& endpoint) {
+    palo::PInternalService_Stub* get_stub(const butil::EndPoint& endpoint) {
         std::lock_guard<SpinLock> l(_lock);
         auto stub_ptr = _stub_map.seek(endpoint);
         if (stub_ptr != nullptr) {
@@ -51,13 +52,13 @@ public:
         if (channel->Init(endpoint, &options)) {
             return nullptr;
         }
-        auto stub = new PInternalService_Stub(
+        auto stub = new palo::PInternalService_Stub(
             channel.release(), google::protobuf::Service::STUB_OWNS_CHANNEL);
         _stub_map.insert(endpoint, stub);
         return stub;
     }
 
-    PInternalService_Stub* get_stub(const TNetworkAddress& taddr) {
+    palo::PInternalService_Stub* get_stub(const TNetworkAddress& taddr) {
         butil::EndPoint endpoint;
         if (str2endpoint(taddr.hostname.c_str(), taddr.port, &endpoint)) {
             LOG(WARNING) << "unknown endpoint, hostname=" << taddr.hostname;
@@ -66,7 +67,7 @@ public:
         return get_stub(endpoint);
     }
 
-    PInternalService_Stub* get_stub(const std::string& host, int port) {
+    palo::PInternalService_Stub* get_stub(const std::string& host, int port) {
         butil::EndPoint endpoint;
         if (str2endpoint(host.c_str(), port, &endpoint)) {
             LOG(WARNING) << "unknown endpoint, hostname=" << host;
@@ -77,7 +78,7 @@ public:
 
 private:
     SpinLock _lock;
-    butil::FlatMap<butil::EndPoint, PInternalService_Stub*> _stub_map;
+    butil::FlatMap<butil::EndPoint, palo::PInternalService_Stub*> _stub_map;
 };
 
 }

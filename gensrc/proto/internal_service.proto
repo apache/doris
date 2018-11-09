@@ -153,7 +153,7 @@ message PFetchFragmentExecInfosResult {
     repeated PFragmentExecInfo fragment_exec_info = 2;
 }
 
-service PInternalService {
+service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc exec_plan_fragment(PExecPlanFragmentRequest) returns (PExecPlanFragmentResult);
     rpc cancel_plan_fragment(PCancelPlanFragmentRequest) returns (PCancelPlanFragmentResult);
@@ -162,5 +162,7 @@ service PInternalService {
     rpc tablet_writer_add_batch(PTabletWriterAddBatchRequest) returns (PTabletWriterAddBatchResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);
     rpc fetch_fragment_exec_infos(PFetchFragmentExecInfoRequest) returns (PFetchFragmentExecInfosResult);
+    // NOTE(zc): If you want to add new method here,
+    // you MUST add same method to palo_internal_service.proto
 };
 
