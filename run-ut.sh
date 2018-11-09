@@ -219,3 +219,4 @@ cd ${DORIS_TEST_BINARY_DIR}/agent
 #./pusher_test
 ./utils_test
 #./task_worker_pool_test
+# test ci
