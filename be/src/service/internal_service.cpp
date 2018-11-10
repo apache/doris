@@ -30,15 +30,18 @@
 
 namespace doris {
 
-PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
+template<typename T>
+PInternalServiceImpl<T>::PInternalServiceImpl(ExecEnv* exec_env)
         : _exec_env(exec_env),
         _tablet_worker_pool(config::number_tablet_writer_threads, 10240) {
 }
 
-PInternalServiceImpl::~PInternalServiceImpl() {
+template<typename T>
+PInternalServiceImpl<T>::~PInternalServiceImpl() {
 }
 
-void PInternalServiceImpl::transmit_data(google::protobuf::RpcController* cntl_base,
+template<typename T>
+void PInternalServiceImpl<T>::transmit_data(google::protobuf::RpcController* cntl_base,
                                          const PTransmitDataParams* request,
                                          PTransmitDataResult* response,
                                          google::protobuf::Closure* done) {
@@ -63,7 +66,8 @@ void PInternalServiceImpl::transmit_data(google::protobuf::RpcController* cntl_b
     }
 }
 
-void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* controller,
+template<typename T>
+void PInternalServiceImpl<T>::tablet_writer_open(google::protobuf::RpcController* controller,
                                               const PTabletWriterOpenRequest* request,
                                               PTabletWriterOpenResult* response,
                                               google::protobuf::Closure* done) {
@@ -80,7 +84,8 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
     st.to_protobuf(response->mutable_status());
 }
 
-void PInternalServiceImpl::exec_plan_fragment(
+template<typename T>
+void PInternalServiceImpl<T>::exec_plan_fragment(
         google::protobuf::RpcController* cntl_base,
         const PExecPlanFragmentRequest* request,
         PExecPlanFragmentResult* response,
@@ -94,7 +99,8 @@ void PInternalServiceImpl::exec_plan_fragment(
     st.to_protobuf(response->mutable_status());
 }
 
-void PInternalServiceImpl::tablet_writer_add_batch(google::protobuf::RpcController* controller,
+template<typename T>
+void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcController* controller,
                                                    const PTabletWriterAddBatchRequest* request,
                                                    PTabletWriterAddBatchResult* response,
                                                    google::protobuf::Closure* done) {
@@ -118,7 +124,8 @@ void PInternalServiceImpl::tablet_writer_add_batch(google::protobuf::RpcControll
         });
 }
 
-void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController* controller,
+template<typename T>
+void PInternalServiceImpl<T>::tablet_writer_cancel(google::protobuf::RpcController* controller,
                                                 const PTabletWriterCancelRequest* request,
                                                 PTabletWriterCancelResult* response,
                                                 google::protobuf::Closure* done) {
@@ -134,7 +141,8 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
     }
 }
 
-Status PInternalServiceImpl::_exec_plan_fragment(brpc::Controller* cntl) {
+template<typename T>
+Status PInternalServiceImpl<T>::_exec_plan_fragment(brpc::Controller* cntl) {
     auto ser_request = cntl->request_attachment().to_string();
     TExecPlanFragmentParams t_request;
     {
@@ -147,7 +155,8 @@ Status PInternalServiceImpl::_exec_plan_fragment(brpc::Controller* cntl) {
     return _exec_env->fragment_mgr()->exec_plan_fragment(t_request);
 }
 
-void PInternalServiceImpl::cancel_plan_fragment(
+template<typename T>
+void PInternalServiceImpl<T>::cancel_plan_fragment(
         google::protobuf::RpcController* cntl_base,
         const PCancelPlanFragmentRequest* request,
         PCancelPlanFragmentResult* result,
@@ -164,7 +173,8 @@ void PInternalServiceImpl::cancel_plan_fragment(
     st.to_protobuf(result->mutable_status());
 }
 
-void PInternalServiceImpl::fetch_data(
+template<typename T>
+void PInternalServiceImpl<T>::fetch_data(
         google::protobuf::RpcController* cntl_base,
         const PFetchDataRequest* request,
         PFetchDataResult* result,
@@ -174,7 +184,8 @@ void PInternalServiceImpl::fetch_data(
     _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
 }
 
-void PInternalServiceImpl::fetch_fragment_exec_infos(
+template<typename T>
+void PInternalServiceImpl<T>::fetch_fragment_exec_infos(
         google::protobuf::RpcController* controller,
         const PFetchFragmentExecInfoRequest* request,
         PFetchFragmentExecInfosResult* result,
@@ -186,5 +197,8 @@ void PInternalServiceImpl::fetch_fragment_exec_infos(
     }
     status.to_protobuf(result->mutable_status());
 }
+
+template class PInternalServiceImpl<PBackendService>;
+template class PInternalServiceImpl<palo::PInternalService>;
 
 }

@@ -40,7 +40,7 @@ public class BackendServiceProxy {
 
     private RpcClient rpcClient;
     // TODO(zc): use TNetworkAddress,
-    private Map<TNetworkAddress, PInternalService> serviceMap;
+    private Map<TNetworkAddress, PBackendService> serviceMap;
 
     private static BackendServiceProxy INSTANCE;
 
@@ -59,12 +59,12 @@ public class BackendServiceProxy {
         return INSTANCE;
     }
 
-    private synchronized PInternalService getProxy(TNetworkAddress address) {
-        PInternalService service = serviceMap.get(address);
+    private synchronized PBackendService getProxy(TNetworkAddress address) {
+        PBackendService service = serviceMap.get(address);
         if (service != null) {
             return service;
         }
-        ProtobufRpcProxy<PInternalService> proxy = new ProtobufRpcProxy(rpcClient, PInternalService.class);
+        ProtobufRpcProxy<PBackendService> proxy = new ProtobufRpcProxy(rpcClient, PBackendService.class);
         proxy.setHost(address.getHostname());
         proxy.setPort(address.getPort());
         service = proxy.proxy();
@@ -78,7 +78,7 @@ public class BackendServiceProxy {
         final PExecPlanFragmentRequest pRequest = new PExecPlanFragmentRequest();
         pRequest.setRequest(tRequest);
         try {
-            final PInternalService service = getProxy(address);
+            final PBackendService service = getProxy(address);
             return service.execPlanFragmentAsync(pRequest);
         } catch (NoSuchElementException e) {
             try {
@@ -88,7 +88,7 @@ public class BackendServiceProxy {
                 } catch (InterruptedException interruptedException) {
                     // do nothing
                 }
-                final PInternalService service = getProxy(address);
+                final PBackendService service = getProxy(address);
                 return service.execPlanFragmentAsync(pRequest);
             } catch (NoSuchElementException noSuchElementException) {
                 LOG.warn("Execute plan fragment retry failed, address={}:{}",
@@ -106,7 +106,7 @@ public class BackendServiceProxy {
             TNetworkAddress address, TUniqueId finstId) throws RpcException {
         final PCancelPlanFragmentRequest pRequest = new PCancelPlanFragmentRequest(new PUniqueId(finstId));;
         try {
-            final PInternalService service = getProxy(address);
+            final PBackendService service = getProxy(address);
             return service.cancelPlanFragmentAsync(pRequest);
         } catch (NoSuchElementException e) {
             // retry
@@ -116,7 +116,7 @@ public class BackendServiceProxy {
                 } catch (InterruptedException interruptedException) {
                     // do nothing
                 }
-                final PInternalService service = getProxy(address);
+                final PBackendService service = getProxy(address);
                 return service.cancelPlanFragmentAsync(pRequest);
             } catch (NoSuchElementException noSuchElementException) {
                 LOG.warn("Cancel plan fragment retry failed, address={}:{}",
@@ -133,7 +133,7 @@ public class BackendServiceProxy {
     public Future<PFetchDataResult> fetchDataAsync(
             TNetworkAddress address, PFetchDataRequest request) throws RpcException {
         try {
-            PInternalService service = getProxy(address);
+            PBackendService service = getProxy(address);
             return service.fetchDataAsync(request);
         } catch (Throwable e) {
             LOG.warn("fetch data catch a exception, address={}:{}",
@@ -146,7 +146,7 @@ public class BackendServiceProxy {
     public Future<PFetchFragmentExecInfosResult> fetchFragmentExecInfosAsync(
             TNetworkAddress address, PFetchFragmentExecInfoRequest request) throws RpcException {
         try {
-            final PInternalService service = getProxy(address);
+            final PBackendService service = getProxy(address);
             return service.fetchFragmentExecInfosAsync(request);
         } catch (Throwable e) {
             LOG.warn("fetch data catch a exception, address={}:{}",
