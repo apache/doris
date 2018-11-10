@@ -528,7 +528,7 @@ private:
     RWMutex _tablet_map_lock;
     tablet_map_t _tablet_map;
     RWMutex _transaction_tablet_map_lock;
-    using TxnKey = std::pair<int64_t, int64_t>; //transaction_id, partition_id;
+    using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
     std::map<TxnKey, std::map<TabletInfo, std::vector<PUniqueId>>> _transaction_tablet_map;
     size_t _global_table_id;
     Cache* _file_descriptor_lru_cache;
