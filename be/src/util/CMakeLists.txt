@@ -22,7 +22,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/util")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/util")
 
 add_library(Util STATIC
-  arena.cc
+  arena.cpp
   bfd_parser.cpp
   bitmap.cpp
   codec.cpp
