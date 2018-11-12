@@ -65,6 +65,11 @@ public class FoldConstantsRule implements ExprRewriteRule {
     public static ExprRewriteRule INSTANCE = new FoldConstantsRule();
 
     private ImmutableMultimap<String, FEFunctionInvoker> functions;
+    // For most build-in functions, it will return NullLiteral when params contain NullLiteral.
+    // But a few functions need to handle NullLiteral differently, such as "if". It need to add 
+    // an attribute to LiteralExpr to mark null and check the attribute to decide whether to 
+    // replace the result with NullLiteral when function finished. It leaves to be realized.
+    // TODO chenhao16.
     private ImmutableSet<String> nonNullResultWithNullParamFunctions;
 
     @Override
