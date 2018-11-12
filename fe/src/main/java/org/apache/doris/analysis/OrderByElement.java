@@ -23,12 +23,11 @@ import java.util.List;
 import org.apache.doris.common.AnalysisException;
 import com.google.common.collect.Lists;
 
-
 /**
  * Combination of expr and ASC/DESC, and nulls ordering.
  */
 public class OrderByElement {
-    private Expr    expr;
+    private Expr expr;
     private final boolean isAsc;
 
     // Represents the NULLs ordering specified: true when "NULLS FIRST", false when
@@ -72,7 +71,8 @@ public class OrderByElement {
         for (int i = 0; i < src.size(); ++i) {
             OrderByElement element = src.get(i);
             OrderByElement reverseElement =
-                new OrderByElement(element.getExpr().clone(), !element.isAsc, !element.nullsFirstParam);
+                new OrderByElement(element.getExpr().clone(), !element.isAsc,
+                       Boolean.valueOf(!nullsFirst(element.nullsFirstParam, element.isAsc)));
             result.add(reverseElement);
         }
 
