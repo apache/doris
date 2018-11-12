@@ -340,12 +340,59 @@ Parts of be/src/runtime/string_search.hpp: Python Software License V2
 
 --------------------------------------------------------------------------------
 
+be/src/olap/lru_cache.h : BSD-style license
+
+  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style license that can be
+  found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+--------------------------------------------------------------------------------
+
 be/src/olap/lru_cache.cpp : BSD-style license
 
   Copyright (c) 2011 The LevelDB Authors. All rights reserved.
   Use of this source code is governed by a BSD-style license that can be
   found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+--------------------------------------------------------------------------------
+
+be/src/olap/skiplist.h : BSD-style license
+
+  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style license that can be
+  found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+--------------------------------------------------------------------------------
+
+be/src/util/arena.h : BSD-style license
+
+  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style license that can be
+  found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+--------------------------------------------------------------------------------
+
+be/src/util/arena.cpp : BSD-style license
+
+  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style license that can be
+  found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+--------------------------------------------------------------------------------
+
+be/src/util/new_status.h : BSD-style license
+
+  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style license that can be
+  found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+--------------------------------------------------------------------------------
+
+be/src/util/new_status.cpp : BSD-style license
+
+  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style license that can be
+  found in the LICENSE file. See the AUTHORS file for names of contributors.
 --------------------------------------------------------------------------------
 
 be/src/util/murmur_hash3.cpp : licensed under the following terms:
