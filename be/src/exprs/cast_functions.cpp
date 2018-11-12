@@ -204,17 +204,16 @@ StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const DateTime
     return sv;
 }
 
-#if 0
-
-StringVal CastFunctions::CastToStringVal(FunctionContext* ctx, const StringVal& val) {
+StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const StringVal& val) {
   if (val.is_null) return StringVal::null();
   StringVal sv;
   sv.ptr = val.ptr;
   sv.len = val.len;
-  AnyValUtil::TruncateIfNecessary(ctx->GetReturnType(), &sv);
+  AnyValUtil::TruncateIfNecessary(ctx->get_return_type(), &sv);
   return sv;
 }
 
+#if 0
 StringVal CastFunctions::CastToChar(FunctionContext* ctx, const StringVal& val) {
   if (val.is_null) return StringVal::null();
 

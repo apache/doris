@@ -39,6 +39,12 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Sets;
 
 /**
  * This rule replaces a constant Expr with its equivalent LiteralExpr by evaluating the
@@ -58,14 +64,19 @@ import java.util.Objects;
 public class FoldConstantsRule implements ExprRewriteRule {
     public static ExprRewriteRule INSTANCE = new FoldConstantsRule();
 
-    private Multimap<String, FEFunctionInvoker> functions = ArrayListMultimap.create();
+    private ImmutableMultimap<String, FEFunctionInvoker> functions;
+    // For most build-in functions, it will return NullLiteral when params contain NullLiteral.
+    // But a few functions need to handle NullLiteral differently, such as "if". It need to add 
+    // an attribute to LiteralExpr to mark null and check the attribute to decide whether to 
+    // replace the result with NullLiteral when function finished. It leaves to be realized.
+    // TODO chenhao16.
+    private ImmutableSet<String> nonNullResultWithNullParamFunctions;
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
-        if (functions.isEmpty()) {
+        if (functions == null) {
             registerFunctions();
         }
-
         // Avoid calling Expr.isConstant() because that would lead to repeated traversals
         // of the Expr tree. Assumes the bottom-up application of this rule. Constant
         // children should have been folded at this point.
@@ -103,6 +114,22 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 || constExpr instanceof FunctionCallExpr
                 || constExpr instanceof CastExpr) {
             Function fn = constExpr.getFn();
+            // unused cast
+            if (fn == null) {
+               Preconditions.checkState((constExpr instanceof CastExpr)
+                        && constExpr.getChildren().size() == 1);    
+               return constExpr.getChild(0);
+            }
+
+            // null
+            if (!nonNullResultWithNullParamFunctions.contains(fn.getFunctionName().getFunction())) {
+                for (Expr e : constExpr.getChildren()) {
+                    if (e instanceof NullLiteral) {
+                        return new NullLiteral();
+                    }
+                }
+            }
+
             List<ScalarType> argTypes = new ArrayList<>();
             for (Type type : fn.getArgs()) {
                 argTypes.add((ScalarType) type);
@@ -139,7 +166,6 @@ public class FoldConstantsRule implements ExprRewriteRule {
             if (!Arrays.equals(argTypes1, argTypes2)) {
                 continue;
             }
-
             return invoker;
         }
         return null;
@@ -148,10 +174,11 @@ public class FoldConstantsRule implements ExprRewriteRule {
     private synchronized void registerFunctions() {
         // double checked locking pattern
         // functions only need to init once
-        if (!functions.isEmpty()) {
+        if (functions != null) {
            return;
         }
-
+        ImmutableMultimap.Builder<String, FEFunctionInvoker> mapBuilder =
+                        new ImmutableMultimap.Builder<String, FEFunctionInvoker>();
         Class clazz = FEFunctions.class;
         for (Method method : clazz.getDeclaredMethods()) {
             FEFunction annotation = method.getAnnotation(FEFunction.class);
@@ -162,12 +189,18 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 for (String type : annotation.argTypes()) {
                     argTypes.add(ScalarType.createType(type));
                 }
-
-                FEFunctionSignature signature = new FEFunctionSignature(name,
+                 FEFunctionSignature signature = new FEFunctionSignature(name,
                         argTypes.toArray(new ScalarType[argTypes.size()]), returnType);
-                functions.put(name, new FEFunctionInvoker(method, signature));
+                mapBuilder.put(name, new FEFunctionInvoker(method, signature));
             }
         }
+        this.functions = mapBuilder.build();
+
+        // Functions that need to handle null.
+        ImmutableSet.Builder<String> setBuilder =
+                        new ImmutableSet.Builder<String>();
+        setBuilder.add("if");
+        this.nonNullResultWithNullParamFunctions = setBuilder.build();
     }
 
     public static class FEFunctionInvoker {
@@ -190,7 +223,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
         public LiteralExpr invoke(List<Expr> args) throws AnalysisException {
             try {
                 return (LiteralExpr) method.invoke(null, args.toArray());
-            } catch (InvocationTargetException | IllegalAccessException e) {
+            } catch (InvocationTargetException | IllegalAccessException | IllegalArgumentException e) {
                 throw new AnalysisException(e.getLocalizedMessage());
             }
         }
