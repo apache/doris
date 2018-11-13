@@ -230,5 +230,14 @@ if [ ! -f $PATCHED_MARK ]; then
     touch $PATCHED_MARK
 fi
 cd -
-echo "Finished patching $LZ4_SOURCE"
+echo "Finished patching $BRPC_SOURCE"
+
+# boost patch to avoid compile failed by GCC version less than 5.0
+cd $TP_SOURCE_DIR/$BOOST_SOURCE
+if [ ! -f $PATCHED_MARK ]; then
+    patch -p0 < $TP_PATCH_DIR/boost-1.64.0-gcc4.8.patch
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $BOOST_SOURCE"
 

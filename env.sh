@@ -27,10 +27,21 @@ if [[ -f ${DORIS_HOME}/custom_env.sh ]]; then
     source ${DORIS_HOME}/custom_env.sh
 fi
 
+# set DORIS_THIRDPARTY
+if [ -z ${DORIS_THIRDPARTY} ]; then
+    export DORIS_THIRDPARTY=${DORIS_HOME}/thirdparty
+fi
+
+# build thirdparty libraries if necessary
+if ! [[ -d ${DORIS_THIRDPARTY}/installed ]]; then
+    echo "Thirdparty libraries need to be build ..."
+    ${DORIS_THIRDPARTY}/build-thirdparty.sh
+fi
+
 # check java version
 if [ -z ${JAVA_HOME} ]; then
     echo "Error: JAVA_HOME is not set, use thirdparty/installed/jdk1.8.0_131"
-    export JAVA_HOME=${DORIS_HOME}/thirdparty/installed/jdk1.8.0_131
+    export JAVA_HOME=${DORIS_THIRDPARTY}/installed/jdk1.8.0_131
 fi
 
 export JAVA=${JAVA_HOME}/bin/java
@@ -57,8 +68,4 @@ if ! ${PYTHON} --version; then
     fi
 fi
 
-# set DORIS_THIRDPARTY
-if [ -z ${DORIS_THIRDPARTY} ]; then
-    export DORIS_THIRDPARTY=${DORIS_HOME}/thirdparty
-fi
 
