@@ -957,7 +957,7 @@ help_stmt ::=
 
 // Export statement
 export_stmt ::=
-    // KW_EXPORT KW_TABLE table_name:tblName opt_using_partition:partitions 
+    // KW_EXPORT KW_TABLE table_name:tblName opt_using_partition:partitions
     KW_EXPORT KW_TABLE base_table_ref:tblRef
     KW_TO STRING_LITERAL:path
     opt_properties:properties

@@ -49,6 +49,7 @@ import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
+import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
@@ -202,7 +203,7 @@ public class EditLog {
                     DropPartitionInfo info = (DropPartitionInfo) journal.getData();
                     LOG.info("Begin to unprotect drop partition. db = " + info.getDbId()
                             + " table = " + info.getTableId()
-                                + " partitionName = " + info.getPartitionName());
+                            + " partitionName = " + info.getPartitionName());
                     catalog.replayDropPartition(info);
                     break;
                 }
@@ -505,8 +506,8 @@ public class EditLog {
                     int version = Integer.parseInt(versionString);
                     if (catalog.getJournalVersion() > FeConstants.meta_version) {
                         LOG.error("meta data version is out of date, image: {}. meta: {}."
-                                + "please update FeConstants.meta_version and restart.",
-                                  catalog.getJournalVersion(), FeConstants.meta_version);
+                                        + "please update FeConstants.meta_version and restart.",
+                                catalog.getJournalVersion(), FeConstants.meta_version);
                         System.exit(-1);
                     }
                     catalog.setJournalVersion(version);
@@ -663,7 +664,7 @@ public class EditLog {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("nextId = {}, numTransactions = {}, totalTimeTransactions = {}, op = {}",
-                      txId, numTransactions, totalTimeTransactions, op);
+                    txId, numTransactions, totalTimeTransactions, op);
         }
 
         if (txId == Config.edit_log_roll_num) {
@@ -691,7 +692,7 @@ public class EditLog {
     public void logSaveNextId(long nextId) {
         logEdit(OperationType.OP_SAVE_NEXTID, new Text(Long.toString(nextId)));
     }
-    
+
     public void logSaveTransactionId(long transactionId) {
         logEdit(OperationType.OP_SAVE_TRANSACTION_ID, new Text(Long.toString(transactionId)));
     }
@@ -776,6 +777,10 @@ public class EditLog {
         logEdit(OperationType.OP_LOAD_DONE, job);
     }
 
+    public void logRoutineLoadJob(RoutineLoadJob job) {
+        logEdit(OperationType.OP_ROUTINE_LOAD_JOB, job);
+    }
+
     public void logStartRollup(RollupJob rollupJob) {
         logEdit(OperationType.OP_START_ROLLUP, rollupJob);
     }
@@ -783,7 +788,7 @@ public class EditLog {
     public void logFinishingRollup(RollupJob rollupJob) {
         logEdit(OperationType.OP_FINISHING_ROLLUP, rollupJob);
     }
-    
+
     public void logFinishRollup(RollupJob rollupJob) {
         logEdit(OperationType.OP_FINISH_ROLLUP, rollupJob);
     }
@@ -1027,7 +1032,7 @@ public class EditLog {
     public void logDeleteTransactionState(TransactionState transactionState) {
         logEdit(OperationType.OP_DELETE_TRANSACTION_STATE, transactionState);
     }
-    
+
     public void logBackupJob(BackupJob job) {
         logEdit(OperationType.OP_BACKUP_JOB, job);
     }
