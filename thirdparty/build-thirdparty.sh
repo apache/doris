@@ -509,29 +509,29 @@ build_librdkafka() {
     make -j$PARALLEL && make install
 }
 
-build_llvm 
-build_libevent
-build_zlib
-build_lz4
-build_bzip
-build_lzo2
-build_openssl
-build_boost # must before thrift
-build_protobuf
-build_gflags
-build_glog
-build_gtest
-build_rapidjson
-build_snappy
-build_gperftools
-build_curl
-build_re2
-build_mysql
-build_thrift
-build_leveldb
-build_brpc
-build_jdk
+# build_llvm 
+# build_libevent
+# build_zlib
+# build_lz4
+# build_bzip
+# build_lzo2
+# build_openssl
+# build_boost # must before thrift
+# build_protobuf
+# build_gflags
+# build_glog
+# build_gtest
+# build_rapidjson
+# build_snappy
+# build_gperftools
+# build_curl
+# build_re2
+# build_mysql
+# build_thrift
+# build_leveldb
+# build_brpc
+# build_jdk
 build_rocksdb
-build_librdkafka
+# build_librdkafka
 
 echo "Finihsed to build all thirdparties"
