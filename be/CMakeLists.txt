@@ -23,7 +23,7 @@ if (DEFINED ENV{DORIS_GCC_HOME})
     set(CMAKE_CXX_COMPILER "$ENV{DORIS_GCC_HOME}/bin/g++")
     set(GCC_HOME $ENV{DORIS_GCC_HOME})
 else()
-    set(GCC_HOME "/usr")
+    message(FATAL_ERROR "DORIS_GCC_HOME environment variable is not set")
 endif()
 
 project(doris CXX C)
