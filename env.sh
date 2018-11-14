@@ -27,15 +27,26 @@ if [[ -f ${DORIS_HOME}/custom_env.sh ]]; then
     source ${DORIS_HOME}/custom_env.sh
 fi
 
+# set DORIS_THIRDPARTY
+if [[ -z ${DORIS_THIRDPARTY} ]]; then
+    export DORIS_THIRDPARTY=${DORIS_HOME}/thirdparty
+fi
+
+# build thirdparty libraries if necessary
+if [[ ! -d ${DORIS_THIRDPARTY}/installed ]]; then
+    echo "Thirdparty libraries need to be build ..."
+    ${DORIS_THIRDPARTY}/build-thirdparty.sh
+fi
+
 # check java version
-if [ -z ${JAVA_HOME} ]; then
+if [[ -z ${JAVA_HOME} ]]; then
     echo "Error: JAVA_HOME is not set, use thirdparty/installed/jdk1.8.0_131"
-    export JAVA_HOME=${DORIS_HOME}/thirdparty/installed/jdk1.8.0_131
+    export JAVA_HOME=${DORIS_THIRDPARTY}/installed/jdk1.8.0_131
 fi
 
 export JAVA=${JAVA_HOME}/bin/java
 JAVA_VER=$(${JAVA} -version 2>&1 | sed 's/.* version "\(.*\)\.\(.*\)\..*"/\1\2/; 1q' | cut -f1 -d " ")
-if [ $JAVA_VER -lt 18 ]; then
+if [[ $JAVA_VER -lt 18 ]]; then
     echo "Error: require JAVA with JDK version at least 1.8"
     exit 1
 fi
@@ -53,12 +64,19 @@ if ! ${PYTHON} --version; then
     export PYTHON=python2.7
     if ! ${PYTHON} --version; then
         echo "Error: python is not found"
-        exit
+        exit 1
     fi
 fi
 
-# set DORIS_THIRDPARTY
-if [ -z ${DORIS_THIRDPARTY} ]; then
-    export DORIS_THIRDPARTY=${DORIS_HOME}/thirdparty
+# set GCC HOME
+if [[ -z ${DORIS_GCC_HOME} ]]; then
+    export DORIS_GCC_HOME=$(dirname `which gcc`)/..
+fi
+
+gcc_ver=`${DORIS_GCC_HOME}/bin/gcc -dumpversion`
+required_ver="5.3.1"
+if [[ ! "$(printf '%s\n' "$required_ver" "$gcc_ver" | sort -V | head -n1)" = "$required_ver" ]]; then 
+    echo "Error: GCC version (${gcc_ver}) must be greater than or equal to ${required_ver}"
+    exit 1
 fi
 
