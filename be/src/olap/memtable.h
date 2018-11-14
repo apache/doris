@@ -26,7 +26,7 @@
 
 namespace doris {
 
-class IWriter;
+class ColumnDataWriter;
 class RowCursor;
 
 class MemTable {
@@ -37,8 +37,8 @@ public:
     ~MemTable();
     size_t memory_usage();
     void insert(Tuple* tuple);
-    OLAPStatus flush(IWriter* writer);
-    OLAPStatus close(IWriter* writer);
+    OLAPStatus flush(ColumnDataWriter* writer);
+    OLAPStatus close(ColumnDataWriter* writer);
 private:
     Schema* _schema;
     std::vector<FieldInfo>* _field_infos;

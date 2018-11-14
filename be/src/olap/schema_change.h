@@ -24,14 +24,14 @@
 
 #include "gen_cpp/AgentService_types.h"
 #include "olap/delete_handler.h"
-#include "olap/i_data.h"
+#include "olap/column_data.h"
 
 namespace doris {
 // defined in 'field.h'
 class Field;
 class FieldInfo;
 // defined in 'olap_data.h'
-class IData;
+class ColumnData;
 // defined in 'olap_table.h'
 class OLAPTable;
 // defined in 'row_block.h'
@@ -39,7 +39,7 @@ class RowBlock;
 // defined in 'row_cursor.h'
 class RowCursor;
 // defined in 'writer.h'
-class IWriter;
+class ColumnDataWriter;
 
 struct ColumnMapping {
     ColumnMapping() : ref_column(-1), default_value(NULL) {}
@@ -124,7 +124,7 @@ public:
 
     bool merge(
             const std::vector<RowBlock*>& row_block_arr,
-            IWriter* writer,
+            ColumnDataWriter* writer,
             uint64_t* merged_rows);
 
 private:
@@ -150,7 +150,7 @@ public:
     SchemaChange() : _filted_rows(0), _merged_rows(0) {}
     virtual ~SchemaChange() {}
 
-    virtual bool process(IData* olap_data, Rowset* new_olap_index) = 0;
+    virtual bool process(ColumnData* olap_data, Rowset* new_olap_index) = 0;
 
     void add_filted_rows(uint64_t filted_rows) {
         _filted_rows += filted_rows;
@@ -195,7 +195,7 @@ public:
                 OLAPTablePtr new_olap_table);
     ~LinkedSchemaChange() {}
 
-    bool process(IData* olap_data, Rowset* new_olap_index);
+    bool process(ColumnData* olap_data, Rowset* new_olap_index);
 private:
     OLAPTablePtr _base_olap_table;
     OLAPTablePtr _new_olap_table;
@@ -212,7 +212,7 @@ public:
             const RowBlockChanger& row_block_changer);
     virtual ~SchemaChangeDirectly();
 
-    virtual bool process(IData* olap_data, Rowset* new_olap_index);
+    virtual bool process(ColumnData* olap_data, Rowset* new_olap_index);
 
 private:
     OLAPTablePtr _olap_table;
@@ -221,7 +221,7 @@ private:
     RowCursor* _src_cursor;
     RowCursor* _dst_cursor;
 
-    bool _write_row_block(IWriter* writer, RowBlock* row_block);
+    bool _write_row_block(ColumnDataWriter* writer, RowBlock* row_block);
 
     DISALLOW_COPY_AND_ASSIGN(SchemaChangeDirectly);
 };
@@ -235,7 +235,7 @@ public:
             size_t memory_limitation);
     virtual ~SchemaChangeWithSorting();
 
-    virtual bool process(IData* olap_data, Rowset* new_olap_index);
+    virtual bool process(ColumnData* olap_data, Rowset* new_olap_index);
 
 private:
     bool _internal_sorting(
@@ -317,7 +317,7 @@ private:
         AlterTabletType alter_table_type;
         OLAPTablePtr ref_olap_table;
         OLAPTablePtr new_olap_table;
-        std::vector<IData*> ref_olap_data_arr;
+        std::vector<ColumnData*> ref_olap_data_arr;
         std::string debug_message;
         DeleteHandler delete_handler;
         // TODO(zc): fuck me please, I don't add mutable here, but no where

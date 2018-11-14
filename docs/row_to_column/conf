@@ -1,0 +1,6 @@
+[cluster]
+fe_host = nmg01-inf-dorishb00.nmg01.baidu.com
+port = 9630
+http_port = 8630
+username = root
+password = 

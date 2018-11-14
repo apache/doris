@@ -33,7 +33,7 @@
 #include "common/status.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
-#include "olap/olap_data.h"
+#include "olap/column_data.h"
 #include "olap/olap_define.h"
 #include "olap/rowset.h"
 #include "olap/olap_table.h"
@@ -304,7 +304,7 @@ OLAPStatus OLAPEngine::_create_snapshot_files(
     ref_olap_table->obtain_header_rdlock();
     header_locked = true;
 
-    vector<IData*> olap_data_sources;
+    vector<ColumnData*> olap_data_sources;
     OLAPHeader* new_olap_header = nullptr;
     do {
         // get latest version
@@ -663,7 +663,7 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
         return OLAP_SUCCESS;
     }
 
-    vector<IData*> olap_data_sources;
+    vector<ColumnData*> olap_data_sources;
     tablet->obtain_push_lock();
 
     do {

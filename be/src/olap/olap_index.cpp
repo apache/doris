@@ -22,7 +22,7 @@
 #include <cmath>
 #include <fstream>
 
-#include "olap/olap_data.h"
+#include "olap/column_data.h"
 #include "olap/olap_table.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
@@ -168,7 +168,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
     }
 
     /*
-     * convert storage layout to memory layout for olapindex
+     * convert storage layout to memory layout for olap/ndex
      * In this procedure, string type(Varchar/Char) should be
      * converted with caution. Hyperloglog type will not be
      * key, it can not to be handled.

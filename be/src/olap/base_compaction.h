@@ -27,7 +27,7 @@
 
 namespace doris {
 
-class IData;
+class ColumnData;
 class Rowset;
 
 // @brief 实现对START_BASE_COMPACTION命令的处理逻辑，并返回处理结果
@@ -82,14 +82,14 @@ private:
     // 
     // 输入参数：
     // - new_base_version_hash: 新Base的VersionHash
-    // - base_data_sources: 生成新Base需要的IData*
+    // - base_data_sources: 生成新Base需要的ColumnData*
     // - row_count: 生成Base过程中产生的row_count
     //
     // 返回值：
     // - 如果执行成功，则返回OLAP_SUCCESS；
     // - 其它情况下，返回相应的错误码
     OLAPStatus _do_base_compaction(VersionHash new_base_version_hash,
-                                  std::vector<IData*>* base_data_sources,
+                                  std::vector<ColumnData*>* base_data_sources,
                                   uint64_t* row_count);
    
     // 更新Header使得修改对外可见

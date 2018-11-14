@@ -79,6 +79,10 @@ public:
     static std::string get_root_path_from_schema_hash_path_in_trash(const std::string& schema_hash_dir_in_trash);
 
     OLAPStatus load_tables(OLAPEngine* engine);
+    OLAPStatus check_none_row_oriented_table_in_store(OLAPEngine* engine);
+    OLAPStatus _check_none_row_oriented_table_in_store(
+                        OLAPEngine* engine, TTabletId tablet_id,
+                        TSchemaHash schema_hash, const std::string& header);
 
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }

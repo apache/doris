@@ -17,19 +17,18 @@
 
 #include <gtest/gtest.h>
 
-#include "olap/column_file/byte_buffer.h"
-#include "olap/column_file/out_stream.h"
-#include "olap/column_file/in_stream.h"
-#include "olap/column_file/file_stream.h"
-#include "olap/column_file/run_length_byte_writer.h"
-#include "olap/column_file/run_length_byte_reader.h"
-#include "olap/column_file/column_reader.h"
-#include "olap/column_file/stream_index_reader.h"
-#include "olap/column_file/stream_index_writer.h"
+#include "olap/byte_buffer.h"
+#include "olap/out_stream.h"
+#include "olap/in_stream.h"
+#include "olap/file_stream.h"
+#include "olap/run_length_byte_writer.h"
+#include "olap/run_length_byte_reader.h"
+#include "olap/column_reader.h"
+#include "olap/stream_index_reader.h"
+#include "olap/stream_index_writer.h"
 #include "util/logging.h"
 
 namespace doris {
-namespace column_file {
 
 using namespace testing;
 
@@ -845,7 +844,6 @@ TEST_F(TestRunLengthByte, Skip) {
     ASSERT_EQ(value, 0x5e);
 }
 
-}
 }
 
 int main(int argc, char** argv) {

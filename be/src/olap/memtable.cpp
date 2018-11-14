@@ -18,7 +18,7 @@
 #include "olap/memtable.h"
 
 #include "olap/hll.h"
-#include "olap/writer.h"
+#include "olap/data_writer.h"
 #include "olap/row_cursor.h"
 #include "util/runtime_profile.h"
 #include "util/debug_util.h"
@@ -143,7 +143,7 @@ void MemTable::insert(Tuple* tuple) {
     }
 }
 
-OLAPStatus MemTable::flush(IWriter* writer) {
+OLAPStatus MemTable::flush(ColumnDataWriter* writer) {
     Table::Iterator it(_skip_list);
     for (it.SeekToFirst(); it.Valid(); it.Next()) {
         const char* row = it.key();
@@ -156,7 +156,7 @@ OLAPStatus MemTable::flush(IWriter* writer) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus MemTable::close(IWriter* writer) {
+OLAPStatus MemTable::close(ColumnDataWriter* writer) {
     return flush(writer);
 }
 

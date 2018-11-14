@@ -17,10 +17,10 @@
 
 #include <gtest/gtest.h>
 
-#include "olap/column_file/byte_buffer.h"
-#include "olap/column_file/stream_name.h"
-#include "olap/column_file/column_reader.h"
-#include "olap/column_file/column_writer.h"
+#include "olap/byte_buffer.h"
+#include "olap/stream_name.h"
+#include "olap/column_reader.h"
+#include "olap/column_writer.h"
 #include "olap/field.h"
 #include "olap/olap_define.h"
 #include "olap/olap_common.h"
@@ -33,7 +33,6 @@
 using std::string;
 
 namespace doris {
-namespace column_file {
 
 class TestColumn : public testing::Test {
 public:
@@ -3071,7 +3070,6 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWith65533) {
     }   
 }
 
-}
 }
 
 int main(int argc, char** argv) {
