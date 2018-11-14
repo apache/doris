@@ -27,13 +27,14 @@
 
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/olap_engine.h"
 #include "olap/utils.h"
 #include "util/debug_util.h"
 
 using std::string;
 
 namespace doris {
+
+Cache* FileHandler::_s_fd_cache;
 
 FileHandler::FileHandler() :
         _fd(-1),
@@ -85,7 +86,7 @@ OLAPStatus FileHandler::open_with_cache(const string& file_name, int flag) {
     }
 
     CacheKey key(file_name.c_str(), file_name.size());
-    Cache* fd_cache = OLAPEngine::get_instance()->file_descriptor_lru_cache();
+    Cache* fd_cache = get_fd_cache();
     _cache_handle = fd_cache->lookup(key);
     if (NULL != _cache_handle) {
         FileDescriptor* file_desc =
@@ -146,8 +147,7 @@ OLAPStatus FileHandler::open_with_mode(const string& file_name, int flag, int mo
 }
 
 OLAPStatus FileHandler::release() {
-    Cache* fd_cache = OLAPEngine::get_instance()->file_descriptor_lru_cache();  
-    fd_cache->release(_cache_handle);
+    get_fd_cache()->release(_cache_handle);
     _cache_handle = NULL;
     _is_using_cache = false;
     return OLAP_SUCCESS;

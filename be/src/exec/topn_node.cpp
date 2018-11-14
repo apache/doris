@@ -29,7 +29,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
-#include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "util/tuple_row_compare.h"
 #include <gperftools/profiler.h>
@@ -164,7 +163,7 @@ Status TopNNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     }
     if (VLOG_ROW_IS_ON) {
-        VLOG_ROW << "TOPN-node output row: " << print_batch(row_batch);
+        VLOG_ROW << "TOPN-node output row: " << row_batch->to_string();
     }
 
     *eos = _get_next_iter == _sorted_top_n.end();

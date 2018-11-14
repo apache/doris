@@ -29,6 +29,7 @@
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/FrontendService.h"
 #include "runtime/runtime_state.h"
+#include "runtime/exec_env.h"
 #include "runtime/row_batch.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
@@ -37,6 +38,7 @@
 #include "util/network_util.h"
 #include "util/thrift_util.h"
 #include "util/runtime_profile.h"
+#include "runtime/client_cache.h"
 
 namespace doris {
 

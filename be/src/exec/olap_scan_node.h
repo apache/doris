@@ -35,7 +35,6 @@
 #include "runtime/row_batch_interface.hpp"
 #include "runtime/vectorized_row_batch.h"
 #include "util/progress_updater.h"
-#include "util/debug_util.h"
 
 namespace doris {
 
@@ -125,7 +124,7 @@ protected:
 
         while (!h.empty()) {
             HeapType v = h.top();
-            s << "\nID: " << v.id << " Value:" << print_tuple(v.tuple, *_tuple_desc);
+            s << "\nID: " << v.id << " Value:" << Tuple::to_string(v.tuple, *_tuple_desc);
             h.pop();
         }
 

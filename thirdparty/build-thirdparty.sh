@@ -31,29 +31,34 @@ set -e
 curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
 
-if [ ! -f $curdir/vars.sh ]; then
-    echo "vars.sh is missing".
-    exit 1
-fi
-
-export DORIS_HOME=$curdir/../
-export GCC_HOME=$curdir/../palo-toolchain/gcc730
+export DORIS_HOME=$curdir/..
 export TP_DIR=$curdir
 
-source $curdir/vars.sh
-cd $TP_DIR
+# include custom environment variables
+if [[ -f ${DORIS_HOME}/custom_env.sh ]]; then
+    . ${DORIS_HOME}/custom_env.sh
+fi
 
-if [ ! -f $TP_DIR/download-thirdparty.sh ]; then
+if [[ ! -f ${TP_DIR}/download-thirdparty.sh ]]; then
     echo "Download thirdparty script is missing".
     exit 1
 fi
 
-mkdir -p $TP_DIR/src
-mkdir -p $TP_DIR/installed
+if [ ! -f ${TP_DIR}/vars.sh ]; then
+    echo "vars.sh is missing".
+    exit 1
+fi
+. ${TP_DIR}/vars.sh
+
+cd $TP_DIR
+
+# Download thirdparties.
+${TP_DIR}/download-thirdparty.sh
+
 export LD_LIBRARY_PATH=$TP_DIR/installed/lib:$LD_LIBRARY_PATH
 
-if [ -f $DORIS_HOME/palo-toolchain/gcc730/bin/gcc ]; then
-    GCC_HOME=$curdir/../palo-toolchain/gcc730
+if [ -f ${DORIS_TOOLCHAIN}/gcc730/bin/gcc ]; then
+    GCC_HOME=${DORIS_TOOLCHAIN}/gcc730
     export CC=${GCC_HOME}/bin/gcc
     export CPP=${GCC_HOME}/bin/cpp
     export CXX=${GCC_HOME}/bin/g++
@@ -62,9 +67,6 @@ else
     export CPP=cpp
     export CXX=g++
 fi
-
-# Download thirdparties.
-$TP_DIR/download-thirdparty.sh $@
 
 check_prerequest() {
     local CMD=$1
@@ -241,7 +243,6 @@ build_protobuf() {
     ./configure --prefix=${TP_INSTALL_DIR} --disable-shared --enable-static --with-zlib=${TP_INSTALL_DIR}/include
     cd src
     sed -i 's/^AM_LDFLAGS\(.*\)$/AM_LDFLAGS\1 -all-static/' Makefile
-    make -j$PARALLEL
     cd -
     make -j$PARALLEL && make install
 }
@@ -353,6 +354,7 @@ build_bzip() {
     check_if_source_exist $BZIP_SOURCE
     cd $TP_SOURCE_DIR/$BZIP_SOURCE
 
+    CFLAGS="-fPIC"
     make -j$PARALLEL install PREFIX=$TP_INSTALL_DIR
 }
 
@@ -489,7 +491,7 @@ build_rocksdb() {
     cd $TP_SOURCE_DIR/$ROCKSDB_SOURCE
 
     CFLAGS="-I ${TP_INCLUDE_DIR} -I ${TP_INCLUDE_DIR}/snappy -I ${TP_INCLUDE_DIR}/lz4" CXXFLAGS="-fPIC" LDFLAGS="-static-libstdc++ -static-libgcc" \
-        make -j$PARALLEL static_lib
+        make USE_RTTI=1 -j$PARALLEL static_lib
     cp librocksdb.a ../../installed/lib/librocksdb.a
     cp -r include/rocksdb ../../installed/include/
 }
@@ -507,29 +509,29 @@ build_librdkafka() {
     make -j$PARALLEL && make install
 }
 
-build_llvm 
-build_libevent
-build_zlib
-build_lz4
-build_bzip
-build_lzo2
-build_openssl
-build_boost # must before thrift
-build_protobuf
-build_gflags
-build_glog
-build_gtest
-build_rapidjson
-build_snappy
-build_gperftools
-build_curl
-build_re2
-build_mysql
-build_thrift
-build_leveldb
-build_brpc
-build_jdk
+# build_llvm 
+# build_libevent
+# build_zlib
+# build_lz4
+# build_bzip
+# build_lzo2
+# build_openssl
+# build_boost # must before thrift
+# build_protobuf
+# build_gflags
+# build_glog
+# build_gtest
+# build_rapidjson
+# build_snappy
+# build_gperftools
+# build_curl
+# build_re2
+# build_mysql
+# build_thrift
+# build_leveldb
+# build_brpc
+# build_jdk
 build_rocksdb
-build_librdkafka
+# build_librdkafka
 
 echo "Finihsed to build all thirdparties"

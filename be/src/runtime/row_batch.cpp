@@ -665,4 +665,13 @@ void RowBatch::add_buffer(BufferPool::ClientHandle* client,
     _buffers.push_back(std::move(buffer_info));
     if (flush == FlushMode::FLUSH_RESOURCES) mark_flush_resources();
 }
+
+std::string RowBatch::to_string() {
+    std::stringstream out;
+    for (int i = 0; i < _num_rows; ++i) {
+        out << get_row(i)->to_string(_row_desc) << "\n";
+    }
+    return out.str();
+}
+
 } // end namespace doris

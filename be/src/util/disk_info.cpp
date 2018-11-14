@@ -28,8 +28,6 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/join.hpp>
 
-#include "util/debug_util.h"
-
 namespace doris {
 
 bool DiskInfo::_s_initialized;

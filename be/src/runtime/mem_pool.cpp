@@ -126,7 +126,7 @@ bool MemPool::FindChunk(size_t min_size, bool check_limits) {
   size_t chunk_size = 0;
   DCHECK_LE(next_chunk_size_, MAX_CHUNK_SIZE);
 
-  if (config::FLAGS_disable_mem_pools) {
+  if (config::disable_mem_pools) {
     // Disable pooling by sizing the chunk to fit only this allocation.
     // Make sure the alignment guarantees are respected.
     chunk_size = std::max<size_t>(min_size, alignof(max_align_t));
@@ -252,7 +252,7 @@ bool MemPool::CheckIntegrity(bool check_current_chunk_empty) {
   DCHECK_LT(current_chunk_idx_, static_cast<int>(chunks_.size()));
 
   // Without pooling, there are way too many chunks and this takes too long.
-  if (config::FLAGS_disable_mem_pools) return true;
+  if (config::disable_mem_pools) return true;
 
   // check that current_chunk_idx_ points to the last chunk with allocated data
   int64_t total_allocated = 0;

@@ -51,6 +51,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_path_mgr.h"
+#include "runtime/client_cache.h"
 #include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/FrontendService.h"

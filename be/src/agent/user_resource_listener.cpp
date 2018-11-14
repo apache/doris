@@ -25,6 +25,7 @@
 #include <thrift/TApplicationException.h>
 #include "common/logging.h"
 #include "gen_cpp/FrontendService.h"
+#include "runtime/client_cache.h"
 
 namespace doris {
 
@@ -38,7 +39,7 @@ using apache::thrift::transport::TTransportException;
 UserResourceListener::UserResourceListener(ExecEnv* exec_env, 
                                            const TMasterInfo& master_info) 
     : _master_info(master_info), 
-      _master_client_cache(exec_env->frontend_client_cache()), 
+      _exec_env(exec_env),
       _cgroups_mgr(*(exec_env->cgroups_mgr())) {
 }
 
@@ -64,7 +65,7 @@ void UserResourceListener::update_users_resource(int64_t new_version) {
     // Call fe to get latest user resource
     Status master_status;
     // using 500ms as default timeout value    
-    FrontendServiceConnection client(_master_client_cache, 
+    FrontendServiceConnection client(_exec_env->frontend_client_cache(),
                                    _master_info.network_address,
                                    500, 
                                    &master_status);

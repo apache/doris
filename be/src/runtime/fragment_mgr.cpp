@@ -33,6 +33,7 @@
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/thrift_util.h"
+#include "runtime/client_cache.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/DataSinks_types.h"

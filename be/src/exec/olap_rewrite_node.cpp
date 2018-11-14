@@ -25,7 +25,6 @@
 #include "runtime/row_batch.h"
 #include "runtime/raw_value.h"
 #include "runtime/tuple.h"
-#include "util/debug_util.h"
 
 namespace doris {
 
@@ -232,7 +231,7 @@ bool OlapRewriteNode::copy_rows(RuntimeState* state, RowBatch* output_batch) {
     if (VLOG_ROW_IS_ON) {
         for (int i = 0; i < output_batch->num_rows(); ++i) {
             TupleRow* row = output_batch->get_row(i);
-            VLOG_ROW << "OlapRewriteNode input row: " << print_row(row, row_desc());
+            VLOG_ROW << "OlapRewriteNode input row: " << row->to_string(row_desc());
         }
     }
 

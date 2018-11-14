@@ -337,42 +337,36 @@ namespace config {
     // cpu count
     CONF_Int32(flags_num_cores, "32");
 
-    CONF_Bool(FLAGS_thread_creation_fault_injection, "false");
+    CONF_Bool(thread_creation_fault_injection, "false");
 
     // Set this to encrypt and perform an integrity
     // check on all data spilled to disk during a query
-    CONF_Bool(FLAGS_disk_spill_encryption, "false");
+    CONF_Bool(disk_spill_encryption, "false");
 
     // Writable scratch directories
-    CONF_String(FLAGS_scratch_dirs, "/tmp");
+    CONF_String(scratch_dirs, "/tmp");
 
     // If false and --scratch_dirs contains multiple directories on the same device,
     // then only the first writable directory is used
-    CONF_Bool(FLAGS_allow_multiple_scratch_dirs_per_device, "false");
+    CONF_Bool(allow_multiple_scratch_dirs_per_device, "false");
 
     // linux transparent huge page
-    CONF_Bool(FLAGS_madvise_huge_pages, "false");
+    CONF_Bool(madvise_huge_pages, "false");
 
     // whether use mmap to allocate memory
-    CONF_Bool(FLAGS_mmap_buffers, "false");
-
-    // whether or not user mem pool
-    CONF_Bool(FLAGS_disable_mem_pools, "false");
+    CONF_Bool(mmap_buffers, "false");
 
     // max memory can be allocated by buffer pool
-    CONF_String(FLAGS_buffer_pool_limit, "80G");
+    CONF_String(buffer_pool_limit, "80G");
 
     // clean page can be hold by buffer pool
-    CONF_String(FLAGS_buffer_pool_clean_pages_limit, "20G");
-    
-    // buffer pool can support min memory allocated
-    CONF_Int32(FLAGS_min_buffer_size, "1024");
+    CONF_String(buffer_pool_clean_pages_limit, "20G");
 
     // Sleep time in seconds between memory maintenance iterations
-    CONF_Int64(FLAGS_memory_maintenance_sleep_time_s, "10");
+    CONF_Int64(memory_maintenance_sleep_time_s, "10");
 
     // Aligement
-    CONF_Int32(FLAGS_MEMORY_MAX_ALIGNMENT, "16");
+    CONF_Int32(memory_max_alignment, "16");
 
     // write buffer size before flush
     CONF_Int32(write_buffer_size, "104857600");

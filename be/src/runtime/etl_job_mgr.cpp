@@ -29,6 +29,7 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/data_spliter.h"
 #include "runtime/runtime_state.h"
+#include "runtime/client_cache.h"
 #include "util/file_utils.h"
 #include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"

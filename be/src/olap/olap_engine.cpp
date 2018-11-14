@@ -115,7 +115,6 @@ OLAPEngine::OLAPEngine(const EngineOptions& options)
         _is_all_cluster_id_exist(true),
         _is_drop_tables(false),
         _global_table_id(0),
-        _file_descriptor_lru_cache(NULL),
         _index_stream_lru_cache(NULL),
         _tablet_stat_cache_update_time_ms(0),
         _snapshot_base_id(0) {
@@ -303,12 +302,13 @@ OLAPStatus OLAPEngine::open() {
 
     _update_storage_medium_type_count();
 
-    _file_descriptor_lru_cache = new_lru_cache(config::file_descriptor_cache_capacity);
-    if (_file_descriptor_lru_cache == NULL) {
+    auto cache = new_lru_cache(config::file_descriptor_cache_capacity);
+    if (cache == nullptr) {
         OLAP_LOG_WARNING("failed to init file descriptor LRUCache");
         _tablet_map.clear();
         return OLAP_ERR_INIT_FAILED;
     }
+    FileHandler::set_fd_cache(cache);
 
     // 初始化LRUCache
     // cache大小可通过配置文件配置
@@ -605,7 +605,8 @@ OLAPStatus OLAPEngine::_get_root_path_capacity(
 
 OLAPStatus OLAPEngine::clear() {
     // 删除lru中所有内容,其实进程退出这么做本身意义不大,但对单测和更容易发现问题还是有很大意义的
-    SAFE_DELETE(_file_descriptor_lru_cache);
+    delete FileHandler::get_fd_cache();
+    FileHandler::set_fd_cache(nullptr);
     SAFE_DELETE(_index_stream_lru_cache);
 
     _tablet_map.clear();
@@ -1651,7 +1652,7 @@ bool OLAPEngine::_can_do_compaction(OLAPTablePtr table) {
 
 void OLAPEngine::start_clean_fd_cache() {
     OLAP_LOG_TRACE("start clean file descritpor cache");
-    _file_descriptor_lru_cache->prune();
+    FileHandler::get_fd_cache()->prune();
     OLAP_LOG_TRACE("end clean file descritpor cache");
 }
 

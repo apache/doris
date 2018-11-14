@@ -36,6 +36,7 @@ add_library(Runtime STATIC
   datetime_value.cpp
   descriptors.cpp
   exec_env.cpp
+  exec_env_init.cpp
   lib_cache.cpp
   mem_pool.cpp
   plan_fragment_executor.cpp

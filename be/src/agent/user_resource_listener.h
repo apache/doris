@@ -28,6 +28,8 @@
 
 namespace doris {
 
+class ExecEnv;
+
 class UserResourceListener : public TopicListener {
 
 public:
@@ -40,7 +42,7 @@ public:
                                const TTopicUpdate& topic_update);
 private:
     const TMasterInfo& _master_info;
-    FrontendServiceClientCache* _master_client_cache;
+    ExecEnv* _exec_env;
     CgroupsMgr& _cgroups_mgr;  
     // Call cgroups mgr to update user's cgroups resource share
     // Also refresh local user resource's cache

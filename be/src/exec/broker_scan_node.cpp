@@ -26,7 +26,6 @@
 #include "runtime/dpp_sink_internal.h"
 #include "exec/broker_scanner.h"
 #include "exprs/expr.h"
-#include "util/debug_util.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -213,7 +212,7 @@ Status BrokerScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* 
         for (int i = 0; i < row_batch->num_rows(); ++i) {
             TupleRow* row = row_batch->get_row(i);
             VLOG_ROW << "BrokerScanNode output row: "
-                << print_tuple(row->get_tuple(0), *_tuple_desc);
+                << Tuple::to_string(row->get_tuple(0), *_tuple_desc);
         }
     }
     
@@ -331,7 +330,7 @@ Status BrokerScanNode::scanner_scan(
 
                     std::stringstream error_msg;
                     error_msg << "No corresponding partition, partition id: " << partition_id;
-                    _runtime_state->append_error_msg_to_file(print_tuple(tuple, *_tuple_desc), 
+                    _runtime_state->append_error_msg_to_file(Tuple::to_string(tuple, *_tuple_desc), 
                                                              error_msg.str());
                     continue;
                 }

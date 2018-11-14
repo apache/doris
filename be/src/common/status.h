@@ -25,6 +25,7 @@
 #include "common/compiler_util.h"
 #include "gen_cpp/Status_types.h"  // for TStatus
 #include "gen_cpp/status.pb.h" // for PStatus
+#include "util/stack_util.h" // for PStatus
 
 namespace doris {
 

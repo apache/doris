@@ -22,7 +22,6 @@
 #include "exprs/expr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "gen_cpp/PlanNodes_types.h"
 
@@ -191,9 +190,9 @@ std::string BlockingJoinNode::get_left_child_row_string(TupleRow* row) {
             std::find(_build_tuple_idx_ptr, _build_tuple_idx_ptr + _build_tuple_size, i);
 
         if (is_build_tuple != _build_tuple_idx_ptr + _build_tuple_size) {
-            out << print_tuple(NULL, *row_desc().tuple_descriptors()[i]);
+            out << Tuple::to_string(NULL, *row_desc().tuple_descriptors()[i]);
         } else {
-            out << print_tuple(row->get_tuple(i), *row_desc().tuple_descriptors()[i]);
+            out << Tuple::to_string(row->get_tuple(i), *row_desc().tuple_descriptors()[i]);
         }
     }
 
