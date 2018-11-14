@@ -508,8 +508,8 @@ OLAPStatus OlapStore::_load_table_from_header(OLAPEngine* engine, TTabletId tabl
     }
 
     if (olap_table->lastest_version() == nullptr && !olap_table->is_schema_changing()) {
-        LOG(WARNING) << "tablet not in schema change state without delta is invalid. tablet:"
-            << olap_table->full_name();
+        LOG(WARNING) << "tablet not in schema change state without delta is invalid."
+                     << "tablet=" << olap_table->full_name();
         // tablet state is invalid, drop tablet
         olap_table->mark_dropped();
         return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
@@ -543,17 +543,74 @@ OLAPStatus OlapStore::_load_table_from_header(OLAPEngine* engine, TTabletId tabl
 }
 
 OLAPStatus OlapStore::load_tables(OLAPEngine* engine) {
-    auto load_table_func = [this, engine](long tablet_id,
-            long schema_hash, const std::string& value) -> bool {
+    auto traverse_header_func = [this, engine](const std::string& key, const std::string& value) -> bool {
+        std::vector<std::string> parts;
+        // key format: "hdr_" + tablet_id + "_" + schema_hash
+        split_string<char>(key, '_', &parts);
+        if (parts.size() != 3) {
+            LOG(WARNING) << "invalid header key:" << key << ", splitted size:" << parts.size();
+            return true;
+        }
+        TTabletId tablet_id = std::stol(parts[1].c_str(), NULL, 10);
+        TSchemaHash schema_hash = std::stol(parts[2].c_str(), NULL, 10);
         OLAPStatus status = _load_table_from_header(engine, tablet_id, schema_hash, value);
         if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "load table from header failed.tablet_id:" << tablet_id
-                    << ", schema_hash:" << schema_hash << ", status:" << status;
+            LOG(WARNING) << "load table from header failed. status:" << status
+                         << "tablet=" << tablet_id << "." << schema_hash;
         };
         return true;
     };
-    OLAPStatus status = OlapHeaderManager::traverse_headers(_meta, load_table_func);
+    OLAPStatus status = OlapHeaderManager::traverse_headers(_meta, traverse_header_func);
     return status;
 }
 
+OLAPStatus OlapStore::check_none_row_oriented_table_in_store(OLAPEngine* engine) {
+    auto traverse_header_func = [this, engine](const std::string& key, const std::string& value) -> bool {
+        std::vector<std::string> parts;
+        // key format: "hdr_" + tablet_id + "_" + schema_hash
+        split_string<char>(key, '_', &parts);
+        if (parts.size() != 3) {
+            LOG(WARNING) << "invalid header key:" << key << ", splitted size:" << parts.size();
+            return true;
+        }
+        TTabletId tablet_id = std::stol(parts[1].c_str(), NULL, 10);
+        TSchemaHash schema_hash = std::stol(parts[2].c_str(), NULL, 10);
+        OLAPStatus status = _check_none_row_oriented_table_in_store(engine, tablet_id, schema_hash, value);
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "load table from header failed. status:" << status
+                         << "tablet=" << tablet_id << "." << schema_hash;
+        };
+        return true;
+    };
+    OLAPStatus status = OlapHeaderManager::traverse_headers(_meta, traverse_header_func);
+    return status;
 }
+
+OLAPStatus OlapStore::_check_none_row_oriented_table_in_store(
+                        OLAPEngine* engine, TTabletId tablet_id,
+                        TSchemaHash schema_hash, const std::string& header) {
+    std::unique_ptr<OLAPHeader> olap_header(new OLAPHeader());
+    bool parsed = olap_header->ParseFromString(header);
+    if (!parsed) {
+        LOG(WARNING) << "parse header string failed for tablet_id:" << tablet_id << " schema_hash:" << schema_hash;
+        return OLAP_ERR_HEADER_PB_PARSE_FAILED;
+    }
+    // init must be called
+    RETURN_NOT_OK(olap_header->init());
+    OLAPTablePtr olap_table =
+        OLAPTable::create_from_header(olap_header.release());
+    if (olap_table == nullptr) {
+        LOG(WARNING) << "fail to new table. tablet_id=" << tablet_id << ", schema_hash:" << schema_hash;
+        return OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
+    }
+
+    LOG(INFO) << "data_file_type:" << olap_table->data_file_type();
+    if (olap_table->data_file_type() == OLAP_DATA_FILE) {
+        LOG(FATAL) << "Not support row-oriented table any more. Please convert it to column-oriented table."
+                   << "tablet=" << olap_table->full_name();
+    }
+
+    return OLAP_SUCCESS;
+}
+
+} // namespace doris

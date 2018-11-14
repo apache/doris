@@ -127,8 +127,17 @@ int main(int argc, char** argv) {
         }
         std::cout << "delete header successfully" << std::endl;
     } else if (FLAGS_operation == "rollback") {
-        auto rollback_func = [&root_path](long tablet_id,
-                long schema_hash, const std::string& value) -> bool {
+        auto rollback_func = [&root_path](const std::string& key,
+                                          const std::string& value) -> bool {
+            std::vector<std::string> parts;
+            // key format: "hdr_" + tablet_id + "_" + schema_hash
+            doris::split_string<char>(key, '_', &parts);
+            if (parts.size() != 3) {
+                LOG(WARNING) << "invalid header key:" << key << ", splitted size:" << parts.size();
+                return true;
+            }
+            int64_t tablet_id = std::stol(parts[1].c_str(), NULL, 10);
+            int64_t schema_hash = std::stol(parts[2].c_str(), NULL, 10);
             OLAPHeader olap_header;
             bool parsed = olap_header.ParseFromString(value);
             if (!parsed) {

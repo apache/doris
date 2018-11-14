@@ -36,7 +36,7 @@
 
 namespace doris {
 class FieldInfo;
-class IData;
+class ColumnData;
 class OLAPHeader;
 class Rowset;
 class OLAPTable;
@@ -99,12 +99,17 @@ public:
             TSchemaHash schema_hash,
             const std::string& header_file,
             OlapStore* store = nullptr);
+    static OLAPTablePtr create_from_header_file_for_check(
+            TTabletId tablet_id,
+            TSchemaHash schema_hash,
+            const std::string& header_file);
 
     static OLAPTablePtr create_from_header(
             OLAPHeader* header,
             OlapStore* store = nullptr);
 
     explicit OLAPTable(OLAPHeader* header, OlapStore* store);
+    explicit OLAPTable(OLAPHeader* header);
 
     virtual ~OLAPTable();
 
@@ -137,7 +142,7 @@ public:
     //      OLAPData:0-100      +
     //      OLAPData:101-110    +
     //      OLAPData:110-110    -
-    void acquire_data_sources(const Version& version, std::vector<IData*>* sources) const;
+    void acquire_data_sources(const Version& version, std::vector<ColumnData*>* sources) const;
 
     // Acquire data sources whose versions are specified by version_list.
     // If you want specified OLAPDatas instead of calling
@@ -147,10 +152,10 @@ public:
     // @param [in] version_list
     // @param [out] sources
     void acquire_data_sources_by_versions(const std::vector<Version>& version_list,
-                                          std::vector<IData*>* sources) const;
+                                          std::vector<ColumnData*>* sources) const;
 
     // Releases the acquired data sources. Returns true on success.
-    OLAPStatus release_data_sources(std::vector<IData*>* data_sources) const;
+    OLAPStatus release_data_sources(std::vector<ColumnData*>* data_sources) const;
 
     // Registers a newly created data source, making it available for
     // querying.  Adds a reference to the data source in the header file.
@@ -740,6 +745,8 @@ private:
     std::atomic<bool> _is_loaded;
     Mutex _load_lock;
     std::string _tablet_path;
+
+    bool _table_for_check;
 
     DISALLOW_COPY_AND_ASSIGN(OLAPTable);
 };

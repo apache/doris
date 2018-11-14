@@ -1,0 +1,6 @@
+[cluster]
+fe_host = 
+port = 
+http_port =
+username = 
+password = 

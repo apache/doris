@@ -113,7 +113,7 @@ OLAPStatus DeltaWriter::init() {
     // New Writer to write data into Rowset
     VLOG(3) << "init writer. table=" << _table->full_name() << ", "
             << "block_row_size=" << _table->num_rows_per_row_block();
-    _writer = IWriter::create(_table, _cur_rowset, true);
+    _writer = ColumnDataWriter::create(_table, _cur_rowset, true);
     DCHECK(_writer != nullptr) << "memory error occur when creating writer";
 
     const std::vector<SlotDescriptor*>& slots = _req.tuple_desc->slots();
@@ -153,7 +153,7 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
         _rowset_vec.push_back(_cur_rowset);
 
         SAFE_DELETE(_writer);
-        _writer = IWriter::create(_table, _cur_rowset, true);
+        _writer = ColumnDataWriter::create(_table, _cur_rowset, true);
         DCHECK(_writer != nullptr) << "memory error occur when creating writer";
 
         SAFE_DELETE(_mem_table);

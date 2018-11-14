@@ -19,13 +19,12 @@
 
 #include <string>
 
-#include "olap/column_file/bloom_filter.hpp"
+#include "olap/bloom_filter.hpp"
 #include "util/logging.h"
 
 using std::string;
 
 namespace doris {
-namespace column_file {
 
 class TestBloomFilter : public testing::Test {
 public:
@@ -153,7 +152,6 @@ TEST_F(TestBloomFilter, bloom_filter_info) {
     LOG(WARNING) << "bytes=" << bytes << " points=" << points;
 }
 
-} // namespace column_file
 } // namespace doris
 
 int main(int argc, char **argv) {

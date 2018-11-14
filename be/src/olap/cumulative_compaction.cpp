@@ -127,7 +127,7 @@ OLAPStatus CumulativeCompaction::run() {
     {
         DorisMetrics::cumulative_compaction_deltas_total.increment(_need_merged_versions.size());
         int64_t merge_bytes = 0;
-        for (IData* i_data : _data_source) {
+        for (ColumnData* i_data : _data_source) {
             merge_bytes += i_data->olap_index()->data_size();
         }
         DorisMetrics::cumulative_compaction_bytes_total.increment(merge_bytes);
@@ -396,7 +396,7 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
 
     // Check row num changes
     uint64_t source_rows = 0;
-    for (IData* i_data : _data_source) {
+    for (ColumnData* i_data : _data_source) {
         source_rows += i_data->olap_index()->num_rows();
     }
     bool row_nums_check = config::row_nums_check;
@@ -513,7 +513,7 @@ bool CumulativeCompaction::_validate_need_merged_versions() {
 OLAPStatus CumulativeCompaction::_validate_delete_file_action() {
     // 1. acquire the new cumulative version to make sure that all is right after deleting files
     Version test_version = Version(0, _cumulative_version.second);
-    vector<IData*> test_sources;
+    vector<ColumnData*> test_sources;
     _table->acquire_data_sources(test_version, &test_sources);
     if (test_sources.size() == 0) {
         OLAP_LOG_WARNING("acquire data source failed. [test_verison=%d-%d]",

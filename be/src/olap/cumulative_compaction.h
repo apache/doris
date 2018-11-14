@@ -24,7 +24,7 @@
 #include <vector>
 
 #include "olap/merger.h"
-#include "olap/olap_data.h"
+#include "olap/column_data.h"
 #include "olap/olap_define.h"
 #include "olap/olap_table.h"
 
@@ -172,7 +172,7 @@ private:
     // 新cumulative文件对应的olap index
     Rowset* _new_cumulative_index;
     // 可合并的delta文件的data文件
-    std::vector<IData*> _data_source;
+    std::vector<ColumnData*> _data_source;
     // 可合并的delta文件的版本
     std::vector<Version> _need_merged_versions;
 

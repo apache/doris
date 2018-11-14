@@ -20,19 +20,18 @@
 #include <memory>
 #include <vector>
 
-#include "olap/i_data.h"
+#include "olap/column_data.h"
 #include "olap/olap_define.h"
 #include "olap/rowset.h"
 #include "olap/olap_table.h"
 #include "olap/reader.h"
 #include "olap/row_cursor.h"
-#include "olap/writer.h"
+#include "olap/data_writer.h"
 
 using std::list;
 using std::string;
 using std::unique_ptr;
 using std::vector;
-
 
 namespace doris {
 
@@ -42,7 +41,7 @@ Merger::Merger(OLAPTablePtr table, Rowset* index, ReaderType type) :
         _reader_type(type),
         _row_count(0) {}
 
-OLAPStatus Merger::merge(const vector<IData*>& olap_data_arr,
+OLAPStatus Merger::merge(const vector<ColumnData*>& olap_data_arr,
                          uint64_t* merged_rows, uint64_t* filted_rows) {
     // Create and initiate reader for scanning and multi-merging specified
     // OLAPDatas.
@@ -63,7 +62,7 @@ OLAPStatus Merger::merge(const vector<IData*>& olap_data_arr,
     }
 
     // create and initiate writer for generating new index and data files.
-    unique_ptr<IWriter> writer(IWriter::create(_table, _index, false));
+    unique_ptr<ColumnDataWriter> writer(ColumnDataWriter::create(_table, _index, false));
 
     if (NULL == writer) {
         OLAP_LOG_WARNING("fail to allocate writer.");

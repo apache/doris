@@ -28,7 +28,7 @@
 #include <boost/filesystem.hpp>
 
 #include "olap/field.h"
-#include "olap/i_data.h"
+#include "olap/column_data.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_engine.h"
@@ -41,7 +41,7 @@
 #include "olap/olap_header_manager.h"
 #include "olap/olap_engine.h"
 #include "olap/utils.h"
-#include "olap/writer.h"
+#include "olap/data_writer.h"
 
 using std::pair;
 using std::map;
@@ -89,6 +89,44 @@ OLAPTablePtr OLAPTable::create_from_header_file(
         return NULL;
     }
     return create_from_header(olap_header, store);
+}
+
+OLAPTablePtr OLAPTable::create_from_header_file_for_check(
+        TTabletId tablet_id, TSchemaHash schema_hash, const string& header_file) {
+    OLAPHeader* olap_header = NULL;
+
+    olap_header = new(nothrow) OLAPHeader(header_file);
+    if (olap_header == NULL) {
+        OLAP_LOG_WARNING("fail to malloc OLAPHeader.");
+        return NULL;
+    }
+
+    if (olap_header->load_for_check() != OLAP_SUCCESS) {
+        OLAP_LOG_WARNING("fail to load header. [header_file=%s]", header_file.c_str());
+        delete olap_header;
+        return NULL;
+    }
+
+    OLAPTablePtr olap_table = std::make_shared<OLAPTable>(olap_header);
+    if (olap_table == NULL) {
+        OLAP_LOG_WARNING("fail to validate table. [header_file=%s]", header_file.c_str());
+        delete olap_header;
+        return NULL;
+    }
+    olap_table->_tablet_id = tablet_id;
+    olap_table->_schema_hash = schema_hash;
+    olap_table->_full_name = std::to_string(tablet_id) + "." + std::to_string(schema_hash);
+    return olap_table;
+}
+
+OLAPTable::OLAPTable(OLAPHeader* header)
+        : _header(header) {
+    if (header->has_tablet_id()) {
+        _tablet_id =  header->tablet_id();
+        _schema_hash = header->schema_hash();
+        _full_name = std::to_string(header->tablet_id()) + "." + std::to_string(header->schema_hash());
+    }
+    _table_for_check = true;
 }
 
 OLAPTablePtr OLAPTable::create_from_header(
@@ -197,9 +235,14 @@ OLAPTable::OLAPTable(OLAPHeader* header, OlapStore* store) :
     _tablet_path = tablet_path_stream.str();
     _storage_root_path = store->path();
     _full_name = std::to_string(header->tablet_id()) + "." + std::to_string(header->schema_hash());
+    _table_for_check = false;
 }
 
 OLAPTable::~OLAPTable() {
+    if (_table_for_check) {
+        return;
+    }
+
     if (_header == NULL) {
         return;  // for convenience of mock test.
     }
@@ -405,7 +448,7 @@ OLAPStatus OLAPTable::select_versions_to_span( const Version& version,
     return res;
 }
 
-void OLAPTable::acquire_data_sources(const Version& version, vector<IData*>* sources) const {
+void OLAPTable::acquire_data_sources(const Version& version, vector<ColumnData*>* sources) const {
     vector<Version> span_versions;
 
     if (_header->select_versions_to_span(version, &span_versions) != OLAP_SUCCESS) {
@@ -419,7 +462,7 @@ void OLAPTable::acquire_data_sources(const Version& version, vector<IData*>* sou
 }
 
 void OLAPTable::acquire_data_sources_by_versions(const vector<Version>& version_list,
-                                                 vector<IData*>* sources) const {
+                                                 vector<ColumnData*>* sources) const {
     if (sources == NULL) {
         LOG(WARNING) << "output parameter for data sources is null. table=" << full_name();
         return;
@@ -440,7 +483,7 @@ void OLAPTable::acquire_data_sources_by_versions(const vector<Version>& version_
         }
 
         for (Rowset* rowset : it2->second) {
-            IData* olap_data = IData::create(rowset);
+            ColumnData* olap_data = ColumnData::create(rowset);
             if (olap_data == NULL) {
                 LOG(WARNING) << "fail to malloc Data. [version='" << it1->first
                     << "-" << it1->second << "' table='" << full_name() << "']";
@@ -460,7 +503,7 @@ void OLAPTable::acquire_data_sources_by_versions(const vector<Version>& version_
     }
 }
 
-OLAPStatus OLAPTable::release_data_sources(vector<IData*>* data_sources) const {
+OLAPStatus OLAPTable::release_data_sources(vector<ColumnData*>* data_sources) const {
     if (data_sources == NULL) {
         LOG(WARNING) << "parameter data_sources is null. [table='" << full_name() << "']";
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
@@ -2193,7 +2236,7 @@ OLAPStatus OLAPTable::recover_tablet_until_specfic_version(
     for (Version& missing_version : missing_versions) {
         Rowset* rowset = new Rowset(this, missing_version, version_hash, false, 0, 0);
         rowset->set_empty(true);
-        IWriter* writer = IWriter::create(std::shared_ptr<OLAPTable>(this), rowset, true);
+        ColumnDataWriter* writer = ColumnDataWriter::create(std::shared_ptr<OLAPTable>(this), rowset, true);
         if (res != OLAP_SUCCESS) { break; }
 
         res = writer->finalize();
