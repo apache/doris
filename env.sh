@@ -70,7 +70,8 @@ fi
 
 # set GCC HOME
 if [[ -z ${DORIS_GCC_HOME} ]]; then
-    export DORIS_GCC_HOME=/usr
+    # specify your GCC HOME if needed
+    export DORIS_GCC_HOME=$(dirname `which gcc`)/..
 fi
 
 gcc_ver=`${DORIS_GCC_HOME}/bin/gcc -dumpversion`
