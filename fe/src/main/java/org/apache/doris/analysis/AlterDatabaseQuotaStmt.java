@@ -69,7 +69,7 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
         return unit;
     }
 
-    private boolean getQuotaFromExpression() throws UserException {
+    private void getQuotaFromExpression() throws UserException {
         Pattern r = Pattern.compile(quotaPattern);
         Matcher m = r.matcher(quotaExpression);
         if (m.find( )) {
@@ -91,9 +91,8 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
             } else {
                 throw new AnalysisException("invalid unit:" + tmpUnit);
             }
-            return true;
         } else {
-            return false;
+            throw new AnalysisException("invalid quota expression:" + quotaExpression);
         }
     }
 
