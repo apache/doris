@@ -262,6 +262,7 @@ nonterminal describe_command, opt_full, opt_inner, opt_outer, from_or_in, keys_o
 // String
 nonterminal String user, opt_user;
 nonterminal UserIdentity user_identity;
+nonterminal String quantity;
 
 // Description of user
 nonterminal UserDesc grant_user;
@@ -587,13 +588,24 @@ alter_stmt ::=
     {:
         RESULT = new AlterClusterStmt(name, properties);
     :}
-    | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_DATA KW_QUOTA INTEGER_LITERAL:quota
+    | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_DATA KW_QUOTA quantity:quota_quantity
     {:
-        RESULT = new AlterDatabaseQuotaStmt(dbName, quota);
+        RESULT = new AlterDatabaseQuotaStmt(dbName, quota_quantity);
     :}
     | KW_ALTER KW_DATABASE ident:dbName KW_RENAME ident:newDbName
     {:
         RESULT = new AlterDatabaseRename(dbName, newDbName);
+    :}
+    ;
+
+quantity ::=
+    INTEGER_LITERAL:number
+    {:
+        RESULT = number.toString();
+    :}
+    | ident:number_unit
+    {:
+        RESULT = number_unit;
     :}
     ;
 
