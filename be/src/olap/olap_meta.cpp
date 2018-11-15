@@ -99,7 +99,9 @@ OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key, 
 
 OLAPStatus OlapMeta::put(const int column_family_index, const std::string& key, const std::string& value) {
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
-    Status s = _db->Put(WriteOptions(), handle, Slice(key), Slice(value));
+    WriteOptions write_options;
+    write_options.sync = true;
+    Status s = _db->Put(write_options, handle, Slice(key), Slice(value));
     if (!s.ok()) {
         LOG(WARNING) << "rocks db put key:" << key << " failed, reason:" << s.ToString();
         return OLAP_ERR_META_PUT;
@@ -109,7 +111,9 @@ OLAPStatus OlapMeta::put(const int column_family_index, const std::string& key, 
 
 OLAPStatus OlapMeta::remove(const int column_family_index, const std::string& key) {
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
-    Status s = _db->Delete(WriteOptions(), handle, Slice(key));
+    WriteOptions write_options;
+    write_options.sync = true;
+    Status s = _db->Delete(write_options, handle, Slice(key));
     if (!s.ok()) {
         LOG(WARNING) << "rocks db delete key:" << key << " failed, reason:" << s.ToString();
         return OLAP_ERR_META_DELETE;
