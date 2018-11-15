@@ -101,7 +101,16 @@ public:
         SAFE_DELETE(file_desc);
     }
 
+    static Cache* get_fd_cache() {
+        return _s_fd_cache;
+    }
+    static void set_fd_cache(Cache* cache) {
+        _s_fd_cache = cache;
+    }
+
 private:
+    static Cache* _s_fd_cache;
+
     int _fd;
     off_t _wr_length;
     const int64_t _cache_threshold = 1<<19;

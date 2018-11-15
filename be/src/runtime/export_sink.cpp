@@ -25,7 +25,6 @@
 #include "runtime/tuple_row.h"
 #include "runtime/row_batch.h"
 #include "util/runtime_profile.h"
-#include "util/debug_util.h"
 #include "util/types.h"
 #include "exec/local_file_writer.h"
 #include "exec/broker_writer.h"
@@ -89,7 +88,7 @@ Status ExportSink::open(RuntimeState* state) {
 }
 
 Status ExportSink::send(RuntimeState* state, RowBatch* batch) {
-    VLOG_ROW << "debug: export_sink send batch: " << print_batch(batch);
+    VLOG_ROW << "debug: export_sink send batch: " << batch->to_string();
     SCOPED_TIMER(_profile->total_time_counter());
     int num_rows = batch->num_rows();
     // we send at most 1024 rows at a time

@@ -19,10 +19,13 @@
 #define  DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_FRONTEND_HELPER_H
 
 #include "common/status.h"
-#include "runtime/exec_env.h"
 #include "gen_cpp/FrontendService_types.h"
 
 namespace doris {
+
+class ExecEnv;
+class FrontendServiceClient;
+template <class T> class ClientConnection;
 
 // this class is a helper for jni call. easy for unit test
 class FrontendHelper {
@@ -59,7 +62,7 @@ public:
     static Status rpc(
         const std::string& ip,
         const int32_t port,
-        std::function<void (FrontendServiceConnection&)> callback,
+        std::function<void (ClientConnection<FrontendServiceClient>&)> callback,
         int timeout_ms = 5000);
 private:
     static ExecEnv* _s_exec_env;

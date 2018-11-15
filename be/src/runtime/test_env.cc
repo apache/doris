@@ -31,7 +31,7 @@ TestEnv::TestEnv() {
         // DorisMetrics::create_metrics(_s_static_metrics.get());
     }
     _exec_env.reset(new ExecEnv());
-    _exec_env->init_for_tests();
+    // _exec_env->init_for_tests();
     _io_mgr_tracker.reset(new MemTracker(-1));
     _block_mgr_parent_tracker.reset(new MemTracker(-1));
     _exec_env->disk_io_mgr()->init(_io_mgr_tracker.get());

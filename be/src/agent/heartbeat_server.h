@@ -31,6 +31,7 @@ namespace doris {
 const uint32_t HEARTBEAT_INTERVAL = 10;
 class OLAPEngine;
 class Status;
+class ThriftServer;
 
 class HeartbeatServer : public HeartbeatServiceIf {
 public:

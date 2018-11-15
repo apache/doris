@@ -197,10 +197,6 @@ public:
         return _index_stream_lru_cache;
     }
 
-    Cache* file_descriptor_lru_cache() {
-        return _file_descriptor_lru_cache;
-    }
-
     // 清理trash和snapshot文件，返回清理后的磁盘使用量
     OLAPStatus start_trash_sweep(double *usage);
 

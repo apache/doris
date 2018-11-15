@@ -492,7 +492,7 @@ BufferPool::FreeBufferArena::~FreeBufferArena() {
 
 void BufferPool::FreeBufferArena::AddFreeBuffer(BufferHandle&& buffer) {
   lock_guard<SpinLock> al(lock_);
-  if (config::FLAGS_disable_mem_pools) {
+  if (config::disable_mem_pools) {
     int64_t len = buffer.len();
     parent_->system_allocator_->Free(move(buffer));
     parent_->system_bytes_remaining_.add(len);
@@ -635,7 +635,7 @@ std::pair<int64_t, int64_t> BufferPool::FreeBufferArena::FreeSystemMemory(
 }
 
 void BufferPool::FreeBufferArena::AddCleanPage(Page* page) {
-  bool eviction_needed = config::FLAGS_disable_mem_pools
+  bool eviction_needed = config::disable_mem_pools
     || DecreaseBytesRemaining(
         page->len, true, &parent_->clean_page_bytes_remaining_) == 0;
   lock_guard<SpinLock> al(lock_);

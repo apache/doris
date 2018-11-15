@@ -260,7 +260,7 @@ Status OlapScanner::get_batch(
 
             _convert_row_to_tuple(tuple);
             if (VLOG_ROW_IS_ON) {
-                VLOG_ROW << "OlapScanner input row: " << print_tuple(tuple, *_tuple_desc);
+                VLOG_ROW << "OlapScanner input row: " << Tuple::to_string(tuple, *_tuple_desc);
             }
 
             // 3.4 Set tuple to RowBatch(not commited)
@@ -312,7 +312,7 @@ Status OlapScanner::get_batch(
                     }
                 }
                 if (VLOG_ROW_IS_ON) {
-                    VLOG_ROW << "OlapScanner output row: " << print_tuple(tuple, *_tuple_desc);
+                    VLOG_ROW << "OlapScanner output row: " << Tuple::to_string(tuple, *_tuple_desc);
                 }
 
                 // check direct && pushdown conjuncts success then commit tuple

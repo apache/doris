@@ -21,7 +21,6 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
-#include "util/debug_util.h"
 #include "util/string_parser.hpp"
 
 namespace doris {
@@ -124,8 +123,8 @@ std::string OlapTableSchemaParam::debug_string() const {
 std::string OlapTablePartition::debug_string(TupleDescriptor* tuple_desc) const {
     std::stringstream ss;
     ss << "(id=" << id
-        << ",start_key=" << print_tuple(start_key, *tuple_desc)
-        << ",end_key=" << print_tuple(end_key, *tuple_desc)
+        << ",start_key=" << Tuple::to_string(start_key, *tuple_desc)
+        << ",end_key=" << Tuple::to_string(end_key, *tuple_desc)
         << ",num_buckets=" << num_buckets
         << ",indexes=[";
     int idx = 0;

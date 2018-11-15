@@ -26,13 +26,28 @@ set -e
 
 curdir=`dirname "$0"`
 curdir=`cd "$curdir"; pwd`
-REPOSITORY_URL=$1
 
-export DORIS_HOME=$curdir/../
-source $curdir/vars.sh
+if [[ -z "${DORIS_HOME}" ]]; then
+    DORIS_HOME=$curdir/..
+fi
 
-mkdir -p $TP_DIR/src
-mkdir -p $TP_DIR/installed
+# include custom environment variables
+if [[ -f ${DORIS_HOME}/custom_env.sh ]]; then
+    . ${DORIS_HOME}/custom_env.sh
+fi
+
+if [[ -z "${TP_DIR}" ]]; then
+    TP_DIR=$curdir
+fi
+
+if [ ! -f ${TP_DIR}/vars.sh ]; then
+    echo "vars.sh is missing".
+    exit 1
+fi
+. ${TP_DIR}/vars.sh
+
+mkdir -p ${TP_DIR}/src
+mkdir -p ${TP_DIR}/installed
 
 download() {
     local FILENAME=$1
@@ -230,5 +245,5 @@ if [ ! -f $PATCHED_MARK ]; then
     touch $PATCHED_MARK
 fi
 cd -
-echo "Finished patching $LZ4_SOURCE"
+echo "Finished patching $BRPC_SOURCE"
 

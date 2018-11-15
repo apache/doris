@@ -312,7 +312,7 @@ Status PlanFragmentExecutor::open_internal() {
 
             for (int i = 0; i < batch->num_rows(); ++i) {
                 TupleRow* row = batch->get_row(i);
-                VLOG_ROW << print_row(row, row_desc());
+                VLOG_ROW << row->to_string(row_desc());
             }
         }
 

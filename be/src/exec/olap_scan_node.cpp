@@ -38,6 +38,7 @@
 #include "util/runtime_profile.h"
 #include "util/thread_pool.hpp"
 #include "util/debug_util.h"
+#include "util/priority_thread_pool.hpp"
 #include "agent/cgroups_mgr.h"
 #include "common/resource_tls.h"
 #include <boost/variant.hpp>
@@ -289,7 +290,7 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
             for (int i = 0; i < row_batch->num_rows(); ++i) {
                 TupleRow* row = row_batch->get_row(i);
                 VLOG_ROW << "OlapScanNode output row: "
-                    << print_tuple(row->get_tuple(0), *_tuple_desc);
+                    << Tuple::to_string(row->get_tuple(0), *_tuple_desc);
             }
         }
         __sync_fetch_and_sub(&_buffered_bytes,

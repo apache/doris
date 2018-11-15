@@ -26,7 +26,6 @@
 #include "runtime/raw_value.h"
 #include "runtime/tuple_row.h"
 #include "runtime/string_value.h"
-#include "util/debug_util.h"
 
 namespace doris {
 
@@ -199,4 +198,44 @@ template void Tuple::materialize_exprs<false>(TupleRow* row, const TupleDescript
 template void Tuple::materialize_exprs<true>(TupleRow* row, const TupleDescriptor& desc,
     const std::vector<ExprContext*>& materialize_expr_ctxs, MemPool* pool,
     std::vector<StringValue*>* non_null_var_values, int* total_var_len);
+
+std::string Tuple::to_string(const TupleDescriptor& d) const {
+    std::stringstream out;
+    out << "(";
+
+    bool first_value = true;
+    for (auto slot : d.slots()) {
+        if (!slot->is_materialized()) {
+            continue;
+        }
+        if (first_value) {
+            first_value = false;
+        } else {
+            out << " ";
+        }
+
+        if (is_null(slot->null_indicator_offset())) {
+            out << "null";
+        } else {
+            std::string value_str;
+            RawValue::print_value(
+                    get_slot(slot->tuple_offset()),
+                    slot->type(),
+                    -1,
+                    &value_str);
+            out << value_str;
+        }
+    }
+
+    out << ")";
+    return out.str();
+}
+
+std::string Tuple::to_string(const Tuple* t, const TupleDescriptor& d) {
+    if (t == nullptr) {
+        return "null";
+    }
+    return t->to_string(d);
+}
+
 }

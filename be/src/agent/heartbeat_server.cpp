@@ -18,15 +18,17 @@
 #include "agent/heartbeat_server.h"
 #include <ctime>
 #include <fstream>
-#include "boost/filesystem.hpp"
-#include "thrift/TProcessor.h"
-#include "gen_cpp/HeartbeatService.h"
-#include "gen_cpp/Status_types.h"
+
+#include <boost/filesystem.hpp>
+#include <thrift/TProcessor.h>
 
 #include "common/status.h"
+#include "gen_cpp/HeartbeatService.h"
+#include "gen_cpp/Status_types.h"
 #include "olap/olap_engine.h"
 #include "olap/utils.h"
 #include "service/backend_options.h"
+#include "util/thrift_server.h"
 
 using std::fstream;
 using std::nothrow;

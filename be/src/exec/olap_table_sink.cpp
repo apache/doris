@@ -24,7 +24,6 @@
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple_row.h"
-#include "util/debug_util.h"
 
 #include "util/brpc_stub_cache.h"
 #include "util/uid_util.h"
@@ -554,7 +553,8 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
         uint32_t dist_hash = 0;
         if (!_partition->find_tablet(tuple, &partition, &dist_hash)) {
             std::stringstream ss;
-            ss << "no partition for this tuple. tuple=" << print_tuple(tuple, *_output_tuple_desc);
+            ss << "no partition for this tuple. tuple="
+                << Tuple::to_string(tuple, *_output_tuple_desc);
 #if BE_TEST
             LOG(INFO) << ss.str();
 #else

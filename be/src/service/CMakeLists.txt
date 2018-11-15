@@ -25,6 +25,7 @@ add_library(Service
     backend_options.cpp
     backend_service.cpp
     brpc_service.cpp
+    http_service.cpp
     internal_service.cpp
 )
 

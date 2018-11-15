@@ -81,7 +81,7 @@ void* tcmalloc_gc_thread(void* dummy) {
     
 void* memory_maintenance_thread(void* dummy) {
     while (true) {
-        sleep(config::FLAGS_memory_maintenance_sleep_time_s);
+        sleep(config::memory_maintenance_sleep_time_s);
         ExecEnv* env = ExecEnv::GetInstance();
         // ExecEnv may not have been created yet or this may be the catalogd or statestored,
         // which don't have ExecEnvs.
