@@ -212,7 +212,11 @@ public class Backend implements Writable {
         }
 
         eventBus.post(new BackendEvent(BackendEventType.BACKEND_DOWN, "missing heartbeat", Long.valueOf(id)));
-        heartbeatErrMsg = errMsg;
+        // In some case, errMsg is null when catched Exception have no message, which can make
+        // `SHOW BACKENDS` return ERROR. We check errMsg here to avoid.
+        if (errMsg != null) {
+            heartbeatErrMsg = errMsg;
+        }
     }
 
     public void setBackendState(BackendState state) {
