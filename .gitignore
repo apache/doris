@@ -6,3 +6,4 @@ output
 docs/build
 gensrc/build
 fe/target
+thirdparty/src

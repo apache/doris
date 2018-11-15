@@ -25,7 +25,6 @@
 #include "runtime/string_value.hpp"
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
-#include "util/debug_util.h"
 #include "util/doris_metrics.h"
 
 using llvm::BasicBlock;
@@ -313,7 +312,7 @@ std::string HashTable::debug_string(bool skip_empty, const RowDescriptor* desc) 
             if (desc == NULL) {
                 ss << node_idx << "(" << (void*)node->data() << ")";
             } else {
-                ss << (void*)node->data() << " " << print_row(node->data(), *desc);
+                ss << (void*)node->data() << " " << node->data()->to_string(*desc);
             }
 
             node_idx = node->_next_idx;

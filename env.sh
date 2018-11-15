@@ -24,7 +24,7 @@ fi
 
 # include custom environment variables
 if [[ -f ${DORIS_HOME}/custom_env.sh ]]; then
-    source ${DORIS_HOME}/custom_env.sh
+    . ${DORIS_HOME}/custom_env.sh
 fi
 
 # set DORIS_THIRDPARTY

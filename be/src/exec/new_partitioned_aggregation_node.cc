@@ -44,7 +44,6 @@
 #include "runtime/tuple_row.h"
 #include "runtime/tuple.h"
 #include "udf/udf_internal.h"
-#include "util/debug_util.h"
 #include "util/runtime_profile.h"
 
 #include "gen_cpp/Exprs_types.h"
@@ -313,7 +312,7 @@ Status NewPartitionedAggregationNode::open(RuntimeState* state) {
     if (UNLIKELY(VLOG_ROW_IS_ON)) {
       for (int i = 0; i < batch.num_rows(); ++i) {
         TupleRow* row = batch.get_row(i);
-        VLOG_ROW << "input row: " << print_row(row, _children[0]->row_desc());
+        VLOG_ROW << "input row: " << row->to_string(_children[0]->row_desc());
       }
     }
 

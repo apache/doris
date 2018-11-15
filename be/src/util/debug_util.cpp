@@ -24,10 +24,6 @@
 
 #include "common/logging.h"
 #include "gen_cpp/version.h"
-#include "runtime/descriptors.h"
-#include "runtime/raw_value.h"
-#include "runtime/tuple_row.h"
-#include "runtime/row_batch.h"
 #include "util/cpu_info.h"
 #include "gen_cpp/Opcodes_types.h"
 #include "gen_cpp/types.pb.h"
@@ -44,12 +40,6 @@
 #define THOUSAND (1000)
 #define MILLION (THOUSAND * 1000)
 #define BILLION (MILLION * 1000)
-
-namespace google {
-namespace glog_internal_namespace_ {
-void DumpStackTraceToString(std::string* stacktrace);
-}
-}
 
 namespace doris {
 
@@ -134,70 +124,6 @@ std::string print_plan_node_type(const TPlanNodeType::type& type) {
     return "Invalid plan node type";
 }
 
-std::string print_tuple(const Tuple* t, const TupleDescriptor& d) {
-    if (t == NULL) {
-        return "null";
-    }
-
-    std::stringstream out;
-    out << "(";
-    bool first_value = true;
-
-    for (int i = 0; i < d.slots().size(); ++i) {
-        SlotDescriptor* slot_d = d.slots()[i];
-
-        if (!slot_d->is_materialized()) {
-            continue;
-        }
-
-        if (first_value) {
-            first_value = false;
-        } else {
-            out << " ";
-        }
-
-        if (t->is_null(slot_d->null_indicator_offset())) {
-            out << "null";
-        } else {
-            std::string value_str;
-            RawValue::print_value(
-                    t->get_slot(slot_d->tuple_offset()),
-                    slot_d->type(),
-                    -1,
-                    &value_str);
-            out << value_str;
-        }
-    }
-
-    out << ")";
-    return out.str();
-}
-
-std::string print_row(TupleRow* row, const RowDescriptor& d) {
-    std::stringstream out;
-    out << "[";
-
-    for (int i = 0; i < d.tuple_descriptors().size(); ++i) {
-        if (i != 0) {
-            out << " ";
-        }
-        out << print_tuple(row->get_tuple(i), *d.tuple_descriptors()[i]);
-    }
-
-    out << "]";
-    return out.str();
-}
-
-std::string print_batch(RowBatch* batch) {
-    std::stringstream out;
-
-    for (int i = 0; i < batch->num_rows(); ++i) {
-        out << print_row(batch->get_row(i), batch->row_desc()) << "\n";
-    }
-
-    return out.str();
-}
-
 std::string get_build_version(bool compact) {
     std::stringstream ss;
     ss << PALO_BUILD_VERSION
@@ -220,12 +146,6 @@ std::string get_version_string(bool compact) {
     std::stringstream ss;
     ss << " version " << get_build_version(compact);
     return ss.str();
-}
-
-std::string get_stack_trace() {
-    std::string s;
-    google::glog_internal_namespace_::DumpStackTraceToString(&s);
-    return s;
 }
 
 std::string hexdump(const char* buf, int len) {

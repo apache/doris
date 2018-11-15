@@ -40,7 +40,6 @@
 #include "runtime/string_value.hpp"
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
-#include "util/debug_util.h"
 #include "util/runtime_profile.h"
 
 using llvm::BasicBlock;
@@ -207,7 +206,7 @@ Status AggregationNode::open(RuntimeState* state) {
             for (int i = 0; i < batch.num_rows(); ++i) {
                 TupleRow* row = batch.get_row(i);
                 VLOG_ROW << "id=" << id() << " input row: "
-                        << print_row(row, _children[0]->row_desc());
+                        << row->to_string(_children[0]->row_desc());
             }
         }
 
@@ -291,7 +290,7 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
         row->set_tuple(0, output_tuple);
 
         if (ExecNode::eval_conjuncts(ctxs, num_ctxs, row)) {
-            VLOG_ROW << "output row: " << print_row(row, row_desc());
+            VLOG_ROW << "output row: " << row->to_string(row_desc());
             row_batch->commit_last_row();
             ++_num_rows_returned;
 

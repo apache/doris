@@ -50,6 +50,7 @@ add_library(Util STATIC
   thrift_util.cpp
   thrift_client.cpp
   thrift_server.cpp
+  stack_util.cpp
   symbols_util.cpp
   system_metrics.cpp
   url_parser.cpp

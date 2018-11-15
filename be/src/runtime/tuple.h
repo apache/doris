@@ -173,6 +173,9 @@ public:
     static const char* _s_llvm_class_name;
 
     void* get_data() { return this; }
+
+    std::string to_string(const TupleDescriptor& d) const;
+    static std::string to_string(const Tuple* t, const TupleDescriptor& d);
 private:
     void* _data;
 };

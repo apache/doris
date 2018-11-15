@@ -113,8 +113,7 @@ class MemPool {
   /// should be a power-of-two in [1, alignof(std::max_align_t)].
   uint8_t* try_allocate_aligned(int64_t size, int alignment) {
     DCHECK_GE(alignment, 1);
-    DCHECK_LE(alignment, config::FLAGS_MEMORY_MAX_ALIGNMENT);
-    //DCHECK_LE(alignment, config::FLAGS_MEMORY_MAX_ALIGNMENT);
+    DCHECK_LE(alignment, config::memory_max_alignment);
     DCHECK_EQ(BitUtil::RoundUpToPowerOfTwo(alignment), alignment);
     return allocate<true>(size, alignment);
   }

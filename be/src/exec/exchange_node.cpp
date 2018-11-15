@@ -24,7 +24,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/row_batch.h"
-#include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "gen_cpp/PlanNodes_types.h"
 
@@ -172,7 +171,7 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
             }
 
             if (VLOG_ROW_IS_ON) {
-                VLOG_ROW << "ExchangeNode output batch: " << print_batch(output_batch);
+                VLOG_ROW << "ExchangeNode output batch: " << output_batch->to_string();
             }
 
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);

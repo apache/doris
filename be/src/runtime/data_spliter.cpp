@@ -32,7 +32,6 @@
 #include "runtime/load_path_mgr.h"
 #include "runtime/mem_tracker.h"
 #include "util/runtime_profile.h"
-#include "util/debug_util.h"
 #include "util/file_utils.h"
 #include "gen_cpp/DataSinks_types.h"
 
@@ -240,7 +239,7 @@ Status DataSpliter::process_one_row(RuntimeState* state, TupleRow* row) {
         state->set_normal_row_number(state->get_normal_row_number() - 1);
 
         state->append_error_msg_to_file(
-                print_row(row, _row_desc),
+                row->to_string(_row_desc),
                 status.get_error_msg());
         return Status::OK;
     }

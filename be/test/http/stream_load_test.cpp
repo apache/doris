@@ -24,9 +24,14 @@
 #include <rapidjson/document.h>
 
 #include "exec/schema_scanner/frontend_helper.h"
+#include "gen_cpp/HeartbeatService_types.h"
 #include "http/http_channel.h"
 #include "http/http_request.h"
 #include "runtime/exec_env.h"
+#include "runtime/load_stream_mgr.h"
+#include "runtime/thread_resource_mgr.h"
+#include "util/brpc_stub_cache.h"
+#include "util/cpu_info.h"
 #include "util/doris_metrics.h"
 
 class mg_connection;
@@ -71,14 +76,29 @@ public:
         k_stream_load_plan_status = Status::OK;
         k_response_str = "";
         config::streaming_load_max_mb = 1;
+
+        _env._thread_mgr = new ThreadResourceMgr();
+        _env._master_info = new TMasterInfo();
+        _env._load_stream_mgr = new LoadStreamMgr();
+        _env._brpc_stub_cache = new BrpcStubCache();
+    }
+    void TearDown() override {
+        delete _env._brpc_stub_cache;
+        _env._brpc_stub_cache = nullptr;
+        delete _env._load_stream_mgr;
+        _env._load_stream_mgr = nullptr;
+        delete _env._master_info;
+        _env._master_info = nullptr;
+        delete _env._thread_mgr;
+        _env._thread_mgr = nullptr;
     }
 private:
+    ExecEnv _env;
 };
 
 TEST_F(StreamLoadActionTest, no_auth) {
     DorisMetrics::instance()->initialize("StreamLoadActionTest");
-    ExecEnv env;
-    StreamLoadAction action(&env);
+    StreamLoadAction action(&_env);
 
     HttpRequest request;
     action.on_header(&request);
@@ -92,8 +112,7 @@ TEST_F(StreamLoadActionTest, no_auth) {
 #if 0
 TEST_F(StreamLoadActionTest, no_content_length) {
     DorisMetrics::instance()->initialize("StreamLoadActionTest");
-    ExecEnv env;
-    StreamLoadAction action(&env);
+    StreamLoadAction action(&__env);
 
     HttpRequest request;
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
@@ -107,8 +126,7 @@ TEST_F(StreamLoadActionTest, no_content_length) {
 
 TEST_F(StreamLoadActionTest, unknown_encoding) {
     DorisMetrics::instance()->initialize("StreamLoadActionTest");
-    ExecEnv env;
-    StreamLoadAction action(&env);
+    StreamLoadAction action(&_env);
 
     HttpRequest request;
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
@@ -124,8 +142,7 @@ TEST_F(StreamLoadActionTest, unknown_encoding) {
 
 TEST_F(StreamLoadActionTest, normal) {
     DorisMetrics::instance()->initialize("StreamLoadActionTest");
-    ExecEnv env;
-    StreamLoadAction action(&env);
+    StreamLoadAction action(&_env);
 
     HttpRequest request;
 
@@ -145,8 +162,7 @@ TEST_F(StreamLoadActionTest, normal) {
 
 TEST_F(StreamLoadActionTest, put_fail) {
     DorisMetrics::instance()->initialize("StreamLoadActionTest");
-    ExecEnv env;
-    StreamLoadAction action(&env);
+    StreamLoadAction action(&_env);
 
     HttpRequest request;
 
@@ -168,8 +184,7 @@ TEST_F(StreamLoadActionTest, put_fail) {
 
 TEST_F(StreamLoadActionTest, commit_fail) {
     DorisMetrics::instance()->initialize("StreamLoadActionTest");
-    ExecEnv env;
-    StreamLoadAction action(&env);
+    StreamLoadAction action(&_env);
 
     HttpRequest request;
     struct evhttp_request ev_req;
@@ -189,8 +204,7 @@ TEST_F(StreamLoadActionTest, commit_fail) {
 
 TEST_F(StreamLoadActionTest, begin_fail) {
     DorisMetrics::instance()->initialize("StreamLoadActionTest");
-    ExecEnv env;
-    StreamLoadAction action(&env);
+    StreamLoadAction action(&_env);
 
     HttpRequest request;
     struct evhttp_request ev_req;
@@ -211,8 +225,7 @@ TEST_F(StreamLoadActionTest, begin_fail) {
 #if 0
 TEST_F(StreamLoadActionTest, receive_failed) {
     DorisMetrics::instance()->initialize("StreamLoadActionTest");
-    ExecEnv env;
-    StreamLoadAction action(&env);
+    StreamLoadAction action(&_env);
 
     HttpRequest request;
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
@@ -228,8 +241,7 @@ TEST_F(StreamLoadActionTest, receive_failed) {
 
 TEST_F(StreamLoadActionTest, plan_fail) {
     DorisMetrics::instance()->initialize("StreamLoadActionTest");
-    ExecEnv env;
-    StreamLoadAction action(&env);
+    StreamLoadAction action(&_env);
 
     HttpRequest request;
     struct evhttp_request ev_req;

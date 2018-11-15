@@ -15,26 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/tuple_row.h"
+#pragma once
 
-#include <sstream>
+#include <string>
 
 namespace doris {
-const char* TupleRow::_s_llvm_class_name = "class.doris::TupleRow";
 
-std::string TupleRow::to_string(const RowDescriptor& d) {
-    std::stringstream out;
-    out << "[";
-    for (int i = 0; i < d.tuple_descriptors().size(); ++i) {
-        if (i != 0) {
-            out << " ";
-        }
-        out << Tuple::to_string(get_tuple(i), *d.tuple_descriptors()[i]);
-    }
-
-    out << "]";
-    return out.str();
-}
+// Returns the stack trace as a string from the current location.
+// Note: there is a libc bug that causes this not to work on 64 bit machines
+// for recursive calls.
+std::string get_stack_trace();
 
 }
-

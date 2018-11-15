@@ -27,7 +27,6 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/lexical_cast.hpp>
 
-#include "util/debug_util.h"
 #include "util/pretty_printer.h"
 #include "util/string_parser.hpp"
 

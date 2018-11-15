@@ -23,7 +23,7 @@
 
 #include "common/logging.h"
 #include "runtime/row_batch.h"
-#include "util/debug_util.h"
+#include "runtime/tuple_row.h"
 
 namespace doris {
 
@@ -108,7 +108,7 @@ public:
         RowBatchList::TupleRowIterator it = iterator();
 
         while (!it.at_end()) {
-            out << " " << print_row(it.get_row(), desc);
+            out << " " << it.get_row()->to_string(desc);
             it.next();
         }
 

@@ -15,26 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/tuple_row.h"
+#pragma once
 
-#include <sstream>
+#include <memory>
+
+#include "common/status.h"
 
 namespace doris {
-const char* TupleRow::_s_llvm_class_name = "class.doris::TupleRow";
 
-std::string TupleRow::to_string(const RowDescriptor& d) {
-    std::stringstream out;
-    out << "[";
-    for (int i = 0; i < d.tuple_descriptors().size(); ++i) {
-        if (i != 0) {
-            out << " ";
-        }
-        out << Tuple::to_string(get_tuple(i), *d.tuple_descriptors()[i]);
-    }
+class ExecEnv;
+class EvHttpServer;
+class WebPageHandler;
 
-    out << "]";
-    return out.str();
+// HTTP service for Doris BE
+class HttpService {
+public:
+    HttpService(ExecEnv* env, int port, int num_threads);
+    ~HttpService();
+
+    Status start();
+private:
+    ExecEnv* _env;
+
+    std::unique_ptr<EvHttpServer> _ev_http_server;
+    std::unique_ptr<WebPageHandler> _web_page_handler;
+};
+
 }
-
-}
-

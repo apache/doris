@@ -427,6 +427,7 @@ public:
     int max_tuple_buffer_size();
 
     static const int MAX_MEM_POOL_SIZE = 32 * 1024 * 1024;
+    std::string to_string();
 
 private:
     MemTracker* _mem_tracker;  // not owned

@@ -37,7 +37,6 @@
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
 #include "udf/udf_internal.h"
-#include "util/debug_util.h"
 #include "util/runtime_profile.h"
 
 #include "gen_cpp/Exprs_types.h"
@@ -240,7 +239,7 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
             for (int i = 0; i < batch.num_rows(); ++i) {
                 TupleRow* row = batch.get_row(i);
                 VLOG_ROW << "partition-agg-node input row: "
-                        << print_row(row, _children[0]->row_desc());
+                        << row->to_string(_children[0]->row_desc());
             }
         }
 
@@ -250,7 +249,7 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
         } else if (_probe_expr_ctxs.empty()) {
             RETURN_IF_ERROR(process_batch_no_grouping(&batch));
         } else {
-            // VLOG_ROW << "partition-agg-node batch: " << print_batch(&batch);
+            // VLOG_ROW << "partition-agg-node batch: " << batch->to_string();
             // There is grouping, so we will do partitioned aggregation.
             RETURN_IF_ERROR(process_batch<false>(&batch, _ht_ctx.get()));
         }

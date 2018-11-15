@@ -49,6 +49,7 @@
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
+#include "service/http_service.h"
 #include <gperftools/profiler.h>
 #include "common/resource_tls.h"
 #include "exec/schema_scanner/frontend_helper.h"
@@ -142,14 +143,15 @@ int main(int argc, char** argv) {
     }
 
     // start backend service for the coordinator on be_port
-    doris::ExecEnv exec_env(paths);
-    exec_env.set_olap_engine(engine);
+    auto exec_env = doris::ExecEnv::GetInstance();
+    doris::ExecEnv::init(exec_env, paths);
+    exec_env->set_olap_engine(engine);
 
-    doris::FrontendHelper::setup(&exec_env);
+    doris::FrontendHelper::setup(exec_env);
     doris::ThriftServer* be_server = nullptr;
 
     EXIT_IF_ERROR(doris::BackendService::create_service(
-            &exec_env,
+            exec_env,
             doris::config::be_port,
             &be_server));
     Status status = be_server->start();
@@ -159,7 +161,7 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    doris::BRpcService brpc_service(&exec_env);
+    doris::BRpcService brpc_service(exec_env);
     status = brpc_service.start(doris::config::brpc_port);
     if (!status.ok()) {
         LOG(ERROR) << "BRPC service did not start correctly, exiting";
@@ -167,18 +169,20 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    status = exec_env.start_services();
+    doris::HttpService http_service(
+        exec_env, doris::config::webserver_port, doris::config::webserver_num_workers);
+    status = http_service.start();
     if (!status.ok()) {
-        LOG(ERROR) << "Doris Be services did not start correctly, exiting";
+        LOG(ERROR) << "Doris Be http service did not start correctly, exiting";
         doris::shutdown_logging();
         exit(1);
     }
 
-    doris::TMasterInfo* master_info = exec_env.master_info();
+    doris::TMasterInfo* master_info = exec_env->master_info();
     // start heart beat server
     doris::ThriftServer* heartbeat_thrift_server;
     doris::AgentStatus heartbeat_status = doris::create_heartbeat_server(
-            &exec_env,
+            exec_env,
             doris::config::heartbeat_service_port,
             &heartbeat_thrift_server,
             doris::config::heartbeat_service_thread_count,
