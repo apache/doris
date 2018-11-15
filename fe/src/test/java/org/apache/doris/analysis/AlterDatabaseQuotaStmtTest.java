@@ -62,24 +62,60 @@ public class AlterDatabaseQuotaStmtTest {
             }
         };
     }
+    
+    private void testAlterDatabaseQuotaStmt(String dbName, String quotaQuantity, long quotaSize)
+            throws AnalysisException, UserException {
+        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt(dbName, quotaQuantity);
+        stmt.analyze(analyzer);
+        String expectedSql = "ALTER DATABASE testCluster:testDb SET DATA QUOTA " + quotaQuantity;
+        Assert.assertEquals(expectedSql, stmt.toSql());
+        Assert.assertEquals(quotaSize, stmt.getQuota());
+    }
 
     @Test
     public void testNormal() throws AnalysisException, UserException {
-        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt("testDb", "100mb");
-        stmt.analyze(analyzer);
-        Assert.assertEquals("ALTER DATABASE testCluster:testDb SET DATA QUOTA 100mb",
-                stmt.toSql());
-        Assert.assertEquals(100 * 1024 * 1024, stmt.getQuota());
+        // byte
+        testAlterDatabaseQuotaStmt("testDb", "102400", 102400L);
+        testAlterDatabaseQuotaStmt("testDb", "102400b", 102400L);
 
-        AlterDatabaseQuotaStmt stmt_2 = new AlterDatabaseQuotaStmt("testDb", "102400");
-        stmt_2.analyze(analyzer);
-        Assert.assertEquals("ALTER DATABASE testCluster:testDb SET DATA QUOTA 102400",
-                stmt_2.toSql());
-        Assert.assertEquals(102400, stmt_2.getQuota());
+        // kb
+        testAlterDatabaseQuotaStmt("testDb", "100kb", 100L * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100Kb", 100L * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100KB", 100L * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100K", 100L * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100k", 100L * 1024);
+
+        // mb
+        testAlterDatabaseQuotaStmt("testDb", "100mb", 100L * 1024 * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100Mb", 100L * 1024 * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100MB", 100L * 1024 * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100M", 100L * 1024 * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100m", 100L * 1024 * 1024);
+
+        // gb
+        testAlterDatabaseQuotaStmt("testDb", "100gb", 100L * 1024 * 1024 * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100Gb", 100L * 1024 * 1024 * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100GB", 100L * 1024 * 1024 * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100G", 100L * 1024 * 1024 * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100g", 100L * 1024 * 1024 * 1024);
+
+        // tb
+        testAlterDatabaseQuotaStmt("testDb", "100tb", 100L * 1024 * 1024 * 1024 * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100Tb", 100L * 1024 * 1024 * 1024 * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100TB", 100L * 1024 * 1024 * 1024 * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100T", 100L * 1024 * 1024 * 1024 * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100t", 100L * 1024 * 1024 * 1024 * 1024);
+
+        // tb
+        testAlterDatabaseQuotaStmt("testDb", "100pb", 100L * 1024 * 1024 * 1024 * 1024 * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100Pb", 100L * 1024 * 1024 * 1024 * 1024 * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100PB", 100L * 1024 * 1024 * 1024 * 1024 * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100P", 100L * 1024 * 1024 * 1024 * 1024 * 1024);
+        testAlterDatabaseQuotaStmt("testDb", "100p", 100L * 1024 * 1024 * 1024 * 1024 * 1024);
     }
 
     @Test(expected = AnalysisException.class)
-    public void testInvalidQuota() throws AnalysisException, UserException {
+    public void testMinusQuota() throws AnalysisException, UserException {
         AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt("testDb", "-100mb");
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
@@ -87,7 +123,14 @@ public class AlterDatabaseQuotaStmtTest {
 
     @Test(expected = AnalysisException.class)
     public void testInvalidUnit() throws AnalysisException, UserException {
-        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt("testDb", "100s");
+        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt("testDb", "100invalid_unit");
+        stmt.analyze(analyzer);
+        Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testInvalidQuantity() throws AnalysisException, UserException {
+        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt("testDb", "invalid_100mb_quota");
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }

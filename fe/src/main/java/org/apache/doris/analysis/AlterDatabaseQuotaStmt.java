@@ -8,7 +8,7 @@
 //
 //   http://www.apache.org/licenses/LICENSE-2.0
 //
-// Unless required by applicable law or agreed to in writing,
+// Unless required by applicable law or agreed to in writing)
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 // KIND, either express or implied.  See the License for the
@@ -31,30 +31,30 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 
 public class AlterDatabaseQuotaStmt extends DdlStmt {
     private String dbName;
-    private String quotaExpression;
+    private String quotaQuantity;
     private long quota;
-    private String unit = "B";
-    private HashMap<String, Long> validUnitMultiplier = new HashMap<String, Long>();
-    private String quotaPattern = "(-?\\d+)(\\D*)";
+    private static ImmutableMap<String, Long> validUnitMultiplier = 
+        ImmutableMap.<String, Long>builder().put("B", 1L)
+        .put("K", 1024L)
+        .put("KB", 1024L)
+        .put("M", 1024L * 1024)
+        .put("MB", 1024L * 1024)
+        .put("G", 1024L * 1024 * 1024)
+        .put("GB", 1024L * 1024 * 1024)
+        .put("T", 1024L * 1024 * 1024 * 1024)
+        .put("TB", 1024L * 1024 * 1024 * 1024)
+        .put("P", 1024L * 1024 * 1024 * 1024 * 1024)
+        .put("PB", 1024L * 1024 * 1024 * 1024 * 1024).build();
 
-    public AlterDatabaseQuotaStmt(String dbName, String quotaExpression) {
+    private String quotaPattern = "(\\d+)(\\D*)";
+
+    public AlterDatabaseQuotaStmt(String dbName, String quotaQuantity) {
         this.dbName = dbName;
-        this.quotaExpression = quotaExpression;
-        validUnitMultiplier.put("B", 1L);
-        validUnitMultiplier.put("Bytes", 1L);
-        validUnitMultiplier.put("K", 1024L);
-        validUnitMultiplier.put("KB", 1024L);
-        validUnitMultiplier.put("M", 1024 * 1024L);
-        validUnitMultiplier.put("MB", 1024 * 1024L);
-        validUnitMultiplier.put("G", 1024 * 1024 * 1024L);
-        validUnitMultiplier.put("GB", 1024 * 1024 * 1024L);
-        validUnitMultiplier.put("T", 1024 * 1024 * 1024 * 1024L);
-        validUnitMultiplier.put("TB", 1024 * 1024 * 1024 * 1024L);
-        validUnitMultiplier.put("P", 1024 * 1024 * 1024 * 1024 * 1024L);
-        validUnitMultiplier.put("PB", 1024 * 1024 * 1024 * 1024 * 1024L);
+        this.quotaQuantity = quotaQuantity;
     }
 
     public String getDbName() {
@@ -65,14 +65,10 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
         return quota;
     }
 
-    public String getUnit() {
-        return unit;
-    }
-
-    private void getQuotaFromExpression() throws UserException {
+    private void analyzeQuotaQuantity() throws UserException {
         Pattern r = Pattern.compile(quotaPattern);
-        Matcher m = r.matcher(quotaExpression);
-        if (m.find( )) {
+        Matcher m = r.matcher(quotaQuantity);
+        if (m.matches()) {
             try {
                 quota = Long.parseLong(m.group(1));
             } catch(NumberFormatException nfe) {
@@ -82,6 +78,7 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
                 throw new AnalysisException("Quota must larger than 0");
             }
 
+            String unit = "B";
             String tmpUnit = m.group(2);
             if (!Strings.isNullOrEmpty(tmpUnit)) {
                 unit = tmpUnit.toUpperCase();
@@ -92,7 +89,7 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
                 throw new AnalysisException("invalid unit:" + tmpUnit);
             }
         } else {
-            throw new AnalysisException("invalid quota expression:" + quotaExpression);
+            throw new AnalysisException("invalid quota expression:" + quotaQuantity);
         }
     }
 
@@ -108,12 +105,11 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
         dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
-        getQuotaFromExpression();
+        analyzeQuotaQuantity();
     }
 
     @Override
     public String toSql() {
-        return "ALTER DATABASE " + dbName + " SET DATA QUOTA " + quotaExpression;
+        return "ALTER DATABASE " + dbName + " SET DATA QUOTA " + quotaQuantity;
     }
-
 }
