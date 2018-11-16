@@ -702,8 +702,8 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
 
                 // 1.2 Skip if InPredicate value size larger then max_scan_key_num
                 if (pred->hybird_set()->size() > config::doris_max_scan_key_num) {
-                    LOG(WARNING) << "Predicate value num " << pred->hybird_set()->size()
-                                 << " excede limit " << config::doris_max_scan_key_num;
+                    VLOG(3) << "Predicate value num " << pred->hybird_set()->size()
+                            << " excede limit " << config::doris_max_scan_key_num;
                     continue;
                 }
 
