@@ -46,6 +46,7 @@ public:
     // In load_and_init(), we will validate olap header file, which mainly include
     // tablet schema, delta version and so on.
     OLAPStatus load_and_init();
+    OLAPStatus load_for_check();
 
     // Saves the header to disk, returning true on success.
     OLAPStatus save();

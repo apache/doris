@@ -150,7 +150,7 @@ namespace doris {
 #define PALO_BUILD_TIME    "${build_time}"
 #define PALO_BUILD_INFO    "${build_info}"
 
-} // namespace palo
+} // namespace doris
 
 #endif
 EOF

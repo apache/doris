@@ -151,6 +151,31 @@ OLAPStatus OLAPHeader::load_and_init() {
     return init();
 }
 
+OLAPStatus OLAPHeader::load_for_check() {
+    FileHeader<OLAPHeaderMessage> file_header;
+    FileHandler file_handler;
+
+    if (file_handler.open(_file_name.c_str(), O_RDONLY) != OLAP_SUCCESS) {
+        OLAP_LOG_WARNING("fail to open index file. [file='%s']", _file_name.c_str());
+        return OLAP_ERR_IO_ERROR;
+    }
+
+    // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
+    if (file_header.unserialize(&file_handler) != OLAP_SUCCESS) {
+        OLAP_LOG_WARNING("fail to unserialize header. [path='%s']", _file_name.c_str());
+        return OLAP_ERR_PARSE_PROTOBUF_ERROR;
+    }
+
+    try {
+        CopyFrom(file_header.message());
+    } catch (...) {
+        OLAP_LOG_WARNING("fail to copy protocol buffer object. [path='%s']", _file_name.c_str());
+        return OLAP_ERR_PARSE_PROTOBUF_ERROR;
+    }
+
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus OLAPHeader::save() {
     return save(_file_name);
 }

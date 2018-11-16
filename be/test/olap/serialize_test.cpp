@@ -15,12 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/column_file/serialize.h"
+#include "olap/serialize.h"
 
 #include <gtest/gtest.h>
 
 namespace doris {
-namespace column_file {
 namespace ser {
 
 class SerializeTest : public testing::Test {
@@ -233,7 +232,6 @@ TEST_F(SerializeTest, new_percentile_bits) {
 }
 
 
-}
 }
 }
 

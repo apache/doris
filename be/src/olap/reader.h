@@ -57,8 +57,8 @@ struct ReaderParams {
     std::vector<OlapTuple> start_key;
     std::vector<OlapTuple> end_key;
     std::vector<TCondition> conditions;
-    // The IData will be set when using Merger, eg Cumulative, BE.
-    std::vector<IData*> olap_data_arr;
+    // The ColumnData will be set when using Merger, eg Cumulative, BE.
+    std::vector<ColumnData*> olap_data_arr;
     std::vector<uint32_t> return_columns;
     RuntimeProfile* profile;
     RuntimeState* runtime_state;
@@ -202,8 +202,8 @@ private:
 
     // _own_data_sources is data source that reader aquire from olap_table, so we need to
     // release these when reader closing
-    std::vector<IData*> _own_data_sources;
-    std::vector<IData*> _data_sources;
+    std::vector<ColumnData*> _own_data_sources;
+    std::vector<ColumnData*> _data_sources;
 
     KeysParam _keys_param;
     int32_t _next_key_index;

@@ -23,14 +23,14 @@
 #include <algorithm>
 #include <vector>
 
-#include "olap/i_data.h"
+#include "olap/column_data.h"
 #include "olap/merger.h"
-#include "olap/olap_data.h"
+#include "olap/column_data.h"
 #include "olap/olap_engine.h"
 #include "olap/olap_table.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
-#include "olap/writer.h"
+#include "olap/data_writer.h"
 #include "olap/wrapper_field.h"
 #include "common/resource_tls.h"
 #include "agent/cgroups_mgr.h"
@@ -545,7 +545,7 @@ RowBlockMerger::~RowBlockMerger() {}
 
 bool RowBlockMerger::merge(
         const vector<RowBlock*>& row_block_arr,
-        IWriter* writer,
+        ColumnDataWriter* writer,
         uint64_t* merged_rows) {
     uint64_t tmp_merged_rows = 0;
     RowCursor row_cursor;
@@ -670,7 +670,7 @@ SchemaChangeDirectly::~SchemaChangeDirectly() {
     SAFE_DELETE(_dst_cursor);
 }
 
-bool SchemaChangeDirectly::_write_row_block(IWriter* writer, RowBlock* row_block) {
+bool SchemaChangeDirectly::_write_row_block(ColumnDataWriter* writer, RowBlock* row_block) {
     for (uint32_t i = 0; i < row_block->row_block_info().row_num; i++) {
         if (OLAP_SUCCESS != writer->attached_by(_dst_cursor)) {
             OLAP_LOG_WARNING("fail to attach writer");
@@ -686,7 +686,7 @@ bool SchemaChangeDirectly::_write_row_block(IWriter* writer, RowBlock* row_block
     return true;
 }
 
-bool LinkedSchemaChange::process(IData* olap_data, Rowset* new_rowset) {
+bool LinkedSchemaChange::process(ColumnData* olap_data, Rowset* new_rowset) {
     for (size_t i = 0; i < olap_data->olap_index()->num_segments(); ++i) {
         string index_path = new_rowset->construct_index_file_path(new_rowset->rowset_id(), i);
         string base_table_index_path = olap_data->olap_index()->construct_index_file_path(olap_data->olap_index()->rowset_id(), i);
@@ -728,7 +728,7 @@ bool LinkedSchemaChange::process(IData* olap_data, Rowset* new_rowset) {
     return true;
 }
 
-bool SchemaChangeDirectly::process(IData* olap_data, Rowset* new_rowset) {
+bool SchemaChangeDirectly::process(ColumnData* olap_data, Rowset* new_rowset) {
     DataFileType data_file_type = new_rowset->table()->data_file_type();
     bool null_supported = true;
 
@@ -802,7 +802,7 @@ bool SchemaChangeDirectly::process(IData* olap_data, Rowset* new_rowset) {
         << "block_row_size=" << _olap_table->num_rows_per_row_block();
     bool result = true;
     RowBlock* new_row_block = NULL;
-    IWriter* writer = IWriter::create(_olap_table, new_rowset, false);
+    ColumnDataWriter* writer = ColumnDataWriter::create(_olap_table, new_rowset, false);
     if (NULL == writer) {
         OLAP_LOG_WARNING("failed to create writer.");
         result = false;
@@ -917,7 +917,7 @@ SchemaChangeWithSorting::~SchemaChangeWithSorting() {
     SAFE_DELETE(_row_block_allocator);
 }
 
-bool SchemaChangeWithSorting::process(IData* olap_data, Rowset* new_rowset) {
+bool SchemaChangeWithSorting::process(ColumnData* olap_data, Rowset* new_rowset) {
     if (NULL == _row_block_allocator) {
         if (NULL == (_row_block_allocator = new(nothrow) RowBlockAllocator(
                         _olap_table->tablet_schema(), _memory_limitation))) {
@@ -1120,7 +1120,7 @@ SORTING_PROCESS_ERR:
 bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_block_arr,
                                                 const Version& temp_delta_versions,
                                                 Rowset** temp_rowset) {
-    IWriter* writer = NULL;
+    ColumnDataWriter* writer = NULL;
     uint64_t merged_rows = 0;
     RowBlockMerger merger(_olap_table);
 
@@ -1138,7 +1138,7 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
                    _olap_table->full_name().c_str(),
                    _olap_table->num_rows_per_row_block());
 
-    writer = IWriter::create(_olap_table, *temp_rowset, false);
+    writer = ColumnDataWriter::create(_olap_table, *temp_rowset, false);
     if (NULL == writer) {
         OLAP_LOG_WARNING("failed to create writer.");
         goto INTERNAL_SORTING_ERR;
@@ -1173,13 +1173,13 @@ bool SchemaChangeWithSorting::_external_sorting(
 
     uint64_t merged_rows = 0;
     uint64_t filted_rows = 0;
-    vector<IData*> olap_data_arr;
+    vector<ColumnData*> olap_data_arr;
 
     for (vector<Rowset*>::iterator it = src_rowsets.begin();
             it != src_rowsets.end(); ++it) {
-        IData* olap_data = IData::create(*it);
+        ColumnData* olap_data = ColumnData::create(*it);
         if (NULL == olap_data) {
-            OLAP_LOG_WARNING("fail to create IData.");
+            OLAP_LOG_WARNING("fail to create ColumnData.");
             goto EXTERNAL_SORTING_ERR;
         }
 
@@ -1212,7 +1212,7 @@ bool SchemaChangeWithSorting::_external_sorting(
         goto EXTERNAL_SORTING_ERR;
     }
 
-    for (vector<IData*>::iterator it = olap_data_arr.begin();
+    for (vector<ColumnData*>::iterator it = olap_data_arr.begin();
             it != olap_data_arr.end(); ++it) {
         SAFE_DELETE(*it);
     }
@@ -1220,7 +1220,7 @@ bool SchemaChangeWithSorting::_external_sorting(
     return true;
 
 EXTERNAL_SORTING_ERR:
-    for (vector<IData*>::iterator it = olap_data_arr.begin();
+    for (vector<ColumnData*>::iterator it = olap_data_arr.begin();
             it != olap_data_arr.end(); ++it) {
         SAFE_DELETE(*it);
     }
@@ -1536,7 +1536,7 @@ OLAPStatus SchemaChangeHandler::_do_alter_table(
     }
 
     vector<Version> versions_to_be_changed;
-    vector<IData*> olap_data_arr;
+    vector<ColumnData*> olap_data_arr;
     // delete handlers for new olap table
     DeleteHandler delete_handler;
     do {
@@ -1798,12 +1798,12 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     }
 
     // c. 转换数据
-    IData* olap_data = NULL;
+    ColumnData* olap_data = NULL;
     for (vector<Rowset*>::iterator it = ref_rowsets->begin();
             it != ref_rowsets->end(); ++it) {
-        IData* olap_data = IData::create(*it);
+        ColumnData* olap_data = ColumnData::create(*it);
         if (NULL == olap_data) {
-            OLAP_LOG_WARNING("fail to create IData.");
+            OLAP_LOG_WARNING("fail to create ColumnData.");
             res = OLAP_ERR_MALLOC_ERROR;
             goto SCHEMA_VERSION_CONVERT_ERR;
         }
@@ -2020,7 +2020,7 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
     }
 
     // c. 转换历史数据
-    for (vector<IData*>::iterator it = sc_params->ref_olap_data_arr.end() - 1;
+    for (vector<ColumnData*>::iterator it = sc_params->ref_olap_data_arr.end() - 1;
             it >= sc_params->ref_olap_data_arr.begin(); --it) {
         OLAP_LOG_TRACE("begin to convert a history delta. [version='%d-%d']",
                        (*it)->version().first, (*it)->version().second);
@@ -2037,7 +2037,7 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
                 sc_params->ref_olap_table->schema_hash(),
                 (*it)->version().second);
 
-        // we create a new delta with the same version as the IData processing currently.
+        // we create a new delta with the same version as the ColumnData processing currently.
         Rowset* new_rowset = new(nothrow) Rowset(
                                             sc_params->new_olap_table.get(),
                                             (*it)->version(),
@@ -2159,8 +2159,8 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
                        (*it)->version().first,
                        (*it)->version().second);
 
-        // 释放IData
-        vector<IData*> olap_data_to_be_released(it, it + 1);
+        // 释放ColumnData
+        vector<ColumnData*> olap_data_to_be_released(it, it + 1);
         sc_params->ref_olap_table->release_data_sources(&olap_data_to_be_released);
 
         it = sc_params->ref_olap_data_arr.erase(it); // after erasing, it will point to end()
@@ -2389,7 +2389,7 @@ OLAPStatus SchemaChange::create_init_version(
                    version.first, version.second);
 
     OLAPTablePtr table;
-    IWriter* writer = NULL;
+    ColumnDataWriter* writer = NULL;
     OLAPStatus res = OLAP_SUCCESS;
 
     do {
@@ -2409,7 +2409,7 @@ OLAPStatus SchemaChange::create_init_version(
         }
 
         // Create writer, which write nothing to table, to generate empty data file
-        writer = IWriter::create(table, rowset, false);
+        writer = ColumnDataWriter::create(table, rowset, false);
         if (writer == NULL) {
             LOG(WARNING) << "fail to create writer. [table=" << table->full_name() << "]";
             res = OLAP_ERR_MALLOC_ERROR;

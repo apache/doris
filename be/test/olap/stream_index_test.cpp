@@ -26,16 +26,15 @@
 #include "olap/olap_common.h"
 #include "olap/row_cursor.h"
 #include "olap/wrapper_field.h"
-#include "olap/column_file/stream_index_common.h"
-#include "olap/column_file/stream_index_writer.h"
-#include "olap/column_file/stream_index_reader.h"
-#include "olap/column_file/file_stream.h"
+#include "olap/stream_index_common.h"
+#include "olap/stream_index_writer.h"
+#include "olap/stream_index_reader.h"
+#include "olap/file_stream.h"
 #include "util/logging.h"
 
 using namespace std;
 
 namespace doris {
-namespace column_file {
 
 class TestStreamIndex : public testing::Test {
 public:
@@ -383,7 +382,6 @@ TEST_F(TestStreamIndex, statistic) {
     }
 }
 
-}
 }
 
 int main(int argc, char** argv) {

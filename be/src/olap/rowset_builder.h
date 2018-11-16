@@ -17,16 +17,16 @@
 
 #pragma once
 
-#include "olap/writer.h"
+#include "olap/ata_writer.h"
 
 namespace doris {
 
 class Rowset;
 
-class RowsetBuilder : public IWriter {
+class RowsetBuilder : public ColumnDataWriter {
 public:
-    RowsetBuil(OLAPTablePtr table, Rowset* rowset, IWriter* writer, bool is_push_write)
-        : IWriter(is_push_write, table),
+    RowsetBuil(OLAPTablePtr table, Rowset* rowset, ColumnDataWriter* writer, bool is_push_write)
+        : ColumnDataWriter(is_push_write, table),
         _rowset(rowset),
         _writer(write) {
     }
@@ -55,11 +55,11 @@ public:
     }
 
     Rowset* rowset() { return _rowset; }
-    IWriter* writer() { return _writer; }
+    ColumnDataWriter* writer() { return _writer; }
 
 private:
     Rowset* _rowset;
-    IWriter* _writer;
+    ColumnDataWriter* _writer;
 };
 
 }

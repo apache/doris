@@ -31,7 +31,7 @@ using std::pair;
 using std::string;
 using std::vector;
 
-using doris::column_file::ColumnStatistics;
+using doris::ColumnStatistics;
 
 //此文件主要用于对用户发送的查询条件和删除条件进行处理，逻辑上二者都可以分为三层
 //Condtiion->Condcolumn->Cond
@@ -425,7 +425,7 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
     return ret;
 }
 
-bool Cond::eval(const column_file::BloomFilter& bf) const {
+bool Cond::eval(const BloomFilter& bf) const {
     //通过单列上BloomFilter对block进行过滤。
     switch (op) {
     case OP_EQ: {
@@ -543,7 +543,7 @@ int CondColumn::del_eval(const std::pair<WrapperField*, WrapperField*>& statisti
     return ret;
 }
 
-bool CondColumn::eval(const column_file::BloomFilter& bf) const {
+bool CondColumn::eval(const BloomFilter& bf) const {
     //通过一列上的所有BloomFilter索引信息对block进行过滤
     for (auto& each_cond : _conds) {
         if (!each_cond->eval(bf)) {

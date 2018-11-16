@@ -1,0 +1,11 @@
+行存转列存步骤
+1. conf中修改相应的集群配置
+2. 运行python convert_row_to_column.py生成所有行存转列存的命令。
+3. 如果脚本运行没有任何结果，说明集群中不存在行存表，可以进行升级。
+4. 如果脚本中有表的信息获取失败。
+   请在集群中用show create table去看表的storage_type，如果是行存，请手动进行转换。
+5. schema change完成行存转列存之后，旧有的schema需要在10分钟后才删除。
+   请等待一段时间，确定旧有schema的数据已被删除，再进行升级。
+   否则，be进程启动时自动检测时会报错退出。
+6. 再次运行python convert_row_to_column.py验证确实没有行存表再进行升级。
+

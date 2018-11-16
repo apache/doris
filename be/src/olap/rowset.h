@@ -222,7 +222,7 @@ public:
         return _index.get_row_block_position(pos, rbp);
     }
 
-    inline const FileHeader<column_file::ColumnDataHeaderMessage>* get_seg_pb(uint32_t seg_id) const {
+    inline const FileHeader<ColumnDataHeaderMessage>* get_seg_pb(uint32_t seg_id) const {
         return &(_seg_pb_map.at(seg_id));
     }
 
@@ -279,7 +279,7 @@ private:
     size_t _current_num_rows_per_row_block;
 
     std::vector<std::pair<WrapperField*, WrapperField*>> _column_statistics;
-    std::unordered_map<uint32_t, FileHeader<column_file::ColumnDataHeaderMessage> > _seg_pb_map;
+    std::unordered_map<uint32_t, FileHeader<ColumnDataHeaderMessage> > _seg_pb_map;
 
     DISALLOW_COPY_AND_ASSIGN(Rowset);
 };

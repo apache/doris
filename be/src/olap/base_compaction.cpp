@@ -25,7 +25,7 @@
 
 #include "olap/delete_handler.h"
 #include "olap/merger.h"
-#include "olap/olap_data.h"
+#include "olap/column_data.h"
 #include "olap/olap_engine.h"
 #include "olap/olap_header.h"
 #include "olap/rowset.h"
@@ -105,7 +105,7 @@ OLAPStatus BaseCompaction::run() {
     OLAP_LOG_TRACE("new_base_version_hash", "%ld", new_base_version_hash);
 
     // 2. 获取生成新base需要的data sources
-    vector<IData*> base_data_sources;
+    vector<ColumnData*> base_data_sources;
     _table->acquire_data_sources_by_versions(_need_merged_versions, &base_data_sources);
     if (base_data_sources.empty()) {
         OLAP_LOG_WARNING("fail to acquire need data sources. [table=%s; version=%d]",
@@ -118,7 +118,7 @@ OLAPStatus BaseCompaction::run() {
     {
         DorisMetrics::base_compaction_deltas_total.increment(_need_merged_versions.size());
         int64_t merge_bytes = 0;
-        for (IData* i_data : base_data_sources) {
+        for (ColumnData* i_data : base_data_sources) {
             merge_bytes += i_data->olap_index()->data_size();
         }
         DorisMetrics::base_compaction_bytes_total.increment(merge_bytes);
@@ -133,7 +133,7 @@ OLAPStatus BaseCompaction::run() {
     res = _do_base_compaction(new_base_version_hash,
                              &base_data_sources,
                              &row_count);
-    // 释放不再使用的IData对象
+    // 释放不再使用的ColumnData对象
     _table->release_data_sources(&base_data_sources);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to do base version. [table=%s; version=%d]",
@@ -320,7 +320,7 @@ bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
 }
 
 OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash,
-                                               vector<IData*>* base_data_sources,
+                                               vector<ColumnData*>* base_data_sources,
                                                uint64_t* row_count) {
     // 1. 生成新base文件对应的olap index
     Rowset* new_base = new (std::nothrow) Rowset(_table.get(),
@@ -397,7 +397,7 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
 
     // Check row num changes
     uint64_t source_rows = 0;
-    for (IData* i_data : *base_data_sources) {
+    for (ColumnData* i_data : *base_data_sources) {
         source_rows += i_data->olap_index()->num_rows();
     }
     bool row_nums_check = config::row_nums_check;
@@ -530,7 +530,7 @@ OLAPStatus BaseCompaction::_validate_delete_file_action() {
     ReadLock rdlock(_table->get_header_lock_ptr());
     const PDelta* lastest_version = _table->lastest_version();
     Version test_version = Version(0, lastest_version->end_version());
-    vector<IData*> test_sources;
+    vector<ColumnData*> test_sources;
     _table->acquire_data_sources(test_version, &test_sources);
 
     if (test_sources.size() == 0) {
