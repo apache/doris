@@ -124,6 +124,7 @@ public class BDBEnvironment {
         environmentConfig.setTransactional(true);
         environmentConfig.setAllowCreate(true);
         environmentConfig.setCachePercent(MEMORY_CACHE_PERCENT);
+        environmentConfig.setLockTimeout(Config.bdbje_lock_timeout_second, TimeUnit.SECONDS);
         if (isElectable) {
             Durability durability = new Durability(getSyncPolicy(Config.master_sync_policy), 
                     getSyncPolicy(Config.replica_sync_policy), getAckPolicy(Config.replica_ack_policy));
