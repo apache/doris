@@ -19,14 +19,13 @@
 
 #include <string>
 
-#include "olap/column_file/bloom_filter_reader.h"
-#include "olap/column_file/bloom_filter_writer.h"
+#include "olap/bloom_filter_reader.h"
+#include "olap/bloom_filter_writer.h"
 #include "util/logging.h"
 
 using std::string;
 
 namespace doris {
-namespace column_file {
 
 class TestBloomFilterIndex : public testing::Test {
 public:
@@ -103,7 +102,6 @@ TEST_F(TestBloomFilterIndex, abnormal_read) {
             reader.init(buffer, buffer_size, true, hash_function_num, bit_num));
 }
 
-} // namespace column_file
 } // namespace doris
 
 int main(int argc, char **argv) {

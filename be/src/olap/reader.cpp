@@ -17,7 +17,7 @@
 
 #include "olap/reader.h"
 
-#include "olap/olap_data.h"
+#include "olap/column_data.h"
 #include "olap/olap_table.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
@@ -45,7 +45,7 @@ public:
     // set reverse to true if need read in reverse order.
     OLAPStatus init(Reader* reader);
 
-    OLAPStatus add_child(IData* data, RowBlock* block);
+    OLAPStatus add_child(ColumnData* data, RowBlock* block);
 
     // Get top row of the heap, NULL if reach end.
     const RowCursor* current_row(bool* delete_flag) const {
@@ -65,7 +65,7 @@ public:
 private:
     class ChildCtx {
     public:
-        ChildCtx(IData* data, RowBlock* block, Reader* reader)
+        ChildCtx(ColumnData* data, RowBlock* block, Reader* reader)
                 : _data(data),
                 _is_delete(data->delete_flag()),
                 _reader(reader),
@@ -134,7 +134,7 @@ private:
             return OLAP_ERR_DATA_EOF;
         }
 
-        IData* _data = nullptr;
+        ColumnData* _data = nullptr;
         const RowCursor* _current_row = nullptr;
         bool _is_delete = false;
         Reader* _reader;
@@ -187,7 +187,7 @@ OLAPStatus CollectIterator::init(Reader* reader) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus CollectIterator::add_child(IData* data, RowBlock* block) {
+OLAPStatus CollectIterator::add_child(ColumnData* data, RowBlock* block) {
     std::unique_ptr<ChildCtx> child(new ChildCtx(data, block, _reader));
     RETURN_NOT_OK(child->init());
     if (child->current_row() == nullptr) {
@@ -478,7 +478,7 @@ void Reader::close() {
 }
 
 OLAPStatus Reader::_acquire_data_sources(const ReaderParams& read_params) {
-    const std::vector<IData*>* data_sources;
+    const std::vector<ColumnData*>* data_sources;
     if (read_params.reader_type == READER_ALTER_TABLE
             || read_params.reader_type == READER_BASE_COMPACTION
             || read_params.reader_type == READER_CUMULATIVE_COMPACTION) {

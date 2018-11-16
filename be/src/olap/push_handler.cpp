@@ -534,7 +534,7 @@ OLAPStatus PushHandler::_convert(
     RowCursor row;
     BinaryFile raw_file;
     IBinaryReader* reader = NULL;
-    IWriter* writer = NULL;
+    ColumnDataWriter* writer = NULL;
     Rowset* delta_rowset = NULL;
     uint32_t  num_rows = 0;
 
@@ -620,7 +620,7 @@ OLAPStatus PushHandler::_convert(
                        curr_olap_table->full_name().c_str(),
                        curr_olap_table->num_rows_per_row_block());
 
-        if (NULL == (writer = IWriter::create(curr_olap_table, delta_rowset, true))) {
+        if (NULL == (writer = ColumnDataWriter::create(curr_olap_table, delta_rowset, true))) {
             OLAP_LOG_WARNING("fail to create writer. [table='%s']",
                              curr_olap_table->full_name().c_str());
             res = OLAP_ERR_MALLOC_ERROR;

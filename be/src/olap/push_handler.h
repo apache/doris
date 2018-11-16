@@ -29,11 +29,11 @@
 #include "olap/olap_common.h"
 #include "olap/rowset.h"
 #include "olap/row_cursor.h"
-#include "olap/writer.h"
+#include "olap/data_writer.h"
 
 namespace doris {
 
-typedef std::vector<IData*> DataSources;
+typedef std::vector<ColumnData*> DataSources;
 typedef std::vector<Rowset*> Indices;
 
 class BinaryFile;

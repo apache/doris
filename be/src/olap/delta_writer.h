@@ -22,7 +22,7 @@
 #include "olap/olap_engine.h"
 #include "olap/olap_table.h"
 #include "olap/schema_change.h"
-#include "olap/writer.h"
+#include "olap/data_writer.h"
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"
 #include "gen_cpp/internal_service.pb.h"
@@ -70,7 +70,7 @@ private:
     std::vector<Rowset*> _rowset_vec;
     std::vector<Rowset*> _new_rowset_vec;
     OLAPTablePtr _new_table;
-    IWriter* _writer;
+    ColumnDataWriter* _writer;
     MemTable* _mem_table;
     Schema* _schema;
     std::vector<FieldInfo>* _field_infos;

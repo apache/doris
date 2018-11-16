@@ -18,12 +18,11 @@
 #include <gtest/gtest.h>
 #include <sys/mman.h>
 
-#include "olap/column_file/byte_buffer.h"
+#include "olap/byte_buffer.h"
 #include "olap/file_helper.h"
 #include "util/logging.h"
 
 namespace doris {
-namespace column_file {
 
 class TestByteBuffer : public testing::Test {
 public:
@@ -183,7 +182,6 @@ TEST_F(TestByteBuffer, TestMmap) {
     }
 }
 
-}
 }
 
 int main(int argc, char** argv) {

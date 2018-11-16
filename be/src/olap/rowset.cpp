@@ -22,7 +22,7 @@
 #include <cmath>
 #include <fstream>
 
-#include "olap/olap_data.h"
+#include "olap/column_data.h"
 #include "olap/olap_table.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
@@ -289,7 +289,7 @@ OLAPStatus Rowset::load() {
 OLAPStatus Rowset::load_pb(const char* file, uint32_t seg_id) {
     OLAPStatus res = OLAP_SUCCESS;
 
-    FileHeader<column_file::ColumnDataHeaderMessage> seg_file_header;
+    FileHeader<ColumnDataHeaderMessage> seg_file_header;
     FileHandler seg_file_handler;
     res = seg_file_handler.open(file, O_RDONLY);
     if (OLAP_SUCCESS != res) {

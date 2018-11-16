@@ -29,7 +29,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "gen_cpp/Types_types.h" 
+#include "gen_cpp/Types_types.h"
 #include "olap/olap_define.h"
 
 namespace doris {
