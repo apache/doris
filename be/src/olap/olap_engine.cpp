@@ -267,7 +267,6 @@ OLAPStatus OLAPEngine::load_one_tablet(
 }
 
 void OLAPEngine::check_none_row_oriented_table(const std::vector<OlapStore*>& stores) {
-    std::vector<std::thread> threads;
     for (auto store : stores) {
         auto res = _check_none_row_oriented_table_in_store(store);
         if (res != OLAP_SUCCESS) {

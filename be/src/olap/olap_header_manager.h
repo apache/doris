@@ -39,7 +39,7 @@ public:
     static OLAPStatus remove(OlapStore* store, TTabletId tablet_id, TSchemaHash schema_hash);
 
     static OLAPStatus traverse_headers(OlapMeta* meta,
-        std::function<bool(const std::string&, const std::string&)> const& traverse_header_func);
+            std::function<bool(long, long, const std::string&)> const& func);
 
     static OLAPStatus get_header_converted(OlapStore* store, bool& flag);
 

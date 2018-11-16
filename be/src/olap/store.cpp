@@ -543,46 +543,30 @@ OLAPStatus OlapStore::_load_table_from_header(OLAPEngine* engine, TTabletId tabl
 }
 
 OLAPStatus OlapStore::load_tables(OLAPEngine* engine) {
-    auto traverse_header_func = [this, engine](const std::string& key, const std::string& value) -> bool {
-        std::vector<std::string> parts;
-        // key format: "hdr_" + tablet_id + "_" + schema_hash
-        split_string<char>(key, '_', &parts);
-        if (parts.size() != 3) {
-            LOG(WARNING) << "invalid header key:" << key << ", splitted size:" << parts.size();
-            return true;
-        }
-        TTabletId tablet_id = std::stol(parts[1].c_str(), NULL, 10);
-        TSchemaHash schema_hash = std::stol(parts[2].c_str(), NULL, 10);
+    auto load_table_func = [this, engine](long tablet_id,
+            long schema_hash, const std::string& value) -> bool {
         OLAPStatus status = _load_table_from_header(engine, tablet_id, schema_hash, value);
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "load table from header failed. status:" << status
-                         << "tablet=" << tablet_id << "." << schema_hash;
+                << "tablet=" << tablet_id << "." << schema_hash;
         };
         return true;
     };
-    OLAPStatus status = OlapHeaderManager::traverse_headers(_meta, traverse_header_func);
+    OLAPStatus status = OlapHeaderManager::traverse_headers(_meta, load_table_func);
     return status;
 }
 
 OLAPStatus OlapStore::check_none_row_oriented_table_in_store(OLAPEngine* engine) {
-    auto traverse_header_func = [this, engine](const std::string& key, const std::string& value) -> bool {
-        std::vector<std::string> parts;
-        // key format: "hdr_" + tablet_id + "_" + schema_hash
-        split_string<char>(key, '_', &parts);
-        if (parts.size() != 3) {
-            LOG(WARNING) << "invalid header key:" << key << ", splitted size:" << parts.size();
-            return true;
-        }
-        TTabletId tablet_id = std::stol(parts[1].c_str(), NULL, 10);
-        TSchemaHash schema_hash = std::stol(parts[2].c_str(), NULL, 10);
+    auto load_table_func = [this, engine](long tablet_id,
+            long schema_hash, const std::string& value) -> bool {
         OLAPStatus status = _check_none_row_oriented_table_in_store(engine, tablet_id, schema_hash, value);
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "load table from header failed. status:" << status
-                         << "tablet=" << tablet_id << "." << schema_hash;
+                << "tablet=" << tablet_id << "." << schema_hash;
         };
         return true;
     };
-    OLAPStatus status = OlapHeaderManager::traverse_headers(_meta, traverse_header_func);
+    OLAPStatus status = OlapHeaderManager::traverse_headers(_meta, load_table_func);
     return status;
 }
 
