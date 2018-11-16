@@ -126,7 +126,19 @@ OLAPStatus OlapHeaderManager::set_converted_flag(OlapStore* store) {
 }
 
 OLAPStatus OlapHeaderManager::traverse_headers(OlapMeta* meta,
-        std::function<bool(const std::string&, const std::string&)> const& traverse_header_func) {
+        std::function<bool(long, long, const std::string&)> const& func) {
+    auto traverse_header_func = [&func](const std::string& key, const std::string& value) -> bool {
+        std::vector<std::string> parts;
+        // key format: "hdr_" + tablet_id + "_" + schema_hash
+        split_string<char>(key, '_', &parts);
+        if (parts.size() != 3) {
+            LOG(WARNING) << "invalid header key:" << key << ", splitted size:" << parts.size();
+            return true;
+        }
+        TTabletId tablet_id = std::stol(parts[1].c_str(), NULL, 10);
+        TSchemaHash schema_hash = std::stol(parts[2].c_str(), NULL, 10);
+        return func(tablet_id, schema_hash, value);
+    };
     OLAPStatus status = meta->iterate(META_COLUMN_FAMILY_INDEX, HEADER_PREFIX, traverse_header_func);
     return status;
 }
