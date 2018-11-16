@@ -114,7 +114,7 @@ TEST_F(CoreLocalTest, CoreLocalValueNormal) {
     for (int i = 0; i < value.size(); ++i) {
         sum += *value.access_at_core(i);
     }
-    ASSERT_EQ(10000 + std::thread::hardware_concurrency(), sum);
+    ASSERT_EQ(10000 + value.size(), sum);
 }
 }
 
