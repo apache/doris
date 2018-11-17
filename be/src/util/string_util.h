@@ -22,8 +22,10 @@
 #include <string>
 #include <unordered_set>
 #include <unordered_map>
+#include <vector>
 
 #include <boost/algorithm/string/case_conv.hpp> // to_lower_copy
+#include <boost/functional/hash.hpp>
 
 namespace doris {
 
@@ -54,6 +56,23 @@ public:
             return lhs.size() < rhs.size();
         }
         return cmp < 0;
+    }
+};
+
+struct PathHash {
+public:
+    std::size_t operator()(const std::string& identifier, const std::string& path) const {
+        std::size_t hash = std::hash<std::string>()(identifier);
+        std::vector<std::string> path_parts;
+        boost::split(path_parts, path, boost::is_any_of("/"));
+        for (std::string part : path_parts) {
+            if (part.empty()) {
+                continue;
+            }
+
+            boost::hash_combine<std::string>(hash, part);
+        }
+        return hash;
     }
 };
 

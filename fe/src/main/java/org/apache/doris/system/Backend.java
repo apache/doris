@@ -17,6 +17,10 @@
 
 package org.apache.doris.system;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
+import com.google.common.eventbus.EventBus;
+
 import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
@@ -27,11 +31,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.BackendEvent.BackendEventType;
 import org.apache.doris.thrift.TDisk;
-
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
-import com.google.common.eventbus.EventBus;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -313,7 +312,7 @@ public class Backend implements Writable {
         for (DiskInfo diskInfo : disks.values()) {
             diskInfoStrings.add(diskInfo.getRootPath() + "|" + diskInfo.getTotalCapacityB() + "|"
                     + diskInfo.getDataUsedCapacityB() + "|" + diskInfo.getAvailableCapacityB() + "|"
-                    + diskInfo.getState().name());
+                    + diskInfo.getState().name() + "|" + diskInfo.getPathHash());
         }
         return diskInfoStrings;
     }
@@ -352,6 +351,15 @@ public class Backend implements Writable {
         return dataUsedCapacityB;
     }
 
+    public String getPathByPathHash(long pathHash) {
+        for (DiskInfo diskInfo : disksRef.get().values()) {
+            if (diskInfo.getPathHash() == pathHash) {
+                return diskInfo.getRootPath();
+            }
+        }
+        return null;
+    }
+
     public void updateDisks(Map<String, TDisk> backendDisks) {
         // update status or add new diskInfo
         ImmutableMap<String, DiskInfo> disks = disksRef.get();
@@ -373,6 +381,10 @@ public class Backend implements Writable {
             diskInfo.setTotalCapacityB(totalCapacityB);
             diskInfo.setDataUsedCapacityB(dataUsedCapacityB);
             diskInfo.setAvailableCapacityB(diskAvailableCapacityB);
+            if (tDisk.isSetPath_hash()) {
+                diskInfo.setPathHash(tDisk.getPath_hash());
+            }
+
             if (isUsed) {
                 diskInfo.setState(DiskState.ONLINE);
             } else {

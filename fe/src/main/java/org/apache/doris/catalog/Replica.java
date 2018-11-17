@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -67,6 +66,8 @@ public class Replica implements Writable {
     private long lastSuccessVersionHash = 0L;
 
 	private AtomicLong versionCount = new AtomicLong(-1);
+
+    private long pathHash = -1;
     
     public Replica() {
     }
@@ -150,6 +151,15 @@ public class Replica implements Writable {
     public long getLastSuccessVersionHash() {
         return lastSuccessVersionHash;
     }
+
+    public long getPathHash() {
+        return pathHash;
+    }
+
+    public void setPathHash(long pathHash) {
+        this.pathHash = pathHash;
+    }
+
     // only update data size and row num
     public synchronized void updateStat(long dataSize, long rowNum) {
         this.dataSize = dataSize;

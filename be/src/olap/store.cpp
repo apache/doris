@@ -39,7 +39,9 @@
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
 #include "olap/utils.h" // for check_dir_existed
+#include "service/backend_options.h"
 #include "util/file_utils.h"
+#include "util/string_util.h"
 #include "olap/olap_header_manager.h"
 
 namespace doris {
@@ -93,7 +95,6 @@ Status OlapStore::load() {
     RETURN_IF_ERROR(_init_cluster_id());
     RETURN_IF_ERROR(_init_extension_and_capacity());
     RETURN_IF_ERROR(_init_file_system());
-
     RETURN_IF_ERROR(_init_meta());
 
     _is_used = true;
@@ -275,6 +276,12 @@ Status OlapStore::_init_file_system() {
 }
 
 Status OlapStore::_init_meta() {
+    // init path hash
+    PathHash path_hash;
+    _path_hash = path_hash(BackendOptions::get_localhost(), _path);
+    LOG(INFO) << "get hash of path: " << _path
+              << ": " << _path_hash;
+
     // init meta
     _meta = new(std::nothrow) OlapMeta(_path);
     if (_meta == nullptr) {
@@ -581,17 +588,10 @@ OLAPStatus OlapStore::_check_none_row_oriented_table_in_store(
     }
     // init must be called
     RETURN_NOT_OK(olap_header->init());
-    OLAPTablePtr olap_table =
-        OLAPTable::create_from_header(olap_header.release());
-    if (olap_table == nullptr) {
-        LOG(WARNING) << "fail to new table. tablet_id=" << tablet_id << ", schema_hash:" << schema_hash;
-        return OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
-    }
-
-    LOG(INFO) << "data_file_type:" << olap_table->data_file_type();
-    if (olap_table->data_file_type() == OLAP_DATA_FILE) {
+    LOG(INFO) << "data_file_type:" << olap_header->data_file_type();
+    if (olap_header->data_file_type() == OLAP_DATA_FILE) {
         LOG(FATAL) << "Not support row-oriented table any more. Please convert it to column-oriented table."
-                   << "tablet=" << olap_table->full_name();
+                   << "tablet=" << tablet_id << "." << schema_hash;
     }
 
     return OLAP_SUCCESS;

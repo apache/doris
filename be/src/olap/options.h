@@ -29,6 +29,7 @@ struct StorePath {
     StorePath(const std::string& path_, int64_t capacity_bytes_)
         : path(path_), capacity_bytes(capacity_bytes_) { }
     std::string path;
+    int64_t path_hash;
     int64_t capacity_bytes;
 };
 

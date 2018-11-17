@@ -84,7 +84,7 @@ bool _sort_table_by_create_time(const OLAPTablePtr& a, const OLAPTablePtr& b) {
 
 static Status _validate_options(const EngineOptions& options) {
     if (options.store_paths.empty()) {
-        return Status("sotre paths is empty");;
+        return Status("store paths is empty");;
     }
     return Status::OK;
 }
@@ -561,7 +561,8 @@ void OLAPEngine::start_disk_stat_monitor() {
     // if drop tables
     // notify disk_state_worker_thread and olap_table_worker_thread until they received
     if (_is_drop_tables) {
-        disk_broken_cv.notify_all();
+        std::unique_lock<std::mutex> lk(report_mtx);
+        report_cv.notify_all();
 
         bool is_report_disk_state_expected = true;
         bool is_report_olap_table_expected = true;
@@ -1675,6 +1676,8 @@ OLAPStatus OLAPEngine::report_all_tablets_info(std::map<TTabletId, TTablet>* tab
             }
 
             tablet_info.__set_version_count(olap_table->file_delta_size());
+            tablet_info.__set_path_hash(olap_table->store()->path_hash());
+
             tablet.tablet_infos.push_back(tablet_info);
         }
 
