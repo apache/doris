@@ -69,6 +69,23 @@ TEST_F(StringUtilTest, normal) {
         ASSERT_EQ(345, test_map["abcE"]);
         ASSERT_EQ(0, test_map.count("ab"));
     }
+    {
+        std::string ip1 = "192.168.1.1";
+        std::string ip2 = "192.168.1.2";
+        int64_t hash1 = hash_of_path(ip1, "/home/disk1/palo2.HDD");
+        int64_t hash2 = hash_of_path(ip1, "/home/disk1//palo2.HDD/");
+        int64_t hash3 = hash_of_path(ip1, "home/disk1/palo2.HDD/");
+        ASSERT_EQ(hash1, hash2);
+        ASSERT_EQ(hash3, hash2);
+
+        int64_t hash4 = hash_of_path(ip1, "/home/disk1/palo2.HDD/");
+        int64_t hash5 = hash_of_path(ip2, "/home/disk1/palo2.HDD/");
+        ASSERT_NE(hash4, hash5);
+
+        int64_t hash6 = hash_of_path(ip1, "/");
+        int64_t hash7 = hash_of_path(ip1, "//");
+        ASSERT_EQ(hash6, hash7);
+    }
 }
 
 }

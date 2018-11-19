@@ -20,8 +20,8 @@
 
 #include <list>
 #include <unistd.h>
-#include <boost/thread/condition_variable.hpp>
-#include <boost/thread/mutex.hpp>
+#include <condition_variable>
+#include <mutex>
 
 #include "common/logging.h"
 #include "util/stopwatch.hpp"
@@ -45,7 +45,7 @@ public:
     // are no more elements available.
     bool blocking_get(T* out) {
         MonotonicStopWatch timer;
-        boost::unique_lock<boost::mutex> unique_lock(_lock);
+        std::unique_lock<std::mutex> unique_lock(_lock);
 
         while (true) {
             if (!_list.empty()) {
@@ -73,10 +73,10 @@ public:
     /*
     bool blocking_put_with_timeout(const T& val, int64_t timeout_micros) {
         MonotonicStopWatch timer;
-        boost::unique_lock<boost::mutex> write_lock(_lock);
-        boost::system_time wtime = boost::get_system_time() +
-            boost::posix_time::microseconds(timeout_micros);
-        const struct timespec timeout = boost::detail::to_timespec(wtime);
+        std::unique_lock<std::mutex> write_lock(_lock);
+        std::system_time wtime = std::get_system_time() +
+            std::posix_time::microseconds(timeout_micros);
+        const struct timespec timeout = std::detail::to_timespec(wtime);
         bool notified = true;
         while (SizeLocked(write_lock) >= _max_elements && !_shutdown && notified) {
             timer.Start();
@@ -102,7 +102,7 @@ public:
     // If the queue is shut down, returns false.
     bool blocking_put(const T& val) {
         MonotonicStopWatch timer;
-        boost::unique_lock<boost::mutex> unique_lock(_lock);
+        std::unique_lock<std::mutex> unique_lock(_lock);
 
         while (_list.size() >= _max_elements && !_shutdown) {
             timer.start();
@@ -126,7 +126,7 @@ public:
     // Shut down the queue. Wakes up all threads waiting on BlockingGet or BlockingPut.
     void shutdown() {
         {
-            boost::lock_guard<boost::mutex> guard(_lock);
+            std::lock_guard<std::mutex> guard(_lock);
             _shutdown = true;
         }
 
@@ -135,25 +135,25 @@ public:
     }
 
     uint32_t get_size() const {
-        boost::unique_lock<boost::mutex> l(_lock);
+        std::unique_lock<std::mutex> l(_lock);
         return _list.size();
     }
 
     // Returns the total amount of time threads have blocked in BlockingGet.
     uint64_t total_get_wait_time() const {
-        boost::lock_guard<boost::mutex> guard(_lock);
+        std::lock_guard<std::mutex> guard(_lock);
         return _total_get_wait_time;
     }
 
     // Returns the total amount of time threads have blocked in BlockingPut.
     uint64_t total_put_wait_time() const {
-        boost::lock_guard<boost::mutex> guard(_lock);
+        std::lock_guard<std::mutex> guard(_lock);
         return _total_put_wait_time;
     }
 
 private:
 
-    uint32_t SizeLocked(const boost::unique_lock<boost::mutex>& lock) const {
+    uint32_t SizeLocked(const std::unique_lock<std::mutex>& lock) const {
         // The size of 'get_list_' is read racily to avoid getting 'get_lock_' in write path.
         DCHECK(lock.owns_lock());
         return _list.size();
@@ -161,10 +161,10 @@ private:
 
     bool _shutdown;
     const int _max_elements;
-    boost::condition_variable _get_cv;   // 'get' callers wait on this
-    boost::condition_variable _put_cv;   // 'put' callers wait on this
+    std::condition_variable _get_cv;   // 'get' callers wait on this
+    std::condition_variable _put_cv;   // 'put' callers wait on this
     // _lock guards access to _list, total_get_wait_time, and total_put_wait_time
-    mutable boost::mutex _lock;
+    mutable std::mutex _lock;
     std::list<T> _list;
     uint64_t _total_get_wait_time;
     uint64_t _total_put_wait_time;

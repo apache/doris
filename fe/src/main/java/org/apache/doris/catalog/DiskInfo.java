@@ -39,6 +39,9 @@ public class DiskInfo implements Writable {
     private long diskAvailableCapacityB;
     private DiskState state;
 
+    // path hash is reported be Backend and no need to persist
+    private long pathHash;
+
     private DiskInfo() {
         // for persist
     }
@@ -49,6 +52,7 @@ public class DiskInfo implements Writable {
         this.dataUsedCapacityB = 0;
         this.diskAvailableCapacityB = DEFAULT_CAPACITY_B;
         this.state = DiskState.ONLINE;
+        this.pathHash = -1;
     }
 
     public String getRootPath() {
@@ -88,10 +92,19 @@ public class DiskInfo implements Writable {
         this.state = state;
     }
 
+    public long getPathHash() {
+        return pathHash;
+    }
+
+    public void setPathHash(long pathHash) {
+        this.pathHash = pathHash;
+    }
+
     @Override
     public String toString() {
-        return "DiskInfo [rootPath=" + rootPath + ", totalCapacityB=" + totalCapacityB + ", dataUsedCapacityB="
-                + dataUsedCapacityB + ", diskAvailableCapacityB=" + diskAvailableCapacityB + ", state=" + state + "]";
+        return "DiskInfo [rootPath=" + rootPath + "(" + pathHash + "), totalCapacityB=" + totalCapacityB
+                + ", dataUsedCapacityB=" + dataUsedCapacityB + ", diskAvailableCapacityB="
+                + diskAvailableCapacityB + ", state=" + state + "]";
     }
 
     @Override

@@ -177,9 +177,6 @@ private:
     static Mutex _s_running_task_user_count_lock;
     static FrontendServiceClientCache _master_service_client_cache;
 
-    static std::mutex _disk_broken_lock;
-    static std::chrono::seconds _wait_duration;
-
     DISALLOW_COPY_AND_ASSIGN(TaskWorkerPool);
 };  // class TaskWorkerPool
 }  // namespace doris
