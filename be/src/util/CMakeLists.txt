@@ -71,6 +71,7 @@ add_library(Util STATIC
   core_local.cpp
   uid_util.cpp
   aes_util.cpp
+  string_util.cpp
 )
 
 #ADD_BE_TEST(integer-array-test)

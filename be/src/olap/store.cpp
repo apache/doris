@@ -277,8 +277,7 @@ Status OlapStore::_init_file_system() {
 
 Status OlapStore::_init_meta() {
     // init path hash
-    PathHash path_hash;
-    _path_hash = path_hash(BackendOptions::get_localhost(), _path);
+    _path_hash = hash_of_path(BackendOptions::get_localhost(), _path);
     LOG(INFO) << "get hash of path: " << _path
               << ": " << _path_hash;
 

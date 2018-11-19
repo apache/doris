@@ -60,22 +60,7 @@ public:
     }
 };
 
-struct PathHash {
-public:
-    std::size_t operator()(const std::string& identifier, const std::string& path) const {
-        std::size_t hash = std::hash<std::string>()(identifier);
-        std::vector<std::string> path_parts;
-        boost::split(path_parts, path, boost::is_any_of("/"));
-        for (auto& part : path_parts) {
-            if (part.empty()) {
-                continue;
-            }
-
-            boost::hash_combine<std::string>(hash, part);
-        }
-        return hash;
-    }
-};
+std::size_t hash_of_path(const std::string& identifier, const std::string& path);
 
 using StringCaseSet = std::set<std::string, StringCaseLess>;
 using StringCaseUnorderedSet = std::unordered_set<std::string, StringCaseHasher, StringCaseEqual>;
