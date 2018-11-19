@@ -57,6 +57,7 @@ struct RootPathInfo {
             is_used(false) { }
 
     std::string path;
+    int64_t path_hash;
     int64_t capacity;                  // 总空间，单位字节
     int64_t available;                 // 可用空间，单位字节
     int64_t data_used_capacity;
@@ -206,10 +207,6 @@ public:
     // 清理trash和snapshot文件，返回清理后的磁盘使用量
     OLAPStatus start_trash_sweep(double *usage);
 
-    std::condition_variable disk_broken_cv;
-    std::atomic_bool is_report_disk_state_already;
-    std::atomic_bool is_report_olap_table_already;
-
     template<bool include_unused = false>
     std::vector<OlapStore*> get_stores();
     Status set_cluster_id(int32_t cluster_id);
@@ -356,6 +353,21 @@ public:
     OLAPStatus push(
         const TPushReq& request,
         std::vector<TTabletInfo>* tablet_info_vec);
+
+    // call this if you want to trigger a disk and tablet report
+    void report_notify(bool is_all) {
+        is_all ? _report_cv.notify_all() : _report_cv.notify_one();
+    }
+
+    // call this to wait a report notification until timeout
+    void wait_for_report_notify(int64_t timeout_sec, bool is_tablet_report) {
+        std::unique_lock<std::mutex> lk(_report_mtx);
+        auto cv_status = _report_cv.wait_for(lk, std::chrono::seconds(timeout_sec));
+        if (cv_status == std::cv_status::no_timeout) {
+            is_tablet_report ? _is_report_olap_table_already = true : 
+                    _is_report_disk_state_already = true;
+        }
+    }
 
 private:
     OLAPStatus check_all_root_path_cluster_id();
@@ -595,6 +607,12 @@ private:
     std::thread _fd_cache_clean_thread;
 
     static atomic_t _s_request_number;
+
+    // for tablet and disk report
+    std::mutex _report_mtx;
+    std::condition_variable _report_cv;
+    std::atomic_bool _is_report_disk_state_already;
+    std::atomic_bool _is_report_olap_table_already;
 };
 
 }  // namespace doris

@@ -17,6 +17,12 @@
 
 package org.apache.doris.backup;
 
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.BrokerMgr.BrokerAddress;
 import org.apache.doris.catalog.Catalog;
@@ -26,13 +32,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.system.Backend;
-
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-
-import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;

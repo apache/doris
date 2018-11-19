@@ -17,18 +17,18 @@
 
 package org.apache.doris.common.proc;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.system.Backend;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -46,7 +46,7 @@ public class TabletsProcDir implements ProcDirInterface {
             .add("VersionHash").add("LastSuccessVersion").add("LastSuccessVersionHash")
             .add("LastFailedVersion").add("LastFailedTime").add("DataSize").add("RowCount").add("State")
             .add("LastConsistencyCheckTime").add("CheckVersion").add("CheckVersionHash")
-			.add("VersionCount")
+            .add("VersionCount").add("PathHash")
             .build();
 
     private Database db;
@@ -86,6 +86,7 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(-1);
                     tabletInfo.add(-1);
                     tabletInfo.add(-1);
+                    tabletInfo.add(-1);
 
                     tabletInfos.add(tabletInfo);
                 } else {
@@ -122,7 +123,8 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(TimeUtils.longToTimeString(tablet.getLastCheckTime()));
                         tabletInfo.add(tablet.getCheckedVersion());
                         tabletInfo.add(tablet.getCheckedVersionHash());
-						tabletInfo.add(replica.getVersionCount());
+                        tabletInfo.add(replica.getVersionCount());
+                        tabletInfo.add(replica.getPathHash());
 
                         tabletInfos.add(tabletInfo);
                     }

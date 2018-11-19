@@ -17,6 +17,13 @@
 
 package org.apache.doris.master;
 
+import com.google.common.collect.LinkedListMultimap;
+import com.google.common.collect.ListMultimap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Queues;
+
+import org.apache.commons.lang.StringUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -58,13 +65,6 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTaskType;
-
-import com.google.common.collect.LinkedListMultimap;
-import com.google.common.collect.ListMultimap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Queues;
-
-import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -80,12 +80,15 @@ public class ReportHandler extends Daemon {
     private static final Logger LOG = LogManager.getLogger(ReportHandler.class);
 
     private BlockingQueue<ReportTask> reportQueue = Queues.newLinkedBlockingQueue();
+
     public ReportHandler() {
     }
+
     public TMasterResult handleReport(TReportRequest request) throws TException {
         TMasterResult result = new TMasterResult();
         TStatus tStatus = new TStatus(TStatusCode.OK);
         result.setStatus(tStatus);
+        
         // get backend
         TBackend tBackend = request.getBackend();
         String host = tBackend.getHost();
@@ -98,6 +101,7 @@ public class ReportHandler extends Daemon {
             tStatus.setError_msgs(errorMsgs);
             return result;
         }
+        
         long beId = backend.getId();
         Map<TTaskType, Set<Long>> tasks = null;
         Map<String, TDisk> disks = null;
@@ -107,16 +111,24 @@ public class ReportHandler extends Daemon {
         if (request.isSetTasks()) {
             tasks = request.getTasks();
         }
+        
         if (request.isSetDisks()) {
             disks = request.getDisks();
         }
+        
         if (request.isSetTablets()) {
             tablets = request.getTablets();
             reportVersion = request.getReport_version();
+        } else if (request.isSetTablet_list()) {
+            // the 'tablets' member will be deprecated in future.
+            tablets = buildTabletMap(request.getTablet_list());
+            reportVersion = request.getReport_version();
         }
+        
         if (request.isSetForce_recovery()) {
             forceRecovery = request.isForce_recovery();
         }
+        
         ReportTask reportTask = new ReportTask(beId, tasks, disks, tablets, reportVersion, forceRecovery);
         try {
             reportQueue.put(reportTask);
@@ -128,16 +140,32 @@ public class ReportHandler extends Daemon {
             tStatus.setError_msgs(errorMsgs);
             return result;
         }
+        
         LOG.info("receive report from be {}. current queue size: {}", backend.getId(), reportQueue.size());
         return result;
     }
+
+    private Map<Long, TTablet> buildTabletMap(List<TTablet> tabletList) {
+        Map<Long, TTablet> tabletMap = Maps.newHashMap();
+        for (TTablet tTablet : tabletList) {
+            if (tTablet.getTablet_infos().isEmpty()) {
+                continue;
+            }
+
+            tabletMap.put(tTablet.getTablet_infos().get(0).getTablet_id(), tTablet);
+        }
+        return tabletMap;
+    }
+
     private class ReportTask extends MasterTask {
+
         private long beId;
         private Map<TTaskType, Set<Long>> tasks;
         private Map<String, TDisk> disks;
         private Map<Long, TTablet> tablets;
         private long reportVersion;
         private boolean forceRecovery = false;
+
         public ReportTask(long beId, Map<TTaskType, Set<Long>> tasks,
                 Map<String, TDisk> disks,
                 Map<Long, TTablet> tablets, long reportVersion, 
@@ -149,6 +177,7 @@ public class ReportHandler extends Daemon {
             this.reportVersion = reportVersion;
             this.forceRecovery = forceRecovery;
         }
+
         @Override
         protected void exec() {
             if (tasks != null) {
@@ -748,6 +777,7 @@ public class ReportHandler extends Daemon {
             db.writeUnlock();
         }
     }
+
     @Override
     protected void runOneCycle() {
         while (true) {

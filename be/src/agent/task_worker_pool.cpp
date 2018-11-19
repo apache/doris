@@ -19,6 +19,7 @@
 #include <pthread.h>
 #include <sys/stat.h>
 #include <atomic>
+#include <chrono>
 #include <csignal>
 #include <ctime>
 #include <fstream>
@@ -27,6 +28,7 @@
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
+
 #include "boost/filesystem.hpp"
 #include "boost/lexical_cast.hpp"
 #include "agent/pusher.h"
@@ -80,8 +82,6 @@ map<TTaskType::type, map<string, uint32_t>> TaskWorkerPool::_s_running_task_user
 map<TTaskType::type, map<string, uint32_t>> TaskWorkerPool::_s_total_task_user_count;
 map<TTaskType::type, uint32_t> TaskWorkerPool::_s_total_task_count;
 FrontendServiceClientCache TaskWorkerPool::_master_service_client_cache;
-std::mutex TaskWorkerPool::_disk_broken_lock;
-std::chrono::seconds TaskWorkerPool::_wait_duration;
 
 TaskWorkerPool::TaskWorkerPool(
         const TaskWorkerType task_worker_type,
@@ -167,12 +167,10 @@ void TaskWorkerPool::start() {
         _callback_function = _report_task_worker_thread_callback;
         break;
     case TaskWorkerType::REPORT_DISK_STATE:
-        _wait_duration = std::chrono::seconds(config::report_disk_state_interval_seconds);
         _worker_count = REPORT_DISK_STATE_WORKER_COUNT;
         _callback_function = _report_disk_state_worker_thread_callback;
         break;
     case TaskWorkerType::REPORT_OLAP_TABLE:
-        _wait_duration = std::chrono::seconds(config::report_disk_state_interval_seconds);
         _worker_count = REPORT_OLAP_TABLE_WORKER_COUNT;
         _callback_function = _report_olap_table_worker_thread_callback;
         break;
@@ -1825,15 +1823,14 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
             continue;
         }
 #endif
-
         vector<RootPathInfo> root_paths_info;
-
         worker_pool_this->_env->olap_engine()->get_all_root_path_info(&root_paths_info);
 
         map<string, TDisk> disks;
         for (auto root_path_info : root_paths_info) {
             TDisk disk;
             disk.__set_root_path(root_path_info.path);
+            disk.__set_path_hash(root_path_info.path_hash);
             disk.__set_disk_total_capacity(static_cast<double>(root_path_info.capacity));
             disk.__set_data_used_capacity(static_cast<double>(root_path_info.data_used_capacity));
             disk.__set_disk_available_capacity(static_cast<double>(root_path_info.available));
@@ -1854,16 +1851,9 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
         }
 
 #ifndef BE_TEST
-        {
-            // wait disk_broken_cv awaken
-            // if awaken, set is_report_disk_state_already to true, it will not notify again
-            // if overtime, while will go to next cycle
-            std::unique_lock<std::mutex> lk(_disk_broken_lock);
-            auto cv_status = OLAPEngine::get_instance()->disk_broken_cv.wait_for(lk, _wait_duration);
-            if (cv_status == std::cv_status::no_timeout) {
-                OLAPEngine::get_instance()->is_report_disk_state_already = true;
-            }
-        }
+        // wait for notifying until timeout
+        OLAPEngine::get_instance()->wait_for_report_notify(
+                config::report_disk_state_interval_seconds, false);
     }
 #endif
 
@@ -1889,7 +1879,6 @@ void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) 
             continue;
         }
 #endif
-
         request.tablets.clear();
 
         request.__set_report_version(_s_report_version);
@@ -1899,14 +1888,9 @@ void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) 
             OLAP_LOG_WARNING("report get all tablets info failed. status: %d",
                              report_all_tablets_info_status);
 #ifndef BE_TEST
-            // wait disk_broken_cv awaken
-            // if awaken, set is_report_olap_table_already to true, it will not notify again
-            // if overtime, while will go to next cycle
-            std::unique_lock<std::mutex> lk(_disk_broken_lock);
-            auto cv_status = OLAPEngine::get_instance()->disk_broken_cv.wait_for(lk, _wait_duration);
-            if (cv_status == std::cv_status::no_timeout) {
-                OLAPEngine::get_instance()->is_report_olap_table_already =  true;
-            }
+            // wait for notifying until timeout
+            OLAPEngine::get_instance()->wait_for_report_notify(
+                    config::report_olap_table_interval_seconds, true);
             continue;
 #else
             return (void*)0;
@@ -1924,14 +1908,9 @@ void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) 
         }
 
 #ifndef BE_TEST
-        // wait disk_broken_cv awaken
-        // if awaken, set is_report_olap_table_already to true, it will not notify again
-        // if overtime, while will go to next cycle
-        std::unique_lock<std::mutex> lk(_disk_broken_lock);
-        auto cv_status = OLAPEngine::get_instance()->disk_broken_cv.wait_for(lk, _wait_duration);
-        if (cv_status == std::cv_status::no_timeout) {
-            OLAPEngine::get_instance()->is_report_olap_table_already =  true;
-        }
+        // wait for notifying until timeout
+        OLAPEngine::get_instance()->wait_for_report_notify(
+                config::report_olap_table_interval_seconds, true);
     }
 #endif
 
