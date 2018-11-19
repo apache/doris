@@ -66,7 +66,7 @@ public:
         std::size_t hash = std::hash<std::string>()(identifier);
         std::vector<std::string> path_parts;
         boost::split(path_parts, path, boost::is_any_of("/"));
-        for (std::string part : path_parts) {
+        for (auto& part : path_parts) {
             if (part.empty()) {
                 continue;
             }

@@ -1852,12 +1852,8 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
 
 #ifndef BE_TEST
         // wait for notifying until timeout
-        std::unique_lock<std::mutex> lk(OLAPEngine::get_instance()->report_mtx);
-        auto cv_status = OLAPEngine::get_instance()->report_cv.wait_for(lk, 
-                std::chrono::seconds(config::report_disk_state_interval_seconds));
-        if (cv_status == std::cv_status::no_timeout) {
-            OLAPEngine::get_instance()->is_report_disk_state_already = true;
-        }
+        OLAPEngine::get_instance()->wait_for_report_notify(
+                config::report_disk_state_interval_seconds, false);
     }
 #endif
 
@@ -1893,12 +1889,8 @@ void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) 
                              report_all_tablets_info_status);
 #ifndef BE_TEST
             // wait for notifying until timeout
-            std::unique_lock<std::mutex> lk(OLAPEngine::get_instance()->report_mtx);
-            auto cv_status = OLAPEngine::get_instance()->report_cv.wait_for(lk,
-                    std::chrono::seconds(config::report_olap_table_interval_seconds));
-            if (cv_status == std::cv_status::no_timeout) {
-                OLAPEngine::get_instance()->is_report_olap_table_already =  true;
-            }
+            OLAPEngine::get_instance()->wait_for_report_notify(
+                    config::report_olap_table_interval_seconds, true);
             continue;
 #else
             return (void*)0;
@@ -1917,12 +1909,8 @@ void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) 
 
 #ifndef BE_TEST
         // wait for notifying until timeout
-        std::unique_lock<std::mutex> lk(OLAPEngine::get_instance()->report_mtx);
-        auto cv_status = OLAPEngine::get_instance()->report_cv.wait_for(lk,
-                std::chrono::seconds(config::report_olap_table_interval_seconds));
-        if (cv_status == std::cv_status::no_timeout) {
-            OLAPEngine::get_instance()->is_report_olap_table_already =  true;
-        }
+        OLAPEngine::get_instance()->wait_for_report_notify(
+                config::report_olap_table_interval_seconds, true);
     }
 #endif
 

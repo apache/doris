@@ -107,9 +107,7 @@ Status OLAPEngine::open(const EngineOptions& options, OLAPEngine** engine_ptr) {
 }
 
 OLAPEngine::OLAPEngine(const EngineOptions& options)
-        : is_report_disk_state_already(false),
-        is_report_olap_table_already(false),
-        _options(options),
+        : _options(options),
         _available_storage_medium_type_count(0),
         _effective_cluster_id(-1),
         _is_all_cluster_id_exist(true),
@@ -117,7 +115,9 @@ OLAPEngine::OLAPEngine(const EngineOptions& options)
         _global_table_id(0),
         _index_stream_lru_cache(NULL),
         _tablet_stat_cache_update_time_ms(0),
-        _snapshot_base_id(0) {
+        _snapshot_base_id(0),
+        _is_report_disk_state_already(false),
+        _is_report_olap_table_already(false) {
     if (_s_instance == nullptr) {
         _s_instance = this;
     }
@@ -561,15 +561,14 @@ void OLAPEngine::start_disk_stat_monitor() {
     // if drop tables
     // notify disk_state_worker_thread and olap_table_worker_thread until they received
     if (_is_drop_tables) {
-        std::unique_lock<std::mutex> lk(report_mtx);
-        report_cv.notify_all();
+        report_notify(true);
 
         bool is_report_disk_state_expected = true;
         bool is_report_olap_table_expected = true;
         bool is_report_disk_state_exchanged = 
-                is_report_disk_state_already.compare_exchange_strong(is_report_disk_state_expected, false);
+                _is_report_disk_state_already.compare_exchange_strong(is_report_disk_state_expected, false);
         bool is_report_olap_table_exchanged =
-                is_report_olap_table_already.compare_exchange_strong(is_report_olap_table_expected, false);
+                _is_report_olap_table_already.compare_exchange_strong(is_report_olap_table_expected, false);
         if (is_report_disk_state_exchanged && is_report_olap_table_exchanged) {
             _is_drop_tables = false;
         }
