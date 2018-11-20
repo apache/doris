@@ -279,8 +279,8 @@ public class Catalog {
     private int masterHttpPort;
     private String masterIp;
 
-    // For metadata persistence
-    private AtomicLong nextId = new AtomicLong(NEXT_ID_INIT_VALUE);
+    private CatalogIdGenerator idGenerator = new CatalogIdGenerator(NEXT_ID_INIT_VALUE);
+
     private String metaDir;
     private EditLog editLog;
     private int clusterId;
@@ -565,6 +565,7 @@ public class Catalog {
         loadImage(IMAGE_DIR); // load image file
         editLog.open(); // open bdb env or local output stream
         this.globalTransactionMgr.setEditLog(editLog);
+        this.idGenerator.setEditLog(editLog);
 
         // 4. start load label cleaner thread
         createCleaner();
@@ -1281,7 +1282,7 @@ public class Catalog {
         newChecksum ^= replayedJournalId;
         long id = dis.readLong();
         newChecksum ^= id;
-        nextId.set(id);
+        idGenerator.setId(id);
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_32) {
             isDefaultClusterCreated = dis.readBoolean();
@@ -1685,7 +1686,7 @@ public class Catalog {
         dos.writeLong(replayedJournalId);
 
         // Write id
-        long id = nextId.getAndIncrement();
+        long id = idGenerator.getBatchEndId();
         checksum ^= id;
         dos.writeLong(id);
 
@@ -4093,8 +4094,7 @@ public class Catalog {
 
     // Get the next available, need't lock because of nextId is atomic.
     public long getNextId() {
-        long id = nextId.getAndIncrement();
-        editLog.logSaveNextId(id);
+        long id = idGenerator.getNextId();
         return id;
     }
 
@@ -4371,9 +4371,7 @@ public class Catalog {
     }
 
     public void setNextId(long id) {
-        if (nextId.get() < id) {
-            nextId.set(id);
-        }
+        idGenerator.setId(id);
     }
 
     public void setHaProtocol(HAProtocol protocol) {

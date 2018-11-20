@@ -38,7 +38,7 @@ import java.util.stream.Collectors;
  * # TYPE palo_fe_job_load_broker_cost_ms gauge 
  * palo_fe_job{job="load", type="mini", state="pending"} 0
  */
-public class PrometheusMetricVisitor extends PaloMetricVisitor {
+public class PrometheusMetricVisitor extends MetricVisitor {
     // jvm
     private static final String JVM_HEAP_SIZE_BYTES = "jvm_heap_size_bytes";
     private static final String JVM_NON_HEAP_SIZE_BYTES = "jvm_non_heap_size_bytes";
@@ -131,7 +131,7 @@ public class PrometheusMetricVisitor extends PaloMetricVisitor {
     }
 
     @Override
-    public String visit(@SuppressWarnings("rawtypes") PaloMetric metric) {
+    public String visit(@SuppressWarnings("rawtypes") Metric metric) {
         // title
         final String fullName = prefix + "_" + metric.getName();
         StringBuilder sb = new StringBuilder();

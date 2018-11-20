@@ -17,23 +17,23 @@
 
 package org.apache.doris.metric;
 
-import com.google.common.util.concurrent.AtomicDouble;
+import java.util.concurrent.atomic.AtomicLong;
 
-public class PaloDoubleCounterMetric extends PaloCounterMetric<Double> {
+public class LongCounterMetric extends CounterMetric<Long> {
 
-    public PaloDoubleCounterMetric(String name, String description) {
+    public LongCounterMetric(String name, String description) {
         super(name, description);
     }
 
-    private AtomicDouble value = new AtomicDouble(0.0);
+    private AtomicLong value = new AtomicLong(0L);
 
     @Override
-    public void increase(Double delta) {
+    public void increase(Long delta) {
         value.addAndGet(delta);
     }
 
     @Override
-    public Double getValue() {
+    public Long getValue() {
         return value.get();
     }
 }
