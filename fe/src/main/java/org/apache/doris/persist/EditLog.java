@@ -660,7 +660,9 @@ public class EditLog {
         long end = System.currentTimeMillis();
         numTransactions++;
         totalTimeTransactions += (end - start);
-        MetricRepo.HISTO_EDIT_LOG_WRITE_LATENCY.update((end - start));
+        if (MetricRepo.isInit.get()) {
+            MetricRepo.HISTO_EDIT_LOG_WRITE_LATENCY.update((end - start));
+        }
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("nextId = {}, numTransactions = {}, totalTimeTransactions = {}, op = {}",
