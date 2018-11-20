@@ -17,31 +17,23 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.EditLog;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
 
 // This new Id generator is just same as TransactionIdGenerator.
 // But we can't just use TransactionIdGenerator to replace the old catalog's 'nextId' for compatibility reason.
 // cause they are using different edit log operation type.
-public class CatalogIdGenerator implements Writable {
-    private static final Logger LOG = LogManager.getLogger(CatalogIdGenerator.class);
-
+public class CatalogIdGenerator {
     private static final int BATCH_ID_INTERVAL = 1000;
 
+    // nextId is always less then batchEndId
     private long nextId;
-    // has to set it to an invalid value, then it will be logged when id is firstly increment
-    private long batchEndId = -1;
+    private long batchEndId;
 
     private EditLog editLog;
 
     public CatalogIdGenerator(long initValue) {
-        nextId = initValue;
+        nextId = initValue + 1;
+        batchEndId = initValue;
     }
 
     public void setEditLog(EditLog editLog) {
@@ -50,15 +42,12 @@ public class CatalogIdGenerator implements Writable {
 
     // performance is more quickly
     public synchronized long getNextId() {
-        if (nextId < batchEndId) {
-            ++nextId;
-            LOG.debug("get next id: " + nextId);
-            return nextId;
+        if (nextId + 1 < batchEndId) {
+            return nextId++;
         } else {
             batchEndId = batchEndId + BATCH_ID_INTERVAL;
             editLog.logSaveNextId(batchEndId);
-            ++nextId;
-            return nextId;
+            return nextId++;
         }
     }
 
@@ -73,18 +62,4 @@ public class CatalogIdGenerator implements Writable {
     public long getBatchEndId() {
         return batchEndId;
     }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeLong(batchEndId);
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        long endId = in.readLong();
-        batchEndId = endId;
-        // maybe a little rough
-        nextId = batchEndId;
-    }
-
 }

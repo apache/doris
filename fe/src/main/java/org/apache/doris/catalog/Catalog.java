@@ -279,9 +279,6 @@ public class Catalog {
     private int masterHttpPort;
     private String masterIp;
 
-    @Deprecated
-    private AtomicLong nextId = new AtomicLong(NEXT_ID_INIT_VALUE);
-    // for now, use this one
     private CatalogIdGenerator idGenerator = new CatalogIdGenerator(NEXT_ID_INIT_VALUE);
 
     private String metaDir;
