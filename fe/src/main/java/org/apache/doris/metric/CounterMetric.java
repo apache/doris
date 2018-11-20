@@ -18,11 +18,13 @@
 package org.apache.doris.metric;
 
 /*
- * Gauge metric is updated every time it is visited
+ * Counter metric can only be increased
  */
-public abstract class PaloGaugeMetric<T> extends PaloMetric<T> {
+public abstract class CounterMetric<T> extends Metric<T> {
 
-    public PaloGaugeMetric(String name, String description) {
-        super(name, MetricType.GAUGE, description);
+    public CounterMetric(String name, String description) {
+        super(name, MetricType.COUNTER, description);
     }
+
+    abstract public void increase(T delta);
 }

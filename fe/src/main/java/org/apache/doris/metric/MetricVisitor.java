@@ -17,28 +17,23 @@
 
 package org.apache.doris.metric;
 
-import com.google.common.collect.Lists;
+import org.apache.doris.monitor.jvm.JvmStats;
 
-import java.util.List;
-import java.util.stream.Collectors;
+import com.codahale.metrics.Histogram;
 
-public class PaloMetricRegistry {
+public abstract class MetricVisitor {
 
-    private List<PaloMetric> paloMetrics = Lists.newArrayList();
+    protected String prefix;
 
-    public PaloMetricRegistry() {
-
+    public MetricVisitor(String prefix) {
+        this.prefix = prefix;
     }
 
-    public synchronized void addPaloMetrics(PaloMetric paloMetric) {
-        paloMetrics.add(paloMetric);
-    }
+    public abstract String visitJvm(JvmStats jvmStats);
 
-    public synchronized List<PaloMetric> getPaloMetrics() {
-        return Lists.newArrayList(paloMetrics);
-    }
+    public abstract String visit(Metric metric);
 
-    public synchronized void removeMetrics(String name) {
-        paloMetrics = paloMetrics.stream().filter(m -> !(m.getName().equals(name))).collect(Collectors.toList());
-    }
+    public abstract String visitHistogram(String name, Histogram histogram);
+
+    public abstract String getPaloNodeInfo();
 }

@@ -23,7 +23,7 @@ import java.io.IOException;
 
 import org.apache.doris.persist.EditLog;
 
-public class TransactionIDGenerator {
+public class TransactionIdGenerator {
 
     public static final long NEXT_ID_INIT_VALUE = 1;
     private static final int BATCH_ID_INTERVAL = 1000;
@@ -34,7 +34,7 @@ public class TransactionIDGenerator {
     
     private EditLog editLog;
     
-    public TransactionIDGenerator() {
+    public TransactionIdGenerator() {
     }
     
     public void setEditLog(EditLog editLog) {

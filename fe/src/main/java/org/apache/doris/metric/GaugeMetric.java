@@ -17,23 +17,12 @@
 
 package org.apache.doris.metric;
 
-import java.util.concurrent.atomic.AtomicLong;
+/*
+ * Gauge metric is updated every time it is visited
+ */
+public abstract class GaugeMetric<T> extends Metric<T> {
 
-public class PaloLongCounterMetric extends PaloCounterMetric<Long> {
-
-    public PaloLongCounterMetric(String name, String description) {
-        super(name, description);
-    }
-
-    private AtomicLong value = new AtomicLong(0L);
-
-    @Override
-    public void increase(Long delta) {
-        value.addAndGet(delta);
-    }
-
-    @Override
-    public Long getValue() {
-        return value.get();
+    public GaugeMetric(String name, String description) {
+        super(name, MetricType.GAUGE, description);
     }
 }

@@ -57,7 +57,6 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -135,7 +134,7 @@ public class EditLog {
                 case OperationType.OP_SAVE_TRANSACTION_ID: {
                     String idString = ((Text) journal.getData()).toString();
                     long id = Long.parseLong(idString);
-                    catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().initTransactionId(id + 1);
+                    Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().initTransactionId(id + 1);
                     break;
                 }
                 case OperationType.OP_CREATE_DB: {
@@ -651,7 +650,7 @@ public class EditLog {
             journal.write(op, writable);
         } catch (Exception e) {
             LOG.error("Fatal Error : write stream Exception", e);
-            Runtime.getRuntime().exit(-1);
+            System.exit(-1);
         }
 
         // get a new transactionId
@@ -661,6 +660,9 @@ public class EditLog {
         long end = System.currentTimeMillis();
         numTransactions++;
         totalTimeTransactions += (end - start);
+        if (MetricRepo.isInit.get()) {
+            MetricRepo.HISTO_EDIT_LOG_WRITE_LATENCY.update((end - start));
+        }
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("nextId = {}, numTransactions = {}, totalTimeTransactions = {}, op = {}",

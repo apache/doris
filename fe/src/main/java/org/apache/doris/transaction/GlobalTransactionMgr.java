@@ -85,7 +85,7 @@ public class GlobalTransactionMgr {
     private Map<Long, TransactionState> idToTransactionState;
     private com.google.common.collect.Table<Long, String, Long> dbIdToTxnLabels; 
     private Map<Long, Integer> runningTxnNums;
-    private TransactionIDGenerator idGenerator;
+    private TransactionIdGenerator idGenerator;
     
     private Catalog catalog;
     
@@ -94,7 +94,7 @@ public class GlobalTransactionMgr {
         dbIdToTxnLabels = HashBasedTable.create();  
         runningTxnNums = Maps.newHashMap();
         this.catalog = catalog;
-        this.idGenerator = new TransactionIDGenerator();
+        this.idGenerator = new TransactionIdGenerator();
     }
 
     /**
@@ -1145,7 +1145,7 @@ public class GlobalTransactionMgr {
         return this.idToTransactionState.size();
     }
     
-    public TransactionIDGenerator getTransactionIDGenerator() {
+    public TransactionIdGenerator getTransactionIDGenerator() {
         return this.idGenerator;
     }
     
