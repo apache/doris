@@ -22,7 +22,7 @@
 ############################################################
 
 # --job param for *make*
-PARALLEL=$(nproc)
+PARALLEL=$[$(nproc)/4+1]
 
 ###################################################
 # DO NOT change variables bellow unless you known 
