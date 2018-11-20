@@ -21,7 +21,7 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 
-public abstract class PaloMetric<T> {
+public abstract class Metric<T> {
     public enum MetricType {
         GAUGE, COUNTER
     }
@@ -31,7 +31,7 @@ public abstract class PaloMetric<T> {
     protected List<MetricLabel> labels = Lists.newArrayList();
     protected String description;
 
-    public PaloMetric(String name, MetricType type, String description) {
+    public Metric(String name, MetricType type, String description) {
         this.name = name;
         this.type = type;
         this.description = description;
@@ -49,7 +49,7 @@ public abstract class PaloMetric<T> {
         return description;
     }
 
-    public PaloMetric<T> addLabel(MetricLabel label) {
+    public Metric<T> addLabel(MetricLabel label) {
         if (labels.contains(label)) {
             return this;
         }

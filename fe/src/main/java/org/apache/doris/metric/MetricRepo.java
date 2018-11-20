@@ -17,6 +17,9 @@
 
 package org.apache.doris.metric;
 
+import com.codahale.metrics.Histogram;
+import com.codahale.metrics.MetricRegistry;
+
 import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJob.JobType;
 import org.apache.doris.catalog.Catalog;
@@ -30,10 +33,6 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-
-import com.codahale.metrics.Histogram;
-import com.codahale.metrics.MetricRegistry;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,20 +44,21 @@ public final class MetricRepo {
     private static final Logger LOG = LogManager.getLogger(MetricRepo.class);
 
     private static final MetricRegistry METRIC_REGISTER = new MetricRegistry();
-    private static final PaloMetricRegistry PALO_METRIC_REGISTER = new PaloMetricRegistry();
+    private static final DorisMetricRegistry PALO_METRIC_REGISTER = new DorisMetricRegistry();
     
     public static AtomicBoolean isInit = new AtomicBoolean(false);
 
-    public static PaloLongCounterMetric COUNTER_REQUEST_ALL;
-    public static PaloLongCounterMetric COUNTER_QUERY_ALL;
-    public static PaloLongCounterMetric COUNTER_QUERY_ERR;
-    public static PaloLongCounterMetric COUNTER_LOAD_ADD;
-    public static PaloLongCounterMetric COUNTER_LOAD_FINISHED;
-    public static PaloLongCounterMetric COUNTER_EDIT_LOG_WRITE;
-    public static PaloLongCounterMetric COUNTER_EDIT_LOG_READ;
-    public static PaloLongCounterMetric COUNTER_IMAGE_WRITE;
-    public static PaloLongCounterMetric COUNTER_IMAGE_PUSH;
+    public static LongCounterMetric COUNTER_REQUEST_ALL;
+    public static LongCounterMetric COUNTER_QUERY_ALL;
+    public static LongCounterMetric COUNTER_QUERY_ERR;
+    public static LongCounterMetric COUNTER_LOAD_ADD;
+    public static LongCounterMetric COUNTER_LOAD_FINISHED;
+    public static LongCounterMetric COUNTER_EDIT_LOG_WRITE;
+    public static LongCounterMetric COUNTER_EDIT_LOG_READ;
+    public static LongCounterMetric COUNTER_IMAGE_WRITE;
+    public static LongCounterMetric COUNTER_IMAGE_PUSH;
     public static Histogram HISTO_QUERY_LATENCY;
+    public static Histogram HISTO_EDIT_LOG_WRITE_LATENCY;
 
     public static synchronized void init() {
         if (isInit.get()) {
@@ -70,7 +70,7 @@ public final class MetricRepo {
         Load load = Catalog.getInstance().getLoadInstance();
         for (EtlJobType jobType : EtlJobType.values()) {
             for (JobState state : JobState.values()) {
-                PaloGaugeMetric<Integer> gauge = (PaloGaugeMetric<Integer>) new PaloGaugeMetric<Integer>("job",
+                GaugeMetric<Integer> gauge = (GaugeMetric<Integer>) new GaugeMetric<Integer>("job",
                         "job statistics") {
                     @Override
                     public Integer getValue() {
@@ -94,7 +94,7 @@ public final class MetricRepo {
                 continue;
             }
             
-            PaloGaugeMetric<Integer> gauge = (PaloGaugeMetric<Integer>) new PaloGaugeMetric<Integer>("job",
+            GaugeMetric<Integer> gauge = (GaugeMetric<Integer>) new GaugeMetric<Integer>("job",
                     "job statistics") {
                 @Override
                 public Integer getValue() {
@@ -118,7 +118,7 @@ public final class MetricRepo {
         generateCapacityMetrics();
 
         // connections
-        PaloGaugeMetric<Integer> conections = (PaloGaugeMetric<Integer>) new PaloGaugeMetric<Integer>(
+        GaugeMetric<Integer> conections = (GaugeMetric<Integer>) new GaugeMetric<Integer>(
                 "connection_total", "total connections") {
             @Override
             public Integer getValue() {
@@ -128,7 +128,7 @@ public final class MetricRepo {
         PALO_METRIC_REGISTER.addPaloMetrics(conections);
 
         // journal id
-        PaloGaugeMetric<Long> maxJournalId = (PaloGaugeMetric<Long>) new PaloGaugeMetric<Long>(
+        GaugeMetric<Long> maxJournalId = (GaugeMetric<Long>) new GaugeMetric<Long>(
                 "max_journal_id", "max journal id of this frontends") {
             @Override
             public Long getValue() {
@@ -142,31 +142,32 @@ public final class MetricRepo {
         PALO_METRIC_REGISTER.addPaloMetrics(maxJournalId);
 
         // 2. counter
-        COUNTER_REQUEST_ALL = new PaloLongCounterMetric("request_total", "total request");
+        COUNTER_REQUEST_ALL = new LongCounterMetric("request_total", "total request");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_REQUEST_ALL);
-        COUNTER_QUERY_ALL = new PaloLongCounterMetric("query_total", "total query");
+        COUNTER_QUERY_ALL = new LongCounterMetric("query_total", "total query");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_ALL);
-        COUNTER_QUERY_ERR = new PaloLongCounterMetric("query_err", "total error query");
+        COUNTER_QUERY_ERR = new LongCounterMetric("query_err", "total error query");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_ERR);
-        COUNTER_LOAD_ADD = new PaloLongCounterMetric("load_add", "total laod submit");
+        COUNTER_LOAD_ADD = new LongCounterMetric("load_add", "total laod submit");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_LOAD_ADD);
-        COUNTER_LOAD_FINISHED = new PaloLongCounterMetric("load_finished", "total laod finished");
+        COUNTER_LOAD_FINISHED = new LongCounterMetric("load_finished", "total laod finished");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_LOAD_FINISHED);
-        COUNTER_EDIT_LOG_WRITE = new PaloLongCounterMetric("edit_log_write", "counter of edit log write into bdbje");
+        COUNTER_EDIT_LOG_WRITE = new LongCounterMetric("edit_log_write", "counter of edit log write into bdbje");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_WRITE);
-        COUNTER_EDIT_LOG_READ = new PaloLongCounterMetric("edit_log_read", "counter of edit log read from bdbje");
+        COUNTER_EDIT_LOG_READ = new LongCounterMetric("edit_log_read", "counter of edit log read from bdbje");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_READ);
-        COUNTER_IMAGE_WRITE = new PaloLongCounterMetric("image_write", "counter of image generated");
+        COUNTER_IMAGE_WRITE = new LongCounterMetric("image_write", "counter of image generated");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_WRITE);
-        COUNTER_IMAGE_PUSH = new PaloLongCounterMetric("image_push",
+        COUNTER_IMAGE_PUSH = new LongCounterMetric("image_push",
                 "counter of image succeeded in pushing to other frontends");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_PUSH);
 
         // 3. histogram
         HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("query", "latency", "ms"));
+        HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("editlog", "write", "latency",
+                                                                                     "ms"));
 
         isInit.set(true);
-        ;
     }
 
     // this metric is reentrant, so that we can add or remove metric along with the backend add or remove
@@ -187,7 +188,7 @@ public final class MetricRepo {
             LOG.debug("get backend: {}", be);
             for (DiskInfo diskInfo : be.getDisks().values()) {
                 LOG.debug("get disk: {}", diskInfo);
-                PaloGaugeMetric<Long> total = (PaloGaugeMetric<Long>) new PaloGaugeMetric<Long>(CAPACITY,
+                GaugeMetric<Long> total = (GaugeMetric<Long>) new GaugeMetric<Long>(CAPACITY,
                         "disk capacity") {
                     @Override
                     public Long getValue() {
@@ -202,7 +203,7 @@ public final class MetricRepo {
                         .addLabel(new MetricLabel("type", "total"));
                 PALO_METRIC_REGISTER.addPaloMetrics(total);
                 
-                PaloGaugeMetric<Long> used = (PaloGaugeMetric<Long>) new PaloGaugeMetric<Long>(CAPACITY,
+                GaugeMetric<Long> used = (GaugeMetric<Long>) new GaugeMetric<Long>(CAPACITY,
                         "disk capacity") {
                     @Override
                     public Long getValue() {
@@ -221,7 +222,7 @@ public final class MetricRepo {
         }
     }
 
-    public static synchronized String getMetric(PaloMetricVisitor visitor) {
+    public static synchronized String getMetric(MetricVisitor visitor) {
         if (!isInit.get()) {
             return "";
         }
@@ -232,7 +233,7 @@ public final class MetricRepo {
         sb.append(visitor.visitJvm(jvmStats)).append("\n");
 
         // palo metrics
-        for (PaloMetric metric : PALO_METRIC_REGISTER.getPaloMetrics()) {
+        for (Metric metric : PALO_METRIC_REGISTER.getPaloMetrics()) {
             sb.append(visitor.visit(metric)).append("\n");
         }
 
