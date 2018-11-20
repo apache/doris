@@ -25,7 +25,6 @@ import org.apache.doris.persist.EditLog;
 public class CatalogIdGenerator {
     private static final int BATCH_ID_INTERVAL = 1000;
 
-    // nextId is always less then batchEndId
     private long nextId;
     private long batchEndId;
 
@@ -42,7 +41,7 @@ public class CatalogIdGenerator {
 
     // performance is more quickly
     public synchronized long getNextId() {
-        if (nextId + 1 < batchEndId) {
+        if (nextId < batchEndId) {
             return nextId++;
         } else {
             batchEndId = batchEndId + BATCH_ID_INTERVAL;
