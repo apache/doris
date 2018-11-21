@@ -80,3 +80,8 @@ if [[ ! "$(printf '%s\n' "$required_ver" "$gcc_ver" | sort -V | head -n1)" = "$r
     exit 1
 fi
 
+# export CLANG COMPATIBLE FLAGS
+export CLANG_COMPATIBLE_FLAGS=`echo | ${DORIS_GCC_HOME}/bin/gcc -Wp,-v -xc++ - -fsyntax-only 2>&1 \
+                | grep -E '^\s+/' | awk '{print "-I" $1}' | tr '\n' ' '`
+
+
