@@ -25,7 +25,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -35,7 +34,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * The desireTaskConcurrentNum means that user expect the number of concurrent stream load
  * The routine load job support different streaming medium such as KAFKA
  */
-public class RoutineLoadJob implements Writable {
+public abstract class RoutineLoadJob implements Writable {
 
     public enum JobState {
         NEED_SCHEDULER,
@@ -116,6 +115,26 @@ public class RoutineLoadJob implements Writable {
         return id;
     }
 
+    public long getDbId() {
+        return dbId;
+    }
+
+    public long getTableId() {
+        return tableId;
+    }
+
+    public String getColumns() {
+        return columns;
+    }
+
+    public String getWhere() {
+        return where;
+    }
+
+    public String getColumnSeparator() {
+        return columnSeparator;
+    }
+
     public JobState getState() {
         return state;
     }
@@ -128,7 +147,7 @@ public class RoutineLoadJob implements Writable {
         return resourceInfo;
     }
 
-    public List<RoutineLoadTask> divideRoutineLoadJob(int currentConcurrentTaskNum) {
+    public List<RoutineLoadTaskInfo> divideRoutineLoadJob(int currentConcurrentTaskNum) {
         return null;
     }
 
@@ -145,4 +164,6 @@ public class RoutineLoadJob implements Writable {
     public void readFields(DataInput in) throws IOException {
         // TODO(ml)
     }
+
+    abstract RoutineLoadTask createTask(RoutineLoadTaskInfo routineLoadTaskInfo, long beId);
 }

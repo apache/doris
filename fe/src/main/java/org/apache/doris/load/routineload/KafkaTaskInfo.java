@@ -17,8 +17,32 @@
 
 package org.apache.doris.load.routineload;
 
-public class KafkaRoutineLoadProgress {
+import org.apache.doris.common.SystemIdGenerator;
 
-    private String partitionName;
-    private long offset;
+import java.util.ArrayList;
+import java.util.List;
+
+public class KafkaTaskInfo extends RoutineLoadTaskInfo {
+
+    private List<Integer> partitions;
+
+    public KafkaTaskInfo(long signature) {
+        super(signature);
+        this.partitions = new ArrayList<>();
+    }
+
+    public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo) {
+        super(SystemIdGenerator.getNextId());
+        this.partitions = kafkaTaskInfo.getPartitions();
+    }
+
+    public void addKafkaPartition(int partition) {
+        partitions.add(partition);
+    }
+
+    public List<Integer> getPartitions() {
+        return partitions;
+    }
+
+
 }

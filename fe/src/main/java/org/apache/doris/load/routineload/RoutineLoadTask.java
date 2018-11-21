@@ -21,10 +21,22 @@ import org.apache.doris.task.AgentTask;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TTaskType;
 
-public class RoutineLoadTask extends AgentTask{
+public class RoutineLoadTask extends AgentTask {
+
+    private String columns;
+    private String where;
+    private String columnSeparator;
+    private RoutineLoadJob.DataSourceType dataSourceType;
+
 
     public RoutineLoadTask(TResourceInfo resourceInfo, long backendId, TTaskType taskType,
-                           long dbId, long tableId, long partitionId, long indexId, long tabletId, long signature) {
+                           long dbId, long tableId, long partitionId, long indexId, long tabletId, long signature,
+                           String columns, String where, String columnSeparator,
+                           RoutineLoadJob.DataSourceType dataSourceType) {
         super(resourceInfo, backendId, taskType, dbId, tableId, partitionId, indexId, tabletId, signature);
+        this.columns = columns;
+        this.where = where;
+        this.columnSeparator = columnSeparator;
+        this.dataSourceType = dataSourceType;
     }
 }

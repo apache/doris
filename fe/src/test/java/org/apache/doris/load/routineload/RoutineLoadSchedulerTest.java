@@ -41,8 +41,8 @@ public class RoutineLoadSchedulerTest {
     @Test
     public void testNormalRunOneCycle() throws LoadException, MetaNotFoundException {
         int taskNum = 1;
-        List<RoutineLoadTask> routineLoadTaskList = new ArrayList<>();
-        KafkaRoutineLoadTask kafkaRoutineLoadTask = EasyMock.createNiceMock(KafkaRoutineLoadTask.class);
+        List<RoutineLoadTaskInfo> routineLoadTaskList = new ArrayList<>();
+        KafkaTaskInfo kafkaRoutineLoadTask = EasyMock.createNiceMock(KafkaTaskInfo.class);
         EasyMock.expect(kafkaRoutineLoadTask.getSignature()).andReturn(1L).anyTimes();
         EasyMock.replay(kafkaRoutineLoadTask);
         routineLoadTaskList.add(kafkaRoutineLoadTask);
@@ -66,21 +66,21 @@ public class RoutineLoadSchedulerTest {
         PowerMock.replay(Catalog.class);
 
 
-        RoutineLoad routineLoad = new RoutineLoad();
+        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         EasyMock.expect(catalog.getEditLog()).andReturn(editLog).anyTimes();
-        EasyMock.expect(catalog.getRoutineLoadInstance()).andReturn(routineLoad).anyTimes();
+        EasyMock.expect(catalog.getRoutineLoadInstance()).andReturn(routineLoadManager).anyTimes();
         EasyMock.replay(catalog);
 
-        routineLoad.addRoutineLoadJob(routineLoadJob);
-        routineLoad.updateRoutineLoadJobState(routineLoadJob, RoutineLoadJob.JobState.NEED_SCHEDULER);
+        routineLoadManager.addRoutineLoadJob(routineLoadJob);
+        routineLoadManager.updateRoutineLoadJobState(routineLoadJob, RoutineLoadJob.JobState.NEED_SCHEDULER);
 
         RoutineLoadScheduler routineLoadScheduler = new RoutineLoadScheduler();
         routineLoadScheduler.runOneCycle();
 
-        Assert.assertEquals(1, routineLoad.getIdToRoutineLoadTask().size());
-        Assert.assertEquals(1, routineLoad.getIdToNeedSchedulerRoutineLoadTasks().size());
-        Assert.assertEquals(1, routineLoad.getRoutineLoadJobByState(RoutineLoadJob.JobState.RUNNING).size());
-        Assert.assertEquals(0, routineLoad.getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULER).size());
+        Assert.assertEquals(1, routineLoadManager.getIdToRoutineLoadTask().size());
+        Assert.assertEquals(1, routineLoadManager.getNeedSchedulerRoutineLoadTasks().size());
+        Assert.assertEquals(1, routineLoadManager.getRoutineLoadJobByState(RoutineLoadJob.JobState.RUNNING).size());
+        Assert.assertEquals(0, routineLoadManager.getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULER).size());
 
     }
 }

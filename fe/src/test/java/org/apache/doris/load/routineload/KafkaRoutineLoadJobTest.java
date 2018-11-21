@@ -19,7 +19,6 @@ package org.apache.doris.load.routineload;
 
 import com.google.common.collect.Lists;
 import mockit.Deencapsulation;
-import mockit.Delegate;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
@@ -89,15 +88,15 @@ public class KafkaRoutineLoadJobTest {
 
         Deencapsulation.setField(kafkaRoutineLoadJob, "kafkaPartitions", Arrays.asList(1, 4, 6));
 
-        List<RoutineLoadTask> result = kafkaRoutineLoadJob.divideRoutineLoadJob(2);
+        List<RoutineLoadTaskInfo> result = kafkaRoutineLoadJob.divideRoutineLoadJob(2);
         Assert.assertEquals(2, result.size());
-        for (RoutineLoadTask routineLoadTask : result) {
-            KafkaRoutineLoadTask kafkaRoutineLoadTask = (KafkaRoutineLoadTask) routineLoadTask;
-            if (kafkaRoutineLoadTask.getKafkaPartitions().size() == 2) {
-                Assert.assertTrue(kafkaRoutineLoadTask.getKafkaPartitions().contains(1));
-                Assert.assertTrue(kafkaRoutineLoadTask.getKafkaPartitions().contains(6));
-            } else if (kafkaRoutineLoadTask.getKafkaPartitions().size() == 1) {
-                Assert.assertTrue(kafkaRoutineLoadTask.getKafkaPartitions().contains(4));
+        for (RoutineLoadTaskInfo routineLoadTaskInfo : result) {
+            KafkaTaskInfo kafkaTaskInfo = (KafkaTaskInfo) routineLoadTaskInfo;
+            if (kafkaTaskInfo.getPartitions().size() == 2) {
+                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(1));
+                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(6));
+            } else if (kafkaTaskInfo.getPartitions().size() == 1) {
+                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(4));
             } else {
                 Assert.fail();
             }

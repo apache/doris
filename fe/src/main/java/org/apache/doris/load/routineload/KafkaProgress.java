@@ -17,29 +17,21 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.thrift.TResourceInfo;
-import org.apache.doris.thrift.TTaskType;
-
-import java.util.HashMap;
 import java.util.Map;
 
-
-public class KafkaRoutineLoadTask extends RoutineLoadTask {
+/**
+ * this is description of kafka routine load progress
+ * the data before offset was already loaded in doris
+ */
+public class KafkaProgress {
 
     private Map<Integer, Long> partitionIdToOffset;
 
-    public KafkaRoutineLoadTask(TResourceInfo resourceInfo, long backendId,
-                                long dbId, long tableId, long partitionId, long indexId, long tabletId,
-                                String columns, String where, String columnSeparator,
-                                KafkaTaskInfo kafkaTaskInfo, KafkaProgress kafkaProgress) {
-        super(resourceInfo, backendId, TTaskType.STREAM_LOAD, dbId, tableId, partitionId, indexId, tabletId,
-                kafkaTaskInfo.getSignature(), columns, where, columnSeparator, RoutineLoadJob.DataSourceType.KAFKA);
-        this.partitionIdToOffset = new HashMap<>();
-        kafkaTaskInfo.getPartitions().parallelStream().forEach(entity ->
-                partitionIdToOffset.put(entity, kafkaProgress.getPartitionIdToOffset().get(entity)));
-    }
-
     public Map<Integer, Long> getPartitionIdToOffset() {
         return partitionIdToOffset;
+    }
+
+    public void setPartitionIdToOffset(Map<Integer, Long> partitionIdToOffset) {
+        this.partitionIdToOffset = partitionIdToOffset;
     }
 }
