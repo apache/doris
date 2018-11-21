@@ -80,11 +80,8 @@ if [[ ! "$(printf '%s\n' "$required_ver" "$gcc_ver" | sort -V | head -n1)" = "$r
     exit 1
 fi
 
-# export include path
-ABS_DORIS_GCC_HOME=`readlink -f $DORIS_GCC_HOME`
-INCLUDE_PATH_1=`locate cstddef | grep $ABS_DORIS_GCC_HOME | tail -1 | xargs dirname`
-INCLUDE_PATH_TMP=`locate c++config.h | grep $ABS_DORIS_GCC_HOME | grep -v "32\/bits" | tail -1 | xargs dirname`
-INCLUDE_PATH_2=${INCLUDE_PATH_TMP%/bits}
-export CPLUS_INCLUDE_PATH=$INCLUDE_PATH_1:$INCLUDE_PATH_2
+# export CLANG COMPATIBLE FLAGS
+export CLANG_COMPATIBLE_FLAGS=`echo | ${DORIS_GCC_HOME}/bin/gcc -Wp,-v -xc++ - -fsyntax-only 2>&1 \
+                | grep -E '^\s+/' | awk '{print "-I" $1}' | tr '\n' ' '`
 
 

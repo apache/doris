@@ -408,7 +408,12 @@ message(STATUS "${LINUX_VERSION_LOWER}")
 #     message(FATAL_ERROR "Currently not support system ${LINUX_VERSION}")
 # endif()
 
+if(DEFINED ENV{CLANG_COMPATIBLE_FLAGS})
+    set(CLANG_COMPATIBLE_FLAGS $ENV{CLANG_COMPATIBLE_FLAGS})
+endif()
+
 message(STATUS "CLANG_BASE_FLAGS: ${CLANG_BASE_FLAGS}")
+message(STATUS "CLANG_COMPATIBLE_FLAGS: ${CLANG_COMPATIBLE_FLAGS}")
 
 set(CLANG_INCLUDE_FLAGS
     "-I${LLVM_HOME}/include"
@@ -419,6 +424,7 @@ set(CLANG_INCLUDE_FLAGS
     "-I${THIRDPARTY_DIR}/include/event/"
     "-I${GPERFTOOLS_HOME}/include"
     ${CLANG_BASE_FLAGS}
+    ${CLANG_COMPATIBLE_FLAGS}
 )
 
 # Set include dirs
