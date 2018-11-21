@@ -124,7 +124,7 @@ public class PublishVersionDaemon extends Daemon {
         // try to finish the transaction, if failed just retry in next loop
         long currentTime = System.currentTimeMillis();
         for (TransactionState transactionState : readyTransactionStates) {
-            if (transactionState.getPublishVersionTime() - currentTime < Config.publish_version_interval_millis * 2) {
+            if (currentTime - transactionState.getPublishVersionTime() < Config.publish_version_interval_millis * 2) {
                 // wait 2 rounds before handling publish result
                 continue;
             }
