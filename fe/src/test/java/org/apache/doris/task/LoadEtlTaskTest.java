@@ -169,7 +169,7 @@ public class LoadEtlTaskTest {
         
         // verify finished
         Assert.assertEquals(100, job.getProgress());
-        long expectVersion = partition.getCommittedVersion() + 1;
+        long expectVersion = partition.getVisibleVersion() + 1;
         Assert.assertEquals(-1,
                             job.getIdToTableLoadInfo().get(tableId)
                 .getIdToPartitionLoadInfo().get(paritionId).getVersion());

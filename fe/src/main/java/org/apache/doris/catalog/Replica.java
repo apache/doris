@@ -166,7 +166,7 @@ public class Replica implements Writable {
         this.rowCount = rowNum;
     }
 
-    public synchronized void updateInfo(long newVersion, long newVersionHash, long newDataSize, long newRowCount) {
+    public synchronized void updateVersionInfo(long newVersion, long newVersionHash, long newDataSize, long newRowCount) {
         updateReplicaInfo(newVersion, newVersionHash, this.lastFailedVersion, this.lastFailedVersionHash, 
                 this.lastSuccessVersion, this.lastSuccessVersionHash, newDataSize, newRowCount);
     }

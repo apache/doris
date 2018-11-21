@@ -229,7 +229,7 @@ public class RollupJob extends AlterJob {
             throw new MetaNotFoundException("cannot find replica in tablet[" + tabletId + "], backend[" + backendId
                     + "]");
         }
-        replica.updateInfo(version, versionHash, dataSize, rowCount);
+        replica.updateVersionInfo(version, versionHash, dataSize, rowCount);
         LOG.debug("rollup replica[{}] info updated. schemaHash:{}", replica.getId(), schemaHash);
     }
 
@@ -587,7 +587,7 @@ public class RollupJob extends AlterJob {
         // yiguolei: not check version here because the replica's first version will be set by rollup job
         // the version is not set now
         // the finish task thread doesn't own db lock here, maybe a bug?
-        rollupReplica.updateInfo(version, versionHash, dataSize, rowCount);
+        rollupReplica.updateVersionInfo(version, versionHash, dataSize, rowCount);
 
         setReplicaFinished(partitionId, rollupReplicaId);
         rollupReplica.setState(ReplicaState.NORMAL);
@@ -735,7 +735,7 @@ public class RollupJob extends AlterJob {
                     // 3. add rollup finished version to base index
                     MaterializedIndex baseIndex = partition.getIndex(baseIndexId);
                     if (baseIndex != null) {
-                        baseIndex.setRollupIndexInfo(rollupIndexId, partition.getCommittedVersion());
+                        baseIndex.setRollupIndexInfo(rollupIndexId, partition.getVisibleVersion());
                     }
                     Preconditions.checkState(partition.getState() == PartitionState.ROLLUP);
                     partition.setState(PartitionState.NORMAL);
@@ -840,7 +840,7 @@ public class RollupJob extends AlterJob {
 
                 MaterializedIndex baseIndex = partition.getIndex(baseIndexId);
                 if (baseIndex != null) {
-                    baseIndex.setRollupIndexInfo(rollupIndexId, partition.getCommittedVersion());
+                    baseIndex.setRollupIndexInfo(rollupIndexId, partition.getVisibleVersion());
                 }
 
                 partition.createRollupIndex(rollupIndex);

@@ -17,13 +17,7 @@
 
 package org.apache.doris.transaction;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.common.collect.Sets;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Replica;
@@ -37,7 +31,13 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TTaskType;
-import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class PublishVersionDaemon extends Daemon {
     
@@ -68,8 +68,8 @@ public class PublishVersionDaemon extends Daemon {
         // attention here, we publish transaction state to all backends including dead backend, if not publish to dead backend
         // then transaction manager will treat it as success
         List<Long> allBackends = Catalog.getCurrentSystemInfo().getBackendIds(false);
-        if (allBackends == null || allBackends.size() == 0) {
-            LOG.warn("some transaction state need to publish, but no alive backends!!!");
+        if (allBackends.isEmpty()) {
+            LOG.warn("some transaction state need to publish, but no backend exists");
             return;
         }
         // every backend-transaction identified a single task
@@ -122,7 +122,12 @@ public class PublishVersionDaemon extends Daemon {
         
         TabletInvertedIndex tabletInvertedIndex = Catalog.getCurrentInvertedIndex();
         // try to finish the transaction, if failed just retry in next loop
+        long currentTime = System.currentTimeMillis();
         for (TransactionState transactionState : readyTransactionStates) {
+            if (transactionState.getPublishVersionTime() - currentTime < Config.publish_version_interval_millis * 2) {
+                // wait 2 rounds before handling publish result
+                continue;
+            }
             Map<Long, PublishVersionTask> transTasks = transactionState.getPublishVersionTasks();
             Set<Replica> transErrorReplicas = Sets.newHashSet();
             for (PublishVersionTask publishVersionTask : transTasks.values()) {
@@ -130,7 +135,7 @@ public class PublishVersionDaemon extends Daemon {
                     // sometimes backend finish publish version task, but it maybe failed to change transactionid to version for some tablets
                     // and it will upload the failed tabletinfo to fe and fe will deal with them
                     List<Long> errorTablets = publishVersionTask.getErrorTablets();
-                    if (errorTablets == null || errorTablets.size() == 0) {
+                    if (errorTablets == null || errorTablets.isEmpty()) {
                         continue;
                     } else {
                         for (long tabletId : errorTablets) {
@@ -172,7 +177,7 @@ public class PublishVersionDaemon extends Daemon {
                 allErrorReplicas.add(replica.getId());
                 if (replica.getState() != ReplicaState.CLONE 
                         && replica.getLastFailedVersion() < 1) {
-                    ++ normalReplicasNotRespond;
+                    ++normalReplicasNotRespond;
                 }
             }
             if (normalReplicasNotRespond == 0 

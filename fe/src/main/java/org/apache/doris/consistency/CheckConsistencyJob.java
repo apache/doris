@@ -164,8 +164,8 @@ public class CheckConsistencyJob {
                 return false;
             }
 
-            checkedVersion = partition.getCommittedVersion();
-            checkedVersionHash = partition.getCommittedVersionHash();
+            checkedVersion = partition.getVisibleVersion();
+            checkedVersionHash = partition.getVisibleVersionHash();
             checkedSchemaHash = olapTable.getSchemaHashByIndexId(tabletMeta.getIndexId());
 
             int sentTaskReplicaNum = 0;

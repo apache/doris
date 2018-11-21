@@ -365,8 +365,8 @@ public class BackupJob_D extends AbstractBackupJob_D {
 
                         // save version info
                         partitionIdToVersionInfo.put(partitionId,
-                                                     new Pair<Long, Long>(partition.getCommittedVersion(),
-                                                                          partition.getCommittedVersionHash()));
+                                                     new Pair<Long, Long>(partition.getVisibleVersion(),
+                                                                          partition.getVisibleVersionHash()));
                     }
                 } else {
                     Preconditions.checkState(partitionIds.size() == 1);
@@ -374,8 +374,8 @@ public class BackupJob_D extends AbstractBackupJob_D {
                         Partition partition = olapTable.getPartition(partitionId);
                         // save version info
                         partitionIdToVersionInfo.put(partitionId,
-                                                     new Pair<Long, Long>(partition.getCommittedVersion(),
-                                                                          partition.getCommittedVersionHash()));
+                                                     new Pair<Long, Long>(partition.getVisibleVersion(),
+                                                                          partition.getVisibleVersionHash()));
                     }
                 }
             } // end for tables

@@ -708,7 +708,7 @@ public class RestoreJob extends AbstractJob {
                 SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), signature,
                         jobId, db.getId(),
                         tbl.getId(), part.getId(), index.getId(), tablet.getId(),
-                        part.getCommittedVersion(), part.getCommittedVersionHash(),
+                        part.getVisibleVersion(), part.getVisibleVersionHash(),
                         tbl.getSchemaHashByIndexId(index.getId()), timeoutMs,
                         true /* is restore task*/);
                 batchTask.addTask(task);
@@ -763,8 +763,8 @@ public class RestoreJob extends AbstractJob {
         }
 
         // save version info for creating replicas
-        long committedVersion = remotePart.getCommittedVersion();
-        long committedVersionHash = remotePart.getCommittedVersionHash();
+        long visibleVersion = remotePart.getVisibleVersion();
+        long visibleVersionHash = remotePart.getVisibleVersionHash();
 
         // tablets
         for (MaterializedIndex remoteIdx : remotePart.getMaterializedIndices()) {
@@ -789,7 +789,7 @@ public class RestoreJob extends AbstractJob {
                 for (Long beId : beIds) {
                     long newReplicaId = catalog.getNextId();
                     Replica newReplica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
-                            committedVersion, committedVersionHash);
+                            visibleVersion, visibleVersionHash);
                     newTablet.addReplica(newReplica, true /* is restore */);
                 }
             }
@@ -1141,15 +1141,15 @@ public class RestoreJob extends AbstractJob {
                     }
 
                     // update partition committed version
-                    part.updateCommitVersionAndVersionHash(entry.getValue().first, entry.getValue().second);
+                    part.updateVisibleVersionAndVersionHash(entry.getValue().first, entry.getValue().second);
 
                     // we also need to update the replica version of these overwritten restored partitions
                     for (MaterializedIndex idx : part.getMaterializedIndices()) {
                         for (Tablet tablet : idx.getTablets()) {
                             for (Replica replica : tablet.getReplicas()) {
-                                if (!replica.checkVersionCatchUp(part.getCommittedVersion(),
-                                                                 part.getCommittedVersionHash())) {
-                                    replica.updateInfo(part.getCommittedVersion(), part.getCommittedVersionHash(),
+                                if (!replica.checkVersionCatchUp(part.getVisibleVersion(),
+                                                                 part.getVisibleVersionHash())) {
+                                    replica.updateVersionInfo(part.getVisibleVersion(), part.getVisibleVersionHash(),
                                                        replica.getDataSize(), replica.getRowCount());
                                 }
                             }
