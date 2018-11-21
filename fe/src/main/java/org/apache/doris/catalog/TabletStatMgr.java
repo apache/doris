@@ -114,8 +114,8 @@ public class TabletStatMgr extends Daemon {
 
                     OlapTable olapTable = (OlapTable) table;
                     for (Partition partition : olapTable.getPartitions()) {
-                        long version = partition.getCommittedVersion();
-                        long versionHash = partition.getCommittedVersionHash();
+                        long version = partition.getVisibleVersion();
+                        long versionHash = partition.getVisibleVersionHash();
                         for (MaterializedIndex index : partition.getMaterializedIndices()) {
                             long indexRowCount = 0L;
                             for (Tablet tablet : index.getTablets()) {

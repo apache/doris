@@ -153,7 +153,7 @@ public class GlobalTransactionMgrTest {
         Partition testPartition = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1)
                 .getPartition(CatalogTestUtil.testPartition1);
         // check partition version
-        assertEquals(CatalogTestUtil.testStartVersion, testPartition.getCommittedVersion());
+        assertEquals(CatalogTestUtil.testStartVersion, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 2, testPartition.getNextVersion());
         // check partition next version
         Tablet tablet = testPartition.getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1);
@@ -214,7 +214,7 @@ public class GlobalTransactionMgrTest {
         Partition testPartition = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1)
                 .getPartition(CatalogTestUtil.testPartition1);
         // check partition version
-        assertEquals(CatalogTestUtil.testStartVersion, testPartition.getCommittedVersion());
+        assertEquals(CatalogTestUtil.testStartVersion, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 2, testPartition.getNextVersion());
         // check partition next version
         Tablet tablet = testPartition.getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1);
@@ -240,7 +240,7 @@ public class GlobalTransactionMgrTest {
         testPartition = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1)
                 .getPartition(CatalogTestUtil.testPartition1);
         // check partition version
-        assertEquals(CatalogTestUtil.testStartVersion, testPartition.getCommittedVersion());
+        assertEquals(CatalogTestUtil.testStartVersion, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 3, testPartition.getNextVersion());
         // check partition next version
         tablet = testPartition.getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1);
@@ -262,7 +262,7 @@ public class GlobalTransactionMgrTest {
         assertEquals(CatalogTestUtil.testStartVersion, replcia2.getLastSuccessVersion());
         assertEquals(CatalogTestUtil.testStartVersion, replcia3.getLastSuccessVersion());
         // check partition version
-        assertEquals(CatalogTestUtil.testStartVersion, testPartition.getCommittedVersion());
+        assertEquals(CatalogTestUtil.testStartVersion, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 3, testPartition.getNextVersion());
 
         transactionState = fakeEditLog.getTransaction(transactionId2);
@@ -301,7 +301,7 @@ public class GlobalTransactionMgrTest {
         Partition testPartition = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1)
                 .getPartition(CatalogTestUtil.testPartition1);
         // check partition version
-        assertEquals(CatalogTestUtil.testStartVersion + 1, testPartition.getCommittedVersion());
+        assertEquals(CatalogTestUtil.testStartVersion + 1, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 2, testPartition.getNextVersion());
         // check partition next version
         Tablet tablet = testPartition.getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1);
@@ -408,7 +408,7 @@ public class GlobalTransactionMgrTest {
         testPartition = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1)
                 .getPartition(CatalogTestUtil.testPartition1);
         // check partition version
-        assertEquals(CatalogTestUtil.testStartVersion + 1, testPartition.getCommittedVersion());
+        assertEquals(CatalogTestUtil.testStartVersion + 1, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 3, testPartition.getNextVersion());
 
         // follower catalog replay the transaction
@@ -432,7 +432,7 @@ public class GlobalTransactionMgrTest {
         assertEquals(CatalogTestUtil.testStartVersion + 2, replcia2.getLastSuccessVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 2, replcia3.getLastSuccessVersion());
         // check partition version
-        assertEquals(CatalogTestUtil.testStartVersion + 2, testPartition.getCommittedVersion());
+        assertEquals(CatalogTestUtil.testStartVersion + 2, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 3, testPartition.getNextVersion());
 
         transactionState = fakeEditLog.getTransaction(transactionId2);

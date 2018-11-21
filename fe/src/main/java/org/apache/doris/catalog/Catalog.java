@@ -3097,10 +3097,10 @@ public class Catalog {
 
         // version and version hash
         if (versionInfo != null) {
-            partition.updateCommitVersionAndVersionHash(versionInfo.first, versionInfo.second);
+            partition.updateVisibleVersionAndVersionHash(versionInfo.first, versionInfo.second);
         }
-        long version = partition.getCommittedVersion();
-        long versionHash = partition.getCommittedVersionHash();
+        long version = partition.getVisibleVersion();
+        long versionHash = partition.getVisibleVersionHash();
 
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
             long indexId = entry.getKey();
@@ -3640,7 +3640,7 @@ public class Catalog {
                     Preconditions.checkState(partitionId.size() == 1);
                     partition = olapTable.getPartition(partitionId.get(0));
                 }
-                sb.append(Joiner.on(",").join(partition.getCommittedVersion(), partition.getCommittedVersionHash()))
+                sb.append(Joiner.on(",").join(partition.getVisibleVersion(), partition.getVisibleVersionHash()))
                         .append("\"");
             }
 
@@ -3759,7 +3759,7 @@ public class Catalog {
                 sb.append(entry.getValue().upperEndpoint().toSql());
 
                 sb.append("(\"version_info\" = \"");
-                sb.append(Joiner.on(",").join(partition.getCommittedVersion(), partition.getCommittedVersionHash()))
+                sb.append(Joiner.on(",").join(partition.getVisibleVersion(), partition.getVisibleVersionHash()))
                         .append("\"");
                 if (replicationNum > 0) {
                     sb.append(", \"replication_num\" = \"").append(replicationNum).append("\"");

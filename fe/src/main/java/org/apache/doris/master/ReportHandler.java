@@ -397,7 +397,7 @@ public class ReportHandler extends Daemon {
                             }
 
                             // happens when PUSH finished in BE but failed or not yet report to FE
-                            replica.updateInfo(backendVersion, backendVersionHash, dataSize, rowCount);
+                            replica.updateVersionInfo(backendVersion, backendVersionHash, dataSize, rowCount);
                             
                             ++syncCounter;
                             LOG.debug("sync replica[{}] in db[{}].", replica.getId(), dbId);
@@ -487,8 +487,8 @@ public class ReportHandler extends Daemon {
                                 double bfFpp = olapTable.getBfFpp();
                                 CreateReplicaTask createReplicaTask = new CreateReplicaTask(backendId, dbId, 
                                         tableId, partitionId, indexId, tabletId, shortKeyColumnCount, 
-                                        schemaHash, partition.getCommittedVersion(), 
-                                        partition.getCommittedVersionHash(), keysType, 
+                                        schemaHash, partition.getVisibleVersion(), 
+                                        partition.getVisibleVersionHash(), keysType, 
                                         TStorageType.COLUMN,
                                         TStorageMedium.HDD, columns, bfColumns, bfFpp, null);
                                 createReplicaTasks.add(createReplicaTask);
@@ -707,13 +707,13 @@ public class ReportHandler extends Daemon {
                 throw new MetaNotFoundException("tablet[" + tabletId + "] does not exist");
             }
 
-            long committedVersion = partition.getCommittedVersion();
-            long committedVersionHash = partition.getCommittedVersionHash();
+            long visibleVersion = partition.getVisibleVersion();
+            long visibleVersionHash = partition.getVisibleVersionHash();
 
             // check replica version
-            if (version < committedVersion || (version == committedVersion && versionHash != committedVersionHash)) {
+            if (version < visibleVersion || (version == visibleVersion && versionHash != visibleVersionHash)) {
                 throw new MetaNotFoundException("version is invalid. tablet[" + version + "-" + versionHash + "]"
-                        + ", committed[" + committedVersion + "-" + committedVersionHash + "]");
+                        + ", visible[" + visibleVersion + "-" + visibleVersionHash + "]");
             }
             
             // check schema hash
@@ -723,17 +723,17 @@ public class ReportHandler extends Daemon {
             }
 
             List<Replica> replicas = tablet.getReplicas();
-            int replicationOnLine = 0;
+            int onlineReplicaNum = 0;
             for (Replica replica : replicas) {
                 final long id = replica.getBackendId();
                 final Backend backend = Catalog.getCurrentSystemInfo().getBackend(id);
                 if (backend != null && backend.isAlive() && !backend.isDecommissioned()
 						&& replica.getState() == ReplicaState.NORMAL) {
-                    replicationOnLine++;
+                    onlineReplicaNum++;
                 }
             }
             
-            if (replicationOnLine < replicationNum) {
+            if (onlineReplicaNum < replicationNum) {
                 long replicaId = Catalog.getInstance().getNextId();
                 long lastFailedVersion = -1L;
                 long lastFailedVersionHash = 0L;
@@ -741,11 +741,11 @@ public class ReportHandler extends Daemon {
                     // this is a fatal error
                     throw new MetaNotFoundException("version is invalid. tablet[" + version + "-" + versionHash + "]"
                             + ", partition's max version [" + (partition.getNextVersion() - 1) + "]");
-                } else if (version < partition.getCurrentVersion() 
-                        || version == partition.getCurrentVersion() 
-                            && versionHash != partition.getCurrentVersionHash()) {
-                    lastFailedVersion = partition.getCurrentVersion();
-                    lastFailedVersionHash = partition.getCurrentVersionHash();
+                } else if (version < partition.getCommittedVersion() 
+                        || version == partition.getCommittedVersion() 
+                            && versionHash != partition.getCommittedVersionHash()) {
+                    lastFailedVersion = partition.getCommittedVersion();
+                    lastFailedVersionHash = partition.getCommittedVersionHash();
                 }
                 Replica replica = new Replica(replicaId, backendId, version, versionHash, 
                                               dataSize, rowCount, ReplicaState.NORMAL, 

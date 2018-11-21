@@ -599,7 +599,7 @@ public class SchemaChangeJob extends AlterJob {
             long dataSize = finishTabletInfo.getData_size();
             long rowCount = finishTabletInfo.getRow_count();
             // do not need check version > replica.getVersion, because the new replica's version is first set by sc
-            replica.updateInfo(version, versionHash, dataSize, rowCount);
+            replica.updateVersionInfo(version, versionHash, dataSize, rowCount);
         } finally {
             db.writeUnlock();
         }

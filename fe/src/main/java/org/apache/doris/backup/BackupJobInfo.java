@@ -242,8 +242,8 @@ public class BackupJobInfo implements Writable {
                 BackupPartitionInfo partitionInfo = new BackupPartitionInfo();
                 partitionInfo.id = partition.getId();
                 partitionInfo.name = partition.getName();
-                partitionInfo.version = partition.getCommittedVersion();
-                partitionInfo.versionHash = partition.getCommittedVersionHash();
+                partitionInfo.version = partition.getVisibleVersion();
+                partitionInfo.versionHash = partition.getVisibleVersionHash();
                 tableInfo.partitions.put(partitionInfo.name, partitionInfo);
                 // indexes
                 for (MaterializedIndex index : partition.getMaterializedIndices()) {

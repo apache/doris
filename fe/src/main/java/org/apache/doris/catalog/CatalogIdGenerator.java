@@ -45,7 +45,10 @@ public class CatalogIdGenerator {
             return nextId++;
         } else {
             batchEndId = batchEndId + BATCH_ID_INTERVAL;
-            editLog.logSaveNextId(batchEndId);
+            if (editLog != null) {
+                // add this check just for unit test
+                editLog.logSaveNextId(batchEndId);
+            }
             return nextId++;
         }
     }

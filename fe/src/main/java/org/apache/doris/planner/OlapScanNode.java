@@ -411,10 +411,10 @@ public class OlapScanNode extends ScanNode {
 
         int logNum = 0;
         String schemaHashStr = String.valueOf(olapTable.getSchemaHashByIndexId(index.getId()));
-        long committedVersion = partition.getCommittedVersion();
-        long committedVersionHash = partition.getCommittedVersionHash();
-        String committedVersionStr = String.valueOf(committedVersion);
-        String committedVersionHashStr = String.valueOf(partition.getCommittedVersionHash());
+        long visibleVersion = partition.getVisibleVersion();
+        long visibleVersionHash = partition.getVisibleVersionHash();
+        String visibleVersionStr = String.valueOf(visibleVersion);
+        String visibleVersionHashStr = String.valueOf(partition.getVisibleVersionHash());
 
         for (Tablet tablet : tablets) {
             long tabletId = tablet.getId();
@@ -424,19 +424,19 @@ public class OlapScanNode extends ScanNode {
             TPaloScanRange paloRange = new TPaloScanRange();
             paloRange.setDb_name("");
             paloRange.setSchema_hash(schemaHashStr);
-            paloRange.setVersion(committedVersionStr);
-            paloRange.setVersion_hash(committedVersionHashStr);
+            paloRange.setVersion(visibleVersionStr);
+            paloRange.setVersion_hash(visibleVersionHashStr);
             paloRange.setTablet_id(tabletId);
 
             // random shuffle List && only collect one copy
             List<Replica> allQueryableReplicas = Lists.newArrayList();
             List<Replica> localReplicas = Lists.newArrayList();
             tablet.getQueryableReplicas(allQueryableReplicas, localReplicas,
-                                        committedVersion, committedVersionHash,
+                                        visibleVersion, visibleVersionHash,
                                         localBeId);
             if (allQueryableReplicas.isEmpty()) {
                 LOG.error("no queryable replica found in tablet[{}]. committed version[{}], committed version hash[{}]",
-                         tabletId, committedVersion, committedVersionHash);
+                         tabletId, visibleVersion, visibleVersionHash);
                 throw new UserException("Failed to get scan range, no replica!");
             }
 

@@ -642,7 +642,7 @@ public class MasterImpl {
             throw new MetaNotFoundException("cannot find replica in tablet[" + tabletId + "], backend[" + backendId
                     + "]");
         }
-        replica.updateInfo(version, versionHash, dataSize, rowCount);
+        replica.updateVersionInfo(version, versionHash, dataSize, rowCount);
 
         LOG.debug("replica[{}] report schemaHash:{}", replica.getId(), schemaHash);
         return ReplicaPersistInfo.createForLoad(olapTable.getId(), partition.getId(), pushIndexId, tabletId,
