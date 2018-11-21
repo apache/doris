@@ -363,7 +363,7 @@ public class RollupHandler extends AlterHandler {
                     // has to set failed verison and version hash here, because there will be no load after rollup
                     // so that if not set here, last failed version will not be set
                     rollupReplica.updateVersionInfo(rollupReplica.getVersion(), rollupReplica.getVersionHash(), 
-                            partition.getCurrentVersion(), partition.getCurrentVersionHash(), 
+                            partition.getCommittedVersion(), partition.getCommittedVersionHash(), 
                             rollupReplica.getLastSuccessVersion(), rollupReplica.getLastSuccessVersionHash());
                     if (isRestore) {
                         rollupReplica.setState(ReplicaState.NORMAL);

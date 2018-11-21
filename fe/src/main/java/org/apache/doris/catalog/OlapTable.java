@@ -322,7 +322,7 @@ public class OlapTable extends Table {
                     for (Long beId : beIds) {
                         long newReplicaId = catalog.getNextId();
                         Replica replica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
-                                partition.getCommittedVersion(), partition.getCommittedVersionHash());
+                                partition.getVisibleVersion(), partition.getVisibleVersionHash());
                         newTablet.addReplica(replica, true /* is restore */);
                     }
                 }
@@ -586,8 +586,8 @@ public class OlapTable extends Table {
         
         Partition partition = nameToPartition.get(partitionName);
         Map<String, String> properties = Maps.newHashMap();
-        long version = partition.getCommittedVersion();
-        long versionHash = partition.getCommittedVersionHash();
+        long version = partition.getVisibleVersion();
+        long versionHash = partition.getVisibleVersionHash();
         properties.put(PropertyAnalyzer.PROPERTIES_VERSION_INFO, version + "," + versionHash);
         properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
                        String.valueOf(partitionInfo.getReplicationNum(partition.getId())));
@@ -624,8 +624,8 @@ public class OlapTable extends Table {
             // and partition version info here for non-partitioned table
             Partition partition = getPartition(name);
             Preconditions.checkNotNull(partition);
-            long version = partition.getCommittedVersion();
-            long versionHash = partition.getCommittedVersionHash();
+            long version = partition.getVisibleVersion();
+            long versionHash = partition.getVisibleVersionHash();
             String versionProp = Joiner.on(",").join(version, versionHash);
             properties.put(PropertyAnalyzer.PROPERTIES_VERSION_INFO, versionProp);
         }

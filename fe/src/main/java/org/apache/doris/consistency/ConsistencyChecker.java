@@ -290,7 +290,7 @@ public class ConsistencyChecker extends Daemon {
                             }
 
                             // check if this partition has no data
-                            if (partition.getCommittedVersion() == Partition.PARTITION_INIT_VERSION) {
+                            if (partition.getVisibleVersion() == Partition.PARTITION_INIT_VERSION) {
                                 LOG.debug("partition[{}]'s version is {}. ignore", partition.getId(),
                                           Partition.PARTITION_INIT_VERSION);
                                 continue;
@@ -327,8 +327,8 @@ public class ConsistencyChecker extends Daemon {
                                     }
 
                                     // check if version has already been checked
-                                    if (partition.getCommittedVersion() == tablet.getCheckedVersion()
-                                            && partition.getCommittedVersionHash() == tablet.getCheckedVersionHash()) {
+                                    if (partition.getVisibleVersion() == tablet.getCheckedVersion()
+                                            && partition.getVisibleVersionHash() == tablet.getCheckedVersionHash()) {
                                         if (tablet.isConsistent()) {
                                             LOG.debug("tablet[{}]'s version[{}-{}] has been checked. ignore",
                                                       chosenTabletId, tablet.getCheckedVersion(),

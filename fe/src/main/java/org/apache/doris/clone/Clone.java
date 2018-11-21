@@ -495,7 +495,7 @@ public class Clone {
                 }
  
                 replica.setState(ReplicaState.NORMAL);
-                replica.updateInfo(version, versionHash, dataSize, rowCount);
+                replica.updateVersionInfo(version, versionHash, dataSize, rowCount);
 
                 job.setCloneFinishTimeMs(System.currentTimeMillis());
                 job.setState(JobState.FINISHED);

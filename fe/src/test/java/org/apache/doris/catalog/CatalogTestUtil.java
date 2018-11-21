@@ -114,10 +114,10 @@ public class CatalogTestUtil {
             if (masterPartition.getId() != slavePartition.getId()) {
                 return false;
             }
-            if (masterPartition.getCommittedVersion() != slavePartition.getCommittedVersion()
-                    || masterPartition.getCommittedVersionHash() != slavePartition.getCommittedVersionHash()
+            if (masterPartition.getVisibleVersion() != slavePartition.getVisibleVersion()
+                    || masterPartition.getVisibleVersionHash() != slavePartition.getVisibleVersionHash()
                     || masterPartition.getNextVersion() != slavePartition.getNextVersion()
-                    || masterPartition.getCurrentVersionHash() != slavePartition.getCurrentVersionHash()) {
+                    || masterPartition.getCommittedVersionHash() != slavePartition.getCommittedVersionHash()) {
                 return false;
             }
             List<MaterializedIndex> allMaterializedIndices = masterPartition.getMaterializedIndices();
@@ -180,7 +180,7 @@ public class CatalogTestUtil {
         // partition
         RandomDistributionInfo distributionInfo = new RandomDistributionInfo(10);
         Partition partition = new Partition(partitionId, testPartition1, index, distributionInfo);
-        partition.updateCommitVersionAndVersionHash(testStartVersion, testStartVersionHash);
+        partition.updateVisibleVersionAndVersionHash(testStartVersion, testStartVersionHash);
         partition.setNextVersion(testStartVersion + 1);
         partition.setNextVersionHash(testPartitionNextVersionHash, testPartitionCurrentVersionHash);
 

@@ -17,6 +17,16 @@
 
 package org.apache.doris.backup;
 
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Predicates;
+import com.google.common.base.Strings;
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.Collections2;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.BrokerMgr.BrokerAddress;
@@ -40,17 +50,6 @@ import org.apache.doris.task.UploadTask;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTaskType;
-
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Predicates;
-import com.google.common.base.Strings;
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.Collections2;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -377,25 +376,25 @@ public class BackupJob extends AbstractJob {
 
                 // snapshot partitions
                 for (Partition partition : partitions) {
-                    long committedVersion = partition.getCommittedVersion();
-                    long committedVersionHash = partition.getCommittedVersionHash();
+                    long visibleVersion = partition.getVisibleVersion();
+                    long visibleVersionHash = partition.getVisibleVersionHash();
                     List<MaterializedIndex> indexes = partition.getMaterializedIndices();
                     for (MaterializedIndex index : indexes) {
                         int schemaHash = tbl.getSchemaHashByIndexId(index.getId());
                         List<Tablet> tablets = index.getTablets();
                         for (Tablet tablet : tablets) {
-                            Replica replica = chooseReplica(tablet, committedVersion, committedVersionHash);
+                            Replica replica = chooseReplica(tablet, visibleVersion, visibleVersionHash);
                             if (replica == null) {
                                 status = new Status(ErrCode.COMMON_ERROR,
                                         "faild to choose replica to make snapshot for tablet " + tablet.getId()
-                                                + ". committed version: " + committedVersion
-                                                + ", committed version hash: " + committedVersionHash);
+                                                + ". visible version: " + visibleVersion
+                                                + ", visible version hash: " + visibleVersionHash);
                                 return;
                             }
                             SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), tablet.getId(),
                                     jobId, dbId, tbl.getId(), partition.getId(),
                                     index.getId(), tablet.getId(),
-                                    committedVersion, committedVersionHash,
+                                    visibleVersion, visibleVersionHash,
                                     schemaHash, timeoutMs, false /* not restore task */);
                             batchTask.addTask(task);
                             unfinishedTaskIds.add(tablet.getId());
@@ -403,7 +402,7 @@ public class BackupJob extends AbstractJob {
                     }
 
                     LOG.info("snapshot for partition {}, version: {}, version hash: {}",
-                             partition.getId(), committedVersion, committedVersionHash);
+                             partition.getId(), visibleVersion, visibleVersionHash);
                 }
             }
 

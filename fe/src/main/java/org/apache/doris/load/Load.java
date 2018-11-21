@@ -1765,7 +1765,7 @@ public class Load {
                         LOG.warn("the replica[{}] is missing", info.getReplicaId());
                         continue;
                     }
-                    replica.updateInfo(info.getVersion(), info.getVersionHash(),
+                    replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
                                        info.getDataSize(), info.getRowCount());
                 }
             }
@@ -1864,7 +1864,7 @@ public class Load {
                         LOG.warn("the replica[{}] is missing", info.getReplicaId());
                         continue;
                     }
-                    replica.updateInfo(info.getVersion(), info.getVersionHash(),
+                    replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
                                        info.getDataSize(), info.getRowCount());
                 }
             }
@@ -2345,7 +2345,7 @@ public class Load {
 
     private void updatePartitionVersion(Partition partition, long version, long versionHash, long jobId) {
         long partitionId = partition.getId();
-        partition.updateCommitVersionAndVersionHash(version, versionHash);
+        partition.updateVisibleVersionAndVersionHash(version, versionHash);
         LOG.info("update partition version success. version: {}, version hash: {}, job id: {}, partition id: {}",
                  version, versionHash, jobId, partitionId);
     }
@@ -2528,7 +2528,7 @@ public class Load {
                 MaterializedIndex index = partition.getIndex(info.getIndexId());
                 Tablet tablet = index.getTablet(info.getTabletId());
                 Replica replica = tablet.getReplicaById(info.getReplicaId());
-                replica.updateInfo(info.getVersion(), info.getVersionHash(),
+                replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
                                    info.getDataSize(), info.getRowCount());
             }
         }
@@ -2587,7 +2587,7 @@ public class Load {
                             LOG.warn("the replica[{}] is missing", info.getReplicaId());
                             continue;
                         }
-                        replica.updateInfo(info.getVersion(), info.getVersionHash(),
+                        replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
                                            info.getDataSize(), info.getRowCount());
                     }
                 }
@@ -3122,8 +3122,8 @@ public class Load {
 
         long tableId = -1;
         long partitionId = -1;
-        long committedVersion = -1;
-        long committedVersionHash = -1;
+        long visibleVersion = -1;
+        long visibleVersionHash = -1;
         long newVersion = -1;
         long newVersionHash = -1;
         AgentBatchTask deleteBatchTask = null;
@@ -3153,12 +3153,12 @@ public class Load {
             partitionId = partition.getId();
             
             // pre check
-            committedVersion = partition.getCommittedVersion();
-            committedVersionHash = partition.getCommittedVersionHash();
-            checkDelete(olapTable, partition, conditions, committedVersion, committedVersionHash,
+            visibleVersion = partition.getVisibleVersion();
+            visibleVersionHash = partition.getVisibleVersionHash();
+            checkDelete(olapTable, partition, conditions, visibleVersion, visibleVersionHash,
                         null, asyncTabletIdToBackends, true);
 
-            newVersion = committedVersion + 1;
+            newVersion = visibleVersion + 1;
             newVersionHash = Util.generateVersionHash();
             deleteInfo = new DeleteInfo(db.getId(), tableId, tableName,
                                         partition.getId(), partitionName, 
@@ -3235,12 +3235,12 @@ public class Load {
 
                 // after check
                 // 1. check partition committed version first
-                if (partition.getCommittedVersion() > committedVersion
-                        || (committedVersion == partition.getCommittedVersion()
-                        && committedVersionHash != partition.getCommittedVersionHash())) {
+                if (partition.getVisibleVersion() > visibleVersion
+                        || (visibleVersion == partition.getVisibleVersion()
+                        && visibleVersionHash != partition.getVisibleVersionHash())) {
                     LOG.warn("before delete version: {}-{}. after delete version: {}-{}",
-                             committedVersion, committedVersionHash,
-                             partition.getCommittedVersion(), partition.getCommittedVersionHash());
+                             visibleVersion, visibleVersionHash,
+                             partition.getVisibleVersion(), partition.getVisibleVersionHash());
                     throw new DdlException("There may have some load job done during delete job. Try again");
                 }
 

@@ -17,6 +17,14 @@
 
 package org.apache.doris.clone;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.LinkedHashMultimap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
+
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
@@ -48,15 +56,6 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.CloneTask;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TStorageMedium;
-
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.LinkedHashMultimap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Multimap;
-import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -972,9 +971,9 @@ public class CloneChecker extends Daemon {
                 // and the remaining replica is not quorum
                 if (replica.getState() != ReplicaState.CLONE 
                         && replica.getLastFailedVersion() < 0
-                        && (replica.getVersion() == partition.getCommittedVersion() 
-                            && replica.getVersionHash() == partition.getCommittedVersionHash() 
-                            || replica.getVersion() > partition.getCommittedVersionHash())) {
+                        && (replica.getVersion() == partition.getVisibleVersion() 
+                            && replica.getVersionHash() == partition.getVisibleVersionHash() 
+                            || replica.getVersion() > partition.getVisibleVersionHash())) {
                     ++realReplicaNum;
                 }
             }
@@ -998,8 +997,8 @@ public class CloneChecker extends Daemon {
                 }
             });
 
-            long committedVersion = partition.getCommittedVersion();
-            long committedVersionHash = partition.getCommittedVersionHash();
+            long committedVersion = partition.getVisibleVersion();
+            long committedVersionHash = partition.getVisibleVersionHash();
             int deleteNum = replicas.size() - replicationNum;
             Replica deletedReplica = null;
             while (deleteNum > 0) {
@@ -1261,8 +1260,8 @@ public class CloneChecker extends Daemon {
         short replicationNum = 0;
         short onlineReplicaNum = 0;
         short onlineReplicaNumInCluster = 0;
-        long committedVersion = -1L;
-        long committedVersionHash = -1L;
+        long visibleVersion = -1L;
+        long visibleVersionHash = -1L;
         int schemaHash = 0;
         List<TBackend> srcBackends = new ArrayList<TBackend>();
         Tablet tablet = null;
@@ -1346,8 +1345,8 @@ public class CloneChecker extends Daemon {
             }
 
             // sort replica by version desc
-            committedVersion = partition.getCommittedVersion();
-            committedVersionHash = partition.getCommittedVersionHash();
+            visibleVersion = partition.getVisibleVersion();
+            visibleVersionHash = partition.getVisibleVersionHash();
             Tablet.sortReplicaByVersionDesc(sortedReplicas);
             for (Replica replica : sortedReplicas) {
                 backend = clusterInfoService.getBackend(replica.getBackendId());
@@ -1362,13 +1361,13 @@ public class CloneChecker extends Daemon {
                 }
                 // DO NOT choose replica with stale version or invalid version hash
                 if (job.getType() != JobType.CATCHUP) {
-                    if (replica.getVersion() > committedVersion || (replica.getVersion() == committedVersion
-                            && replica.getVersionHash() == committedVersionHash)) {
+                    if (replica.getVersion() > visibleVersion || (replica.getVersion() == visibleVersion
+                            && replica.getVersionHash() == visibleVersionHash)) {
                         srcBackends.add(new TBackend(backend.getHost(), backend.getBePort(), backend.getHttpPort()));
                     } else {
-                        LOG.debug("replica [{}] the version not equal to large than commit version {}" 
+                        LOG.debug("replica [{}] the version not equal to large than visible version {}"
                                 + " or commit version hash {}, ignore this replica", 
-                                replica, committedVersion, committedVersionHash);
+                                replica, visibleVersion, visibleVersionHash);
                     }
                 } else {
                     // deal with this case
@@ -1378,11 +1377,11 @@ public class CloneChecker extends Daemon {
                     // then C comes up, the partition's committed version is 10, then C try to clone 10, then clone finished
                     // but last failed version is 11, it is abnormal
                     // the publish will still fail
-                    if (replica.getVersion() > committedVersion 
-                            || replica.getVersion() == committedVersion 
-                                && replica.getVersionHash() != committedVersionHash) {
-                        committedVersion = replica.getVersion();
-                        committedVersionHash = replica.getVersionHash();
+                    if (replica.getVersion() > visibleVersion 
+                            || replica.getVersion() == visibleVersion 
+                                && replica.getVersionHash() != visibleVersionHash) {
+                        visibleVersion = replica.getVersion();
+                        visibleVersionHash = replica.getVersionHash();
                     }
                     // if this is a catchup job, then should exclude the dest backend id from src backends
                     if (job.getDestBackendId() != backend.getId() 
@@ -1419,8 +1418,8 @@ public class CloneChecker extends Daemon {
                 // and another clone task will send to the replica to clone again
                 // not find a more sufficient method
                 cloneReplica = new Replica(replicaId, job.getDestBackendId(), -1, 0, 
-                        -1, -1, ReplicaState.CLONE, partition.getCurrentVersion(), 
-                        partition.getCurrentVersionHash(), -1, 0);
+                        -1, -1, ReplicaState.CLONE, partition.getCommittedVersion(), 
+                        partition.getCommittedVersionHash(), -1, 0);
                 tablet.addReplica(cloneReplica);
             }
             // set the replica's state to clone
@@ -1436,7 +1435,7 @@ public class CloneChecker extends Daemon {
         AgentBatchTask batchTask = new AgentBatchTask();
         // very important, it is partition's commit version here
         CloneTask task = new CloneTask(job.getDestBackendId(), dbId, tableId, partitionId, indexId, tabletId,
-                                       schemaHash, srcBackends, storageMedium, committedVersion, committedVersionHash);
+                                       schemaHash, srcBackends, storageMedium, visibleVersion, visibleVersionHash);
         batchTask.addTask(task);
         if (clone.runCloneJob(job, task)) {
             AgentTaskExecutor.submit(batchTask);
