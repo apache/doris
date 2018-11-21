@@ -391,11 +391,16 @@ public class Config extends ConfigBase {
      */
     @ConfField public static double capacity_used_percent_high_water = 0.75;
     /*
-     * Maximal timeout of ALTER TABEL request. Set long enough to fit your table data size.
+     * Load score diff threshold. If the diff of load score between 2 backends is larger than this,
+     * It will be considered as imbalance.
+     */
+    @ConfField public static double backend_load_score_diff_threshold = 0.1;  // 10%
+    /*
+     * Maximal timeout of ALTER TABLE request. Set long enough to fit your table data size.
      */
     @ConfField public static int alter_table_timeout_second = 86400; // 1day
     /*
-     * After ALTER TABEL finished, deletion of the old schema replica is delayed,
+     * After ALTER TABLE finished, deletion of the old schema replica is delayed,
      * in case there are still some queries using the old schema replica.
      */
     @ConfField public static int alter_delete_base_delay_second = 600; // 10min

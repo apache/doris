@@ -17,16 +17,15 @@
 
 package org.apache.doris.clone;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.BalanceStatus.ErrCode;
 import org.apache.doris.common.Config;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -92,7 +91,7 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
             totalCapacityB += diskInfo.getTotalCapacityB();
             totalUsedCapacityB += diskInfo.getDataUsedCapacityB();
             RootPathLoadStatistic pathStatistic = new RootPathLoadStatistic(beId, diskInfo.getRootPath(),
-                    diskInfo.getTotalCapacityB(), diskInfo.getDataUsedCapacityB());
+                    diskInfo.getPathHash(), diskInfo.getTotalCapacityB(), diskInfo.getDataUsedCapacityB());
             pathStatistics.add(pathStatistic);
         }
 
@@ -123,12 +122,12 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
                   capacityCoefficient, replicaNumCoefficient, loadScore);
     }
 
-    public BalanceStatus isFit(long tabletSize, List<RootPathLoadStatistic> result, boolean isRecovery) {
+    public BalanceStatus isFit(long tabletSize, List<RootPathLoadStatistic> result, boolean isSupplement) {
         BalanceStatus status = new BalanceStatus(ErrCode.COMMON_ERROR);
         // try choosing path from first to end
         for (int i = 0; i < pathStatistics.size(); i++) {
             RootPathLoadStatistic pathStatistic = pathStatistics.get(i);
-            BalanceStatus bStatus = pathStatistic.isFit(tabletSize, isRecovery);
+            BalanceStatus bStatus = pathStatistic.isFit(tabletSize, isSupplement);
             if (!bStatus.ok()) {
                 status.addErrMsgs(bStatus.getErrMsgs());
                 continue;
@@ -144,6 +143,7 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
         return pathStatistics;
     }
 
+    // ascend order
     @Override
     public int compareTo(BackendLoadStatistic o) {
         if (getLoadScore() > o.getLoadScore()) {

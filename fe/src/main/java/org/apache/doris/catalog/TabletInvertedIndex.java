@@ -406,7 +406,7 @@ public class TabletInvertedIndex {
                 backingReplicaMetaTable.remove(backendId, tabletId);
                 LOG.debug("delete tablet[{}] in backend[{}]", tabletId, backendId);
             } else {
-                // this may happend when fe restart after tablet is empty(bug cause)
+                // this may happen when fe restart after tablet is empty(bug cause)
                 // add log instead of assertion to observe
                 LOG.error("tablet[{}] contains no replica in inverted index", tabletId);
             }

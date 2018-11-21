@@ -17,15 +17,6 @@
 
 package org.apache.doris.journal.bdbje;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.Pair;
-import org.apache.doris.common.io.DataOutputBuffer;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.journal.Journal;
-import org.apache.doris.journal.JournalCursor;
-import org.apache.doris.journal.JournalEntity;
-import org.apache.doris.persist.OperationType;
-
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
@@ -36,6 +27,14 @@ import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.io.DataOutputBuffer;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.journal.Journal;
+import org.apache.doris.journal.JournalCursor;
+import org.apache.doris.journal.JournalEntity;
+import org.apache.doris.persist.OperationType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -160,7 +159,7 @@ public class BDBJEJournal implements Journal {
                     break;
                 }
             } catch (DatabaseException e) {
-                LOG.error( "catch an exception when writing to database. sleep and retry. journal id {}", id, e);
+                LOG.error("catch an exception when writing to database. sleep and retry. journal id {}", id, e);
                 try {
                     Thread.sleep(5 * 1000);
                 } catch (InterruptedException e1) {

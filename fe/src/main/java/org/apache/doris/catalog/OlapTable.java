@@ -939,4 +939,12 @@ public class OlapTable extends Table {
 
         return oldPartition;
     }
+
+    public long getDataSize() {
+        long dataSize = 0;
+        for (Partition partition : getPartitions()) {
+            dataSize += partition.getDataSize();
+        }
+        return dataSize;
+    }
 }

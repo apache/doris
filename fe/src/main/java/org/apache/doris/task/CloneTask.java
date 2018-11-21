@@ -30,18 +30,21 @@ public class CloneTask extends AgentTask {
     private List<TBackend> srcBackends;
     private TStorageMedium storageMedium;
 
-    long committedVersion;
-    long committedVersionHash;
+    private long committedVersion;
+    private long committedVersionHash;
+
+    private long destPathHash;
 
     public CloneTask(long backendId, long dbId, long tableId, long partitionId, long indexId,
                      long tabletId, int schemaHash, List<TBackend> srcBackends, TStorageMedium storageMedium,
-                     long committedVersion, long committedVersionHash) {
+            long committedVersion, long committedVersionHash, long destPathHash) {
         super(null, backendId, TTaskType.CLONE, dbId, tableId, partitionId, indexId, tabletId);
         this.schemaHash = schemaHash;
         this.srcBackends = srcBackends;
         this.storageMedium = storageMedium;
         this.committedVersion = committedVersion;
         this.committedVersionHash = committedVersionHash;
+        this.destPathHash = destPathHash;
     }
 
     public int getSchemaHash() {
@@ -58,6 +61,10 @@ public class CloneTask extends AgentTask {
 
     public long getCommittedVersionHash() {
         return committedVersionHash;
+    }
+
+    public long getDestPathHash() {
+        return destPathHash;
     }
 
     public TCloneReq toThrift() {

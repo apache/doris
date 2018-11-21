@@ -17,16 +17,15 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
+
+import org.apache.commons.lang.NotImplementedException;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TTableDescriptor;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
-
-import org.apache.commons.lang.NotImplementedException;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -258,5 +257,9 @@ public class Table extends MetaObject implements Writable {
     @Override
     public String toString() {
         return "Table [id=" + id + ", name=" + name + ", type=" + type + "]";
+    }
+
+    public boolean needScan() {
+        return getType() == TableType.OLAP;
     }
 }

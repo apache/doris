@@ -1430,7 +1430,8 @@ public class CloneChecker extends Daemon {
                 // for a new replica to add to the tablet
                 // first set its state to clone and set last failed version to the largest version in the partition
                 // wait the catchup clone task to catch up.
-                // but send the clone task to partition's commit version, although the clone task maybe success but the replica is abnormal
+                // but send the clone task to partition's visible version, although the clone task maybe success but the
+                // replica is abnormal
                 // and another clone task will send to the replica to clone again
                 // not find a more sufficient method
                 cloneReplica = new Replica(replicaId, job.getDestBackendId(), -1, 0, 
@@ -1449,9 +1450,10 @@ public class CloneChecker extends Daemon {
 
         // add clone task
         AgentBatchTask batchTask = new AgentBatchTask();
-        // very important, it is partition's commit version here
+        // very important, it is partition's visible version here
         CloneTask task = new CloneTask(job.getDestBackendId(), dbId, tableId, partitionId, indexId, tabletId,
-                                       schemaHash, srcBackends, storageMedium, visibleVersion, visibleVersionHash);
+                schemaHash, srcBackends, storageMedium,
+                visibleVersion, visibleVersionHash, -1);
         batchTask.addTask(task);
         if (clone.runCloneJob(job, task)) {
             AgentTaskExecutor.submit(batchTask);

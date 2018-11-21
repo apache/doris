@@ -327,6 +327,7 @@ public class Replica implements Writable {
         return strBuffer.toString();
     }
 
+    @Override
     public void write(DataOutput out) throws IOException {
         out.writeLong(id);
         out.writeLong(backendId);
@@ -343,6 +344,7 @@ public class Replica implements Writable {
         
     }
      
+    @Override
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
         backendId = in.readLong();

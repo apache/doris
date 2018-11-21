@@ -17,6 +17,10 @@
 
 package org.apache.doris.clone;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -31,11 +35,6 @@ import org.apache.doris.clone.BalanceStatus.ErrCode;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -99,6 +98,10 @@ public class ClusterLoadStatistic {
         Collections.sort(beLoadStatistics);
     }
 
+    public synchronized boolean moreBalanced(TabletInfo tablet, long srcBeId, long destBeId) {
+        return false;
+    }
+
     public synchronized List<List<String>> getCLusterStatistic() {
         List<List<String>> statistics = Lists.newArrayList();
 
@@ -146,6 +149,10 @@ public class ClusterLoadStatistic {
             }
         }
         return null;
+    }
+
+    public List<BackendLoadStatistic> getBeLoadStatistics() {
+        return beLoadStatistics;
     }
 
     /*

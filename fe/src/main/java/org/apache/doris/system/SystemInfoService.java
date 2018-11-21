@@ -1080,5 +1080,16 @@ public class SystemInfoService {
         Collections.shuffle(selectedBackends);
         return selectedBackends.get(0).getId();
     }
+
+    public List<String> getClusterNames() {
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
+        List<String> clusterNames = Lists.newArrayList();
+        for (Backend backend : idToBackend.values()) {
+            if (!Strings.isNullOrEmpty(backend.getOwnerClusterName())) {
+                clusterNames.add(backend.getOwnerClusterName());
+            }
+        }
+        return clusterNames;
+    }
 }
 

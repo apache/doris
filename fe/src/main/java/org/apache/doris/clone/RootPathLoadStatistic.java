@@ -27,14 +27,16 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
 
     private long beId;
     private String path;
+    private Long pathHash;
     private long capacityB;
     private long usedCapacityB;
 
     private boolean hasTask = false;
 
-    public RootPathLoadStatistic(long beId, String path, long capacityB, long usedCapacityB) {
+    public RootPathLoadStatistic(long beId, String path, Long pathHash, long capacityB, long usedCapacityB) {
         this.beId = beId;
         this.path = path;
+        this.pathHash = pathHash;
         this.capacityB = capacityB <= 0 ? 1 : capacityB;
         this.usedCapacityB = usedCapacityB;
     }
@@ -45,6 +47,10 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
 
     public String getPath() {
         return path;
+    }
+
+    public long getPathHash() {
+        return pathHash;
     }
 
     public long getCapacityB() {
@@ -63,10 +69,10 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
         return hasTask;
     }
 
-    public BalanceStatus isFit(long tabletSize, boolean isRecovery) {
-        if (isRecovery) {
-            if (usedCapacityB + tabletSize / (double) capacityB > MAX_USAGE_PERCENT_LIMIT
-                    || capacityB - usedCapacityB - tabletSize < MIN_LEFT_CAPACITY_BYTES_LIMIT) {
+    public BalanceStatus isFit(long tabletSize, boolean isSupplement) {
+        if (isSupplement) {
+            if ((usedCapacityB + tabletSize) / (double) capacityB > MAX_USAGE_PERCENT_LIMIT
+                    && capacityB - usedCapacityB - tabletSize < MIN_LEFT_CAPACITY_BYTES_LIMIT) {
                 return new BalanceStatus(ErrCode.COMMON_ERROR,
                         toString() + " does not fit tablet with size: " + tabletSize + ", limitation reached");
             } else {

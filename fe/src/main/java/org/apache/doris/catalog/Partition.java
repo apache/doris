@@ -212,12 +212,21 @@ public class Partition extends MetaObject implements Writable {
         return indices;
     }
 
+    public long getDataSize() {
+        long dataSize = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices()) {
+            dataSize += mIndex.getDataSize();
+        }
+        return dataSize;
+    }
+
     public static Partition read(DataInput in) throws IOException {
         Partition partition = new Partition();
         partition.readFields(in);
         return partition;
     }
 
+    @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
 
@@ -246,6 +255,7 @@ public class Partition extends MetaObject implements Writable {
         distributionInfo.write(out);
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
@@ -289,6 +299,7 @@ public class Partition extends MetaObject implements Writable {
         }
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;
