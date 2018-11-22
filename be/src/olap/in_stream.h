@@ -44,7 +44,7 @@ public:
     // 读取后,则不读入这部分的数据. 但InStream封装
     // 了ByteBuffer不连续这一事实,
     // 从上层使用者来看,依旧是在访问一段连续的流.
-    // 上层使用者应该保证不读取ByteBuffer
+    // 上层使用者应该保证不读取StorageByteBuffer
     // 之间没有数据的空洞位置.
     //
     // 当使用mmap的时候,这里会退化为只有一个ByteBuffer, 是
@@ -57,7 +57,7 @@ public:
     //     length - 流的总字节长度
     //     Decompressor - 如果流被压缩过,则提供一个解压缩函数,否则为NULL
     //     compress_buffer_size - 如果使用压缩,给出压缩的块大小
-    explicit InStream(std::vector<ByteBuffer*>* inputs,
+    explicit InStream(std::vector<StorageByteBuffer*>* inputs,
             const std::vector<uint64_t>& offsets,
             uint64_t length,
             Decompressor decompressor,
@@ -115,18 +115,18 @@ public:
     }
 private:
     OLAPStatus _assure_data();
-    OLAPStatus _slice(uint64_t chunk_size, ByteBuffer** out_slice);
+    OLAPStatus _slice(uint64_t chunk_size, StorageByteBuffer** out_slice);
     OLAPStatus _seek(uint64_t position);
 
-    std::vector<ByteBuffer*> _inputs;
+    std::vector<StorageByteBuffer*> _inputs;
     std::vector<uint64_t> _offsets;
     uint64_t _length;
     Decompressor _decompressor;
     uint32_t _compress_buffer_size;
     uint64_t _current_offset;
     uint64_t _current_range;
-    ByteBuffer* _compressed;
-    ByteBuffer* _uncompressed;
+    StorageByteBuffer* _compressed;
+    StorageByteBuffer* _uncompressed;
 
     DISALLOW_COPY_AND_ASSIGN(InStream);
 };

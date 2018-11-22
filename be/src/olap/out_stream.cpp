@@ -86,7 +86,7 @@ OutStream::~OutStream() {
     SAFE_DELETE(_compressed);
     SAFE_DELETE(_overflow);
 
-    for (std::vector<ByteBuffer*>::iterator it = _output_buffers.begin();
+    for (std::vector<StorageByteBuffer*>::iterator it = _output_buffers.begin();
             it != _output_buffers.end(); ++it) {
         SAFE_DELETE(*it);
     }
@@ -94,7 +94,7 @@ OutStream::~OutStream() {
 
 OLAPStatus OutStream::_create_new_input_buffer() {
     SAFE_DELETE(_current);
-    _current = ByteBuffer::create(_buffer_size + sizeof(StreamHead));
+    _current = StorageByteBuffer::create(_buffer_size + sizeof(StreamHead));
 
     if (NULL != _current) {
         _current->set_position(sizeof(StreamHead));
@@ -104,7 +104,7 @@ OLAPStatus OutStream::_create_new_input_buffer() {
     }
 }
 
-OLAPStatus OutStream::_write_head(ByteBuffer* buf,
+OLAPStatus OutStream::_write_head(StorageByteBuffer* buf,
         uint64_t position,
         StreamHead::StreamType type,
         uint32_t length) {
@@ -119,8 +119,8 @@ OLAPStatus OutStream::_write_head(ByteBuffer* buf,
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OutStream::_compress(ByteBuffer* input, ByteBuffer* output,
-        ByteBuffer* overflow, bool* smaller) {
+OLAPStatus OutStream::_compress(StorageByteBuffer* input, StorageByteBuffer* output,
+        StorageByteBuffer* overflow, bool* smaller) {
     OLAPStatus res = OLAP_SUCCESS;
 
     res = _compressor(input, overflow, smaller);
@@ -165,7 +165,7 @@ void OutStream::_output_compressed() {
 
 OLAPStatus OutStream::_make_sure_output_buffer() {
     if (NULL == _compressed) {
-        _compressed = ByteBuffer::create(_buffer_size + sizeof(StreamHead));
+        _compressed = StorageByteBuffer::create(_buffer_size + sizeof(StreamHead));
 
         if (NULL == _compressed) {
             return OLAP_ERR_MALLOC_ERROR;
@@ -173,7 +173,7 @@ OLAPStatus OutStream::_make_sure_output_buffer() {
     }
 
     if (NULL == _overflow) {
-        _overflow = ByteBuffer::create(_buffer_size + sizeof(StreamHead));
+        _overflow = StorageByteBuffer::create(_buffer_size + sizeof(StreamHead));
 
         if (NULL == _overflow) {
             return OLAP_ERR_MALLOC_ERROR;
@@ -315,7 +315,7 @@ void OutStream::get_position(PositionEntryWriter* index_entry) const {
 uint64_t OutStream::get_stream_length() const {
     uint64_t result = 0;
 
-    for (std::vector<ByteBuffer*>::const_iterator it = _output_buffers.begin();
+    for (std::vector<StorageByteBuffer*>::const_iterator it = _output_buffers.begin();
             it != _output_buffers.end(); ++it) {
         result += (*it)->limit();
     }
@@ -326,7 +326,7 @@ uint64_t OutStream::get_stream_length() const {
 uint64_t OutStream::get_total_buffer_size() const {
     uint64_t result = 0;
 
-    for (std::vector<ByteBuffer*>::const_iterator it = _output_buffers.begin();
+    for (std::vector<StorageByteBuffer*>::const_iterator it = _output_buffers.begin();
             it != _output_buffers.end(); ++it) {
         result += (*it)->capacity();
     }
@@ -355,7 +355,7 @@ OLAPStatus OutStream::write_to_file(FileHandler* file_handle,
 
     speed_limit_watch.reset();
 
-    for (std::vector<ByteBuffer*>::const_iterator it = _output_buffers.begin();
+    for (std::vector<StorageByteBuffer*>::const_iterator it = _output_buffers.begin();
             it != _output_buffers.end(); ++it) {
         OLAP_LOG_DEBUG("write stream begin: %lu", file_handle->tell());
 
@@ -406,7 +406,7 @@ OLAPStatus OutStream::flush() {
 uint32_t OutStream::crc32(uint32_t checksum) const {
     uint32_t result = CRC32_INIT;
 
-    for (std::vector<ByteBuffer*>::const_iterator it = _output_buffers.begin();
+    for (std::vector<StorageByteBuffer*>::const_iterator it = _output_buffers.begin();
             it != _output_buffers.end(); ++it) {
         result = olap_crc32(result, (*it)->array(), (*it)->limit());
     }

@@ -23,7 +23,7 @@
 namespace doris {
 
 InStream::InStream(
-        std::vector<ByteBuffer*>* inputs,
+        std::vector<StorageByteBuffer*>* inputs,
         const std::vector<uint64_t>& offsets,
         uint64_t length,
         Decompressor decompressor,
@@ -44,14 +44,14 @@ InStream::~InStream() {
     SAFE_DELETE(_uncompressed);
 }
 
-OLAPStatus InStream::_slice(uint64_t chunk_size, ByteBuffer** out_slice) {
+OLAPStatus InStream::_slice(uint64_t chunk_size, StorageByteBuffer** out_slice) {
     uint64_t len = chunk_size;
     uint64_t old_offset = _current_offset;
-    ByteBuffer* slice = NULL;
+    StorageByteBuffer* slice = NULL;
 
     //如果buffer够读，拿出一个chunksize，并设置position
     if (OLAP_LIKELY(_compressed->remaining() >= len)) {
-        slice = ByteBuffer::reference_buffer(_compressed,
+        slice = StorageByteBuffer::reference_buffer(_compressed,
                 _compressed->position(),
                 len);
 
@@ -71,7 +71,7 @@ OLAPStatus InStream::_slice(uint64_t chunk_size, ByteBuffer** out_slice) {
     }
 
     // 这里并不分配chuck_size, 而是分配一个最大值, 这样利于减少内存碎片
-    slice = ByteBuffer::create(_compress_buffer_size);
+    slice = StorageByteBuffer::create(_compress_buffer_size);
 
     if (OLAP_UNLIKELY(NULL == slice)) {
         return OLAP_ERR_MALLOC_ERROR;
@@ -90,7 +90,7 @@ OLAPStatus InStream::_slice(uint64_t chunk_size, ByteBuffer** out_slice) {
     while (len > 0 && _current_range < _inputs.size()) {
         SAFE_DELETE(_compressed);
         // 再取一部分压缩过的buffer
-        _compressed = ByteBuffer::reference_buffer(_inputs[_current_range],
+        _compressed = StorageByteBuffer::reference_buffer(_inputs[_current_range],
                       _inputs[_current_range]->position(),
                       _inputs[_current_range]->remaining());
 
@@ -162,7 +162,7 @@ OLAPStatus InStream::_assure_data() {
 
         // 向后移动整体偏移
         _current_offset += sizeof(StreamHead);
-        ByteBuffer* slice = NULL;
+        StorageByteBuffer* slice = NULL;
 
         // 根据head取一块buf，这里应该要调整_current_offset
         res = _slice(head.length, &slice);
@@ -176,7 +176,7 @@ OLAPStatus InStream::_assure_data() {
         if (head.type == StreamHead::UNCOMPRESSED) {
             _uncompressed = slice;
         } else {
-            _uncompressed = ByteBuffer::create(_compress_buffer_size);
+            _uncompressed = StorageByteBuffer::create(_compress_buffer_size);
 
             if (OLAP_UNLIKELY(NULL == _uncompressed)) {
                 res = OLAP_ERR_MALLOC_ERROR;
@@ -216,7 +216,7 @@ OLAPStatus InStream::_seek(uint64_t position) {
             if (!(_current_range == i && NULL != _compressed)) {
                 _current_range = i;
                 SAFE_DELETE(_compressed);
-                _compressed = ByteBuffer::reference_buffer(_inputs[i], 0,
+                _compressed = StorageByteBuffer::reference_buffer(_inputs[i], 0,
                               _inputs[i]->remaining());
             }
 
@@ -231,7 +231,7 @@ OLAPStatus InStream::_seek(uint64_t position) {
 
     if (!_inputs.empty() && position == _offsets.back() + _inputs.back()->remaining()) {
         _current_range = _inputs.size() - 1;
-        _compressed = ByteBuffer::reference_buffer(_inputs[_current_range], 0,
+        _compressed = StorageByteBuffer::reference_buffer(_inputs[_current_range], 0,
                       _inputs[_current_range]->limit());
         _current_offset = position;
         return OLAP_SUCCESS;

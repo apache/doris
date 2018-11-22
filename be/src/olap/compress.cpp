@@ -22,7 +22,7 @@
 
 namespace doris {
 
-OLAPStatus lzo_compress(ByteBuffer* in, ByteBuffer* out, bool* smaller) {
+OLAPStatus lzo_compress(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller) {
     size_t out_length = 0;
     OLAPStatus res = OLAP_SUCCESS;
     *smaller = false;
@@ -43,7 +43,7 @@ OLAPStatus lzo_compress(ByteBuffer* in, ByteBuffer* out, bool* smaller) {
     return res;
 }
 
-OLAPStatus lzo_decompress(ByteBuffer* in, ByteBuffer* out) {
+OLAPStatus lzo_decompress(StorageByteBuffer* in, StorageByteBuffer* out) {
     size_t out_length = 0;
     OLAPStatus res = OLAP_SUCCESS;
     res = olap_decompress(&(in->array()[in->position()]),
@@ -60,7 +60,7 @@ OLAPStatus lzo_decompress(ByteBuffer* in, ByteBuffer* out) {
     return res;
 }
 
-OLAPStatus lz4_compress(ByteBuffer* in, ByteBuffer* out, bool* smaller) {
+OLAPStatus lz4_compress(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller) {
     size_t out_length = 0;
     OLAPStatus res = OLAP_SUCCESS;
     *smaller = false;
@@ -81,7 +81,7 @@ OLAPStatus lz4_compress(ByteBuffer* in, ByteBuffer* out, bool* smaller) {
     return res;
 }
 
-OLAPStatus lz4_decompress(ByteBuffer* in, ByteBuffer* out) {
+OLAPStatus lz4_decompress(StorageByteBuffer* in, StorageByteBuffer* out) {
     size_t out_length = 0;
     OLAPStatus res = OLAP_SUCCESS;
     res = olap_decompress(&(in->array()[in->position()]),

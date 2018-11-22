@@ -163,7 +163,7 @@ private:
     char* _read_buffer;
     //uint64_t _dictionary_size;
     //uint64_t* _offset_dictionary;   // 用来查找响应数据的数字对应的offset
-    //ByteBuffer* _dictionary_data_buffer;   // 保存dict数据
+    //StorageByteBuffer* _dictionary_data_buffer;   // 保存dict数据
     std::vector<std::string> _dictionary;
     RunLengthIntegerReader* _data_reader;   // 用来读实际的数据（用一个integer表示）
 };
