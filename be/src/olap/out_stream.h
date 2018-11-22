@@ -101,7 +101,7 @@ public:
     OLAPStatus flush();
     // 计算输出数据的crc32值
     uint32_t crc32(uint32_t checksum) const;
-    const std::vector<ByteBuffer*>& output_buffers() {
+    const std::vector<StorageByteBuffer*>& output_buffers() {
         return _output_buffers;
     }
 
@@ -117,12 +117,12 @@ public:
 
 private:
     OLAPStatus _create_new_input_buffer();
-    OLAPStatus _write_head(ByteBuffer* buf,
+    OLAPStatus _write_head(StorageByteBuffer* buf,
             uint64_t position,
             StreamHead::StreamType type,
             uint32_t length);
     OLAPStatus _spill();
-    OLAPStatus _compress(ByteBuffer* input, ByteBuffer* output, ByteBuffer* overflow,
+    OLAPStatus _compress(StorageByteBuffer* input, StorageByteBuffer* output, StorageByteBuffer* overflow,
             bool* smaller);
     void _output_uncompress();
     void _output_compressed();
@@ -130,11 +130,11 @@ private:
 
     uint32_t _buffer_size;                   // 压缩块大小
     Compressor _compressor;                  // 压缩函数,如果为NULL表示不压缩
-    std::vector<ByteBuffer*> _output_buffers;// 缓冲所有的输出
+    std::vector<StorageByteBuffer*> _output_buffers;// 缓冲所有的输出
     bool _is_suppressed;                     // 流是否被终止
-    ByteBuffer* _current;                    // 缓存未压缩的数据
-    ByteBuffer* _compressed;                 // 即将输出到output_buffers中的字节
-    ByteBuffer* _overflow;                   // _output中放不下的字节
+    StorageByteBuffer* _current;                    // 缓存未压缩的数据
+    StorageByteBuffer* _compressed;                 // 即将输出到output_buffers中的字节
+    StorageByteBuffer* _overflow;                   // _output中放不下的字节
     uint64_t _spilled_bytes;                 // 已经输出到output的字节数
 
     DISALLOW_COPY_AND_ASSIGN(OutStream);

@@ -151,7 +151,7 @@ OLAPStatus SegmentReader::_load_segment_file() {
 
     // 如果需要mmap，则进行映射
     if (_is_using_mmap) {
-        _mmap_buffer = ByteBuffer::mmap(&_file_handler, 0, PROT_READ, MAP_PRIVATE);
+        _mmap_buffer = StorageByteBuffer::mmap(&_file_handler, 0, PROT_READ, MAP_PRIVATE);
 
         if (NULL == _mmap_buffer) {
             OLAP_LOG_WARNING("fail to call mmap, using default mode");
@@ -215,10 +215,10 @@ OLAPStatus SegmentReader::init(bool is_using_cache) {
         return res;
     }
 
-    _shared_buffer = ByteBuffer::create(
+    _shared_buffer = StorageByteBuffer::create(
         _header_message().stream_buffer_size() + sizeof(StreamHead));
     if (_shared_buffer == NULL) {
-        OLAP_LOG_WARNING("fail to create shared buffer. [size=%lu]", sizeof(ByteBuffer));
+        OLAP_LOG_WARNING("fail to create shared buffer. [size=%lu]", sizeof(StorageByteBuffer));
         return OLAP_ERR_MALLOC_ERROR;
     }
 
