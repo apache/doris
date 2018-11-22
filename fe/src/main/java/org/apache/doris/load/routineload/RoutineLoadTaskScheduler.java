@@ -28,7 +28,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Iterator;
 import java.util.List;
-import java.util.Queue;
 
 /**
  * Routine load task scheduler is a function which allocate task to be.
@@ -36,6 +35,7 @@ import java.util.Queue;
  * Step2: equally divide to be
  * Step3: submit tasks to be
  */
+// TODO(ml): change interval ms in constructor
 public class RoutineLoadTaskScheduler extends Daemon {
 
     private static final Logger LOG = LogManager.getLogger(RoutineLoadTaskScheduler.class);

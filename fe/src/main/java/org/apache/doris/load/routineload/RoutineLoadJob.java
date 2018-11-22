@@ -193,7 +193,7 @@ public abstract class RoutineLoadJob implements Writable {
 
             for (RoutineLoadTaskInfo routineLoadTaskInfo : runningTasks) {
                 if ((System.currentTimeMillis() - routineLoadTaskInfo.getLoadStartTimeMs())
-                        > DEFAULT_TASK_TIMEOUT_SECONDS * 60 * 1000) {
+                        > DEFAULT_TASK_TIMEOUT_SECONDS * 1000) {
                     String oldSignature = routineLoadTaskInfo.getId();
                     if (routineLoadTaskInfo instanceof KafkaTaskInfo) {
                         // remove old task

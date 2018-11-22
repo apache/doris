@@ -195,30 +195,8 @@ public class RoutineLoadManager {
         List<RoutineLoadJob> jobs = new ArrayList<>();
         Collection<RoutineLoadJob> stateJobs = null;
         LOG.debug("begin to get routine load job by state {}", jobState.name());
-        switch (jobState) {
-            case NEED_SCHEDULER:
-                stateJobs = idToRoutineLoadJob.values().stream()
-                        .filter(entity -> entity.getState() == RoutineLoadJob.JobState.NEED_SCHEDULER)
-                        .collect(Collectors.toList());
-                break;
-            case PAUSED:
-                stateJobs = idToRoutineLoadJob.values().stream()
-                        .filter(entity -> entity.getState() == RoutineLoadJob.JobState.PAUSED)
-                        .collect(Collectors.toList());
-                break;
-            case RUNNING:
-                stateJobs = idToRoutineLoadJob.values().stream()
-                        .filter(entity -> entity.getState() == RoutineLoadJob.JobState.RUNNING)
-                        .collect(Collectors.toList());
-                break;
-            case STOPPED:
-                stateJobs = idToRoutineLoadJob.values().stream()
-                        .filter(entity -> entity.getState() == RoutineLoadJob.JobState.STOPPED)
-                        .collect(Collectors.toList());
-                break;
-            default:
-                break;
-        }
+        idToRoutineLoadJob.values().stream()
+                .filter(entity -> entity.getState() == jobState).collect(Collectors.toList());
         if (stateJobs != null) {
             jobs.addAll(stateJobs);
             LOG.info("got {} routine load jobs by state {}", jobs.size(), jobState.name());
