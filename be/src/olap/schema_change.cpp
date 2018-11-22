@@ -715,7 +715,7 @@ bool LinkedSchemaChange::process(ColumnData* olap_data, Rowset* new_rowset) {
 
     new_rowset->set_empty(olap_data->empty());
     new_rowset->set_num_segments(olap_data->olap_index()->num_segments());
-    new_rowset->add_column_statistics(olap_data->olap_index()->get_column_statistics());
+    new_rowset->add_column_statistics_for_linked_schema_change(olap_data->olap_index()->get_column_statistics());
 
     if (OLAP_SUCCESS != new_rowset->load()) {
         OLAP_LOG_WARNING("fail to reload index. [table='%s' version='%d-%d']",
