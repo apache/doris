@@ -198,6 +198,30 @@ void Rowset::delete_all_files() {
     }
 }
 
+OLAPStatus Rowset::add_column_statistics_for_linked_schema_change(
+        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields) {
+    //When add rollup table, the base table index maybe empty
+    if (column_statistic_fields.size() == 0) {
+        return OLAP_SUCCESS;
+    }
+
+    //Should use _table->num_key_fields(), not column_statistic_fields.size()
+    //as rollup table num_key_fields will less than base table column_statistic_fields.size().
+    //For LinkedSchemaChange, the rollup table keys order is the same as base table
+    for (size_t i = 0; i < _table->num_key_fields(); ++i) {
+        WrapperField* first = WrapperField::create(_table->tablet_schema()[i]);
+        DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
+        first->copy(column_statistic_fields[i].first);
+
+        WrapperField* second = WrapperField::create(_table->tablet_schema()[i]);
+        DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
+        second->copy(column_statistic_fields[i].second);
+
+        _column_statistics.push_back(std::make_pair(first, second));
+    }
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus Rowset::add_column_statistics(
         const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields) {
     DCHECK(column_statistic_fields.size() == _table->num_key_fields());
@@ -219,7 +243,6 @@ OLAPStatus Rowset::add_column_statistics(
         std::vector<std::pair<std::string, std::string> > &column_statistic_strings,
         std::vector<bool> &null_vec) {
     DCHECK(column_statistic_strings.size() == _table->num_key_fields());
-    std::vector<std::pair<WrapperField*, WrapperField*>> column_statistics;
     for (size_t i = 0; i < column_statistic_strings.size(); ++i) {
         WrapperField* first = WrapperField::create(_table->tablet_schema()[i]);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i ;
