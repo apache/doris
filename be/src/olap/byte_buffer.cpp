@@ -21,23 +21,23 @@
 
 namespace doris {
 
-ByteBuffer::ByteBuffer() : 
+StorageByteBuffer::StorageByteBuffer() : 
         _array(NULL),
         _capacity(0),
         _limit(0),
         _position(0),
         _is_mmap(false) {}
 
-ByteBuffer::BufDeleter::BufDeleter() : 
+StorageByteBuffer::BufDeleter::BufDeleter() : 
         _is_mmap(false),
         _mmap_length(0) {}
 
-void ByteBuffer::BufDeleter::set_mmap(size_t mmap_length) {
+void StorageByteBuffer::BufDeleter::set_mmap(size_t mmap_length) {
     _is_mmap = true;
     _mmap_length = mmap_length;
 }
 
-void ByteBuffer::BufDeleter::operator()(char* p) {
+void StorageByteBuffer::BufDeleter::operator()(char* p) {
     if (NULL == p) {
         return;
     }
@@ -53,9 +53,9 @@ void ByteBuffer::BufDeleter::operator()(char* p) {
 }
 
 // 创建ByteBuffer与array
-ByteBuffer* ByteBuffer::create(uint64_t capacity) {
+StorageByteBuffer* StorageByteBuffer::create(uint64_t capacity) {
     char* memory = new(std::nothrow) char[capacity];
-    ByteBuffer* buf = new(std::nothrow) ByteBuffer;
+    StorageByteBuffer* buf = new(std::nothrow) StorageByteBuffer;
 
     if (buf != NULL && memory != NULL) {
         buf->_buf = boost::shared_ptr<char>(memory, BufDeleter());
@@ -70,7 +70,7 @@ ByteBuffer* ByteBuffer::create(uint64_t capacity) {
     return NULL;
 }
 
-ByteBuffer* ByteBuffer::reference_buffer(ByteBuffer* reference,
+StorageByteBuffer* StorageByteBuffer::reference_buffer(StorageByteBuffer* reference,
         uint64_t offset,
         uint64_t length) {
     if (NULL == reference || 0 == length) {
@@ -81,7 +81,7 @@ ByteBuffer* ByteBuffer::reference_buffer(ByteBuffer* reference,
         return NULL;
     }
 
-    ByteBuffer* buf = new(std::nothrow) ByteBuffer();
+    StorageByteBuffer* buf = new(std::nothrow) StorageByteBuffer();
 
     if (NULL == buf) {
         return NULL;
@@ -96,7 +96,7 @@ ByteBuffer* ByteBuffer::reference_buffer(ByteBuffer* reference,
     return buf;
 }
 
-ByteBuffer* ByteBuffer::mmap(void* start, uint64_t length, int prot, int flags,
+StorageByteBuffer* StorageByteBuffer::mmap(void* start, uint64_t length, int prot, int flags,
         int fd, uint64_t offset) {
     char* memory = (char*)::mmap(start, length, prot, flags, fd, offset);
 
@@ -108,11 +108,11 @@ ByteBuffer* ByteBuffer::mmap(void* start, uint64_t length, int prot, int flags,
     BufDeleter deleter;
     deleter.set_mmap(length);
 
-    ByteBuffer* buf = new(std::nothrow) ByteBuffer();
+    StorageByteBuffer* buf = new(std::nothrow) StorageByteBuffer();
 
     if (NULL == buf) {
         deleter(memory);
-        OLAP_LOG_WARNING("fail to allocate ByteBuffer.");
+        OLAP_LOG_WARNING("fail to allocate StorageByteBuffer.");
         return NULL;
     }
 
@@ -124,7 +124,7 @@ ByteBuffer* ByteBuffer::mmap(void* start, uint64_t length, int prot, int flags,
     return buf;
 }
 
-ByteBuffer* ByteBuffer::mmap(FileHandler* handler, uint64_t offset, int prot, int flags) {
+StorageByteBuffer* StorageByteBuffer::mmap(FileHandler* handler, uint64_t offset, int prot, int flags) {
     if (NULL == handler) {
         OLAP_LOG_WARNING("invalid file handler");
         return NULL;
@@ -142,11 +142,11 @@ ByteBuffer* ByteBuffer::mmap(FileHandler* handler, uint64_t offset, int prot, in
     BufDeleter deleter;
     deleter.set_mmap(length);
 
-    ByteBuffer* buf = new(std::nothrow) ByteBuffer();
+    StorageByteBuffer* buf = new(std::nothrow) StorageByteBuffer();
 
     if (NULL == buf) {
         deleter(memory);
-        OLAP_LOG_WARNING("fail to allocate ByteBuffer.");
+        OLAP_LOG_WARNING("fail to allocate StorageByteBuffer.");
         return NULL;
     }
 
@@ -158,7 +158,7 @@ ByteBuffer* ByteBuffer::mmap(FileHandler* handler, uint64_t offset, int prot, in
     return buf;
 }
 
-OLAPStatus ByteBuffer::put(char src) {
+OLAPStatus StorageByteBuffer::put(char src) {
     if (_position < _limit) {
         _array[_position++] = src;
         return OLAP_SUCCESS;
@@ -167,7 +167,7 @@ OLAPStatus ByteBuffer::put(char src) {
     return OLAP_ERR_BUFFER_OVERFLOW;
 }
 
-OLAPStatus ByteBuffer::put(uint64_t index, char src) {
+OLAPStatus StorageByteBuffer::put(uint64_t index, char src) {
     if (index < _limit) {
         _array[index] = src;
         return OLAP_SUCCESS;
@@ -176,7 +176,7 @@ OLAPStatus ByteBuffer::put(uint64_t index, char src) {
     return OLAP_ERR_BUFFER_OVERFLOW;
 }
 
-OLAPStatus ByteBuffer::put(const char* src, uint64_t src_size, uint64_t offset,
+OLAPStatus StorageByteBuffer::put(const char* src, uint64_t src_size, uint64_t offset,
         uint64_t length) {
     //没有足够的空间可以写
     if (length > remaining()) {

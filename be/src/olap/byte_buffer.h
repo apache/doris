@@ -36,20 +36,20 @@ namespace doris {
 //     limit - 最大使用限制, 这个值小于等于capacity, position始终小于limit
 //
 // ByteBuffer支持直接利用拷贝构造函数或者=操作符安全的进行数据的浅拷贝
-class ByteBuffer {
+class StorageByteBuffer {
 public:
-    // 通过new方法创建一个容量为capacity的ByteBuffer.
+    // 通过new方法创建一个容量为capacity的StorageByteBuffer.
     // 新buffer的position为0, limit为capacity
-    // 调用者获得新建的ByteBuffer的所有权,并需使用delete删除获得的ByteBuffer
+    // 调用者获得新建的ByteBuffer的所有权,并需使用delete删除获得的StorageByteBuffer
     //
     // TODO. 我认为这里create用法应该是直接返回ByteBuffer本身而不是?
     // ??针，否则智能指针就无法发挥作用
     //  目前内存的管理还是手动的。而且需要认为deleta。
-    static ByteBuffer* create(uint64_t capacity);
+    static StorageByteBuffer* create(uint64_t capacity);
 
-    // 通过引用另一个ByteBuffer的内存创建一个新的ByteBuffer
+    // 通过引用另一个ByteBuffer的内存创建一个新的StorageByteBuffer
     // 新buffer的position为0, limit为length
-    // 调用者获得新建的ByteBuffer的所有权,并需使用delete删除获得的ByteBuffer
+    // 调用者获得新建的ByteBuffer的所有权,并需使用delete删除获得的StorageByteBuffer
     // Inputs:
     //   - reference 引用的内存
     //   - offset 引用的Buffer在原ByteBuffer中的位置, 即&reference->array()[offset]
@@ -58,20 +58,20 @@ public:
     //   offset + length < reference->capacity
     //
     // TODO. 同create
-    static ByteBuffer* reference_buffer(ByteBuffer* reference,
+    static StorageByteBuffer* reference_buffer(StorageByteBuffer* reference,
             uint64_t offset,
             uint64_t length);
 
     // 通过mmap创建一个ByteBuffer, mmap成功后的内存由ByteBuffer托管
     // start, length, prot, flags, fd, offset都是mmap函数的参数
-    // 调用者获得新建的ByteBuffer的所有权,并需使用delete删除获得的ByteBuffer
-    static ByteBuffer* mmap(void* start, uint64_t length, int prot, int flags,
+    // 调用者获得新建的ByteBuffer的所有权,并需使用delete删除获得的StorageByteBuffer
+    static StorageByteBuffer* mmap(void* start, uint64_t length, int prot, int flags,
             int fd, uint64_t offset);
 
     // 由于olap的文件都是用FileHandler封装的，因此稍微修?
     // ??下接口，省略掉的参数可以在handler中取到
     // 旧接口仍然保留，或许会用到？
-    static ByteBuffer* mmap(FileHandler* handler, uint64_t offset, int prot, int flags);
+    static StorageByteBuffer* mmap(FileHandler* handler, uint64_t offset, int prot, int flags);
 
     inline uint64_t capacity() const {
         return _capacity;
@@ -214,7 +214,7 @@ private:
     };
 private:
     // 不支持直接创建ByteBuffer, 而是通过create方法创建
-    ByteBuffer();
+    StorageByteBuffer();
 
 private:
     boost::shared_ptr<char> _buf;       // 托管的内存

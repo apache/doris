@@ -298,7 +298,7 @@ OLAPStatus StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileS
         return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
     }
     if (dictionary_data_stream->stream_length() > 0) {
-        _dictionary_data_buffer = ByteBuffer::create(
+        _dictionary_data_buffer = StorageByteBuffer::create(
                 dictionary_data_stream->estimate_uncompressed_length());
         size_t offset = 0;
         size_t length = 0;
@@ -405,9 +405,9 @@ OLAPStatus StringColumnDictionaryReader::init(
     size_t length_remain = 0;
     size_t length_to_read = 0;
     size_t read_buffer_size = 1024;
-    ByteBuffer* read_buffer = ByteBuffer::create(read_buffer_size);
+    StorageByteBuffer* read_buffer = StorageByteBuffer::create(read_buffer_size);
     if (NULL == read_buffer) {
-        OLAP_LOG_WARNING("fail to malloc ByteBuffer");
+        OLAP_LOG_WARNING("fail to malloc StorageByteBuffer");
         return OLAP_ERR_MALLOC_ERROR;
     }
 

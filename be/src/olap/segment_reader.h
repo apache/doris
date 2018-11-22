@@ -326,7 +326,7 @@ private:
     UniqueIdEncodingMap _encodings_map;            // 保存encoding
     std::map<ColumnId, BloomFilterIndexReader*> _bloom_filters;
     Decompressor _decompressor;                    //根据压缩格式，设置的解压器
-    ByteBuffer* _mmap_buffer;
+    StorageByteBuffer* _mmap_buffer;
 
     /*
      * _include_blocks is used for saving the state of block when encountering delete conditions,
@@ -352,7 +352,7 @@ private:
     std::unique_ptr<MemPool> _mem_pool;
 
     RuntimeState* _runtime_state;  // 用于统计内存消耗等运行时信息
-    ByteBuffer* _shared_buffer;
+    StorageByteBuffer* _shared_buffer;
 
     // Set when seek_to_block is called, valid until next seek_to_block is called.
     bool _without_filter = false;

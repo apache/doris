@@ -146,7 +146,7 @@ public:
         for (; it != _stream_factory->streams().end(); ++it) {
             StreamName stream_name = it->first;
             OutStream *out_stream = it->second;
-            std::vector<ByteBuffer*> *buffers;
+            std::vector<StorageByteBuffer*> *buffers;
 
             if (out_stream->is_suppressed()) {
                 continue;
@@ -180,7 +180,7 @@ public:
         ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode("tmp_file", 
                 O_RDONLY, S_IRUSR | S_IWUSR)); 
 
-        _shared_buffer = ByteBuffer::create(
+        _shared_buffer = StorageByteBuffer::create(
                 OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE + sizeof(StreamHead));
         ASSERT_TRUE(_shared_buffer != NULL);
 
@@ -239,17 +239,17 @@ public:
 
     std::vector<size_t> _offsets;
 
-    std::vector<ByteBuffer*> _present_buffers;
+    std::vector<StorageByteBuffer*> _present_buffers;
 
-    std::vector<ByteBuffer*> _data_buffers;
+    std::vector<StorageByteBuffer*> _data_buffers;
 
-    std::vector<ByteBuffer*> _second_buffers;
+    std::vector<StorageByteBuffer*> _second_buffers;
 
-    std::vector<ByteBuffer*> _dictionary_buffers;
+    std::vector<StorageByteBuffer*> _dictionary_buffers;
 
-    std::vector<ByteBuffer*> _length_buffers;
+    std::vector<StorageByteBuffer*> _length_buffers;
 
-    ByteBuffer* _shared_buffer;
+    StorageByteBuffer* _shared_buffer;
 
     std::map<StreamName, ReadOnlyFileStream *> _map_in_streams;
 

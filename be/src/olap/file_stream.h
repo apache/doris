@@ -40,7 +40,7 @@ public:
     // 构造方法, 使用一组ByteBuffer创建一个InStream
     // 输入的ByteBuffer在流中的位置可以不连续,例如通过Index确定某些数据不需要
     // 读取后,则不读入这部分的数据. 但InStream封装了ByteBuffer不连续这一事实,
-    // 从上层使用者来看,依旧是在访问一段连续的流.上层使用者应该保证不读取ByteBuffer
+    // 从上层使用者来看,依旧是在访问一段连续的流.上层使用者应该保证不读取StorageByteBuffer
     // 之间没有数据的空洞位置.
     //
     // 当使用mmap的时候,这里会退化为只有一个ByteBuffer, 是否使用mmap取决于在性能
@@ -53,13 +53,13 @@ public:
     //     Decompressor - 如果流被压缩过,则提供一个解压缩函数,否则为NULL
     //     compress_buffer_size - 如果使用压缩,给出压缩的块大小
     ReadOnlyFileStream(FileHandler* handler,
-            ByteBuffer** shared_buffer,
+            StorageByteBuffer** shared_buffer,
             Decompressor decompressor,
             uint32_t compress_buffer_size,
             OlapReaderStatistics* stats);
 
     ReadOnlyFileStream(FileHandler* handler,
-            ByteBuffer** shared_buffer,
+            StorageByteBuffer** shared_buffer,
             uint64_t offset,
             uint64_t length,
             Decompressor decompressor,
@@ -71,7 +71,7 @@ public:
     }
 
     inline OLAPStatus init() {
-        _compressed_helper = ByteBuffer::create(_compress_buffer_size);
+        _compressed_helper = StorageByteBuffer::create(_compress_buffer_size);
         if (NULL == _compressed_helper) {
             OLAP_LOG_WARNING("fail to create compressed buffer");
             return OLAP_ERR_MALLOC_ERROR;
@@ -234,9 +234,9 @@ private:
     OLAPStatus _fill_compressed(size_t length);
 
     FileCursor _file_cursor;
-    ByteBuffer* _compressed_helper;
-    ByteBuffer* _uncompressed;
-    ByteBuffer** _shared_buffer;
+    StorageByteBuffer* _compressed_helper;
+    StorageByteBuffer* _uncompressed;
+    StorageByteBuffer** _shared_buffer;
 
     Decompressor _decompressor;
     size_t _compress_buffer_size;

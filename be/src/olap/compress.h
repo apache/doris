@@ -22,7 +22,7 @@
 
 namespace doris {
 
-class ByteBuffer;
+class StorageByteBuffer;
 
 // 定义压缩函数,将in中剩余的内存压缩,并保存到out中剩余的空间
 // Inputs:
@@ -32,7 +32,7 @@ class ByteBuffer;
 // Returns:
 //     OLAP_ERR_BUFFER_OVERFLOW - out中的剩余空间不足
 //     OLAP_ERR_COMPRESS_ERROR - 压缩错误
-typedef OLAPStatus(*Compressor)(ByteBuffer* in, ByteBuffer* out, bool* smaller);
+typedef OLAPStatus(*Compressor)(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller);
 
 // 定义解压缩函数,将in中剩余的内存解压缩,并保存到out中剩余的空间
 // Inputs:
@@ -41,13 +41,13 @@ typedef OLAPStatus(*Compressor)(ByteBuffer* in, ByteBuffer* out, bool* smaller);
 // Returns:
 //     OLAP_ERR_BUFFER_OVERFLOW - out中的剩余空间不足
 //     OLAP_ERR_DECOMPRESS_ERROR - 解压缩错误
-typedef OLAPStatus(*Decompressor)(ByteBuffer* in, ByteBuffer* out);
+typedef OLAPStatus(*Decompressor)(StorageByteBuffer* in, StorageByteBuffer* out);
 
-OLAPStatus lzo_compress(ByteBuffer* in, ByteBuffer* out, bool* smaller);
-OLAPStatus lzo_decompress(ByteBuffer* in, ByteBuffer* out);
+OLAPStatus lzo_compress(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller);
+OLAPStatus lzo_decompress(StorageByteBuffer* in, StorageByteBuffer* out);
 
-OLAPStatus lz4_compress(ByteBuffer* in, ByteBuffer* out, bool* smaller);
-OLAPStatus lz4_decompress(ByteBuffer* in, ByteBuffer* out);
+OLAPStatus lz4_compress(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller);
+OLAPStatus lz4_decompress(StorageByteBuffer* in, StorageByteBuffer* out);
 
 }  // namespace doris
 #endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_COMPRESS_H

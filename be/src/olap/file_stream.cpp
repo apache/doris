@@ -24,7 +24,7 @@ namespace doris {
 
 ReadOnlyFileStream::ReadOnlyFileStream(
         FileHandler* handler,
-        ByteBuffer** shared_buffer,
+        StorageByteBuffer** shared_buffer,
         Decompressor decompressor,
         uint32_t compress_buffer_size,
         OlapReaderStatistics* stats)
@@ -40,7 +40,7 @@ ReadOnlyFileStream::ReadOnlyFileStream(
 
 ReadOnlyFileStream::ReadOnlyFileStream(
         FileHandler* handler,
-        ByteBuffer** shared_buffer,
+        StorageByteBuffer** shared_buffer,
         uint64_t offset,
         uint64_t length,
         Decompressor decompressor,
@@ -85,7 +85,7 @@ OLAPStatus ReadOnlyFileStream::_assure_data() {
     }
 
     if (header.type == StreamHead::UNCOMPRESSED) {
-        ByteBuffer* tmp = _compressed_helper;
+        StorageByteBuffer* tmp = _compressed_helper;
         _compressed_helper = *_shared_buffer;
         *_shared_buffer = tmp;
     } else {
