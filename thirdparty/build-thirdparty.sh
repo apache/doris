@@ -58,7 +58,7 @@ ${TP_DIR}/download-thirdparty.sh
 export LD_LIBRARY_PATH=$TP_DIR/installed/lib:$LD_LIBRARY_PATH
 
 # set COMPILER
-if [[ -z ${DORIS_GCC_HOME} ]]; then
+if [[ ! -z ${DORIS_GCC_HOME} ]]; then
     export CC=${DORIS_GCC_HOME}/bin/gcc
     export CPP=${DORIS_GCC_HOME}/bin/cpp
     export CXX=${DORIS_GCC_HOME}/bin/g++
