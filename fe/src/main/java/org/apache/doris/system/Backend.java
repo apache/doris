@@ -283,6 +283,10 @@ public class Backend implements Writable {
         return this.disksRef.get();
     }
 
+    public boolean hasPathHash() {
+        return disksRef.get().values().stream().allMatch(v -> v.hasPathHash());
+    }
+
     public List<String> getDiskInfosAsString() {
         ImmutableMap<String, DiskInfo> disks = disksRef.get();
         List<String> diskInfoStrings = new LinkedList<String>();
@@ -568,6 +572,5 @@ public class Backend implements Writable {
 
         return isChanged;
     }
-
 }
 

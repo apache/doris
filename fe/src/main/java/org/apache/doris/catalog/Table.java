@@ -259,7 +259,7 @@ public class Table extends MetaObject implements Writable {
         return "Table [id=" + id + ", name=" + name + ", type=" + type + "]";
     }
 
-    public boolean needScan() {
+    public boolean needCheck() {
         return getType() == TableType.OLAP;
     }
 }

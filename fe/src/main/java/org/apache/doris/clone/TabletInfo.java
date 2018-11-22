@@ -25,7 +25,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
-import org.apache.doris.clone.TabletFactory.Slot;
+import org.apache.doris.clone.TabletScheduler.Slot;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.CloneTask;
@@ -38,7 +38,7 @@ import java.util.List;
 import java.util.Map;
 
 /*
- * TabletInfo contains all information which is created during tablet factory processing.
+ * TabletInfo contains all information which is created during tablet scheduler processing.
  */
 public class TabletInfo implements Comparable<TabletInfo> {
     private static final Logger LOG = LogManager.getLogger(TabletInfo.class);
@@ -356,17 +356,17 @@ public class TabletInfo implements Comparable<TabletInfo> {
     /*
      * release all resources before finishing this task
      */
-    public void releaseResource(TabletFactory tabletFactory) {
+    public void releaseResource(TabletScheduler tabletScheduler) {
         if (srcReplica != null) {
             Preconditions.checkState(srcPathHash != -1);
-            Slot slot = tabletFactory.getBackendsWorkingSlots().get(srcReplica.getBackendId());
+            Slot slot = tabletScheduler.getBackendsWorkingSlots().get(srcReplica.getBackendId());
             if (slot != null) {
                 slot.freeSlot(srcPathHash);
             }
         }
 
         if (destPathHash != -1) {
-            Slot slot = tabletFactory.getBackendsWorkingSlots().get(destBackendId);
+            Slot slot = tabletScheduler.getBackendsWorkingSlots().get(destBackendId);
             if (slot != null) {
                 slot.freeSlot(destPathHash);
             }

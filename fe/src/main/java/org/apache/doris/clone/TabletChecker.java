@@ -39,57 +39,59 @@ import java.util.List;
 import java.util.Set;
 
 /*
- * This scanner is responsible for scanning all unhealthy tablets.
+ * This checker is responsible for checking all unhealthy tablets.
  * It does not responsible for any scheduler of tablet repairing or balance
  */
-public class TabletScanner extends Daemon {
-    private static final Logger LOG = LogManager.getLogger(TabletScanner.class);
+public class TabletChecker extends Daemon {
+    private static final Logger LOG = LogManager.getLogger(TabletChecker.class);
 
-    private static long INTERVAL_MS = 60 * 1000L; // 1min
+    private static final long INTERVAL_MS = 60 * 1000L; // 1min
 
     private Catalog catalog;
     private SystemInfoService infoService;
-    private TabletFactory tabletFactory;
+    private TabletScheduler tabletScheduler;
 
     // db id -> (tbl id -> partition id)
     // priority of replicas of partitions in this table will be set to VERY_HIGH if not healthy
-    private com.google.common.collect.Table<Long, Long, Set<Long>> priors = HashBasedTable.create();
+    private com.google.common.collect.Table<Long, Long, Set<Long>> prios = HashBasedTable.create();
 
-    public TabletScanner() {
-        super("tablet scanner", INTERVAL_MS);
+    public TabletChecker() {
+        super("tablet checker", INTERVAL_MS);
         catalog = Catalog.getCurrentCatalog();
         infoService = Catalog.getCurrentSystemInfo();
-        tabletFactory = new TabletFactory();
+        tabletScheduler = new TabletScheduler();
     }
 
-    public void addPriors(long dbId, long tblId, List<Long> partitionIds) {
+    public void addPrios(long dbId, long tblId, List<Long> partitionIds) {
         Preconditions.checkArgument(!partitionIds.isEmpty());
-        synchronized (priors) {
-            Set<Long> parts = priors.get(dbId, tblId);
+        synchronized (prios) {
+            Set<Long> parts = prios.get(dbId, tblId);
             if (parts == null) {
                 parts = Sets.newHashSet();
-                priors.put(dbId, tblId, parts);
+                prios.put(dbId, tblId, parts);
             }
             parts.addAll(partitionIds);
         }
+
+        // we also need to change the priority of tablets which are already in
+        tabletScheduler.changePriorityOfTablets(dbId, tblId, partitionIds);
     }
 
     /*
-     * For each cycle, TabletScanner will scan all OlapTable's tablet.
-     * If a tablet is not healthy, a TabletInfo will be created and sent to TabletFactory for repairing.
+     * For each cycle, TabletChecker will check all OlapTable's tablet.
+     * If a tablet is not healthy, a TabletInfo will be created and sent to TabletScheduler for repairing.
      */
     @Override
     protected void runOneCycle() {
-
-        if (!tabletFactory.isEmpty()) {
-            LOG.info("tablet factory has unfinished tasks. skip this round of checking");
+        if (!tabletScheduler.isEmpty()) {
+            LOG.info("tablet scheduler has unfinished tasks. skip this round of checking");
             return;
         }
 
-        scanTablets();
+        checkTablets();
     }
 
-    private void scanTablets() {
+    private void checkTablets() {
         List<Long> dbIds = catalog.getDbIds();
         int unhealthyTabletNum = 0;
         int totalTabletNum = 0;
@@ -107,28 +109,28 @@ public class TabletScanner extends Daemon {
             db.readLock();
             try {
                 for (Table table : db.getTables()) {
-                    if (!table.needScan()) {
+                    if (!table.needCheck()) {
                         continue;
                     }
 
                     OlapTable olapTbl = (OlapTable) table;
                     for (Partition partition : olapTbl.getPartitions()) {
-                        boolean healthyPrioriPart = true;
+                        boolean prioPartIsHealthy = true;
                         for (MaterializedIndex idx : partition.getMaterializedIndices()) {
                             for (Tablet tablet : idx.getTablets()) {
                                 totalTabletNum++;
-                                Pair<TabletStatus, TabletInfo.Priority> statusWithPrior =
+                                Pair<TabletStatus, TabletInfo.Priority> statusWithPrio =
                                         tablet.getHealthStatusWithPriority(infoService,
                                                      db.getClusterName(),
                                                      partition.getCommittedVersion(),
                                                      partition.getCommittedVersion(),
                                                      olapTbl.getPartitionInfo().getReplicationNum(partition.getId()));
                                     
-                                if (statusWithPrior.first == TabletStatus.HEALTHY) {
+                                if (statusWithPrio.first == TabletStatus.HEALTHY) {
                                     continue;
-                                } else if (isInPriors(db.getId(), table.getId(), partition.getId())) {
-                                    statusWithPrior.second = TabletInfo.Priority.VERY_HIGH;
-                                    healthyPrioriPart = false;
+                                } else if (isInPrios(db.getId(), table.getId(), partition.getId())) {
+                                    statusWithPrio.second = TabletInfo.Priority.VERY_HIGH;
+                                    prioPartIsHealthy = false;
                                 }
 
                                 TabletInfo tabletInfo = new TabletInfo(db.getClusterName(),
@@ -137,15 +139,17 @@ public class TabletScanner extends Daemon {
                                         olapTbl.getSchemaHashByIndexId(idx.getId()),
                                         olapTbl.getPartitionInfo().getDataProperty(partition.getId()).getStorageMedium(),
                                         System.currentTimeMillis());
-                                tabletInfo.setPriority(statusWithPrior.second);
-                                if (tabletFactory.addTablet(tabletInfo)) {
+                                tabletInfo.setPriority(statusWithPrio.second);
+                                if (tabletScheduler.addTablet(tabletInfo)) {
                                     unhealthyTabletNum++;
                                 }
                             }
                         }
 
-                        if (healthyPrioriPart) {
-                            removeHealthyPartFromPriori(dbId, table.getId(), partition.getId());
+                        if (prioPartIsHealthy) {
+                            // if all replicas in this partition are healthy, remove this partition from
+                            // priorities.
+                            removeHealthyPartFromPrios(dbId, table.getId(), partition.getId());
                         }
                     }
                 }
@@ -154,26 +158,26 @@ public class TabletScanner extends Daemon {
             }
         } // end for dbs
 
-        LOG.info("finished to scanning tablets. unhealth/healthy: {}/{}", unhealthyTabletNum, totalTabletNum);
+        LOG.info("finished to check tablets. unhealth/healthy: {}/{}", unhealthyTabletNum, totalTabletNum);
     }
 
-    public void removeHealthyPartFromPriori(Long dbId, Long tblId, Long partId) {
-       synchronized (priors) {
-            Set<Long> parts = priors.get(dbId, tblId);
+    public void removeHealthyPartFromPrios(Long dbId, Long tblId, Long partId) {
+       synchronized (prios) {
+            Set<Long> parts = prios.get(dbId, tblId);
             if (parts == null) {
                 return;
             }
             parts.remove(partId);
             if (parts.isEmpty()) {
-                priors.remove(dbId, tblId);
+                prios.remove(dbId, tblId);
             }
        }
     }
 
-    private boolean isInPriors(long dbId, long tblId, long partId) {
-        synchronized (priors) {
-            if (priors.contains(dbId, tblId)) {
-                return priors.get(dbId, tblId).contains(partId);
+    private boolean isInPrios(long dbId, long tblId, long partId) {
+        synchronized (prios) {
+            if (prios.contains(dbId, tblId)) {
+                return prios.get(dbId, tblId).contains(partId);
             }
             return false;
         }

@@ -100,6 +100,10 @@ public class DiskInfo implements Writable {
         this.pathHash = pathHash;
     }
 
+    public boolean hasPathHash() {
+        return pathHash != -1;
+    }
+
     @Override
     public String toString() {
         return "DiskInfo [rootPath=" + rootPath + "(" + pathHash + "), totalCapacityB=" + totalCapacityB

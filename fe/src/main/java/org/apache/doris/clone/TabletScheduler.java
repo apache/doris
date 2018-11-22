@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.clone;
 
 import com.google.common.base.Preconditions;
@@ -16,6 +33,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.clone.TabletInfo.Priority;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.persist.ReplicaPersistInfo;
@@ -29,16 +47,15 @@ import org.apache.logging.log4j.Logger;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.Set;
-import java.util.concurrent.PriorityBlockingQueue;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /*
- * TabletFactory saved the tablets produced by TabletScanner and try to repair them.
- * It also try to balance the cluster load if there is no tablet need to be repaired.
+ * TabletScheduler saved the tablets produced by TabletChecker and try to repair them.
+ * It also try to balance the cluster load.
  * 
- * We are expecting to an efficient way to recovery the entire cluster and make it balanced.
+ * We are expecting an efficient way to recovery the entire cluster and make it balanced.
  * Case 1:
  *  A Backend is down. All tablets which has replica on this BE should be repaired as soon as possible.
  *  
@@ -48,24 +65,32 @@ import java.util.stream.Collectors;
  *  
  * Case 2:
  *  A new Backend is added to the cluster. Replicas should be transfer to that host to balance the cluster load.
- * 1 sec
  */
-public class TabletFactory extends Daemon {
-    private static final Logger LOG = LogManager.getLogger(TabletFactory.class);
+public class TabletScheduler extends Daemon {
+    private static final Logger LOG = LogManager.getLogger(TabletScheduler.class);
 
-    private PriorityBlockingQueue<TabletInfo> q = new PriorityBlockingQueue<>();;
-    private Set<Long> runningTabletIds = Sets.newHashSet();;
+    // this is a init #working slot per path in a backend.
+    private static final int SLOT_NUM_PER_PATH = 1;
+
+    // handle at most BATCH_NUM tablets in one loop
+    private static final int BATCH_NUM = 10;
+
+    // the minimum interval of updating cluster statistics
+    private static final long CLUSTER_STAT_UPDATE_INTERVAL_MS = 60 * 1000; // 1min
 
     /*
-     *  this is a init #working slot per backend.
-     *  We will increase or decrease the slot num dynamically based on the clone task statistic info
+     * Tablet is added to tabletQ as well it's id in runningTabletIds.
+     * TabletScheduler will take tablet from tabletQ but will not remove it's id from runningTabletIds when
+     * handling a tablet.
+     * Tablet' id can only be remove after the clone task is done(timeout, cancelled or finished).
+     * 
+     * So if a tablet's id is still in runningTabletIds, TabletChecker can not add tablet to TabletScheduler.
      */
-    private static int BATCH_NUM = 10; // handle at most BATCH_NUM tablets in one loop
-
-    private static int SLOT_NUM_PER_PATH = 1;
+    private PriorityQueue<TabletInfo> tabletQ = new PriorityQueue<>();
+    private Set<Long> runningTabletIds = Sets.newHashSet();
 
     // be id -> #working slots
-    private Map<Long, Slot> backendsWorkingSlots = Maps.newConcurrentMap();;
+    private Map<Long, Slot> backendsWorkingSlots = Maps.newConcurrentMap();
     
     private Catalog catalog;
     private SystemInfoService infoService;
@@ -74,41 +99,34 @@ public class TabletFactory extends Daemon {
     // cluster name -> load statistic
     private Map<String, ClusterLoadStatistic> statisticMap = Maps.newConcurrentMap();
     private long lastLoadStatisticUpdateTime = 0;
-    private static long UPDATE_INTERVAL_MS = 60 * 1000;
 
-    private boolean isInit = false;
+    // set this to true if the scheduler is ready to work
+    private boolean isReady = false;
 
-    public TabletFactory() {
-        super("tablet factory", 1000);
+    public TabletScheduler() {
+        super("tablet scheduler", 5000);
         catalog = Catalog.getCurrentCatalog();
         infoService = Catalog.getCurrentSystemInfo();
         invertedIndex = Catalog.getCurrentInvertedIndex();
     }
 
     public boolean init() {
-        return initWorkingSlots();
+        return updateWorkingSlots();
     }
 
-    private boolean initWorkingSlots() {
+    public boolean updateWorkingSlots() {
         ImmutableMap<Long, Backend> backends = infoService.getBackendsInCluster(null);
-        for (Backend be : backends.values()) {
-            List<Long> pathHashes = be.getDisks().values().stream().map(v -> v.getPathHash()).collect(Collectors.toList());
-            Slot slot = new Slot(pathHashes, SLOT_NUM_PER_PATH);
-            backendsWorkingSlots.put(be.getId(), slot);
-            LOG.info("init backend {} working slots: {}", be.getId(), be.getDisks().size());
+        for (Backend backend : backends.values()) {
+            if (!backend.hasPathHash()) {
+                // when upgrading, backend may not get path info yet. so return false and wait for next round.
+                LOG.info("not all backend has path info");
+                isReady = false;
+                return false;
+            }
         }
 
-        // TODO(cmy): the path hash in DiskInfo may not be available before the entire cluster being upgraded
-        // to the latest version.
-        // So we have to wait until we get all path hash info.
-        return false;
-    }
-
-    public void updateWorkingSlots() {
-        ImmutableMap<Long, Backend> backends = infoService.getBackendsInCluster(null);
-        Set<Long> deletedBeIds = Sets.newHashSet();
-
         // update exist backends
+        Set<Long> deletedBeIds = Sets.newHashSet();
         for (Long beId : backendsWorkingSlots.keySet()) {
             if (backends.containsKey(beId)) {
                 List<Long> pathHashes = backends.get(beId).getDisks().values().stream().map(v -> v.getPathHash()).collect(Collectors.toList());
@@ -121,6 +139,7 @@ public class TabletFactory extends Daemon {
         // delete non-exist backends
         for (Long beId : deletedBeIds) {
             backendsWorkingSlots.remove(beId);
+            LOG.info("delete non exist backend: {}", beId);
         }
 
         // add new backends
@@ -129,17 +148,12 @@ public class TabletFactory extends Daemon {
                 List<Long> pathHashes = be.getDisks().values().stream().map(v -> v.getPathHash()).collect(Collectors.toList());
                 Slot slot = new Slot(pathHashes, SLOT_NUM_PER_PATH);
                 backendsWorkingSlots.put(be.getId(), slot);
-                LOG.info("init backend {} working slots: {}", be.getId(), be.getDisks().size());
+                LOG.info("add new backend {} with slots num: {}", be.getId(), be.getDisks().size());
             }
         }
-    }
 
-    public void addNewBackend(long newBackendId) {
-        // backendsWorkingSlots.putIfAbsent(newBackendId, INIT_BACKEND_WORKING_SLOT);
-    }
-
-    public void deleteBackend(long backendId) {
-        backendsWorkingSlots.remove(backendId);
+        isReady = true;
+        return true;
     }
 
     public Map<Long, Slot> getBackendsWorkingSlots() {
@@ -151,28 +165,43 @@ public class TabletFactory extends Daemon {
             return false;
         }
         runningTabletIds.add(tablet.getTabletId());
-        q.offer(tablet);
+        tabletQ.offer(tablet);
         return true;
     }
 
-    public boolean isEmpty() {
-        return q.isEmpty();
+    public synchronized boolean isEmpty() {
+        return tabletQ.isEmpty();
     }
 
     /*
-     * TabletFactory will run as a daemon thread at a very short interval(default 1 sec)
+     * Iterate current tablets, change their priority if necessary.
+     */
+    public synchronized void changePriorityOfTablets(long dbId, long tblId, List<Long> partitionIds) {
+        PriorityQueue<TabletInfo> newTabletQ = new PriorityQueue<>();
+        for (TabletInfo tabletInfo : tabletQ) {
+            if (tabletInfo.getDbId() == dbId && tabletInfo.getTblId() == tblId
+                    && partitionIds.contains(tabletInfo.getPartitionId())) {
+                tabletInfo.setPriority(Priority.VERY_HIGH);
+            }
+            newTabletQ.add(tabletInfo);
+        }
+        tabletQ = newTabletQ;
+    }
+
+    /*
+     * TabletScheduler will run as a daemon thread at a very short interval(default 5 sec)
      * It will try to repair the tablet in queue, and try to balance the cluster if possible.
      */
     @Override
     protected void runOneCycle() {
-        if (!isInit && !init()) {
+        if (!isReady && !init()) {
             // not ready to start.
             return;
         }
 
         updateClusterLoadStatisticsIfNecessary();
 
-        handleQ();
+        handleTabletQ();
 
         doBalance();
     }
@@ -185,7 +214,7 @@ public class TabletFactory extends Daemon {
      * because we already limit the total number of running clone jobs in cluster by 'backend slots'
      */
     private void updateClusterLoadStatisticsIfNecessary() {
-        if (System.currentTimeMillis() - lastLoadStatisticUpdateTime < UPDATE_INTERVAL_MS) {
+        if (System.currentTimeMillis() - lastLoadStatisticUpdateTime < CLUSTER_STAT_UPDATE_INTERVAL_MS) {
             return;
         }
 
@@ -203,7 +232,7 @@ public class TabletFactory extends Daemon {
     /*
      * get at most BATCH_NUM tablets from queue, and try to repair them.
      */
-    private void handleQ() {
+    private void handleTabletQ() {
         List<TabletInfo> currentBatch = getNextTabletInfoBatch();
         LOG.debug("get {} tablets info to repair", currentBatch.size());
 
@@ -576,21 +605,17 @@ public class TabletFactory extends Daemon {
     }
 
     // get at most BATCH_NUM tablets from queue.
-    private List<TabletInfo> getNextTabletInfoBatch() {
+    private synchronized List<TabletInfo> getNextTabletInfoBatch() {
         List<TabletInfo> list = Lists.newArrayList();
         int count = BATCH_NUM;
-        try {
-            while (count > 0) {
-                TabletInfo tablet = q.poll(1, TimeUnit.SECONDS);
-                if (tablet == null) {
-                    // no more tablets
-                    break;
-                }
-                list.add(tablet);
-                count--;
+        while (count > 0) {
+            TabletInfo tablet = tabletQ.poll();
+            if (tablet == null) {
+                // no more tablets
+                break;
             }
-        } catch (InterruptedException e) {
-            LOG.warn("get exception.", e);
+            list.add(tablet);
+            count--;
         }
         return list;
     }
@@ -651,5 +676,4 @@ public class TabletFactory extends Daemon {
             return slot == null ? -1 : slot;
         }
     }
-
 }
