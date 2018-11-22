@@ -35,6 +35,18 @@ export DORIS_HOME=${ROOT}
 
 . ${DORIS_HOME}/env.sh
 
+# build thirdparty libraries if necessary
+if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/librdkafka.a ]]; then
+    echo "Thirdparty libraries need to be build ..."
+    ${DORIS_THIRDPARTY}/build-thirdparty.sh
+fi
+
+# check java home
+if [[ -z ${JAVA_HOME} ]]; then
+    echo "Warning: JAVA_HOME is not set, use thirdparty/installed/jdk1.8.0_131"
+    export JAVA_HOME=${DORIS_THIRDPARTY}/installed/jdk1.8.0_131
+fi
+
 PARALLEL=$[$(nproc)/4+1]
 
 # Check args

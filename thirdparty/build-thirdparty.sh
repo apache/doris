@@ -35,8 +35,8 @@ export DORIS_HOME=$curdir/..
 export TP_DIR=$curdir
 
 # include custom environment variables
-if [[ -f ${DORIS_HOME}/custom_env.sh ]]; then
-    . ${DORIS_HOME}/custom_env.sh
+if [[ -f ${DORIS_HOME}/env.sh ]]; then
+    . ${DORIS_HOME}/env.sh
 fi
 
 if [[ ! -f ${TP_DIR}/download-thirdparty.sh ]]; then
@@ -57,16 +57,18 @@ ${TP_DIR}/download-thirdparty.sh
 
 export LD_LIBRARY_PATH=$TP_DIR/installed/lib:$LD_LIBRARY_PATH
 
-if [ -f ${DORIS_TOOLCHAIN}/gcc730/bin/gcc ]; then
-    GCC_HOME=${DORIS_TOOLCHAIN}/gcc730
-    export CC=${GCC_HOME}/bin/gcc
-    export CPP=${GCC_HOME}/bin/cpp
-    export CXX=${GCC_HOME}/bin/g++
+# set COMPILER
+if [[ -z ${DORIS_GCC_HOME} ]]; then
+    export CC=${DORIS_GCC_HOME}/bin/gcc
+    export CPP=${DORIS_GCC_HOME}/bin/cpp
+    export CXX=${DORIS_GCC_HOME}/bin/g++
 else
-    export CC=gcc
-    export CPP=cpp
-    export CXX=g++
+    echo "DORIS_GCC_HOME environment variable is not set"
+    exit 1
 fi
+
+# prepare installed prefix
+mkdir -p ${TP_DIR}/installed
 
 check_prerequest() {
     local CMD=$1
@@ -119,7 +121,6 @@ check_prerequest "libtoolize --version" "libtool"
 #########################
 # build all thirdparties
 #########################
-GCC_VERSION="$($CC -dumpversion)"
 
 CMAKE_CMD=`which cmake`
 
