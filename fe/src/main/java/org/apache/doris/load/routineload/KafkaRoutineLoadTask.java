@@ -33,7 +33,7 @@ public class KafkaRoutineLoadTask extends RoutineLoadTask {
                                 String columns, String where, String columnSeparator,
                                 KafkaTaskInfo kafkaTaskInfo, KafkaProgress kafkaProgress) {
         super(resourceInfo, backendId, TTaskType.STREAM_LOAD, dbId, tableId, partitionId, indexId, tabletId,
-                kafkaTaskInfo.getSignature(), columns, where, columnSeparator, RoutineLoadJob.DataSourceType.KAFKA);
+                kafkaTaskInfo.getId(), columns, where, columnSeparator, RoutineLoadJob.DataSourceType.KAFKA);
         this.partitionIdToOffset = new HashMap<>();
         kafkaTaskInfo.getPartitions().parallelStream().forEach(entity ->
                 partitionIdToOffset.put(entity, kafkaProgress.getPartitionIdToOffset().get(entity)));

@@ -18,6 +18,7 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -25,6 +26,8 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Iterator;
+import java.util.List;
 import java.util.Queue;
 
 /**
@@ -44,47 +47,44 @@ public class RoutineLoadTaskScheduler extends Daemon {
         try {
             process();
         } catch (Throwable e) {
-            LOG.error("Failed to process one round of RoutineLoadTaskScheduler with error message {}",
+            LOG.warn("Failed to process one round of RoutineLoadTaskScheduler with error message {}",
                     e.getMessage(), e);
         }
     }
 
-    private void process() {
+    private void process() throws LoadException {
         // update current beIdMaps for tasks
         routineLoadManager.updateBeIdTaskMaps();
 
         // check timeout tasks
-        routineLoadManager.processTimeOutTasks();
+        routineLoadManager.processTimeoutTasks();
 
         // get idle be task num
         int clusterIdleSlotNum = routineLoadManager.getClusterIdleSlotNum();
         int scheduledTaskNum = 0;
-        Queue<RoutineLoadTaskInfo> routineLoadTaskList = routineLoadManager.getNeedSchedulerRoutineLoadTasks();
+        List<RoutineLoadTaskInfo> routineLoadTaskList = routineLoadManager.getNeedSchedulerRoutineLoadTasks();
+        Iterator<RoutineLoadTaskInfo> iterator = routineLoadTaskList.iterator();
         AgentBatchTask batchTask = new AgentBatchTask();
 
         // allocate task to be
         while (clusterIdleSlotNum > 0) {
-            RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskList.poll();
-            // queue is not empty
-            if (routineLoadTaskInfo != null) {
-                // when routine load task is not abandoned
-                if (routineLoadManager.getIdToRoutineLoadTask().get(routineLoadTaskInfo.getSignature()) != null) {
-                    long beId = routineLoadManager.getMinTaskBeId();
-                    RoutineLoadJob routineLoadJob = routineLoadManager.getJobByTaskId(routineLoadTaskInfo.getSignature());
-                    RoutineLoadTask routineLoadTask = routineLoadJob.createTask(routineLoadTaskInfo, beId);
-                    if (routineLoadTask != null) {
-                        routineLoadTaskInfo.setLoadStartTimeMs(System.currentTimeMillis());
-                        AgentTaskQueue.addTask(routineLoadTask);
-                        batchTask.addTask(routineLoadTask);
-                        clusterIdleSlotNum--;
-                        scheduledTaskNum++;
-                        routineLoadManager.addNumOfConcurrentTasksByBeId(beId);
-                    }
+            if (iterator.hasNext()) {
+                RoutineLoadTaskInfo routineLoadTaskInfo = iterator.next();
+                long beId = routineLoadManager.getMinTaskBeId();
+                RoutineLoadJob routineLoadJob = routineLoadManager.getJob(routineLoadTaskInfo.getJobId());
+                RoutineLoadTask routineLoadTask = routineLoadJob.createTask(routineLoadTaskInfo, beId);
+                if (routineLoadTask != null) {
+                    routineLoadTaskInfo.setLoadStartTimeMs(System.currentTimeMillis());
+                    AgentTaskQueue.addTask(routineLoadTask);
+                    batchTask.addTask(routineLoadTask);
+                    clusterIdleSlotNum--;
+                    scheduledTaskNum++;
+                    routineLoadManager.addNumOfConcurrentTasksByBeId(beId);
                 } else {
-                    LOG.debug("Task {} for job has been already discarded", routineLoadTaskInfo.getSignature());
+                    LOG.debug("Task {} for job has been already discarded", routineLoadTaskInfo.getId());
                 }
             } else {
-                LOG.debug("The queue of need scheduler tasks is empty.");
+                LOG.debug("All of tasks were scheduled.");
                 break;
             }
         }

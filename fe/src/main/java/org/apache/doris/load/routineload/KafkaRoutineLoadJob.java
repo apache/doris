@@ -34,6 +34,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
+import java.util.UUID;
 
 public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private static final Logger LOG = LogManager.getLogger(KafkaRoutineLoadJob.class);
@@ -49,7 +50,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     public KafkaRoutineLoadJob() {
     }
 
-    public KafkaRoutineLoadJob(long id, String name, String userName, long dbId, long tableId,
+    public KafkaRoutineLoadJob(String id, String name, String userName, long dbId, long tableId,
                                String partitions, String columns, String where, String columnSeparator,
                                int desireTaskConcurrentNum, JobState state, DataSourceType dataSourceType,
                                int maxErrorNum, TResourceInfo resourceInfo, String serverAddress, String topic) {
@@ -65,17 +66,28 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    public List<RoutineLoadTaskInfo> divideRoutineLoadJob(int currentConcurrentTaskNum) {
-        // divide kafkaPartitions into tasks
-        List<RoutineLoadTaskInfo> kafkaRoutineLoadTaskList = new ArrayList<>();
-        for (int i = 0; i < currentConcurrentTaskNum; i++) {
-            kafkaRoutineLoadTaskList.add(new KafkaTaskInfo(SystemIdGenerator.getNextId()));
+    public void divideRoutineLoadJob(int currentConcurrentTaskNum) {
+        writeLock();
+        try {
+            if (state == JobState.NEED_SCHEDULER) {
+                // divide kafkaPartitions into tasks
+                for (int i = 0; i < currentConcurrentTaskNum; i++) {
+                    KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID().toString(), id);
+                    routineLoadTaskInfoList.add(kafkaTaskInfo);
+                    needSchedulerTaskInfoList.add(kafkaTaskInfo);
+                }
+                for (int i = 0; i < kafkaPartitions.size(); i++) {
+                    ((KafkaTaskInfo) routineLoadTaskInfoList.get(i % currentConcurrentTaskNum))
+                            .addKafkaPartition(kafkaPartitions.get(i));
+                }
+                // change job state to running
+                state = JobState.RUNNING;
+            } else {
+                LOG.debug("Ignore to divide routine load job while job state {}", state);
+            }
+        } finally {
+            writeUnlock();
         }
-        for (int i = 0; i < kafkaPartitions.size(); i++) {
-            ((KafkaTaskInfo) kafkaRoutineLoadTaskList.get(i % currentConcurrentTaskNum))
-                    .addKafkaPartition(kafkaPartitions.get(i));
-        }
-        return kafkaRoutineLoadTaskList;
     }
 
     @Override

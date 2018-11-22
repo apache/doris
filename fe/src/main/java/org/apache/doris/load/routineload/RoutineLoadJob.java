@@ -17,13 +17,17 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TResourceInfo;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -35,6 +39,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * The routine load job support different streaming medium such as KAFKA
  */
 public abstract class RoutineLoadJob implements Writable {
+
+    private static final Logger LOG = LogManager.getLogger(RoutineLoadJob.class);
+
+    private static final int DEFAULT_TASK_TIMEOUT_SECONDS = 10;
 
     public enum JobState {
         NEED_SCHEDULER,
@@ -48,7 +56,7 @@ public abstract class RoutineLoadJob implements Writable {
         KAFKA
     }
 
-    protected long id;
+    protected String id;
     protected String name;
     protected String userName;
     protected long dbId;
@@ -63,6 +71,11 @@ public abstract class RoutineLoadJob implements Writable {
     // max number of error data in ten thousand data
     protected int maxErrorNum;
     protected String progress;
+
+    // The tasks belong to this job
+    protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList;
+    protected List<RoutineLoadTaskInfo> needSchedulerTaskInfoList;
+
     protected ReentrantReadWriteLock lock;
     // TODO(ml): error sample
 
@@ -70,7 +83,7 @@ public abstract class RoutineLoadJob implements Writable {
     public RoutineLoadJob() {
     }
 
-    public RoutineLoadJob(long id, String name, String userName, long dbId, long tableId,
+    public RoutineLoadJob(String id, String name, String userName, long dbId, long tableId,
                           String partitions, String columns, String where, String columnSeparator,
                           int desireTaskConcurrentNum, JobState state, DataSourceType dataSourceType,
                           int maxErrorNum, TResourceInfo resourceInfo) {
@@ -89,6 +102,8 @@ public abstract class RoutineLoadJob implements Writable {
         this.maxErrorNum = maxErrorNum;
         this.resourceInfo = resourceInfo;
         this.progress = "";
+        this.routineLoadTaskInfoList = new ArrayList<>();
+        this.needSchedulerTaskInfoList = new ArrayList<>();
         lock = new ReentrantReadWriteLock(true);
     }
 
@@ -111,7 +126,7 @@ public abstract class RoutineLoadJob implements Writable {
     // thrift object
     private TResourceInfo resourceInfo;
 
-    public long getId() {
+    public String getId() {
         return id;
     }
 
@@ -147,8 +162,57 @@ public abstract class RoutineLoadJob implements Writable {
         return resourceInfo;
     }
 
-    public List<RoutineLoadTaskInfo> divideRoutineLoadJob(int currentConcurrentTaskNum) {
-        return null;
+    public int getSizeOfRoutineLoadTaskInfoList() {
+        readLock();
+        try {
+            return routineLoadTaskInfoList.size();
+        } finally {
+            readUnlock();
+        }
+
+    }
+
+    public List<RoutineLoadTaskInfo> getNeedSchedulerTaskInfoList() {
+        return needSchedulerTaskInfoList;
+    }
+
+    public void updateState(JobState jobState) {
+        writeLock();
+        try {
+            state = jobState;
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void processTimeoutTasks() {
+        writeLock();
+        try {
+            List<RoutineLoadTaskInfo> runningTasks = new ArrayList<>(routineLoadTaskInfoList);
+            runningTasks.removeAll(needSchedulerTaskInfoList);
+
+            for (RoutineLoadTaskInfo routineLoadTaskInfo : runningTasks) {
+                if ((System.currentTimeMillis() - routineLoadTaskInfo.getLoadStartTimeMs())
+                        > DEFAULT_TASK_TIMEOUT_SECONDS * 60 * 1000) {
+                    String oldSignature = routineLoadTaskInfo.getId();
+                    if (routineLoadTaskInfo instanceof KafkaTaskInfo) {
+                        // remove old task
+                        routineLoadTaskInfoList.remove(routineLoadTaskInfo);
+                        // add new task
+                        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo((KafkaTaskInfo) routineLoadTaskInfo);
+                        routineLoadTaskInfoList.add(kafkaTaskInfo);
+                        needSchedulerTaskInfoList.add(kafkaTaskInfo);
+                    }
+                    LOG.debug("Task {} was ran more then {} minutes. It was removed and rescheduled",
+                            oldSignature, DEFAULT_TASK_TIMEOUT_SECONDS);
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void divideRoutineLoadJob(int currentConcurrentTaskNum) {
     }
 
     public int calculateCurrentConcurrentTaskNum() throws MetaNotFoundException {
@@ -166,4 +230,15 @@ public abstract class RoutineLoadJob implements Writable {
     }
 
     abstract RoutineLoadTask createTask(RoutineLoadTaskInfo routineLoadTaskInfo, long beId);
+
+    private void checkStateTransform(RoutineLoadJob.JobState currentState, RoutineLoadJob.JobState desireState)
+            throws LoadException {
+        if (currentState == RoutineLoadJob.JobState.PAUSED && desireState == RoutineLoadJob.JobState.NEED_SCHEDULER) {
+            throw new LoadException("could not transform " + currentState + " to " + desireState);
+        } else if (currentState == RoutineLoadJob.JobState.CANCELLED ||
+                currentState == RoutineLoadJob.JobState.STOPPED) {
+            throw new LoadException("could not transform " + currentState + " to " + desireState);
+        }
+    }
+
 }

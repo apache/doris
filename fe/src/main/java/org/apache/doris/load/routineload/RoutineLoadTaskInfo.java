@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Routine load task info is the task info include the only id (signature).
@@ -27,18 +26,24 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 public class RoutineLoadTaskInfo {
 
-    private long signature;
+    private String id;
+    private String jobId;
 
     private long createTimeMs;
     private long loadStartTimeMs;
 
-    public RoutineLoadTaskInfo(long signature) {
-        this.signature = signature;
+    public RoutineLoadTaskInfo(String id, String jobId) {
+        this.id = id;
+        this.jobId = jobId;
         this.createTimeMs = System.currentTimeMillis();
     }
 
-    public long getSignature() {
-        return signature;
+    public String getId() {
+        return id;
+    }
+
+    public String getJobId() {
+        return jobId;
     }
 
     public void setLoadStartTimeMs(long loadStartTimeMs) {

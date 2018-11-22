@@ -21,18 +21,19 @@ import org.apache.doris.common.SystemIdGenerator;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 public class KafkaTaskInfo extends RoutineLoadTaskInfo {
 
     private List<Integer> partitions;
 
-    public KafkaTaskInfo(long signature) {
-        super(signature);
+    public KafkaTaskInfo(String id, String jobId) {
+        super(id, jobId);
         this.partitions = new ArrayList<>();
     }
 
     public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo) {
-        super(SystemIdGenerator.getNextId());
+        super(UUID.randomUUID().toString(), kafkaTaskInfo.getJobId());
         this.partitions = kafkaTaskInfo.getPartitions();
     }
 

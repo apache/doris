@@ -25,6 +25,7 @@ import mockit.MockUp;
 import mockit.Mocked;
 import mockit.Verifications;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.SystemIdGenerator;
 import org.apache.doris.system.SystemInfoService;
 import org.junit.Assert;
@@ -38,13 +39,12 @@ import java.util.Queue;
 public class RoutineLoadManagerTest {
 
     private static final int DEFAULT_BE_CONCURRENT_TASK_NUM = 100;
-    private static final int DEFAULT_TASK_TIMEOUT_MINUTES = 5;
 
     @Mocked
     private SystemInfoService systemInfoService;
 
     @Test
-    public void testGetMinTaskBeId() {
+    public void testGetMinTaskBeId() throws LoadException {
         List<Long> beIds = Lists.newArrayList();
         beIds.add(1L);
         beIds.add(2L);
@@ -104,42 +104,6 @@ public class RoutineLoadManagerTest {
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         routineLoadManager.updateBeIdTaskMaps();
-    }
-
-    @Test
-    public void testProcessTimeOutTasks() {
-        List<RoutineLoadTaskInfo> routineLoadTaskInfoList = new ArrayList<>();
-        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(1L);
-        kafkaTaskInfo.addKafkaPartition(100);
-        kafkaTaskInfo.setLoadStartTimeMs(System.currentTimeMillis() - DEFAULT_TASK_TIMEOUT_MINUTES * 60 * 1000);
-        routineLoadTaskInfoList.add(kafkaTaskInfo);
-
-        RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        routineLoadManager.addRoutineLoadTasks(routineLoadTaskInfoList);
-
-
-        new MockUp<SystemIdGenerator>() {
-            @Mock
-            public long getNextId() {
-                return 2L;
-            }
-        };
-
-
-        routineLoadManager.processTimeOutTasks();
-        new Verifications() {
-            {
-                Map<Long, RoutineLoadTaskInfo> idToRoutineLoadTask =
-                        Deencapsulation.getField(routineLoadManager, "idToRoutineLoadTask");
-                Assert.assertNull(idToRoutineLoadTask.get(1L));
-                Assert.assertEquals(1, idToRoutineLoadTask.size());
-                Queue<RoutineLoadTaskInfo> needSchedulerTask =
-                        Deencapsulation.getField(routineLoadManager, "needSchedulerRoutineLoadTask");
-                RoutineLoadTaskInfo routineLoadTaskInfo = needSchedulerTask.poll();
-                Assert.assertNotNull(routineLoadTaskInfo);
-                Assert.assertEquals(100, (int) ((KafkaTaskInfo) routineLoadTaskInfo).getPartitions().get(0));
-            }
-        };
     }
 
 }

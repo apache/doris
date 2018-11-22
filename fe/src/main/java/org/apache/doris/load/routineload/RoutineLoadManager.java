@@ -35,24 +35,13 @@ import java.util.stream.Collectors;
 public class RoutineLoadManager {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadManager.class);
     private static final int DEFAULT_BE_CONCURRENT_TASK_NUM = 100;
-    private static final int DEFAULT_TASK_TIMEOUT_MINUTES = 5;
 
     // Long is beId, integer is the size of tasks in be
     private Map<Long, Integer> beIdToMaxConcurrentTasks;
     private Map<Long, Integer> beIdToConcurrentTasks;
 
     // stream load job meta
-    private Map<Long, RoutineLoadJob> idToRoutineLoadJob;
-    private Map<Long, RoutineLoadJob> idToNeedSchedulerRoutineLoadJob;
-    private Map<Long, RoutineLoadJob> idToRunningRoutineLoadJob;
-    private Map<Long, RoutineLoadJob> idToCancelledRoutineLoadJob;
-
-    // stream load tasks meta (not persistent)
-    private Map<Long, RoutineLoadTaskInfo> idToRoutineLoadTask;
-    // KafkaPartitions means that partitions belong to one task
-    // kafka partitions == routine load task (logical)
-    private Queue<RoutineLoadTaskInfo> needSchedulerRoutineLoadTasks;
-    private Map<Long, Long> taskIdToJobId;
+    private Map<String, RoutineLoadJob> idToRoutineLoadJob;
 
     private ReentrantReadWriteLock lock;
 
@@ -73,14 +62,8 @@ public class RoutineLoadManager {
     }
 
     public RoutineLoadManager() {
-        idToRoutineLoadJob = Maps.newHashMap();
-        idToNeedSchedulerRoutineLoadJob = Maps.newHashMap();
-        idToRunningRoutineLoadJob = Maps.newHashMap();
-        idToCancelledRoutineLoadJob = Maps.newHashMap();
-        idToRoutineLoadTask = Maps.newHashMap();
-        needSchedulerRoutineLoadTasks = Queues.newLinkedBlockingQueue();
+        idToRoutineLoadJob = Maps.newConcurrentMap();
         beIdToConcurrentTasks = Maps.newHashMap();
-        taskIdToJobId = Maps.newHashMap();
         lock = new ReentrantReadWriteLock(true);
     }
 
@@ -142,56 +125,15 @@ public class RoutineLoadManager {
     }
 
     public void addRoutineLoadJob(RoutineLoadJob routineLoadJob) {
-        writeLock();
-        try {
-            idToRoutineLoadJob.put(routineLoadJob.getId(), routineLoadJob);
-        } finally {
-            writeUnlock();
-        }
+        idToRoutineLoadJob.put(routineLoadJob.getId(), routineLoadJob);
     }
 
-    public void addRoutineLoadTasks(List<RoutineLoadTaskInfo> routineLoadTaskList) {
-        writeLock();
-        try {
-            idToRoutineLoadTask.putAll(routineLoadTaskList.parallelStream().collect(
-                    Collectors.toMap(task -> task.getSignature(), task -> task)));
-        } finally {
-            writeUnlock();
+    public int getSizeOfIdToRoutineLoadTask() {
+        int sizeOfTasks = 0;
+        for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
+            sizeOfTasks += routineLoadJob.getSizeOfRoutineLoadTaskInfoList();
         }
-    }
-
-    public Map<Long, RoutineLoadTaskInfo> getIdToRoutineLoadTask() {
-        readLock();
-        try {
-            return idToRoutineLoadTask;
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public void addNeedSchedulerRoutineLoadTasks(List<RoutineLoadTaskInfo> routineLoadTaskList, long routineLoadJobId) {
-        writeLock();
-        try {
-            routineLoadTaskList.parallelStream().forEach(entity -> needSchedulerRoutineLoadTasks.add(entity));
-            routineLoadTaskList.parallelStream().forEach(entity ->
-                    taskIdToJobId.put(entity.getSignature(), routineLoadJobId));
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    public void removeRoutineLoadTasks(List<RoutineLoadTaskInfo> routineLoadTasks) {
-        if (routineLoadTasks != null) {
-            writeLock();
-            try {
-                routineLoadTasks.parallelStream().forEach(task -> idToRoutineLoadTask.remove(task.getSignature()));
-                routineLoadTasks.parallelStream().forEach(task ->
-                        needSchedulerRoutineLoadTasks.remove(task));
-                routineLoadTasks.parallelStream().forEach(task -> taskIdToJobId.remove(task.getSignature()));
-            } finally {
-                writeUnlock();
-            }
-        }
+        return sizeOfTasks;
     }
 
     public int getClusterIdleSlotNum() {
@@ -212,10 +154,10 @@ public class RoutineLoadManager {
         }
     }
 
-    public long getMinTaskBeId() {
+    public long getMinTaskBeId() throws LoadException {
         readLock();
         try {
-            long result = 0L;
+            long result = -1L;
             int maxIdleSlotNum = 0;
             initBeIdToMaxConcurrentTasks();
             for (Map.Entry<Long, Integer> entry : beIdToMaxConcurrentTasks.entrySet()) {
@@ -228,173 +170,65 @@ public class RoutineLoadManager {
                     maxIdleSlotNum = Math.max(maxIdleSlotNum, idelTaskNum);
                 }
             }
+            if (result < 0) {
+                throw new LoadException("There is no empty slot in cluster");
+            }
             return result;
         } finally {
             readUnlock();
         }
     }
 
-    public Queue<RoutineLoadTaskInfo> getNeedSchedulerRoutineLoadTasks() {
-        readLock();
-        try {
-            return needSchedulerRoutineLoadTasks;
-        } finally {
-            readUnlock();
+    public List<RoutineLoadTaskInfo> getNeedSchedulerRoutineLoadTasks() {
+        List<RoutineLoadTaskInfo> routineLoadTaskInfoList = new ArrayList<>();
+        for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
+            routineLoadTaskInfoList.addAll(routineLoadJob.getNeedSchedulerTaskInfoList());
         }
+        return routineLoadTaskInfoList;
     }
 
-    public RoutineLoadJob getJobByTaskId(long taskId) {
-        readLock();
-        try {
-            return idToRoutineLoadJob.get(taskIdToJobId.get(taskId));
-        } finally {
-            readUnlock();
-        }
+    public RoutineLoadJob getJob(String jobId) {
+        return idToRoutineLoadJob.get(jobId);
     }
 
     public List<RoutineLoadJob> getRoutineLoadJobByState(RoutineLoadJob.JobState jobState) throws LoadException {
         List<RoutineLoadJob> jobs = new ArrayList<>();
         Collection<RoutineLoadJob> stateJobs = null;
-        readLock();
         LOG.debug("begin to get routine load job by state {}", jobState.name());
-        try {
-            switch (jobState) {
-                case NEED_SCHEDULER:
-                    stateJobs = idToNeedSchedulerRoutineLoadJob.values();
-                    break;
-                case PAUSED:
-                    throw new LoadException("not support getting paused routine load jobs");
-                case RUNNING:
-                    stateJobs = idToRunningRoutineLoadJob.values();
-                    break;
-                case STOPPED:
-                    throw new LoadException("not support getting stopped routine load jobs");
-                default:
-                    break;
-            }
-            if (stateJobs != null) {
-                jobs.addAll(stateJobs);
-                LOG.info("got {} routine load jobs by state {}", jobs.size(), jobState.name());
-            }
-        } finally {
-            readUnlock();
+        switch (jobState) {
+            case NEED_SCHEDULER:
+                stateJobs = idToRoutineLoadJob.values().stream()
+                        .filter(entity -> entity.getState() == RoutineLoadJob.JobState.NEED_SCHEDULER)
+                        .collect(Collectors.toList());
+                break;
+            case PAUSED:
+                stateJobs = idToRoutineLoadJob.values().stream()
+                        .filter(entity -> entity.getState() == RoutineLoadJob.JobState.PAUSED)
+                        .collect(Collectors.toList());
+                break;
+            case RUNNING:
+                stateJobs = idToRoutineLoadJob.values().stream()
+                        .filter(entity -> entity.getState() == RoutineLoadJob.JobState.RUNNING)
+                        .collect(Collectors.toList());
+                break;
+            case STOPPED:
+                stateJobs = idToRoutineLoadJob.values().stream()
+                        .filter(entity -> entity.getState() == RoutineLoadJob.JobState.STOPPED)
+                        .collect(Collectors.toList());
+                break;
+            default:
+                break;
+        }
+        if (stateJobs != null) {
+            jobs.addAll(stateJobs);
+            LOG.info("got {} routine load jobs by state {}", jobs.size(), jobState.name());
         }
         return jobs;
     }
 
-    public void updateRoutineLoadJobStateNoValid(RoutineLoadJob routineLoadJob, RoutineLoadJob.JobState jobState) {
-        writeLock();
-        try {
-            RoutineLoadJob.JobState srcJobState = routineLoadJob.getState();
-            long jobId = routineLoadJob.getId();
-            LOG.info("begin to change job {} state from {} to {}", jobId, srcJobState, jobState);
-            switch (jobState) {
-                case NEED_SCHEDULER:
-                    idToRunningRoutineLoadJob.remove(jobId);
-                    idToNeedSchedulerRoutineLoadJob.put(jobId, routineLoadJob);
-                    break;
-                case PAUSED:
-                    idToNeedSchedulerRoutineLoadJob.remove(jobId);
-                    idToRunningRoutineLoadJob.remove(jobId);
-                    break;
-                case RUNNING:
-                    idToNeedSchedulerRoutineLoadJob.remove(jobId, routineLoadJob);
-                    idToRunningRoutineLoadJob.put(jobId, routineLoadJob);
-                    break;
-                case CANCELLED:
-                    idToRunningRoutineLoadJob.remove(jobId);
-                    idToNeedSchedulerRoutineLoadJob.remove(jobId);
-                    idToCancelledRoutineLoadJob.put(jobId, routineLoadJob);
-                    break;
-                case STOPPED:
-                    idToRunningRoutineLoadJob.remove(jobId);
-                    idToNeedSchedulerRoutineLoadJob.remove(jobId);
-                    break;
-                default:
-                    break;
-            }
-            routineLoadJob.setState(jobState);
-            Catalog.getInstance().getEditLog().logRoutineLoadJob(routineLoadJob);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    public void updateRoutineLoadJobState(RoutineLoadJob routineLoadJob, RoutineLoadJob.JobState jobState)
-            throws LoadException {
-        writeLock();
-        try {
-            RoutineLoadJob.JobState srcJobState = routineLoadJob.getState();
-            long jobId = routineLoadJob.getId();
-            LOG.info("begin to change job {} state from {} to {}", jobId, srcJobState, jobState);
-            checkStateTransform(srcJobState, jobState);
-            switch (jobState) {
-                case NEED_SCHEDULER:
-                    idToRunningRoutineLoadJob.remove(jobId);
-                    idToNeedSchedulerRoutineLoadJob.put(jobId, routineLoadJob);
-                    break;
-                case PAUSED:
-                    idToNeedSchedulerRoutineLoadJob.remove(jobId);
-                    idToRunningRoutineLoadJob.remove(jobId);
-                    break;
-                case RUNNING:
-                    idToNeedSchedulerRoutineLoadJob.remove(jobId, routineLoadJob);
-                    idToRunningRoutineLoadJob.put(jobId, routineLoadJob);
-                    break;
-                case CANCELLED:
-                    idToRunningRoutineLoadJob.remove(jobId);
-                    idToNeedSchedulerRoutineLoadJob.remove(jobId);
-                    idToCancelledRoutineLoadJob.put(jobId, routineLoadJob);
-                    break;
-                case STOPPED:
-                    idToRunningRoutineLoadJob.remove(jobId);
-                    idToNeedSchedulerRoutineLoadJob.remove(jobId);
-                    break;
-                default:
-                    break;
-            }
-            routineLoadJob.setState(jobState);
-            Catalog.getInstance().getEditLog().logRoutineLoadJob(routineLoadJob);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    public void processTimeOutTasks() {
-        writeLock();
-        try {
-            List<RoutineLoadTaskInfo> runningTasks = new ArrayList<>(idToRoutineLoadTask.values());
-            runningTasks.removeAll(needSchedulerRoutineLoadTasks);
-
-            for (RoutineLoadTaskInfo routineLoadTaskInfo : runningTasks) {
-                if ((System.currentTimeMillis() - routineLoadTaskInfo.getLoadStartTimeMs())
-                        > DEFAULT_TASK_TIMEOUT_MINUTES * 60 * 1000) {
-                    long oldSignature = routineLoadTaskInfo.getSignature();
-                    if (routineLoadTaskInfo instanceof KafkaTaskInfo) {
-                        // remove old task
-                        idToRoutineLoadTask.remove(routineLoadTaskInfo.getSignature());
-                        // add new task
-                        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo((KafkaTaskInfo) routineLoadTaskInfo);
-                        idToRoutineLoadTask.put(kafkaTaskInfo.getSignature(), kafkaTaskInfo);
-                        needSchedulerRoutineLoadTasks.add(kafkaTaskInfo);
-                    }
-                    LOG.debug("Task {} was ran more then {} minutes. It was removed and rescheduled",
-                            oldSignature, DEFAULT_TASK_TIMEOUT_MINUTES);
-                }
-
-            }
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    private void checkStateTransform(RoutineLoadJob.JobState currentState, RoutineLoadJob.JobState desireState)
-            throws LoadException {
-        if (currentState == RoutineLoadJob.JobState.PAUSED && desireState == RoutineLoadJob.JobState.NEED_SCHEDULER) {
-            throw new LoadException("could not transform " + currentState + " to " + desireState);
-        } else if (currentState == RoutineLoadJob.JobState.CANCELLED ||
-                currentState == RoutineLoadJob.JobState.STOPPED) {
-            throw new LoadException("could not transform " + currentState + " to " + desireState);
+    public void processTimeoutTasks() {
+        for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
+            routineLoadJob.processTimeoutTasks();
         }
     }
 
