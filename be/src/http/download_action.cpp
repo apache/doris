@@ -52,7 +52,7 @@ DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>
     _exec_env(exec_env),
     _download_type(NORMAL) {
     for (auto& dir : allow_dirs) {
-        _allow_paths.emplace_back(std::move(canonical(dir).string()));
+        _allow_paths.emplace_back(canonical(dir).string());
     }
 }
 
