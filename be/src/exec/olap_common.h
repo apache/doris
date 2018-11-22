@@ -662,6 +662,8 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
         return Status::OK;
     }
 
+    bool _has_converted = false;
+
     if (range.is_fixed_value_range()) {
         if ((_begin_scan_keys.empty() && range.get_fixed_value_size() > config::doris_max_scan_key_num)
                 || range.get_fixed_value_size() * _begin_scan_keys.size() > config::doris_max_scan_key_num) {
@@ -676,11 +678,13 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
             if (_begin_scan_keys.empty()) {
                 if (range.get_convertible_fixed_value_size() < config::doris_max_scan_key_num) {
                     range.convert_to_fixed_value();
+                    _has_converted = true;
                 }
             } else {
                 if (range.get_convertible_fixed_value_size() * _begin_scan_keys.size()
                         < config::doris_max_scan_key_num) {
                     range.convert_to_fixed_value();
+                    _has_converted = true;
                 }
             }
         }
@@ -698,6 +702,14 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
                 _begin_scan_keys.back().add_value(cast_to_string(*iter));
                 _end_scan_keys.emplace_back();
                 _end_scan_keys.back().add_value(cast_to_string(*iter));
+            }
+
+            //when convert to fixed values, we should add null value
+            if (_has_converted) {
+                 _begin_scan_keys.emplace_back();
+                 _begin_scan_keys.back().add_null();
+                 _end_scan_keys.emplace_back();
+                 _end_scan_keys.back().add_null();
             }
         } // 3.1.2 produces the Cartesian product of ScanKey and fixed_value
         else {
@@ -722,6 +734,14 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
                         _end_scan_keys.push_back(end_base_key_range);
                         _end_scan_keys.back().add_value(cast_to_string(*iter));
                     }
+                }
+
+                //when convert to fixed values, we should add null value
+                if (_has_converted) {
+                    _begin_scan_keys.push_back(start_base_key_range);
+                    _begin_scan_keys.back().add_null();
+                    _end_scan_keys.push_back(end_base_key_range);
+                    _end_scan_keys.back().add_null();
                 }
             }
         }
