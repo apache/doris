@@ -64,6 +64,7 @@ if [[ -z ${DORIS_GCC_HOME} ]]; then
     export CXX=${DORIS_GCC_HOME}/bin/g++
 else
     echo "DORIS_GCC_HOME environment variable is not set"
+    exit 1
 fi
 
 # prepare installed prefix
