@@ -47,7 +47,6 @@ fi
 . ${TP_DIR}/vars.sh
 
 mkdir -p ${TP_DIR}/src
-mkdir -p ${TP_DIR}/installed
 
 download() {
     local FILENAME=$1
