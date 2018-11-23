@@ -17,14 +17,32 @@
 
 package org.apache.doris.load.routineload;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.CatalogIdGenerator;
+import org.apache.doris.common.SystemIdGenerator;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TTaskType;
 
-public class RoutineLoadTask extends AgentTask{
+public class RoutineLoadTask extends AgentTask {
+
+    private String id;
+    private String columns;
+    private String where;
+    private String columnSeparator;
+    private RoutineLoadJob.DataSourceType dataSourceType;
+
 
     public RoutineLoadTask(TResourceInfo resourceInfo, long backendId, TTaskType taskType,
-                           long dbId, long tableId, long partitionId, long indexId, long tabletId, long signature) {
-        super(resourceInfo, backendId, taskType, dbId, tableId, partitionId, indexId, tabletId, signature);
+                           long dbId, long tableId, long partitionId, long indexId, long tabletId, String id,
+                           String columns, String where, String columnSeparator,
+                           RoutineLoadJob.DataSourceType dataSourceType) {
+        super(resourceInfo, backendId, taskType, dbId, tableId, partitionId, indexId, tabletId,
+                Catalog.getCurrentCatalog().getNextId());
+        this.id = id;
+        this.columns = columns;
+        this.where = where;
+        this.columnSeparator = columnSeparator;
+        this.dataSourceType = dataSourceType;
     }
 }

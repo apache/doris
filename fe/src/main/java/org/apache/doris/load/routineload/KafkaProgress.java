@@ -17,8 +17,21 @@
 
 package org.apache.doris.load.routineload;
 
-public class KafkaRoutineLoadProgress {
+import java.util.Map;
 
-    private String partitionName;
-    private long offset;
+/**
+ * this is description of kafka routine load progress
+ * the data before offset was already loaded in doris
+ */
+public class KafkaProgress {
+
+    private Map<Integer, Long> partitionIdToOffset;
+
+    public Map<Integer, Long> getPartitionIdToOffset() {
+        return partitionIdToOffset;
+    }
+
+    public void setPartitionIdToOffset(Map<Integer, Long> partitionIdToOffset) {
+        this.partitionIdToOffset = partitionIdToOffset;
+    }
 }

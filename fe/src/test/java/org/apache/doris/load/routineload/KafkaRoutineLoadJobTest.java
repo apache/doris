@@ -19,13 +19,16 @@ package org.apache.doris.load.routineload;
 
 import com.google.common.collect.Lists;
 import mockit.Deencapsulation;
-import mockit.Delegate;
 import mockit.Expectations;
 import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
 import mockit.Mocked;
+import mockit.Verifications;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.SystemIdGenerator;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -37,8 +40,12 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Queue;
 
 public class KafkaRoutineLoadJobTest {
+
+    private static final int DEFAULT_TASK_TIMEOUT_SECONDS = 10;
 
     @Test
     public void testBeNumMin(@Mocked KafkaConsumer kafkaConsumer,
@@ -71,7 +78,7 @@ public class KafkaRoutineLoadJobTest {
             }
         };
 
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", "miaoling", 1L,
+        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob("1", "kafka_routine_load_job", "miaoling", 1L,
                 1L, "1L", "v1", "", "", 3,
                 RoutineLoadJob.JobState.NEED_SCHEDULER, RoutineLoadJob.DataSourceType.KAFKA, 0, new TResourceInfo(),
                 "", "");
@@ -82,25 +89,65 @@ public class KafkaRoutineLoadJobTest {
     @Test
     public void testDivideRoutineLoadJob() {
 
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", "miaoling", 1L,
+        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob("1", "kafka_routine_load_job", "miaoling", 1L,
                 1L, "1L", "v1", "", "", 3,
                 RoutineLoadJob.JobState.NEED_SCHEDULER, RoutineLoadJob.DataSourceType.KAFKA, 0, new TResourceInfo(),
                 "", "");
 
         Deencapsulation.setField(kafkaRoutineLoadJob, "kafkaPartitions", Arrays.asList(1, 4, 6));
 
-        List<RoutineLoadTask> result = kafkaRoutineLoadJob.divideRoutineLoadJob(2);
+        kafkaRoutineLoadJob.divideRoutineLoadJob(2);
+
+        List<RoutineLoadTaskInfo> result = kafkaRoutineLoadJob.getNeedSchedulerTaskInfoList();
         Assert.assertEquals(2, result.size());
-        for (RoutineLoadTask routineLoadTask : result) {
-            KafkaRoutineLoadTask kafkaRoutineLoadTask = (KafkaRoutineLoadTask) routineLoadTask;
-            if (kafkaRoutineLoadTask.getKafkaPartitions().size() == 2) {
-                Assert.assertTrue(kafkaRoutineLoadTask.getKafkaPartitions().contains(1));
-                Assert.assertTrue(kafkaRoutineLoadTask.getKafkaPartitions().contains(6));
-            } else if (kafkaRoutineLoadTask.getKafkaPartitions().size() == 1) {
-                Assert.assertTrue(kafkaRoutineLoadTask.getKafkaPartitions().contains(4));
+        for (RoutineLoadTaskInfo routineLoadTaskInfo : result) {
+            KafkaTaskInfo kafkaTaskInfo = (KafkaTaskInfo) routineLoadTaskInfo;
+            if (kafkaTaskInfo.getPartitions().size() == 2) {
+                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(1));
+                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(6));
+            } else if (kafkaTaskInfo.getPartitions().size() == 1) {
+                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(4));
             } else {
                 Assert.fail();
             }
         }
+    }
+
+    @Test
+    public void testProcessTimeOutTasks() {
+        List<RoutineLoadTaskInfo> routineLoadTaskInfoList = new ArrayList<>();
+        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo("1", "1");
+        kafkaTaskInfo.addKafkaPartition(100);
+        kafkaTaskInfo.setLoadStartTimeMs(System.currentTimeMillis() - DEFAULT_TASK_TIMEOUT_SECONDS * 60 * 1000);
+        routineLoadTaskInfoList.add(kafkaTaskInfo);
+
+        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob("1", "kafka_routine_load_job", "miaoling", 1L,
+                1L, "1L", "v1", "", "", 3,
+                RoutineLoadJob.JobState.NEED_SCHEDULER, RoutineLoadJob.DataSourceType.KAFKA, 0, new TResourceInfo(),
+                "", "");
+        Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
+
+        new MockUp<SystemIdGenerator>() {
+            @Mock
+            public long getNextId() {
+                return 2L;
+            }
+        };
+
+
+        routineLoadJob.processTimeoutTasks();
+        new Verifications() {
+            {
+                List<RoutineLoadTaskInfo> idToRoutineLoadTask =
+                        Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
+                Assert.assertNotEquals("1", idToRoutineLoadTask.get(0).getId());
+                Assert.assertEquals(1, idToRoutineLoadTask.size());
+                List<RoutineLoadTaskInfo> needSchedulerTask =
+                        Deencapsulation.getField(routineLoadJob, "needSchedulerTaskInfoList");
+                Assert.assertEquals(1, needSchedulerTask.size());
+                Assert.assertEquals(100, (int) ((KafkaTaskInfo) (needSchedulerTask.get(0)))
+                        .getPartitions().get(0));
+            }
+        };
     }
 }

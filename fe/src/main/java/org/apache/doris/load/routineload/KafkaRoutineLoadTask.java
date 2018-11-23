@@ -17,27 +17,29 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TTaskType;
 
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
+
 
 public class KafkaRoutineLoadTask extends RoutineLoadTask {
 
-    private List<Integer> kafkaPartitions;
+    private Map<Integer, Long> partitionIdToOffset;
 
-    public KafkaRoutineLoadTask(TResourceInfo resourceInfo, long backendId, TTaskType taskType,
-                                long dbId, long tableId, long partitionId, long indexId, long tabletId, long signature) {
-        super(resourceInfo, backendId, taskType, dbId, tableId, partitionId, indexId, tabletId, signature);
-        this.kafkaPartitions = Lists.newArrayList();
+    public KafkaRoutineLoadTask(TResourceInfo resourceInfo, long backendId,
+                                long dbId, long tableId, long partitionId, long indexId, long tabletId,
+                                String columns, String where, String columnSeparator,
+                                KafkaTaskInfo kafkaTaskInfo, KafkaProgress kafkaProgress) {
+        super(resourceInfo, backendId, TTaskType.STREAM_LOAD, dbId, tableId, partitionId, indexId, tabletId,
+                kafkaTaskInfo.getId(), columns, where, columnSeparator, RoutineLoadJob.DataSourceType.KAFKA);
+        this.partitionIdToOffset = new HashMap<>();
+        kafkaTaskInfo.getPartitions().parallelStream().forEach(entity ->
+                partitionIdToOffset.put(entity, kafkaProgress.getPartitionIdToOffset().get(entity)));
     }
 
-    public void addKafkaPartition(int partition) {
-        kafkaPartitions.add(partition);
-    }
-
-    public List<Integer> getKafkaPartitions() {
-        return kafkaPartitions;
+    public Map<Integer, Long> getPartitionIdToOffset() {
+        return partitionIdToOffset;
     }
 }

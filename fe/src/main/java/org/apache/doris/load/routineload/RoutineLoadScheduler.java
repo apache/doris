@@ -30,10 +30,19 @@ public class RoutineLoadScheduler extends Daemon {
 
     private static final Logger LOG = LogManager.getLogger(RoutineLoadScheduler.class);
 
-    private RoutineLoad routineLoad = Catalog.getInstance().getRoutineLoadInstance();
+    private RoutineLoadManager routineLoadManager = Catalog.getInstance().getRoutineLoadInstance();
 
     @Override
     protected void runOneCycle() {
+        try {
+            process();
+        } catch (Throwable e) {
+            LOG.error("failed to scheduler jobs with error massage {}", e.getMessage(), e);
+        }
+    }
+
+    private void process() {
+        // update
         // get need scheduler routine jobs
         List<RoutineLoadJob> routineLoadJobList = null;
         try {
@@ -44,48 +53,29 @@ public class RoutineLoadScheduler extends Daemon {
 
         LOG.debug("there are {} job need scheduler", routineLoadJobList.size());
         for (RoutineLoadJob routineLoadJob : routineLoadJobList) {
-            // judge nums of tasks more then max concurrent tasks of cluster
-            List<RoutineLoadTask> routineLoadTaskList = null;
             try {
-                routineLoadJob.writeLock();
-
-                if (routineLoadJob.getState() == RoutineLoadJob.JobState.NEED_SCHEDULER) {
-                    int currentConcurrentTaskNum = routineLoadJob.calculateCurrentConcurrentTaskNum();
-                    int totalTaskNum = currentConcurrentTaskNum + routineLoad.getIdToRoutineLoadTask().size();
-                    if (totalTaskNum > routineLoad.getTotalMaxConcurrentTaskNum()) {
-                        LOG.info("job {} concurrent task num {}, current total task num {}. "
-                                        + "desired total task num {} more then total max task num {}, "
-                                        + "skip this turn of scheduler",
-                                routineLoadJob.getId(), currentConcurrentTaskNum,
-                                routineLoad.getIdToRoutineLoadTask().size(),
-                                totalTaskNum, routineLoad.getTotalMaxConcurrentTaskNum());
-                        break;
-                    }
-                    // divide job into tasks
-                    routineLoadTaskList = routineLoadJob.divideRoutineLoadJob(currentConcurrentTaskNum);
-
-                    // update tasks meta
-                    routineLoad.addRoutineLoadTasks(routineLoadTaskList);
-                    routineLoad.addNeedSchedulerRoutineLoadTasks(routineLoadTaskList);
-
-                    // change job state to running
-                    routineLoad.updateRoutineLoadJobState(routineLoadJob, RoutineLoadJob.JobState.RUNNING);
+                // judge nums of tasks more then max concurrent tasks of cluster
+                int currentConcurrentTaskNum = routineLoadJob.calculateCurrentConcurrentTaskNum();
+                int totalTaskNum = currentConcurrentTaskNum + routineLoadManager.getSizeOfIdToRoutineLoadTask();
+                if (totalTaskNum > routineLoadManager.getTotalMaxConcurrentTaskNum()) {
+                    LOG.info("job {} concurrent task num {}, current total task num {}. "
+                                    + "desired total task num {} more then total max task num {}, "
+                                    + "skip this turn of scheduler",
+                            routineLoadJob.getId(), currentConcurrentTaskNum,
+                            routineLoadManager.getSizeOfIdToRoutineLoadTask(),
+                            totalTaskNum, routineLoadManager.getTotalMaxConcurrentTaskNum());
+                    break;
                 }
+                // divide job into tasks
+                routineLoadJob.divideRoutineLoadJob(currentConcurrentTaskNum);
             } catch (MetaNotFoundException e) {
-                routineLoad.updateRoutineLoadJobStateNoValid(routineLoadJob, RoutineLoadJob.JobState.CANCELLED);
-            } catch (LoadException e) {
-                LOG.error("failed to scheduler job {} with error massage {}", routineLoadJob.getId(),
-                        e.getMessage(), e);
-                routineLoad.removeRoutineLoadTasks(routineLoadTaskList);
-            } finally {
-                routineLoadJob.writeUnlock();
+                routineLoadJob.updateState(RoutineLoadJob.JobState.CANCELLED);
             }
         }
-
     }
 
     private List<RoutineLoadJob> getNeedSchedulerRoutineJobs() throws LoadException {
-        return routineLoad.getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULER);
+        return routineLoadManager.getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULER);
     }
 
 

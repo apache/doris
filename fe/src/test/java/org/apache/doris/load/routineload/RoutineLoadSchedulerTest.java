@@ -17,11 +17,20 @@
 
 package org.apache.doris.load.routineload;
 
+import com.google.common.collect.Lists;
+import mockit.Deencapsulation;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TResourceInfo;
 import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Test;
@@ -34,53 +43,79 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-@RunWith(PowerMockRunner.class)
-@PrepareForTest({Catalog.class})
 public class RoutineLoadSchedulerTest {
 
     @Test
-    public void testNormalRunOneCycle() throws LoadException, MetaNotFoundException {
-        int taskNum = 1;
-        List<RoutineLoadTask> routineLoadTaskList = new ArrayList<>();
-        KafkaRoutineLoadTask kafkaRoutineLoadTask = EasyMock.createNiceMock(KafkaRoutineLoadTask.class);
-        EasyMock.expect(kafkaRoutineLoadTask.getSignature()).andReturn(1L).anyTimes();
-        EasyMock.replay(kafkaRoutineLoadTask);
-        routineLoadTaskList.add(kafkaRoutineLoadTask);
+    public void testNormalRunOneCycle(@Mocked Catalog catalog,
+                                      @Injectable RoutineLoadManager routineLoadManager,
+                                      @Injectable SystemInfoService systemInfoService,
+                                      @Injectable Database database)
+            throws LoadException, MetaNotFoundException {
 
-        KafkaRoutineLoadJob routineLoadJob = EasyMock.createNiceMock(KafkaRoutineLoadJob.class);
-        EasyMock.expect(routineLoadJob.calculateCurrentConcurrentTaskNum()).andReturn(taskNum).anyTimes();
-        EasyMock.expect(routineLoadJob.divideRoutineLoadJob(taskNum)).andReturn(routineLoadTaskList).anyTimes();
-        EasyMock.expect(routineLoadJob.getState()).andReturn(RoutineLoadJob.JobState.NEED_SCHEDULER).anyTimes();
-        EasyMock.replay(routineLoadJob);
+        String clusterName = "cluster1";
+        List<Long> beIds = Lists.newArrayList();
+        beIds.add(1L);
+        beIds.add(2L);
 
-        SystemInfoService systemInfoService = EasyMock.createNiceMock(SystemInfoService.class);
-        List<Long> beIds = Arrays.asList(1L, 2L, 3L);
-        EasyMock.expect(systemInfoService.getBackendIds(true)).andReturn(beIds).anyTimes();
-        EasyMock.replay(systemInfoService);
+        List<Integer> partitions = Lists.newArrayList();
+        partitions.add(100);
+        partitions.add(200);
+        partitions.add(300);
+        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob("1", "kafka_routine_load_job", "miaoling", 1L,
+                1L, "1L", "v1", "", "", 3,
+                RoutineLoadJob.JobState.NEED_SCHEDULER, RoutineLoadJob.DataSourceType.KAFKA, 0, new TResourceInfo(),
+                "", "");
+        routineLoadJob.setState(RoutineLoadJob.JobState.NEED_SCHEDULER);
+        List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
+        routineLoadJobList.add(routineLoadJob);
 
-        Catalog catalog = EasyMock.createNiceMock(Catalog.class);
-        EditLog editLog = EasyMock.createNiceMock(EditLog.class);
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfoService).anyTimes();
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        PowerMock.replay(Catalog.class);
+        Deencapsulation.setField(routineLoadJob, "kafkaPartitions", partitions);
+        Deencapsulation.setField(routineLoadJob, "desireTaskConcurrentNum", 3);
 
+        new MockUp<Catalog>() {
+            @Mock
+            public SystemInfoService getCurrentSystemInfo() {
+                return systemInfoService;
+            }
 
-        RoutineLoad routineLoad = new RoutineLoad();
-        EasyMock.expect(catalog.getEditLog()).andReturn(editLog).anyTimes();
-        EasyMock.expect(catalog.getRoutineLoadInstance()).andReturn(routineLoad).anyTimes();
-        EasyMock.replay(catalog);
+            @Mock
+            public Catalog getCurrentCatalog() {
+                return catalog;
+            }
+        };
 
-        routineLoad.addRoutineLoadJob(routineLoadJob);
-        routineLoad.updateRoutineLoadJobState(routineLoadJob, RoutineLoadJob.JobState.NEED_SCHEDULER);
+        new Expectations() {
+            {
+                catalog.getRoutineLoadInstance();
+                result = routineLoadManager;
+                routineLoadManager.getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULER);
+                result = routineLoadJobList;
+                catalog.getDb(anyLong);
+                result = database;
+                database.getClusterName();
+                result = clusterName;
+                systemInfoService.getClusterBackendIds(clusterName, true);
+                result = beIds;
+                routineLoadManager.getSizeOfIdToRoutineLoadTask();
+                result = 1;
+                routineLoadManager.getTotalMaxConcurrentTaskNum();
+                result = 10;
+            }
+        };
 
         RoutineLoadScheduler routineLoadScheduler = new RoutineLoadScheduler();
+        Deencapsulation.setField(routineLoadScheduler, "routineLoadManager", routineLoadManager);
         routineLoadScheduler.runOneCycle();
 
-        Assert.assertEquals(1, routineLoad.getIdToRoutineLoadTask().size());
-        Assert.assertEquals(1, routineLoad.getIdToNeedSchedulerRoutineLoadTasks().size());
-        Assert.assertEquals(1, routineLoad.getRoutineLoadJobByState(RoutineLoadJob.JobState.RUNNING).size());
-        Assert.assertEquals(0, routineLoad.getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULER).size());
-
+        Assert.assertEquals(2, routineLoadJob.getNeedSchedulerTaskInfoList().size());
+        for (RoutineLoadTaskInfo routineLoadTaskInfo : routineLoadJob.getNeedSchedulerTaskInfoList()) {
+            KafkaTaskInfo kafkaTaskInfo = (KafkaTaskInfo) routineLoadTaskInfo;
+            if (kafkaTaskInfo.getPartitions().size() == 2) {
+                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(100));
+                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(300));
+            } else {
+                Assert.assertTrue(kafkaTaskInfo.getPartitions().contains(200));
+            }
+        }
     }
 }
