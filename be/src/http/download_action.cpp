@@ -26,6 +26,7 @@
 #include <sstream>
 
 #include "boost/lexical_cast.hpp"
+#include <boost/filesystem.hpp>
 
 #include "agent/cgroups_mgr.h"
 #include "http/http_channel.h"
@@ -38,6 +39,8 @@
 #include "util/filesystem_util.h"
 #include "runtime/exec_env.h"
 
+using boost::filesystem::canonical;
+
 namespace doris {
 
 const std::string FILE_PARAMETER = "file";
@@ -47,16 +50,16 @@ const std::string TOKEN_PARAMETER = "token";
 
 DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs) :
     _exec_env(exec_env),
-    _download_type(NORMAL),
-    _allow_paths(allow_dirs) {
-
+    _download_type(NORMAL) {
+    for (auto& dir : allow_dirs) {
+        _allow_paths.emplace_back(canonical(dir).string());
+    }
 }
 
 DownloadAction::DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir) :
     _exec_env(exec_env),
-    _download_type(ERROR_LOG),
-    _error_log_root_dir(error_log_root_dir) {
-
+    _download_type(ERROR_LOG) {
+    _error_log_root_dir = canonical(error_log_root_dir).string();
 }
 
 void DownloadAction::handle_normal(
@@ -243,8 +246,9 @@ Status DownloadAction::check_token(HttpRequest *req) {
 
 Status DownloadAction::check_path_is_allowed(const std::string& file_path) {
     DCHECK_EQ(_download_type, NORMAL);
+    std::string canonical_file_path = canonical(file_path).string();
     for (auto& allow_path : _allow_paths) {
-        if (FileSystemUtil::contain_path(allow_path, file_path)) {
+        if (FileSystemUtil::contain_path(allow_path, canonical_file_path)) {
             return Status::OK;
         }
     }
@@ -254,7 +258,8 @@ Status DownloadAction::check_path_is_allowed(const std::string& file_path) {
 
 Status DownloadAction::check_log_path_is_allowed(const std::string& file_path) {
     DCHECK_EQ(_download_type, ERROR_LOG);
-    if (FileSystemUtil::contain_path(_error_log_root_dir, file_path)) {
+    std::string canonical_file_path = canonical(file_path).string();
+    if (FileSystemUtil::contain_path(_error_log_root_dir, canonical_file_path)) {
         return Status::OK;
     }
 
