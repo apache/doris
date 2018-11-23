@@ -195,7 +195,7 @@ public class RoutineLoadManager {
         List<RoutineLoadJob> jobs = new ArrayList<>();
         Collection<RoutineLoadJob> stateJobs = null;
         LOG.debug("begin to get routine load job by state {}", jobState.name());
-        idToRoutineLoadJob.values().stream()
+        stateJobs = idToRoutineLoadJob.values().stream()
                 .filter(entity -> entity.getState() == jobState).collect(Collectors.toList());
         if (stateJobs != null) {
             jobs.addAll(stateJobs);
