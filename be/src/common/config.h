@@ -88,12 +88,12 @@ namespace config {
     CONF_Int32(make_snapshot_worker_count, "5");
     // the count of thread to release snapshot
     CONF_Int32(release_snapshot_worker_count, "5");
-    // the interval time(seconds) for agent report tasks signatrue to dm
+    // the interval time(seconds) for agent report tasks signatrue to FE
     CONF_Int32(report_task_interval_seconds, "10");
-    // the interval time(seconds) for agent report disk state to dm
-    CONF_Int32(report_disk_state_interval_seconds, "600");
-    // the interval time(seconds) for agent report olap table to dm
-    CONF_Int32(report_olap_table_interval_seconds, "600");
+    // the interval time(seconds) for agent report disk state to FE
+    CONF_Int32(report_disk_state_interval_seconds, "60");
+    // the interval time(seconds) for agent report olap table to FE
+    CONF_Int32(report_olap_table_interval_seconds, "60");
     // the timeout(seconds) for alter table
     CONF_Int32(alter_table_timeout_seconds, "86400");
     // the timeout(seconds) for make snapshot
