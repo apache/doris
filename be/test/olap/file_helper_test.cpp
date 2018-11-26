@@ -91,10 +91,10 @@ TEST_F(FileHandlerTest, TestWrite) {
     ASSERT_EQ(22, length);
 
     
-    char* large_bytes2[(1 << 12)];
+    char* large_bytes2[(1 << 10)];
     memset(large_bytes2, 0, sizeof(char)*((1 << 12)));
     int i = 1;
-    while (i < 1 << 20) {
+    while (i < 1 << 17) {
         file_handler.write(large_bytes2, ((1 << 12)));
         ++i;
     }

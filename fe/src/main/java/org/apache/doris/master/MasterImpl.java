@@ -46,9 +46,9 @@ import org.apache.doris.task.ClearTransactionTask;
 import org.apache.doris.task.CloneTask;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.CreateRollupTask;
-import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
+import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.task.SchemaChangeTask;
 import org.apache.doris.task.SnapshotTask;
@@ -555,7 +555,7 @@ public class MasterImpl {
         if (request.isSetError_tablet_ids()) {
             errorTabletIds = request.getError_tablet_ids();
         }
-        PublishVersionTask publishVersionTask = (PublishVersionTask)task;
+        PublishVersionTask publishVersionTask = (PublishVersionTask) task;
         publishVersionTask.addErrorTablets(errorTabletIds);
         publishVersionTask.setIsFinished(true);
         AgentTaskQueue.removeTask(publishVersionTask.getBackendId(), 
