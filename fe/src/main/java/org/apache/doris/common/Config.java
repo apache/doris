@@ -241,6 +241,9 @@ public class Config extends ConfigBase {
      *      if (current_time - t1) > 300s, then palo will treat C as a failure node
      *      will call transaction manager to commit the transaction and tell transaction manager 
      *      that C is failed
+     * 
+     * This is also used when waiting for publish tasks
+     * 
      * TODO this parameter is the default value for all job and the DBA could specify it for separate job
      */
     @ConfField public static int load_straggler_wait_second = 300;

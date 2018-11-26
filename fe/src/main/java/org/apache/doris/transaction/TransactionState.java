@@ -332,8 +332,9 @@ public class TransactionState implements Writable {
     }
 
     public boolean isPublishTimeout() {
-        // timeout is between 3 to 10 seconds.
-        long timeoutMillis = Math.min(Config.publish_version_timeout_second * publishVersionTasks.size() * 1000, 10000);
+        // timeout is between 3 to Config.max_txn_publish_waiting_time_ms seconds.
+        long timeoutMillis = Math.min(Config.publish_version_timeout_second * publishVersionTasks.size() * 1000,
+                                      Config.load_straggler_wait_second * 1000);
         timeoutMillis = Math.max(timeoutMillis, 3000);
         return System.currentTimeMillis() - publishVersionTime > timeoutMillis;
     }
