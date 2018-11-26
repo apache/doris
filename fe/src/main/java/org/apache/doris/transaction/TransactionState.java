@@ -17,8 +17,10 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.task.PublishVersionTask;
 
 import com.google.common.collect.Maps;
@@ -253,6 +255,13 @@ public class TransactionState implements Writable {
         this.transactionStatus = transactionStatus;
         if (transactionStatus == TransactionStatus.VISIBLE) {
             this.latch.countDown();
+            if (MetricRepo.isInit.get()) {
+                MetricRepo.COUNTER_TXN_SUCCESS.increase(1L);
+            }
+        } else if (transactionStatus == TransactionStatus.ABORTED) {
+            if (MetricRepo.isInit.get()) {
+                MetricRepo.COUNTER_TXN_FAILED.increase(1L);
+            }
         }
     }
     
@@ -320,5 +329,13 @@ public class TransactionState implements Writable {
 
     public Map<Long, PublishVersionTask> getPublishVersionTasks() {
         return publishVersionTasks;
+    }
+
+    public boolean isPublishTimeout() {
+        // timeout is between 3 to Config.max_txn_publish_waiting_time_ms seconds.
+        long timeoutMillis = Math.min(Config.publish_version_timeout_second * publishVersionTasks.size() * 1000,
+                                      Config.load_straggler_wait_second * 1000);
+        timeoutMillis = Math.max(timeoutMillis, 3000);
+        return System.currentTimeMillis() - publishVersionTime > timeoutMillis;
     }
 }

@@ -17,15 +17,15 @@
 
 package org.apache.doris.task;
 
-import java.util.ArrayList;
-import java.util.List;
+import org.apache.doris.thrift.TPartitionVersionInfo;
+import org.apache.doris.thrift.TPublishVersionRequest;
+import org.apache.doris.thrift.TTaskType;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import org.apache.doris.thrift.TPartitionVersionInfo;
-import org.apache.doris.thrift.TPublishVersionRequest;
-import org.apache.doris.thrift.TTaskType;
+import java.util.ArrayList;
+import java.util.List;
 
 public class PublishVersionTask extends AgentTask {
     private static final Logger LOG = LogManager.getLogger(PublishVersionTask.class);

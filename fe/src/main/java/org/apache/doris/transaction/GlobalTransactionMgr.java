@@ -17,12 +17,6 @@
 
 package org.apache.doris.transaction;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.HashBasedTable;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-
 import org.apache.doris.alter.RollupJob;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -49,6 +43,13 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -82,6 +83,7 @@ public class GlobalTransactionMgr {
 
     // transactionId -> TransactionState
     private Map<Long, TransactionState> idToTransactionState;
+    // db id -> (label -> txn id)
     private com.google.common.collect.Table<Long, String, Long> dbIdToTxnLabels; 
     private Map<Long, Integer> runningTxnNums;
     private TransactionIdGenerator idGenerator;
@@ -107,7 +109,7 @@ public class GlobalTransactionMgr {
             throws AnalysisException, LabelAlreadyExistsException, BeginTransactionException {
 
         if (Config.disable_load_job) {
-            throw new BeginTransactionException("disable_load_job is set to true, all load job is prevented");
+            throw new BeginTransactionException("disable_load_job is set to true, all load jobs are prevented");
         }
         
         writeLock();
@@ -185,12 +187,11 @@ public class GlobalTransactionMgr {
      */
     public void commitTransaction(long dbId, long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws MetaNotFoundException, TransactionCommitFailedException {
-
         if (Config.disable_load_job) {
-            throw new TransactionCommitFailedException("disable_load_job is set to true, all load job is prevented");
+            throw new TransactionCommitFailedException("disable_load_job is set to true, all load jobs are prevented");
         }
         
-        LOG.debug("try to commit transaction:[{}]", transactionId);
+        LOG.debug("try to commit transaction: {}", transactionId);
         if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()) {
             throw new TransactionCommitFailedException("all partitions have no load data");
         }
@@ -260,7 +261,8 @@ public class GlobalTransactionMgr {
                 }
                 // the rolling up index should also be taken care
                 // if the rollup index failed during load, then set its last failed version
-                // if rollup task finished, it should compare version and last failed version, if version < last failed version, then the replica is failed
+                // if rollup task finished, it should compare version and last failed version,
+                // if version < last failed version, then the replica is failed
                 if (rollingUpIndex != null) {
                     allIndices.add(rollingUpIndex);
                 }
@@ -287,11 +289,12 @@ public class GlobalTransactionMgr {
                                 // ignore it but not log it
                                 // for example, a replica is in clone state
                                 if (replica.getLastFailedVersion() < 0) {
-                                    ++ successReplicaNum;
+                                    ++successReplicaNum;
                                 } else {
                                     // if this error replica is a base replica and it is under rollup
                                     // then remove the rollup task and rollup job will remove the rollup replica automatically
-                                    // should remove here, because the error replicas not contains this base replica, but it have errors in the past
+                                    // should remove here, because the error replicas not contains this base replica,
+                                    // but it has errors in the past
                                     if (index.getId() == baseIndex.getId() && rollupJob != null) {
                                         LOG.info("the base replica [{}] has error, remove the related rollup replica from rollupjob [{}]", 
                                                 replica, rollupJob);
@@ -340,12 +343,16 @@ public class GlobalTransactionMgr {
             }
             // 5. persistent transactionState
             unprotectUpsertTransactionState(transactionState);
+
+            // add publish version tasks. set task to null as a placeholder.
+            // tasks will be created when publishing version.
             for (long backendId : totalInvolvedBackends) {
                 transactionState.addPublishVersionTask(backendId, null);
             }
         } finally {
             writeUnlock();
         }
+
         // 6. update nextVersion because of the failure of persistent transaction resulting in error version
         updateCatalogAfterCommitted(transactionState, db);
         LOG.info("transaction:[{}] successfully committed", transactionState);
@@ -385,7 +392,6 @@ public class GlobalTransactionMgr {
     }
     
     public void abortTransaction(long transactionId, String reason) throws UserException {
-
         if (transactionId < 0) {
             LOG.info("transaction id is {}, less than 0, maybe this is an old type load job, ignore abort operation", transactionId);
             return;
@@ -897,12 +903,14 @@ public class GlobalTransactionMgr {
                     }
                 }
                 partition.setNextVersion(partition.getNextVersion() + 1);
-                // the partition's current version hash should be set from partition commit info
-                // for example, fe master's partition current version hash is 123123, fe followers partition current version hash is 3333
-                // they are different, fe master changed, the follower is master now, but its current version hash is 333, if clone happened,
-                // clone finished but its finished version hash != partition's current version hash, then clone is failed
-                // because clone depend on partition's current version to clone
-                partition.setNextVersionHash(Util.generateVersionHash(), partitionCommitInfo.getVersionHash());
+                // Although committed version(hash) is not visible to user,
+                // but they need to be synchronized among Frontends.
+                // because we use committed version(hash) to create clone task, if the first Master FE
+                // send clone task with committed version hash X, and than Master changed, the new Master FE
+                // received the clone task report with version hash X, which not equals to it own committed
+                // version hash, than the clone task is failed.
+                partition.setNextVersionHash(Util.generateVersionHash() /* next version hash */,
+                                             partitionCommitInfo.getVersionHash() /* committed version hash*/);
             }
         }
     }
@@ -1015,14 +1023,14 @@ public class GlobalTransactionMgr {
         if (preStatus == null 
                 && (curTxnState.getTransactionStatus() == TransactionStatus.PREPARE
                     || curTxnState.getTransactionStatus() == TransactionStatus.COMMITTED)) {
-            ++ dbRunningTxnNum;
+            ++dbRunningTxnNum;
             runningTxnNums.put(curTxnState.getDbId(), dbRunningTxnNum);
         } else if (preStatus != null
                 && (preStatus == TransactionStatus.PREPARE
                     || preStatus == TransactionStatus.COMMITTED)
                 && (curTxnState.getTransactionStatus() == TransactionStatus.VISIBLE
                     || curTxnState.getTransactionStatus() == TransactionStatus.ABORTED)) {
-            -- dbRunningTxnNum;
+            --dbRunningTxnNum;
             if (dbRunningTxnNum < 1) {
                 runningTxnNums.remove(curTxnState.getDbId());
             } else {

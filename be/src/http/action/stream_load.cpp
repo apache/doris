@@ -330,6 +330,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         }
         auto str = ctx->to_json();
         HttpChannel::send_reply(req, str);
+        k_streaming_load_current_processing.increment(-1);
         return -1;
     }
     return 0;
