@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -178,6 +179,25 @@ public class Replica implements Writable {
                 lastSuccessVersion, lastSuccessVersionHash, dataSize, rowCount);
     }
     
+    /* last failed version:  LFV
+     * last success version: LSV
+     * version:              V
+     * 
+     * Case 1:
+     *      If LFV > LSV, set LSV back to V, which indicates that version between LSV and LFV is invalid.
+     *      Clone task will clone the version between LSV and LFV
+     *      
+     * Case 2:
+     *      LFV changed, set LSV back to V. This is just same as Case 1. Cause LFV must large than LSV.
+     * 
+     * Case 3:
+     *      LFV remains unchanged, just update LSV, and then check if it falls into Case 1.
+     *      
+     * Case 4:
+     *      V is larger or equal to LFV, reset LFV. And if V is less than LSV, just set V to LSV. This may
+     *      happen when a clone task finished and report version V, but the LSV is already larger than V,
+     *      And we know that version between V and LSV is valid, so move V forward to LSV.
+     */
     private void updateReplicaInfo(long newVersion, long newVersionHash, 
             long lastFailedVersion, long lastFailedVersionHash, 
             long lastSuccessVersion, long lastSuccessVersionHash, 
@@ -196,11 +216,14 @@ public class Replica implements Writable {
             lastSuccessVersion = this.version;
             lastSuccessVersionHash = this.versionHash;
         }
+
+        // case 1:
         if (this.lastSuccessVersion <= this.lastFailedVersion) {
             this.lastSuccessVersion = this.version;
             this.lastSuccessVersionHash = this.versionHash;
         }
         
+        // TODO: this case is unknown, add log to observe
         if (this.version > lastFailedVersion && lastFailedVersion > 0) {
             LOG.info("current version {} is larger than last failed version {} , " 
                         + "last failed version hash {}, maybe a fatal error or be report version, print a stack here ", 
@@ -209,15 +232,17 @@ public class Replica implements Writable {
         
         if (lastFailedVersion != this.lastFailedVersion
                 || this.lastFailedVersionHash != lastFailedVersionHash) {
-            // if last failed version changed, then set last success version to invalid version
+            // Case 2:
             if (lastFailedVersion > this.lastFailedVersion) {
                 this.lastFailedVersion = lastFailedVersion;
                 this.lastFailedVersionHash = lastFailedVersionHash;
                 this.lastFailedTimestamp = System.currentTimeMillis();
             }
+
             this.lastSuccessVersion = this.version;
             this.lastSuccessVersionHash = this.versionHash;
         } else {
+            // Case 3:
             if (lastSuccessVersion >= this.lastSuccessVersion) {
                 this.lastSuccessVersion = lastSuccessVersion;
                 this.lastSuccessVersionHash = lastSuccessVersionHash;
@@ -228,9 +253,7 @@ public class Replica implements Writable {
             }
         }
         
-        // if last failed version <= version, then last failed version is invalid
-        // version xxxx | last failed version  xxxx | last success version xxx
-        // if current version == last failed version and version hash != last failed version hash, it means the version report from be is not valid
+        // Case 4:
         if (this.version > this.lastFailedVersion 
                 || this.version == this.lastFailedVersion && this.versionHash == this.lastFailedVersionHash
                 || this.version == this.lastFailedVersion && this.lastFailedVersionHash == 0 && this.versionHash != 0) {
@@ -242,7 +265,7 @@ public class Replica implements Writable {
                 this.versionHash = this.lastSuccessVersionHash;
             }
         }
-        // TODO yiguolei use info log here, there maybe a lot of logs, change it to debug when concurrent load is stable
+
         LOG.debug("update {}", this.toString()); 
     }
     

@@ -17,9 +17,6 @@
 
 package org.apache.doris.metric;
 
-import com.codahale.metrics.Histogram;
-import com.codahale.metrics.MetricRegistry;
-
 import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJob.JobType;
 import org.apache.doris.catalog.Catalog;
@@ -33,6 +30,10 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+
+import com.codahale.metrics.Histogram;
+import com.codahale.metrics.MetricRegistry;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -57,6 +58,8 @@ public final class MetricRepo {
     public static LongCounterMetric COUNTER_EDIT_LOG_READ;
     public static LongCounterMetric COUNTER_IMAGE_WRITE;
     public static LongCounterMetric COUNTER_IMAGE_PUSH;
+    public static LongCounterMetric COUNTER_TXN_FAILED;
+    public static LongCounterMetric COUNTER_TXN_SUCCESS;
     public static Histogram HISTO_QUERY_LATENCY;
     public static Histogram HISTO_EDIT_LOG_WRITE_LATENCY;
 
@@ -161,6 +164,12 @@ public final class MetricRepo {
         COUNTER_IMAGE_PUSH = new LongCounterMetric("image_push",
                 "counter of image succeeded in pushing to other frontends");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_IMAGE_PUSH);
+        COUNTER_TXN_SUCCESS = new LongCounterMetric("txn_success",
+                "counter of success transactions");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_TXN_SUCCESS);
+        COUNTER_TXN_FAILED = new LongCounterMetric("txn_failed",
+                "counter of failed transactions");
+        PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_TXN_FAILED);
 
         // 3. histogram
         HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("query", "latency", "ms"));

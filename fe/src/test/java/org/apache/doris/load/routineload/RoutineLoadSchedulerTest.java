@@ -17,31 +17,25 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.collect.Lists;
-import mockit.Deencapsulation;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
-import org.easymock.EasyMock;
+
+import com.google.common.collect.Lists;
+
 import org.junit.Assert;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
+
+import mockit.Deencapsulation;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 
 public class RoutineLoadSchedulerTest {
 
@@ -71,18 +65,6 @@ public class RoutineLoadSchedulerTest {
 
         Deencapsulation.setField(routineLoadJob, "kafkaPartitions", partitions);
         Deencapsulation.setField(routineLoadJob, "desireTaskConcurrentNum", 3);
-
-        new MockUp<Catalog>() {
-            @Mock
-            public SystemInfoService getCurrentSystemInfo() {
-                return systemInfoService;
-            }
-
-            @Mock
-            public Catalog getCurrentCatalog() {
-                return catalog;
-            }
-        };
 
         new Expectations() {
             {
