@@ -374,9 +374,8 @@ private:
 
     bool _used_disk_not_enough(uint32_t unused_num, uint32_t total_num);
 
-    OLAPStatus _get_root_path_capacity(
+    OLAPStatus _get_path_available_capacity(
             const std::string& root_path,
-            int64_t* data_used,
             int64_t* disk_available);
 
     OLAPStatus _config_root_path_unused_flag_file(
