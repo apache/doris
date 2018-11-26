@@ -529,20 +529,60 @@ OLAPStatus OLAPEngine::get_all_root_path_info(vector<RootPathInfo>* root_paths_i
     OLAPStatus res = OLAP_SUCCESS;
     root_paths_info->clear();
 
-    std::lock_guard<std::mutex> l(_store_lock);
-    for (auto& it : _store_map) {
-        root_paths_info->emplace_back(it.second->to_root_path_info());
-    }
+    MonotonicStopWatch timer;
+    timer.start();
+    int tablet_counter = 0;
 
-    for (auto& info: *root_paths_info) {
-        if (info.is_used) {
-            _get_root_path_capacity(info.path, &info.data_used_capacity, &info.available);
-        } else {
-            info.capacity = 1;
-            info.data_used_capacity = 0;
-            info.available = 0;
+    // get all root path info and construct a path map.
+    // path -> RootPathInfo
+    std::map<std::string, RootPathInfo> path_map;
+    {
+        std::lock_guard<std::mutex> l(_store_lock);
+        for (auto& it : _store_map) {
+            std::string path = it.first;
+            path_map.emplace(path, it.second->to_root_path_info());
+            // if this path is not used, init it's info
+            if (!path_map[path].is_used) {
+                path_map[path].capacity = 1;
+                path_map[path].data_used_capacity = 0;
+                path_map[path].available = 0;
+            }
         }
     }
+
+    // for each tablet, get it's data size, and accumulate the path 'data_used_capacity'
+    // which the tablet belongs to.
+    _tablet_map_lock.rdlock();
+    for (auto& entry : _tablet_map) {
+        TableInstances& instance = entry.second;
+        for (auto& tablet : instance.table_arr) {
+            ++tablet_counter;
+            int64_t data_size = tablet->get_data_size();
+            auto find = path_map.find(tablet->storage_root_path_name()); 
+            if (find == path_map.end()) {
+                continue;
+            }
+            if (find->second.is_used) {
+                find->second.data_used_capacity += data_size;
+            }
+        } 
+    }
+    _tablet_map_lock.unlock();
+
+    // add path info to root_paths_info
+    for (auto& entry : path_map) {
+        root_paths_info->emplace_back(entry.second);
+    }
+
+    // get available capacity of each path
+    for (auto& info: *root_paths_info) {
+        if (info.is_used) {
+            _get_path_available_capacity(info.path,  &info.available);
+        }
+    }
+    timer.stop();
+    LOG(INFO) << "get root path info cost: " << timer.elapsed_time() / 1000000
+            << " ms. tablet counter: " << tablet_counter;
 
     return res;
 }
@@ -686,22 +726,12 @@ void OLAPEngine::_delete_tables_on_unused_root_path() {
     OLAPEngine::get_instance()->drop_tables_on_error_root_path(tablet_info_vec);
 }
 
-OLAPStatus OLAPEngine::_get_root_path_capacity(
+OLAPStatus OLAPEngine::_get_path_available_capacity(
         const string& root_path,
-        int64_t* data_used,
         int64_t* disk_available) {
     OLAPStatus res = OLAP_SUCCESS;
-    int64_t used = 0;
 
     try {
-        path boost_root_path(root_path + DATA_PREFIX);
-        for (recursive_directory_iterator it(boost_root_path);
-                it != recursive_directory_iterator(); ++it) {
-            if (!is_directory(*it)) {
-                used += file_size(*it);
-            }
-        }
-        *data_used = used;
         boost::filesystem::path path_name(root_path);
         boost::filesystem::space_info path_info = boost::filesystem::space(path_name);
         *disk_available = path_info.available;
