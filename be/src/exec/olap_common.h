@@ -94,6 +94,10 @@ public:
         return _low_value == _type_min;
     }
 
+    bool is_high_value_maximum() const {
+        return _high_value == _type_max;
+    }
+
     bool is_begin_include() const {
         return _low_op == FILTER_LARGER_OR_EQUAL;
     }
@@ -662,6 +666,10 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
         return Status::OK;
     }
 
+    //if a column doesn't have any predicate, we will try converting the range to fixed values
+    //for this case, we need to add null value to fixed values
+    bool has_converted = false;
+
     if (range.is_fixed_value_range()) {
         if ((_begin_scan_keys.empty() && range.get_fixed_value_size() > config::doris_max_scan_key_num)
                 || range.get_fixed_value_size() * _begin_scan_keys.size() > config::doris_max_scan_key_num) {
@@ -675,11 +683,19 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
         if (range.is_fixed_value_convertible() && _is_convertible) {
             if (_begin_scan_keys.empty()) {
                 if (range.get_convertible_fixed_value_size() < config::doris_max_scan_key_num) {
+                    if (range.is_low_value_mininum() && range.is_high_value_maximum()) {
+                        has_converted = true;
+                    }
+
                     range.convert_to_fixed_value();
                 }
             } else {
                 if (range.get_convertible_fixed_value_size() * _begin_scan_keys.size()
                         < config::doris_max_scan_key_num) {
+                    if (range.is_low_value_mininum() && range.is_high_value_maximum()) {
+                        has_converted = true;
+                    }
+
                     range.convert_to_fixed_value();
                 }
             }
@@ -698,6 +714,13 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
                 _begin_scan_keys.back().add_value(cast_to_string(*iter));
                 _end_scan_keys.emplace_back();
                 _end_scan_keys.back().add_value(cast_to_string(*iter));
+            }
+
+            if (has_converted) {
+                 _begin_scan_keys.emplace_back();
+                 _begin_scan_keys.back().add_null();
+                 _end_scan_keys.emplace_back();
+                 _end_scan_keys.back().add_null();
             }
         } // 3.1.2 produces the Cartesian product of ScanKey and fixed_value
         else {
@@ -722,6 +745,13 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range) {
                         _end_scan_keys.push_back(end_base_key_range);
                         _end_scan_keys.back().add_value(cast_to_string(*iter));
                     }
+                }
+
+                if (has_converted) {
+                    _begin_scan_keys.push_back(start_base_key_range);
+                    _begin_scan_keys.back().add_null();
+                    _end_scan_keys.push_back(end_base_key_range);
+                    _end_scan_keys.back().add_null();
                 }
             }
         }
