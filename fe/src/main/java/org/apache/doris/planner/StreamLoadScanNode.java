@@ -329,9 +329,11 @@ public class StreamLoadScanNode extends ScanNode {
     }
 
     private Expr castToSlot(SlotDescriptor slotDesc, Expr expr) throws UserException {
+        if (slotDesc.getType().isNull()) {
+            return expr;
+        }
         PrimitiveType dstType = slotDesc.getType().getPrimitiveType();
         PrimitiveType srcType = expr.getType().getPrimitiveType();
-
         if (dstType.isStringType()) {
             if (srcType.isStringType()) {
                 return expr;
