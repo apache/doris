@@ -96,7 +96,7 @@ message SchemaChangeStatusMessage {
 }
 
 enum DataFileType {
-    OLAP_DATA_FILE = 0;
+    OLAP_DATA_FILE = 0; //Deprecated. Only columnar-wise format is supported.
     COLUMN_ORIENTED_FILE = 1;
 }
 

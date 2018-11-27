@@ -1780,7 +1780,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
                                 dest_olap_table,
                                 rb_changer,
                                 memory_limitation * 1024 * 1024 * 1024);
-    } else if (true == sc_directly || src_olap_table->data_file_type() == OLAP_DATA_FILE) {
+    } else if (true == sc_directly) {
         OLAP_LOG_INFO("doing schema change directly.");
         sc_procedure = new(nothrow) SchemaChangeDirectly(
                                 dest_olap_table, rb_changer);
@@ -2000,8 +2000,7 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
                                sc_params->new_olap_table,
                                rb_changer,
                                memory_limitation * 1024 * 1024 * 1024);
-    } else if (true == sc_directly
-               || sc_params->ref_olap_table->data_file_type() == OLAP_DATA_FILE) {
+    } else if (true == sc_directly) {
         OLAP_LOG_INFO("doing schema change directly.");
         sc_procedure = new(nothrow) SchemaChangeDirectly(
                 sc_params->new_olap_table, rb_changer);

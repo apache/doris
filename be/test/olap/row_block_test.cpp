@@ -84,7 +84,7 @@ TEST_F(TestRowBlock, init) {
         RowBlock block(fields);
         RowBlockInfo block_info;
         block_info.row_num = 1024;
-        block_info.data_file_type = OLAP_DATA_FILE;
+        block_info.data_file_type = COLUMN_ORIENTED_FILE;
         block_info.null_supported = true;
         auto res = block.init(block_info);
         ASSERT_EQ(OLAP_SUCCESS, res);
@@ -96,12 +96,12 @@ TEST_F(TestRowBlock, init) {
         RowBlock block(fields);
         RowBlockInfo block_info;
         block_info.row_num = 1024;
-        block_info.data_file_type = OLAP_DATA_FILE;
+        block_info.data_file_type = COLUMN_ORIENTED_FILE;
         block_info.null_supported = false;
         auto res = block.init(block_info);
         ASSERT_EQ(OLAP_SUCCESS, res);
         // num_rows * (num_nullbytes + bigint + char + varchar)
-        ASSERT_EQ(1024 * (8 + 10 + (4 + 20)), block.buf_len());
+        ASSERT_EQ(1024 * (3 + 8 + 10 + (4 + 20)), block.buf_len());
     }
 }
 
@@ -143,7 +143,7 @@ TEST_F(TestRowBlock, write_and_read) {
     RowBlock block(fields);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
-    block_info.data_file_type = OLAP_DATA_FILE;
+    block_info.data_file_type = COLUMN_ORIENTED_FILE;
     block_info.null_supported = true;
     auto res = block.init(block_info);
     ASSERT_EQ(OLAP_SUCCESS, res);
@@ -259,7 +259,7 @@ TEST_F(TestRowBlock, write_and_read_without_nullbyte) {
     RowBlock block(fields);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
-    block_info.data_file_type = OLAP_DATA_FILE;
+    block_info.data_file_type = COLUMN_ORIENTED_FILE;
     block_info.null_supported = false;
     auto res = block.init(block_info);
     ASSERT_EQ(OLAP_SUCCESS, res);
@@ -375,7 +375,7 @@ TEST_F(TestRowBlock, compress_failed) {
     RowBlock block(fields);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
-    block_info.data_file_type = OLAP_DATA_FILE;
+    block_info.data_file_type = COLUMN_ORIENTED_FILE;
     block_info.null_supported = true;
     auto res = block.init(block_info);
     ASSERT_EQ(OLAP_SUCCESS, res);
@@ -452,7 +452,7 @@ TEST_F(TestRowBlock, decompress_failed) {
     RowBlock block(fields);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
-    block_info.data_file_type = OLAP_DATA_FILE;
+    block_info.data_file_type = COLUMN_ORIENTED_FILE;
     block_info.null_supported = true;
     auto res = block.init(block_info);
     ASSERT_EQ(OLAP_SUCCESS, res);
@@ -552,7 +552,7 @@ TEST_F(TestRowBlock, find_row) {
     RowBlock block(fields);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
-    block_info.data_file_type = OLAP_DATA_FILE;
+    block_info.data_file_type = COLUMN_ORIENTED_FILE;
     block_info.null_supported = true;
     auto res = block.init(block_info);
     ASSERT_EQ(OLAP_SUCCESS, res);
@@ -714,7 +714,7 @@ TEST_F(TestRowBlock, clear) {
     RowBlock block(fields);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
-    block_info.data_file_type = OLAP_DATA_FILE;
+    block_info.data_file_type = COLUMN_ORIENTED_FILE;
     block_info.null_supported = true;
     auto res = block.init(block_info);
     ASSERT_EQ(OLAP_SUCCESS, res);
@@ -764,7 +764,7 @@ TEST_F(TestRowBlock, pos_limit) {
     RowBlock block(fields);
     RowBlockInfo block_info;
     block_info.row_num = 1024;
-    block_info.data_file_type = OLAP_DATA_FILE;
+    block_info.data_file_type = COLUMN_ORIENTED_FILE;
     block_info.null_supported = true;
     auto res = block.init(block_info);
     ASSERT_EQ(OLAP_SUCCESS, res);
