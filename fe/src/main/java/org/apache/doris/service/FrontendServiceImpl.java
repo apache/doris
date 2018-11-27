@@ -396,11 +396,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (UserException e) {
             LOG.warn("add mini load error", e);
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
-            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+            status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {
             LOG.warn("unexpected exception when adding mini load", e);
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
-            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+            status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
         } finally {
             ConnectContext.remove();
         }
@@ -465,7 +465,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             String failMsg = "job does not exist. id: " + jobId;
             LOG.warn(failMsg);
             status.setStatus_code(TStatusCode.CANCELLED);
-            status.setError_msgs(Lists.newArrayList(failMsg));
+            status.addToError_msgs(failMsg);
             return result;
         }
 
@@ -474,7 +474,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             String failMsg = "task info does not exist. task id: " + taskId + ", job id: " + jobId;
             LOG.warn(failMsg);
             status.setStatus_code(TStatusCode.CANCELLED);
-            status.setError_msgs(Lists.newArrayList(failMsg));
+            status.addToError_msgs(failMsg);
             return result;
         }
 
@@ -554,12 +554,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                   request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
         } catch (UserException e) {
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
-            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+            status.addToError_msgs(e.getMessage());
             return result;
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
             status.setStatus_code(TStatusCode.INTERNAL_ERROR);
-            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+            status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
             return result;
         }
 
@@ -576,11 +576,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setTxnId(loadTxnBeginImpl(request));
         } catch (LabelAlreadyExistsException e) {
             status.setStatus_code(TStatusCode.LABEL_ALREADY_EXISTS);
-            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+            status.addToError_msgs(e.getMessage());
         } catch (UserException e) {
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
-            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+            status.addToError_msgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatus_code(TStatusCode.INTERNAL_ERROR);
+            status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
         }
+
         return result;
     }
 
@@ -624,12 +630,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (!loadTxnCommitImpl(request)) {
                 // committed success but not visible
                 status.setStatus_code(TStatusCode.PUBLISH_TIMEOUT);
-                status.setError_msgs(
-                        Lists.newArrayList("transaction commit successfully, BUT data will be visible later"));
+                status.addToError_msgs("transaction commit successfully, BUT data will be visible later");
             }
         } catch (UserException e) {
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatus_code(TStatusCode.INTERNAL_ERROR);
+            status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
         }
         return result;
     }
@@ -674,6 +684,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (UserException e) {
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatus_code(TStatusCode.INTERNAL_ERROR);
+            status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
         }
 
         return result;
@@ -704,6 +719,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (UserException e) {
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatus_code(TStatusCode.INTERNAL_ERROR);
+            status.addToError_msgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
         }
         return result;
     }
