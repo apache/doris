@@ -17,10 +17,6 @@
 
 package org.apache.doris.clone;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.HashBasedTable;
-import com.google.common.collect.Sets;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -32,6 +28,11 @@ import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.system.SystemInfoService;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -55,11 +56,11 @@ public class TabletChecker extends Daemon {
     // priority of replicas of partitions in this table will be set to VERY_HIGH if not healthy
     private com.google.common.collect.Table<Long, Long, Set<Long>> prios = HashBasedTable.create();
 
-    public TabletChecker() {
+    public TabletChecker(Catalog catalog, SystemInfoService infoService, TabletScheduler tabletScheduler) {
         super("tablet checker", INTERVAL_MS);
-        catalog = Catalog.getCurrentCatalog();
-        infoService = Catalog.getCurrentSystemInfo();
-        tabletScheduler = new TabletScheduler();
+        this.catalog = catalog;
+        this.infoService = infoService;
+        this.tabletScheduler = tabletScheduler;
     }
 
     public void addPrios(long dbId, long tblId, List<Long> partitionIds) {
@@ -83,19 +84,18 @@ public class TabletChecker extends Daemon {
      */
     @Override
     protected void runOneCycle() {
-        if (!tabletScheduler.isEmpty()) {
-            LOG.info("tablet scheduler has unfinished tasks. skip this round of checking");
-            return;
-        }
+        boolean schedulerHasTask = !tabletScheduler.isEmpty();
 
-        checkTablets();
+        // if scheduler has tasks, we only check tablets in prios
+        checkTablets(schedulerHasTask);
     }
 
-    private void checkTablets() {
-        List<Long> dbIds = catalog.getDbIds();
-        int unhealthyTabletNum = 0;
-        int totalTabletNum = 0;
+    private void checkTablets(boolean skipNonPrios) {
+        long start = System.currentTimeMillis();
+        long totalTabletNum = 0;
+        long unhealthyTabletNum = 0;
 
+        List<Long> dbIds = catalog.getDbIds();
         for (Long dbId : dbIds) {
             Database db = catalog.getDb(dbId);
             if (db == null) {
@@ -115,32 +115,42 @@ public class TabletChecker extends Daemon {
 
                     OlapTable olapTbl = (OlapTable) table;
                     for (Partition partition : olapTbl.getPartitions()) {
+                        boolean isInPrios = isInPrios(dbId, table.getId(), partition.getId());
+                        if (skipNonPrios && !isInPrios) {
+                            // skip non prios
+                            continue;
+                        }
                         boolean prioPartIsHealthy = true;
                         for (MaterializedIndex idx : partition.getMaterializedIndices()) {
                             for (Tablet tablet : idx.getTablets()) {
                                 totalTabletNum++;
-                                Pair<TabletStatus, TabletInfo.Priority> statusWithPrio =
-                                        tablet.getHealthStatusWithPriority(infoService,
-                                                     db.getClusterName(),
-                                                     partition.getCommittedVersion(),
-                                                     partition.getCommittedVersion(),
-                                                     olapTbl.getPartitionInfo().getReplicationNum(partition.getId()));
-                                    
+                                Pair<TabletStatus, TabletInfo.Priority> statusWithPrio = tablet.getHealthStatusWithPriority(
+                                        infoService,
+                                        db.getClusterName(),
+                                        partition.getCommittedVersion(),
+                                        partition.getCommittedVersion(),
+                                        olapTbl.getPartitionInfo().getReplicationNum(partition.getId()));
+
                                 if (statusWithPrio.first == TabletStatus.HEALTHY) {
                                     continue;
-                                } else if (isInPrios(db.getId(), table.getId(), partition.getId())) {
+                                } else if (isInPrios) {
                                     statusWithPrio.second = TabletInfo.Priority.VERY_HIGH;
                                     prioPartIsHealthy = false;
                                 }
 
+                                if (!tablet.readyToBeRepaired(statusWithPrio.second)) {
+                                    continue;
+                                }
+
                                 TabletInfo tabletInfo = new TabletInfo(db.getClusterName(),
-                                        db.getId(), table.getId(),
+                                        db.getId(), olapTbl.getId(),
                                         partition.getId(), idx.getId(), tablet.getId(),
                                         olapTbl.getSchemaHashByIndexId(idx.getId()),
                                         olapTbl.getPartitionInfo().getDataProperty(partition.getId()).getStorageMedium(),
                                         System.currentTimeMillis());
-                                tabletInfo.setPriority(statusWithPrio.second);
-                                if (tabletScheduler.addTablet(tabletInfo)) {
+                                tabletInfo.setOrigPriority(statusWithPrio.second);
+
+                                if (tabletScheduler.addTablet(tabletInfo, false /* not force */)) {
                                     unhealthyTabletNum++;
                                 }
                             }
@@ -149,7 +159,7 @@ public class TabletChecker extends Daemon {
                         if (prioPartIsHealthy) {
                             // if all replicas in this partition are healthy, remove this partition from
                             // priorities.
-                            removeHealthyPartFromPrios(dbId, table.getId(), partition.getId());
+                            removeHealthyPartFromPrios(db.getId(), olapTbl.getId(), partition.getId());
                         }
                     }
                 }
@@ -158,7 +168,9 @@ public class TabletChecker extends Daemon {
             }
         } // end for dbs
 
-        LOG.info("finished to check tablets. unhealth/healthy: {}/{}", unhealthyTabletNum, totalTabletNum);
+        long cost = System.currentTimeMillis() - start;
+        LOG.info("finished to check tablets. unhealth/healthy: {}/{}, skip non prio: {}, cost: {} ms",
+                 unhealthyTabletNum, totalTabletNum, skipNonPrios, cost);
     }
 
     public void removeHealthyPartFromPrios(Long dbId, Long tblId, Long partId) {

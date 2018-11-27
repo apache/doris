@@ -19,6 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.clone.TabletInfo;
+import org.apache.doris.clone.TabletInfo.Priority;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.system.Backend;
@@ -60,6 +62,10 @@ public class Tablet extends MetaObject implements Writable {
     private long checkedVersionHash;
 
     private boolean isConsistent;
+
+    // last time that the tablet checker checks this tablet.
+    // no need to persist
+    private long lastStatusCheckTime = -1;
 
     public Tablet() {
         this(0L, new ArrayList<Replica>());
@@ -402,5 +408,44 @@ public class Tablet extends MetaObject implements Writable {
 
         // 4. healthy
         return Pair.create(TabletStatus.HEALTHY, TabletInfo.Priority.NORMAL);
+    }
+
+    /*
+     * check if this tablet is ready to be repaired, based on priority.
+     * VERY_HIGH: repair immediately
+     * HIGH:    delay Config.tablet_repair_delay_factor_second * 1;
+     * NORNAL:  delay Config.tablet_repair_delay_factor_second * 2;
+     * LOW:     delay Config.tablet_repair_delay_factor_second * 3;
+     */
+    public boolean readyToBeRepaired(TabletInfo.Priority priority) {
+        if (priority == Priority.VERY_HIGH) {
+            return true;
+        }
+
+        long currentTime = System.currentTimeMillis();
+
+        // first check, wait for next round
+        if (lastCheckTime == -1) {
+            lastCheckTime = currentTime;
+            return false;
+        }
+
+        boolean ready = false;
+        switch (priority) {
+            case HIGH:
+                ready = currentTime - lastCheckTime > Config.tablet_repair_delay_factor_second * 1;
+                break;
+            case NORMAL:
+                ready = currentTime - lastCheckTime > Config.tablet_repair_delay_factor_second * 2;
+                break;
+            case LOW:
+                ready = currentTime - lastCheckTime > Config.tablet_repair_delay_factor_second * 3;
+                break;
+            default:
+                break;
+        }
+        lastCheckTime = currentTime;
+
+        return ready;
     }
 }

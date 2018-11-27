@@ -17,15 +17,16 @@
 
 package org.apache.doris.clone;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
-
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.BalanceStatus.ErrCode;
 import org.apache.doris.common.Config;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -141,6 +142,15 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
 
     public List<RootPathLoadStatistic> getPathStatistics() {
         return pathStatistics;
+    }
+
+    public String getBrief() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(beId).append(": replica: ").append(totalReplicaNum);
+        sb.append(" used: ").append(totalUsedCapacityB);
+        sb.append(" total: ").append(totalCapacityB);
+        sb.append(" score: ").append(loadScore);
+        return sb.toString();
     }
 
     // ascend order

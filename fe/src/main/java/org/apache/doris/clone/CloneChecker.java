@@ -1453,7 +1453,7 @@ public class CloneChecker extends Daemon {
         // very important, it is partition's visible version here
         CloneTask task = new CloneTask(job.getDestBackendId(), dbId, tableId, partitionId, indexId, tabletId,
                 schemaHash, srcBackends, storageMedium,
-                visibleVersion, visibleVersionHash, -1);
+                visibleVersion, visibleVersionHash);
         batchTask.addTask(task);
         if (clone.runCloneJob(job, task)) {
             AgentTaskExecutor.submit(batchTask);

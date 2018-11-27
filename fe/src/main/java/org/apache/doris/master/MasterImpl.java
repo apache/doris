@@ -680,8 +680,14 @@ public class MasterImpl {
         Preconditions.checkArgument(finishTabletInfos.size() == 1);
 
         CloneTask cloneTask = (CloneTask) task;
-        Catalog.getInstance().getCloneInstance().finishCloneJob(cloneTask, finishTabletInfos.get(0));
+        if (cloneTask.getCloneVersion() == CloneTask.VERSION_1) {
+            Catalog.getInstance().getCloneInstance().finishCloneJob(cloneTask, finishTabletInfos.get(0));
+        } else if (cloneTask.getCloneVersion() == CloneTask.VERSION_1) {
+            Catalog.getCurrentCatalog().getTabletScheduler().finishCloneTask(cloneTask, finishTabletInfos.get(0));
+        }
+
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CLONE, task.getSignature());
+
     }
 
     private void finishConsistenctCheck(AgentTask task, TFinishTaskRequest request) {

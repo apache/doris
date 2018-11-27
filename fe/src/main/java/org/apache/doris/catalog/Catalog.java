@@ -84,6 +84,8 @@ import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.clone.Clone;
 import org.apache.doris.clone.CloneChecker;
 import org.apache.doris.clone.ColocateTableBalancer;
+import org.apache.doris.clone.TabletChecker;
+import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -337,6 +339,10 @@ public class Catalog {
 
     private DomainResolver domainResolver;
 
+    private TabletScheduler tabletScheduler;
+
+    private TabletChecker tabletChecker;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -450,6 +456,9 @@ public class Catalog {
 
         this.metaContext = new MetaContext();
         this.metaContext.setThreadLocalInfo();
+        
+        this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex);
+        this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler);
     }
 
     public static void destroyCheckpoint() {
@@ -497,6 +506,14 @@ public class Catalog {
 
     public PaloAuth getAuth() {
         return auth;
+    }
+
+    public TabletScheduler getTabletScheduler() {
+        return tabletScheduler;
+    }
+
+    public TabletChecker getTabletChecker() {
+        return tabletChecker;
     }
 
     // use this to get correct ClusterInfoService instance

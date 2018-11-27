@@ -17,30 +17,20 @@
 
 package org.apache.doris.clone;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
-
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.clone.BalanceStatus.ErrCode;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /*
  * save all load statistic of backends.
@@ -155,83 +145,11 @@ public class ClusterLoadStatistic {
         return beLoadStatistics;
     }
 
-    /*
-     * Try to choose 2 backend root paths as source and destination for the specified tablet to recovery.
-     */
-    public BalanceStatus chooseSrcAndDestBackendForTablet(long tabletId,
-            List<RootPathLoadStatistic> resultRootPath) {
-
-        TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-        if (tabletMeta == null) {
-            return new BalanceStatus(ErrCode.COMMON_ERROR, "tablet " + tabletId + " does not exist");
+    public synchronized String getBrief() {
+        StringBuilder sb = new StringBuilder();
+        for (BackendLoadStatistic backendLoadStatistic : beLoadStatistics) {
+            sb.append("    ").append(backendLoadStatistic.getBrief()).append("\n");
         }
-        
-        Database db = catalog.getDb(tabletMeta.getDbId());
-        if (db == null) {
-            return new BalanceStatus(ErrCode.COMMON_ERROR, "db " + tabletMeta.getDbId() + " does not exist");
-        }
-        db.writeLock();
-        try {
-            Table tbl = db.getTable(tabletMeta.getTableId());
-            if (tbl == null) {
-                return new BalanceStatus(ErrCode.COMMON_ERROR, "table " + tabletMeta.getTableId() + " does not exist");
-            }
-            OlapTable olapTbl = (OlapTable) tbl;
-
-            Partition partition = olapTbl.getPartition(tabletMeta.getPartitionId());
-            if (partition == null) {
-                return new BalanceStatus(ErrCode.COMMON_ERROR,
-                        "part " + tabletMeta.getPartitionId() + " does not exist");
-            }
-
-            short expectedRepNum = olapTbl.getPartitionInfo().getReplicationNum(tabletMeta.getPartitionId());
-            MaterializedIndex idx = partition.getIndex(tabletMeta.getIndexId());
-            if (idx == null) {
-                return new BalanceStatus(ErrCode.COMMON_ERROR, "idx " + tabletMeta.getIndexId() + " does not exist");
-            }
-
-            Tablet tablet = idx.getTablet(tabletId);
-            List<Replica> replicas = tablet.getReplicas();
-
-            // TODO(cmy)
-
-        } finally {
-            db.writeUnlock();
-        }
-
-        List<Replica> replicas = invertedIndex.getReplicasByTabletId(tabletId);
-        if (replicas == null) {
-            return new BalanceStatus(ErrCode.COMMON_ERROR, "tablet " + tabletId + " does not exist");
-        }
-        List<Long> excludedBackends = replicas.stream().map(n -> n.getBackendId()).collect(Collectors.toList());
-        
-        // use max replica size as this tablet's size
-        long tabletSize = replicas.stream().max((a, b) -> a.getDataSize() > b.getDataSize() ? 1
-                : 0).get().getDataSize();
-        
-        // try choosing backend from first to end
-        BalanceStatus status = new BalanceStatus(ErrCode.COMMON_ERROR, "");
-        for (int i = 0; i < beLoadStatistics.size(); i++) {
-            BackendLoadStatistic beStatistic = beLoadStatistics.get(i);
-            if (excludedBackends.contains(beStatistic.getBeId())) {
-                continue;
-            }
-
-            resultRootPath.clear();
-            BalanceStatus bStatus = beStatistic.isFit(tabletSize, resultRootPath, true /* is recovery */);
-            if (!bStatus.ok()) {
-                status.addErrMsgs(bStatus.getErrMsgs());
-                continue;
-            }
-
-            break;
-        }
-
-        if (resultRootPath.isEmpty()) {
-            return status;
-        }
-
-        Preconditions.checkState(resultRootPath.size() == 1);
-        return BalanceStatus.OK;
+        return sb.toString();
     }
 }

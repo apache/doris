@@ -256,8 +256,8 @@ public class Clone {
                     jobInfo.add(job.getPriority().name());
                     CloneTask cloneTask = job.getCloneTask();
                     if (cloneTask != null) {
-                        jobInfo.add(cloneTask.getCommittedVersion());
-                        jobInfo.add(cloneTask.getCommittedVersionHash());
+                        jobInfo.add(cloneTask.getVisibleVersion());
+                        jobInfo.add(cloneTask.getVisibleVersionHash());
                         jobInfo.add(cloneTask.getFailedTimes());
                     } else {
                         jobInfo.add(-1L);
@@ -419,8 +419,8 @@ public class Clone {
         long indexId = task.getIndexId();
         long backendId = task.getBackendId();
         int schemaHash = task.getSchemaHash();
-        long taskVersion = task.getCommittedVersion();
-        long taskVersionHash = task.getCommittedVersionHash();
+        long taskVersion = task.getVisibleVersion();
+        long taskVersionHash = task.getVisibleVersionHash();
         Database db = Catalog.getInstance().getDb(dbId);
         if (db == null) {
             String failMsg = "db does not exist. id: " + dbId;

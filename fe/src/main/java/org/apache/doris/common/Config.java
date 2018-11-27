@@ -672,5 +672,14 @@ public class Config extends ConfigBase {
      * fe will call es api to get es index shard info every es_state_sync_interval_secs
      */
     @ConfField public static long es_state_sync_interval_secs = 10;
+    
+    /*
+     * the factor of delay time before deciding to repair tablet.
+     * if priority is VERY_HIGH, repair it immediately.
+     * HIGH, delay tablet_repair_delay_factor_second * 1;
+     * NORMAL: delay tablet_repair_delay_factor_second * 2;
+     * LOW: delay tablet_repair_delay_factor_second * 3;
+     */
+    @ConfField public static long tablet_repair_delay_factor_second = 60;
 }
 

@@ -17,12 +17,6 @@
 
 package org.apache.doris.clone;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -33,14 +27,26 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletInfo.Priority;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CloneTask;
+import org.apache.doris.thrift.TTabletInfo;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.EvictingQueue;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -48,11 +54,12 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
+import java.util.Queue;
 import java.util.Set;
 import java.util.stream.Collectors;
 
 /*
- * TabletScheduler saved the tablets produced by TabletChecker and try to repair them.
+ * TabletScheduler saved the tablets produced by TabletChecker and try to schedule them.
  * It also try to balance the cluster load.
  * 
  * We are expecting an efficient way to recovery the entire cluster and make it balanced.
@@ -60,7 +67,7 @@ import java.util.stream.Collectors;
  *  A Backend is down. All tablets which has replica on this BE should be repaired as soon as possible.
  *  
  * Case 1.1:
- *  As Backend is down, some tables should be repaired in high priority. So the repair task should be able
+ *  As Backend is down, some tables should be repaired in high priority. So the clone task should be able
  *  to preempted.
  *  
  * Case 2:
@@ -75,52 +82,54 @@ public class TabletScheduler extends Daemon {
     // handle at most BATCH_NUM tablets in one loop
     private static final int BATCH_NUM = 10;
 
-    // the minimum interval of updating cluster statistics
-    private static final long CLUSTER_STAT_UPDATE_INTERVAL_MS = 60 * 1000; // 1min
+    // the minimum interval of updating cluster statistics and priority of tablet info
+    private static final long STAT_UPDATE_INTERVAL_MS = 60 * 1000; // 1min
 
     /*
-     * Tablet is added to tabletQ as well it's id in runningTabletIds.
-     * TabletScheduler will take tablet from tabletQ but will not remove it's id from runningTabletIds when
+     * Tablet is added to pendingTablets as well it's id in allTabletIds.
+     * TabletScheduler will take tablet from pendingTablets but will not remove it's id from allTabletIds when
      * handling a tablet.
-     * Tablet' id can only be remove after the clone task is done(timeout, cancelled or finished).
+     * Tablet' id can only be removed after the clone task is done(timeout, cancelled or finished).
+     * So if a tablet's id is still in allTabletIds, TabletChecker can not add tablet to TabletScheduler.
      * 
-     * So if a tablet's id is still in runningTabletIds, TabletChecker can not add tablet to TabletScheduler.
+     * pendingTablets + runningTablets = allTabletIds
+     * 
+     * pendingTablets, allTabletIds, runningTablets and schedHistory are protected by 'synchronized' 
      */
-    private PriorityQueue<TabletInfo> tabletQ = new PriorityQueue<>();
-    private Set<Long> runningTabletIds = Sets.newHashSet();
+    private PriorityQueue<TabletInfo> pendingTablets = new PriorityQueue<>();
+    private Set<Long> allTabletIds = Sets.newHashSet();
+    // contains all tabletInfos which state are RUNNING
+    private Map<Long, TabletInfo> runningTablets = Maps.newHashMap();
+    // save the latest 1000 scheduled tablet info
+    private Queue<TabletInfo> schedHistory = EvictingQueue.create(1000);
 
     // be id -> #working slots
     private Map<Long, Slot> backendsWorkingSlots = Maps.newConcurrentMap();
+    // cluster name -> load statistic
+    private Map<String, ClusterLoadStatistic> statisticMap = Maps.newConcurrentMap();
+    private long lastStatUpdateTime = 0;
     
     private Catalog catalog;
     private SystemInfoService infoService;
     private TabletInvertedIndex invertedIndex;
 
-    // cluster name -> load statistic
-    private Map<String, ClusterLoadStatistic> statisticMap = Maps.newConcurrentMap();
-    private long lastLoadStatisticUpdateTime = 0;
 
-    // set this to true if the scheduler is ready to work
-    private boolean isReady = false;
-
-    public TabletScheduler() {
+    public TabletScheduler(Catalog catalog, SystemInfoService infoService, TabletInvertedIndex invertedIndex) {
         super("tablet scheduler", 5000);
-        catalog = Catalog.getCurrentCatalog();
-        infoService = Catalog.getCurrentSystemInfo();
-        invertedIndex = Catalog.getCurrentInvertedIndex();
+        this.catalog = catalog;
+        this.infoService = infoService;
+        this.invertedIndex = invertedIndex;
     }
 
-    public boolean init() {
-        return updateWorkingSlots();
-    }
-
-    public boolean updateWorkingSlots() {
+    /*
+     * update working slots at the beginning of each round
+     */
+    private boolean updateWorkingSlots() {
         ImmutableMap<Long, Backend> backends = infoService.getBackendsInCluster(null);
         for (Backend backend : backends.values()) {
             if (!backend.hasPathHash()) {
                 // when upgrading, backend may not get path info yet. so return false and wait for next round.
-                LOG.info("not all backend has path info");
-                isReady = false;
+                LOG.info("not all backends have path info");
                 return false;
             }
         }
@@ -152,7 +161,6 @@ public class TabletScheduler extends Daemon {
             }
         }
 
-        isReady = true;
         return true;
     }
 
@@ -160,64 +168,85 @@ public class TabletScheduler extends Daemon {
         return backendsWorkingSlots;
     }
 
-    public synchronized boolean addTablet(TabletInfo tablet) {
-        if (runningTabletIds.contains(tablet.getTabletId())) {
+    /*
+     * add a ready-to-be-scheduled tablet to pendingTablets, if it has not being added before.
+     * if force is true, do not check if tablet is already added before.
+     */
+    public synchronized boolean addTablet(TabletInfo tablet, boolean force) {
+        if (!force && allTabletIds.contains(tablet.getTabletId())) {
             return false;
         }
-        runningTabletIds.add(tablet.getTabletId());
-        tabletQ.offer(tablet);
+        allTabletIds.add(tablet.getTabletId());
+        pendingTablets.offer(tablet);
         return true;
     }
 
     public synchronized boolean isEmpty() {
-        return tabletQ.isEmpty();
+        return pendingTablets.isEmpty();
     }
 
     /*
      * Iterate current tablets, change their priority if necessary.
      */
     public synchronized void changePriorityOfTablets(long dbId, long tblId, List<Long> partitionIds) {
-        PriorityQueue<TabletInfo> newTabletQ = new PriorityQueue<>();
-        for (TabletInfo tabletInfo : tabletQ) {
+        PriorityQueue<TabletInfo> newPendingTablets = new PriorityQueue<>();
+        for (TabletInfo tabletInfo : pendingTablets) {
             if (tabletInfo.getDbId() == dbId && tabletInfo.getTblId() == tblId
                     && partitionIds.contains(tabletInfo.getPartitionId())) {
-                tabletInfo.setPriority(Priority.VERY_HIGH);
+                tabletInfo.setOrigPriority(Priority.VERY_HIGH);
             }
-            newTabletQ.add(tabletInfo);
+            newPendingTablets.add(tabletInfo);
         }
-        tabletQ = newTabletQ;
+        pendingTablets = newPendingTablets;
     }
 
     /*
      * TabletScheduler will run as a daemon thread at a very short interval(default 5 sec)
-     * It will try to repair the tablet in queue, and try to balance the cluster if possible.
+     * It will try to schedule the tablet in queue.
+     * and also try to balance the cluster if possible.
+     * 
+     * Schedule rules:
+     * 1. tablet with higher priority will be scheduled first.
+     * 2. high priority should be downgraded if it fails to be schedule too many times.
+     * 3. priority may be upgraded if it is not being schedule for a long time.
+     * 4. every pending task should has a max scheduled time, if schedule fails too many times, if should be removed.
+     * 5. every running task should has a timeout, to avoid running forever.
+     * 6. every running task should also has a max failure time, if clone task fails too many times, if should be removed.
      */
     @Override
     protected void runOneCycle() {
-        if (!isReady && !init()) {
-            // not ready to start.
+        if (!updateWorkingSlots()) {
             return;
         }
 
-        updateClusterLoadStatisticsIfNecessary();
+        updateClusterLoadStatisticsAndPriorityIfNecessary();
 
-        handleTabletQ();
+        schedulePendingTablets();
+
+        handleRunningTablets();
 
         doBalance();
     }
 
+
+    private void updateClusterLoadStatisticsAndPriorityIfNecessary() {
+        if (System.currentTimeMillis() - lastStatUpdateTime < STAT_UPDATE_INTERVAL_MS) {
+            return;
+        }
+
+        updateClusterLoadStatistic();
+        adjustPriorities();
+
+        lastStatUpdateTime = System.currentTimeMillis();
+    }
+
     /*
-     * Update cluster load statistic info in a reasonable interval.
      * Here is the only place we update the cluster load statistic info.
      * We will not update this info dynamically along with the clone job's running.
      * Although it will cause a little bit inaccurate, but is within a controllable range,
      * because we already limit the total number of running clone jobs in cluster by 'backend slots'
      */
-    private void updateClusterLoadStatisticsIfNecessary() {
-        if (System.currentTimeMillis() - lastLoadStatisticUpdateTime < CLUSTER_STAT_UPDATE_INTERVAL_MS) {
-            return;
-        }
-
+    private void updateClusterLoadStatistic() {
         statisticMap.clear();
         List<String> clusterNames = infoService.getClusterNames();
         for (String clusterName : clusterNames) {
@@ -225,33 +254,79 @@ public class TabletScheduler extends Daemon {
                     invertedIndex);
             clusterLoadStatistic.init(clusterName);
             statisticMap.put(clusterName, clusterLoadStatistic);
+            LOG.info("update cluster {} load statistic:\n {}", clusterName, clusterLoadStatistic.getBrief());
         }
-        lastLoadStatisticUpdateTime = System.currentTimeMillis();
     }
 
     /*
-     * get at most BATCH_NUM tablets from queue, and try to repair them.
+     * adjust priorities of all tablet infos
      */
-    private void handleTabletQ() {
+    private synchronized void adjustPriorities() {
+        int size = pendingTablets.size();
+        TabletInfo tabletInfo = null;
+        for (int i = 0; i < size; i++) {
+            tabletInfo = pendingTablets.poll();
+            if (tabletInfo == null) {
+                break;
+            }
+
+            tabletInfo.adjustPriority();
+            pendingTablets.add(tabletInfo);
+        }
+    }
+
+    /*
+     * get at most BATCH_NUM tablets from queue, and try to schedule them.
+     * After handle, the tablet info should be
+     * 1. in runningTablets with state RUNNING, if being scheduled success.
+     * 2. or in schedHistory with state CANCELLING, if some unrecoverable error happens.
+     * 3. or in pendingTablets with state PENDING, if failed to be scheduled.
+     * 
+     * if in schedHistory, it should be removed from allTabletIds.
+     */
+    private void schedulePendingTablets() {
         List<TabletInfo> currentBatch = getNextTabletInfoBatch();
-        LOG.debug("get {} tablets info to repair", currentBatch.size());
+        LOG.debug("get {} tablets info to schedule", currentBatch.size());
 
+        AgentBatchTask batchTask = new AgentBatchTask();
         for (TabletInfo tabletInfo : currentBatch) {
-            handleTablet(tabletInfo);
+            try {
+                scheduleTablet(tabletInfo, batchTask);
+            } catch (SchedException e) {
+                tabletInfo.increaseFailedSchedCounter();
+                if (e.getStatus() == Status.SCHEDULE_FAILED) {
+                    // adjust priority to avoid some higher priority always be the first in pendingTablets
+                    dynamicAdjustPrioAndAddBackToPendingTablets(tabletInfo, e.getMessage());
+                } else {
+                    // discard
+                    removeTabletInfo(tabletInfo, e.getMessage());
+                }
+            }
+
+            Preconditions.checkState(tabletInfo.getState() == TabletInfo.State.RUNNING);
+            addToRunningTablets(tabletInfo);
+        }
+
+        // must send task after adding tablet info to runningTablets.
+        for (AgentTask task : batchTask.getAllTasks()) {
+            AgentTaskQueue.addTask(task);
+            LOG.info("add clone task to agent task queue: {}", task);
         }
     }
 
+    private synchronized void addToRunningTablets(TabletInfo tabletInfo) {
+        runningTablets.put(tabletInfo.getTabletId(), tabletInfo);
+    }
+
     /*
-     * Try to repair a single tablet.
-     * All info which need to be cleaned after repairing should put into the tabletInfo, such as slot info, etc...
-     * and then put tabletInfo in 'deprecatedTablets'.
-     * All tabletInfo in 'deprecatedTablets' will be wiped out finally.
+     * Try to schedule a single tablet.
      */
-    private void handleTablet(TabletInfo tabletInfo) {
+    private void scheduleTablet(TabletInfo tabletInfo, AgentBatchTask batchTask) throws SchedException {
+        tabletInfo.setLastSchedTime(System.currentTimeMillis());
+
         Database db = catalog.getDb(tabletInfo.getDbId());
         if (db == null) {
-            discardTabletInfo(tabletInfo, "db " + tabletInfo.getDbId() + " does not exist");
-            return;
+            throw new SchedException(Status.UNRECOVERABLE, "db does not exist");
         }
 
         Pair<TabletStatus, TabletInfo.Priority> statusPair = null;
@@ -260,20 +335,17 @@ public class TabletScheduler extends Daemon {
             // check this tablet again
             OlapTable tbl = (OlapTable) db.getTable(tabletInfo.getTblId());
             if (tbl == null) {
-                discardTabletInfo(tabletInfo, "tbl " + tabletInfo.getTblId() + " does not exist");
-                return;
+                throw new SchedException(Status.UNRECOVERABLE, "tbl does not exist");
             }
 
             Partition partition = tbl.getPartition(tabletInfo.getPartitionId());
             if (partition == null) {
-                discardTabletInfo(tabletInfo, "partition " + tabletInfo.getPartitionId() + " does not exist");
-                return;
+                throw new SchedException(Status.UNRECOVERABLE, "partition does not exist");
             }
 
             MaterializedIndex idx = partition.getIndex(tabletInfo.getIndexId());
             if (idx == null) {
-                discardTabletInfo(tabletInfo, "idx " + tabletInfo.getIndexId() + " does not exist");
-                return;
+                throw new SchedException(Status.UNRECOVERABLE, "index does not exist");
             }
 
             Tablet tablet = idx.getTablet(tabletInfo.getTabletId());
@@ -286,34 +358,36 @@ public class TabletScheduler extends Daemon {
                                                tbl.getPartitionInfo().getReplicationNum(partition.getId()));
 
             if (statusPair.first == TabletStatus.HEALTHY) {
-                discardTabletInfo(tabletInfo, "tablet is healthy");
-                return;
+                throw new SchedException(Status.UNRECOVERABLE, "tablet is healthy");
             }
+
+            // we do not concern priority here. once we take the tablet out of priority queue,
+            // priority is meaningless.
 
             tabletInfo.setTablet(tablet);
             tabletInfo.setVersionInfo(partition.getVisibleVersion(), partition.getVisibleVersionHash(),
                                       partition.getCommittedVersion(), partition.getCommittedVersionHash());
 
-            handleTabletByStatus(statusPair.first, tabletInfo);
-
+            handleTabletByStatus(statusPair.first, tabletInfo, batchTask);
         } finally {
             db.writeUnlock();
         }
     }
 
-    private void handleTabletByStatus(TabletStatus status, TabletInfo tabletInfo) {
+    private void handleTabletByStatus(TabletStatus status, TabletInfo tabletInfo, AgentBatchTask batchTask)
+            throws SchedException {
         switch (status) {
             case REPLICA_MISSING:
-                handleReplicaMissing(tabletInfo);
+                handleReplicaMissing(tabletInfo, batchTask);
                 break;
             case VERSION_INCOMPLETE:
-                handleReplicaVersionIncomplete(tabletInfo);
+                handleReplicaVersionIncomplete(tabletInfo, batchTask);
                 break;
             case REDUNDANT:
                 handleRedundantReplica(tabletInfo);
                 break;
             case REPLICA_MISSING_IN_CLUSTER:
-                handleReplicaClusterMigration(tabletInfo);
+                handleReplicaClusterMigration(tabletInfo, batchTask);
                 break;
             default:
                 break;
@@ -321,7 +395,7 @@ public class TabletScheduler extends Daemon {
     }
 
     /*
-     * Replica is missing, which means there is not enough alive replicas.
+     * Replica is missing, which means there is no enough alive replicas.
      * So we need to find a destination backend to clone a new replica as possible as we can.
      * 1. find an available path in a backend as destination:
      *      1. backend need to be alive.
@@ -335,26 +409,17 @@ public class TabletScheduler extends Daemon {
      *      
      * 3. send clone task to destination backend
      */
-    private void handleReplicaMissing(TabletInfo tabletInfo) {
+    private void handleReplicaMissing(TabletInfo tabletInfo, AgentBatchTask batchTask) throws SchedException {
         // find an available dest backend and path
         RootPathLoadStatistic destPath = chooseAvailableDestPath(tabletInfo);
-        if (destPath == null) {
-            discardTabletInfo(tabletInfo, "unable to find dest slot for new replica");
-            return;
-        }
+        Preconditions.checkNotNull(destPath);
         tabletInfo.setDestination(destPath.getBeId(), destPath.getPathHash());
 
         // choose a source replica for cloning from
-        if (tabletInfo.chooseSrcReplica(backendsWorkingSlots)) {
-            discardTabletInfo(tabletInfo, "unable to choose src replica for cloning from");
-            return;
-        }
+        tabletInfo.chooseSrcReplica(backendsWorkingSlots);
 
-        // create and send clone task
-        CloneTask task = tabletInfo.createCloneReplicaAndTask();
-        if (AgentTaskQueue.addTask(task)) {
-            LOG.info("send clone task: {}", tabletInfo);
-        }
+        // create clone task
+        batchTask.addTask(tabletInfo.createCloneReplicaAndTask());
     }
 
     /*
@@ -365,28 +430,18 @@ public class TabletScheduler extends Daemon {
      * 2. find a healthy replica as source replica
      * 3. send clone task
      */
-    private void handleReplicaVersionIncomplete(TabletInfo tabletInfo) {
+    private void handleReplicaVersionIncomplete(TabletInfo tabletInfo, AgentBatchTask batchTask)
+            throws SchedException {
         ClusterLoadStatistic statistic = statisticMap.get(tabletInfo.getCluster());
         if (statistic == null) {
-            discardTabletInfo(tabletInfo, "cluster " + tabletInfo.getCluster() + " does not exist");
-            return;
+            throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
         }
 
-        if (!tabletInfo.chooseDestReplicaForVersionIncomplete(backendsWorkingSlots)) {
-            discardTabletInfo(tabletInfo, "unable to choose dest incomplete replica");
-            return;
-        }
+        tabletInfo.chooseDestReplicaForVersionIncomplete(backendsWorkingSlots);
+        tabletInfo.chooseSrcReplicaForVersionIncomplete(backendsWorkingSlots);
 
-        if (!tabletInfo.chooseSrcReplicaForVersionIncomplete(backendsWorkingSlots)) {
-            discardTabletInfo(tabletInfo, "unable to choose src replica for version incomplete");
-            return;
-        }
-
-        // create and send clone task
-        CloneTask task = tabletInfo.createCloneReplicaAndTask();
-        if (AgentTaskQueue.addTask(task)) {
-            LOG.info("send clone task: {}", tabletInfo);
-        }
+        // create clone task
+        batchTask.addTask(tabletInfo.createCloneReplicaAndTask());
     }
 
     /*
@@ -401,7 +456,7 @@ public class TabletScheduler extends Daemon {
      *  6. replica not in right cluster
      *  7. replica in higher load backend
      */
-    private void handleRedundantReplica(TabletInfo tabletInfo) {
+    private void handleRedundantReplica(TabletInfo tabletInfo) throws SchedException {
         if (deleteBackendDropped(tabletInfo)
                 || deleteBackendUnavailable(tabletInfo)
                 || deleteCloneReplica(tabletInfo)
@@ -409,7 +464,9 @@ public class TabletScheduler extends Daemon {
                 || deleteReplicaWithLowerVersion(tabletInfo)
                 || deleteReplicaNotInCluster(tabletInfo)
                 || deleteReplicaOnHighLoadBackend(tabletInfo)) {
+            return;
         }
+        throw new SchedException(Status.SCHEDULE_FAILED, "unable to delete any redundant replicas");
     }
 
     private boolean deleteBackendDropped(TabletInfo tabletInfo) {
@@ -540,8 +597,9 @@ public class TabletScheduler extends Daemon {
      * 
      * after clone finished, the replica in wrong cluster will be treated as redundant, and will be deleted soon.
      */
-    private void handleReplicaClusterMigration(TabletInfo tabletInfo) {
-        handleReplicaMissing(tabletInfo);
+    private void handleReplicaClusterMigration(TabletInfo tabletInfo, AgentBatchTask batchTask)
+            throws SchedException {
+        handleReplicaMissing(tabletInfo, batchTask);
     }
 
     private void doBalance() {
@@ -549,11 +607,10 @@ public class TabletScheduler extends Daemon {
     }
 
     // choose a path on a backend which is fit for the tablet
-    private RootPathLoadStatistic chooseAvailableDestPath(TabletInfo tabletInfo) {
+    private RootPathLoadStatistic chooseAvailableDestPath(TabletInfo tabletInfo) throws SchedException {
         ClusterLoadStatistic statistic = statisticMap.get(tabletInfo.getCluster());
         if (statistic == null) {
-            discardTabletInfo(tabletInfo, "cluster " + tabletInfo.getCluster() + " does not exist");
-            return null;
+            throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
         }
         List<BackendLoadStatistic> beStatistics = statistic.getBeLoadStatistics();
 
@@ -578,8 +635,7 @@ public class TabletScheduler extends Daemon {
         }
 
         if (allFitPaths.isEmpty()) {
-            discardTabletInfo(tabletInfo, "unable to find dest path for new replica");
-            return null;
+            throw new SchedException(Status.SCHEDULE_FAILED, "unable to find dest path for new replica");
         }
 
         // all fit paths has already been sorted by load score in 'allFitPaths'.
@@ -587,7 +643,7 @@ public class TabletScheduler extends Daemon {
         for (RootPathLoadStatistic rootPathLoadStatistic : allFitPaths) {
             Slot slot = backendsWorkingSlots.get(rootPathLoadStatistic.getBeId());
             if (slot == null) {
-                LOG.debug("backend {} does not found when getting slot", rootPathLoadStatistic.getBeId());
+                LOG.debug("backend {} does not found when getting slots", rootPathLoadStatistic.getBeId());
                 continue;
             }
 
@@ -595,13 +651,26 @@ public class TabletScheduler extends Daemon {
                 return rootPathLoadStatistic;
             }
         }
-        return null;
+        
+        throw new SchedException(Status.SCHEDULE_FAILED, "unable to find dest path which can be fit in");
     }
 
-    private void discardTabletInfo(TabletInfo tabletInfo, String reason) {
+    /*
+     * For some reason, a tablet info failed to be scheduled this time,
+     * So we dynamically change its priority and add back to queue, waiting for next round.
+     */
+    private void dynamicAdjustPrioAndAddBackToPendingTablets(TabletInfo tabletInfo, String message) {
+        Preconditions.checkState(tabletInfo.getState() == TabletInfo.State.PENDING);
+        tabletInfo.adjustPriority();
+        addTablet(tabletInfo, true /* force */);
+    }
+
+    private synchronized void removeTabletInfo(TabletInfo tabletInfo, String reason) {
+        tabletInfo.setState(TabletInfo.State.CANCELLED, reason);
         tabletInfo.releaseResource(this);
-        tabletInfo.setState(org.apache.doris.clone.TabletInfo.State.CANCELLED, reason);
-        LOG.info("discard the tablet info because: {}", reason);
+        allTabletIds.remove(tabletInfo.getTabletId());
+        schedHistory.add(tabletInfo);
+        LOG.info("remove the tablet info {} because: {}", tabletInfo.getTabletId(), reason);
     }
 
     // get at most BATCH_NUM tablets from queue.
@@ -609,7 +678,7 @@ public class TabletScheduler extends Daemon {
         List<TabletInfo> list = Lists.newArrayList();
         int count = BATCH_NUM;
         while (count > 0) {
-            TabletInfo tablet = tabletQ.poll();
+            TabletInfo tablet = pendingTablets.poll();
             if (tablet == null) {
                 // no more tablets
                 break;
@@ -618,6 +687,59 @@ public class TabletScheduler extends Daemon {
             count--;
         }
         return list;
+    }
+
+    public void finishCloneTask(CloneTask cloneTask, TTabletInfo reportedTablet) {
+        long tabletId = cloneTask.getTabletId();
+        TabletInfo tabletInfo = takeRunningTablets(tabletId);
+        if (tabletInfo == null) {
+            LOG.warn("tablet info does not exist: {}", tabletId);
+            return;
+        }
+        Preconditions.checkState(tabletInfo.getState() == TabletInfo.State.RUNNING);
+        try {
+            tabletInfo.finishCloneTask(cloneTask, reportedTablet);
+        } catch (SchedException e) {
+            tabletInfo.increaseFailedRunningCounter();
+            if (e.getStatus() == Status.SCHEDULE_FAILED) {
+                addToRunningTablets(tabletInfo);
+            } else {
+                // discard
+                removeTabletInfo(tabletInfo, e.getMessage());
+            }
+            return;
+        }
+
+        Preconditions.checkState(tabletInfo.getState() == TabletInfo.State.FINISHED);
+        removeTabletInfo(tabletInfo, "finished");
+    }
+
+    /*
+     * we take the tablet out of the runningTablets and than handle it,
+     * avoid other threads see it.
+     * Whoever takes this tablet, make sure to put it to the schedHistory or back to runningTablets.
+     */
+    private synchronized TabletInfo takeRunningTablets(long tabletId) {
+        return runningTablets.remove(tabletId);
+    }
+
+    /*
+     * handle tablets which are running.
+     * If task is timeout, remove the tablet
+     */
+    public synchronized void handleRunningTablets() {
+        Iterator<Map.Entry<Long, TabletInfo>> iter = runningTablets.entrySet().iterator();
+        while (iter.hasNext()) {
+            Map.Entry<Long, TabletInfo> entry = iter.next();
+            TabletInfo tabletInfo = entry.getValue();
+            if (tabletInfo.isTimeout()) {
+                tabletInfo.setState(TabletInfo.State.CANCELLED, "timeout");
+            }
+            iter.remove();
+            tabletInfo.releaseResource(this);
+            schedHistory.add(tabletInfo);
+            LOG.info("tablet info is timeout: {}", tabletInfo.getTabletId());
+        }
     }
 
     public class Slot {

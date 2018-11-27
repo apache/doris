@@ -230,7 +230,7 @@ public class CloneTest {
         job.setState(JobState.RUNNING);
         CloneTask task = new CloneTask(backendId, dbId, tableId, partitionId, indexId, tabletId,
                 schemaHash, new ArrayList<TBackend>(), TStorageMedium.HDD,
-                version, versionHash, -1);
+                version, versionHash);
         TTabletInfo tabletInfo = new TTabletInfo(tabletId, schemaHash, version, versionHash, 0L, 0L);
         clone.finishCloneJob(task, tabletInfo);
         Assert.assertEquals(1, clone.getJobNum());
