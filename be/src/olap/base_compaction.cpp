@@ -348,8 +348,7 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     uint64_t merged_rows = 0;
     uint64_t filted_rows = 0;
     OLAPStatus res = OLAP_SUCCESS;
-    if (_table->data_file_type() == OLAP_DATA_FILE
-            || _table->data_file_type() == COLUMN_ORIENTED_FILE) {
+    if (_table->data_file_type() == COLUMN_ORIENTED_FILE) {
         _table->obtain_header_rdlock();
         _table->release_header_lock();
 
