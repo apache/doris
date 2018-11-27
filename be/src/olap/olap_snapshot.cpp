@@ -377,15 +377,6 @@ OLAPStatus OLAPEngine::_create_snapshot_files(
         header_locked = false;
         _update_header_file_info(shortest_versions, new_olap_header);
 
-        // save new header
-        if ((res = OlapHeaderManager::save(store, ref_olap_table->tablet_id(),
-                ref_olap_table->schema_hash(), new_olap_header)) != OLAP_SUCCESS) {
-            LOG(WARNING) << "save header error. [table=" << ref_olap_table->full_name()
-                    << "tablet_id=" << ref_olap_table->full_name()
-                    << ", schema_hash=" << ref_olap_table->schema_hash();
-             break;
-         }
-
         // save new header to snapshot header path
         res = new_olap_header->save(header_path);
         if (res != OLAP_SUCCESS) {
@@ -790,8 +781,6 @@ OLAPStatus OLAPEngine::_generate_new_header(
     OlapHeaderManager::get_header(ref_store, tablet->tablet_id(), tablet->schema_hash(), new_olap_header);
     _update_header_file_info(version_entity_vec, new_olap_header);
     new_olap_header->set_shard(new_shard);
-
-    _update_header_file_info(version_entity_vec, new_olap_header);
 
     res = OlapHeaderManager::save(store, tablet->tablet_id(), tablet->schema_hash(), new_olap_header);
     if (res != OLAP_SUCCESS) {
