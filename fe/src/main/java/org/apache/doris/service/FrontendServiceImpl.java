@@ -559,7 +559,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
             status.setStatus_code(TStatusCode.INTERNAL_ERROR);
-            status.setError_msgs(Lists.newArrayList(e.getMessage()));
+            status.setError_msgs(Lists.newArrayList(Strings.nullToEmpty(e.getMessage())));
             return result;
         }
 
@@ -580,7 +580,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (UserException e) {
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.setError_msgs(Lists.newArrayList(e.getMessage()));
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatus_code(TStatusCode.INTERNAL_ERROR);
+            status.setError_msgs(Lists.newArrayList(Strings.nullToEmpty(e.getMessage())));
+            return result;
         }
+
         return result;
     }
 
@@ -630,6 +636,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (UserException e) {
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatus_code(TStatusCode.INTERNAL_ERROR);
+            status.setError_msgs(Lists.newArrayList(Strings.nullToEmpty(e.getMessage())));
+            return result;
         }
         return result;
     }
@@ -674,6 +685,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (UserException e) {
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatus_code(TStatusCode.INTERNAL_ERROR);
+            status.setError_msgs(Lists.newArrayList(Strings.nullToEmpty(e.getMessage())));
+            return result;
         }
 
         return result;
@@ -704,6 +720,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (UserException e) {
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatus_code(TStatusCode.INTERNAL_ERROR);
+            status.setError_msgs(Lists.newArrayList(Strings.nullToEmpty(e.getMessage())));
+            return result;
         }
         return result;
     }
