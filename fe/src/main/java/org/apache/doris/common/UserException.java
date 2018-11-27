@@ -17,24 +17,26 @@
 
 package org.apache.doris.common;
 
+import com.google.common.base.Strings;
+
 /**
  * Thrown for internal server errors.
  */
 public class UserException extends Exception {
     public UserException(String msg, Throwable cause) {
-        super(msg, cause);
+        super(Strings.nullToEmpty(msg), cause);
     }
 
     public UserException(Throwable cause) {
         super(cause);
     }
 
-    public UserException(String message, Throwable cause, boolean enableSuppression, boolean writableStackTrace) {
-        super(message, cause, enableSuppression, writableStackTrace);
+    public UserException(String msg, Throwable cause, boolean enableSuppression, boolean writableStackTrace) {
+        super(Strings.nullToEmpty(msg), cause, enableSuppression, writableStackTrace);
     }
 
     public UserException(String msg) {
-        super(msg);
+        super(Strings.nullToEmpty(msg));
     }
 
 }
