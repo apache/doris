@@ -28,7 +28,7 @@
 #include "olap/column_data.h"
 #include "olap/olap_engine.h"
 #include "olap/olap_header.h"
-#include "olap/rowset.h"
+#include "olap/segment_group.h"
 #include "olap/olap_table.h"
 #include "olap/utils.h"
 #include "util/doris_metrics.h"
@@ -119,7 +119,7 @@ OLAPStatus BaseCompaction::run() {
         DorisMetrics::base_compaction_deltas_total.increment(_need_merged_versions.size());
         int64_t merge_bytes = 0;
         for (ColumnData* i_data : base_data_sources) {
-            merge_bytes += i_data->olap_index()->data_size();
+            merge_bytes += i_data->segment_group()->data_size();
         }
         DorisMetrics::base_compaction_bytes_total.increment(merge_bytes);
     }
@@ -148,7 +148,7 @@ OLAPStatus BaseCompaction::run() {
     // 4. make new versions visable.
     //    If success, remove files belong to old versions;
     //    If fail, gc files belong to new versions.
-    vector<Rowset*> unused_olap_indices;
+    vector<SegmentGroup*> unused_olap_indices;
     res = _update_header(row_count, &unused_olap_indices);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to update header. table=" << _table->full_name() << ", "
@@ -323,12 +323,12 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
                                                vector<ColumnData*>* base_data_sources,
                                                uint64_t* row_count) {
     // 1. 生成新base文件对应的olap index
-    Rowset* new_base = new (std::nothrow) Rowset(_table.get(),
+    SegmentGroup* new_base = new (std::nothrow) SegmentGroup(_table.get(),
                                                        _new_base_version,
                                                        new_base_version_hash,
                                                        false, 0, 0);
     if (new_base == NULL) {
-        OLAP_LOG_WARNING("fail to new Rowset.");
+        OLAP_LOG_WARNING("fail to new SegmentGroup.");
         return OLAP_ERR_MALLOC_ERROR;
     }
 
@@ -398,7 +398,7 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     // Check row num changes
     uint64_t source_rows = 0;
     for (ColumnData* i_data : *base_data_sources) {
-        source_rows += i_data->olap_index()->num_rows();
+        source_rows += i_data->segment_group()->num_rows();
     }
     bool row_nums_check = config::row_nums_check;
     if (row_nums_check) {
@@ -423,7 +423,7 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<Rowset*>* unused_olap_indices) {
+OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<SegmentGroup*>* unused_olap_indices) {
     WriteLock wrlock(_table->get_header_lock_ptr());
     vector<Version> unused_versions;
     _get_unused_versions(&unused_versions);
@@ -464,11 +464,11 @@ OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<Rowset*>* u
     return OLAP_SUCCESS;
 }
 
-void BaseCompaction::_delete_old_files(vector<Rowset*>* unused_indices) {
+void BaseCompaction::_delete_old_files(vector<SegmentGroup*>* unused_indices) {
     if (!unused_indices->empty()) {
         OLAPEngine* unused_index = OLAPEngine::get_instance();
 
-        for (vector<Rowset*>::iterator it = unused_indices->begin();
+        for (vector<SegmentGroup*>::iterator it = unused_indices->begin();
                 it != unused_indices->end(); ++it) {
             unused_index->add_unused_index(*it);
         }
@@ -477,7 +477,7 @@ void BaseCompaction::_delete_old_files(vector<Rowset*>* unused_indices) {
 
 void BaseCompaction::_garbage_collection() {
     // 清理掉已生成的版本文件
-    for (vector<Rowset*>::iterator it = _new_olap_indices.begin();
+    for (vector<SegmentGroup*>::iterator it = _new_olap_indices.begin();
             it != _new_olap_indices.end(); ++it) {
         (*it)->delete_all_files();
         SAFE_DELETE(*it);

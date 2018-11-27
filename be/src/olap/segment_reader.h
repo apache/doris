@@ -46,7 +46,7 @@
 
 namespace doris {
 
-class Rowset;
+class SegmentGroup;
 
 
 class ColumnReader;
@@ -56,7 +56,7 @@ class SegmentReader {
 public:
     explicit SegmentReader(const std::string file,
             OLAPTable* table,
-            Rowset* index,
+            SegmentGroup* segment_group,
             uint32_t segment_id,
             const std::vector<uint32_t>& return_columns,
             const std::set<uint32_t>& load_bf_columns,
@@ -86,7 +86,7 @@ public:
     //   first_block: 需要读取的第一个block
     //   last_block:  需要读取的最后一个block,如果last_block大于最大的block,
     //                则读取所有的block
-    // 1. 按conditions过滤index中的统计信息,  确定需要读取的block列表
+    // 1. 按conditions过滤segment_group中的统计信息,  确定需要读取的block列表
     // 2. 读取blocks, 构造InStream
     // 3. 创建并初始化Readers
     // Outputs:
@@ -278,7 +278,7 @@ private:
     doris::FileHandler _file_handler;             // 文件handler
 
     OLAPTable* _table;
-    Rowset* _olap_index;
+    SegmentGroup* _segment_group;
     uint32_t _segment_id;
 
     const Conditions* _conditions;         // 列过滤条件

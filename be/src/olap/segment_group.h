@@ -39,22 +39,22 @@
 
 namespace doris {
 
-// Class for managing OLAP table indices
+// Class for segments management
 // For fast key lookup, we maintain a sparse index for every data file. The
 // index is sparse because we only have one pointer per row block. Each
 // index entry contains the short key for the first row of the
 // corresponding row block
-class Rowset {
+class SegmentGroup {
     friend class MemIndex;
 public:
-    Rowset(OLAPTable* table, Version version, VersionHash version_hash,
-              bool delete_flag, int rowset_id, int32_t num_segments);
+    SegmentGroup(OLAPTable* table, Version version, VersionHash version_hash,
+              bool delete_flag, int segment_group_id, int32_t num_segments);
 
-    Rowset(OLAPTable* table, bool delete_flag, int32_t rowset_id,
+    SegmentGroup(OLAPTable* table, bool delete_flag, int32_t segment_group_id,
               int32_t num_segments, bool is_pending,
               TPartitionId partition_id, TTransactionId transaction_id);
 
-    virtual ~Rowset();
+    virtual ~SegmentGroup();
 
     // Load the index into memory.
     OLAPStatus load();
@@ -167,8 +167,8 @@ public:
 
     inline bool delete_flag() const { return _delete_flag; }
 
-    inline int32_t rowset_id() const { return _rowset_id; }
-    inline void set_rowset_id(int32_t rowset_id) { _rowset_id = rowset_id; }
+    inline int32_t segment_group_id() const { return _segment_group_id; }
+    inline void set_segment_group_id(int32_t segment_group_id) { _segment_group_id = segment_group_id; }
 
     inline PUniqueId load_id() const { return _load_id; }
     inline void set_load_id(const PUniqueId& load_id) { _load_id = load_id; }
@@ -233,21 +233,21 @@ public:
         return _index.get_null_supported(seg_id);
     }
 
-    std::string construct_index_file_path(int32_t rowset_id, int32_t segment) const;
-    std::string construct_data_file_path(int32_t rowset_id, int32_t segment) const;
+    std::string construct_index_file_path(int32_t segment_group_id, int32_t segment) const;
+    std::string construct_data_file_path(int32_t segment_group_id, int32_t segment) const;
     void publish_version(Version version, VersionHash version_hash);
 
 private:
     void _check_io_error(OLAPStatus res);
 
-    OLAPTable* _table;                 // table definition for this index
+    OLAPTable* _table;                 // table definition for this segmentgroup
     Version _version;                  // version of associated data file
-    VersionHash _version_hash;         // version hash for this index
+    VersionHash _version_hash;         // version hash for this segmentgroup
     bool _delete_flag;
-    int32_t _rowset_id;                // rowset id of olapindex
-    PUniqueId _load_id;                // load id for rowset
-    int32_t _num_segments;             // number of segments in this index
-    bool _index_loaded;                // whether the index has been read
+    int32_t _segment_group_id;         // segmentgroup id of segmentgroup
+    PUniqueId _load_id;                // load id for segmentgroup
+    int32_t _num_segments;             // number of segments in this segmentgroup
+    bool _index_loaded;                // whether the segmentgroup has been read
     atomic_t _ref_count;               // reference count
     MemIndex _index;
     bool _is_pending;
@@ -284,7 +284,7 @@ private:
     std::vector<std::pair<WrapperField*, WrapperField*>> _column_statistics;
     std::unordered_map<uint32_t, FileHeader<ColumnDataHeaderMessage> > _seg_pb_map;
 
-    DISALLOW_COPY_AND_ASSIGN(Rowset);
+    DISALLOW_COPY_AND_ASSIGN(SegmentGroup);
 };
 
 }

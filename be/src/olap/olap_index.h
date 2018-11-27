@@ -39,7 +39,7 @@
 
 namespace doris {
 class IndexComparator;
-class Rowset;
+class SegmentGroup;
 class OLAPTable;
 class RowBlock;
 class RowCursor;
@@ -167,7 +167,7 @@ struct SegmentMetaInfo {
 // In memory index structure, all index hold here
 class MemIndex {
 public:
-    friend class Rowset;
+    friend class SegmentGroup;
     friend class IndexComparator;
     friend class SegmentComparator;
 

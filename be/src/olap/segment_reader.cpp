@@ -26,7 +26,7 @@
 #include "olap/out_stream.h"
 #include "olap/olap_cond.h"
 #include "olap/row_block.h"
-#include "olap/rowset.h"
+#include "olap/segment_group.h"
 
 namespace doris {
 
@@ -35,7 +35,7 @@ static const uint32_t MIN_FILTER_BLOCK_NUM = 10;
 SegmentReader::SegmentReader(
         const std::string file,
         OLAPTable* table,
-        Rowset* index,
+        SegmentGroup* segment_group,
         uint32_t segment_id,
         const std::vector<uint32_t>& used_columns,
         const std::set<uint32_t>& load_bf_columns,
@@ -47,7 +47,7 @@ SegmentReader::SegmentReader(
         OlapReaderStatistics* stats) :
         _file_name(file),
         _table(table),
-        _olap_index(index),
+        _segment_group(segment_group),
         _segment_id(segment_id),
         _conditions(conditions),
         _delete_handler(delete_handler),
@@ -139,8 +139,8 @@ OLAPStatus SegmentReader::_load_segment_file() {
 
     //VLOG(3) << "seg file : " << _file_name;
     // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
-    _file_header = _olap_index->get_seg_pb(_segment_id);
-    _null_supported = _olap_index->get_null_supported(_segment_id);
+    _file_header = _segment_group->get_seg_pb(_segment_id);
+    _null_supported = _segment_group->get_null_supported(_segment_id);
     _header_length = _file_header->size();
 
     res = _check_file_version();
@@ -389,7 +389,7 @@ OLAPStatus SegmentReader::_pick_delete_row_groups(uint32_t first_block, uint32_t
     }
 
     for (auto& delete_condition : _delete_handler.get_delete_conditions()) {
-        if (delete_condition.filter_version <= _olap_index->version().first) {
+        if (delete_condition.filter_version <= _segment_group->version().first) {
             continue;
         }
 
@@ -492,7 +492,7 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
         FieldAggregationMethod aggregation = _table->get_aggregation_by_index(i.first);
         bool is_continue = (aggregation == OLAP_FIELD_AGGREGATION_NONE
                 || (aggregation == OLAP_FIELD_AGGREGATION_REPLACE
-                && _olap_index->version().first == 0));
+                && _segment_group->version().first == 0));
         if (!is_continue) {
             continue;
         }
@@ -533,7 +533,7 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
         FieldAggregationMethod aggregation = _table->get_aggregation_by_index(i);
         bool is_continue = (aggregation == OLAP_FIELD_AGGREGATION_NONE
                 || (aggregation == OLAP_FIELD_AGGREGATION_REPLACE
-                && _olap_index->version().first == 0));
+                && _segment_group->version().first == 0));
         if (!is_continue) {
             continue;
         }
@@ -722,9 +722,9 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
             OLAP_LOG_WARNING("_header_message().number_of_rows()=%d,"
                              "_header_message().num_rows_per_block()=%d, table='%s', version='%d-%d'",
                              _header_message().number_of_rows(), _header_message().num_rows_per_block(),
-                             _olap_index->table()->full_name().c_str(),
-                             _olap_index->version().first, _olap_index->version().second);
-            LOG(WARNING) << "version:" << _olap_index->version().first << "-" << _olap_index->version().second;
+                             _segment_group->table()->full_name().c_str(),
+                             _segment_group->version().first, _segment_group->version().second);
+            LOG(WARNING) << "version:" << _segment_group->version().first << "-" << _segment_group->version().second;
             return OLAP_ERR_FILE_FORMAT_ERROR;
         }
     }

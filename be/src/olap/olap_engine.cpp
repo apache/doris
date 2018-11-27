@@ -170,7 +170,7 @@ OLAPStatus OLAPEngine::_load_store(OlapStore* store) {
         }
 
         for (const auto& tablet : tablets) {
-            // 遍历table目录寻找此table的所有indexedRollupTable，注意不是Rowset，而是OLAPTable
+            // 遍历table目录寻找此table的所有indexedRollupTable，注意不是SegmentGroup，而是OLAPTable
             set<string> schema_hashes;
             string one_tablet_path = one_shard_path + '/' + tablet;
             if (dir_walk(one_tablet_path, &schema_hashes, NULL) != OLAP_SUCCESS) {
@@ -317,7 +317,7 @@ OLAPStatus OLAPEngine::_check_none_row_oriented_table_in_store(OlapStore* store)
         }
 
         for (const auto& tablet : tablets) {
-            // 遍历table目录寻找此table的所有indexedRollupTable，注意不是Rowset，而是OLAPTable
+            // 遍历table目录寻找此table的所有indexedRollupTable，注意不是SegmentGroup，而是OLAPTable
             set<string> schema_hashes;
             string one_tablet_path = one_shard_path + '/' + tablet;
             if (dir_walk(one_tablet_path, &schema_hashes, NULL) != OLAP_SUCCESS) {
@@ -1508,9 +1508,9 @@ OLAPStatus OLAPEngine::create_init_version(TTabletId tablet_id, SchemaHash schem
 
     OLAPTablePtr table;
     ColumnDataWriter* writer = NULL;
-    Rowset* new_rowset = NULL;
+    SegmentGroup* new_segment_group = NULL;
     OLAPStatus res = OLAP_SUCCESS;
-    std::vector<Rowset*> index_vec;
+    std::vector<SegmentGroup*> index_vec;
 
     do {
         if (version.first > version.second) {
@@ -1528,15 +1528,15 @@ OLAPStatus OLAPEngine::create_init_version(TTabletId tablet_id, SchemaHash schem
             break;
         }
 
-        new_rowset = new(nothrow) Rowset(table.get(), version, version_hash, false, 0, 0);
-        if (new_rowset == NULL) {
+        new_segment_group = new(nothrow) SegmentGroup(table.get(), version, version_hash, false, 0, 0);
+        if (new_segment_group == NULL) {
             LOG(WARNING) << "fail to malloc index. [table=" << table->full_name() << "]";
             res = OLAP_ERR_MALLOC_ERROR;
             break;
         }
 
         // Create writer, which write nothing to table, to generate empty data file
-        writer = ColumnDataWriter::create(table, new_rowset, false);
+        writer = ColumnDataWriter::create(table, new_segment_group, false);
         if (writer == NULL) {
             LOG(WARNING) << "fail to create writer. [table=" << table->full_name() << "]";
             res = OLAP_ERR_MALLOC_ERROR;
@@ -1550,14 +1550,14 @@ OLAPStatus OLAPEngine::create_init_version(TTabletId tablet_id, SchemaHash schem
         }
 
         // Load new index and add to table
-        res = new_rowset->load();
+        res = new_segment_group->load();
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load new index. [table=" << table->full_name() << "]";
             break;
         }
 
         WriteLock wrlock(table->get_header_lock_ptr());
-        index_vec.push_back(new_rowset);
+        index_vec.push_back(new_segment_group);
         res = table->register_data_source(index_vec);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to register index to data sources. [table=%s]",
@@ -1574,12 +1574,12 @@ OLAPStatus OLAPEngine::create_init_version(TTabletId tablet_id, SchemaHash schem
 
     // Unregister index and delete files(index and data) if failed
     if (res != OLAP_SUCCESS && table.get() != NULL) {
-        std::vector<Rowset*> unused_index;
+        std::vector<SegmentGroup*> unused_index;
         table->obtain_header_wrlock();
         table->unregister_data_source(version, &unused_index);
         table->release_header_lock();
 
-        for (Rowset* index : index_vec) {
+        for (SegmentGroup* index : index_vec) {
             index->delete_all_files();
             SAFE_DELETE(index);
         }
@@ -1915,7 +1915,7 @@ OLAPStatus OLAPEngine::start_trash_sweep(double* usage) {
         }
     }
 
-    // clear expire incremental rowset
+    // clear expire incremental segment_group
     _tablet_map_lock.rdlock();
     for (const auto& item : _tablet_map) {
         for (OLAPTablePtr olap_table : item.second.table_arr) {
@@ -2213,21 +2213,21 @@ void OLAPEngine::start_delete_unused_index() {
     _gc_mutex.unlock();
 }
 
-void OLAPEngine::add_unused_index(Rowset* olap_index) {
+void OLAPEngine::add_unused_index(SegmentGroup* segment_group) {
     _gc_mutex.lock();
 
-    auto it = _gc_files.find(olap_index);
+    auto it = _gc_files.find(segment_group);
     if (it == _gc_files.end()) {
         vector<string> files;
-        int32_t rowset_id = olap_index->rowset_id();
-        for (size_t seg_id = 0; seg_id < olap_index->num_segments(); ++seg_id) {
-            string index_file = olap_index->construct_index_file_path(rowset_id, seg_id);
+        int32_t segment_group_id = segment_group->segment_group_id();
+        for (size_t seg_id = 0; seg_id < segment_group->num_segments(); ++seg_id) {
+            string index_file = segment_group->construct_index_file_path(segment_group_id, seg_id);
             files.push_back(index_file);
 
-            string data_file = olap_index->construct_data_file_path(rowset_id, seg_id);
+            string data_file = segment_group->construct_data_file_path(segment_group_id, seg_id);
             files.push_back(data_file);
         }
-        _gc_files[olap_index] = files;
+        _gc_files[segment_group] = files;
     }
 
     _gc_mutex.unlock();

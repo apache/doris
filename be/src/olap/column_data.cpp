@@ -24,13 +24,13 @@
 
 namespace doris {
 
-ColumnData* ColumnData::create(Rowset* index) {
+ColumnData* ColumnData::create(SegmentGroup* segment_group) {
     ColumnData* data = NULL;
-    DataFileType file_type = index->table()->data_file_type();
+    DataFileType file_type = segment_group->table()->data_file_type();
 
     switch (file_type) {
     case COLUMN_ORIENTED_FILE:
-        data = new(std::nothrow) ColumnData(index);
+        data = new(std::nothrow) ColumnData(segment_group);
         break;
 
     default:
@@ -40,9 +40,9 @@ ColumnData* ColumnData::create(Rowset* index) {
     return data;
 }
 
-ColumnData::ColumnData(Rowset* olap_index)
+ColumnData::ColumnData(SegmentGroup* segment_group)
       : _data_file_type(COLUMN_ORIENTED_FILE),
-        _olap_index(olap_index),
+        _segment_group(segment_group),
         _eof(false),
         _conditions(NULL),
         _col_predicates(NULL),
@@ -50,19 +50,19 @@ ColumnData::ColumnData(Rowset* olap_index)
         _runtime_state(NULL),
         _is_using_cache(false),
         _segment_reader(NULL) {
-    _table = olap_index->table();
+    _table = segment_group->table();
     _num_rows_per_block = _table->num_rows_per_row_block();
 }
 
 ColumnData::~ColumnData() {
-    _olap_index->release();
+    _segment_group->release();
     SAFE_DELETE(_segment_reader);
 }
 
 OLAPStatus ColumnData::init() {
-    _olap_index->acquire();
+    _segment_group->acquire();
 
-    auto res = _short_key_cursor.init(_olap_index->short_key_fields());
+    auto res = _short_key_cursor.init(_segment_group->short_key_fields());
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "key cursor init failed, table:" << _table->id()
             << ", res:" << res;
@@ -105,7 +105,7 @@ OLAPStatus ColumnData::_next_row(const RowCursor** row, bool without_filter) {
             } else {
                 DCHECK(_read_block->block_status() == DEL_PARTIAL_SATISFIED);
                 bool row_del_filter = _delete_handler.is_filter_data(
-                    _olap_index->version().second, _cursor);
+                    _segment_group->version().second, _cursor);
                 if (!row_del_filter) {
                     *row = &_cursor;
                     return OLAP_SUCCESS;
@@ -130,16 +130,16 @@ OLAPStatus ColumnData::_seek_to_block(const RowBlockPosition& block_pos, bool wi
     // TODO(zc): _segment_readers???
     // open segment reader if needed
     if (_segment_reader == nullptr || block_pos.segment != _current_segment) {
-        if (block_pos.segment >= _olap_index->num_segments() ||
+        if (block_pos.segment >= _segment_group->num_segments() ||
             (_end_key_is_set && block_pos.segment > _end_segment)) {
             _eof = true;
             return OLAP_ERR_DATA_EOF;
         }
         SAFE_DELETE(_segment_reader);
         std::string file_name;
-        file_name = olap_index()->construct_data_file_path(olap_index()->rowset_id(), block_pos.segment);
+        file_name = segment_group()->construct_data_file_path(segment_group()->segment_group_id(), block_pos.segment);
         _segment_reader = new(std::nothrow) SegmentReader(
-                file_name, _table, olap_index(),  block_pos.segment,
+                file_name, _table, segment_group(),  block_pos.segment,
                 _seek_columns, _load_bf_columns, _conditions,
                 _col_predicates, _delete_handler, _delete_status, _runtime_state, _stats);
         if (_segment_reader == nullptr) {
@@ -170,7 +170,7 @@ OLAPStatus ColumnData::_seek_to_block(const RowBlockPosition& block_pos, bool wi
 OLAPStatus ColumnData::_find_position_by_short_key(
         const RowCursor& key, bool find_last_key, RowBlockPosition *position) {
     RowBlockPosition tmp_pos;
-    auto res = _olap_index->find_short_key(key, &_short_key_cursor, find_last_key, &tmp_pos);
+    auto res = _segment_group->find_short_key(key, &_short_key_cursor, find_last_key, &tmp_pos);
     if (res != OLAP_SUCCESS) {
         if (res == OLAP_ERR_INDEX_EOF) {
             res = OLAP_ERR_DATA_EOF;
@@ -179,7 +179,7 @@ OLAPStatus ColumnData::_find_position_by_short_key(
         }
         return res;
     }
-    res = olap_index()->find_prev_point(tmp_pos, position);
+    res = segment_group()->find_prev_point(tmp_pos, position);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("find prev row block failed. [res=%d]", res);
         return res;
@@ -190,7 +190,7 @@ OLAPStatus ColumnData::_find_position_by_short_key(
 OLAPStatus ColumnData::_find_position_by_full_key(
         const RowCursor& key, bool find_last_key, RowBlockPosition *position) {
     RowBlockPosition tmp_pos;
-    auto res = _olap_index->find_short_key(key, &_short_key_cursor, false, &tmp_pos);
+    auto res = _segment_group->find_short_key(key, &_short_key_cursor, false, &tmp_pos);
     if (res != OLAP_SUCCESS) {
         if (res == OLAP_ERR_INDEX_EOF) {
             res = OLAP_ERR_DATA_EOF;
@@ -200,14 +200,14 @@ OLAPStatus ColumnData::_find_position_by_full_key(
         return res;
     }
     RowBlockPosition start_position;
-    res = olap_index()->find_prev_point(tmp_pos, &start_position);
+    res = segment_group()->find_prev_point(tmp_pos, &start_position);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("find prev row block failed. [res=%d]", res);
         return res;
     }
 
     RowBlockPosition end_position;
-    res = _olap_index->find_short_key(key, &_short_key_cursor, true, &end_position);
+    res = _segment_group->find_short_key(key, &_short_key_cursor, true, &end_position);
     if (res != OLAP_SUCCESS) {
         if (res == OLAP_ERR_INDEX_EOF) {
             res = OLAP_ERR_DATA_EOF;
@@ -226,7 +226,7 @@ OLAPStatus ColumnData::_find_position_by_full_key(
             OLAPIndexOffset index_offset;
             index_offset.segment = _end_segment;
             index_offset.offset = _end_block;
-            res = olap_index()->get_row_block_position(index_offset, &end_position);
+            res = segment_group()->get_row_block_position(index_offset, &end_position);
             if (res != OLAP_SUCCESS) {
                 OLAP_LOG_WARNING("fail to get row block position. [res=%d]", res);
                 return res;
@@ -235,7 +235,7 @@ OLAPStatus ColumnData::_find_position_by_full_key(
     }
 
     // ????end_position
-    uint32_t distance = olap_index()->compute_distance(start_position, end_position);
+    uint32_t distance = segment_group()->compute_distance(start_position, end_position);
 
     BinarySearchIterator it_start(0u);
     BinarySearchIterator it_end(distance + 1);
@@ -243,7 +243,7 @@ OLAPStatus ColumnData::_find_position_by_full_key(
     ColumnDataComparator comparator(
             start_position,
             this,
-            olap_index());
+            segment_group());
     try {
         if (!find_last_key) {
             it_result = std::lower_bound(it_start, it_end, key, comparator);
@@ -261,7 +261,7 @@ OLAPStatus ColumnData::_find_position_by_full_key(
         it_result -= 1;
     }
 
-    if (OLAP_SUCCESS != (res = olap_index()->advance_row_block(*it_result, 
+    if (OLAP_SUCCESS != (res = segment_group()->advance_row_block(*it_result, 
                 &start_position))) {
         OLAP_LOG_WARNING("fail to advance row_block. [res=%d it_offset=%u "
                 "start_pos='%s']", res, *it_result, 
@@ -490,16 +490,16 @@ OLAPStatus ColumnData::get_first_row_block(RowBlock** row_block) {
         return res;
     }
 
-    // to be same with OLAPData, we use olap_index.
+    // to be same with OLAPData, we use segment_group.
     RowBlockPosition block_pos;
-    res = olap_index()->find_first_row_block(&block_pos);
+    res = segment_group()->find_first_row_block(&block_pos);
     if (res != OLAP_SUCCESS) {
         if (res == OLAP_ERR_INDEX_EOF) {
             *row_block = nullptr;
             _eof = true;
             return res;
         }
-        OLAP_LOG_WARNING("fail to find first row block with Rowset.");
+        OLAP_LOG_WARNING("fail to find first row block with SegmentGroup.");
         return res;
     }
 
@@ -545,11 +545,11 @@ bool ColumnData::delta_pruning_filter() {
         return true;
     }
 
-    if (!_olap_index->has_column_statistics()) {
+    if (!_segment_group->has_column_statistics()) {
         return false;
     }
 
-    return _conditions->delta_pruning_filter(_olap_index->get_column_statistics());
+    return _conditions->delta_pruning_filter(_segment_group->get_column_statistics());
 }
 
 int ColumnData::delete_pruning_filter() {
@@ -559,9 +559,9 @@ int ColumnData::delete_pruning_filter() {
         return DEL_NOT_SATISFIED;
     }
 
-    if (false == _olap_index->has_column_statistics()) {
+    if (false == _segment_group->has_column_statistics()) {
         /*
-         * if olap_index has no column statistics, we cannot judge whether the data can be filtered or not
+         * if segment_group has no column statistics, we cannot judge whether the data can be filtered or not
          */
         return DEL_PARTIAL_SATISFIED;
     }
@@ -576,12 +576,12 @@ int ColumnData::delete_pruning_filter() {
     bool del_partial_stastified = false;
     bool del_stastified = false;
     for (auto& delete_condtion : _delete_handler.get_delete_conditions()) {
-        if (delete_condtion.filter_version <= _olap_index->version().first) {
+        if (delete_condtion.filter_version <= _segment_group->version().first) {
             continue;
         }
 
         Conditions* del_cond = delete_condtion.del_cond;
-        int del_ret = del_cond->delete_pruning_filter(_olap_index->get_column_statistics());
+        int del_ret = del_cond->delete_pruning_filter(_segment_group->get_column_statistics());
         if (DEL_SATISFIED == del_ret) {
             del_stastified = true;
             break;

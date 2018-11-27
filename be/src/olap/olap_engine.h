@@ -265,7 +265,7 @@ public:
 
     void start_delete_unused_index();
 
-    void add_unused_index(Rowset* olap_index);
+    void add_unused_index(SegmentGroup* olap_index);
 
     // ######################### ALTER TABLE BEGIN #########################
     // The following interfaces are all about alter tablet operation, 
@@ -565,7 +565,7 @@ private:
     Mutex _snapshot_mutex;
     uint64_t _snapshot_base_id;
 
-    std::unordered_map<Rowset*, std::vector<std::string>> _gc_files;
+    std::unordered_map<SegmentGroup*, std::vector<std::string>> _gc_files;
     Mutex _gc_mutex;
 
     // Thread functions

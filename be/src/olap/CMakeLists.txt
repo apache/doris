@@ -66,7 +66,7 @@ add_library(Olap STATIC
     reader.cpp
     row_block.cpp
     row_cursor.cpp
-    rowset.cpp
+    segment_group.cpp
     run_length_byte_reader.cpp
     run_length_byte_writer.cpp
     run_length_integer_reader.cpp

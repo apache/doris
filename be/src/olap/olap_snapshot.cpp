@@ -35,7 +35,6 @@
 #include "olap/olap_common.h"
 #include "olap/column_data.h"
 #include "olap/olap_define.h"
-#include "olap/rowset.h"
 #include "olap/olap_table.h"
 #include "olap/olap_header_manager.h"
 #include "olap/push_handler.h"
@@ -169,14 +168,15 @@ void OLAPEngine::_update_header_file_info(
     for (const VersionEntity& entity : shortest_versions) {
         Version version = entity.version;
         VersionHash v_hash = entity.version_hash;
-        for (RowSetEntity rowset : entity.rowset_vec) {
-            int32_t rowset_id = rowset.rowset_id;
+        for (SegmentGroupEntity segment_group_entity : entity.segment_group_vec) {
+            int32_t segment_group_id = segment_group_entity.segment_group_id;
             const std::vector<KeyRange>* column_statistics = nullptr;
-            if (!rowset.key_ranges.empty()) {
-                column_statistics = &(rowset.key_ranges);
+            if (!segment_group_entity.key_ranges.empty()) {
+                column_statistics = &(segment_group_entity.key_ranges);
             }
-            header->add_version(version, v_hash, rowset_id, rowset.num_segments, rowset.index_size,
-                                rowset.data_size, rowset.num_rows, rowset.empty, column_statistics);
+            header->add_version(version, v_hash, segment_group_id, segment_group_entity.num_segments,
+                    segment_group_entity.index_size, segment_group_entity.data_size,
+                    segment_group_entity.num_rows, segment_group_entity.empty, column_statistics);
         }
     }
 }
@@ -193,13 +193,13 @@ OLAPStatus OLAPEngine::_link_index_and_data_files(
     for (const VersionEntity& entity : version_entity_vec) {
         Version version = entity.version;
         VersionHash v_hash = entity.version_hash;
-        for (RowSetEntity rowset : entity.rowset_vec) {
-            int32_t rowset_id = rowset.rowset_id;
-            for (int seg_id = 0; seg_id < rowset.num_segments; ++seg_id) {
+        for (SegmentGroupEntity segment_group_entity : entity.segment_group_vec) {
+            int32_t segment_group_id = segment_group_entity.segment_group_id;
+            for (int seg_id = 0; seg_id < segment_group_entity.num_segments; ++seg_id) {
                 std::string index_path =
-                    _construct_index_file_path(tablet_path_prefix, version, v_hash, rowset_id, seg_id);
+                    _construct_index_file_path(tablet_path_prefix, version, v_hash, segment_group_id, seg_id);
                 std::string ref_table_index_path =
-                    ref_olap_table->construct_index_file_path(version, v_hash, rowset_id, seg_id);
+                    ref_olap_table->construct_index_file_path(version, v_hash, segment_group_id, seg_id);
                 res = _create_hard_link(ref_table_index_path, index_path);
                 if (res != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to create hard link. "
@@ -210,9 +210,9 @@ OLAPStatus OLAPEngine::_link_index_and_data_files(
                 }
 
                 std:: string data_path =
-                    _construct_data_file_path(tablet_path_prefix, version, v_hash, rowset_id, seg_id);
+                    _construct_data_file_path(tablet_path_prefix, version, v_hash, segment_group_id, seg_id);
                 std::string ref_table_data_path =
-                    ref_olap_table->construct_data_file_path(version, v_hash, rowset_id, seg_id);
+                    ref_olap_table->construct_data_file_path(version, v_hash, segment_group_id, seg_id);
                 res = _create_hard_link(ref_table_data_path, data_path);
                 if (res != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to create hard link."
@@ -237,13 +237,13 @@ OLAPStatus OLAPEngine::_copy_index_and_data_files(
     for (VersionEntity& entity : version_entity_vec) {
         Version version = entity.version;
         VersionHash v_hash = entity.version_hash;
-        for (RowSetEntity rowset : entity.rowset_vec) {
-            int32_t rowset_id = rowset.rowset_id;
-            for (int seg_id = 0; seg_id < rowset.num_segments; ++seg_id) {
+        for (SegmentGroupEntity segment_group_entity : entity.segment_group_vec) {
+            int32_t segment_group_id = segment_group_entity.segment_group_id;
+            for (int seg_id = 0; seg_id < segment_group_entity.num_segments; ++seg_id) {
                 string index_path =
-                    _construct_index_file_path(tablet_path_prefix, version, v_hash, rowset_id, seg_id);
+                    _construct_index_file_path(tablet_path_prefix, version, v_hash, segment_group_id, seg_id);
                 string ref_table_index_path = ref_olap_table->construct_index_file_path(
-                        version, v_hash, rowset_id, seg_id);
+                        version, v_hash, segment_group_id, seg_id);
                 Status res = FileUtils::copy_file(ref_table_index_path, index_path);
                 if (!res.ok()) {
                     LOG(WARNING) << "fail to copy index file."
@@ -253,9 +253,9 @@ OLAPStatus OLAPEngine::_copy_index_and_data_files(
                 }
 
                 string data_path =
-                    _construct_data_file_path(tablet_path_prefix, version, v_hash, rowset_id, seg_id);
+                    _construct_data_file_path(tablet_path_prefix, version, v_hash, segment_group_id, seg_id);
                 string ref_table_data_path = ref_olap_table->construct_data_file_path(
-                    version, v_hash, rowset_id, seg_id);
+                    version, v_hash, segment_group_id, seg_id);
                 res = FileUtils::copy_file(ref_table_data_path, data_path);
                 if (!res.ok()) {
                     LOG(WARNING) << "fail to copy data file."
@@ -505,10 +505,10 @@ OLAPStatus OLAPEngine::_create_incremental_snapshot_files(
                                request.tablet_id, request.schema_hash, missing_version);
                 // link files
                 for (uint32_t i = 0; i < incremental_delta->rowset(0).num_segments(); i++) {
-                    int32_t rowset_id = incremental_delta->rowset(0).rowset_id();
+                    int32_t segment_group_id = incremental_delta->rowset(0).rowset_id();
                     string from = ref_olap_table->construct_incremental_index_file_path(
                                 Version(missing_version, missing_version),
-                                incremental_delta->version_hash(), rowset_id, i);
+                                incremental_delta->version_hash(), segment_group_id, i);
                     string to = schema_full_path + '/' + basename(from.c_str());
                     if ((res = _create_hard_link(from, to)) != OLAP_SUCCESS) {
                         break;
@@ -516,7 +516,7 @@ OLAPStatus OLAPEngine::_create_incremental_snapshot_files(
 
                     from = ref_olap_table->construct_incremental_data_file_path(
                                 Version(missing_version, missing_version),
-                                incremental_delta->version_hash(), rowset_id, i);
+                                incremental_delta->version_hash(), segment_group_id, i);
                     to = schema_full_path + '/' + basename(from.c_str());
                     if ((res = _create_hard_link(from, to)) != OLAP_SUCCESS) {
                         break;
@@ -608,16 +608,16 @@ string OLAPEngine::_construct_index_file_path(
         const string& tablet_path_prefix,
         const Version& version,
         VersionHash version_hash,
-        int32_t rowset_id, int32_t segment) const {
-    return OLAPTable::construct_file_path(tablet_path_prefix, version, version_hash, rowset_id, segment, "idx");
+        int32_t segment_group_id, int32_t segment) const {
+    return OLAPTable::construct_file_path(tablet_path_prefix, version, version_hash, segment_group_id, segment, "idx");
 }
 
 string OLAPEngine::_construct_data_file_path(
         const string& tablet_path_prefix,
         const Version& version,
         VersionHash version_hash,
-        int32_t rowset_id, int32_t segment) const {
-    return OLAPTable::construct_file_path(tablet_path_prefix, version, version_hash, rowset_id, segment, "dat");
+        int32_t segment_group_id, int32_t segment) const {
+    return OLAPTable::construct_file_path(tablet_path_prefix, version, version_hash, segment_group_id, segment, "dat");
 }
 
 OLAPStatus OLAPEngine::_create_hard_link(const string& from_path, const string& to_path) {

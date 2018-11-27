@@ -213,7 +213,7 @@ OLAPStatus OLAPHeader::save(const string& file_path) {
 }
 
 OLAPStatus OLAPHeader::add_version(Version version, VersionHash version_hash,
-                int32_t rowset_id, int32_t num_segments,
+                int32_t segment_group_id, int32_t num_segments,
                 int64_t index_size, int64_t data_size, int64_t num_rows,
                 bool empty, const std::vector<KeyRange>* column_statistics) {
     // Check whether version is valid.
@@ -228,7 +228,7 @@ OLAPStatus OLAPHeader::add_version(Version version, VersionHash version_hash,
         if (delta(i).start_version() == version.first
             && delta(i).end_version() == version.second) {
             for (const PRowSet& rowset : delta(i).rowset()) {
-                if (rowset.rowset_id() == rowset_id) {
+                if (rowset.rowset_id() == segment_group_id) {
                     LOG(WARNING) << "the version is existed."
                         << "version=" << version.first << ", "
                         << version.second;
@@ -240,14 +240,14 @@ OLAPStatus OLAPHeader::add_version(Version version, VersionHash version_hash,
         }
     }
 
-    // if rowset_id is greater or equal than zero, it is used
+    // if segment_group_id is greater or equal than zero, it is used
     // to streaming load
 
     // Try to add version to protobuf.
     PDelta* new_delta = nullptr;
     try {
-        if (rowset_id == -1 || rowset_id == 0) {
-            // snapshot will use rowset_id which equals minus one
+        if (segment_group_id == -1 || segment_group_id == 0) {
+            // snapshot will use segment_group_id which equals minus one
             new_delta = add_delta();
             new_delta->set_start_version(version.first);
             new_delta->set_end_version(version.second);
@@ -257,7 +257,7 @@ OLAPStatus OLAPHeader::add_version(Version version, VersionHash version_hash,
             new_delta = const_cast<PDelta*>(&delta(delta_id));
         }
         PRowSet* new_rowset = new_delta->add_rowset();
-        new_rowset->set_rowset_id(rowset_id);
+        new_rowset->set_rowset_id(segment_group_id);
         new_rowset->set_num_segments(num_segments);
         new_rowset->set_index_size(index_size);
         new_rowset->set_data_size(data_size);
@@ -322,7 +322,7 @@ OLAPStatus OLAPHeader::add_pending_version(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPHeader::add_pending_rowset(
+OLAPStatus OLAPHeader::add_pending_segment_group(
         int64_t transaction_id, int32_t num_segments,
         int32_t pending_rowset_id, const PUniqueId& load_id,
         bool empty, const std::vector<KeyRange>* column_statistics) {
@@ -361,7 +361,6 @@ OLAPStatus OLAPHeader::add_pending_rowset(
                 column_pruning->set_null_flag(column_statistics->at(i).first->is_null());
             }
         }
-
     } catch (...) {
         OLAP_LOG_WARNING("fail to add pending rowset to protobf");
         return OLAP_ERR_HEADER_ADD_PENDING_DELTA;
@@ -371,7 +370,7 @@ OLAPStatus OLAPHeader::add_pending_rowset(
 }
 
 OLAPStatus OLAPHeader::add_incremental_version(Version version, VersionHash version_hash,
-                int32_t rowset_id, int32_t num_segments,
+                int32_t segment_group_id, int32_t num_segments,
                 int64_t index_size, int64_t data_size, int64_t num_rows,
                 bool empty, const std::vector<KeyRange>* column_statistics) {
     // Check whether version is valid.
@@ -388,10 +387,10 @@ OLAPStatus OLAPHeader::add_incremental_version(Version version, VersionHash vers
             delta_id = i;
             for (int j = 0; j < incre_delta.rowset_size(); ++j) {
                 const PRowSet& incremental_rowset = incre_delta.rowset(j);
-                if (incremental_rowset.rowset_id() == rowset_id) {
+                if (incremental_rowset.rowset_id() == segment_group_id) {
                     LOG(WARNING) << "rowset already exists in header."
                         << "version: " << version.first << "-" << version.second << ","
-                        << "rowset_id: " << rowset_id;
+                        << "segment_group_id: " << segment_group_id;
                     return OLAP_ERR_HEADER_ADD_PENDING_DELTA;
                 }
             }
@@ -401,7 +400,7 @@ OLAPStatus OLAPHeader::add_incremental_version(Version version, VersionHash vers
     // Try to add version to protobuf.
     try {
         PDelta* new_incremental_delta = nullptr;
-        if (rowset_id == 0) {
+        if (segment_group_id == 0) {
             new_incremental_delta = add_incremental_delta();
             new_incremental_delta->set_start_version(version.first);
             new_incremental_delta->set_end_version(version.second);
@@ -411,7 +410,7 @@ OLAPStatus OLAPHeader::add_incremental_version(Version version, VersionHash vers
             new_incremental_delta = const_cast<PDelta*>(&incremental_delta(delta_id));
         }
         PRowSet* new_incremental_rowset = new_incremental_delta->add_rowset();
-        new_incremental_rowset->set_rowset_id(rowset_id);
+        new_incremental_rowset->set_rowset_id(segment_group_id);
         new_incremental_rowset->set_num_segments(num_segments);
         new_incremental_rowset->set_index_size(index_size);
         new_incremental_rowset->set_data_size(data_size);
@@ -470,13 +469,14 @@ const PPendingDelta* OLAPHeader::get_pending_delta(int64_t transaction_id) const
     return nullptr;
 }
 
-const PPendingRowSet* OLAPHeader::get_pending_rowset(int64_t transaction_id, int32_t pending_rowset_id) const {
+const PPendingRowSet* OLAPHeader::get_pending_segment_group(int64_t transaction_id,
+        int32_t pending_segment_group_id) const {
     for (int i = 0; i < pending_delta_size(); i++) {
         if (pending_delta(i).transaction_id() == transaction_id) {
             const PPendingDelta& delta = pending_delta(i);
             for (int j = 0; j < delta.pending_rowset_size(); ++j) {
                 const PPendingRowSet& pending_rowset = delta.pending_rowset(j);
-                if (pending_rowset.pending_rowset_id() == pending_rowset_id) {
+                if (pending_rowset.pending_rowset_id() == pending_segment_group_id) {
                     return &pending_rowset;
                 }
             }

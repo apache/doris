@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset.h"
+#include "olap/segment_group.h"
 
 #include <algorithm>
 #include <cassert>
@@ -61,13 +61,13 @@ namespace doris {
         } \
     } while (0);
 
-Rowset::Rowset(OLAPTable* table, Version version, VersionHash version_hash,
-                     bool delete_flag, int32_t rowset_id, int32_t num_segments)
+SegmentGroup::SegmentGroup(OLAPTable* table, Version version, VersionHash version_hash,
+                     bool delete_flag, int32_t segment_group_id, int32_t num_segments)
       : _table(table),
         _version(version),
         _version_hash(version_hash),
         _delete_flag(delete_flag),
-        _rowset_id(rowset_id),
+        _segment_group_id(segment_group_id),
         _num_segments(num_segments) {
     _index_loaded = false;
     _ref_count = 0;
@@ -94,11 +94,11 @@ Rowset::Rowset(OLAPTable* table, Version version, VersionHash version_hash,
     }
 }
 
-Rowset::Rowset(OLAPTable* table, bool delete_flag,
-                     int32_t rowset_id, int32_t num_segments, bool is_pending,
+SegmentGroup::SegmentGroup(OLAPTable* table, bool delete_flag,
+                     int32_t segment_group_id, int32_t num_segments, bool is_pending,
                      TPartitionId partition_id, TTransactionId transaction_id)
     : _table(table), _delete_flag(delete_flag),
-      _rowset_id(rowset_id), _num_segments(num_segments),
+      _segment_group_id(segment_group_id), _num_segments(num_segments),
       _is_pending(is_pending), _partition_id(partition_id),
       _transaction_id(transaction_id)
 {
@@ -128,7 +128,7 @@ Rowset::Rowset(OLAPTable* table, bool delete_flag,
     }
 }
 
-Rowset::~Rowset() {
+SegmentGroup::~SegmentGroup() {
     delete [] _short_key_buf;
     _current_file_handler.close();
 
@@ -139,50 +139,50 @@ Rowset::~Rowset() {
     _seg_pb_map.clear();
 }
 
-string Rowset::construct_index_file_path(int32_t rowset_id, int32_t segment) const {
+string SegmentGroup::construct_index_file_path(int32_t segment_group_id, int32_t segment) const {
     if (_is_pending) {
-        return _table->construct_pending_index_file_path(_transaction_id, _rowset_id, segment);
+        return _table->construct_pending_index_file_path(_transaction_id, _segment_group_id, segment);
     } else {
-        return _table->construct_index_file_path(_version, _version_hash, _rowset_id, segment);
+        return _table->construct_index_file_path(_version, _version_hash, _segment_group_id, segment);
     }
 }
 
-string Rowset::construct_data_file_path(int32_t rowset_id, int32_t segment) const {
+string SegmentGroup::construct_data_file_path(int32_t segment_group_id, int32_t segment) const {
     if (_is_pending) {
-        return _table->construct_pending_data_file_path(_transaction_id, rowset_id, segment);
+        return _table->construct_pending_data_file_path(_transaction_id, segment_group_id, segment);
     } else {
-        return _table->construct_data_file_path(_version, _version_hash, rowset_id, segment);
+        return _table->construct_data_file_path(_version, _version_hash, segment_group_id, segment);
     }
 }
 
-void Rowset::publish_version(Version version, VersionHash version_hash) {
+void SegmentGroup::publish_version(Version version, VersionHash version_hash) {
     _version = version;
     _version_hash = version_hash;
 }
 
-void Rowset::acquire() {
+void SegmentGroup::acquire() {
     atomic_inc(&_ref_count);
 }
 
-int64_t Rowset::ref_count() {
+int64_t SegmentGroup::ref_count() {
     return _ref_count;
 }
 
-void Rowset::release() {
+void SegmentGroup::release() {
     atomic_dec(&_ref_count);
 }
 
-bool Rowset::is_in_use() {
+bool SegmentGroup::is_in_use() {
     return _ref_count > 0;
 }
 
-// you can not use Rowset after delete_all_files(), or else unknown behavior occurs.
-void Rowset::delete_all_files() {
+// you can not use SegmentGroup after delete_all_files(), or else unknown behavior occurs.
+void SegmentGroup::delete_all_files() {
     if (!_file_created) { return; }
     for (uint32_t seg_id = 0; seg_id < _num_segments; ++seg_id) {
         // get full path for one segment
-        string index_path = construct_index_file_path(_rowset_id, seg_id);
-        string data_path = construct_data_file_path(_rowset_id, seg_id);
+        string index_path = construct_index_file_path(_segment_group_id, seg_id);
+        string data_path = construct_data_file_path(_segment_group_id, seg_id);
 
         if (remove(index_path.c_str()) != 0) {
             char errmsg[64];
@@ -198,7 +198,7 @@ void Rowset::delete_all_files() {
     }
 }
 
-OLAPStatus Rowset::add_column_statistics_for_linked_schema_change(
+OLAPStatus SegmentGroup::add_column_statistics_for_linked_schema_change(
         const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields) {
     //When add rollup table, the base table index maybe empty
     if (column_statistic_fields.size() == 0) {
@@ -222,7 +222,7 @@ OLAPStatus Rowset::add_column_statistics_for_linked_schema_change(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Rowset::add_column_statistics(
+OLAPStatus SegmentGroup::add_column_statistics(
         const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields) {
     DCHECK(column_statistic_fields.size() == _table->num_key_fields());
     for (size_t i = 0; i < column_statistic_fields.size(); ++i) {
@@ -239,7 +239,7 @@ OLAPStatus Rowset::add_column_statistics(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Rowset::add_column_statistics(
+OLAPStatus SegmentGroup::add_column_statistics(
         std::vector<std::pair<std::string, std::string> > &column_statistic_strings,
         std::vector<bool> &null_vec) {
     DCHECK(column_statistic_strings.size() == _table->num_key_fields());
@@ -259,7 +259,7 @@ OLAPStatus Rowset::add_column_statistics(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Rowset::load() {
+OLAPStatus SegmentGroup::load() {
     if (_empty) {
         return OLAP_SUCCESS;
     }
@@ -284,7 +284,7 @@ OLAPStatus Rowset::load() {
     // for each segment
     for (uint32_t seg_id = 0; seg_id < _num_segments; ++seg_id) {
         if (COLUMN_ORIENTED_FILE == _table->data_file_type()) {
-            string seg_path = construct_data_file_path(_rowset_id, seg_id);
+            string seg_path = construct_data_file_path(_segment_group_id, seg_id);
             if (OLAP_SUCCESS != (res = load_pb(seg_path.c_str(), seg_id))) {
                 LOG(WARNING) << "failed to load pb structures. [seg_path='" << seg_path << "']";
                 _check_io_error(res);
@@ -293,7 +293,7 @@ OLAPStatus Rowset::load() {
         }
 
         // get full path for one segment
-        string path = construct_index_file_path(_rowset_id, seg_id);
+        string path = construct_index_file_path(_segment_group_id, seg_id);
         if ((res = _index.load_segment(path.c_str(), &_current_num_rows_per_row_block))
                 != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load segment. [path='" << path << "']";
@@ -309,7 +309,7 @@ OLAPStatus Rowset::load() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Rowset::load_pb(const char* file, uint32_t seg_id) {
+OLAPStatus SegmentGroup::load_pb(const char* file, uint32_t seg_id) {
     OLAPStatus res = OLAP_SUCCESS;
 
     FileHeader<ColumnDataHeaderMessage> seg_file_header;
@@ -332,11 +332,11 @@ OLAPStatus Rowset::load_pb(const char* file, uint32_t seg_id) {
     return OLAP_SUCCESS;
 }
 
-bool Rowset::index_loaded() {
+bool SegmentGroup::index_loaded() {
     return _index_loaded;
 }
 
-OLAPStatus Rowset::validate() {
+OLAPStatus SegmentGroup::validate() {
     if (_empty) {
         return OLAP_SUCCESS;
     }
@@ -347,8 +347,8 @@ OLAPStatus Rowset::validate() {
         FileHeader<OLAPDataHeaderMessage> data_file_header;
 
         // get full path for one segment
-        string index_path = construct_index_file_path(_rowset_id, seg_id);
-        string data_path = construct_data_file_path(_rowset_id, seg_id);
+        string index_path = construct_index_file_path(_segment_group_id, seg_id);
+        string data_path = construct_data_file_path(_segment_group_id, seg_id);
 
         // 检查index文件头
         if ((res = index_file_header.validate(index_path)) != OLAP_SUCCESS) {
@@ -368,7 +368,7 @@ OLAPStatus Rowset::validate() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Rowset::find_row_block(const RowCursor& key,
+OLAPStatus SegmentGroup::find_row_block(const RowCursor& key,
                                  RowCursor* helper_cursor,
                                  bool find_last,
                                  RowBlockPosition* pos) const {
@@ -393,7 +393,7 @@ OLAPStatus Rowset::find_row_block(const RowCursor& key,
     return _index.get_row_block_position(offset, pos);
 }
 
-OLAPStatus Rowset::find_short_key(const RowCursor& key,
+OLAPStatus SegmentGroup::find_short_key(const RowCursor& key,
                                  RowCursor* helper_cursor,
                                  bool find_last,
                                  RowBlockPosition* pos) const {
@@ -416,28 +416,28 @@ OLAPStatus Rowset::find_short_key(const RowCursor& key,
     return _index.get_row_block_position(offset, pos);
 }
 
-OLAPStatus Rowset::get_row_block_entry(const RowBlockPosition& pos, EntrySlice* entry) const {
+OLAPStatus SegmentGroup::get_row_block_entry(const RowBlockPosition& pos, EntrySlice* entry) const {
     TABLE_PARAM_VALIDATE();
     SLICE_PARAM_VALIDATE(entry);
     
     return _index.get_entry(_index.get_offset(pos), entry);
 }
 
-OLAPStatus Rowset::find_first_row_block(RowBlockPosition* position) const {
+OLAPStatus SegmentGroup::find_first_row_block(RowBlockPosition* position) const {
     TABLE_PARAM_VALIDATE();
     POS_PARAM_VALIDATE(position);
     
     return _index.get_row_block_position(_index.find_first(), position);
 }
 
-OLAPStatus Rowset::find_last_row_block(RowBlockPosition* position) const {
+OLAPStatus SegmentGroup::find_last_row_block(RowBlockPosition* position) const {
     TABLE_PARAM_VALIDATE();
     POS_PARAM_VALIDATE(position);
     
     return _index.get_row_block_position(_index.find_last(), position);
 }
 
-OLAPStatus Rowset::find_next_row_block(RowBlockPosition* pos, bool* eof) const {
+OLAPStatus SegmentGroup::find_next_row_block(RowBlockPosition* pos, bool* eof) const {
     TABLE_PARAM_VALIDATE();
     POS_PARAM_VALIDATE(pos);
     POS_PARAM_VALIDATE(eof);
@@ -454,7 +454,7 @@ OLAPStatus Rowset::find_next_row_block(RowBlockPosition* pos, bool* eof) const {
     return _index.get_row_block_position(next, pos);
 }
 
-OLAPStatus Rowset::find_mid_point(const RowBlockPosition& low,
+OLAPStatus SegmentGroup::find_mid_point(const RowBlockPosition& low,
                                  const RowBlockPosition& high,
                                  RowBlockPosition* output,
                                  uint32_t* dis) const {
@@ -471,7 +471,7 @@ OLAPStatus Rowset::find_mid_point(const RowBlockPosition& low,
     }
 }
 
-OLAPStatus Rowset::find_prev_point(
+OLAPStatus SegmentGroup::find_prev_point(
         const RowBlockPosition& current, RowBlockPosition* prev) const {
     OLAPIndexOffset current_offset = _index.get_offset(current);
     OLAPIndexOffset prev_offset = _index.prev(current_offset);
@@ -479,7 +479,7 @@ OLAPStatus Rowset::find_prev_point(
     return _index.get_row_block_position(prev_offset, prev);
 }
 
-OLAPStatus Rowset::advance_row_block(int64_t num_row_blocks, RowBlockPosition* position) const {
+OLAPStatus SegmentGroup::advance_row_block(int64_t num_row_blocks, RowBlockPosition* position) const {
     TABLE_PARAM_VALIDATE();
     POS_PARAM_VALIDATE(position);
 
@@ -493,7 +493,7 @@ OLAPStatus Rowset::advance_row_block(int64_t num_row_blocks, RowBlockPosition* p
 }
 
 // PRECONDITION position1 < position2
-uint32_t Rowset::compute_distance(const RowBlockPosition& position1,
+uint32_t SegmentGroup::compute_distance(const RowBlockPosition& position1,
                                      const RowBlockPosition& position2) const {
     iterator_offset_t offset1 = _index.get_absolute_offset(_index.get_offset(position1));
     iterator_offset_t offset2 = _index.get_absolute_offset(_index.get_offset(position2));
@@ -501,7 +501,7 @@ uint32_t Rowset::compute_distance(const RowBlockPosition& position1,
     return offset2 > offset1 ? offset2 - offset1 : 0;
 }
 
-OLAPStatus Rowset::add_segment() {
+OLAPStatus SegmentGroup::add_segment() {
     // 打开文件
     ++_num_segments;
 
@@ -535,16 +535,16 @@ OLAPStatus Rowset::add_segment() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Rowset::add_row_block(const RowBlock& row_block, const uint32_t data_offset) {
+OLAPStatus SegmentGroup::add_row_block(const RowBlock& row_block, const uint32_t data_offset) {
     // get first row of the row_block to distill index item.
     row_block.get_row(0, &_current_index_row);
     return add_short_key(_current_index_row, data_offset);
 }
 
-OLAPStatus Rowset::add_short_key(const RowCursor& short_key, const uint32_t data_offset) {
+OLAPStatus SegmentGroup::add_short_key(const RowCursor& short_key, const uint32_t data_offset) {
     OLAPStatus res = OLAP_SUCCESS;
     if (!_new_segment_created) {
-        string file_path = construct_index_file_path(_rowset_id, _num_segments - 1);
+        string file_path = construct_index_file_path(_segment_group_id, _num_segments - 1);
         res = _current_file_handler.open_with_mode(
                         file_path.c_str(), O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
         if (res != OLAP_SUCCESS) {
@@ -603,7 +603,7 @@ OLAPStatus Rowset::add_short_key(const RowCursor& short_key, const uint32_t data
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Rowset::finalize_segment(uint32_t data_segment_size, int64_t num_rows) {
+OLAPStatus SegmentGroup::finalize_segment(uint32_t data_segment_size, int64_t num_rows) {
     // 准备FileHeader
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -640,20 +640,20 @@ OLAPStatus Rowset::finalize_segment(uint32_t data_segment_size, int64_t num_rows
     return OLAP_SUCCESS;
 }
 
-void Rowset::sync() {
+void SegmentGroup::sync() {
     if (_current_file_handler.sync() == -1) {
         OLAP_LOG_WARNING("fail to sync file.[err=%m]");
         _table->set_io_error();
     }
 }
 
-void Rowset::_check_io_error(OLAPStatus res) {
+void SegmentGroup::_check_io_error(OLAPStatus res) {
     if (is_io_error(res)) {
         _table->set_io_error();
     }
 }
 
-uint64_t Rowset::num_index_entries() const {
+uint64_t SegmentGroup::num_index_entries() const {
     return _index.count();
 }
 

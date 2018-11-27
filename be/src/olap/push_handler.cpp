@@ -280,9 +280,9 @@ EXIT:
             continue;
         }
 
-        for (Rowset* rowset : table_var.added_indices) {
-            rowset->delete_all_files();
-            SAFE_DELETE(rowset);
+        for (SegmentGroup* segment_group : table_var.added_indices) {
+            segment_group->delete_all_files();
+            SAFE_DELETE(segment_group);
         }
     }
 
@@ -448,14 +448,14 @@ OLAPStatus PushHandler::process_realtime_push(
             continue;
         }
 
-        for (Rowset* olap_index : table_var.added_indices) {
+        for (SegmentGroup* segment_group : table_var.added_indices) {
 
             res = table_var.olap_table->add_pending_data(
-                olap_index, push_type == PUSH_FOR_DELETE ? &request.delete_conditions : NULL);
+                segment_group, push_type == PUSH_FOR_DELETE ? &request.delete_conditions : NULL);
 
             // if pending data exists in tablet, which means push finished
             if (res == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
-                SAFE_DELETE(olap_index);
+                SAFE_DELETE(segment_group);
                 res = OLAP_SUCCESS;
 
             } else if (res != OLAP_SUCCESS) {
@@ -498,9 +498,9 @@ EXIT:
                 table_var.olap_table->tablet_id(), table_var.olap_table->schema_hash());
 
             // actually, olap_index may has been deleted in delete_transaction()
-            for (Rowset* rowset : table_var.added_indices) {
-                rowset->release();
-                OLAPEngine::get_instance()->add_unused_index(rowset);
+            for (SegmentGroup* segment_group : table_var.added_indices) {
+                segment_group->release();
+                OLAPEngine::get_instance()->add_unused_index(segment_group);
             }
         }
     }
@@ -535,7 +535,7 @@ OLAPStatus PushHandler::_convert(
     BinaryFile raw_file;
     IBinaryReader* reader = NULL;
     ColumnDataWriter* writer = NULL;
-    Rowset* delta_rowset = NULL;
+    SegmentGroup* delta_segment_group = NULL;
     uint32_t  num_rows = 0;
 
     do {
@@ -581,8 +581,8 @@ OLAPStatus PushHandler::_convert(
             }
         }
 
-        // 2. New Rowset of curr_olap_table for current push
-        OLAP_LOG_DEBUG("init Rowset.");
+        // 2. New SegmentGroup of curr_olap_table for current push
+        OLAP_LOG_DEBUG("init SegmentGroup.");
 
         if (_request.__isset.transaction_id) {
             // create pending data dir
@@ -595,11 +595,11 @@ OLAPStatus PushHandler::_convert(
                 }
             }
 
-            delta_rowset = new(std::nothrow) Rowset(
+            delta_segment_group = new(std::nothrow) SegmentGroup(
                 curr_olap_table.get(), (_request.push_type == TPushType::LOAD_DELETE),
                 0, 0, true, _request.partition_id, _request.transaction_id);
         } else {
-            delta_rowset = new(std::nothrow) Rowset(
+            delta_segment_group = new(std::nothrow) SegmentGroup(
                 curr_olap_table.get(),
                 Version(_request.version, _request.version),
                 _request.version_hash,
@@ -607,20 +607,20 @@ OLAPStatus PushHandler::_convert(
                 0, 0);
         }
 
-        if (NULL == delta_rowset) {
-            OLAP_LOG_WARNING("fail to malloc Rowset. [table='%s' size=%ld]",
-                             curr_olap_table->full_name().c_str(), sizeof(Rowset));
+        if (NULL == delta_segment_group) {
+            OLAP_LOG_WARNING("fail to malloc SegmentGroup. [table='%s' size=%ld]",
+                             curr_olap_table->full_name().c_str(), sizeof(SegmentGroup));
             res = OLAP_ERR_MALLOC_ERROR;
             break;
         }
-        curr_olap_indices->push_back(delta_rowset);
+        curr_olap_indices->push_back(delta_segment_group);
 
-        // 3. New Writer to write data into Rowset
+        // 3. New Writer to write data into SegmentGroup
         OLAP_LOG_DEBUG("init writer. [table='%s' block_row_size=%lu]",
                        curr_olap_table->full_name().c_str(),
                        curr_olap_table->num_rows_per_row_block());
 
-        if (NULL == (writer = ColumnDataWriter::create(curr_olap_table, delta_rowset, true))) {
+        if (NULL == (writer = ColumnDataWriter::create(curr_olap_table, delta_segment_group, true))) {
             OLAP_LOG_WARNING("fail to create writer. [table='%s']",
                              curr_olap_table->full_name().c_str());
             res = OLAP_ERR_MALLOC_ERROR;
@@ -633,7 +633,7 @@ OLAPStatus PushHandler::_convert(
             break;
         }
 
-        // 5. Read data from raw file and write into Rowset of curr_olap_table
+        // 5. Read data from raw file and write into SegmentGroup of curr_olap_table
         if (_request.__isset.http_file_path) {
             // Convert from raw to delta
             OLAP_LOG_DEBUG("start to convert row file to delta.");
@@ -673,13 +673,13 @@ OLAPStatus PushHandler::_convert(
 
         OLAP_LOG_DEBUG("load the index.");
 
-        if (OLAP_SUCCESS != (res = delta_rowset->load())) {
+        if (OLAP_SUCCESS != (res = delta_segment_group->load())) {
             OLAP_LOG_WARNING("fail to load index. [res=%d table='%s' version=%ld]",
                              res, curr_olap_table->full_name().c_str(), _request.version);
             break;
         }
-        _write_bytes += delta_rowset->data_size();
-        _write_rows += delta_rowset->num_rows();
+        _write_bytes += delta_segment_group->data_size();
+        _write_rows += delta_segment_group->num_rows();
 
         // 7. Convert data for schema change tables
         OLAP_LOG_TRACE("load to related tables of schema_change if possible. ");
