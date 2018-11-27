@@ -29,6 +29,7 @@ public final class QueryStatisticsItem {
     private final String user;
     private final String sql;
     private final String db;
+    private final String connId;
     private final long queryStartTime;
     private List<FragmentInstanceInfo> fragmentInstanceInfos;
 
@@ -39,6 +40,7 @@ public final class QueryStatisticsItem {
         this.db = builder.db;
         this.queryStartTime = builder.queryStartTime;
         this.fragmentInstanceInfos = builder.fragmentInstanceInfos;
+        this.connId = builder.connId;
     }
 
     public String getDb() {
@@ -51,6 +53,10 @@ public final class QueryStatisticsItem {
 
     public String getSql() {
         return sql;
+    }
+
+    public String getConnId() {
+        return connId;
     }
 
     public String getQueryExecTime() {
@@ -71,6 +77,7 @@ public final class QueryStatisticsItem {
         private String db;
         private String user;
         private String sql;
+        private String connId;
         private long queryStartTime;
         private List<FragmentInstanceInfo> fragmentInstanceInfos;
 
@@ -95,6 +102,11 @@ public final class QueryStatisticsItem {
 
         public Builder sql(String sql) {
             this.sql = sql;
+            return this;
+        }
+
+        public Builder connId(String connId) {
+            this.connId = connId;
             return this;
         }
 
@@ -128,6 +140,10 @@ public final class QueryStatisticsItem {
 
             if (user == null) {
                 builder.user = "";
+            }
+
+            if (connId == null) {
+                builder.connId = "";
             }
         }
     }

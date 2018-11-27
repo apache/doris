@@ -77,6 +77,7 @@ public final class QeProcessorImpl implements QeProcessor {
                     .queryStartTime(info.getStartExecTime())
                     .sql(info.getSql())
                     .user(context.getQualifiedUser())
+                    .connId(String.valueOf(context.getConnectionId()))
                     .db(context.getDatabase()).fragmentInstanceInfos(info.getCoord()
                             .getFragmentInstanceInfos()).build();
             querySet.put(queryIdStr, item);
