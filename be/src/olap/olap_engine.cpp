@@ -2009,15 +2009,11 @@ OLAPStatus OLAPEngine::_create_new_table_header(
     } else {
         header->set_keys_type(KeysType::AGG_KEYS);
     }
-    if (request.tablet_schema.storage_type == TStorageType::COLUMN) {
-        header->set_data_file_type(COLUMN_ORIENTED_FILE);
-        header->set_segment_size(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE);
-        header->set_num_rows_per_data_block(config::default_num_rows_per_column_file_block);
-    } else {
-        header->set_data_file_type(OLAP_DATA_FILE);
-        header->set_segment_size(OLAP_MAX_SEGMENT_FILE_SIZE);
-        header->set_num_rows_per_data_block(config::default_num_rows_per_data_block);
-    }
+    DCHECK(request.tablet_schema.storage_type == TStorageType::COLUMN);
+    header->set_data_file_type(COLUMN_ORIENTED_FILE);
+    header->set_segment_size(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE);
+    header->set_num_rows_per_data_block(config::default_num_rows_per_column_file_block);
+
     // set column information
     uint32_t i = 0;
     uint32_t key_count = 0;

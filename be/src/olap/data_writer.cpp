@@ -51,7 +51,7 @@ ColumnDataWriter::ColumnDataWriter(OLAPTablePtr table, Rowset* index, bool is_pu
       _segment_writer(NULL),
       _num_rows(0),
       _block_id(0),
-      _max_segment_size(OLAP_MAX_SEGMENT_FILE_SIZE),
+      _max_segment_size(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE),
       _segment(0),
       _all_num_rows(0),
       _new_segment_created(false)
