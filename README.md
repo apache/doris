@@ -21,7 +21,7 @@ The simplicity (of developing, deploying and using) and meeting many data servin
 ## 4. Compile and install
 
 Currently support Docker environment and Linux OS: 
-Docker（Linux/Windows/Mac), Ubuntu and CentOS.
+Docker (Linux / Windows / Mac), Ubuntu and CentOS.
 
 ### 4.1 For Docker
 
@@ -74,7 +74,7 @@ After successfully building, it will install binary files in the directory outpu
 
 #### Prerequisites
 
-GCC 5.3.1+，Oracle JDK 1.8+，Python 2.7+, Apache Maven 3.5.4+
+GCC 5.3.1+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.4.3+
 
 * For Ubuntu: 
 
