@@ -114,20 +114,6 @@ public class EsTable extends Table {
         tTableDescriptor.setEsTable(tEsTable);
         return tTableDescriptor;
     }
-    
-    @Override
-    public CreateTableStmt toCreateTableStmt(String dbName) {
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put(HOSTS, hosts);
-        properties.put(USER, userName);
-        properties.put(PASSWORD, passwd);
-        properties.put(INDEX, indexName);
-        properties.put(TYPE, mappingType);
-
-        CreateTableStmt stmt = new CreateTableStmt(false, true, new TableName(dbName, name), baseSchema,
-                                                   type.name(), null, null, null, properties, null);
-        return stmt;
-    }
 
     @Override
     public int getSignature(int signatureVersion) {

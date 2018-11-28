@@ -19,7 +19,7 @@ package org.apache.doris.common;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
@@ -42,9 +42,9 @@ public class PropertyAnalyzerTest {
         columns.add(new Column("k1", PrimitiveType.INT));
         columns.add(new Column("k2", PrimitiveType.TINYINT));
         columns.add(new Column("v1", 
-                        ColumnType.createType(PrimitiveType.VARCHAR), false, AggregateType.REPLACE, "", ""));
+                        ScalarType.createType(PrimitiveType.VARCHAR), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("v2", 
-                        ColumnType.createType(PrimitiveType.BIGINT), false, AggregateType.SUM, "0", ""));
+                        ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.SUM, "0", ""));
         columns.get(0).setIsKey(true);
         columns.get(1).setIsKey(true);
 
@@ -61,8 +61,8 @@ public class PropertyAnalyzerTest {
         columns.add(new Column("k1", PrimitiveType.INT));
         columns.add(new Column("k2", PrimitiveType.TINYINT));
         columns.add(new Column("v1", 
-                        ColumnType.createType(PrimitiveType.VARCHAR), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("v2", ColumnType.createType(PrimitiveType.BIGINT), false, AggregateType.SUM, "0", ""));
+                        ScalarType.createType(PrimitiveType.VARCHAR), false, AggregateType.REPLACE, "", ""));
+        columns.add(new Column("v2", ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.SUM, "0", ""));
         columns.get(0).setIsKey(true);
         columns.get(1).setIsKey(true);
 

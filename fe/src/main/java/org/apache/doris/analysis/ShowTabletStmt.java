@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -103,19 +103,19 @@ public class ShowTabletStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         if (isShowSingleTablet) {
-            builder.addColumn(new Column("DbName", ColumnType.createVarchar(30)));
-            builder.addColumn(new Column("TableName", ColumnType.createVarchar(30)));
-            builder.addColumn(new Column("PartitionName", ColumnType.createVarchar(30)));
-            builder.addColumn(new Column("IndexName", ColumnType.createVarchar(30)));
-            builder.addColumn(new Column("DbId", ColumnType.createVarchar(30)));
-            builder.addColumn(new Column("TableId", ColumnType.createVarchar(30)));
-            builder.addColumn(new Column("PartitionId", ColumnType.createVarchar(30)));
-            builder.addColumn(new Column("IndexId", ColumnType.createVarchar(30)));
-            builder.addColumn(new Column("IsSync", ColumnType.createVarchar(30)));
-            builder.addColumn(new Column("DetailCmd", ColumnType.createVarchar(30)));
+            builder.addColumn(new Column("DbName", ScalarType.createVarchar(30)));
+            builder.addColumn(new Column("TableName", ScalarType.createVarchar(30)));
+            builder.addColumn(new Column("PartitionName", ScalarType.createVarchar(30)));
+            builder.addColumn(new Column("IndexName", ScalarType.createVarchar(30)));
+            builder.addColumn(new Column("DbId", ScalarType.createVarchar(30)));
+            builder.addColumn(new Column("TableId", ScalarType.createVarchar(30)));
+            builder.addColumn(new Column("PartitionId", ScalarType.createVarchar(30)));
+            builder.addColumn(new Column("IndexId", ScalarType.createVarchar(30)));
+            builder.addColumn(new Column("IsSync", ScalarType.createVarchar(30)));
+            builder.addColumn(new Column("DetailCmd", ScalarType.createVarchar(30)));
         } else {
             for (String title : TabletsProcDir.TITLE_NAMES) {
-                builder.addColumn(new Column(title, ColumnType.createVarchar(30)));
+                builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
             }
         }
         return builder.build();

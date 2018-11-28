@@ -154,17 +154,17 @@ public class PartitionKeyTest {
         List<String> keys = new ArrayList<String>();
         List<Column> columns = new ArrayList<Column>();
         keys.add("100");
-        columns.add(new Column("column2", ColumnType.createType(PrimitiveType.TINYINT), true, null, "", ""));
+        columns.add(new Column("column2", ScalarType.createType(PrimitiveType.TINYINT), true, null, "", ""));
         keys.add("101");
-        columns.add(new Column("column3", ColumnType.createType(PrimitiveType.SMALLINT), true, null, "", ""));
+        columns.add(new Column("column3", ScalarType.createType(PrimitiveType.SMALLINT), true, null, "", ""));
         keys.add("102");
-        columns.add(new Column("column4", ColumnType.createType(PrimitiveType.INT), true, null, "", ""));
+        columns.add(new Column("column4", ScalarType.createType(PrimitiveType.INT), true, null, "", ""));
         keys.add("103");
-        columns.add(new Column("column5", ColumnType.createType(PrimitiveType.BIGINT), true, null, "", ""));
+        columns.add(new Column("column5", ScalarType.createType(PrimitiveType.BIGINT), true, null, "", ""));
         keys.add("2014-12-26");
-        columns.add(new Column("column10", ColumnType.createType(PrimitiveType.DATE), true, null, "", ""));
+        columns.add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""));
         keys.add("2014-12-27 11:12:13");
-        columns.add(new Column("column11", ColumnType.createType(PrimitiveType.DATETIME), true, null, "", ""));
+        columns.add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""));
   
         PartitionKey key = PartitionKey.createPartitionKey(keys, columns);
         key.write(dos);

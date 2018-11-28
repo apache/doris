@@ -19,7 +19,6 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
@@ -32,6 +31,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
@@ -94,7 +94,7 @@ public class UnitTestUtil {
         temp = new Column("k2", PrimitiveType.INT);
         temp.setIsKey(true);
         columns.add(temp);
-        columns.add(new Column("v", new ColumnType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
+        columns.add(new Column("v", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
 
         List<Column> keysColumn = new ArrayList<Column>();
         temp = new Column("k1", PrimitiveType.INT);

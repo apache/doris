@@ -19,10 +19,10 @@ package org.apache.doris.task;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.thrift.TAgentTaskRequest;
@@ -94,8 +94,8 @@ public class AgentTaskTest {
         agentBatchTask = new AgentBatchTask();
 
         columns = new LinkedList<Column>();
-        columns.add(new Column("k1", new ColumnType(PrimitiveType.INT), false, null, "1", ""));
-        columns.add(new Column("v1", new ColumnType(PrimitiveType.INT), false, AggregateType.SUM, "1", ""));
+        columns.add(new Column("k1", ScalarType.createType(PrimitiveType.INT), false, null, "1", ""));
+        columns.add(new Column("v1", ScalarType.createType(PrimitiveType.INT), false, AggregateType.SUM, "1", ""));
 
         PartitionKey pk1 = PartitionKey.createInfinityPartitionKey(Arrays.asList(columns.get(0)), false);
         PartitionKey pk2 = PartitionKey.createPartitionKey(Arrays.asList("10"), Arrays.asList(columns.get(0)));

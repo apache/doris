@@ -19,13 +19,13 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
@@ -54,15 +54,15 @@ import java.util.TreeSet;
 public class ShowDataStmt extends ShowStmt {
     private static final ShowResultSetMetaData SHOW_TABLE_DATA_META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("TableName", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Size", ColumnType.createVarchar(30)))
+                    .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Size", ScalarType.createVarchar(30)))
                     .build();
 
     private static final ShowResultSetMetaData SHOW_INDEX_DATA_META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("TableName", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("IndexName", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Size", ColumnType.createVarchar(30)))
+                    .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("IndexName", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Size", ScalarType.createVarchar(30)))
                     .build();
 
     private String dbName;

@@ -347,10 +347,8 @@ nonterminal List<SetVar> option_value_list, option_value_list_continued, start_o
         start_option_value_list_following_option_type, user_property_list;
 
 nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_properties, opt_ext_properties;
-nonterminal Column column_definition;
-nonterminal ArrayList<Column> column_definition_list;
-nonterminal ColumnType column_type;
-nonterminal List<ColumnType> column_type_list;
+nonterminal ColumnDef column_definition;
+nonterminal ArrayList<ColumnDef> column_definition_list;
 nonterminal AggregateType opt_agg_type;
 nonterminal PartitionDesc opt_partition;
 nonterminal DistributionDesc opt_distribution;
@@ -831,6 +829,7 @@ create_stmt ::=
         RESULT = new CreateClusterStmt(name, properties, password);
     :}*/
     /* Function */
+    /*
     | KW_CREATE KW_FUNCTION function_name:functionName LPAREN column_type_list:arguments RPAREN
             column_type:retrunType KW_SONAME STRING_LITERAL:soPath
             opt_properties:properties
@@ -843,6 +842,7 @@ create_stmt ::=
     {:
         RESULT = new CreateFunctionStmt(functionName, arguments, retrunType, soPath, properties, true);
     :}
+    */
     /* Table */
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             LPAREN column_definition_list:columns RPAREN opt_engine:engineName
@@ -943,19 +943,6 @@ user_identity ::=
     | ident_or_text:user AT LBRACKET ident_or_text:host RBRACKET
     {:
         RESULT = new UserIdentity(user, host, true);
-    :}
-    ;
-
-column_type_list ::=
-    column_type:type
-    {:
-    RESULT = Lists.newArrayList();
-    RESULT.add(type);
-    :}
-    | column_type_list:types COMMA column_type:type
-    {:
-    types.add(type);
-    RESULT = types;
     :}
     ;
 
@@ -1416,89 +1403,6 @@ column_definition_list ::=
     :}
     ;
 
-column_type ::=
-    KW_TINYINT
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.TINYINT);
-    :}
-    | KW_TINYINT LPAREN INTEGER_LITERAL:length RPAREN
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.TINYINT);
-    :}
-    | KW_SMALLINT
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.SMALLINT);
-    :}
-    | KW_SMALLINT LPAREN INTEGER_LITERAL:length RPAREN
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.SMALLINT);
-    :}
-    | KW_INT
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.INT);
-    :}
-    | KW_INT LPAREN INTEGER_LITERAL:length RPAREN
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.INT);
-    :}
-    | KW_BIGINT
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.BIGINT);
-    :}
-    | KW_BIGINT LPAREN INTEGER_LITERAL:length RPAREN
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.BIGINT);
-    :}
-    | KW_LARGEINT
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.LARGEINT);
-    :}
-    | KW_LARGEINT LPAREN INTEGER_LITERAL:length RPAREN
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.LARGEINT);
-    :}
-    | KW_FLOAT
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.FLOAT);
-    :}
-    | KW_DOUBLE
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.DOUBLE);
-    :}
-    | KW_DECIMAL
-    {:
-        RESULT = ColumnType.createDecimal(10, 0);
-    :}
-    | KW_DECIMAL LPAREN INTEGER_LITERAL:precision COMMA INTEGER_LITERAL:scale RPAREN
-    {:
-        RESULT = ColumnType.createDecimal(precision.intValue(), scale.intValue());
-    :}
-    | KW_DATE
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.DATE);
-    :}
-    | KW_DATETIME
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.DATETIME);
-    :}
-    | KW_CHAR
-    {:
-        RESULT = ColumnType.createChar(1);
-    :}
-    | KW_CHAR LPAREN INTEGER_LITERAL:length RPAREN
-    {:
-        RESULT = ColumnType.createChar(length.intValue());
-    :}
-    | KW_VARCHAR LPAREN INTEGER_LITERAL:length RPAREN
-    {:
-        RESULT = ColumnType.createVarchar(length.intValue());
-    :}
-    | KW_HLL
-    {:
-        RESULT = ColumnType.createHll();
-    :}
-    ;
-
 opt_default_value ::=
     /* Empty */
     {:
@@ -1525,10 +1429,10 @@ opt_is_key ::=
 	;
 	
 column_definition ::=
-    ident:columnName column_type:dataType opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_default_value:defaultValue opt_comment:comment
+    ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_default_value:defaultValue opt_comment:comment
     {:
-        Column column = new Column(columnName, dataType, isKey, aggType, isAllowNull, defaultValue, comment);
-        RESULT = column;
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, defaultValue, comment);
+        RESULT = columnDef;
     :}
     ;
 

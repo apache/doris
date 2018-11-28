@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -31,16 +31,16 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 public class ShowCreateTableStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Table", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Create Table", ColumnType.createVarchar(30)))
+                    .addColumn(new Column("Table", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Create Table", ScalarType.createVarchar(30)))
                     .build();
 
     private static final ShowResultSetMetaData VIEW_META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("View", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Create View", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("character_set_client", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("collation_connection", ColumnType.createVarchar(30)))
+                    .addColumn(new Column("View", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Create View", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("character_set_client", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("collation_connection", ScalarType.createVarchar(30)))
                     .build();
 
     private TableName tbl;

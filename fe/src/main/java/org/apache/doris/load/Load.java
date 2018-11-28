@@ -718,7 +718,7 @@ public class Load {
 
             // check hll 
             for (Column column : tableSchema) {
-                if (column.getColumnType().getType() == PrimitiveType.HLL) {
+                if (column.getDataType() == PrimitiveType.HLL) {
                     if (assignColumnToFunction != null && !assignColumnToFunction.containsKey(column.getName())) {
                         throw new DdlException("Hll column is not assigned. column:" + column.getName());
                     }

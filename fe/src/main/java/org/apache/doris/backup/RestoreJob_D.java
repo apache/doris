@@ -699,8 +699,7 @@ public class RestoreJob_D extends AbstractBackupJob_D {
             int size = tableToCreateTableStmt.size();
             out.writeInt(size);
             for (Map.Entry<String, CreateTableStmt> entry : tableToCreateTableStmt.entrySet()) {
-                Text.writeString(out, entry.getKey());
-                entry.getValue().write(out);
+                throw new RuntimeException("Don't support CreateTableStmt serialization anymore");
             }
         }
 

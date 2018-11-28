@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -143,9 +143,9 @@ public class ShowTableStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         builder.addColumn(
-                new Column(NAME_COL_PREFIX + ClusterNamespace.getNameFromFullName(db), ColumnType.createVarchar(20)));
+                new Column(NAME_COL_PREFIX + ClusterNamespace.getNameFromFullName(db), ScalarType.createVarchar(20)));
         if (isVerbose) {
-            builder.addColumn(new Column(TYPE_COL, ColumnType.createVarchar(20)));
+            builder.addColumn(new Column(TYPE_COL, ScalarType.createVarchar(20)));
         }
         return builder.build();
     }

@@ -139,8 +139,7 @@ public class CsvScanNode extends ScanNode {
         }
         for (String columnName : columnNames) {
             Column column = table.getColumn(columnName);
-            ColumnType columnType = column.getColumnType();
-            columnTypeMapping.put(columnName, columnType.toThrift());
+            columnTypeMapping.put(columnName, column.getOriginType().toColumnTypeThrift());
 
             if (columns.contains(columnName)) {
                 continue;

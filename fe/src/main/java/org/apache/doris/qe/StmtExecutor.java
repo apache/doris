@@ -42,7 +42,7 @@ import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
@@ -668,7 +668,7 @@ public class StmtExecutor {
         for (Column col : metaData.getColumns()) {
             serializer.reset();
             // TODO(zhaochun): only support varchar type
-            serializer.writeField(col.getName(), col.getColumnType().getType());
+            serializer.writeField(col.getName(), col.getType().getPrimitiveType());
             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
         // send EOF
@@ -735,7 +735,7 @@ public class StmtExecutor {
     private void handleExplainStmt(String result) throws IOException {
         ShowResultSetMetaData metaData =
                 ShowResultSetMetaData.builder()
-                        .addColumn(new Column("Explain String", ColumnType.createVarchar(20)))
+                        .addColumn(new Column("Explain String", ScalarType.createVarchar(20)))
                         .build();
         sendMetaData(metaData);
 

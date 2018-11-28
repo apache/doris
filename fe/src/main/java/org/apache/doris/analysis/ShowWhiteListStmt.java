@@ -18,14 +18,14 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 public class ShowWhiteListStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("user_name", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("white_list", ColumnType.createVarchar(1000)))
+                    .addColumn(new Column("user_name", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("white_list", ScalarType.createVarchar(1000)))
                     .build();
 
     @Override

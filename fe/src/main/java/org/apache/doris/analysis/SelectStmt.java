@@ -694,7 +694,7 @@ public class SelectStmt extends QueryStmt {
      */
     private void expandStar(TableName tblName, TupleDescriptor desc) throws AnalysisException {
         for (Column col : desc.getTable().getBaseSchema()) {
-            if (col.getColumnType().getType() == PrimitiveType.HLL && !fromInsert) {
+            if (col.getDataType() == PrimitiveType.HLL && !fromInsert) {
                 throw new AnalysisException (
                         "hll only use in HLL_UNION_AGG or HLL_CARDINALITY , HLL_HASH and so on.");
             }

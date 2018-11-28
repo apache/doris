@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // Show Status statement
@@ -26,8 +26,8 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 public class ShowStatusStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Variable_name", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Value", ColumnType.createVarchar(20)))
+                    .addColumn(new Column("Variable_name", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Value", ScalarType.createVarchar(20)))
                     .build();
 
     @Override

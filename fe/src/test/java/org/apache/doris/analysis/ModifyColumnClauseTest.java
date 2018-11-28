@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.PrimitiveType;
 import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -35,16 +36,18 @@ public class ModifyColumnClauseTest {
 
     @Test
     public void testNormal() throws AnalysisException {
-        Column definition = EasyMock.createMock(Column.class);
+        Column column = new Column("tsetCol", PrimitiveType.INT);
+        ColumnDef definition = EasyMock.createMock(ColumnDef.class);
         definition.analyze(true);
         EasyMock.expectLastCall().anyTimes();
         EasyMock.expect(definition.toSql()).andReturn("`testCol` INT").anyTimes();
+        EasyMock.expect(definition.toColumn()).andReturn(column).anyTimes();
         EasyMock.replay(definition);
 
         ModifyColumnClause clause = new ModifyColumnClause(definition, null, null, null);
         clause.analyze(analyzer);
         Assert.assertEquals("MODIFY COLUMN `testCol` INT", clause.toString());
-        Assert.assertEquals(definition, clause.getCol());
+        Assert.assertEquals(column, clause.getColumn());
         Assert.assertNull(clause.getProperties());
         Assert.assertNull(clause.getColPos());
         Assert.assertNull(clause.getRollupName());

@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -52,7 +53,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class CreateTableStmt extends DdlStmt implements Writable {
+public class CreateTableStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(CreateTableStmt.class);
 
     private static final String DEFAULT_ENGINE_NAME = "olap";
@@ -60,7 +61,7 @@ public class CreateTableStmt extends DdlStmt implements Writable {
     private boolean ifNotExists;
     private boolean isExternal;
     private TableName tableName;
-    private List<Column> columns;
+    private List<ColumnDef> columnDefs;
     private KeysDesc keysDesc;
     private PartitionDesc partitionDesc;
     private DistributionDesc distributionDesc;
@@ -69,6 +70,9 @@ public class CreateTableStmt extends DdlStmt implements Writable {
     private String engineName;
 
     private static Set<String> engineNames;
+
+    // set in analyze
+    private List<Column> columns = Lists.newArrayList();
 
     static {
         engineNames = Sets.newHashSet();
@@ -85,13 +89,13 @@ public class CreateTableStmt extends DdlStmt implements Writable {
     public CreateTableStmt() {
         // for persist
         tableName = new TableName();
-        columns = Lists.newArrayList();
+        columnDefs = Lists.newArrayList();
     }
 
     public CreateTableStmt(boolean ifNotExists,
                            boolean isExternal,
                            TableName tableName,
-                           List<Column> columnDefinitions,
+                           List<ColumnDef> columnDefinitions,
                            String engineName, 
                            KeysDesc keysDesc,
                            PartitionDesc partitionDesc,
@@ -100,9 +104,9 @@ public class CreateTableStmt extends DdlStmt implements Writable {
                            Map<String, String> extProperties) {
         this.tableName = tableName;
         if (columnDefinitions == null) {
-            this.columns = Lists.newArrayList();
+            this.columnDefs = Lists.newArrayList();
         } else {
-            this.columns = columnDefinitions;
+            this.columnDefs = columnDefinitions;
         }
         if (Strings.isNullOrEmpty(engineName)) {
             this.engineName = DEFAULT_ENGINE_NAME;
@@ -121,9 +125,7 @@ public class CreateTableStmt extends DdlStmt implements Writable {
         this.tableSignature = -1;
     }
 
-    public void addColumn(Column col) {
-        columns.add(col);
-    }
+    public void addColumnDef(ColumnDef columnDef) { columnDefs.add(columnDef); }
 
     public boolean isSetIfNotExists() {
         return ifNotExists;
@@ -209,25 +211,25 @@ public class CreateTableStmt extends DdlStmt implements Writable {
                 // olap table
                 if (keysDesc == null) {
                     List<String> keysColumnNames = Lists.newArrayList();
-                    for (Column column : columns) {
-                        if (column.getAggregationType() == null) {
-                            keysColumnNames.add(column.getName());
+                    for (ColumnDef columnDef : columnDefs) {
+                        if (columnDef.getAggregateType() == null) {
+                            keysColumnNames.add(columnDef.getName());
                         }
                     }
                     keysDesc = new KeysDesc(KeysType.AGG_KEYS, keysColumnNames);
                 }
 
-                keysDesc.analyze(columns);
+                keysDesc.analyze(columnDefs);
                 for (int i = 0; i < keysDesc.keysColumnSize(); ++i) {
-                    columns.get(i).setIsKey(true);
+                    columnDefs.get(i).setIsKey(true);
                 }
                 if (keysDesc.getKeysType() != KeysType.AGG_KEYS) {
                     AggregateType type = AggregateType.REPLACE;
                     if (keysDesc.getKeysType() == KeysType.DUP_KEYS) {
                         type = AggregateType.NONE;
                     }
-                    for (int i = keysDesc.keysColumnSize(); i < columns.size(); ++i) {
-                        columns.get(i).setAggregationType(type, true);
+                    for (int i = keysDesc.keysColumnSize(); i < columnDefs.size(); ++i) {
+                        columnDefs.get(i).setAggregateType(type, true);
                     }
                 }
             }
@@ -237,40 +239,36 @@ public class CreateTableStmt extends DdlStmt implements Writable {
                 throw new AnalysisException("Create " + engineName + " table should not contain keys desc");
             }
 
-            for (Column column : columns) {
-                column.setIsKey(true);
+            for (ColumnDef columnDef : columnDefs) {
+                columnDef.setIsKey(true);
             }
         }
 
         // analyze column def
-        if (columns == null || columns.isEmpty()) {
+        if (columnDefs == null || columnDefs.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_MUST_HAVE_COLUMNS);
         }
 
         int rowLengthBytes = 0;
         boolean hasHll = false;
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        for (Column col : columns) {
-            // if engine is mysql, remove varchar limit
-            if (engineName.equals("mysql")) {
-                col.setVarcharLimit(false);
-            }
-
+        for (ColumnDef columnDef : columnDefs) {
             if (engineName.equals("kudu")) {
-                KuduUtil.analyzeColumn(col, keysDesc);
+                // KuduUtil.analyzeColumn(columnDef, keysDesc);
+                throw new NotImplementedException("");
             } else {
-                col.analyze(engineName.equals("olap"));
+                columnDef.analyze(engineName.equals("olap"));
             }
 
-            if (col.getType().isHllType()) {
+            if (columnDef.getType().isHllType()) {
                 hasHll = true;
             }
 
-            if (!columnSet.add(col.getName())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col.getName());
+            if (!columnSet.add(columnDef.getName())) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnDef.getName());
             }
 
-            rowLengthBytes += col.getColumnType().getMemlayoutBytes();
+            rowLengthBytes += columnDef.getType().getStorageLayoutBytes();
         }
 
         if (rowLengthBytes > Config.max_layout_length_per_row) {
@@ -294,7 +292,7 @@ public class CreateTableStmt extends DdlStmt implements Writable {
                     throw new AnalysisException("Only allow partitioned by one column");
                 }
 
-                rangePartitionDesc.analyze(columns, properties);
+                rangePartitionDesc.analyze(columnDefs, properties);
             }
 
             // analyze distribution
@@ -311,6 +309,10 @@ public class CreateTableStmt extends DdlStmt implements Writable {
                 throw new AnalysisException("Create " + engineName
                         + " table should not contain partition or distribution desc");
             }
+        }
+
+        for (ColumnDef columnDef : columnDefs) {
+            columns.add(columnDef.toColumn());
         }
     }
 
@@ -340,9 +342,7 @@ public class CreateTableStmt extends DdlStmt implements Writable {
     }
 
     public static CreateTableStmt read(DataInput in) throws IOException {
-        CreateTableStmt stmt = new CreateTableStmt();
-        stmt.readFields(in);
-        return stmt;
+        throw new RuntimeException("CreateTableStmt serialization is not supported anymore.");
     }
 
     @Override
@@ -356,11 +356,11 @@ public class CreateTableStmt extends DdlStmt implements Writable {
         sb.append("TABLE ");
         sb.append(tableName.toSql()).append(" (\n");
         int idx = 0;
-        for (Column column : columns) {
+        for (ColumnDef columnDef : columnDefs) {
             if (idx != 0) {
                 sb.append(",\n");
             }
-            sb.append("  ").append(column.toSql());
+            sb.append("  ").append(columnDef.toSql());
             idx++;
         }
         sb.append("\n)");
@@ -410,108 +410,5 @@ public class CreateTableStmt extends DdlStmt implements Writable {
             return true;
         }
         return false;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeBoolean(ifNotExists);
-        tableName.write(out);
-        int count = columns.size();
-        out.writeInt(count);
-        for (Column columnDefinition : columns) {
-            columnDefinition.write(out);
-        }
-
-        if (keysDesc == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            keysDesc.write(out);
-        }
-
-        if (partitionDesc == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            partitionDesc.write(out);
-        }
-
-        if (distributionDesc == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            distributionDesc.write(out);
-        }
-
-        if (properties == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            count = properties.size();
-            out.writeInt(count);
-            for (Map.Entry<String, String> prop : properties.entrySet()) {
-                Text.writeString(out, prop.getKey());
-                Text.writeString(out, prop.getValue());
-            }
-        }
-
-        Text.writeString(out, engineName);
-
-        out.writeInt(tableSignature);
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        ifNotExists = in.readBoolean();
-        tableName.readFields(in);
-
-        int count = in.readInt();
-        for (int i = 0; i < count; i++) {
-            Column columnDefinition = new Column();
-            columnDefinition.readFields(in);
-            columns.add(columnDefinition);
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_30) {
-            boolean has = in.readBoolean();
-            if (has) {
-                keysDesc = KeysDesc.read(in);
-            }
-        }
-
-        boolean has = in.readBoolean();
-        if (has) {
-            partitionDesc = PartitionDesc.read(in);
-        }
-
-        has = in.readBoolean();
-        if (has) {
-            distributionDesc = DistributionDesc.read(in);
-        }
-
-        has = in.readBoolean();
-        if (has) {
-            count = in.readInt();
-            properties = Maps.newHashMap();
-            for (int i = 0; i < count; i++) {
-                String key = Text.readString(in);
-                String value = Text.readString(in);
-                properties.put(key, value);
-            }
-        }
-
-        engineName = Text.readString(in);
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30
-                && engineName.equals("olap")) {
-            List<String> keysColumnNames = Lists.newArrayList();
-            for (Column column : columns) {
-                if (column.getAggregationType() == null) {
-                    keysColumnNames.add(column.getName());
-                }
-            }
-            keysDesc = new KeysDesc(KeysType.AGG_KEYS, keysColumnNames);
-        }
-
-        tableSignature = in.readInt();
     }
 }

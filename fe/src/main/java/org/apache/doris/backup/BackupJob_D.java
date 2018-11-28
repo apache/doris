@@ -408,7 +408,8 @@ public class BackupJob_D extends AbstractBackupJob_D {
         String filePath = pathBuilder.createTableStmt(dbName, table.getName());
 
         Preconditions.checkState(!pathToWritables.containsKey(filePath));
-        pathToWritables.put(filePath, stmts);
+        throw new RuntimeException("Don't support CreateTableStmt serialization.");
+        // pathToWritables.put(filePath, stmts);
     }
 
     private void getRollupMeta(String dbName, OlapTable olapTable,

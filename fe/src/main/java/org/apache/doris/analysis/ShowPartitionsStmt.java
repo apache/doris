@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
@@ -134,7 +134,7 @@ public class ShowPartitionsStmt extends ShowStmt {
         }
 
         for (String col : result.getColumnNames()) {
-            builder.addColumn(new Column(col, ColumnType.createVarchar(30)));
+            builder.addColumn(new Column(col, ScalarType.createVarchar(30)));
         }
         return builder.build();
     }
