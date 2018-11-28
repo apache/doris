@@ -38,7 +38,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CloneTask;
-import org.apache.doris.thrift.TTabletInfo;
+import org.apache.doris.thrift.TFinishTaskRequest;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.EvictingQueue;
@@ -707,7 +707,7 @@ public class TabletScheduler extends Daemon {
         return list;
     }
 
-    public void finishCloneTask(CloneTask cloneTask, TTabletInfo reportedTablet) {
+    public void finishCloneTask(CloneTask cloneTask, TFinishTaskRequest request) {
         long tabletId = cloneTask.getTabletId();
         TabletInfo tabletInfo = takeRunningTablets(tabletId);
         if (tabletInfo == null) {
@@ -716,7 +716,7 @@ public class TabletScheduler extends Daemon {
         }
         Preconditions.checkState(tabletInfo.getState() == TabletInfo.State.RUNNING);
         try {
-            tabletInfo.finishCloneTask(cloneTask, reportedTablet);
+            tabletInfo.finishCloneTask(cloneTask, request);
         } catch (SchedException e) {
             tabletInfo.increaseFailedRunningCounter();
             if (e.getStatus() == Status.SCHEDULE_FAILED) {

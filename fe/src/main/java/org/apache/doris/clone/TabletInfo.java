@@ -34,6 +34,8 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CloneTask;
 import org.apache.doris.thrift.TBackend;
+import org.apache.doris.thrift.TFinishTaskRequest;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTaskType;
@@ -112,7 +114,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
     private long lastAdjustPrioTime = 0;
 
     // an approximate timeout of this task, only be set when sending clone task.
-    private long timeoutMs = 0;
+    private long taskTimeoutMs = 0;
 
     private State state;
     private TabletStatus tabletStatus;
@@ -494,7 +496,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
         // addReplica() method will add this replica to tablet inverted index too.
         tablet.addReplica(cloneReplica);
 
-        timeoutMs = getApproximateTimeoutMs();
+        taskTimeoutMs = getApproximateTimeoutMs();
 
         this.state = State.RUNNING;
         return cloneTask;
@@ -509,22 +511,28 @@ public class TabletInfo implements Comparable<TabletInfo> {
         return timeoutMs;
     }
 
-    public void finishCloneTask(CloneTask cloneTask, TTabletInfo reportedTablet) throws SchedException {
+    public void finishCloneTask(CloneTask cloneTask,  TFinishTaskRequest request) throws SchedException {
         Preconditions.checkState(state == State.RUNNING);
         Preconditions.checkArgument(cloneTask.getTaskVersion() == CloneTask.VERSION_2);
         
+        if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
+            errMsg = request.getTask_status().getError_msgs().get(0);
+            throw new SchedException(Status.SCHEDULE_FAILED, errMsg);
+        }
+        
+        TTabletInfo reportedTablet = request.getFinish_tablet_infos().get(0);
         try {
             // check clone task
             if (dbId != cloneTask.getDbId() || tblId != cloneTask.getTableId()
                     || partitionId != cloneTask.getPartitionId() || indexId != cloneTask.getIndexId()
                     || tabletId != cloneTask.getTableId() || destBackendId != cloneTask.getBackendId()) {
-                String msg = String.format("clone task does not match the tablet info"
+                errMsg = String.format("clone task does not match the tablet info"
                         + ". clone task %d-%d-%d-%d-%d-%d"
                         + ", tablet info: %d-%d-%d-%d-%d-%d",
                         cloneTask.getDbId(), cloneTask.getTableId(), cloneTask.getPartitionId(),
                         cloneTask.getIndexId(), cloneTask.getTabletId(), cloneTask.getBackendId(),
                         dbId, tblId, partitionId, indexId, tablet.getId(), destBackendId);
-                throw new SchedException(Status.SCHEDULE_FAILED, msg);
+                throw new SchedException(Status.SCHEDULE_FAILED, errMsg);
             }
             
             // Here we do not check if the clone version is equal to the partition's visible version.
@@ -546,39 +554,46 @@ public class TabletInfo implements Comparable<TabletInfo> {
             // update clone replica's version
             Database db = Catalog.getCurrentCatalog().getDb(dbId);
             if (db == null) {
-                throw new SchedException(Status.UNRECOVERABLE, "db does not exist");
+                errMsg = "db does not exist";
+                throw new SchedException(Status.UNRECOVERABLE, errMsg);
             }
             db.writeLock();
             try {
                 OlapTable olapTable = (OlapTable) db.getTable(tblId);
                 if (olapTable == null) {
-                    throw new SchedException(Status.UNRECOVERABLE, "tbl does not exist");
+                    errMsg = "tbl does not exist";
+                    throw new SchedException(Status.UNRECOVERABLE, errMsg);
                 }
                 
                 Partition partition = olapTable.getPartition(partitionId);
                 if (partition == null) {
-                    throw new SchedException(Status.UNRECOVERABLE, "partition does not exist");
+                    errMsg = "partition does not exist";
+                    throw new SchedException(Status.UNRECOVERABLE, errMsg);
                 }
                 
                 MaterializedIndex index = partition.getIndex(indexId);
                 if (index == null) {
-                    throw new SchedException(Status.UNRECOVERABLE, "index does not exist");
+                    errMsg = "index does not exist";
+                    throw new SchedException(Status.UNRECOVERABLE, errMsg);
                 }
                 
                 if (schemaHash != olapTable.getSchemaHashByIndexId(indexId)) {
-                    throw new SchedException(Status.UNRECOVERABLE, "schema hash is not consistent. index's: "
+                    errMsg = "schema hash is not consistent. index's: "
                             + olapTable.getSchemaHashByIndexId(indexId)
-                            + ", task's: " + schemaHash);
+                            + ", task's: " + schemaHash;
+                    throw new SchedException(Status.UNRECOVERABLE, errMsg);
                 }
                 
                 Tablet tablet = index.getTablet(tabletId);
                 if (tablet == null) {
-                    throw new SchedException(Status.UNRECOVERABLE, "tablet does not exist");
+                    errMsg = "tablet does not exist";
+                    throw new SchedException(Status.UNRECOVERABLE, errMsg);
                 }
                 
                 Replica replica = tablet.getReplicaByBackendId(destBackendId);
                 if (replica == null) {
-                    throw new SchedException(Status.UNRECOVERABLE, "replica does not exist. backend id: " + destBackendId);
+                    errMsg = "replica does not exist. backend id: " + destBackendId;
+                    throw new SchedException(Status.UNRECOVERABLE, errMsg);
                 }
                 
                 /*
@@ -615,7 +630,6 @@ public class TabletInfo implements Comparable<TabletInfo> {
                                                                             replica.getLastSuccessVersion(),
                                                                             replica.getLastSuccessVersionHash());
                 Catalog.getInstance().getEditLog().logAddReplica(info);
-                
                 LOG.info("clone finished: {}", this);
             } finally {
                 db.writeUnlock();
@@ -691,8 +705,8 @@ public class TabletInfo implements Comparable<TabletInfo> {
             return false;
         }
 
-        Preconditions.checkState(lastSchedTime != 0 && timeoutMs != 0);
-        return System.currentTimeMillis() - lastSchedTime > timeoutMs;
+        Preconditions.checkState(lastSchedTime != 0 && taskTimeoutMs != 0);
+        return System.currentTimeMillis() - lastSchedTime > taskTimeoutMs;
     }
 
     @Override

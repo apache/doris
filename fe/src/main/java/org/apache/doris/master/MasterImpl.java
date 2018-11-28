@@ -129,9 +129,10 @@ public class MasterImpl {
         } else {
             if (taskStatus.getStatus_code() != TStatusCode.OK) {
                 task.failed();
-                // We start to let FE perceive the task's error msg, begin with these 4 types of task.
+                // We start to let FE perceive the task's error msg
                 if (taskType != TTaskType.MAKE_SNAPSHOT && taskType != TTaskType.UPLOAD
-                        && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE) {
+                        && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE
+                        && taskType != TTaskType.CLONE) {
                     return result;
                 }
             }
@@ -180,7 +181,7 @@ public class MasterImpl {
                 case CLONE:
                     checkHasTabletInfo(request);
                     finishTabletInfos = request.getFinish_tablet_infos();
-                    finishClone(task, finishTabletInfos);
+                    finishClone(task, request);
                     break;
                 case CHECK_CONSISTENCY:
                     finishConsistenctCheck(task, request);
@@ -675,15 +676,20 @@ public class MasterImpl {
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ROLLUP, task.getSignature());
     }
 
-    private void finishClone(AgentTask task, List<TTabletInfo> finishTabletInfos) {
-        Preconditions.checkArgument(finishTabletInfos != null && !finishTabletInfos.isEmpty());
-        Preconditions.checkArgument(finishTabletInfos.size() == 1);
-
+    private void finishClone(AgentTask task, TFinishTaskRequest request) {
         CloneTask cloneTask = (CloneTask) task;
         if (cloneTask.getTaskVersion() == CloneTask.VERSION_1) {
+            if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
+                // just return, like the old style
+                return;
+            }
+            
+            List<TTabletInfo> finishTabletInfos = request.getFinish_tablet_infos();
+            Preconditions.checkArgument(finishTabletInfos != null && !finishTabletInfos.isEmpty());
+            Preconditions.checkArgument(finishTabletInfos.size() == 1);
             Catalog.getInstance().getCloneInstance().finishCloneJob(cloneTask, finishTabletInfos.get(0));
         } else if (cloneTask.getTaskVersion() == CloneTask.VERSION_1) {
-            Catalog.getCurrentCatalog().getTabletScheduler().finishCloneTask(cloneTask, finishTabletInfos.get(0));
+            Catalog.getCurrentCatalog().getTabletScheduler().finishCloneTask(cloneTask, request);
         }
 
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CLONE, task.getSignature());
