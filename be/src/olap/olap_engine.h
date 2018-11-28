@@ -435,13 +435,13 @@ private:
             const std::string& tablet_path_prefix,
             const Version& version,
             VersionHash version_hash,
-            int32_t rowset_id, int32_t segment) const;
+            int32_t segment_group_id, int32_t segment) const;
 
     std::string _construct_data_file_path(
             const std::string& tablet_path_prefix,
             const Version& version,
             VersionHash version_hash,
-            int32_t rowset_id, int32_t segment) const;
+            int32_t segment_group_id, int32_t segment) const;
 
     OLAPStatus _generate_new_header(
             OlapStore* store,

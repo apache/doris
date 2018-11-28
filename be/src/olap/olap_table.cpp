@@ -355,18 +355,18 @@ OLAPStatus OLAPTable::load_indices() {
         Version version;
         version.first = delta.start_version();
         version.second = delta.end_version();
-        for (int j = 0; j < delta.rowset_size(); ++j) {
-            const PRowSet& prowset = delta.rowset(j);
+        for (int j = 0; j < delta.segment_group_size(); ++j) {
+            const PSegmentGroup& psegment_group = delta.segment_group(j);
             SegmentGroup* segment_group = new SegmentGroup(this, version, delta.version_hash(),
-                                        false, prowset.rowset_id(), prowset.num_segments());
+                                        false, psegment_group.segment_group_id(), psegment_group.num_segments());
             if (segment_group == nullptr) {
                 LOG(WARNING) << "fail to create olap segment_group. [version='" << version.first
                     << "-" << version.second << "' table='" << full_name() << "']";
                 return OLAP_ERR_MALLOC_ERROR;
             }
 
-            if (prowset.has_empty()) {
-                segment_group->set_empty(prowset.empty());
+            if (psegment_group.has_empty()) {
+                segment_group->set_empty(psegment_group.empty());
             }
             // 在校验和加载索引前把segment_group放到data-source，以防止加载索引失败造成内存泄露
             _data_sources[version].push_back(segment_group);
@@ -381,8 +381,8 @@ OLAPStatus OLAPTable::load_indices() {
                 return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
             }
 
-            if (prowset.column_pruning_size() != 0) {
-                size_t column_pruning_size = prowset.column_pruning_size();
+            if (psegment_group.column_pruning_size() != 0) {
+                size_t column_pruning_size = psegment_group.column_pruning_size();
                 if (_num_key_fields != column_pruning_size) {
                     LOG(ERROR) << "column pruning size is error."
                         << "column_pruning_size=" << column_pruning_size << ", "
@@ -393,7 +393,7 @@ OLAPStatus OLAPTable::load_indices() {
                     column_statistic_strings(_num_key_fields);
                 std::vector<bool> null_vec(_num_key_fields);
                 for (size_t j = 0; j < _num_key_fields; ++j) {
-                    ColumnPruning column_pruning = prowset.column_pruning(j);
+                    ColumnPruning column_pruning = psegment_group.column_pruning(j);
                     column_statistic_strings[j].first = column_pruning.min();
                     column_statistic_strings[j].second = column_pruning.max();
                     if (column_pruning.has_null_flag()) {
@@ -783,9 +783,9 @@ void OLAPTable::load_pending_data() {
     std::set<int64_t> error_pending_data;
 
     for (const PPendingDelta& pending_delta : _header->pending_delta()) {
-        for (const PPendingRowSet& pending_segment_group : pending_delta.pending_rowset()) {
+        for (const PPendingSegmentGroup& pending_segment_group : pending_delta.pending_segment_group()) {
             SegmentGroup* segment_group = new SegmentGroup(this, false, 
-                    pending_segment_group.pending_rowset_id(),
+                    pending_segment_group.pending_segment_group_id(),
                     pending_segment_group.num_segments(), true,
                     pending_delta.partition_id(), pending_delta.transaction_id());
             DCHECK(segment_group != nullptr);
@@ -1108,9 +1108,9 @@ void OLAPTable::_delete_incremental_data(const Version& version, const VersionHa
     if (incremental_delta == nullptr) { return; }
 
     vector<string> files_to_delete;
-    for (const PRowSet& prowset : incremental_delta->rowset()) {
-        int32_t segment_group_id = prowset.rowset_id();
-        for (int seg_id = 0; seg_id < prowset.num_segments(); seg_id++) {
+    for (const PSegmentGroup& psegment_group : incremental_delta->segment_group()) {
+        int32_t segment_group_id = psegment_group.segment_group_id();
+        for (int seg_id = 0; seg_id < psegment_group.num_segments(); seg_id++) {
             std::string incremental_index_path =
                 construct_incremental_index_file_path(version, version_hash, segment_group_id, seg_id);
             files_to_delete.emplace_back(incremental_index_path);
@@ -1203,19 +1203,19 @@ SegmentGroup* OLAPTable::_construct_segment_group_from_version(const PDelta* del
             << "version=" << delta->start_version() << "-" << delta->end_version() << ", "
             << "version_hash=" << delta->version_hash();
     Version version(delta->start_version(), delta->end_version());
-    const PRowSet* prowset = nullptr;
+    const PSegmentGroup* psegment_group = nullptr;
     if (segment_group_id == -1) {
         // Previous FileVersionMessage will be convert to PDelta and PSegmentGroup.
         // In PSegmentGroup, this is segment_group_id is set to minus one.
         // When to get it, should used segment_group + 1 as index.
-        prowset = &(delta->rowset().Get(segment_group_id + 1));
+        psegment_group = &(delta->segment_group().Get(segment_group_id + 1));
     } else {
-        prowset = &(delta->rowset().Get(segment_group_id));
+        psegment_group = &(delta->segment_group().Get(segment_group_id));
     }
     SegmentGroup* segment_group = new SegmentGroup(this, version, delta->version_hash(),
-                                false, segment_group_id, prowset->num_segments());
-    if (prowset->has_empty()) {
-        segment_group->set_empty(prowset->empty());
+                                false, segment_group_id, psegment_group->num_segments());
+    if (psegment_group->has_empty()) {
+        segment_group->set_empty(psegment_group->empty());
     }
     DCHECK(segment_group != nullptr) << "malloc error when construct segment_group."
             << "table=" << full_name() << ", "
@@ -1227,12 +1227,12 @@ SegmentGroup* OLAPTable::_construct_segment_group_from_version(const PDelta* del
         return nullptr;
     }
 
-    if (prowset->column_pruning_size() != 0) {
-        if (_num_key_fields != prowset->column_pruning_size()) {
+    if (psegment_group->column_pruning_size() != 0) {
+        if (_num_key_fields != psegment_group->column_pruning_size()) {
             LOG(WARNING) << "column pruning size error, " << "table=" << full_name() << ", "
                 << "version=" << version.first << "-" << version.second << ", "
                 << "version_hash=" << delta->version_hash() << ", "
-                << "column_pruning_size=" << prowset->column_pruning_size() << ", "
+                << "column_pruning_size=" << psegment_group->column_pruning_size() << ", "
                 << "num_key_fields=" << _num_key_fields;
             SAFE_DELETE(segment_group);
             return nullptr;
@@ -1240,7 +1240,7 @@ SegmentGroup* OLAPTable::_construct_segment_group_from_version(const PDelta* del
         vector<pair<string, string>> column_statistic_strings(_num_key_fields);
         std::vector<bool> null_vec(_num_key_fields);
         for (size_t j = 0; j < _num_key_fields; ++j) {
-            ColumnPruning column_pruning = prowset->column_pruning(j);
+            ColumnPruning column_pruning = psegment_group->column_pruning(j);
             column_statistic_strings[j].first = column_pruning.min();
             column_statistic_strings[j].second = column_pruning.max();
             if (column_pruning.has_null_flag()) {
@@ -1320,8 +1320,8 @@ OLAPStatus OLAPTable::clone_data(const OLAPHeader& clone_header,
                             clone_delta->end_version());
 
             // construct new segment_group
-            for (const PRowSet& prowset : clone_delta->rowset()) {
-                SegmentGroup* tmp_segment_group = _construct_segment_group_from_version(clone_delta, prowset.rowset_id());
+            for (const PSegmentGroup& psegment_group : clone_delta->segment_group()) {
+                SegmentGroup* tmp_segment_group = _construct_segment_group_from_version(clone_delta, psegment_group.segment_group_id());
                 if (tmp_segment_group == NULL) {
                     LOG(WARNING) << "fail to construct segment_group when clone data. table=" << full_name() << ", "
                         << "version=" << version.first << "-" << version.second << ", "
@@ -1583,11 +1583,11 @@ OLAPStatus OLAPTable::merge_header(const OLAPHeader& hdr, int to_version) {
         }
         Version version = { delta->start_version(), delta->end_version() };
         VersionHash v_hash = delta->version_hash();
-        for (int j = 0; j < delta->rowset_size(); ++j) {
-            const PRowSet& prowset = delta->rowset(j);
-            st = _header->add_version(version, v_hash, prowset.rowset_id(),
-                                       prowset.num_segments(), prowset.index_size(), prowset.data_size(),
-                                       prowset.num_rows(), prowset.empty(), nullptr);
+        for (int j = 0; j < delta->segment_group_size(); ++j) {
+            const PSegmentGroup& psegment_group = delta->segment_group(j);
+            st = _header->add_version(version, v_hash, psegment_group.segment_group_id(),
+                                       psegment_group.num_segments(), psegment_group.index_size(), psegment_group.data_size(),
+                                       psegment_group.num_rows(), psegment_group.empty(), nullptr);
             if (st != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to add version to header" << ", "
                     << "version=" << version.first << "-" << version.second;
@@ -2067,8 +2067,8 @@ size_t OLAPTable::get_row_size() const {
 int64_t OLAPTable::get_data_size() const {
     int64_t total_size = 0;
     for (const PDelta& delta : _header->delta()) {
-        for (const PRowSet& prowset : delta.rowset()) {
-            total_size += prowset.data_size();
+        for (const PSegmentGroup& psegment_group : delta.segment_group()) {
+            total_size += psegment_group.data_size();
         }
     }
 
@@ -2078,8 +2078,8 @@ int64_t OLAPTable::get_data_size() const {
 int64_t OLAPTable::get_num_rows() const {
     int64_t num_rows = 0;
     for (const PDelta& delta : _header->delta()) {
-        for (const PRowSet& prowset : delta.rowset()) {
-            num_rows += prowset.num_rows();
+        for (const PSegmentGroup& psegment_group : delta.segment_group()) {
+            num_rows += psegment_group.num_rows();
         }
     }
 

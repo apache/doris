@@ -80,8 +80,8 @@ OLAPHeader::~OLAPHeader() {
 }
 
 void OLAPHeader::change_file_version_to_delta() {
-    // convert FileVersionMessage to PDelta and PRowSet in initialization.
-    // FileVersionMessage is used in previous code, and PDelta and PRowSet
+    // convert FileVersionMessage to PDelta and PSegmentGroup in initialization.
+    // FileVersionMessage is used in previous code, and PDelta and PSegmentGroup
     // is used in streaming load branch.
     for (int i = 0; i < file_version_size(); ++i) {
         PDelta* delta = add_delta();
@@ -136,7 +136,7 @@ OLAPStatus OLAPHeader::load_and_init() {
     }
 
     if (file_version_size() != 0) {
-        // convert FileVersionMessage to PDelta and PRowSet in initialization.
+        // convert FileVersionMessage to PDelta and PSegmentGroup in initialization.
         for (int i = 0; i < file_version_size(); ++i) {
             PDelta* delta = add_delta();
             _convert_file_version_to_delta(file_version(i), delta);
@@ -227,8 +227,8 @@ OLAPStatus OLAPHeader::add_version(Version version, VersionHash version_hash,
     for (int i = 0; i < delta_size(); ++i) {
         if (delta(i).start_version() == version.first
             && delta(i).end_version() == version.second) {
-            for (const PRowSet& rowset : delta(i).rowset()) {
-                if (rowset.rowset_id() == segment_group_id) {
+            for (const PSegmentGroup& segment_group : delta(i).segment_group()) {
+                if (segment_group.segment_group_id() == segment_group_id) {
                     LOG(WARNING) << "the version is existed."
                         << "version=" << version.first << ", "
                         << version.second;
@@ -256,17 +256,17 @@ OLAPStatus OLAPHeader::add_version(Version version, VersionHash version_hash,
         } else {
             new_delta = const_cast<PDelta*>(&delta(delta_id));
         }
-        PRowSet* new_rowset = new_delta->add_rowset();
-        new_rowset->set_rowset_id(segment_group_id);
-        new_rowset->set_num_segments(num_segments);
-        new_rowset->set_index_size(index_size);
-        new_rowset->set_data_size(data_size);
-        new_rowset->set_num_rows(num_rows);
-        new_rowset->set_empty(empty);
+        PSegmentGroup* new_segment_group = new_delta->add_segment_group();
+        new_segment_group->set_segment_group_id(segment_group_id);
+        new_segment_group->set_num_segments(num_segments);
+        new_segment_group->set_index_size(index_size);
+        new_segment_group->set_data_size(data_size);
+        new_segment_group->set_num_rows(num_rows);
+        new_segment_group->set_empty(empty);
         if (NULL != column_statistics) {
             for (size_t i = 0; i < column_statistics->size(); ++i) {
                 ColumnPruning *column_pruning =
-                    new_rowset->add_column_pruning();
+                    new_segment_group->add_column_pruning();
                 column_pruning->set_min(column_statistics->at(i).first->to_string());
                 column_pruning->set_max(column_statistics->at(i).second->to_string());
                 column_pruning->set_null_flag(column_statistics->at(i).first->is_null());
@@ -315,7 +315,7 @@ OLAPStatus OLAPHeader::add_pending_version(
         }
 
     } catch (...) {
-        LOG(WARNING) << "fail to add pending rowset to header protobf";
+        LOG(WARNING) << "fail to add pending segment_group to header protobf";
         return OLAP_ERR_HEADER_ADD_PENDING_DELTA;
     }
 
@@ -324,7 +324,7 @@ OLAPStatus OLAPHeader::add_pending_version(
 
 OLAPStatus OLAPHeader::add_pending_segment_group(
         int64_t transaction_id, int32_t num_segments,
-        int32_t pending_rowset_id, const PUniqueId& load_id,
+        int32_t pending_segment_group_id, const PUniqueId& load_id,
         bool empty, const std::vector<KeyRange>* column_statistics) {
 
     int32_t delta_id = 0;
@@ -332,12 +332,12 @@ OLAPStatus OLAPHeader::add_pending_segment_group(
         const PPendingDelta& delta = pending_delta(i);
         if (delta.transaction_id() == transaction_id) {
             delta_id = i;
-            for (int j = 0; j < delta.pending_rowset_size(); ++j) {
-                const PPendingRowSet& pending_rowset = delta.pending_rowset(j);
-                if (pending_rowset.pending_rowset_id() == pending_rowset_id) {
-                    LOG(WARNING) << "pending rowset already exists in header."
+            for (int j = 0; j < delta.pending_segment_group_size(); ++j) {
+                const PPendingSegmentGroup& pending_segment_group = delta.pending_segment_group(j);
+                if (pending_segment_group.pending_segment_group_id() == pending_segment_group_id) {
+                    LOG(WARNING) << "pending segment_group already exists in header."
                         << "transaction_id:" << transaction_id << ", "
-                        << "pending_rowset_id: " << pending_rowset_id;
+                        << "pending_segment_group_id: " << pending_segment_group_id;
                     return OLAP_ERR_HEADER_ADD_PENDING_DELTA;
                 }
             }
@@ -345,24 +345,24 @@ OLAPStatus OLAPHeader::add_pending_segment_group(
     }
 
     try {
-        PPendingRowSet* new_pending_rowset
-            = const_cast<PPendingDelta&>(pending_delta(delta_id)).add_pending_rowset();
-        new_pending_rowset->set_pending_rowset_id(pending_rowset_id);
-        new_pending_rowset->set_num_segments(num_segments);
-        new_pending_rowset->mutable_load_id()->set_hi(load_id.hi());
-        new_pending_rowset->mutable_load_id()->set_lo(load_id.lo());
-        new_pending_rowset->set_empty(empty);
+        PPendingSegmentGroup* new_pending_segment_group
+            = const_cast<PPendingDelta&>(pending_delta(delta_id)).add_pending_segment_group();
+        new_pending_segment_group->set_pending_segment_group_id(pending_segment_group_id);
+        new_pending_segment_group->set_num_segments(num_segments);
+        new_pending_segment_group->mutable_load_id()->set_hi(load_id.hi());
+        new_pending_segment_group->mutable_load_id()->set_lo(load_id.lo());
+        new_pending_segment_group->set_empty(empty);
         if (NULL != column_statistics) {
             for (size_t i = 0; i < column_statistics->size(); ++i) {
                 ColumnPruning *column_pruning =
-                    new_pending_rowset->add_column_pruning();
+                    new_pending_segment_group->add_column_pruning();
                 column_pruning->set_min(column_statistics->at(i).first->to_string());
                 column_pruning->set_max(column_statistics->at(i).second->to_string());
                 column_pruning->set_null_flag(column_statistics->at(i).first->is_null());
             }
         }
     } catch (...) {
-        OLAP_LOG_WARNING("fail to add pending rowset to protobf");
+        OLAP_LOG_WARNING("fail to add pending segment_group to protobf");
         return OLAP_ERR_HEADER_ADD_PENDING_DELTA;
     }
 
@@ -385,10 +385,10 @@ OLAPStatus OLAPHeader::add_incremental_version(Version version, VersionHash vers
         const PDelta& incre_delta = incremental_delta(i);
         if (incre_delta.start_version() == version.first) {
             delta_id = i;
-            for (int j = 0; j < incre_delta.rowset_size(); ++j) {
-                const PRowSet& incremental_rowset = incre_delta.rowset(j);
-                if (incremental_rowset.rowset_id() == segment_group_id) {
-                    LOG(WARNING) << "rowset already exists in header."
+            for (int j = 0; j < incre_delta.segment_group_size(); ++j) {
+                const PSegmentGroup& incremental_segment_group = incre_delta.segment_group(j);
+                if (incremental_segment_group.segment_group_id() == segment_group_id) {
+                    LOG(WARNING) << "segment_group already exists in header."
                         << "version: " << version.first << "-" << version.second << ","
                         << "segment_group_id: " << segment_group_id;
                     return OLAP_ERR_HEADER_ADD_PENDING_DELTA;
@@ -409,17 +409,17 @@ OLAPStatus OLAPHeader::add_incremental_version(Version version, VersionHash vers
         } else {
             new_incremental_delta = const_cast<PDelta*>(&incremental_delta(delta_id));
         }
-        PRowSet* new_incremental_rowset = new_incremental_delta->add_rowset();
-        new_incremental_rowset->set_rowset_id(segment_group_id);
-        new_incremental_rowset->set_num_segments(num_segments);
-        new_incremental_rowset->set_index_size(index_size);
-        new_incremental_rowset->set_data_size(data_size);
-        new_incremental_rowset->set_num_rows(num_rows);
-        new_incremental_rowset->set_empty(empty);
+        PSegmentGroup* new_incremental_segment_group = new_incremental_delta->add_segment_group();
+        new_incremental_segment_group->set_segment_group_id(segment_group_id);
+        new_incremental_segment_group->set_num_segments(num_segments);
+        new_incremental_segment_group->set_index_size(index_size);
+        new_incremental_segment_group->set_data_size(data_size);
+        new_incremental_segment_group->set_num_rows(num_rows);
+        new_incremental_segment_group->set_empty(empty);
         if (NULL != column_statistics) {
             for (size_t i = 0; i < column_statistics->size(); ++i) {
                 ColumnPruning *column_pruning =
-                    new_incremental_rowset->add_column_pruning();
+                    new_incremental_segment_group->add_column_pruning();
                 column_pruning->set_min(column_statistics->at(i).first->to_string());
                 column_pruning->set_max(column_statistics->at(i).second->to_string());
                 column_pruning->set_null_flag(column_statistics->at(i).first->is_null());
@@ -469,15 +469,15 @@ const PPendingDelta* OLAPHeader::get_pending_delta(int64_t transaction_id) const
     return nullptr;
 }
 
-const PPendingRowSet* OLAPHeader::get_pending_segment_group(int64_t transaction_id,
+const PPendingSegmentGroup* OLAPHeader::get_pending_segment_group(int64_t transaction_id,
         int32_t pending_segment_group_id) const {
     for (int i = 0; i < pending_delta_size(); i++) {
         if (pending_delta(i).transaction_id() == transaction_id) {
             const PPendingDelta& delta = pending_delta(i);
-            for (int j = 0; j < delta.pending_rowset_size(); ++j) {
-                const PPendingRowSet& pending_rowset = delta.pending_rowset(j);
-                if (pending_rowset.pending_rowset_id() == pending_segment_group_id) {
-                    return &pending_rowset;
+            for (int j = 0; j < delta.pending_segment_group_size(); ++j) {
+                const PPendingSegmentGroup& pending_segment_group = delta.pending_segment_group(j);
+                if (pending_segment_group.pending_segment_group_id() == pending_segment_group_id) {
+                    return &pending_segment_group;
                 }
             }
         }
@@ -779,15 +779,15 @@ void OLAPHeader::_convert_file_version_to_delta(const FileVersionMessage& versio
     delta->set_version_hash(version.version_hash());
     delta->set_creation_time(version.creation_time());
 
-    PRowSet* rowset = delta->add_rowset();
-    rowset->set_rowset_id(-1);
-    rowset->set_num_segments(version.num_segments());
-    rowset->set_index_size(version.index_size());
-    rowset->set_data_size(version.data_size());
-    rowset->set_num_rows(version.num_rows());
+    PSegmentGroup* segment_group = delta->add_segment_group();
+    segment_group->set_segment_group_id(-1);
+    segment_group->set_num_segments(version.num_segments());
+    segment_group->set_index_size(version.index_size());
+    segment_group->set_data_size(version.data_size());
+    segment_group->set_num_rows(version.num_rows());
     if (version.has_delta_pruning()) {
         for (int i = 0; i < version.delta_pruning().column_pruning_size(); ++i) {
-            ColumnPruning* column_pruning = rowset->add_column_pruning();
+            ColumnPruning* column_pruning = segment_group->add_column_pruning();
             *column_pruning = version.delta_pruning().column_pruning(i);
         }
     }

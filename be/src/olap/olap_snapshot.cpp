@@ -504,8 +504,8 @@ OLAPStatus OLAPEngine::_create_incremental_snapshot_files(
                                "begin to link files. [table=%ld schema_hash=%d version=%ld]",
                                request.tablet_id, request.schema_hash, missing_version);
                 // link files
-                for (uint32_t i = 0; i < incremental_delta->rowset(0).num_segments(); i++) {
-                    int32_t segment_group_id = incremental_delta->rowset(0).rowset_id();
+                for (uint32_t i = 0; i < incremental_delta->segment_group(0).num_segments(); i++) {
+                    int32_t segment_group_id = incremental_delta->segment_group(0).segment_group_id();
                     string from = ref_olap_table->construct_incremental_index_file_path(
                                 Version(missing_version, missing_version),
                                 incremental_delta->version_hash(), segment_group_id, i);
