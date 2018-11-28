@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.thrift.TStorageMedium;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -39,8 +40,9 @@ public class DiskInfo implements Writable {
     private long diskAvailableCapacityB;
     private DiskState state;
 
-    // path hash is reported be Backend and no need to persist
+    // path hash and storage medium are reported from Backend and no need to persist
     private long pathHash;
+    private TStorageMedium storageMedium;
 
     private DiskInfo() {
         // for persist
@@ -53,6 +55,7 @@ public class DiskInfo implements Writable {
         this.diskAvailableCapacityB = DEFAULT_CAPACITY_B;
         this.state = DiskState.ONLINE;
         this.pathHash = -1;
+        this.storageMedium = TStorageMedium.HDD;
     }
 
     public String getRootPath() {
@@ -83,7 +86,6 @@ public class DiskInfo implements Writable {
         this.diskAvailableCapacityB = availableCapacityB;
     }
 
-
     public DiskState getState() {
         return state;
     }
@@ -104,11 +106,19 @@ public class DiskInfo implements Writable {
         return pathHash != -1;
     }
 
+    public TStorageMedium getStorageMedium() {
+        return storageMedium;
+    }
+
+    public void setStorageMedium(TStorageMedium storageMedium) {
+        this.storageMedium = storageMedium;
+    }
+
     @Override
     public String toString() {
         return "DiskInfo [rootPath=" + rootPath + "(" + pathHash + "), totalCapacityB=" + totalCapacityB
                 + ", dataUsedCapacityB=" + dataUsedCapacityB + ", diskAvailableCapacityB="
-                + diskAvailableCapacityB + ", state=" + state + "]";
+                + diskAvailableCapacityB + ", state=" + state + ", medium: " + storageMedium + "]";
     }
 
     @Override

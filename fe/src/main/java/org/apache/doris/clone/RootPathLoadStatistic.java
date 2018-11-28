@@ -19,6 +19,7 @@ package org.apache.doris.clone;
 
 import org.apache.doris.clone.BalanceStatus.ErrCode;
 import org.apache.doris.common.Config;
+import org.apache.doris.thrift.TStorageMedium;
 
 public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> {
     // Even if for tablet recovery, we can not exceed these 2 limitations.
@@ -28,15 +29,18 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
     private long beId;
     private String path;
     private Long pathHash;
+    private TStorageMedium storageMedium;
     private long capacityB;
     private long usedCapacityB;
 
     private boolean hasTask = false;
 
-    public RootPathLoadStatistic(long beId, String path, Long pathHash, long capacityB, long usedCapacityB) {
+    public RootPathLoadStatistic(long beId, String path, Long pathHash, TStorageMedium storageMedium,
+            long capacityB, long usedCapacityB) {
         this.beId = beId;
         this.path = path;
         this.pathHash = pathHash;
+        this.storageMedium = storageMedium;
         this.capacityB = capacityB <= 0 ? 1 : capacityB;
         this.usedCapacityB = usedCapacityB;
     }
@@ -51,6 +55,10 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
 
     public long getPathHash() {
         return pathHash;
+    }
+
+    public TStorageMedium getStorageMedium() {
+        return storageMedium;
     }
 
     public long getCapacityB() {

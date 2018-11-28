@@ -92,7 +92,8 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
             totalCapacityB += diskInfo.getTotalCapacityB();
             totalUsedCapacityB += diskInfo.getDataUsedCapacityB();
             RootPathLoadStatistic pathStatistic = new RootPathLoadStatistic(beId, diskInfo.getRootPath(),
-                    diskInfo.getPathHash(), diskInfo.getTotalCapacityB(), diskInfo.getDataUsedCapacityB());
+                    diskInfo.getPathHash(), diskInfo.getStorageMedium(),
+                    diskInfo.getTotalCapacityB(), diskInfo.getDataUsedCapacityB());
             pathStatistics.add(pathStatistic);
         }
 

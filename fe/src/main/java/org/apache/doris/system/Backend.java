@@ -366,6 +366,10 @@ public class Backend implements Writable {
                 diskInfo.setPathHash(tDisk.getPath_hash());
             }
 
+            if (tDisk.isSetStorage_medium()) {
+                diskInfo.setStorageMedium(tDisk.getStorage_medium());
+            }
+
             if (isUsed) {
                 diskInfo.setState(DiskState.ONLINE);
             } else {

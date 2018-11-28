@@ -680,9 +680,9 @@ public class MasterImpl {
         Preconditions.checkArgument(finishTabletInfos.size() == 1);
 
         CloneTask cloneTask = (CloneTask) task;
-        if (cloneTask.getCloneVersion() == CloneTask.VERSION_1) {
+        if (cloneTask.getTaskVersion() == CloneTask.VERSION_1) {
             Catalog.getInstance().getCloneInstance().finishCloneJob(cloneTask, finishTabletInfos.get(0));
-        } else if (cloneTask.getCloneVersion() == CloneTask.VERSION_1) {
+        } else if (cloneTask.getTaskVersion() == CloneTask.VERSION_1) {
             Catalog.getCurrentCatalog().getTabletScheduler().finishCloneTask(cloneTask, finishTabletInfos.get(0));
         }
 

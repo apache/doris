@@ -228,6 +228,10 @@ public class TabletInfo implements Comparable<TabletInfo> {
         return schemaHash;
     }
 
+    public TStorageMedium getStorageMedium() {
+        return storageMedium;
+    }
+
     public String getCluster() {
         return cluster;
     }
@@ -463,19 +467,6 @@ public class TabletInfo implements Comparable<TabletInfo> {
             throw new SchedException(Status.SCHEDULE_FAILED, errMsg);
         }
 
-        // convert path hash to path
-        String srcPath = srcBe.getPathByPathHash(srcPathHash);
-        if (srcPath == null) {
-            errMsg = "src path with hash: " + srcPathHash + " can not be found";
-            throw new SchedException(Status.SCHEDULE_FAILED, errMsg);
-        }
-
-        String destPath = destBe.getPathByPathHash(destPathHash);
-        if (destPath == null) {
-            errMsg = "dest path with hash: " + destPathHash + " can not be found";
-            throw new SchedException(Status.SCHEDULE_FAILED, errMsg);
-        }
-
         // create the clone task and clone replica.
         // we use visible version in clone task, but set the clone replica's last failed version to
         // committed version.
@@ -490,7 +481,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
         cloneTask = new CloneTask(destBackendId, dbId, tblId, partitionId, indexId,
                 tblId, schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
                 visibleVersion, visibleVersionHash);
-        cloneTask.setPath(srcPath, destPath);
+        cloneTask.setPathHash(srcPathHash, destPathHash);
 
         Replica cloneReplica = new Replica(
                 Catalog.getCurrentCatalog().getNextId(), destBackendId,
@@ -520,7 +511,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
 
     public void finishCloneTask(CloneTask cloneTask, TTabletInfo reportedTablet) throws SchedException {
         Preconditions.checkState(state == State.RUNNING);
-        Preconditions.checkArgument(cloneTask.getCloneVersion() == CloneTask.VERSION_2);
+        Preconditions.checkArgument(cloneTask.getTaskVersion() == CloneTask.VERSION_2);
         
         try {
             // check clone task

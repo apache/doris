@@ -36,10 +36,10 @@ public class CloneTask extends AgentTask {
     private long visibleVersion;
     private long visibleVersionHash;
 
-    private String srcPath = null;
-    private String destPath = null;
+    private long srcPathHash = -1;
+    private long destPathHash = -1;
 
-    private int cloneVersion = VERSION_1;
+    private int taskVersion = VERSION_1;
 
     public CloneTask(long backendId, long dbId, long tableId, long partitionId, long indexId,
                      long tabletId, int schemaHash, List<TBackend> srcBackends, TStorageMedium storageMedium,
@@ -68,14 +68,14 @@ public class CloneTask extends AgentTask {
         return visibleVersionHash;
     }
 
-    public void setPath(String srcPath, String destPath) {
-        this.srcPath = srcPath;
-        this.destPath = destPath;
-        this.cloneVersion = VERSION_2;
+    public void setPathHash(long srcPathHash, long destPathHash) {
+        this.srcPathHash = srcPathHash;
+        this.destPathHash = destPathHash;
+        this.taskVersion = VERSION_2;
     }
 
-    public int getCloneVersion() {
-        return cloneVersion;
+    public int getTaskVersion() {
+        return taskVersion;
     }
 
     public TCloneReq toThrift() {
@@ -83,12 +83,10 @@ public class CloneTask extends AgentTask {
         request.setStorage_medium(storageMedium);
         request.setCommitted_version(visibleVersion);
         request.setCommitted_version_hash(visibleVersionHash);
-        if (srcPath != null && destPath != null) {
-            request.setSrc_path(srcPath);
-            request.setDest_path(destPath);
-            request.setTask_version(VERSION_2);
-        } else {
-            request.setTask_version(VERSION_1);
+        request.setTask_version(taskVersion);
+        if (taskVersion == VERSION_2) {
+            request.setSrc_path_hash(srcPathHash);
+            request.setDest_path_hash(destPathHash);
         }
 
         return request;
@@ -100,8 +98,8 @@ public class CloneTask extends AgentTask {
         sb.append("tablet id: ").append(tabletId).append(", schema hash: ").append(schemaHash);
         sb.append(", storageMedium: ").append(storageMedium.name());
         sb.append(", visible version(hash): ").append(visibleVersion).append("-").append(visibleVersionHash);
-        sb.append(", src backend: ").append(srcBackends.get(0).getHost()).append(", src path: ").append(srcPath);
-        sb.append(", dest backend: ").append(backendId).append(", dest path: ").append(destPath);
+        sb.append(", src backend: ").append(srcBackends.get(0).getHost()).append(", src path hash: ").append(srcPathHash);
+        sb.append(", dest backend: ").append(backendId).append(", dest path hash: ").append(destPathHash);
         return sb.toString();
     }
 }

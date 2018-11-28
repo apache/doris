@@ -640,6 +640,24 @@ public class TabletScheduler extends Daemon {
 
         // all fit paths has already been sorted by load score in 'allFitPaths'.
         // just get first available path.
+        // we try to find a path with specified media type, if not find, arbitrarily use one.
+        for (RootPathLoadStatistic rootPathLoadStatistic : allFitPaths) {
+            if (rootPathLoadStatistic.getStorageMedium() != tabletInfo.getStorageMedium()) {
+                continue;
+            }
+
+            Slot slot = backendsWorkingSlots.get(rootPathLoadStatistic.getBeId());
+            if (slot == null) {
+                LOG.debug("backend {} does not found when getting slots", rootPathLoadStatistic.getBeId());
+                continue;
+            }
+
+            if (slot.takeSlot(rootPathLoadStatistic.getPathHash()) != -1) {
+                return rootPathLoadStatistic;
+            }
+        }
+
+        // no root path with specified media type is found, get arbitrary one.
         for (RootPathLoadStatistic rootPathLoadStatistic : allFitPaths) {
             Slot slot = backendsWorkingSlots.get(rootPathLoadStatistic.getBeId());
             if (slot == null) {
