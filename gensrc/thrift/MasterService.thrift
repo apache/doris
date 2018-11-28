@@ -64,6 +64,7 @@ struct TDisk {
     4: required bool used
     5: optional Types.TSize disk_available_capacity
     6: optional i64 path_hash
+    7: optional Types.TStorageMedium storage_medium
 }
 
 struct TReportRequest {

@@ -1106,12 +1106,22 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                 }
             }
         } else {
-
             // Get local disk from olap
             string local_shard_root_path;
             OlapStore* store = nullptr;
-            OLAPStatus olap_status = worker_pool_this->_env->olap_engine()->obtain_shard_path(
-                clone_req.storage_medium, &local_shard_root_path, &store);
+            OLAPStatus olap_status = OLAP_ERR_OTHER_ERROR;
+            if (clone_req.__isset.task_version && clone_req.task_version == 2) {
+                // use path specified in clone request
+                olap_status = worker_pool_this->_env->olap_engine()->obtain_shard_path_by_hash(
+                        clone_req.dest_path_hash, &local_shard_root_path, &store);
+            }
+
+            // if failed to get path by hash, or path hash is not specified, get arbitrary one
+            if (olap_status != OLAP_SUCCESS || clone_req.task_version == 1) {
+                olap_status = worker_pool_this->_env->olap_engine()->obtain_shard_path(
+                        clone_req.storage_medium, &local_shard_root_path, &store);
+            }
+
             if (olap_status != OLAP_SUCCESS) {
                 OLAP_LOG_WARNING("clone get local root path failed. signature: %ld",
                                  agent_task_req.signature);
@@ -1739,6 +1749,7 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
             TDisk disk;
             disk.__set_root_path(root_path_info.path);
             disk.__set_path_hash(root_path_info.path_hash);
+            disk.__set_storage_medium(root_path_info.storage_medium);
             disk.__set_disk_total_capacity(static_cast<double>(root_path_info.capacity));
             disk.__set_data_used_capacity(static_cast<double>(root_path_info.data_used_capacity));
             disk.__set_disk_available_capacity(static_cast<double>(root_path_info.available));

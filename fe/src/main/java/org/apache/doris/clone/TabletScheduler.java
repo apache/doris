@@ -301,6 +301,7 @@ public class TabletScheduler extends Daemon {
                     // discard
                     removeTabletInfo(tabletInfo, e.getMessage());
                 }
+                return;
             }
 
             Preconditions.checkState(tabletInfo.getState() == TabletInfo.State.RUNNING);

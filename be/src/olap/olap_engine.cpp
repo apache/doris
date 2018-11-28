@@ -544,6 +544,9 @@ OLAPStatus OLAPEngine::get_all_root_path_info(vector<RootPathInfo>* root_paths_i
                 path_map[path].capacity = 1;
                 path_map[path].data_used_capacity = 0;
                 path_map[path].available = 0;
+                path_map[path].storage_medium = TStorageMedium::HDD;
+            } else {
+                path_map[path].storage_medium = it.second->storage_medium();
             }
         }
     }
@@ -660,6 +663,8 @@ Status OLAPEngine::set_cluster_id(int32_t cluster_id) {
     return Status::OK;
 }
 
+
+
 std::vector<OlapStore*> OLAPEngine::get_stores_for_create_table(
         TStorageMedium::type storage_medium) {
     std::vector<OlapStore*> stores;
@@ -688,6 +693,18 @@ OlapStore* OLAPEngine::get_store(const std::string& path) {
         return nullptr;
     }
     return it->second;
+}
+
+OlapStore* OLAPEngine::get_store(int64_t path_hash) {
+    std::lock_guard<std::mutex> l(_store_lock);
+    for (auto& it : _store_map) {
+        if (it.second->is_used()) {
+            if (it.second->path_hash() == path_hash) {
+                return it.second;
+            }
+        }
+    }
+    return nullptr;
 }
 
 void OLAPEngine::_delete_tables_on_unused_root_path() {
@@ -2771,6 +2788,34 @@ OLAPStatus OLAPEngine::finish_clone(OLAPTablePtr tablet, const string& clone_dir
     LOG(INFO) << "finish to clone data, clear downloaded data. res=" << res
               << ", tablet=" << tablet->full_name()
               << ", clone_dir=" << clone_dir;
+    return res;
+}
+
+OLAPStatus OLAPEngine::obtain_shard_path_by_hash(
+        int64_t path_hash, std::string* shard_path, OlapStore** store) {
+    OLAP_LOG_INFO("begin to process obtain root path by hash: %ld", path_hash);
+    OLAPStatus res = OLAP_SUCCESS;
+
+    auto the_store = OLAPEngine::get_instance()->get_store(path_hash);
+    if (the_store == nullptr) {
+        OLAP_LOG_WARNING("failed to get store by path hash: %ld", path_hash);
+        return OLAP_REQUEST_FAILED;
+    }
+
+    uint64_t shard = 0;
+    res = the_store->get_shard(&shard);
+    if (res != OLAP_SUCCESS) {
+        OLAP_LOG_WARNING("fail to get root path shard. [res=%d]", res);
+        return res;
+    }
+    
+    stringstream root_path_stream;
+    root_path_stream << the_store->path() << DATA_PREFIX << "/" << shard;
+    *shard_path = root_path_stream.str();
+    *store = the_store;
+
+    OLAP_LOG_INFO("success to process obtain root path by hash. [path='%s']",
+                  shard_path->c_str());
     return res;
 }
 

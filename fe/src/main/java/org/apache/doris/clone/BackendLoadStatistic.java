@@ -83,7 +83,7 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
         }
 
         if (!be.isAlive() || be.isDecommissioned()) {
-            throw new LoadBalanceException("backend " + beId + "is unavailable. alive: " + be.isAlive()
+            throw new LoadBalanceException("backend " + beId + " is unavailable. alive: " + be.isAlive()
                     + ", decommission: " + be.isDecommissioned());
         }
 
