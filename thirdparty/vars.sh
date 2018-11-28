@@ -80,9 +80,9 @@ CLANG_NAME=cfe-3.4.2.src.tar.gz
 CLANG_SOURCE=cfe-3.4.2.src
 
 # compiler-rt
-COMPILER_RT_DOWNLOAD="http://releases.llvm.org/4.0.0/compiler-rt-4.0.0.src.tar.xz"
-COMPILER_RT_NAME=compiler-rt-4.0.0.src.tar.xz
-COMPILER_RT_SOURCE=compiler-rt-4.0.0.src
+COMPILER_RT_DOWNLOAD="http://releases.llvm.org/5.0.0/compiler-rt-5.0.0.src.tar.xz"
+COMPILER_RT_NAME=compiler-rt-5.0.0.src.tar.xz
+COMPILER_RT_SOURCE=compiler-rt-5.0.0.src
 
 # protobuf
 PROTOBUF_DOWNLOAD="https://github.com/google/protobuf/archive/v3.5.1.tar.gz"
