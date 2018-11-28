@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.CloneChecker;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.persist.ReplicaPersistInfo;
@@ -520,9 +521,11 @@ public class ReportHandler extends Daemon {
                         if (replicas.size() == 0) {
                             LOG.error("invalid situation. tablet[{}] is empty", tabletId);
                         } else if (replicas.size() < replicationNum) {
-                            CloneChecker.getInstance().checkTabletForSupplement(dbId, tableId,
-                                                                                partitionId,
-                                                                                indexId, tabletId);
+                            if (!Config.use_new_tablet_scheduler) {
+                                CloneChecker.getInstance().checkTabletForSupplement(dbId, tableId,
+                                                                                    partitionId,
+                                                                                    indexId, tabletId);
+                            }
                         }
                     }
                 } // end for tabletMetas

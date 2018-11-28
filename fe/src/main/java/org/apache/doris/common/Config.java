@@ -681,5 +681,10 @@ public class Config extends ConfigBase {
      * LOW: delay tablet_repair_delay_factor_second * 3;
      */
     @ConfField public static long tablet_repair_delay_factor_second = 60;
+    
+    /*
+     * set to true to use the TabletScheduler instead of the old CloneChecker
+     */
+    @ConfField public static boolean use_new_tablet_scheduler = false;
 }
 

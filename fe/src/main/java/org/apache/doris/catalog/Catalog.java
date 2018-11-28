@@ -1059,8 +1059,13 @@ public class Catalog {
         ExportChecker.startAll();
 
         // Clone checker
-        CloneChecker.getInstance().setInterval(Config.clone_checker_interval_second * 1000L);
-        CloneChecker.getInstance().start();
+        if (!Config.use_new_tablet_scheduler) {
+            CloneChecker.getInstance().setInterval(Config.clone_checker_interval_second * 1000L);
+            CloneChecker.getInstance().start();
+        } else {
+            tabletChecker.start();
+            tabletScheduler.start();
+        }
 
         // Colocate tables balancer
         if (!Config.disable_colocate_join) {
