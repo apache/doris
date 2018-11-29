@@ -264,6 +264,10 @@ public class TabletScheduler extends Daemon {
         }
     }
 
+    public Map<String, ClusterLoadStatistic> getStatisticMap() {
+        return statisticMap;
+    }
+
     /*
      * adjust priorities of all tablet infos
      */
@@ -386,6 +390,7 @@ public class TabletScheduler extends Daemon {
             // we do not concern priority here. once we take the tablet out of priority queue,
             // priority is meaningless.
 
+            tabletInfo.setTabletStatus(statusPair.first);
             tabletInfo.setTablet(tablet);
             tabletInfo.setVersionInfo(partition.getVisibleVersion(), partition.getVisibleVersionHash(),
                                       partition.getCommittedVersion(), partition.getCommittedVersionHash());

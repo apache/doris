@@ -124,6 +124,7 @@ public class ClusterLoadStatistic {
             for (RootPathLoadStatistic pathStatistic : beStatistic.getPathStatistics()) {
                 List<String> pathStat = Lists.newArrayList();
                 pathStat.add(pathStatistic.getPath());
+                pathStat.add(String.valueOf(pathStatistic.getPathHash()));
                 pathStat.add(String.valueOf(pathStatistic.getUsedCapacityB()));
                 pathStat.add(String.valueOf(pathStatistic.getCapacityB()));
                 pathStat.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(pathStatistic.getUsedCapacityB() * 100

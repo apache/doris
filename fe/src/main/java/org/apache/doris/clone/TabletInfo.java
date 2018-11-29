@@ -150,8 +150,9 @@ public class TabletInfo implements Comparable<TabletInfo> {
 
     private SystemInfoService infoService;
 
-    public TabletInfo(String cluster, long dbId, long tblId, long partId, long idxId, long tabletId,
-            int schemaHash, TStorageMedium storageMedium, long createTime) {
+    public TabletInfo(TabletStatus status, String cluster, long dbId, long tblId, long partId,
+            long idxId, long tabletId, int schemaHash, TStorageMedium storageMedium, long createTime) {
+        this.tabletStatus = status;
         this.cluster = cluster;
         this.dbId = dbId;
         this.tblId = tblId;
@@ -206,8 +207,8 @@ public class TabletInfo implements Comparable<TabletInfo> {
         this.state = state;
     }
 
-    public TabletStatus getTabletStatus() {
-        return tabletStatus;
+    public void setTabletStatus(TabletStatus tabletStatus) {
+        this.tabletStatus = tabletStatus;
     }
 
     public long getDbId() {

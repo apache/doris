@@ -151,7 +151,8 @@ public class TabletChecker extends Daemon {
                                     continue;
                                 }
 
-                                TabletInfo tabletInfo = new TabletInfo(db.getClusterName(),
+                                TabletInfo tabletInfo = new TabletInfo(statusWithPrio.first,
+                                        db.getClusterName(),
                                         db.getId(), olapTbl.getId(),
                                         partition.getId(), idx.getId(), tablet.getId(),
                                         olapTbl.getSchemaHashByIndexId(idx.getId()),
