@@ -2955,6 +2955,8 @@ type ::=
   {: RESULT = Type.DATE; :}
   | KW_DATETIME
   {: RESULT = Type.DATETIME; :}
+  | KW_STRING
+  {: RESULT = ScalarType.createVarcharType(1); :}
   | KW_VARCHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: RESULT = ScalarType.createVarcharType(len.intValue()); :}
   | KW_VARCHAR
