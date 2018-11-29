@@ -47,7 +47,7 @@ public class ScalarType extends Type {
     public static final int DEFAULT_SCALE = 0; // SQL standard
 
     // Longest supported VARCHAR and CHAR, chosen to match Hive.
-    public static final int MAX_VARCHAR_LENGTH = 65355;
+    public static final int MAX_VARCHAR_LENGTH = 65533;
     public static final int MAX_CHAR_LENGTH = 255;
 
     // HLL DEFAULT LENGTH  2^14(registers) + 1(type)

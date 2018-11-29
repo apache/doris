@@ -2955,16 +2955,14 @@ type ::=
   {: RESULT = Type.DATE; :}
   | KW_DATETIME
   {: RESULT = Type.DATETIME; :}
-  | KW_STRING
-  {: RESULT = ScalarType.createVarcharType(-1); :}
   | KW_VARCHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: RESULT = ScalarType.createVarcharType(len.intValue()); :}
   | KW_VARCHAR
-  {: RESULT = ScalarType.createVarcharType(-1); :}
+  {: RESULT = ScalarType.createVarcharType(1); :}
   | KW_CHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: RESULT = ScalarType.createCharType(len.intValue()); :}
   | KW_CHAR
-  {: RESULT = ScalarType.createCharType(-1); :}
+  {: RESULT = ScalarType.createCharType(1); :}
   | KW_DECIMAL LPAREN INTEGER_LITERAL:precision RPAREN
   {: RESULT = ScalarType.createDecimalType(precision.intValue()); :}
   | KW_DECIMAL LPAREN INTEGER_LITERAL:precision COMMA INTEGER_LITERAL:scale RPAREN
