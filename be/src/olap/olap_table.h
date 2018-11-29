@@ -38,7 +38,7 @@ namespace doris {
 class FieldInfo;
 class ColumnData;
 class OLAPHeader;
-class Rowset;
+class SegmentGroup;
 class OLAPTable;
 class RowBlockPosition;
 class OlapStore;
@@ -159,20 +159,20 @@ public:
 
     // Registers a newly created data source, making it available for
     // querying.  Adds a reference to the data source in the header file.
-    OLAPStatus register_data_source(const std::vector<Rowset*>& index_vec);
+    OLAPStatus register_data_source(const std::vector<SegmentGroup*>& segment_group_vec);
 
     // Unregisters the data source for given version, frees up resources.
     // resources include memory, files.
-    // After unregister, index will point to the associated Rowset.
-    OLAPStatus unregister_data_source(const Version& version, std::vector<Rowset*>* index_vec);
+    // After unregister, segment_group will point to the associated SegmentGroup.
+    OLAPStatus unregister_data_source(const Version& version, std::vector<SegmentGroup*>* segment_group_vec);
 
     // if pending data is push_for_delete, delete conditions is not null
     OLAPStatus add_pending_version(int64_t partition_id, int64_t transaction_id,
                                  const std::vector<std::string>* delete_conditions);
-    OLAPStatus add_pending_rowset(Rowset* index);
-    int32_t current_pending_rowset_id(int64_t transaction_id);
+    OLAPStatus add_pending_segment_group(SegmentGroup* segment_group);
+    int32_t current_pending_segment_group_id(int64_t transaction_id);
 
-    OLAPStatus add_pending_data(Rowset* index, const std::vector<TCondition>* delete_conditions);
+    OLAPStatus add_pending_data(SegmentGroup* segment_group, const std::vector<TCondition>* delete_conditions);
 
     bool has_pending_data(int64_t transaction_id);
 
@@ -209,8 +209,8 @@ public:
     // Atomically replaces one set of data sources with another. Returns
     // true on success.
     OLAPStatus replace_data_sources(const std::vector<Version>* old_versions,
-                                const std::vector<Rowset*>* new_data_sources,
-                                std::vector<Rowset*>* old_data_sources);
+                                const std::vector<SegmentGroup*>* new_data_sources,
+                                std::vector<SegmentGroup*>* old_data_sources);
 
     // Computes the cumulative hash for given versions.
     // Only use Base file and Delta files to compute for simplicity and
@@ -310,7 +310,7 @@ public:
     // DailyWinfoIdeaStats_PRIMARY_20120428_0_200_735382373247_1.idx
     std::string construct_index_file_path(const Version& version,
                                           VersionHash version_hash,
-                                          int32_t rowset_id, int32_t segment) const;
+                                          int32_t segment_group_id, int32_t segment) const;
 
     // Same as construct_index_file_path except that file suffix is .dat
     // The typical index file path is:
@@ -318,29 +318,29 @@ public:
     // DailyWinfoIdeaStats_PRIMARY_20120428_0_200_735382373247_1.dat
     std::string construct_data_file_path(const Version& version,
                                          VersionHash version_hash,
-                                         int32_t rowset_id, int32_t segment) const;
+                                         int32_t segment_group_id, int32_t segment) const;
 
     // For index file, suffix is "idx", for data file, suffix is "dat".
     static std::string construct_file_path(const std::string& tablet_path,
                                            const Version& version,
                                            VersionHash version_hash,
-                                           int32_t rowset_id, int32_t segment,
+                                           int32_t segment_group_id, int32_t segment,
                                            const std::string& suffix);
 
     std::string construct_pending_data_dir_path() const;
     std::string construct_pending_index_file_path(
-        TTransactionId transaction_id, int32_t rowset_id, int32_t segment) const;
+        TTransactionId transaction_id, int32_t segment_group_id, int32_t segment) const;
     std::string construct_pending_data_file_path(
-        TTransactionId transaction_id, int32_t rowset_id, int32_t segment) const;
+        TTransactionId transaction_id, int32_t segment_group_id, int32_t segment) const;
     std::string construct_incremental_delta_dir_path() const;
     std::string construct_incremental_index_file_path(
-        Version version, VersionHash version_hash, int32_t rowset_id, int32_t segment) const;
+        Version version, VersionHash version_hash, int32_t segment_group_id, int32_t segment) const;
     std::string construct_incremental_data_file_path(
-        Version version, VersionHash version_hash, int32_t rowset_id, int32_t segment) const;
+        Version version, VersionHash version_hash, int32_t segment_group_id, int32_t segment) const;
 
     std::string construct_file_name(const Version& version,
                                     VersionHash version_hash,
-                                    int32_t rowset_id, int32_t segment,
+                                    int32_t segment_group_id, int32_t segment,
                                     const std::string& suffix) const;
 
     std::string construct_dir_path() const;
@@ -670,7 +670,7 @@ public:
     OLAPStatus recover_tablet_until_specfic_version(const int64_t& until_version,
                                                     const int64_t& version_hash);
 private:
-    // used for hash-struct of hash_map<Version, Rowset*>.
+    // used for hash-struct of hash_map<Version, SegmentGroup*>.
     struct HashOfVersion {
         uint64_t operator()(const Version& version) const {
             uint64_t hash_value = version.first;
@@ -690,16 +690,16 @@ private:
                                  std::set<std::string>* file_names) const;
 
     // 获取最大的index（只看大小）
-    Rowset* _get_largest_index();
+    SegmentGroup* _get_largest_index();
 
-    Rowset* _construct_index_from_version(const PDelta* delta, int32_t rowset_id);
+    SegmentGroup* _construct_segment_group_from_version(const PDelta* delta, int32_t segment_group_id);
 
     // check if version is same, may delete local data
     OLAPStatus _handle_existed_version(int64_t transaction_id, const Version& version,
                                        const VersionHash& version_hash);
 
     // like "9-9" "10-10", for incremental cloning
-    OLAPStatus _add_incremental_data(std::vector<Rowset*>& index_vec, int64_t transaction_id,
+    OLAPStatus _add_incremental_data(std::vector<SegmentGroup*>& index_vec, int64_t transaction_id,
                                      const Version& version, const VersionHash& version_hash);
 
     void _delete_incremental_data(const Version& version, const VersionHash& version_hash);
@@ -718,11 +718,11 @@ private:
     std::string _full_name;
     std::vector<FieldInfo> _tablet_schema;  // field info vector is table schema.
 
-    // Version mapping to Rowset.
+    // Version mapping to SegmentGroup.
     // data source can be base delta, cumulative delta, singleton delta.
-    using version_olap_index_map_t = std::unordered_map<Version, std::vector<Rowset*>, HashOfVersion>;
+    using version_olap_index_map_t = std::unordered_map<Version, std::vector<SegmentGroup*>, HashOfVersion>;
     version_olap_index_map_t _data_sources;
-    using transaction_olap_index_map_t = std::unordered_map<int64_t, std::vector<Rowset*>>;
+    using transaction_olap_index_map_t = std::unordered_map<int64_t, std::vector<SegmentGroup*>>;
     transaction_olap_index_map_t _pending_data_sources;
 
     size_t _num_fields;

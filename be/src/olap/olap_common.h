@@ -176,11 +176,11 @@ struct Vertex {
 class Field;
 class WrapperField;
 using KeyRange = std::pair<WrapperField*, WrapperField*>;
-struct RowSetEntity {
-    RowSetEntity(int32_t rowset_id, int32_t num_segments,
+struct SegmentGroupEntity {
+    SegmentGroupEntity(int32_t segment_group_id, int32_t num_segments,
                 int64_t num_rows, size_t data_size, size_t index_size,
                 bool empty, const std::vector<KeyRange>* column_statistics)
-        : rowset_id(rowset_id), num_segments(num_segments), num_rows(num_rows),
+        : segment_group_id(segment_group_id), num_segments(num_segments), num_rows(num_rows),
           data_size(data_size), index_size(index_size), empty(empty)
     {
         if (column_statistics != nullptr) {
@@ -188,7 +188,7 @@ struct RowSetEntity {
         }
     }
 
-    int32_t rowset_id;
+    int32_t segment_group_id;
     int32_t num_segments;
     int64_t num_rows;
     size_t data_size;
@@ -200,13 +200,13 @@ struct RowSetEntity {
 struct VersionEntity {
     VersionEntity(Version v, VersionHash version_hash)
         : version(v), version_hash(version_hash) { }
-    void add_rowset_entity(const RowSetEntity& rowset) {
-        rowset_vec.push_back(rowset);
+    void add_segment_group_entity(const SegmentGroupEntity& segment_group_entity) {
+        segment_group_vec.push_back(segment_group_entity);
     }
 
     Version version;
     VersionHash version_hash;
-    std::vector<RowSetEntity> rowset_vec;
+    std::vector<SegmentGroupEntity> segment_group_vec;
 };
 
 // ReaderStatistics used to collect statistics when scan data from storage

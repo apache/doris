@@ -28,7 +28,7 @@
 namespace doris {
 
 class ColumnData;
-class Rowset;
+class SegmentGroup;
 
 // @brief 实现对START_BASE_COMPACTION命令的处理逻辑，并返回处理结果
 class BaseCompaction {
@@ -94,23 +94,23 @@ private:
    
     // 更新Header使得修改对外可见
     // 输出参数：
-    // - unused_olap_indices: 需要被物理删除的Rowset*
+    // - unused_olap_indices: 需要被物理删除的SegmentGroup*
     //
     // 返回值：
     // - 如果执行成功，则返回OLAP_SUCCESS；
     // - 其它情况下，返回相应的错误码
     OLAPStatus _update_header(uint64_t row_count,
-                              std::vector<Rowset*>* unused_olap_indices);
+                              std::vector<SegmentGroup*>* unused_olap_indices);
 
-    // 删除不再使用的Rowset文件
+    // 删除不再使用的SegmentGroup文件
     // 
     // 输入参数：
-    // - unused_olap_indices: 需要被物理删除的Rowset*
+    // - unused_olap_indices: 需要被物理删除的SegmentGroup*
     //
     // 返回值：
     // - 如果执行成功，则返回OLAP_SUCCESS；
     // - 其它情况下，返回相应的错误码
-    void _delete_old_files(std::vector<Rowset*>* unused_indices);
+    void _delete_old_files(std::vector<SegmentGroup*>* unused_indices);
 
     // 其它函数执行失败时，调用该函数进行清理工作
     void _garbage_collection();
@@ -173,8 +173,8 @@ private:
     Version _latest_cumulative;
     // 在此次base compaction执行过程中，将被合并的cumulative文件版本
     std::vector<Version> _need_merged_versions;
-    // 需要新增的版本对应的Rowset
-    std::vector<Rowset*> _new_olap_indices;
+    // 需要新增的版本对应的SegmentGroup
+    std::vector<SegmentGroup*> _new_olap_indices;
 
     bool _base_compaction_locked;
 

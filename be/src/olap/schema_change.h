@@ -150,7 +150,7 @@ public:
     SchemaChange() : _filted_rows(0), _merged_rows(0) {}
     virtual ~SchemaChange() {}
 
-    virtual bool process(ColumnData* olap_data, Rowset* new_olap_index) = 0;
+    virtual bool process(ColumnData* olap_data, SegmentGroup* new_segment_group) = 0;
 
     void add_filted_rows(uint64_t filted_rows) {
         _filted_rows += filted_rows;
@@ -181,7 +181,7 @@ public:
             TSchemaHash schema_hash,
             Version version,
             VersionHash version_hash,
-            Rowset* olap_index);
+            SegmentGroup* segment_group);
 
 private:
     uint64_t _filted_rows;
@@ -195,7 +195,7 @@ public:
                 OLAPTablePtr new_olap_table);
     ~LinkedSchemaChange() {}
 
-    bool process(ColumnData* olap_data, Rowset* new_olap_index);
+    bool process(ColumnData* olap_data, SegmentGroup* new_segment_group);
 private:
     OLAPTablePtr _base_olap_table;
     OLAPTablePtr _new_olap_table;
@@ -212,7 +212,7 @@ public:
             const RowBlockChanger& row_block_changer);
     virtual ~SchemaChangeDirectly();
 
-    virtual bool process(ColumnData* olap_data, Rowset* new_olap_index);
+    virtual bool process(ColumnData* olap_data, SegmentGroup* new_segment_group);
 
 private:
     OLAPTablePtr _olap_table;
@@ -235,17 +235,17 @@ public:
             size_t memory_limitation);
     virtual ~SchemaChangeWithSorting();
 
-    virtual bool process(ColumnData* olap_data, Rowset* new_olap_index);
+    virtual bool process(ColumnData* olap_data, SegmentGroup* new_segment_group);
 
 private:
     bool _internal_sorting(
             const std::vector<RowBlock*>& row_block_arr,
             const Version& temp_delta_versions,
-            Rowset** temp_olap_index);
+            SegmentGroup** temp_segment_group);
 
     bool _external_sorting(
-            std::vector<Rowset*>& src_olap_index_arr,
-            Rowset* olap_index);
+            std::vector<SegmentGroup*>& src_segment_group_arr,
+            SegmentGroup* segment_group);
 
     OLAPTablePtr _olap_table;
     const RowBlockChanger& _row_block_changer;
@@ -266,8 +266,8 @@ public:
 
     OLAPStatus schema_version_convert(OLAPTablePtr ref_olap_table,
                                       OLAPTablePtr new_olap_table,
-                                      std::vector<Rowset*>* ref_olap_indices,
-                                      std::vector<Rowset*>* new_olap_indices);
+                                      std::vector<SegmentGroup*>* ref_segment_groups,
+                                      std::vector<SegmentGroup*>* new_segment_groups);
 
     // 清空一个table下的schema_change信息：包括split_talbe以及其他schema_change信息
     //  这里只清理自身的out链，不考虑related的table

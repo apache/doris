@@ -73,7 +73,7 @@ private:
         }
 
         OLAPStatus init() {
-            auto res = _row_cursor.init(_data->olap_index()->table()->tablet_schema());
+            auto res = _row_cursor.init(_data->segment_group()->table()->tablet_schema());
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to init row cursor, res=" << res;
                 return res;

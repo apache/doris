@@ -31,8 +31,8 @@ class ColumnDataWriter {
 public:
     // Factory function
     // 调用者获得新建的对象, 并负责delete释放
-    static ColumnDataWriter* create(OLAPTablePtr table, Rowset* index, bool is_push_write);
-    ColumnDataWriter(OLAPTablePtr table, Rowset* index, bool is_push_write);
+    static ColumnDataWriter* create(OLAPTablePtr table, SegmentGroup* segment_group, bool is_push_write);
+    ColumnDataWriter(OLAPTablePtr table, SegmentGroup* segment_group, bool is_push_write);
     ~ColumnDataWriter();
     OLAPStatus init();
     OLAPStatus attached_by(RowCursor* row_cursor);
@@ -55,7 +55,7 @@ private:
     std::vector<std::pair<WrapperField*, WrapperField*>> _column_statistics;
     uint32_t _row_index;
 
-    Rowset* _index;
+    SegmentGroup* _segment_group;
     RowBlock* _row_block;      // 使用RowBlcok缓存要写入的数据
     RowCursor _cursor;
     SegmentWriter* _segment_writer;

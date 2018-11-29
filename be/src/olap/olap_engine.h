@@ -265,7 +265,7 @@ public:
 
     void start_delete_unused_index();
 
-    void add_unused_index(Rowset* olap_index);
+    void add_unused_index(SegmentGroup* olap_index);
 
     // ######################### ALTER TABLE BEGIN #########################
     // The following interfaces are all about alter tablet operation, 
@@ -435,13 +435,13 @@ private:
             const std::string& tablet_path_prefix,
             const Version& version,
             VersionHash version_hash,
-            int32_t rowset_id, int32_t segment) const;
+            int32_t segment_group_id, int32_t segment) const;
 
     std::string _construct_data_file_path(
             const std::string& tablet_path_prefix,
             const Version& version,
             VersionHash version_hash,
-            int32_t rowset_id, int32_t segment) const;
+            int32_t segment_group_id, int32_t segment) const;
 
     OLAPStatus _generate_new_header(
             OlapStore* store,
@@ -565,7 +565,7 @@ private:
     Mutex _snapshot_mutex;
     uint64_t _snapshot_base_id;
 
-    std::unordered_map<Rowset*, std::vector<std::string>> _gc_files;
+    std::unordered_map<SegmentGroup*, std::vector<std::string>> _gc_files;
     Mutex _gc_mutex;
 
     // Thread functions

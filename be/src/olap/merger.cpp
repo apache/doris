@@ -22,7 +22,7 @@
 
 #include "olap/column_data.h"
 #include "olap/olap_define.h"
-#include "olap/rowset.h"
+#include "olap/segment_group.h"
 #include "olap/olap_table.h"
 #include "olap/reader.h"
 #include "olap/row_cursor.h"
@@ -35,9 +35,9 @@ using std::vector;
 
 namespace doris {
 
-Merger::Merger(OLAPTablePtr table, Rowset* index, ReaderType type) : 
+Merger::Merger(OLAPTablePtr table, SegmentGroup* segment_group, ReaderType type) : 
         _table(table),
-        _index(index),
+        _segment_group(segment_group),
         _reader_type(type),
         _row_count(0) {}
 
@@ -52,7 +52,7 @@ OLAPStatus Merger::merge(const vector<ColumnData*>& olap_data_arr,
     reader_params.olap_data_arr = olap_data_arr;
 
     if (_reader_type == READER_BASE_COMPACTION) {
-        reader_params.version = _index->version();
+        reader_params.version = _segment_group->version();
     }
 
     if (OLAP_SUCCESS != reader.init(reader_params)) {
@@ -62,7 +62,7 @@ OLAPStatus Merger::merge(const vector<ColumnData*>& olap_data_arr,
     }
 
     // create and initiate writer for generating new index and data files.
-    unique_ptr<ColumnDataWriter> writer(ColumnDataWriter::create(_table, _index, false));
+    unique_ptr<ColumnDataWriter> writer(ColumnDataWriter::create(_table, _segment_group, false));
 
     if (NULL == writer) {
         OLAP_LOG_WARNING("fail to allocate writer.");

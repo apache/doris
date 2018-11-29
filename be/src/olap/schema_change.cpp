@@ -686,10 +686,10 @@ bool SchemaChangeDirectly::_write_row_block(ColumnDataWriter* writer, RowBlock* 
     return true;
 }
 
-bool LinkedSchemaChange::process(ColumnData* olap_data, Rowset* new_rowset) {
-    for (size_t i = 0; i < olap_data->olap_index()->num_segments(); ++i) {
-        string index_path = new_rowset->construct_index_file_path(new_rowset->rowset_id(), i);
-        string base_table_index_path = olap_data->olap_index()->construct_index_file_path(olap_data->olap_index()->rowset_id(), i);
+bool LinkedSchemaChange::process(ColumnData* olap_data, SegmentGroup* new_segment_group) {
+    for (size_t i = 0; i < olap_data->segment_group()->num_segments(); ++i) {
+        string index_path = new_segment_group->construct_index_file_path(new_segment_group->segment_group_id(), i);
+        string base_table_index_path = olap_data->segment_group()->construct_index_file_path(olap_data->segment_group()->segment_group_id(), i);
         if (link(base_table_index_path.c_str(), index_path.c_str()) == 0) {
             OLAP_LOG_DEBUG("success to create hard link. [from_path=%s to_path=%s]",
                            base_table_index_path.c_str(), index_path.c_str());
@@ -700,8 +700,8 @@ bool LinkedSchemaChange::process(ColumnData* olap_data, Rowset* new_rowset) {
             return false;
         }
 
-        string data_path = new_rowset->construct_data_file_path(new_rowset->rowset_id(), i);
-        string base_table_data_path = olap_data->olap_index()->construct_data_file_path(olap_data->olap_index()->rowset_id(), i);
+        string data_path = new_segment_group->construct_data_file_path(new_segment_group->segment_group_id(), i);
+        string base_table_data_path = olap_data->segment_group()->construct_data_file_path(olap_data->segment_group()->segment_group_id(), i);
         if (link(base_table_data_path.c_str(), data_path.c_str()) == 0) {
             OLAP_LOG_DEBUG("success to create hard link. [from_path=%s to_path=%s]",
                            base_table_data_path.c_str(), data_path.c_str());
@@ -713,23 +713,23 @@ bool LinkedSchemaChange::process(ColumnData* olap_data, Rowset* new_rowset) {
         }
     }
 
-    new_rowset->set_empty(olap_data->empty());
-    new_rowset->set_num_segments(olap_data->olap_index()->num_segments());
-    new_rowset->add_column_statistics_for_linked_schema_change(olap_data->olap_index()->get_column_statistics());
+    new_segment_group->set_empty(olap_data->empty());
+    new_segment_group->set_num_segments(olap_data->segment_group()->num_segments());
+    new_segment_group->add_column_statistics_for_linked_schema_change(olap_data->segment_group()->get_column_statistics());
 
-    if (OLAP_SUCCESS != new_rowset->load()) {
+    if (OLAP_SUCCESS != new_segment_group->load()) {
         OLAP_LOG_WARNING("fail to reload index. [table='%s' version='%d-%d']",
                          _new_olap_table->full_name().c_str(),
-                         new_rowset->version().first,
-                         new_rowset->version().second);
+                         new_segment_group->version().first,
+                         new_segment_group->version().second);
         return false;
     }
 
     return true;
 }
 
-bool SchemaChangeDirectly::process(ColumnData* olap_data, Rowset* new_rowset) {
-    DataFileType data_file_type = new_rowset->table()->data_file_type();
+bool SchemaChangeDirectly::process(ColumnData* olap_data, SegmentGroup* new_segment_group) {
+    DataFileType data_file_type = new_segment_group->table()->data_file_type();
     bool null_supported = true;
 
     if (NULL == _row_block_allocator) {
@@ -785,14 +785,14 @@ bool SchemaChangeDirectly::process(ColumnData* olap_data, Rowset* new_rowset) {
     }
 
     if (need_create_empty_version) {
-        res = create_init_version(new_rowset->table()->tablet_id(),
-                                  new_rowset->table()->schema_hash(),
-                                  new_rowset->version(),
-                                  new_rowset->version_hash(),
-                                  new_rowset);
+        res = create_init_version(new_segment_group->table()->tablet_id(),
+                                  new_segment_group->table()->schema_hash(),
+                                  new_segment_group->version(),
+                                  new_segment_group->version_hash(),
+                                  new_segment_group);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "create empty version for schema change failed."
-                << "version=" << new_rowset->version().first << "-" << new_rowset->version().second; 
+                << "version=" << new_segment_group->version().first << "-" << new_segment_group->version().second; 
             return false;
         }
         return true;
@@ -802,7 +802,7 @@ bool SchemaChangeDirectly::process(ColumnData* olap_data, Rowset* new_rowset) {
         << "block_row_size=" << _olap_table->num_rows_per_row_block();
     bool result = true;
     RowBlock* new_row_block = NULL;
-    ColumnDataWriter* writer = ColumnDataWriter::create(_olap_table, new_rowset, false);
+    ColumnDataWriter* writer = ColumnDataWriter::create(_olap_table, new_segment_group, false);
     if (NULL == writer) {
         OLAP_LOG_WARNING("failed to create writer.");
         result = false;
@@ -862,11 +862,11 @@ bool SchemaChangeDirectly::process(ColumnData* olap_data, Rowset* new_rowset) {
         goto DIRECTLY_PROCESS_ERR;
     }
 
-    if (OLAP_SUCCESS != new_rowset->load()) {
+    if (OLAP_SUCCESS != new_segment_group->load()) {
         OLAP_LOG_WARNING("fail to reload index. [table='%s' version='%d-%d']",
                          _olap_table->full_name().c_str(),
-                         new_rowset->version().first,
-                         new_rowset->version().second);
+                         new_segment_group->version().first,
+                         new_segment_group->version().second);
         result = false;
         goto DIRECTLY_PROCESS_ERR;
     }
@@ -875,19 +875,19 @@ bool SchemaChangeDirectly::process(ColumnData* olap_data, Rowset* new_rowset) {
 
     // Check row num changes
     if (config::row_nums_check) {
-        if (olap_data->olap_index()->num_rows()
-            != new_rowset->num_rows() + merged_rows() + filted_rows()) {
+        if (olap_data->segment_group()->num_rows()
+            != new_segment_group->num_rows() + merged_rows() + filted_rows()) {
             OLAP_LOG_FATAL("fail to check row num! "
                            "[source_rows=%lu merged_rows=%lu filted_rows=%lu new_index_rows=%lu]",
-                           olap_data->olap_index()->num_rows(),
-                           merged_rows(), filted_rows(), new_rowset->num_rows());
+                           olap_data->segment_group()->num_rows(),
+                           merged_rows(), filted_rows(), new_segment_group->num_rows());
             result = false;
         }
     } else {
         OLAP_LOG_INFO("all row nums. "
                       "[source_rows=%lu merged_rows=%lu filted_rows=%lu new_index_rows=%lu]",
-                      olap_data->olap_index()->num_rows(),
-                      merged_rows(), filted_rows(), new_rowset->num_rows());
+                      olap_data->segment_group()->num_rows(),
+                      merged_rows(), filted_rows(), new_segment_group->num_rows());
     }
 
 DIRECTLY_PROCESS_ERR:
@@ -917,7 +917,7 @@ SchemaChangeWithSorting::~SchemaChangeWithSorting() {
     SAFE_DELETE(_row_block_allocator);
 }
 
-bool SchemaChangeWithSorting::process(ColumnData* olap_data, Rowset* new_rowset) {
+bool SchemaChangeWithSorting::process(ColumnData* olap_data, SegmentGroup* new_segment_group) {
     if (NULL == _row_block_allocator) {
         if (NULL == (_row_block_allocator = new(nothrow) RowBlockAllocator(
                         _olap_table->tablet_schema(), _memory_limitation))) {
@@ -927,7 +927,7 @@ bool SchemaChangeWithSorting::process(ColumnData* olap_data, Rowset* new_rowset)
         }
     }
 
-    DataFileType data_file_type = new_rowset->table()->data_file_type();
+    DataFileType data_file_type = new_segment_group->table()->data_file_type();
     bool null_supported = true;
 
     RowBlock* ref_row_block = NULL;
@@ -948,14 +948,14 @@ bool SchemaChangeWithSorting::process(ColumnData* olap_data, Rowset* new_rowset)
     }
 
     if (need_create_empty_version) {
-        res = create_init_version(new_rowset->table()->tablet_id(),
-                                  new_rowset->table()->schema_hash(),
-                                  new_rowset->version(),
-                                  new_rowset->version_hash(),
-                                  new_rowset);
+        res = create_init_version(new_segment_group->table()->tablet_id(),
+                                  new_segment_group->table()->schema_hash(),
+                                  new_segment_group->version(),
+                                  new_segment_group->version_hash(),
+                                  new_segment_group);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "create empty version for schema change failed."
-                << "version=" << new_rowset->version().first << "-" << new_rowset->version().second;
+                << "version=" << new_segment_group->version().first << "-" << new_segment_group->version().second;
             return false;
         }
         return true;
@@ -970,7 +970,7 @@ bool SchemaChangeWithSorting::process(ColumnData* olap_data, Rowset* new_rowset)
     vector<RowBlock*> row_block_arr;
 
     // for external sorting
-    vector<Rowset*> olap_rowsets;
+    vector<SegmentGroup*> olap_segment_groups;
 
     _temp_delta_versions.first = _temp_delta_versions.second;
 
@@ -996,18 +996,18 @@ bool SchemaChangeWithSorting::process(ColumnData* olap_data, Rowset* new_rowset)
             }
 
             // enter here while memory limitation is reached.
-            Rowset* rowset = NULL;
+            SegmentGroup* segment_group = NULL;
 
             if (!_internal_sorting(row_block_arr,
                                    Version(_temp_delta_versions.second,
                                            _temp_delta_versions.second),
-                                   &rowset)) {
+                                   &segment_group)) {
                 OLAP_LOG_WARNING("failed to sorting internally.");
                 result = false;
                 goto SORTING_PROCESS_ERR;
             }
 
-            olap_rowsets.push_back(rowset);
+            olap_segment_groups.push_back(segment_group);
 
             for (vector<RowBlock*>::iterator it = row_block_arr.begin();
                     it != row_block_arr.end(); ++it) {
@@ -1052,17 +1052,17 @@ bool SchemaChangeWithSorting::process(ColumnData* olap_data, Rowset* new_rowset)
 
     if (!row_block_arr.empty()) {
         // enter here while memory limitation is reached.
-        Rowset* rowset = NULL;
+        SegmentGroup* segment_group = NULL;
 
         if (!_internal_sorting(row_block_arr,
                                Version(_temp_delta_versions.second, _temp_delta_versions.second),
-                               &rowset)) {
+                               &segment_group)) {
             OLAP_LOG_WARNING("failed to sorting internally.");
             result = false;
             goto SORTING_PROCESS_ERR;
         }
 
-        olap_rowsets.push_back(rowset);
+        olap_segment_groups.push_back(segment_group);
 
         for (vector<RowBlock*>::iterator it = row_block_arr.begin();
                 it != row_block_arr.end(); ++it) {
@@ -1076,7 +1076,7 @@ bool SchemaChangeWithSorting::process(ColumnData* olap_data, Rowset* new_rowset)
     }
 
     // TODO(zyh): 如果_temp_delta_versions只有一个，不需要再外排
-    if (!_external_sorting(olap_rowsets, new_rowset)) {
+    if (!_external_sorting(olap_segment_groups, new_segment_group)) {
         OLAP_LOG_WARNING("failed to sorting externally.");
         result = false;
         goto SORTING_PROCESS_ERR;
@@ -1086,24 +1086,24 @@ bool SchemaChangeWithSorting::process(ColumnData* olap_data, Rowset* new_rowset)
 
     // Check row num changes
     if (config::row_nums_check) {
-        if (olap_data->olap_index()->num_rows()
-            != new_rowset->num_rows() + merged_rows() + filted_rows()) {
+        if (olap_data->segment_group()->num_rows()
+            != new_segment_group->num_rows() + merged_rows() + filted_rows()) {
             OLAP_LOG_WARNING("fail to check row num! "
                              "[source_rows=%lu merged_rows=%lu filted_rows=%lu new_index_rows=%lu]",
-                             olap_data->olap_index()->num_rows(),
-                             merged_rows(), filted_rows(), new_rowset->num_rows());
+                             olap_data->segment_group()->num_rows(),
+                             merged_rows(), filted_rows(), new_segment_group->num_rows());
             result = false;
         }
     } else {
         OLAP_LOG_INFO("all row nums. "
                       "[source_rows=%lu merged_rows=%lu filted_rows=%lu new_index_rows=%lu]",
-                      olap_data->olap_index()->num_rows(),
-                      merged_rows(), filted_rows(), new_rowset->num_rows());
+                      olap_data->segment_group()->num_rows(),
+                      merged_rows(), filted_rows(), new_segment_group->num_rows());
     }
 
 SORTING_PROCESS_ERR:
-    for (vector<Rowset*>::iterator it = olap_rowsets.begin();
-            it != olap_rowsets.end(); ++it) {
+    for (vector<SegmentGroup*>::iterator it = olap_segment_groups.begin();
+            it != olap_segment_groups.end(); ++it) {
         (*it)->delete_all_files();
         SAFE_DELETE(*it);
     }
@@ -1119,18 +1119,18 @@ SORTING_PROCESS_ERR:
 
 bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_block_arr,
                                                 const Version& temp_delta_versions,
-                                                Rowset** temp_rowset) {
+                                                SegmentGroup** temp_segment_group) {
     ColumnDataWriter* writer = NULL;
     uint64_t merged_rows = 0;
     RowBlockMerger merger(_olap_table);
 
-    (*temp_rowset) = new(nothrow) Rowset(_olap_table.get(),
+    (*temp_segment_group) = new(nothrow) SegmentGroup(_olap_table.get(),
                                                 temp_delta_versions,
                                                 rand(),
                                                 false,
                                                 0, 0);
-    if (NULL == (*temp_rowset)) {
-        OLAP_LOG_WARNING("failed to malloc Rowset. [size=%ld]", sizeof(Rowset));
+    if (NULL == (*temp_segment_group)) {
+        OLAP_LOG_WARNING("failed to malloc SegmentGroup. [size=%ld]", sizeof(SegmentGroup));
         goto INTERNAL_SORTING_ERR;
     }
 
@@ -1138,7 +1138,7 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
                    _olap_table->full_name().c_str(),
                    _olap_table->num_rows_per_row_block());
 
-    writer = ColumnDataWriter::create(_olap_table, *temp_rowset, false);
+    writer = ColumnDataWriter::create(_olap_table, *temp_segment_group, false);
     if (NULL == writer) {
         OLAP_LOG_WARNING("failed to create writer.");
         goto INTERNAL_SORTING_ERR;
@@ -1150,7 +1150,7 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
     }
     add_merged_rows(merged_rows);
 
-    if (OLAP_SUCCESS != (*temp_rowset)->load()) {
+    if (OLAP_SUCCESS != (*temp_segment_group)->load()) {
         OLAP_LOG_WARNING("failed to reload olap index.");
         goto INTERNAL_SORTING_ERR;
     }
@@ -1161,22 +1161,22 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
 INTERNAL_SORTING_ERR:
     SAFE_DELETE(writer);
 
-    (*temp_rowset)->delete_all_files();
-    SAFE_DELETE(*temp_rowset);
+    (*temp_segment_group)->delete_all_files();
+    SAFE_DELETE(*temp_segment_group);
     return false;
 }
 
 bool SchemaChangeWithSorting::_external_sorting(
-        vector<Rowset*>& src_rowsets,
-        Rowset* dest_rowset) {
-    Merger merger(_olap_table, dest_rowset, READER_ALTER_TABLE);
+        vector<SegmentGroup*>& src_segment_groups,
+        SegmentGroup* dest_segment_group) {
+    Merger merger(_olap_table, dest_segment_group, READER_ALTER_TABLE);
 
     uint64_t merged_rows = 0;
     uint64_t filted_rows = 0;
     vector<ColumnData*> olap_data_arr;
 
-    for (vector<Rowset*>::iterator it = src_rowsets.begin();
-            it != src_rowsets.end(); ++it) {
+    for (vector<SegmentGroup*>::iterator it = src_segment_groups.begin();
+            it != src_segment_groups.end(); ++it) {
         ColumnData* olap_data = ColumnData::create(*it);
         if (NULL == olap_data) {
             OLAP_LOG_WARNING("fail to create ColumnData.");
@@ -1197,18 +1197,18 @@ bool SchemaChangeWithSorting::_external_sorting(
     if (OLAP_SUCCESS != merger.merge(olap_data_arr, &merged_rows, &filted_rows)) {
         OLAP_LOG_WARNING("fail to merge deltas. [table='%s' version='%d-%d']",
                          _olap_table->full_name().c_str(),
-                         dest_rowset->version().first,
-                         dest_rowset->version().second);
+                         dest_segment_group->version().first,
+                         dest_segment_group->version().second);
         goto EXTERNAL_SORTING_ERR;
     }
     add_merged_rows(merged_rows);
     add_filted_rows(filted_rows);
 
-    if (OLAP_SUCCESS != dest_rowset->load()) {
+    if (OLAP_SUCCESS != dest_segment_group->load()) {
         OLAP_LOG_WARNING("fail to reload index. [table='%s' version='%d-%d']",
                          _olap_table->full_name().c_str(),
-                         dest_rowset->version().first,
-                         dest_rowset->version().second);
+                         dest_segment_group->version().first,
+                         dest_segment_group->version().second);
         goto EXTERNAL_SORTING_ERR;
     }
 
@@ -1225,7 +1225,7 @@ EXTERNAL_SORTING_ERR:
         SAFE_DELETE(*it);
     }
 
-    dest_rowset->delete_all_files();
+    dest_segment_group->delete_all_files();
     return false;
 }
 
@@ -1499,14 +1499,14 @@ OLAPStatus SchemaChangeHandler::_do_alter_table(
         for (vector<Version>::const_iterator it = new_tablet_versions.begin();
              it != new_tablet_versions.end(); ++it) {
             if (it->second <= lastest_file_version->end_version()) {
-                std::vector<Rowset*> rowsets;
-                res = new_olap_table->unregister_data_source(*it, &rowsets);
+                std::vector<SegmentGroup*> segment_groups;
+                res = new_olap_table->unregister_data_source(*it, &segment_groups);
                 if (res != OLAP_SUCCESS) {
                     break;
                 }
-                for (Rowset* rowset : rowsets) {
-                    rowset->delete_all_files();
-                    delete rowset;
+                for (SegmentGroup* segment_group : segment_groups) {
+                    segment_group->delete_all_files();
+                    delete segment_group;
                 }
                 OLAP_LOG_DEBUG("unregister data source from new tablet when schema change. "
                                "[new_tablet=%s version=%d-%d res=%d]",
@@ -1741,9 +1741,9 @@ OLAPStatus SchemaChangeHandler::_create_new_olap_table(
 OLAPStatus SchemaChangeHandler::schema_version_convert(
         OLAPTablePtr src_olap_table,
         OLAPTablePtr dest_olap_table,
-        vector<Rowset*>* ref_rowsets,
-        vector<Rowset*>* new_rowsets) {
-    if (NULL == new_rowsets) {
+        vector<SegmentGroup*>* ref_segment_groups,
+        vector<SegmentGroup*>* new_segment_groups) {
+    if (NULL == new_segment_groups) {
         OLAP_LOG_WARNING("new_olap_index is NULL.");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
@@ -1799,8 +1799,8 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
 
     // c. 转换数据
     ColumnData* olap_data = NULL;
-    for (vector<Rowset*>::iterator it = ref_rowsets->begin();
-            it != ref_rowsets->end(); ++it) {
+    for (vector<SegmentGroup*>::iterator it = ref_segment_groups->begin();
+            it != ref_segment_groups->end(); ++it) {
         ColumnData* olap_data = ColumnData::create(*it);
         if (NULL == olap_data) {
             OLAP_LOG_WARNING("fail to create ColumnData.");
@@ -1810,31 +1810,31 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
 
         olap_data->init();
 
-        Rowset* new_rowset = nullptr;
+        SegmentGroup* new_segment_group = nullptr;
         if ((*it)->transaction_id() == 0) {
-            new_rowset = new Rowset(dest_olap_table.get(),
+            new_segment_group = new SegmentGroup(dest_olap_table.get(),
                                            olap_data->version(),
                                            olap_data->version_hash(),
                                            olap_data->delete_flag(),
-                                           (*it)->rowset_id(), 0);
+                                           (*it)->segment_group_id(), 0);
         } else {
-            new_rowset = new Rowset(dest_olap_table.get(),
+            new_segment_group = new SegmentGroup(dest_olap_table.get(),
                                            olap_data->delete_flag(),
-                                           (*it)->rowset_id(), 0,
+                                           (*it)->segment_group_id(), 0,
                                            (*it)->is_pending(),
                                            (*it)->partition_id(),
                                            (*it)->transaction_id());
         }
 
-        if (NULL == new_rowset) {
-            OLAP_LOG_FATAL("failed to malloc Rowset. [size=%ld]", sizeof(Rowset));
+        if (NULL == new_segment_group) {
+            OLAP_LOG_FATAL("failed to malloc SegmentGroup. [size=%ld]", sizeof(SegmentGroup));
             res = OLAP_ERR_MALLOC_ERROR;
             goto SCHEMA_VERSION_CONVERT_ERR;
         }
 
-        new_rowsets->push_back(new_rowset);
+        new_segment_groups->push_back(new_segment_group);
 
-        if (!sc_procedure->process(olap_data, new_rowset)) {
+        if (!sc_procedure->process(olap_data, new_segment_group)) {
             if ((*it)->is_pending()) {
                 OLAP_LOG_WARNING("failed to process the transaction when schema change. "
                                  "[table='%s' transaction=%ld]",
@@ -1858,11 +1858,11 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     return res;
 
 SCHEMA_VERSION_CONVERT_ERR:
-    while (!new_rowsets->empty()) {
-        Rowset* rowset = new_rowsets->back();
-        rowset->delete_all_files();
-        SAFE_DELETE(rowset);
-        new_rowsets->pop_back();
+    while (!new_segment_groups->empty()) {
+        SegmentGroup* segment_group = new_segment_groups->back();
+        segment_group->delete_all_files();
+        SAFE_DELETE(segment_group);
+        new_segment_groups->pop_back();
     }
 
     SAFE_DELETE(sc_procedure);
@@ -2037,15 +2037,15 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
                 (*it)->version().second);
 
         // we create a new delta with the same version as the ColumnData processing currently.
-        Rowset* new_rowset = new(nothrow) Rowset(
+        SegmentGroup* new_segment_group = new(nothrow) SegmentGroup(
                                             sc_params->new_olap_table.get(),
                                             (*it)->version(),
                                             (*it)->version_hash(),
                                             (*it)->delete_flag(),
-                                            (*it)->olap_index()->rowset_id(), 0);
+                                            (*it)->segment_group()->segment_group_id(), 0);
 
-        if (new_rowset == NULL) {
-            OLAP_LOG_WARNING("failed to malloc Rowset. [size=%ld]", sizeof(Rowset));
+        if (new_segment_group == NULL) {
+            OLAP_LOG_WARNING("failed to malloc SegmentGroup. [size=%ld]", sizeof(SegmentGroup));
             res = OLAP_ERR_MALLOC_ERROR;
             goto PROCESS_ALTER_EXIT;
         }
@@ -2055,11 +2055,11 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
         if (DEL_SATISFIED == del_ret) {
             OLAP_LOG_DEBUG("filter delta in schema change: %d, %d",
                            (*it)->version().first, (*it)->version().second);
-            res = sc_procedure->create_init_version(new_rowset->table()->tablet_id(),
-                                                    new_rowset->table()->schema_hash(),
-                                                    new_rowset->version(),
-                                                    new_rowset->version_hash(),
-                                                    new_rowset);
+            res = sc_procedure->create_init_version(new_segment_group->table()->tablet_id(),
+                                                    new_segment_group->table()->schema_hash(),
+                                                    new_segment_group->version(),
+                                                    new_segment_group->version_hash(),
+                                                    new_segment_group);
             sc_procedure->add_filted_rows((*it)->num_rows());
             if (res != OLAP_SUCCESS) {
                 OLAP_LOG_WARNING("fail to create init version. [res=%d]", res);
@@ -2076,12 +2076,12 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
             (*it)->set_delete_status(DEL_NOT_SATISFIED);
         }
 
-        if (DEL_SATISFIED != del_ret && !sc_procedure->process(*it, new_rowset)) {
+        if (DEL_SATISFIED != del_ret && !sc_procedure->process(*it, new_segment_group)) {
             //if del_ret is DEL_SATISFIED, the new delta version has already been created in new_olap_table
             OLAP_LOG_WARNING("failed to process the version. [version='%d-%d']",
                              (*it)->version().first, (*it)->version().second);
-            new_rowset->delete_all_files();
-            SAFE_DELETE(new_rowset);
+            new_segment_group->delete_all_files();
+            SAFE_DELETE(new_segment_group);
 
             res = OLAP_ERR_INPUT_PARAMETER_ERROR;
             goto PROCESS_ALTER_EXIT;
@@ -2095,16 +2095,16 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
 
         if (!sc_params->new_olap_table->has_version((*it)->version())) {
             // register version
-            std::vector<Rowset*> rowset_vec;
-            rowset_vec.push_back(new_rowset);
-            res = sc_params->new_olap_table->register_data_source(rowset_vec);
+            std::vector<SegmentGroup*> segment_group_vec;
+            segment_group_vec.push_back(new_segment_group);
+            res = sc_params->new_olap_table->register_data_source(segment_group_vec);
             if (OLAP_SUCCESS != res) {
                 OLAP_LOG_WARNING("failed to register new version. [table='%s' version='%d-%d']",
                                  sc_params->new_olap_table->full_name().c_str(),
                                  (*it)->version().first,
                                  (*it)->version().second);
-                new_rowset->delete_all_files();
-                SAFE_DELETE(new_rowset);
+                new_segment_group->delete_all_files();
+                SAFE_DELETE(new_segment_group);
 
                 sc_params->new_olap_table->release_header_lock();
                 sc_params->ref_olap_table->release_header_lock();
@@ -2121,8 +2121,8 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
                              "[table='%s' version='%d-%d']",
                              sc_params->new_olap_table->full_name().c_str(),
                              (*it)->version().first, (*it)->version().second);
-            new_rowset->delete_all_files();
-            SAFE_DELETE(new_rowset);
+            new_segment_group->delete_all_files();
+            SAFE_DELETE(new_segment_group);
         }
 
         // 保存header
@@ -2383,7 +2383,7 @@ OLAPStatus SchemaChange::create_init_version(
         SchemaHash schema_hash,
         Version version,
         VersionHash version_hash,
-        Rowset* rowset) {
+        SegmentGroup* segment_group) {
     OLAP_LOG_DEBUG("begin to create init version. [begin=%d end=%d]",
                    version.first, version.second);
 
@@ -2408,7 +2408,7 @@ OLAPStatus SchemaChange::create_init_version(
         }
 
         // Create writer, which write nothing to table, to generate empty data file
-        writer = ColumnDataWriter::create(table, rowset, false);
+        writer = ColumnDataWriter::create(table, segment_group, false);
         if (writer == NULL) {
             LOG(WARNING) << "fail to create writer. [table=" << table->full_name() << "]";
             res = OLAP_ERR_MALLOC_ERROR;
@@ -2422,7 +2422,7 @@ OLAPStatus SchemaChange::create_init_version(
         }
 
         // Load new index and add to table
-        res = rowset->load();
+        res = segment_group->load();
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load new index. [table=" << table->full_name() << "]";
             break;
