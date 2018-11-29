@@ -135,7 +135,7 @@ public class TabletChecker extends Daemon {
                                         infoService,
                                         db.getClusterName(),
                                         partition.getCommittedVersion(),
-                                        partition.getCommittedVersion(),
+                                        partition.getCommittedVersionHash(),
                                         olapTbl.getPartitionInfo().getReplicationNum(partition.getId()));
 
                                 if (statusWithPrio.first == TabletStatus.HEALTHY) {

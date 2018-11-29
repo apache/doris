@@ -17,14 +17,12 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.Tablet;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.Arrays;
+import java.util.List;
 
 /*
  * SHOW PROC /dbs/dbId/tableId/partitions/partitionId/indexId/tabletId
@@ -36,38 +34,29 @@ public class ReplicasProcNode implements ProcNodeInterface {
             .add("DataSize").add("RowCount").add("State").add("VersionCount")
             .build();
 
-    private Database db;
-    private Tablet tablet;
+    private List<Replica> replicas;
 
-    public ReplicasProcNode(Database db, Tablet tablet) {
-        this.db = db;
-        this.tablet = tablet;
+    public ReplicasProcNode(List<Replica> replicas) {
+        this.replicas = replicas;
     }
 
     @Override
     public ProcResult fetchResult() {
-        Preconditions.checkNotNull(db);
-        Preconditions.checkNotNull(tablet);
 
-        db.readLock();
-        try {
-            BaseProcResult result = new BaseProcResult();
-            result.setNames(TITLE_NAMES);
-            for (Replica replica : tablet.getReplicas()) {
-                // id -- backendId -- version -- versionHash -- dataSize -- rowCount -- state
-                result.addRow(Arrays.asList(String.valueOf(replica.getId()),
-                                            String.valueOf(replica.getBackendId()),
-                                            String.valueOf(replica.getVersion()),
-                                            String.valueOf(replica.getVersionHash()),
-                                            String.valueOf(replica.getDataSize()),
-                                            String.valueOf(replica.getRowCount()),
-                                            String.valueOf(replica.getState()),
-                                            String.valueOf(replica.getVersionCount())));
-            }
-            return result;
-        } finally {
-            db.readUnlock();
+        BaseProcResult result = new BaseProcResult();
+        result.setNames(TITLE_NAMES);
+        for (Replica replica : replicas) {
+            // id -- backendId -- version -- versionHash -- dataSize -- rowCount -- state
+            result.addRow(Arrays.asList(String.valueOf(replica.getId()),
+                                        String.valueOf(replica.getBackendId()),
+                                        String.valueOf(replica.getVersion()),
+                                        String.valueOf(replica.getVersionHash()),
+                                        String.valueOf(replica.getDataSize()),
+                                        String.valueOf(replica.getRowCount()),
+                                        String.valueOf(replica.getState()),
+                                        String.valueOf(replica.getVersionCount())));
         }
+        return result;
     }
 }
 

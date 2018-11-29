@@ -827,6 +827,18 @@ public class TabletScheduler extends Daemon {
         return tabletInfos;
     }
 
+    public synchronized int getPendingNum() {
+        return pendingTablets.size();
+    }
+
+    public synchronized int getRunningNum() {
+        return runningTablets.size();
+    }
+
+    public synchronized int getHistoryNum() {
+        return schedHistory.size();
+    }
+
     public class Slot {
         // path hash -> slot num
         private Map<Long, Integer> pathSlots = Maps.newConcurrentMap();

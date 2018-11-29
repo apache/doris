@@ -17,6 +17,8 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.ImmutableList;
@@ -28,7 +30,7 @@ import com.google.common.collect.Lists;
 public class TabletSchedulerProcDir implements ProcDirInterface {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Item").build();
+            .add("Item").add("Number").build();
 
     public static final String CLUSTER_LOAD = "cluster_load_statistics";
     public static final String WORKING_SLOTS = "working_slots";
@@ -46,9 +48,9 @@ public class TabletSchedulerProcDir implements ProcDirInterface {
         if (name.equals(CLUSTER_LOAD)) {
             return new ClusterLoadStatisticProcDir();
         } else if (name.equals(WORKING_SLOTS)) {
-            return new SchedulerWorkingSlotsProcNode();
+            return new SchedulerWorkingSlotsProcDir();
         } else {
-            return new TabletSchedulerProcNode(name);
+            return new TabletSchedulerDetailProcDir(name);
         }
     }
 
@@ -56,11 +58,14 @@ public class TabletSchedulerProcDir implements ProcDirInterface {
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        result.addRow(Lists.newArrayList(CLUSTER_LOAD));
-        result.addRow(Lists.newArrayList(WORKING_SLOTS));
-        result.addRow(Lists.newArrayList(PENDING_TABLETS));
-        result.addRow(Lists.newArrayList(RUNNING_TABLETS));
-        result.addRow(Lists.newArrayList(HISTORY_TABLETS));
+        result.addRow(Lists.newArrayList(CLUSTER_LOAD, "0"));
+        result.addRow(Lists.newArrayList(WORKING_SLOTS, "0"));
+
+        TabletScheduler tabletScheduler = Catalog.getCurrentCatalog().getTabletScheduler();
+
+        result.addRow(Lists.newArrayList(PENDING_TABLETS, String.valueOf(tabletScheduler.getPendingNum())));
+        result.addRow(Lists.newArrayList(RUNNING_TABLETS, String.valueOf(tabletScheduler.getRunningNum())));
+        result.addRow(Lists.newArrayList(HISTORY_TABLETS, String.valueOf(tabletScheduler.getHistoryNum())));
         return result;
     }
 }

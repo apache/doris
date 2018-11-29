@@ -1,6 +1,8 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.AnalysisException;
 
@@ -14,7 +16,7 @@ import java.util.List;
  * show proc "/tablet_scheduler/running_tablets";
  * show proc "/tablet_scheduler/history_tablets";
  */
-public class TabletSchedulerProcNode implements ProcNodeInterface {
+public class TabletSchedulerDetailProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TabletId").add("Status").add("State").add("OrigPrio").add("DynmPrio")
             .add("SrcBe").add("SrcPath").add("DestBe").add("DestPath").add("Timeout")
@@ -26,7 +28,7 @@ public class TabletSchedulerProcNode implements ProcNodeInterface {
     private String type;
     private TabletScheduler tabletScheduler;
 
-    public TabletSchedulerProcNode(String type) {
+    public TabletSchedulerDetailProcDir(String type) {
         this.type = type;
         tabletScheduler = Catalog.getCurrentCatalog().getTabletScheduler();
     }
@@ -51,4 +53,22 @@ public class TabletSchedulerProcNode implements ProcNodeInterface {
         return result;
     }
 
+    @Override
+    public boolean register(String name, ProcNodeInterface node) {
+        return false;
+    }
+
+    @Override
+    public ProcNodeInterface lookup(String tabletIdStr) throws AnalysisException {
+        long tabletId = -1L;
+        try {
+            tabletId = Long.valueOf(tabletIdStr);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid tablet id format: " + tabletIdStr);
+        }
+
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        List<Replica> replicas = invertedIndex.getReplicasByTabletId(tabletId);
+        return new ReplicasProcNode(replicas);
+    }
 }

@@ -17,18 +17,19 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.system.Backend;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
@@ -170,17 +171,9 @@ public class TabletsProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid tablet id format: " + tabletIdStr);
         }
 
-        db.readLock();
-        try {
-            Tablet tablet = index.getTablet(tabletId);
-            if (tablet == null) {
-                throw new AnalysisException("Tablet[" + tabletId + "] does not exist.");
-            }
-            return new ReplicasProcNode(db, tablet);
-        } finally {
-            db.readUnlock();
-        }
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        List<Replica> replicas = invertedIndex.getReplicasByTabletId(tabletId);
+        return new ReplicasProcNode(replicas);
     }
-
 }
 
