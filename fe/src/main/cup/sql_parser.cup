@@ -23,7 +23,6 @@ import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
@@ -328,7 +327,6 @@ nonterminal InlineViewRef inline_view_ref;
 nonterminal JoinOperator join_operator;
 nonterminal ArrayList<String> opt_plan_hints;
 nonterminal ArrayList<String> opt_sort_hints;
-nonterminal PrimitiveType primitive_type;
 nonterminal Expr sign_chain_expr;
 nonterminal Qualifier union_op;
 
@@ -353,6 +351,7 @@ nonterminal AggregateType opt_agg_type;
 nonterminal PartitionDesc opt_partition;
 nonterminal DistributionDesc opt_distribution;
 nonterminal Integer opt_distribution_number;
+nonterminal Long opt_field_length;
 nonterminal KeysDesc opt_keys;
 
 nonterminal PartitionKeyDesc partition_key_desc;
@@ -2936,15 +2935,15 @@ limit_clause ::=
   ;
 
 type ::=
-  KW_TINYINT
+  KW_TINYINT opt_field_length
   {: RESULT = Type.TINYINT; :}
-  | KW_SMALLINT
+  | KW_SMALLINT opt_field_length
   {: RESULT = Type.SMALLINT; :}
-  | KW_INT
+  | KW_INT opt_field_length
   {: RESULT = Type.INT; :}
-  | KW_BIGINT
+  | KW_BIGINT opt_field_length
   {: RESULT = Type.BIGINT; :}
-  | KW_LARGEINT
+  | KW_LARGEINT opt_field_length
   {: RESULT = Type.LARGEINT; :}
   | KW_BOOLEAN
   {: RESULT = Type.BOOLEAN; :}
@@ -2972,6 +2971,15 @@ type ::=
   {: RESULT = ScalarType.createDecimalType(precision.intValue(), scale.intValue()); :}
   | KW_DECIMAL
   {: RESULT = ScalarType.createDecimalType(); :}
+  | KW_HLL
+  {: RESULT = Type.HLL; :}
+  ;
+
+opt_field_length ::=
+  LPAREN INTEGER_LITERAL:length RPAREN
+  {: RESULT = length; :}
+  |
+  {: RESULT = null; :}
   ;
 
 type_def ::=
@@ -3411,33 +3419,6 @@ column_ref ::=
   {: RESULT = new SlotRef(new TableName(null, tbl), col); :}
   | ident:db DOT ident:tbl DOT ident:col
   {: RESULT = new SlotRef(new TableName(db, tbl), col); :}
-  ;
-
-primitive_type ::=
-  KW_TINYINT
-  {: RESULT = PrimitiveType.TINYINT; :}
-  | KW_SMALLINT
-  {: RESULT = PrimitiveType.SMALLINT; :}
-  | KW_INT
-  {: RESULT = PrimitiveType.INT; :}
-  | KW_BIGINT
-  {: RESULT = PrimitiveType.BIGINT; :}
-  | KW_LARGEINT
-  {: RESULT = PrimitiveType.LARGEINT; :}
-  | KW_BOOLEAN
-  {: RESULT = PrimitiveType.BOOLEAN; :}
-  | KW_FLOAT
-  {: RESULT = PrimitiveType.FLOAT; :}
-  | KW_DOUBLE
-  {: RESULT = PrimitiveType.DOUBLE; :}
-  | KW_DATE
-  {: RESULT = PrimitiveType.DATE; :}
-  | KW_DATETIME
-  {: RESULT = PrimitiveType.DATETIME; :}
-  | KW_DECIMAL
-  {: RESULT = PrimitiveType.DECIMAL; :}
-  | KW_HLL
-  {: RESULT = PrimitiveType.HLL; :} 
   ;
 
 privilege_type ::=

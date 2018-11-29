@@ -255,7 +255,7 @@ public class Column implements Writable {
         if (!isAllowNull) {
             sb.append("NOT NULL ");
         }
-        if (defaultValue != null) {
+        if (defaultValue != null && getDataType() != PrimitiveType.HLL) {
             sb.append("DEFAULT \"").append(defaultValue).append("\" ");
         }
         sb.append("COMMENT \"").append(comment).append("\"");
