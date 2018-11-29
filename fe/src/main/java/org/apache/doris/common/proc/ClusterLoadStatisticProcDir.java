@@ -29,8 +29,8 @@ import java.util.Map;
 
 public class ClusterLoadStatisticProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BeId").add("Cluster").add("UsedCapacity").add("Capacity").add("UsedPercent")
-            .add("ReplicaNum").add("Score")
+            .add("BeId").add("Cluster").add("Available").add("UsedCapacity").add("Capacity")
+            .add("UsedPercent").add("ReplicaNum").add("Score")
             .build();
 
     private Map<String, ClusterLoadStatistic> statMap;

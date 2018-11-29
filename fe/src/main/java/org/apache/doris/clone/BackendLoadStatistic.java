@@ -42,6 +42,8 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
     private long beId;
     private String clusterName;
 
+    private boolean isAvailable;
+
     private long totalCapacityB = 1; // init as 1 to avoid dividing zero error
     private long totalUsedCapacityB = 0;
     private long totalReplicaNum = 0;
@@ -68,6 +70,10 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
         return clusterName;
     }
 
+    public boolean isAvailable() {
+        return isAvailable;
+    }
+
     public long getTotalCapacityB() {
         return totalCapacityB;
     }
@@ -90,9 +96,10 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
             throw new LoadBalanceException("backend " + beId + " does not exist");
         }
 
-        if (!be.isAlive() || be.isDecommissioned()) {
-            throw new LoadBalanceException("backend " + beId + " is unavailable. alive: " + be.isAlive()
-                    + ", decommission: " + be.isDecommissioned());
+        if (!be.isAvailable()) {
+            isAvailable = false;
+        } else {
+            isAvailable = true;
         }
 
         ImmutableMap<String, DiskInfo> disks = be.getDisks();

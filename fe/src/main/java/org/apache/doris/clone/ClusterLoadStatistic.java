@@ -101,6 +101,7 @@ public class ClusterLoadStatistic {
             List<String> beStat = Lists.newArrayList();
             beStat.add(String.valueOf(beStatistic.getBeId()));
             beStat.add(beStatistic.getClusterName());
+            beStat.add(String.valueOf(beStatistic.isAvailable()));
             beStat.add(String.valueOf(beStatistic.getTotalUsedCapacityB()));
             beStat.add(String.valueOf(beStatistic.getTotalCapacityB()));
             beStat.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(beStatistic.getTotalUsedCapacityB() * 100
