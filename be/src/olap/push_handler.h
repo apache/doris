@@ -27,14 +27,14 @@
 #include "olap/file_helper.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
-#include "olap/rowset.h"
+#include "olap/segment_group.h"
 #include "olap/row_cursor.h"
 #include "olap/data_writer.h"
 
 namespace doris {
 
 typedef std::vector<ColumnData*> DataSources;
-typedef std::vector<Rowset*> Indices;
+typedef std::vector<SegmentGroup*> Indices;
 
 class BinaryFile;
 class BinaryReader;
@@ -88,7 +88,7 @@ private:
             Versions* unused_versions);
 
     // Convert local data file to internal formatted delta,
-    // return new delta's Rowset
+    // return new delta's SegmentGroup
     OLAPStatus _convert(
             OLAPTablePtr curr_olap_table,
             OLAPTablePtr new_olap_table_vec,

@@ -20,17 +20,17 @@
 #include <math.h>
 
 #include "olap/segment_writer.h"
-#include "olap/rowset.h"
+#include "olap/segment_group.h"
 #include "olap/row_block.h"
 
 
 namespace doris {
 
-ColumnDataWriter* ColumnDataWriter::create(OLAPTablePtr table, Rowset *index, bool is_push_write) {
+ColumnDataWriter* ColumnDataWriter::create(OLAPTablePtr table, SegmentGroup* segment_group, bool is_push_write) {
     ColumnDataWriter* writer = NULL;
     switch (table->data_file_type()) {
     case COLUMN_ORIENTED_FILE:
-        writer = new (std::nothrow) ColumnDataWriter(table, index, is_push_write);
+        writer = new (std::nothrow) ColumnDataWriter(table, segment_group, is_push_write);
         break;
     default:
         LOG(WARNING) << "unknown data file type. type=" << DataFileType_Name(table->data_file_type());
@@ -40,13 +40,13 @@ ColumnDataWriter* ColumnDataWriter::create(OLAPTablePtr table, Rowset *index, bo
     return writer;
 }
 
-ColumnDataWriter::ColumnDataWriter(OLAPTablePtr table, Rowset* index, bool is_push_write)
+ColumnDataWriter::ColumnDataWriter(OLAPTablePtr table, SegmentGroup* segment_group, bool is_push_write)
     : _is_push_write(is_push_write),
       _table(table),
       _column_statistics(_table->num_key_fields(),
                          std::pair<WrapperField*, WrapperField*>(NULL, NULL)),
       _row_index(0),
-      _index(index),
+      _segment_group(segment_group),
       _row_block(NULL),
       _segment_writer(NULL),
       _num_rows(0),
@@ -120,7 +120,7 @@ OLAPStatus ColumnDataWriter::_init_segment() {
         return res;
     }
 
-    res = _index->add_segment();
+    res = _segment_group->add_segment();
     if (OLAP_SUCCESS != res) {
         OLAP_LOG_WARNING("fail to add index segment. [res=%d]", res);
         return res;
@@ -187,7 +187,7 @@ void ColumnDataWriter::next(const char* row, const Schema* schema) {
 
 OLAPStatus ColumnDataWriter::finalize() {
     if (_all_num_rows == 0 && _row_index == 0) {
-        _index->set_empty(true);
+        _segment_group->set_empty(true);
         return OLAP_SUCCESS;
     }
     OLAPStatus res = _flush_row_block(true);
@@ -202,7 +202,7 @@ OLAPStatus ColumnDataWriter::finalize() {
         return res;
     }
 
-    res = _index->add_column_statistics(_column_statistics);
+    res = _segment_group->add_column_statistics(_column_statistics);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("Fail to set delta pruning![res=%d]", res);
         return res;
@@ -233,8 +233,8 @@ OLAPStatus ColumnDataWriter::_flush_row_block(bool finalize) {
         return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
     }
 
-    // 在Rowset中记录的不是数据文件的偏移,而是block的编号
-    if (OLAP_SUCCESS != _index->add_row_block(*_row_block, _block_id++)) {
+    // 在SegmentGroup中记录的不是数据文件的偏移,而是block的编号
+    if (OLAP_SUCCESS != _segment_group->add_row_block(*_row_block, _block_id++)) {
         OLAP_LOG_WARNING("fail to update index.");
         return OLAP_ERR_WRITER_INDEX_WRITE_ERROR;
     }
@@ -256,7 +256,7 @@ OLAPStatus ColumnDataWriter::_add_segment() {
         return OLAP_ERR_WRITER_SEGMENT_NOT_FINALIZED;
     }
 
-    file_name = _index->construct_data_file_path(_index->rowset_id(), _segment);
+    file_name = _segment_group->construct_data_file_path(_segment_group->segment_group_id(), _segment);
     _segment_writer = new(std::nothrow) SegmentWriter(file_name, _table,
             OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
 
@@ -309,7 +309,7 @@ OLAPStatus ColumnDataWriter::_finalize_segment() {
         return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
     }
 
-    if (OLAP_SUCCESS != _index->finalize_segment(data_segment_size, _num_rows)) {
+    if (OLAP_SUCCESS != _segment_group->finalize_segment(data_segment_size, _num_rows)) {
         OLAP_LOG_WARNING("fail to finish segment from olap_index.");
         return OLAP_ERR_WRITER_INDEX_WRITE_ERROR;
     }

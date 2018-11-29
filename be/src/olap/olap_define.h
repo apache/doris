@@ -235,7 +235,7 @@ enum OLAPStatus {
     OLAP_ERR_PUSH_INPUT_DATA_ERROR = -910,
     OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST = -911,
 
-    // Rowset
+    // SegmentGroup
     // [-1000, -1100)
     OLAP_ERR_INDEX_LOAD_ERROR = -1000,
     OLAP_ERR_INDEX_EOF = -1001,

@@ -29,7 +29,7 @@
 
 namespace doris {
 
-class Rowset;
+class SegmentGroup;
 
 enum WriteType {
     LOAD = 1,
@@ -66,9 +66,9 @@ private:
     bool _is_init = false;
     WriteRequest _req;
     OLAPTablePtr _table;
-    Rowset* _cur_rowset;
-    std::vector<Rowset*> _rowset_vec;
-    std::vector<Rowset*> _new_rowset_vec;
+    SegmentGroup* _cur_segment_group;
+    std::vector<SegmentGroup*> _segment_group_vec;
+    std::vector<SegmentGroup*> _new_segment_group_vec;
     OLAPTablePtr _new_table;
     ColumnDataWriter* _writer;
     MemTable* _mem_table;
@@ -76,7 +76,7 @@ private:
     std::vector<FieldInfo>* _field_infos;
     std::vector<uint32_t> _col_ids;
 
-    int32_t _rowset_id;
+    int32_t _segment_group_id;
     bool _delta_written_success;
 };
 

@@ -26,7 +26,7 @@
 #include "olap/delete_handler.h"
 #include "olap/olap_common.h"
 #include "olap/olap_cond.h"
-#include "olap/rowset.h"
+#include "olap/segment_group.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
 #include "util/runtime_profile.h"
@@ -41,22 +41,22 @@ class SegmentReader;
 // This class is column data reader. this class will be used in two case.
 class ColumnData {
 public:
-    static ColumnData* create(Rowset* olap_index);
-    explicit ColumnData(Rowset* olap_index);
+    static ColumnData* create(SegmentGroup* segment_group);
+    explicit ColumnData(SegmentGroup* segment_group);
     ~ColumnData();
 
     // 为了与之前兼容, 暴露部分index的接口
     Version version() const {
-        return _olap_index->version();
+        return _segment_group->version();
     }
     VersionHash version_hash() const {
-        return _olap_index->version_hash();
+        return _segment_group->version_hash();
     }
     bool delete_flag() const {
-        return _olap_index->delete_flag();
+        return _segment_group->delete_flag();
     }
     uint32_t num_segments() const {
-        return _olap_index->num_segments();
+        return _segment_group->num_segments();
     }
 
     // 查询数据文件类型
@@ -108,16 +108,16 @@ public:
     void set_eof(bool eof) { _eof = eof; }
     bool* eof_ptr() { return &_eof; }
 
-    bool empty() const { return _olap_index->empty(); }
-    bool zero_num_rows() const { return _olap_index->zero_num_rows(); }
+    bool empty() const { return _segment_group->empty(); }
+    bool zero_num_rows() const { return _segment_group->zero_num_rows(); }
 
     bool delta_pruning_filter();
     int delete_pruning_filter();
     uint64_t get_filted_rows();
 
-    Rowset* olap_index() const { return _olap_index; }
-    void set_olap_index(Rowset* olap_index) { _olap_index = olap_index; }
-    int64_t num_rows() const { return _olap_index->num_rows(); }
+    SegmentGroup* segment_group() const { return _segment_group; }
+    void set_segment_group(SegmentGroup* segment_group) { _segment_group = segment_group; }
+    int64_t num_rows() const { return _segment_group->num_rows(); }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(ColumnData);
@@ -160,7 +160,7 @@ private:
     }
 private:
     DataFileType _data_file_type;
-    Rowset* _olap_index;
+    SegmentGroup* _segment_group;
     // 当到达文件末尾或者到达end key时设置此标志
     bool _eof;
     const Conditions* _conditions;
@@ -209,10 +209,10 @@ public:
     ColumnDataComparator(
         RowBlockPosition position,
         ColumnData* olap_data,
-        const Rowset* index)
+        const SegmentGroup* segment_group)
             : _start_block_position(position),
             _olap_data(olap_data),
-            _index(index) {}
+            _segment_group(segment_group) {}
 
     ~ColumnDataComparator() {}
 
@@ -232,7 +232,7 @@ private:
             ComparatorEnum comparator_enum) const {
         OLAPStatus res = OLAP_SUCCESS;
         RowBlockPosition position = _start_block_position;
-        if (OLAP_SUCCESS != (res = _index->advance_row_block(index, &position))) {
+        if (OLAP_SUCCESS != (res = _segment_group->advance_row_block(index, &position))) {
             OLAP_LOG_FATAL("fail to advance row block. [res=%d]", res);
             throw ComparatorException();
         }
@@ -251,7 +251,7 @@ private:
 
     const RowBlockPosition _start_block_position;
     ColumnData* _olap_data;
-    const Rowset* _index;
+    const SegmentGroup* _segment_group;
 };
 
 }  // namespace doris
