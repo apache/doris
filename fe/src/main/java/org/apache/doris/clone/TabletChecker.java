@@ -89,7 +89,6 @@ public class TabletChecker extends Daemon {
     protected void runOneCycle() {
         checkTablets();
         stat.counterTabletCheckRound.incrementAndGet();
-
         LOG.info(stat.incrementalBrief());
     }
 
@@ -137,6 +136,8 @@ public class TabletChecker extends Daemon {
                                         olapTbl.getPartitionInfo().getReplicationNum(partition.getId()));
 
                                 if (statusWithPrio.first == TabletStatus.HEALTHY) {
+                                    // Only set last status check time when status is healthy.
+                                    tablet.setLastStatusCheckTime(start);
                                     continue;
                                 } else if (isInPrios) {
                                     statusWithPrio.second = TabletInfo.Priority.VERY_HIGH;

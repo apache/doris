@@ -17,47 +17,30 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.alter.SchemaChangeHandler;
-import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.clone.TabletSchedulerStat;
 import org.apache.doris.common.AnalysisException;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
-import java.util.List;
-
-public class SchemaChangeProcNode implements ProcNodeInterface {
+public class SchedulerStatProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("JobId").add("TableName").add("TransactionId").add("CreateTime").add("FinishTime")
-            .add("IndexName").add("IndexState").add("State").add("Msg")
-            .add("Progress")
-            .build();
+            .add("Item").add("Value").build();
 
-    private SchemaChangeHandler schemaChangeHandler;
-    private Database db;
+    private TabletSchedulerStat stat;
 
-    public SchemaChangeProcNode(SchemaChangeHandler schemaChangeHandler, Database db) {
-        this.schemaChangeHandler = schemaChangeHandler;
-        this.db = db;
+    public SchedulerStatProcNode() {
+        this.stat = Catalog.getCurrentCatalog().getTabletScheduler().getStat().getLastSnapshot();
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(db);
-        Preconditions.checkNotNull(schemaChangeHandler);
-
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-
-        List<List<Comparable>> schemaChangeJobInfos = schemaChangeHandler.getAlterJobInfosByDb(db);
-        for (List<Comparable> infoStr : schemaChangeJobInfos) {
-            List<String> oneInfo = new ArrayList<String>(TITLE_NAMES.size());
-            for (Comparable element : infoStr) {
-                oneInfo.add(element.toString());
-            }
-            result.addRow(oneInfo);
+        if (stat == null) {
+            return result;
         }
+        result.setRows(stat.getBrief());
         return result;
     }
 

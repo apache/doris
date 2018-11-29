@@ -32,8 +32,10 @@ public class TabletSchedulerProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Item").add("Number").build();
 
-    public static final String CLUSTER_LOAD = "cluster_load_statistics";
+    public static final String CLUSTER_LOAD = "cluster_load_stat";
     public static final String WORKING_SLOTS = "working_slots";
+    public static final String SCHED_STAT = "sched_stat";
+
     public static final String PENDING_TABLETS = "pending_tablets";
     public static final String RUNNING_TABLETS = "running_tablets";
     public static final String HISTORY_TABLETS = "history_tablets";
@@ -49,6 +51,8 @@ public class TabletSchedulerProcDir implements ProcDirInterface {
             return new ClusterLoadStatisticProcDir();
         } else if (name.equals(WORKING_SLOTS)) {
             return new SchedulerWorkingSlotsProcDir();
+        } else if (name.equals(SCHED_STAT)) {
+            return new SchedulerStatProcNode();
         } else {
             return new TabletSchedulerDetailProcDir(name);
         }
@@ -58,10 +62,12 @@ public class TabletSchedulerProcDir implements ProcDirInterface {
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        result.addRow(Lists.newArrayList(CLUSTER_LOAD, "0"));
-        result.addRow(Lists.newArrayList(WORKING_SLOTS, "0"));
 
         TabletScheduler tabletScheduler = Catalog.getCurrentCatalog().getTabletScheduler();
+        result.addRow(Lists.newArrayList(CLUSTER_LOAD, String.valueOf(tabletScheduler.getStatisticMap().size())));
+        result.addRow(Lists.newArrayList(WORKING_SLOTS,
+                                         String.valueOf(tabletScheduler.getBackendsWorkingSlots().size())));
+        result.addRow(Lists.newArrayList(SCHED_STAT, tabletScheduler.getStat().getLastSnapshot() == null ? "0" : "1"));
 
         result.addRow(Lists.newArrayList(PENDING_TABLETS, String.valueOf(tabletScheduler.getPendingNum())));
         result.addRow(Lists.newArrayList(RUNNING_TABLETS, String.valueOf(tabletScheduler.getRunningNum())));

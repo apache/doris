@@ -444,8 +444,11 @@ public class Tablet extends MetaObject implements Writable {
             default:
                 break;
         }
-        lastStatusCheckTime = currentTime;
 
         return ready;
+    }
+
+    public void setLastStatusCheckTime(long lastStatusCheckTime) {
+        this.lastStatusCheckTime = lastStatusCheckTime;
     }
 }

@@ -124,6 +124,10 @@ public class TabletScheduler extends Daemon {
         this.stat = stat;
     }
 
+    public TabletSchedulerStat getStat() {
+        return stat;
+    }
+
     /*
      * update working slots at the beginning of each round
      */
@@ -197,7 +201,6 @@ public class TabletScheduler extends Daemon {
             if (tabletInfo.getDbId() == dbId && tabletInfo.getTblId() == tblId
                     && partitionIds.contains(tabletInfo.getPartitionId())) {
                 tabletInfo.setOrigPriority(Priority.VERY_HIGH);
-                // tabletInfo.
             }
             newPendingTablets.add(tabletInfo);
         }
@@ -320,7 +323,7 @@ public class TabletScheduler extends Daemon {
                     stat.counterTabletScheduledDiscard.incrementAndGet();
                     removeTabletInfo(tabletInfo, TabletInfo.State.CANCELLED, e.getMessage());
                 }
-                return;
+                continue;
             }
 
             Preconditions.checkState(tabletInfo.getState() == TabletInfo.State.RUNNING);

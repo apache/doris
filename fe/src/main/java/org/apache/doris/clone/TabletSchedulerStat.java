@@ -1,10 +1,13 @@
 package org.apache.doris.clone;
 
+import com.google.common.collect.Lists;
+
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.lang.reflect.Field;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 /*
@@ -98,6 +101,32 @@ public class TabletSchedulerStat {
             e.printStackTrace();
             lastSnapshot = null;
         }
+    }
+
+    public TabletSchedulerStat getLastSnapshot() {
+        return lastSnapshot;
+    }
+
+    public List<List<String>> getBrief() {
+        List<List<String>> result = Lists.newArrayList();
+        try {
+            Class<?> clazz = Class.forName(this.getClass().getName());
+            Field[] fields = clazz.getDeclaredFields();
+            for (Field field : fields) {
+                if (!field.isAnnotationPresent(StatField.class)) {
+                    continue;
+                }
+                
+                List<String> info = Lists.newArrayList();
+                info.add(field.getAnnotation(StatField.class).value());
+                info.add(String.valueOf(((AtomicLong) field.get(this)).get()));
+                result.add(info);
+            }
+        } catch (ClassNotFoundException | IllegalArgumentException | IllegalAccessException e) {
+            e.printStackTrace();
+            return Lists.newArrayList();
+        }
+        return result;
     }
 
     /*
