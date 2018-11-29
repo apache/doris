@@ -40,6 +40,8 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
     private TabletInvertedIndex invertedIndex;
 
     private long beId;
+    private String clusterName;
+
     private long totalCapacityB = 1; // init as 1 to avoid dividing zero error
     private long totalUsedCapacityB = 0;
     private long totalReplicaNum = 0;
@@ -50,14 +52,20 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
 
     private List<RootPathLoadStatistic> pathStatistics = Lists.newArrayList();
 
-    public BackendLoadStatistic(long beId, SystemInfoService infoService, TabletInvertedIndex invertedIndex) {
+    public BackendLoadStatistic(long beId, String clusterName, SystemInfoService infoService,
+            TabletInvertedIndex invertedIndex) {
         this.beId = beId;
+        this.clusterName = clusterName;
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
     }
 
     public long getBeId() {
         return beId;
+    }
+
+    public String getClusterName() {
+        return clusterName;
     }
 
     public long getTotalCapacityB() {

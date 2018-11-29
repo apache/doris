@@ -41,7 +41,7 @@ public class DiskInfo implements Writable {
     private DiskState state;
 
     // path hash and storage medium are reported from Backend and no need to persist
-    private long pathHash;
+    private long pathHash = 0;
     private TStorageMedium storageMedium;
 
     private DiskInfo() {
@@ -54,7 +54,7 @@ public class DiskInfo implements Writable {
         this.dataUsedCapacityB = 0;
         this.diskAvailableCapacityB = DEFAULT_CAPACITY_B;
         this.state = DiskState.ONLINE;
-        this.pathHash = -1;
+        this.pathHash = 0;
         this.storageMedium = TStorageMedium.HDD;
     }
 
@@ -103,7 +103,7 @@ public class DiskInfo implements Writable {
     }
 
     public boolean hasPathHash() {
-        return pathHash != -1;
+        return pathHash != 0;
     }
 
     public TStorageMedium getStorageMedium() {

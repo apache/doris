@@ -62,7 +62,9 @@ public class ClusterLoadStatistic {
     public synchronized void init(String clusterName) {
         ImmutableMap<Long, Backend> backends = infoService.getBackendsInCluster(clusterName);
         for (Backend backend : backends.values()) {
-            BackendLoadStatistic beStatistic = new BackendLoadStatistic(backend.getId(), infoService, invertedIndex);
+            BackendLoadStatistic beStatistic = new BackendLoadStatistic(backend.getId(),
+                    backend.getOwnerClusterName(),
+                    infoService, invertedIndex);
             try {
                 beStatistic.init();
             } catch (LoadBalanceException e) {
@@ -98,6 +100,7 @@ public class ClusterLoadStatistic {
         for (BackendLoadStatistic beStatistic : beLoadStatistics) {
             List<String> beStat = Lists.newArrayList();
             beStat.add(String.valueOf(beStatistic.getBeId()));
+            beStat.add(beStatistic.getClusterName());
             beStat.add(String.valueOf(beStatistic.getTotalUsedCapacityB()));
             beStat.add(String.valueOf(beStatistic.getTotalCapacityB()));
             beStat.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(beStatistic.getTotalUsedCapacityB() * 100

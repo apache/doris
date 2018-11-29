@@ -86,6 +86,7 @@ import org.apache.doris.clone.CloneChecker;
 import org.apache.doris.clone.ColocateTableBalancer;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
+import org.apache.doris.clone.TabletSchedulerStat;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -339,6 +340,8 @@ public class Catalog {
 
     private DomainResolver domainResolver;
 
+    private TabletSchedulerStat stat;
+
     private TabletScheduler tabletScheduler;
 
     private TabletChecker tabletChecker;
@@ -457,8 +460,9 @@ public class Catalog {
         this.metaContext = new MetaContext();
         this.metaContext.setThreadLocalInfo();
         
-        this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex);
-        this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler);
+        this.stat = new TabletSchedulerStat();
+        this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex, stat);
+        this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler, stat);
     }
 
     public static void destroyCheckpoint() {

@@ -50,6 +50,7 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -112,13 +113,15 @@ public class TabletScheduler extends Daemon {
     private Catalog catalog;
     private SystemInfoService infoService;
     private TabletInvertedIndex invertedIndex;
+    private TabletSchedulerStat stat;
 
-
-    public TabletScheduler(Catalog catalog, SystemInfoService infoService, TabletInvertedIndex invertedIndex) {
+    public TabletScheduler(Catalog catalog, SystemInfoService infoService, TabletInvertedIndex invertedIndex,
+            TabletSchedulerStat stat) {
         super("tablet scheduler", 5000);
         this.catalog = catalog;
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
+        this.stat = stat;
     }
 
     /*
@@ -194,6 +197,7 @@ public class TabletScheduler extends Daemon {
             if (tabletInfo.getDbId() == dbId && tabletInfo.getTblId() == tblId
                     && partitionIds.contains(tabletInfo.getPartitionId())) {
                 tabletInfo.setOrigPriority(Priority.VERY_HIGH);
+                // tabletInfo.
             }
             newPendingTablets.add(tabletInfo);
         }
@@ -226,6 +230,8 @@ public class TabletScheduler extends Daemon {
         handleRunningTablets();
 
         doBalance();
+
+        stat.counterTabletScheduleRound.incrementAndGet();
     }
 
 
@@ -263,6 +269,7 @@ public class TabletScheduler extends Daemon {
      */
     private synchronized void adjustPriorities() {
         int size = pendingTablets.size();
+        int changedNum = 0;
         TabletInfo tabletInfo = null;
         for (int i = 0; i < size; i++) {
             tabletInfo = pendingTablets.poll();
@@ -270,9 +277,13 @@ public class TabletScheduler extends Daemon {
                 break;
             }
 
-            tabletInfo.adjustPriority();
+            if (tabletInfo.adjustPriority(stat)) {
+                changedNum++;
+            }
             pendingTablets.add(tabletInfo);
         }
+
+        LOG.info("adjust priority for all tablets. changed: {}, total: {}", changedNum, size);
     }
 
     /*
@@ -285,6 +296,7 @@ public class TabletScheduler extends Daemon {
      * if in schedHistory, it should be removed from allTabletIds.
      */
     private void schedulePendingTablets() {
+        long start = System.currentTimeMillis();
         List<TabletInfo> currentBatch = getNextTabletInfoBatch();
         LOG.debug("get {} tablets info to schedule", currentBatch.size());
 
@@ -294,25 +306,33 @@ public class TabletScheduler extends Daemon {
                 scheduleTablet(tabletInfo, batchTask);
             } catch (SchedException e) {
                 tabletInfo.increaseFailedSchedCounter();
+                tabletInfo.setErrMsg(e.getMessage());
                 if (e.getStatus() == Status.SCHEDULE_FAILED) {
                     // adjust priority to avoid some higher priority always be the first in pendingTablets
+                    stat.counterTabletScheduledFailed.incrementAndGet();
                     dynamicAdjustPrioAndAddBackToPendingTablets(tabletInfo, e.getMessage());
                 } else {
                     // discard
+                    stat.counterTabletScheduledDiscard.incrementAndGet();
                     removeTabletInfo(tabletInfo, e.getMessage());
                 }
                 return;
             }
 
             Preconditions.checkState(tabletInfo.getState() == TabletInfo.State.RUNNING);
+            stat.counterTabletScheduledSucceeded.incrementAndGet();
             addToRunningTablets(tabletInfo);
         }
 
         // must send task after adding tablet info to runningTablets.
         for (AgentTask task : batchTask.getAllTasks()) {
-            AgentTaskQueue.addTask(task);
+            if (AgentTaskQueue.addTask(task)) {
+                stat.counterCloneTask.incrementAndGet();
+            }
             LOG.info("add clone task to agent task queue: {}", task);
         }
+        long cost = System.currentTimeMillis() - start;
+        stat.counterTabletScheduleCostMs.addAndGet(cost);
     }
 
     private synchronized void addToRunningTablets(TabletInfo tabletInfo) {
@@ -324,6 +344,7 @@ public class TabletScheduler extends Daemon {
      */
     private void scheduleTablet(TabletInfo tabletInfo, AgentBatchTask batchTask) throws SchedException {
         tabletInfo.setLastSchedTime(System.currentTimeMillis());
+        stat.counterTabletScheduled.incrementAndGet();
 
         Database db = catalog.getDb(tabletInfo.getDbId());
         if (db == null) {
@@ -411,6 +432,7 @@ public class TabletScheduler extends Daemon {
      * 3. send clone task to destination backend
      */
     private void handleReplicaMissing(TabletInfo tabletInfo, AgentBatchTask batchTask) throws SchedException {
+        stat.counterReplicaMissingErr.incrementAndGet();
         // find an available dest backend and path
         RootPathLoadStatistic destPath = chooseAvailableDestPath(tabletInfo);
         Preconditions.checkNotNull(destPath);
@@ -433,6 +455,7 @@ public class TabletScheduler extends Daemon {
      */
     private void handleReplicaVersionIncomplete(TabletInfo tabletInfo, AgentBatchTask batchTask)
             throws SchedException {
+        stat.counterReplicaVersionMissingErr.incrementAndGet();
         ClusterLoadStatistic statistic = statisticMap.get(tabletInfo.getCluster());
         if (statistic == null) {
             throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
@@ -458,6 +481,7 @@ public class TabletScheduler extends Daemon {
      *  7. replica in higher load backend
      */
     private void handleRedundantReplica(TabletInfo tabletInfo) throws SchedException {
+        stat.counterReplicaRedundantErr.incrementAndGet();
         if (deleteBackendDropped(tabletInfo)
                 || deleteBackendUnavailable(tabletInfo)
                 || deleteCloneReplica(tabletInfo)
@@ -600,6 +624,7 @@ public class TabletScheduler extends Daemon {
      */
     private void handleReplicaClusterMigration(TabletInfo tabletInfo, AgentBatchTask batchTask)
             throws SchedException {
+        stat.counterReplicaMissingInClusterErr.incrementAndGet();
         handleReplicaMissing(tabletInfo, batchTask);
     }
 
@@ -680,12 +705,12 @@ public class TabletScheduler extends Daemon {
      */
     private void dynamicAdjustPrioAndAddBackToPendingTablets(TabletInfo tabletInfo, String message) {
         Preconditions.checkState(tabletInfo.getState() == TabletInfo.State.PENDING);
-        tabletInfo.adjustPriority();
+        tabletInfo.adjustPriority(stat);
         addTablet(tabletInfo, true /* force */);
     }
 
     private synchronized void removeTabletInfo(TabletInfo tabletInfo, String reason) {
-        tabletInfo.setState(TabletInfo.State.CANCELLED, reason);
+        tabletInfo.setState(TabletInfo.State.CANCELLED);
         tabletInfo.releaseResource(this);
         allTabletIds.remove(tabletInfo.getTabletId());
         schedHistory.add(tabletInfo);
@@ -720,16 +745,20 @@ public class TabletScheduler extends Daemon {
             tabletInfo.finishCloneTask(cloneTask, request);
         } catch (SchedException e) {
             tabletInfo.increaseFailedRunningCounter();
+            tabletInfo.setErrMsg(e.getMessage());
             if (e.getStatus() == Status.SCHEDULE_FAILED) {
+                stat.counterCloneTaskFailed.incrementAndGet();
                 addToRunningTablets(tabletInfo);
             } else {
                 // discard
+                stat.counterTabletScheduledDiscard.incrementAndGet();
                 removeTabletInfo(tabletInfo, e.getMessage());
             }
             return;
         }
 
         Preconditions.checkState(tabletInfo.getState() == TabletInfo.State.FINISHED);
+        stat.counterCloneTaskSucceeded.incrementAndGet();
         removeTabletInfo(tabletInfo, "finished");
     }
 
@@ -752,13 +781,45 @@ public class TabletScheduler extends Daemon {
             Map.Entry<Long, TabletInfo> entry = iter.next();
             TabletInfo tabletInfo = entry.getValue();
             if (tabletInfo.isTimeout()) {
-                tabletInfo.setState(TabletInfo.State.CANCELLED, "timeout");
+                tabletInfo.setState(TabletInfo.State.TIMEOUT);
+                iter.remove();
+                tabletInfo.releaseResource(this);
+                schedHistory.add(tabletInfo);
+                LOG.info("tablet info(clone task) is timeout: {}. remove it", tabletInfo.getTabletId());
+                stat.counterCloneTaskTimeout.incrementAndGet();
             }
-            iter.remove();
-            tabletInfo.releaseResource(this);
-            schedHistory.add(tabletInfo);
-            LOG.info("tablet info is timeout: {}", tabletInfo.getTabletId());
         }
+    }
+
+    public List<List<String>> getPendingTabletsInfo(int limit) {
+        List<TabletInfo> tabletInfos = getCopiedTablets(pendingTablets, limit);
+        return collectTabletInfo(tabletInfos);
+    }
+
+    public List<List<String>> getRunningTabletsInfo(int limit) {
+        List<TabletInfo> tabletInfos = getCopiedTablets(runningTablets.values(), limit);
+        return collectTabletInfo(tabletInfos);
+    }
+
+    public List<List<String>> getHistoryTabletsInfo(int limit) {
+        List<TabletInfo> tabletInfos = getCopiedTablets(schedHistory, limit);
+        return collectTabletInfo(tabletInfos);
+    }
+
+    private List<List<String>> collectTabletInfo(List<TabletInfo> tabletInfos) {
+        List<List<String>> result = Lists.newArrayList();
+        tabletInfos.stream().forEach(t -> {
+            result.add(t.getBrief());
+        });
+        return result;
+    }
+
+    private synchronized List<TabletInfo> getCopiedTablets(Collection<TabletInfo> source, int limit) {
+        List<TabletInfo> tabletInfos = Lists.newArrayList();
+        source.stream().limit(limit).forEach(t -> {
+            tabletInfos.add(t);
+        });
+        return tabletInfos;
     }
 
     public class Slot {
@@ -816,5 +877,24 @@ public class TabletScheduler extends Daemon {
             Integer slot = pathSlots.get(pathHash);
             return slot == null ? -1 : slot;
         }
+
+        public synchronized List<String> getSlotInfo(long beId) {
+            List<String> result = Lists.newArrayList();
+            pathSlots.entrySet().stream().forEach(t -> {
+                result.add(String.valueOf(beId));
+                result.add(String.valueOf(t.getKey()));
+                result.add(String.valueOf(t.getValue()));
+            });
+            return result;
+        }
+    }
+
+    public List<List<String>> getSlotsInfo() {
+        List<List<String>> result = Lists.newArrayList();
+        for (long beId : backendsWorkingSlots.keySet()) {
+            Slot slot = backendsWorkingSlots.get(beId);
+            result.add(slot.getSlotInfo(beId));
+        }
+        return result;
     }
 }

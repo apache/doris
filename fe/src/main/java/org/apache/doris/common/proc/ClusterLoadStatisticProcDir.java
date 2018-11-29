@@ -28,7 +28,7 @@ import java.util.List;
 
 public class ClusterLoadStatisticProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BeId").add("UsedCapacity").add("Capacity").add("UsedPercent")
+            .add("BeId").add("cluster").add("UsedCapacity").add("Capacity").add("UsedPercent")
             .add("ReplicaNum").add("Score")
             .build();
 

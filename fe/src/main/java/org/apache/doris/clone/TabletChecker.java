@@ -51,16 +51,19 @@ public class TabletChecker extends Daemon {
     private Catalog catalog;
     private SystemInfoService infoService;
     private TabletScheduler tabletScheduler;
+    private TabletSchedulerStat stat;
 
     // db id -> (tbl id -> partition id)
     // priority of replicas of partitions in this table will be set to VERY_HIGH if not healthy
     private com.google.common.collect.Table<Long, Long, Set<Long>> prios = HashBasedTable.create();
 
-    public TabletChecker(Catalog catalog, SystemInfoService infoService, TabletScheduler tabletScheduler) {
+    public TabletChecker(Catalog catalog, SystemInfoService infoService, TabletScheduler tabletScheduler,
+            TabletSchedulerStat stat) {
         super("tablet checker", INTERVAL_MS);
         this.catalog = catalog;
         this.infoService = infoService;
         this.tabletScheduler = tabletScheduler;
+        this.stat = stat;
     }
 
     public void addPrios(long dbId, long tblId, List<Long> partitionIds) {
@@ -88,12 +91,16 @@ public class TabletChecker extends Daemon {
 
         // if scheduler has tasks, we only check tablets in prios
         checkTablets(schedulerHasTask);
+        stat.counterTabletCheckRound.incrementAndGet();
+
+        LOG.info(stat.incrementalBrief());
     }
 
     private void checkTablets(boolean skipNonPrios) {
         long start = System.currentTimeMillis();
         long totalTabletNum = 0;
         long unhealthyTabletNum = 0;
+        long addToSchedulerTabletNum = 0;
 
         List<Long> dbIds = catalog.getDbIds();
         for (Long dbId : dbIds) {
@@ -138,6 +145,8 @@ public class TabletChecker extends Daemon {
                                     prioPartIsHealthy = false;
                                 }
 
+                                unhealthyTabletNum++;
+
                                 if (!tablet.readyToBeRepaired(statusWithPrio.second)) {
                                     continue;
                                 }
@@ -151,7 +160,7 @@ public class TabletChecker extends Daemon {
                                 tabletInfo.setOrigPriority(statusWithPrio.second);
 
                                 if (tabletScheduler.addTablet(tabletInfo, false /* not force */)) {
-                                    unhealthyTabletNum++;
+                                    addToSchedulerTabletNum++;
                                 }
                             }
                         }
@@ -169,8 +178,14 @@ public class TabletChecker extends Daemon {
         } // end for dbs
 
         long cost = System.currentTimeMillis() - start;
-        LOG.info("finished to check tablets. unhealth/healthy: {}/{}, skip non prio: {}, cost: {} ms",
-                 unhealthyTabletNum, totalTabletNum, skipNonPrios, cost);
+
+        stat.counterTabletCheckCostMs.addAndGet(cost);
+        stat.counterTabletChecked.addAndGet(totalTabletNum);
+        stat.counterUnhealthyTabletNum.addAndGet(unhealthyTabletNum);
+        stat.counterTabletAddToBeScheduled.addAndGet(addToSchedulerTabletNum);
+
+        LOG.info("finished to check tablets. unhealth/total/added: {}/{}/{}, skip non prio: {}, cost: {} ms",
+                 unhealthyTabletNum, totalTabletNum, addToSchedulerTabletNum, skipNonPrios, cost);
     }
 
     public void removeHealthyPartFromPrios(Long dbId, Long tblId, Long partId) {
