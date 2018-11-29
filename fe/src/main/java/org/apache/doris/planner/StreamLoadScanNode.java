@@ -329,24 +329,13 @@ public class StreamLoadScanNode extends ScanNode {
     }
 
     private Expr castToSlot(SlotDescriptor slotDesc, Expr expr) throws UserException {
-        if (slotDesc.getType().isNull()) {
-            return expr;
-        }
         PrimitiveType dstType = slotDesc.getType().getPrimitiveType();
         PrimitiveType srcType = expr.getType().getPrimitiveType();
-        if (dstType.isStringType()) {
-            if (srcType.isStringType()) {
-                return expr;
-            } else {
-                CastExpr castExpr = (CastExpr)expr.castTo(Type.VARCHAR);
-                return castExpr;
-            }
-        } else if (dstType != srcType) {
-            CastExpr castExpr = (CastExpr)expr.castTo(slotDesc.getType());
-            return castExpr;
+        if (dstType != srcType) {
+            return expr.castTo(slotDesc.getType());
+        } else {
+            return expr;
         }
-
-        return expr;
     }
 
     @Override
