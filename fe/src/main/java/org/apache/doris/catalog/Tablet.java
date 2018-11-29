@@ -57,7 +57,7 @@ public class Tablet extends MetaObject implements Writable {
 
     private long id;
     private List<Replica> replicas;
-    
+
     private long checkedVersion;
     private long checkedVersionHash;
 
@@ -425,26 +425,26 @@ public class Tablet extends MetaObject implements Writable {
         long currentTime = System.currentTimeMillis();
 
         // first check, wait for next round
-        if (lastCheckTime == -1) {
-            lastCheckTime = currentTime;
+        if (lastStatusCheckTime == -1) {
+            lastStatusCheckTime = currentTime;
             return false;
         }
 
         boolean ready = false;
         switch (priority) {
             case HIGH:
-                ready = currentTime - lastCheckTime > Config.tablet_repair_delay_factor_second * 1;
+                ready = currentTime - lastStatusCheckTime > Config.tablet_repair_delay_factor_second * 1000 * 1;
                 break;
             case NORMAL:
-                ready = currentTime - lastCheckTime > Config.tablet_repair_delay_factor_second * 2;
+                ready = currentTime - lastStatusCheckTime > Config.tablet_repair_delay_factor_second * 1000 * 2;
                 break;
             case LOW:
-                ready = currentTime - lastCheckTime > Config.tablet_repair_delay_factor_second * 3;
+                ready = currentTime - lastStatusCheckTime > Config.tablet_repair_delay_factor_second * 1000 * 3;
                 break;
             default:
                 break;
         }
-        lastCheckTime = currentTime;
+        lastStatusCheckTime = currentTime;
 
         return ready;
     }

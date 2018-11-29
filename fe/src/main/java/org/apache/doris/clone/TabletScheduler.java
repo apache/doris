@@ -176,7 +176,7 @@ public class TabletScheduler extends Daemon {
      * if force is true, do not check if tablet is already added before.
      */
     public synchronized boolean addTablet(TabletInfo tablet, boolean force) {
-        if (!force && allTabletIds.contains(tablet.getTabletId())) {
+        if (!force && hasTablet(tablet.getTabletId())) {
             return false;
         }
         allTabletIds.add(tablet.getTabletId());
@@ -184,8 +184,8 @@ public class TabletScheduler extends Daemon {
         return true;
     }
 
-    public synchronized boolean isEmpty() {
-        return pendingTablets.isEmpty();
+    public synchronized boolean hasTablet(long tabletId) {
+        return allTabletIds.contains(tabletId);
     }
 
     /*
@@ -318,7 +318,7 @@ public class TabletScheduler extends Daemon {
                 } else {
                     // discard
                     stat.counterTabletScheduledDiscard.incrementAndGet();
-                    removeTabletInfo(tabletInfo, e.getMessage());
+                    removeTabletInfo(tabletInfo, TabletInfo.State.CANCELLED, e.getMessage());
                 }
                 return;
             }
@@ -714,12 +714,12 @@ public class TabletScheduler extends Daemon {
         addTablet(tabletInfo, true /* force */);
     }
 
-    private synchronized void removeTabletInfo(TabletInfo tabletInfo, String reason) {
-        tabletInfo.setState(TabletInfo.State.CANCELLED);
+    private synchronized void removeTabletInfo(TabletInfo tabletInfo, TabletInfo.State state, String reason) {
+        tabletInfo.setState(state);
         tabletInfo.releaseResource(this);
         allTabletIds.remove(tabletInfo.getTabletId());
         schedHistory.add(tabletInfo);
-        LOG.info("remove the tablet info {} because: {}", tabletInfo.getTabletId(), reason);
+        LOG.info("remove the tablet {}. because: {}", tabletInfo.getTabletId(), reason);
     }
 
     // get at most BATCH_NUM tablets from queue.
@@ -757,14 +757,14 @@ public class TabletScheduler extends Daemon {
             } else {
                 // discard
                 stat.counterTabletScheduledDiscard.incrementAndGet();
-                removeTabletInfo(tabletInfo, e.getMessage());
+                removeTabletInfo(tabletInfo, TabletInfo.State.CANCELLED, e.getMessage());
             }
             return;
         }
 
         Preconditions.checkState(tabletInfo.getState() == TabletInfo.State.FINISHED);
         stat.counterCloneTaskSucceeded.incrementAndGet();
-        removeTabletInfo(tabletInfo, "finished");
+        removeTabletInfo(tabletInfo, TabletInfo.State.CANCELLED, "finished");
     }
 
     /*
@@ -781,19 +781,15 @@ public class TabletScheduler extends Daemon {
      * If task is timeout, remove the tablet
      */
     public synchronized void handleRunningTablets() {
-        Iterator<Map.Entry<Long, TabletInfo>> iter = runningTablets.entrySet().iterator();
-        while (iter.hasNext()) {
-            Map.Entry<Long, TabletInfo> entry = iter.next();
-            TabletInfo tabletInfo = entry.getValue();
-            if (tabletInfo.isTimeout()) {
-                tabletInfo.setState(TabletInfo.State.TIMEOUT);
-                iter.remove();
-                tabletInfo.releaseResource(this);
-                schedHistory.add(tabletInfo);
-                LOG.info("tablet info(clone task) is timeout: {}. remove it", tabletInfo.getTabletId());
-                stat.counterCloneTaskTimeout.incrementAndGet();
-            }
-        }
+        List<TabletInfo> timeoutTablets = Lists.newArrayList();
+        runningTablets.values().stream().filter(t -> t.isTimeout()).forEach(t -> {
+            timeoutTablets.add(t);
+        });
+        
+        timeoutTablets.stream().forEach(t -> {
+            removeTabletInfo(t, TabletInfo.State.TIMEOUT, "timeout");
+            stat.counterCloneTaskTimeout.incrementAndGet();
+        });
     }
 
     public List<List<String>> getPendingTabletsInfo(int limit) {

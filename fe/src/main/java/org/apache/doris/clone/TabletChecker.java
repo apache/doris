@@ -87,16 +87,13 @@ public class TabletChecker extends Daemon {
      */
     @Override
     protected void runOneCycle() {
-        boolean schedulerHasTask = !tabletScheduler.isEmpty();
-
-        // if scheduler has tasks, we only check tablets in prios
-        checkTablets(schedulerHasTask);
+        checkTablets();
         stat.counterTabletCheckRound.incrementAndGet();
 
         LOG.info(stat.incrementalBrief());
     }
 
-    private void checkTablets(boolean skipNonPrios) {
+    private void checkTablets() {
         long start = System.currentTimeMillis();
         long totalTabletNum = 0;
         long unhealthyTabletNum = 0;
@@ -123,14 +120,15 @@ public class TabletChecker extends Daemon {
                     OlapTable olapTbl = (OlapTable) table;
                     for (Partition partition : olapTbl.getPartitions()) {
                         boolean isInPrios = isInPrios(dbId, table.getId(), partition.getId());
-                        if (skipNonPrios && !isInPrios) {
-                            // skip non prios
-                            continue;
-                        }
                         boolean prioPartIsHealthy = true;
                         for (MaterializedIndex idx : partition.getMaterializedIndices()) {
                             for (Tablet tablet : idx.getTablets()) {
                                 totalTabletNum++;
+                                
+                                if (tabletScheduler.hasTablet(tablet.getId())) {
+                                    continue;
+                                }
+                                
                                 Pair<TabletStatus, TabletInfo.Priority> statusWithPrio = tablet.getHealthStatusWithPriority(
                                         infoService,
                                         db.getClusterName(),
@@ -185,8 +183,8 @@ public class TabletChecker extends Daemon {
         stat.counterUnhealthyTabletNum.addAndGet(unhealthyTabletNum);
         stat.counterTabletAddToBeScheduled.addAndGet(addToSchedulerTabletNum);
 
-        LOG.info("finished to check tablets. unhealth/total/added: {}/{}/{}, skip non prio: {}, cost: {} ms",
-                 unhealthyTabletNum, totalTabletNum, addToSchedulerTabletNum, skipNonPrios, cost);
+        LOG.info("finished to check tablets. unhealth/total/added: {}/{}/{}, cost: {} ms",
+                 unhealthyTabletNum, totalTabletNum, addToSchedulerTabletNum, cost);
     }
 
     public void removeHealthyPartFromPrios(Long dbId, Long tblId, Long partId) {
