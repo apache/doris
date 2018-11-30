@@ -130,7 +130,7 @@ AgentStatus Pusher::_get_tmp_file_dir(const string& root_path, string* download_
 }
 
 AgentStatus Pusher::_download_file() {
-    OLAP_LOG_INFO("begin download file. tablet=%d", _push_req.tablet_id);
+    LOG(INFO) << "begin download file. tablet_id=" << _push_req.tablet_id;
     time_t start = time(NULL);
     AgentStatus status = DORIS_SUCCESS;
 
@@ -146,15 +146,15 @@ AgentStatus Pusher::_download_file() {
         rate = (double) _push_req.http_file_size / cost / 1024;
     }
     if (status == DORIS_SUCCESS) {
-        OLAP_LOG_INFO("down load file success. local_file=%s, remote_file=%s, "
-                      "tablet=%d, cost=%ld, file size: %ld B, download rate: %f KB/s",
-                _downloader_param.local_file_path.c_str(),
-                _downloader_param.remote_file_path.c_str(),
-                _push_req.tablet_id, cost, _push_req.http_file_size, rate);
+        LOG(INFO) << "down load file success. local_file=" << _downloader_param.local_file_path
+                  << "remote_file=" << _downloader_param.remote_file_path
+                  << ", tablet_id" << _push_req.tablet_id
+                  << ", cost=" << cost << ", file_size" << _push_req.http_file_size
+                  << ", download rage:" << rate << "KB/s";
     } else {
         LOG(WARNING) << "down load file failed. remote_file=" << _downloader_param.remote_file_path
-                     << " tablet=" << _push_req.tablet_id
-                     << " cost=" << cost << " file size: " << _push_req.http_file_size << " B";
+                     << ", tablet=" << _push_req.tablet_id
+                     << ", cost=" << cost << " file size: " << _push_req.http_file_size << " B";
     }
 
     // todo check data length and mv name tmp
@@ -260,7 +260,7 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
         time_t push_begin = time(NULL);
         OLAPStatus push_status = _engine->push(_push_req, tablet_infos);
         time_t push_finish = time(NULL);
-        OLAP_LOG_INFO("Push finish, cost time: %ld", push_finish - push_begin);
+        LOG(INFO) << "Push finish, cost time: " << (push_finish - push_begin);
         if (push_status == OLAPStatus::OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
             status = DORIS_PUSH_HAD_LOADED;
         } else if (push_status != OLAPStatus::OLAP_SUCCESS) {
