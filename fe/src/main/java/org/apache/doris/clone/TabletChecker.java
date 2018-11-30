@@ -129,11 +129,11 @@ public class TabletChecker extends Daemon {
                                 }
                                 
                                 Pair<TabletStatus, TabletInfo.Priority> statusWithPrio = tablet.getHealthStatusWithPriority(
-                                        infoService,
-                                        db.getClusterName(),
-                                        partition.getCommittedVersion(),
-                                        partition.getCommittedVersionHash(),
-                                        olapTbl.getPartitionInfo().getReplicationNum(partition.getId()));
+                                    infoService,
+                                    db.getClusterName(),
+                                    partition.getVisibleVersion(),
+                                    partition.getVisibleVersionHash(),
+                                    olapTbl.getPartitionInfo().getReplicationNum(partition.getId()));
 
                                 if (statusWithPrio.first == TabletStatus.HEALTHY) {
                                     // Only set last status check time when status is healthy.

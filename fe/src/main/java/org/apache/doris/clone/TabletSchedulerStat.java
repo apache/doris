@@ -19,6 +19,9 @@ public class TabletSchedulerStat {
     @Retention(RetentionPolicy.RUNTIME)
     public static @interface StatField {
         String value() default "";
+
+        // add this prefix for analyzing log more easily.
+        String prefix() default "TStat";
     }
 
     /*
@@ -85,6 +88,10 @@ public class TabletSchedulerStat {
 
     private TabletSchedulerStat lastSnapshot = null;
 
+    /*
+     * make a snapshot of current stat,
+     * in order to calculate the incremental stat when next call of incrementalBrief()
+     */
     private void snapshot() {
         lastSnapshot = new TabletSchedulerStat();
         try {
@@ -133,7 +140,7 @@ public class TabletSchedulerStat {
      * print the brief of statistics, also print the incremental part since last call of incrementalBrief()
      */
     public String incrementalBrief() {
-        StringBuilder sb = new StringBuilder("TabletSchedStat:\n");
+        StringBuilder sb = new StringBuilder("TStat :\n");
         try {
             Class<?> clazz = Class.forName(this.getClass().getName());
             Field[] fields = clazz.getDeclaredFields();
@@ -144,6 +151,7 @@ public class TabletSchedulerStat {
 
                 long current = ((AtomicLong) field.get(this)).get();
                 long last = lastSnapshot == null ? 0 : ((AtomicLong) field.get(lastSnapshot)).get();
+                sb.append(field.getAnnotation(StatField.class).prefix()).append(" ");
                 sb.append(field.getAnnotation(StatField.class).value()).append(": ");
                 sb.append(current).append(" (+").append(current - last).append(")\n");
             }

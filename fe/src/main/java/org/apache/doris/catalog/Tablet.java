@@ -355,7 +355,7 @@ public class Tablet extends MetaObject implements Writable {
      */
     public Pair<TabletStatus, TabletInfo.Priority> getHealthStatusWithPriority(
             SystemInfoService systemInfoService,
-            String clusterName, long committedVersion, long committedVersionHash, int replicationNum) {
+            String clusterName, long visibleVersion, long visibleVersionHash, int replicationNum) {
 
         int aliveReplicaNum = 0;
         int healthyReplicaNum = 0;
@@ -371,9 +371,9 @@ public class Tablet extends MetaObject implements Writable {
             ++aliveReplicaNum;
 
             if (replica.getLastFailedVersion() > 0 ||
-                    replica.getVersion() < committedVersion
-                    || (replica.getVersion() == committedVersion 
-                    && replica.getVersionHash() != committedVersionHash) ) {
+                    replica.getVersion() < visibleVersion
+                    || (replica.getVersion() == visibleVersion 
+                    && replica.getVersionHash() != visibleVersionHash) ) {
                 // version incomplete
                 continue;
             }

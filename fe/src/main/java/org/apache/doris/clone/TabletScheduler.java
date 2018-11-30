@@ -209,8 +209,10 @@ public class TabletScheduler extends Daemon {
 
     /*
      * TabletScheduler will run as a daemon thread at a very short interval(default 5 sec)
-     * It will try to schedule the tablet in queue.
-     * and also try to balance the cluster if possible.
+     * Firstly, it will try to update cluster load statistic and check if priority need to be adjuested.
+     * Than, it will schedule the tablets in pendingTablets.
+     * Thirdly, it will check the current running tasks.
+     * Finally, it try to balance the cluster if possible.
      * 
      * Schedule rules:
      * 1. tablet with higher priority will be scheduled first.
@@ -219,6 +221,7 @@ public class TabletScheduler extends Daemon {
      * 4. every pending task should has a max scheduled time, if schedule fails too many times, if should be removed.
      * 5. every running task should has a timeout, to avoid running forever.
      * 6. every running task should also has a max failure time, if clone task fails too many times, if should be removed.
+     *
      */
     @Override
     protected void runOneCycle() {
@@ -347,10 +350,21 @@ public class TabletScheduler extends Daemon {
     }
 
     /*
+     * we take the tablet out of the runningTablets and than handle it,
+     * avoid other threads see it.
+     * Whoever takes this tablet, make sure to put it to the schedHistory or back to runningTablets.
+     */
+    private synchronized TabletInfo takeRunningTablets(long tabletId) {
+        return runningTablets.remove(tabletId);
+    }
+
+    /*
      * Try to schedule a single tablet.
      */
     private void scheduleTablet(TabletInfo tabletInfo, AgentBatchTask batchTask) throws SchedException {
-        tabletInfo.setLastSchedTime(System.currentTimeMillis());
+        long currentTime = System.currentTimeMillis();
+        tabletInfo.setLastSchedTime(currentTime);
+        tabletInfo.setLastVisitedTime(currentTime);
         stat.counterTabletScheduled.incrementAndGet();
 
         Database db = catalog.getDb(tabletInfo.getDbId());
@@ -382,8 +396,8 @@ public class TabletScheduler extends Daemon {
 
             statusPair = tablet.getHealthStatusWithPriority(
                                                infoService, tabletInfo.getCluster(),
-                                               partition.getCommittedVersion(),
-                                               partition.getCommittedVersionHash(),
+                partition.getVisibleVersion(),
+                partition.getVisibleVersionHash(),
                                                tbl.getPartitionInfo().getReplicationNum(partition.getId()));
 
             if (statusPair.first == TabletStatus.HEALTHY) {
@@ -720,6 +734,7 @@ public class TabletScheduler extends Daemon {
     private synchronized void removeTabletInfo(TabletInfo tabletInfo, TabletInfo.State state, String reason) {
         tabletInfo.setState(state);
         tabletInfo.releaseResource(this);
+        tabletInfo.setFinishedTime(System.currentTimeMillis());
         allTabletIds.remove(tabletInfo.getTabletId());
         schedHistory.add(tabletInfo);
         LOG.info("remove the tablet {}. because: {}", tabletInfo.getTabletId(), reason);
@@ -741,12 +756,16 @@ public class TabletScheduler extends Daemon {
         return list;
     }
 
-    public void finishCloneTask(CloneTask cloneTask, TFinishTaskRequest request) {
+    /*
+     * return true if we want to remove the clone task from AgentTaskQueu
+     */
+    public boolean finishCloneTask(CloneTask cloneTask, TFinishTaskRequest request) {
         long tabletId = cloneTask.getTabletId();
         TabletInfo tabletInfo = takeRunningTablets(tabletId);
         if (tabletInfo == null) {
             LOG.warn("tablet info does not exist: {}", tabletId);
-            return;
+            // tablet does not exist, no need to keep task.
+            return true;
         }
         Preconditions.checkState(tabletInfo.getState() == TabletInfo.State.RUNNING);
         try {
@@ -757,31 +776,33 @@ public class TabletScheduler extends Daemon {
             if (e.getStatus() == Status.SCHEDULE_FAILED) {
                 stat.counterCloneTaskFailed.incrementAndGet();
                 addToRunningTablets(tabletInfo);
+                return false;
             } else {
-                // discard
+                // unrecoverable
                 stat.counterTabletScheduledDiscard.incrementAndGet();
                 removeTabletInfo(tabletInfo, TabletInfo.State.CANCELLED, e.getMessage());
+                return true;
             }
-            return;
         }
 
         Preconditions.checkState(tabletInfo.getState() == TabletInfo.State.FINISHED);
         stat.counterCloneTaskSucceeded.incrementAndGet();
-        removeTabletInfo(tabletInfo, TabletInfo.State.CANCELLED, "finished");
-    }
-
-    /*
-     * we take the tablet out of the runningTablets and than handle it,
-     * avoid other threads see it.
-     * Whoever takes this tablet, make sure to put it to the schedHistory or back to runningTablets.
-     */
-    private synchronized TabletInfo takeRunningTablets(long tabletId) {
-        return runningTablets.remove(tabletId);
+        removeTabletInfo(tabletInfo, TabletInfo.State.FINISHED, "finished");
+        return true;
     }
 
     /*
      * handle tablets which are running.
-     * If task is timeout, remove the tablet
+     * We should finished the task if
+     * 1. Tablet is already healthy
+     * 2. Task is timeout.
+     * 
+     * But here we just handle the timeout case here. Let the 'finishCloneTask()' check if tablet is healthy.
+     * We guarantee that if tablet is in runningTablets, the 'finishCloneTask()' will finally be called,
+     * so no need to worry that running tablets will never end.
+     * This is also avoid nesting 'synchronized' and database lock.
+     *
+     * If task is timeout, remove the tablet.
      */
     public synchronized void handleRunningTablets() {
         List<TabletInfo> timeoutTablets = Lists.newArrayList();
@@ -838,6 +859,11 @@ public class TabletScheduler extends Daemon {
         return schedHistory.size();
     }
 
+    /*
+     * A Slot keeps track of available slot num of a Backend.
+     * Each path on a Backend has several slot.
+     * If a path's slot num because 0, no task should be assigned to this path.
+     */
     public class Slot {
         // path hash -> slot num
         private Map<Long, Integer> pathSlots = Maps.newConcurrentMap();
