@@ -54,10 +54,10 @@ void HeartbeatServer::heartbeat(
 
     //print heartbeat in every minute
     LOG_EVERY_N(INFO, 12) << "get heartbeat from FE."
-        << "host:" << master_info.network_address.hostname << ", "
-        << "port:" << master_info.network_address.port << ", "
-        << "cluster id:" << master_info.cluster_id << ", "
-        << "counter:" << google::COUNTER;
+        << "host:" << master_info.network_address.hostname
+        << ", port:" << master_info.network_address.port
+        << ", cluster id:" << master_info.cluster_id
+        << ", counter:" << google::COUNTER;
 
     // do heartbeat
     Status st = _heartbeat(master_info);
@@ -88,7 +88,7 @@ Status HeartbeatServer::_heartbeat(
 
     // Check cluster id
     if (_master_info->cluster_id == -1) {
-        OLAP_LOG_INFO("get first heartbeat. update cluster id");
+        LOG(INFO) << "get first heartbeat. update cluster id";
         // write and update cluster id
         auto st = _olap_engine->set_cluster_id(master_info.cluster_id);
         if (!st.ok()) {
