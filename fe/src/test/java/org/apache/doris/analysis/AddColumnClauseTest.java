@@ -17,13 +17,15 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 
 public class AddColumnClauseTest {
@@ -36,13 +38,15 @@ public class AddColumnClauseTest {
 
     @Test
     public void testNormal() throws AnalysisException {
-        Column definition = EasyMock.createMock(Column.class);
+        Column column = new Column("testCol", ScalarType.createType(PrimitiveType.INT));
+        ColumnDef definition = EasyMock.createMock(ColumnDef.class);
         definition.analyze(true);
         EasyMock.expectLastCall().anyTimes();
         EasyMock.expect(definition.toSql()).andReturn("`testCol` INT").anyTimes();
         EasyMock.expect(definition.getDefaultValue()).andReturn("").anyTimes();
-        EasyMock.expect(definition.getAggregationType()).andReturn(null).anyTimes();
+        EasyMock.expect(definition.getAggregateType()).andReturn(null).anyTimes();
         EasyMock.expect(definition.isAllowNull()).andReturn(false).anyTimes();
+        EasyMock.expect(definition.toColumn()).andReturn(column).anyTimes();
         EasyMock.replay(definition);
 
         AddColumnClause clause = new AddColumnClause(definition, null, null, null);
@@ -60,8 +64,7 @@ public class AddColumnClauseTest {
         clause = new AddColumnClause(definition, new ColumnPosition("testCol2"), "testRollup", null);
         clause.analyze(analyzer);
         Assert.assertEquals("ADD COLUMN `testCol` INT AFTER `testCol2` IN `testRollup`", clause.toString());
-        Assert.assertEquals(definition, clause.getCol());
-        Assert.assertEquals(null, clause.getProperties());
+        Assert.assertNull(clause.getProperties());
         Assert.assertEquals(new ColumnPosition("testCol2").toString(), clause.getColPos().toSql());
         Assert.assertEquals("testRollup", clause.getRollupName());
     }
@@ -75,12 +78,12 @@ public class AddColumnClauseTest {
 
     @Test(expected = AnalysisException.class)
     public void testNoDefault() throws AnalysisException {
-        Column definition = EasyMock.createMock(Column.class);
+        ColumnDef definition = EasyMock.createMock(ColumnDef.class);
         definition.analyze(true);
         EasyMock.expectLastCall().anyTimes();
         EasyMock.expect(definition.toSql()).andReturn("`testCol` INT").anyTimes();
         EasyMock.expect(definition.getDefaultValue()).andReturn(null).anyTimes();
-        EasyMock.expect(definition.getAggregationType()).andReturn(null).anyTimes();
+        EasyMock.expect(definition.getAggregateType()).andReturn(null).anyTimes();
         EasyMock.expect(definition.getName()).andReturn("testCol").anyTimes();
         EasyMock.expect(definition.isAllowNull()).andReturn(false).anyTimes();
         EasyMock.replay(definition);
@@ -91,12 +94,12 @@ public class AddColumnClauseTest {
 
     @Test(expected = AnalysisException.class)
     public void testAggPos() throws AnalysisException {
-        Column definition = EasyMock.createMock(Column.class);
+        ColumnDef definition = EasyMock.createMock(ColumnDef.class);
         definition.analyze(true);
         EasyMock.expectLastCall().anyTimes();
         EasyMock.expect(definition.toSql()).andReturn("`testCol` INT").anyTimes();
         EasyMock.expect(definition.getDefaultValue()).andReturn(null).anyTimes();
-        EasyMock.expect(definition.getAggregationType()).andReturn(AggregateType.SUM).anyTimes();
+        EasyMock.expect(definition.getAggregateType()).andReturn(AggregateType.SUM).anyTimes();
         EasyMock.expect(definition.getName()).andReturn("testCol").anyTimes();
         EasyMock.expect(definition.isAllowNull()).andReturn(false).anyTimes();
         EasyMock.replay(definition);
@@ -107,12 +110,12 @@ public class AddColumnClauseTest {
 
     @Test(expected = AnalysisException.class)
     public void testAddValueToFirst() throws AnalysisException {
-        Column definition = EasyMock.createMock(Column.class);
+        ColumnDef definition = EasyMock.createMock(ColumnDef.class);
         definition.analyze(true);
         EasyMock.expectLastCall().anyTimes();
         EasyMock.expect(definition.toSql()).andReturn("`testCol` INT").anyTimes();
         EasyMock.expect(definition.getDefaultValue()).andReturn("2").anyTimes();
-        EasyMock.expect(definition.getAggregationType()).andReturn(AggregateType.SUM).anyTimes();
+        EasyMock.expect(definition.getAggregateType()).andReturn(AggregateType.SUM).anyTimes();
         EasyMock.expect(definition.getName()).andReturn("testCol").anyTimes();
         EasyMock.expect(definition.isAllowNull()).andReturn(false).anyTimes();
         EasyMock.replay(definition);

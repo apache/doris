@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
@@ -27,20 +27,20 @@ import com.google.common.base.Strings;
 public class HelpStmt extends ShowStmt {
     private static final ShowResultSetMetaData TOPIC_META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("name", ColumnType.createVarchar(64)))
-                    .addColumn(new Column("description", ColumnType.createVarchar(1000)))
-                    .addColumn(new Column("example", ColumnType.createVarchar(1000)))
+                    .addColumn(new Column("name", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("description", ScalarType.createVarchar(1000)))
+                    .addColumn(new Column("example", ScalarType.createVarchar(1000)))
                     .build();
     private static final ShowResultSetMetaData CATEGORY_META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("source_category_name", ColumnType.createVarchar(64)))
-                    .addColumn(new Column("name", ColumnType.createVarchar(64)))
-                    .addColumn(new Column("is_it_category", ColumnType.createVarchar(1)))
+                    .addColumn(new Column("source_category_name", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("name", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("is_it_category", ScalarType.createVarchar(1)))
                     .build();
     private static final ShowResultSetMetaData KEYWORD_META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("name", ColumnType.createVarchar(64)))
-                    .addColumn(new Column("is_it_category", ColumnType.createVarchar(1)))
+                    .addColumn(new Column("name", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("is_it_category", ScalarType.createVarchar(1)))
                     .build();
     private String mask;
 

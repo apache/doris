@@ -519,7 +519,7 @@ public class ShowExecutor {
                             continue;
                         }
                         final String columnName = col.getName();
-                        final String columnType = col.getColumnType().toString();
+                        final String columnType = col.getType().toString();
                         final String isAllowNull = col.isAllowNull() ? "YES" : "NO";
                         final String isKey = col.isKey() ? "YES" : "NO";
                         final String defaultValue = col.getDefaultValue();

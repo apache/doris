@@ -20,7 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -40,8 +40,8 @@ import com.google.common.base.Strings;
 public class ShowCreateDbStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Database", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Create Database", ColumnType.createVarchar(30)))
+                    .addColumn(new Column("Database", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Create Database", ScalarType.createVarchar(30)))
                     .build();
 
     private String db;

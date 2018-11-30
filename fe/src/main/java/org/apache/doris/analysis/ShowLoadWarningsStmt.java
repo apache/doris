@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -37,9 +37,9 @@ public class ShowLoadWarningsStmt extends ShowStmt {
 
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("JobId", ColumnType.createVarchar(15)))
-                    .addColumn(new Column("Label", ColumnType.createVarchar(15)))
-                    .addColumn(new Column("ErrorMsgDetail", ColumnType.createVarchar(100)))
+                    .addColumn(new Column("JobId", ScalarType.createVarchar(15)))
+                    .addColumn(new Column("Label", ScalarType.createVarchar(15)))
+                    .addColumn(new Column("ErrorMsgDetail", ScalarType.createVarchar(100)))
                     .build();
 
     private String dbName;

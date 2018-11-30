@@ -21,8 +21,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.thrift.TColumnDefinition;
 import org.apache.doris.thrift.TShowResultSet;
 import org.apache.doris.thrift.TShowResultSetMetaData;
@@ -53,8 +53,8 @@ public class ShowResultSet {
         for (int i = 0; i < resultSet.getMetaData().getColumnsSize(); i ++) {
             TColumnDefinition definition = (TColumnDefinition) resultSet.getMetaData().getColumns().get(i);
             columns.add(new Column(
-                                   definition.getColumnName(),
-                                   new ColumnType(PrimitiveType.fromThrift(definition.getColumnType().getType())))
+                            definition.getColumnName(),
+                            ScalarType.createType(PrimitiveType.fromThrift(definition.getColumnType().getType())))
             );
         }
         this.metaData = new ShowResultSetMetaData(columns);
@@ -104,10 +104,8 @@ public class ShowResultSet {
         set.metaData = new TShowResultSetMetaData();
         for (int i = 0; i < metaData.getColumnCount(); i ++) {
             Column definition = metaData.getColumn(i);
-            set.metaData.addToColumns(
-                    new TColumnDefinition(
-                                          definition.getName(),
-                                          definition.getColumnType().toThrift())
+            set.metaData.addToColumns(new TColumnDefinition(
+                    definition.getName(), definition.getOriginType().toColumnTypeThrift())
             );
         }
          

@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -33,9 +33,9 @@ import com.google.common.base.Strings;
 public class ShowRollupStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Table", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("RollupHandler", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("Columns", ColumnType.createVarchar(50)))
+                    .addColumn(new Column("Table", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("RollupHandler", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("Columns", ScalarType.createVarchar(50)))
                     .build();
     private TableName tbl;
     private String db;

@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
@@ -34,8 +34,8 @@ public class ShowVariablesStmt extends ShowStmt {
     private static final String VALUE_COL = "Value";
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column(NAME_COL, ColumnType.createVarchar(20)))
-                    .addColumn(new Column(VALUE_COL, ColumnType.createVarchar(20)))
+                    .addColumn(new Column(NAME_COL, ScalarType.createVarchar(20)))
+                    .addColumn(new Column(VALUE_COL, ScalarType.createVarchar(20)))
                     .build();
 
     private SetType type;

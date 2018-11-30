@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.ImmutableList;
@@ -37,7 +37,7 @@ public class ShowRepositoriesStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : TITLE_NAMES) {
-           builder.addColumn(new Column(title, ColumnType.createVarchar(30)));
+           builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
        }
        return builder.build();
     }

@@ -18,28 +18,28 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // Show Events statement
 public class ShowEventsStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Db", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Name", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("Definer", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Time", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Type", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Execute at", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Interval value", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("Interval field", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("Status", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("Ends", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("Status", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("Originator", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("character_set_client", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("collation_connection", ColumnType.createVarchar(30)))
-                    .addColumn(new Column("Database Collation", ColumnType.createVarchar(30)))
+                    .addColumn(new Column("Db", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Name", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("Definer", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Time", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Execute at", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Interval value", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("Interval field", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("Status", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("Ends", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("Status", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("Originator", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("character_set_client", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("collation_connection", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("Database Collation", ScalarType.createVarchar(30)))
                     .build();
 
     @Override

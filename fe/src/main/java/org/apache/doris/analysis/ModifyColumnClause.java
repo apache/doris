@@ -26,16 +26,17 @@ import java.util.Map;
 
 // modify one column
 public class ModifyColumnClause extends AlterClause {
-    private Column col;
+    private ColumnDef columnDef;
     private ColumnPosition colPos;
     // which rollup is to be modify, if rollup is null, modify base table.
     private String rollupName;
 
     private Map<String, String> properties;
 
-    public Column getCol() {
-        return col;
-    }
+    // set in analyze
+    private Column column;
+
+    public Column getColumn() { return column; }
 
     public ColumnPosition getColPos() {
         return colPos;
@@ -45,9 +46,9 @@ public class ModifyColumnClause extends AlterClause {
         return rollupName;
     }
 
-    public ModifyColumnClause(Column col, ColumnPosition colPos, String rollup,
+    public ModifyColumnClause(ColumnDef columnDef, ColumnPosition colPos, String rollup,
                               Map<String, String> properties) {
-        this.col = col;
+        this.columnDef = columnDef;
         this.colPos = colPos;
         this.rollupName = rollup;
         this.properties = properties;
@@ -55,16 +56,18 @@ public class ModifyColumnClause extends AlterClause {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (col == null) {
+        if (columnDef == null) {
             throw new AnalysisException("No column definition in modify column clause.");
         }
-        col.analyze(true);
+        columnDef.analyze(true);
         if (colPos != null) {
             colPos.analyze();
         }
         if (Strings.isNullOrEmpty(rollupName)) {
             rollupName = null;
         }
+
+        column = columnDef.toColumn();
     }
 
     @Override
@@ -75,7 +78,7 @@ public class ModifyColumnClause extends AlterClause {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("MODIFY COLUMN ").append(col.toSql());
+        sb.append("MODIFY COLUMN ").append(columnDef.toSql());
         if (colPos != null) {
             sb.append(" ").append(colPos);
         }

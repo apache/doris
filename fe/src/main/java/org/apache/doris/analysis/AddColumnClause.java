@@ -32,17 +32,17 @@ import org.apache.logging.log4j.Logger;
 // clause which is used to add one column to
 public class AddColumnClause extends AlterClause {
     private static final Logger LOG = LogManager.getLogger(AddColumnClause.class);
-    private Column col;
+    private ColumnDef columnDef;
     // Column position
     private ColumnPosition colPos;
     // if rollupName is null, add to column to base index.
     private String rollupName;
 
     private Map<String, String> properties;
+    // set in analyze
+    private Column column;
 
-    public Column getCol() {
-        return col;
-    }
+    public Column getColumn() { return column; }
 
     public ColumnPosition getColPos() {
         return colPos;
@@ -52,9 +52,9 @@ public class AddColumnClause extends AlterClause {
         return rollupName;
     }
 
-    public AddColumnClause(Column col, ColumnPosition colPos, String rollupName,
+    public AddColumnClause(ColumnDef columnDef, ColumnPosition colPos, String rollupName,
                            Map<String, String> properties) {
-        this.col = col;
+        this.columnDef = columnDef;
         this.colPos = colPos;
         this.rollupName = rollupName;
         this.properties = properties;
@@ -62,25 +62,27 @@ public class AddColumnClause extends AlterClause {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (col == null) {
-            throw new AnalysisException("No column definition in add columnn clause.");
+        if (columnDef == null) {
+            throw new AnalysisException("No column definition in add column clause.");
         }
-        col.analyze(true);
+        columnDef.analyze(true);
         if (colPos != null) {
             colPos.analyze();
         }
 
-        if (false == col.isAllowNull() && col.getDefaultValue() == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DEFAULT_FOR_FIELD, col.getName());
+        if (!columnDef.isAllowNull() && columnDef.getDefaultValue() == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DEFAULT_FOR_FIELD, columnDef.getName());
         }
 
-        if (col.getAggregationType() != null && colPos != null && colPos.isFirst()) {
-            throw new AnalysisException("Cannot add value column[" + col.getName() + "] at first");
+        if (columnDef.getAggregateType() != null && colPos != null && colPos.isFirst()) {
+            throw new AnalysisException("Cannot add value column[" + columnDef.getName() + "] at first");
         }
 
         if (Strings.isNullOrEmpty(rollupName)) {
             rollupName = null;
         }
+
+        column = columnDef.toColumn();
     }
 
     @Override
@@ -91,7 +93,7 @@ public class AddColumnClause extends AlterClause {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ADD COLUMN ").append(col.toSql());
+        sb.append("ADD COLUMN ").append(columnDef.toSql());
         if (colPos != null) {
             sb.append(" ").append(colPos.toSql());
         }

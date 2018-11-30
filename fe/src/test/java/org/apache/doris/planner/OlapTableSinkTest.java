@@ -21,7 +21,6 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -30,6 +29,7 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.UserException;
@@ -66,11 +66,11 @@ public class OlapTableSinkTest {
 
         // k2
         SlotDescriptor k2 = descTable.addSlotDescriptor(tuple);
-        k2.setColumn(new Column("k2", new ColumnType(PrimitiveType.VARCHAR, 25, 12, 1)));
+        k2.setColumn(new Column("k2", ScalarType.createVarchar(25)));
         k2.setIsMaterialized(true);
         // v1
         SlotDescriptor v1 = descTable.addSlotDescriptor(tuple);
-        v1.setColumn(new Column("v1", new ColumnType(PrimitiveType.VARCHAR, 25, 12, 1)));
+        v1.setColumn(new Column("v1", ScalarType.createVarchar(25)));
         v1.setIsMaterialized(true);
         // v2
         SlotDescriptor v2 = descTable.addSlotDescriptor(tuple);

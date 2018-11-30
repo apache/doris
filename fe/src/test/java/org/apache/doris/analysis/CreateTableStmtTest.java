@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
@@ -47,8 +47,8 @@ public class CreateTableStmtTest {
     // used to get default db
     private TableName tblName;
     private TableName tblNameNoDb;
-    private List<Column> cols;
-    private List<Column> invalidCols;
+    private List<ColumnDef> cols;
+    private List<ColumnDef> invalidCols;
     private List<String> colsName;
     private List<String> invalidColsName;
     private Analyzer analyzer;
@@ -74,16 +74,16 @@ public class CreateTableStmtTest {
         tblNameNoDb = new TableName("", "table1");
         // col
         cols = Lists.newArrayList();
-        cols.add(new Column("col1", ColumnType.createType(PrimitiveType.INT)));
-        cols.add(new Column("col2", ColumnType.createChar(10)));
+        cols.add(new ColumnDef("col1", new TypeDef(ScalarType.createType(PrimitiveType.INT))));
+        cols.add(new ColumnDef("col2", new TypeDef(ScalarType.createChar(10))));
         colsName = Lists.newArrayList();
         colsName.add("col1");
         colsName.add("col2");
         // invalid col
         invalidCols = Lists.newArrayList();
-        invalidCols.add(new Column("col1", ColumnType.createType(PrimitiveType.INT)));
-        invalidCols.add(new Column("col2", ColumnType.createChar(10)));
-        invalidCols.add(new Column("col2", ColumnType.createChar(10)));
+        invalidCols.add(new ColumnDef("col1", new TypeDef(ScalarType.createType(PrimitiveType.INT))));
+        invalidCols.add(new ColumnDef("col2", new TypeDef(ScalarType.createChar(10))));
+        invalidCols.add(new ColumnDef("col2", new TypeDef(ScalarType.createChar(10))));
         invalidColsName = Lists.newArrayList();
         invalidColsName.add("col1");
         invalidColsName.add("col2");
@@ -132,7 +132,7 @@ public class CreateTableStmtTest {
     @Test(expected = AnalysisException.class)
     public void testEmptyCol() throws UserException, AnalysisException {
         // make defalut db return empty;
-        List<Column> emptyCols = Lists.newArrayList();
+        List<ColumnDef> emptyCols = Lists.newArrayList();
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, emptyCols, "olap",
                 new KeysDesc(), null,
                 new RandomDistributionDesc(10), null, null);

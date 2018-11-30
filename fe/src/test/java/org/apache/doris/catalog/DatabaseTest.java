@@ -148,21 +148,21 @@ public class DatabaseTest {
         Database db2 = new Database(2, "db2");
         List<Column> columns = new ArrayList<Column>();
         columns.add(new Column("column2", 
-                        ColumnType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", ""));
+                        ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", ""));
         columns.add(new Column("column3", 
-                        ColumnType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
+                        ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
         columns.add(new Column("column4", 
-                        ColumnType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
+                        ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column5", 
-                        ColumnType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""));
+                        ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column6", 
-                        ColumnType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""));
+                        ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column7", 
-                        ColumnType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column8", ColumnType.createChar(10), true, null, "", ""));
-        columns.add(new Column("column9", ColumnType.createVarchar(10), true, null, "", ""));
-        columns.add(new Column("column10", ColumnType.createType(PrimitiveType.DATE), true, null, "", ""));
-        columns.add(new Column("column11", ColumnType.createType(PrimitiveType.DATETIME), true, null, "", ""));
+                        ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""));
+        columns.add(new Column("column8", ScalarType.createChar(10), true, null, "", ""));
+        columns.add(new Column("column9", ScalarType.createVarchar(10), true, null, "", ""));
+        columns.add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""));
+        columns.add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""));
 
         MaterializedIndex index = new MaterializedIndex(1, IndexState.NORMAL);
         Partition partition = new Partition(20000L, "table", index, new RandomDistributionInfo(10));

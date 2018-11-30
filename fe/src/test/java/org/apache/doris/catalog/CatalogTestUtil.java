@@ -192,7 +192,7 @@ public class CatalogTestUtil {
         temp = new Column("k2", PrimitiveType.INT);
         temp.setIsKey(true);
         columns.add(temp);
-        columns.add(new Column("v", new ColumnType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
+        columns.add(new Column("v", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
 
         List<Column> keysColumn = new ArrayList<Column>();
         temp = new Column("k1", PrimitiveType.INT);
@@ -235,7 +235,7 @@ public class CatalogTestUtil {
         Column k2 = new Column("k2", PrimitiveType.INT);
         k2.setIsKey(true);
         columns.add(k2);
-        columns.add(new Column("v", new ColumnType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
+        columns.add(new Column("v", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
 
         // table
         List<Column> partitionColumns = Lists.newArrayList();
@@ -267,7 +267,7 @@ public class CatalogTestUtil {
         Column k2 = new Column("k2", PrimitiveType.INT);
         k2.setIsKey(true);
         columns.add(k2);
-        columns.add(new Column("v", new ColumnType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
+        columns.add(new Column("v", ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.SUM, "0", ""));
 
         // table
         List<Column> partitionColumns = Lists.newArrayList();

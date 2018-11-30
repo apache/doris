@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // Show plugins statement.
@@ -26,11 +26,11 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 public class ShowPluginsStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Name", ColumnType.createVarchar(64)))
-                    .addColumn(new Column("Status", ColumnType.createVarchar(10)))
-                    .addColumn(new Column("Type", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Library", ColumnType.createVarchar(64)))
-                    .addColumn(new Column("License", ColumnType.createVarchar(80)))
+                    .addColumn(new Column("Name", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("Status", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("Type", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Library", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("License", ScalarType.createVarchar(80)))
                     .build();
 
     @Override

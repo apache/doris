@@ -18,18 +18,18 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 public class ShowEnginesStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Engine", ColumnType.createVarchar(64)))
-                    .addColumn(new Column("Support", ColumnType.createVarchar(8)))
-                    .addColumn(new Column("Comment", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Transactions", ColumnType.createVarchar(3)))
-                    .addColumn(new Column("XA", ColumnType.createVarchar(3)))
-                    .addColumn(new Column("Savepoints", ColumnType.createVarchar(3)))
+                    .addColumn(new Column("Engine", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("Support", ScalarType.createVarchar(8)))
+                    .addColumn(new Column("Comment", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Transactions", ScalarType.createVarchar(3)))
+                    .addColumn(new Column("XA", ScalarType.createVarchar(3)))
+                    .addColumn(new Column("Savepoints", ScalarType.createVarchar(3)))
                     .build();
 
     @Override

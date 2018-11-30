@@ -20,7 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -155,7 +155,7 @@ public class AdminShowReplicaStatusStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : TITLE_NAMES) {
-            builder.addColumn(new Column(title, ColumnType.createVarchar(30)));
+            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
     }

@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -71,19 +71,13 @@ public class CreateTableAsSelectStmt extends StatementBase {
                 ErrorReport.report(ErrorCode.ERR_COL_NUMBER_NOT_MATCH);
             }
             for (int i = 0; i < columnNames.size(); ++i) {
-                createTableStmt
-                        .addColumn(
-                        new Column(
-                                columnNames.get(i),
-                                ColumnType.createType(tmpStmt.getResultExprs().get(i).getType().getPrimitiveType())));
+                createTableStmt.addColumnDef(new ColumnDef(
+                        columnNames.get(i), new TypeDef(tmpStmt.getResultExprs().get(i).getType())));
             }
         } else {
             for (int i = 0; i < tmpStmt.getColLabels().size(); ++i) {
-                createTableStmt
-                        .addColumn(
-                        new Column(
-                                tmpStmt.getColLabels().get(i),
-                                ColumnType.createType(tmpStmt.getResultExprs().get(i).getType().getPrimitiveType())));
+                createTableStmt.addColumnDef(new ColumnDef(
+                        tmpStmt.getColLabels().get(i), new TypeDef(tmpStmt.getResultExprs().get(i).getType())));
             }
         }
 

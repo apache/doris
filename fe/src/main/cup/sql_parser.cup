@@ -23,7 +23,6 @@ import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
@@ -328,7 +327,6 @@ nonterminal InlineViewRef inline_view_ref;
 nonterminal JoinOperator join_operator;
 nonterminal ArrayList<String> opt_plan_hints;
 nonterminal ArrayList<String> opt_sort_hints;
-nonterminal PrimitiveType primitive_type;
 nonterminal Expr sign_chain_expr;
 nonterminal Qualifier union_op;
 
@@ -347,14 +345,13 @@ nonterminal List<SetVar> option_value_list, option_value_list_continued, start_o
         start_option_value_list_following_option_type, user_property_list;
 
 nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_properties, opt_ext_properties;
-nonterminal Column column_definition;
-nonterminal ArrayList<Column> column_definition_list;
-nonterminal ColumnType column_type;
-nonterminal List<ColumnType> column_type_list;
+nonterminal ColumnDef column_definition;
+nonterminal ArrayList<ColumnDef> column_definition_list;
 nonterminal AggregateType opt_agg_type;
 nonterminal PartitionDesc opt_partition;
 nonterminal DistributionDesc opt_distribution;
 nonterminal Integer opt_distribution_number;
+nonterminal Long opt_field_length;
 nonterminal KeysDesc opt_keys;
 
 nonterminal PartitionKeyDesc partition_key_desc;
@@ -831,6 +828,7 @@ create_stmt ::=
         RESULT = new CreateClusterStmt(name, properties, password);
     :}*/
     /* Function */
+    /*
     | KW_CREATE KW_FUNCTION function_name:functionName LPAREN column_type_list:arguments RPAREN
             column_type:retrunType KW_SONAME STRING_LITERAL:soPath
             opt_properties:properties
@@ -843,6 +841,7 @@ create_stmt ::=
     {:
         RESULT = new CreateFunctionStmt(functionName, arguments, retrunType, soPath, properties, true);
     :}
+    */
     /* Table */
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             LPAREN column_definition_list:columns RPAREN opt_engine:engineName
@@ -943,19 +942,6 @@ user_identity ::=
     | ident_or_text:user AT LBRACKET ident_or_text:host RBRACKET
     {:
         RESULT = new UserIdentity(user, host, true);
-    :}
-    ;
-
-column_type_list ::=
-    column_type:type
-    {:
-    RESULT = Lists.newArrayList();
-    RESULT.add(type);
-    :}
-    | column_type_list:types COMMA column_type:type
-    {:
-    types.add(type);
-    RESULT = types;
     :}
     ;
 
@@ -1416,89 +1402,6 @@ column_definition_list ::=
     :}
     ;
 
-column_type ::=
-    KW_TINYINT
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.TINYINT);
-    :}
-    | KW_TINYINT LPAREN INTEGER_LITERAL:length RPAREN
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.TINYINT);
-    :}
-    | KW_SMALLINT
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.SMALLINT);
-    :}
-    | KW_SMALLINT LPAREN INTEGER_LITERAL:length RPAREN
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.SMALLINT);
-    :}
-    | KW_INT
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.INT);
-    :}
-    | KW_INT LPAREN INTEGER_LITERAL:length RPAREN
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.INT);
-    :}
-    | KW_BIGINT
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.BIGINT);
-    :}
-    | KW_BIGINT LPAREN INTEGER_LITERAL:length RPAREN
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.BIGINT);
-    :}
-    | KW_LARGEINT
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.LARGEINT);
-    :}
-    | KW_LARGEINT LPAREN INTEGER_LITERAL:length RPAREN
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.LARGEINT);
-    :}
-    | KW_FLOAT
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.FLOAT);
-    :}
-    | KW_DOUBLE
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.DOUBLE);
-    :}
-    | KW_DECIMAL
-    {:
-        RESULT = ColumnType.createDecimal(10, 0);
-    :}
-    | KW_DECIMAL LPAREN INTEGER_LITERAL:precision COMMA INTEGER_LITERAL:scale RPAREN
-    {:
-        RESULT = ColumnType.createDecimal(precision.intValue(), scale.intValue());
-    :}
-    | KW_DATE
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.DATE);
-    :}
-    | KW_DATETIME
-    {:
-        RESULT = ColumnType.createType(PrimitiveType.DATETIME);
-    :}
-    | KW_CHAR
-    {:
-        RESULT = ColumnType.createChar(1);
-    :}
-    | KW_CHAR LPAREN INTEGER_LITERAL:length RPAREN
-    {:
-        RESULT = ColumnType.createChar(length.intValue());
-    :}
-    | KW_VARCHAR LPAREN INTEGER_LITERAL:length RPAREN
-    {:
-        RESULT = ColumnType.createVarchar(length.intValue());
-    :}
-    | KW_HLL
-    {:
-        RESULT = ColumnType.createHll();
-    :}
-    ;
-
 opt_default_value ::=
     /* Empty */
     {:
@@ -1525,10 +1428,10 @@ opt_is_key ::=
 	;
 	
 column_definition ::=
-    ident:columnName column_type:dataType opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_default_value:defaultValue opt_comment:comment
+    ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_default_value:defaultValue opt_comment:comment
     {:
-        Column column = new Column(columnName, dataType, isKey, aggType, isAllowNull, defaultValue, comment);
-        RESULT = column;
+        ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, defaultValue, comment);
+        RESULT = columnDef;
     :}
     ;
 
@@ -3032,15 +2935,15 @@ limit_clause ::=
   ;
 
 type ::=
-  KW_TINYINT
+  KW_TINYINT opt_field_length
   {: RESULT = Type.TINYINT; :}
-  | KW_SMALLINT
+  | KW_SMALLINT opt_field_length
   {: RESULT = Type.SMALLINT; :}
-  | KW_INT
+  | KW_INT opt_field_length
   {: RESULT = Type.INT; :}
-  | KW_BIGINT
+  | KW_BIGINT opt_field_length
   {: RESULT = Type.BIGINT; :}
-  | KW_LARGEINT
+  | KW_LARGEINT opt_field_length
   {: RESULT = Type.LARGEINT; :}
   | KW_BOOLEAN
   {: RESULT = Type.BOOLEAN; :}
@@ -3053,21 +2956,30 @@ type ::=
   | KW_DATETIME
   {: RESULT = Type.DATETIME; :}
   | KW_STRING
-  {: RESULT = ScalarType.createVarcharType(-1); :}
+  {: RESULT = ScalarType.createVarcharType(1); :}
   | KW_VARCHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: RESULT = ScalarType.createVarcharType(len.intValue()); :}
   | KW_VARCHAR
-  {: RESULT = ScalarType.createVarcharType(-1); :}
+  {: RESULT = ScalarType.createVarcharType(1); :}
   | KW_CHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: RESULT = ScalarType.createCharType(len.intValue()); :}
   | KW_CHAR
-  {: RESULT = ScalarType.createCharType(-1); :}
+  {: RESULT = ScalarType.createCharType(1); :}
   | KW_DECIMAL LPAREN INTEGER_LITERAL:precision RPAREN
   {: RESULT = ScalarType.createDecimalType(precision.intValue()); :}
   | KW_DECIMAL LPAREN INTEGER_LITERAL:precision COMMA INTEGER_LITERAL:scale RPAREN
   {: RESULT = ScalarType.createDecimalType(precision.intValue(), scale.intValue()); :}
   | KW_DECIMAL
   {: RESULT = ScalarType.createDecimalType(); :}
+  | KW_HLL
+  {: RESULT = Type.HLL; :}
+  ;
+
+opt_field_length ::=
+  LPAREN INTEGER_LITERAL:length RPAREN
+  {: RESULT = length; :}
+  |
+  {: RESULT = null; :}
   ;
 
 type_def ::=
@@ -3507,33 +3419,6 @@ column_ref ::=
   {: RESULT = new SlotRef(new TableName(null, tbl), col); :}
   | ident:db DOT ident:tbl DOT ident:col
   {: RESULT = new SlotRef(new TableName(db, tbl), col); :}
-  ;
-
-primitive_type ::=
-  KW_TINYINT
-  {: RESULT = PrimitiveType.TINYINT; :}
-  | KW_SMALLINT
-  {: RESULT = PrimitiveType.SMALLINT; :}
-  | KW_INT
-  {: RESULT = PrimitiveType.INT; :}
-  | KW_BIGINT
-  {: RESULT = PrimitiveType.BIGINT; :}
-  | KW_LARGEINT
-  {: RESULT = PrimitiveType.LARGEINT; :}
-  | KW_BOOLEAN
-  {: RESULT = PrimitiveType.BOOLEAN; :}
-  | KW_FLOAT
-  {: RESULT = PrimitiveType.FLOAT; :}
-  | KW_DOUBLE
-  {: RESULT = PrimitiveType.DOUBLE; :}
-  | KW_DATE
-  {: RESULT = PrimitiveType.DATE; :}
-  | KW_DATETIME
-  {: RESULT = PrimitiveType.DATETIME; :}
-  | KW_DECIMAL
-  {: RESULT = PrimitiveType.DECIMAL; :}
-  | KW_HLL
-  {: RESULT = PrimitiveType.HLL; :} 
   ;
 
 privilege_type ::=

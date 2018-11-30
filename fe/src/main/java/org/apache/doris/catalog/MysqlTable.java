@@ -153,22 +153,6 @@ public class MysqlTable extends Table {
     }
 
     @Override
-    public CreateTableStmt toCreateTableStmt(String dbName) {
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put(MYSQL_HOST, host);
-        properties.put(MYSQL_PORT, port);
-        properties.put(MYSQL_USER, userName);
-        properties.put(MYSQL_PASSWORD, passwd);
-        properties.put(MYSQL_DATABASE, mysqlDatabaseName);
-        properties.put(MYSQL_TABLE, mysqlTableName);
-
-        CreateTableStmt stmt = new CreateTableStmt(false, true, new TableName(dbName, name), baseSchema,
-                                                   type.name(), null, null, null, properties, null);
-
-        return stmt;
-    }
-
-    @Override
     public int getSignature(int signatureVersion) {
         Adler32 adler32 = new Adler32();
         adler32.update(signatureVersion);

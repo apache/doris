@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -95,7 +95,7 @@ public class CreateViewStmt extends DdlStmt {
                 PrimitiveType type = viewDefStmt.getBaseTblResultExprs().get(i).getType().getPrimitiveType();
                 finalCols.add(new Column(
                         columnNames.get(i),
-                        ColumnType.createType(type)));
+                        ScalarType.createType(type)));
             }
         } else {
             // TODO(zc): type
@@ -103,7 +103,7 @@ public class CreateViewStmt extends DdlStmt {
                 PrimitiveType type = viewDefStmt.getBaseTblResultExprs().get(i).getType().getPrimitiveType();
                 finalCols.add(new Column(
                         viewDefStmt.getColLabels().get(i),
-                        ColumnType.createType(type)));
+                        ScalarType.createType(type)));
             }
         }
         // Set for duplicate columns

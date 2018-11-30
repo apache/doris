@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -59,7 +59,7 @@ public class ShowDeleteStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : DeleteInfoProcDir.TITLE_NAMES_FOR_USER) {
-            builder.addColumn(new Column(title, ColumnType.createVarchar(30)));
+            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
     }

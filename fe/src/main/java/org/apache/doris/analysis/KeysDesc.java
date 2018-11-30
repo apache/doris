@@ -56,7 +56,7 @@ public class KeysDesc implements Writable {
         return keysColumnNames.contains(colName);
     }
 
-    public void analyze(List<Column> cols) throws AnalysisException {
+    public void analyze(List<ColumnDef> cols) throws AnalysisException {
         if (type == null) {
             throw new AnalysisException("Keys type is null.");
         }
@@ -75,7 +75,7 @@ public class KeysDesc implements Writable {
                 throw new AnalysisException("Key columns should be a ordered prefix of the schema.");
             }
 
-            if (cols.get(i).getAggregationType() != null) {
+            if (cols.get(i).getAggregateType() != null) {
                 throw new AnalysisException("Key column[" + name + "] should not specify aggregate type.");
             }
         }
@@ -83,12 +83,12 @@ public class KeysDesc implements Writable {
         // for olap table
         for (int i = keysColumnNames.size(); i < cols.size(); ++i) {
             if (type == KeysType.AGG_KEYS) {
-                if (cols.get(i).getAggregationType() == null) {
+                if (cols.get(i).getAggregateType() == null) {
                     throw new AnalysisException(type.name() + " table should specify aggregate type for "
                             + "non-key column[" + cols.get(i).getName() + "]");
                 }
             } else {
-                if (cols.get(i).getAggregationType() != null) {
+                if (cols.get(i).getAggregateType() != null) {
                     throw new AnalysisException(type.name() + " table should not specify aggregate type for "
                             + "non-key column[" + cols.get(i).getName() + "]");
                 }

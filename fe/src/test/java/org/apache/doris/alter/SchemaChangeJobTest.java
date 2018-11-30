@@ -25,6 +25,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
+import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.TypeDef;
+import org.apache.doris.catalog.ScalarType;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -39,7 +42,6 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.catalog.FakeEditLog;
@@ -80,7 +82,7 @@ public class SchemaChangeJobTest {
 
     private String transactionSource = "localfe";
     private static Analyzer analyzer;
-    private static Column newCol = new Column("add_v", new ColumnType(PrimitiveType.INT), false, AggregateType.MAX,
+    private static ColumnDef newCol = new ColumnDef("add_v", new TypeDef(ScalarType.createType(PrimitiveType.INT)), false, AggregateType.MAX,
             false, "1", "");
     private static AddColumnClause addColumnClause = new AddColumnClause(newCol, new ColumnPosition("v"), null, null);
 

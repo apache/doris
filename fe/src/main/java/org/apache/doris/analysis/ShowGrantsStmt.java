@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -47,7 +47,7 @@ public class ShowGrantsStmt extends ShowStmt {
     static {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String col : AuthProcDir.TITLE_NAMES) {
-            builder.addColumn(new Column(col, ColumnType.createVarchar(100)));
+            builder.addColumn(new Column(col, ScalarType.createVarchar(100)));
         }
         META_DATA = builder.build();
     }
