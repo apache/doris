@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -31,8 +31,8 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 public class ShowBrokerStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Broker", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Instances", ColumnType.createVarchar(200)))
+                    .addColumn(new Column("Broker", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Instances", ScalarType.createVarchar(200)))
                     .build();
 
     public ShowBrokerStmt() {

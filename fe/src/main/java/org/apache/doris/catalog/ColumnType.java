@@ -17,11 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.AnalysisException;
+import com.google.common.base.Preconditions;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.thrift.TColumnType;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -32,8 +30,7 @@ import java.io.IOException;
  * 1. 对于decimal，character这种有一些附加信息的
  * 2. 如果在未来需要增加嵌套类型，那么这个ColumnType就是必须的了
  */
-public class ColumnType implements Writable {
-    private static final int VAR_CHAR_UPPER_LIMIT = 65533;
+public abstract class ColumnType {
     private static Boolean[][] schemaChangeMatrix;
 
     static {
@@ -41,11 +38,7 @@ public class ColumnType implements Writable {
 
         for (int i = 0; i < schemaChangeMatrix.length; i++) {
             for (int j = 0; j < schemaChangeMatrix[i].length; j++) {
-                if (i == j) {
-                    schemaChangeMatrix[i][j] = true;
-                } else {
-                    schemaChangeMatrix[i][j] = false;
-                }
+                schemaChangeMatrix[i][j] = i == j;
             }
         }
 
@@ -73,343 +66,31 @@ public class ColumnType implements Writable {
         schemaChangeMatrix[PrimitiveType.DATE.ordinal()][PrimitiveType.DATETIME.ordinal()] = true;
     }
 
-    private PrimitiveType type;
-
-    // Unused if type is always the same length.
-    private int len;
-
-    // Used for decimal(precision, scale)
-    // precision: maximum number of digits
-    // scale: the number of digits to the right of the decimal point
-    private int precision;
-    private int scale;
-    // used for limiting varchar size
-    private boolean varcharLimit = true;
-
-    private volatile Type typeDesc;
-
-    public ColumnType() {
-        this.type = PrimitiveType.NULL_TYPE;
+    static boolean isSchemaChangeAllowed(Type lhs, Type rhs) {
+        return schemaChangeMatrix[lhs.getPrimitiveType().ordinal()][rhs.getPrimitiveType().ordinal()];
     }
 
-    public ColumnType(PrimitiveType type) {
-        this(type, -1, -1, -1);
+    public static void write(DataOutput out, Type type) throws IOException {
+        Preconditions.checkArgument(type.isScalarType(), "only support scalar type serialization");
+        ScalarType scalarType = (ScalarType) type;
+        Text.writeString(out, scalarType.getPrimitiveType().name());
+        out.writeInt(scalarType.getScalarScale());
+        out.writeInt(scalarType.getScalarPrecision());
+        out.writeInt(scalarType.getLength());
+        // Actually, varcharLimit need not to write here, write true to back compatible
+        out.writeBoolean(true);
     }
 
-    public ColumnType(PrimitiveType type, int len, int precision, int scale) {
-        this.type = type;
-        this.len = len;
-        this.precision = precision;
-        this.scale = scale;
-        if (this.type == null) {
-            this.type = PrimitiveType.NULL_TYPE;
-        }
-    }
-
-    // This is used for built-in function to create intermediate type
-    public static ColumnType createInterType(PrimitiveType type) {
-        switch (type) {
-            case BOOLEAN:
-            case TINYINT:
-            case SMALLINT:
-            case INT:
-            case BIGINT:
-            case LARGEINT:
-            case FLOAT:
-            case DOUBLE:
-            case DATE:
-            case DATETIME:
-                return createType(type);
-            case DECIMAL:
-                return createDecimal(27, 9);
-            case CHAR:
-            case VARCHAR:
-                return createVarchar(64);
-            case HLL:
-                return createHll();
-            default:
-                return null;
-        }
-    }
-
-    public static ColumnType createType(PrimitiveType type) {
-        return new ColumnType(type);
-    }
-
-    public static ColumnType createVarchar(int len) {
-        ColumnType type = new ColumnType(PrimitiveType.VARCHAR);
-        type.len = len;
-        return type;
-    }
-    
-    public static ColumnType createHll() {
-        ColumnType type = new ColumnType(PrimitiveType.HLL);
-        type.len = ScalarType.MAX_HLL_LENGTH;
-        return type;
-    }
-
-    // Create varchar type
-    public static ColumnType createChar(int len) {
-        ColumnType type = new ColumnType(PrimitiveType.CHAR);
-        type.len = len;
-        return type;
-    }
-
-    public static ColumnType createDecimal(int precision, int scale) {
-        ColumnType type = new ColumnType(PrimitiveType.DECIMAL);
-        type.precision = precision;
-        type.scale = scale;
-        return type;
-    }
-
-    public PrimitiveType getType() {
-        return type;
-    }
-
-    public Type getTypeDesc() {
-        if (typeDesc != null) {
-            return typeDesc;
-        }
-        switch (type) {
-            case VARCHAR:
-                typeDesc = ScalarType.createVarcharType(len);
-                break;
-            case CHAR:
-                typeDesc = ScalarType.createCharType(len);
-                break;
-            case DECIMAL:
-                typeDesc = ScalarType.createDecimalType(precision, scale);
-                break;
-            default:
-                typeDesc = ScalarType.createType(type);
-                break;
-        }
-        return typeDesc;
-    }
-
-    public int getLen() {
-        return len;
-    }
-
-    public void setLen(int len) {
-        this.len = len;
-    }
-
-    public void setPrecision(int precision) {
-        this.precision = precision;
-    }
-
-    public void setVarcharLimit(boolean value) {
-        this.varcharLimit = value;
-    }
-
-    public int getPrecision() {
-        return precision;
-    }
-
-    public int getScale() {
-        return scale;
-    }
-
-    public void setScale(int scale) {
-        this.scale = scale;
-    }
-
-    public boolean isString() {
-        return type == PrimitiveType.CHAR || type == PrimitiveType.VARCHAR || type == PrimitiveType.HLL;
-    }
-
-    public int getMemlayoutBytes() {
-        switch (type) {
-            case BOOLEAN:
-                return 0;
-            case TINYINT:
-                return 1;
-            case SMALLINT:
-                return 2;
-            case INT:
-                return 4;
-            case BIGINT:
-                return 8;
-            case LARGEINT:
-                return 16;
-            case FLOAT:
-                return 4;
-            case DOUBLE:
-                return 12;
-            case DATE:
-                return 3;
-            case DATETIME:
-                return 8;
-            case DECIMAL:
-                return 40;
-            case CHAR:
-            case VARCHAR:
-                return len;
-            case HLL:
-                return 16385;
-            default:
-                return 0;
-        }
-    }
-
-    public void analyze() throws AnalysisException {
-        if (type == PrimitiveType.INVALID_TYPE) {
-            throw new AnalysisException("Invalid type.");
-        }
-
-        // check parameter valid
-        switch (type) {
-            case CHAR:
-                if (len <= 0 || len > 255) {
-                    throw new AnalysisException("Char size must between 1~255."
-                            + " Size was set to: " + len + ".");
-                }
-                break;
-            case VARCHAR:
-                if (varcharLimit) {
-                    if (len <= 0 || len > VAR_CHAR_UPPER_LIMIT) {
-                        throw new AnalysisException("when engine=olap, varchar size must between 1~65533."
-                                + " Size was set to: " + len + ".");
-                    }
-                } else {
-                    if (len <= 0) {
-                        throw new AnalysisException("When engine=mysql, varchar size must be great than 1."); 
-                    }
-                }
-                break;
-            case HLL:
-                if (len <= 0 || len > 65533) {
-                    throw new AnalysisException("Hll size must between 1~65533."
-                            + " Size was set to: " + len + ".");
-                }
-                break;
-            case DECIMAL:
-                // precision: [1, 27]
-                if (precision < 1 || precision > 27) {
-                    throw new AnalysisException("Precision of decimal must between 1 and 27."
-                            + " Precision was set to: " + precision + ".");
-                }
-                // scale: [0, 9]
-                if (scale < 0 || scale > 9) {
-                    throw new AnalysisException("Scale of decimal must between 0 and 9."
-                            + " Scale was set to: " + scale + ".");
-                }
-                // scale < precision
-                if (scale >= precision) {
-                    throw new AnalysisException("Scale of decimal must be smaller than precision."
-                            + " Scale is " + scale + " and precision is " + precision);
-                }
-                break;
-            default:
-                // do nothing
-        }
-    }
-
-
-    public boolean isSchemaChangeAllowed(ColumnType other) {
-        return schemaChangeMatrix[type.ordinal()][other.type.ordinal()];
-    }
-
-    public String toSql() {
-        StringBuilder stringBuilder = new StringBuilder();
-        switch (type) {
-            case CHAR:
-                stringBuilder.append("char").append("(").append(len).append(")");
-                break;
-            case VARCHAR:
-                stringBuilder.append("varchar").append("(").append(len).append(")");
-                break;
-            case DECIMAL:
-                stringBuilder.append("decimal").append("(").append(precision).append(", ").append(scale).append(")");
-                break;
-            case BOOLEAN:
-                stringBuilder.append("tinyint(1)");
-                break;
-            case TINYINT:
-                stringBuilder.append("tinyint(4)");
-                break;
-            case SMALLINT:
-                stringBuilder.append("smallint(6)");
-                break;
-            case INT:
-                stringBuilder.append("int(11)");
-                break;
-            case BIGINT:
-                stringBuilder.append("bigint(20)");
-                break;
-            case LARGEINT:
-                stringBuilder.append("largeint(40)");
-                break;
-            case FLOAT:
-            case DOUBLE:
-            case DATE:
-            case DATETIME:
-            case HLL:
-                stringBuilder.append(type.toString().toLowerCase());
-                break;
-            default:
-                stringBuilder.append("unknown");
-                break;
-        }
-        return stringBuilder.toString();
-    }
-
-    public TColumnType toThrift() {
-        TColumnType thrift = new TColumnType();
-        thrift.type = type.toThrift();
-        if (type == PrimitiveType.CHAR || type == PrimitiveType.VARCHAR || type == PrimitiveType.HLL) {
-            thrift.setLen(len);
-        }
-        if (type == PrimitiveType.DECIMAL) {
-            thrift.setPrecision(precision);
-            thrift.setScale(scale);
-        }
-        return thrift;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (!(o instanceof ColumnType)) {
-            return false;
-        }
-        ColumnType other = (ColumnType) o;
-        if (type != other.type) {
-            return false;
-        }
-        if (type == PrimitiveType.DECIMAL) {
-            return scale == other.scale && precision == other.precision;
-        } else if (type == PrimitiveType.CHAR) {
-            return len == other.len;
-        } else {
-            return true;
-        }
-    }
-
-    @Override
-    public String toString() {
-        return toSql();
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, type.name());
-        out.writeInt(scale);
-        out.writeInt(precision);
-        out.writeInt(len);
-        out.writeBoolean(varcharLimit);
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        type = PrimitiveType.valueOf(Text.readString(in));
-        scale = in.readInt();
-        precision = in.readInt();
-        len = in.readInt();
+    public static Type read(DataInput in) throws IOException {
+        PrimitiveType primitiveType = PrimitiveType.valueOf(Text.readString(in));
+        int scale = in.readInt();
+        int precision = in.readInt();
+        int len = in.readInt();
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
-            varcharLimit = in.readBoolean();
+            // Useless, just for back compatible
+            in.readBoolean();
         }
+        return ScalarType.createType(primitiveType, len, precision, scale);
     }
-
 }
 

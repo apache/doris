@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -45,7 +45,7 @@ public class ShowMigrationsStmt extends ShowStmt {
         titleNames = TITLE_NAMES;
 
         for (String title : titleNames) {
-            builder.addColumn(new Column(title, ColumnType.createVarchar(30)));
+            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
     }

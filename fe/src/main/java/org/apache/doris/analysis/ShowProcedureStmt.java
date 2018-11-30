@@ -18,24 +18,24 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW PROCEDURE STATUS
 public class ShowProcedureStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Db", ColumnType.createVarchar(64)))
-                    .addColumn(new Column("Name", ColumnType.createVarchar(10)))
-                    .addColumn(new Column("Type", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Definer", ColumnType.createVarchar(64)))
-                    .addColumn(new Column("Modified", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Created", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Security_type", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Comment", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("character_set_client", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("collation_connection", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Database Collation", ColumnType.createVarchar(80)))
+                    .addColumn(new Column("Db", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("Name", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("Type", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Definer", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("Modified", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Created", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Security_type", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Comment", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("character_set_client", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("collation_connection", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Database Collation", ScalarType.createVarchar(80)))
                     .build();
 
     @Override

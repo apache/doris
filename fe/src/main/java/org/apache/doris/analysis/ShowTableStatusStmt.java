@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -38,24 +38,24 @@ public class ShowTableStatusStmt extends ShowStmt {
     private static final TableName TABLE_NAME = new TableName(InfoSchemaDb.DATABASE_NAME, "tables");
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Name", ColumnType.createVarchar(64)))
-                    .addColumn(new Column("Engine", ColumnType.createVarchar(10)))
-                    .addColumn(new Column("Version", ColumnType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Row_format", ColumnType.createVarchar(64)))
-                    .addColumn(new Column("Rows", ColumnType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Avg_row_length", ColumnType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Data_length", ColumnType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Max_data_length", ColumnType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Index_length", ColumnType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Data_free", ColumnType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Auto_increment", ColumnType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Create_time", ColumnType.createType(PrimitiveType.DATETIME)))
-                    .addColumn(new Column("Update_time", ColumnType.createType(PrimitiveType.DATETIME)))
-                    .addColumn(new Column("Check_time", ColumnType.createType(PrimitiveType.DATETIME)))
-                    .addColumn(new Column("Collation", ColumnType.createVarchar(64)))
-                    .addColumn(new Column("Checksum", ColumnType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Create_options", ColumnType.createVarchar(64)))
-                    .addColumn(new Column("Comment", ColumnType.createVarchar(64)))
+                    .addColumn(new Column("Name", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("Engine", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("Version", ScalarType.createType(PrimitiveType.BIGINT)))
+                    .addColumn(new Column("Row_format", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("Rows", ScalarType.createType(PrimitiveType.BIGINT)))
+                    .addColumn(new Column("Avg_row_length", ScalarType.createType(PrimitiveType.BIGINT)))
+                    .addColumn(new Column("Data_length", ScalarType.createType(PrimitiveType.BIGINT)))
+                    .addColumn(new Column("Max_data_length", ScalarType.createType(PrimitiveType.BIGINT)))
+                    .addColumn(new Column("Index_length", ScalarType.createType(PrimitiveType.BIGINT)))
+                    .addColumn(new Column("Data_free", ScalarType.createType(PrimitiveType.BIGINT)))
+                    .addColumn(new Column("Auto_increment", ScalarType.createType(PrimitiveType.BIGINT)))
+                    .addColumn(new Column("Create_time", ScalarType.createType(PrimitiveType.DATETIME)))
+                    .addColumn(new Column("Update_time", ScalarType.createType(PrimitiveType.DATETIME)))
+                    .addColumn(new Column("Check_time", ScalarType.createType(PrimitiveType.DATETIME)))
+                    .addColumn(new Column("Collation", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("Checksum", ScalarType.createType(PrimitiveType.BIGINT)))
+                    .addColumn(new Column("Create_options", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("Comment", ScalarType.createVarchar(64)))
                     .build();
 
     private String db;

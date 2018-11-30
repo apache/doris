@@ -18,10 +18,12 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.RandomDistributionDesc;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.system.Backend;
@@ -59,7 +61,7 @@ public class CreateTableTest {
     private String tableName = "testTbl";
 
     private TableName dbTableName;
-    private List<Column> cols;
+    private List<ColumnDef> columnDefs;
     private List<String> colsName;
 
     private Analyzer analyzer;
@@ -79,9 +81,9 @@ public class CreateTableTest {
         // table name
         dbTableName = new TableName(dbName, tableName);
         // col
-        cols = Lists.newArrayList();
-        cols.add(new Column("col1", ColumnType.createType(PrimitiveType.INT)));
-        cols.add(new Column("col2", ColumnType.createVarchar(10)));
+        columnDefs = Lists.newArrayList();
+        columnDefs.add(new ColumnDef("col1", new TypeDef(ScalarType.createType(PrimitiveType.INT))));
+        columnDefs.add(new ColumnDef("col2", new TypeDef(ScalarType.createVarchar(10))));
         colsName = Lists.newArrayList();
         colsName.add("col1");
         colsName.add("col2");
@@ -100,10 +102,12 @@ public class CreateTableTest {
         catalog = Catalog.getInstance();
 
         // 1. error order
-        List<Column> invalidCols1 = Lists.newArrayList();
-        invalidCols1.add(new Column("v1", ColumnType.createType(PrimitiveType.INT), false, AggregateType.SUM, "1",
-                                    ""));
-        invalidCols1.add(new Column("k1", ColumnType.createVarchar(10)));
+        List<ColumnDef> invalidCols1 = Lists.newArrayList();
+        invalidCols1.add(new ColumnDef(
+                "v1", new TypeDef(ScalarType.createType(PrimitiveType.INT)), false,
+                AggregateType.SUM, false, "1",
+                ""));
+        invalidCols1.add(new ColumnDef("k1", new TypeDef(ScalarType.createVarchar(10))));
         invalidCols1.get(1).setIsKey(true);
         CreateTableStmt stmt1 = new CreateTableStmt(false, false, dbTableName, invalidCols1, "olap",
                                                     new KeysDesc(), null,
@@ -115,10 +119,12 @@ public class CreateTableTest {
         }
 
         // 2. no key column
-        List<Column> invalidCols2 = Lists.newArrayList();
-        invalidCols2.add(new Column("v1", ColumnType.createType(PrimitiveType.INT), false, AggregateType.SUM, "1",
-                                    ""));
-        invalidCols2.add(new Column("v2", ColumnType.createVarchar(10), false, AggregateType.REPLACE, "abc", ""));
+        List<ColumnDef> invalidCols2 = Lists.newArrayList();
+        invalidCols2.add(new ColumnDef(
+                "v1", new TypeDef(ScalarType.createType(PrimitiveType.INT)), false, AggregateType.SUM,
+                false, "1", ""));
+        invalidCols2.add(new ColumnDef("v2", new TypeDef(ScalarType.createVarchar(10)), false,
+                AggregateType.REPLACE, false, "abc", ""));
         CreateTableStmt stmt2 = new CreateTableStmt(false, false, dbTableName, invalidCols2, "olap",
                                                     new KeysDesc(), null,
                 new RandomDistributionDesc(10), null, null);
@@ -138,7 +144,7 @@ public class CreateTableTest {
         EasyMock.expectLastCall().andReturn(null);
         EasyMock.replay(catalog);
 
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, cols, "olap",
+        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
                                                    new KeysDesc(KeysType.AGG_KEYS, colsName), null,
                 new RandomDistributionDesc(10), null, null);
         try {
@@ -161,7 +167,7 @@ public class CreateTableTest {
         EasyMock.expectLastCall().andReturn(db);
         EasyMock.replay(catalog);
 
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, cols, "olap",
+        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
                                                    new KeysDesc(KeysType.AGG_KEYS, colsName), null,
                 new RandomDistributionDesc(10), null, null);
 
@@ -214,7 +220,7 @@ public class CreateTableTest {
                 .andReturn((short) 2).anyTimes();
         PowerMock.replay(Catalog.class);
 
-        CreateTableStmt stmt1 = new CreateTableStmt(false, false, dbTableName, cols, "olap",
+        CreateTableStmt stmt1 = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
                                                     new KeysDesc(KeysType.AGG_KEYS, colsName), null,
                 new RandomDistributionDesc(1), null, null);
         try {
@@ -266,12 +272,12 @@ public class CreateTableTest {
                 .andReturn((short) 2).anyTimes();
         PowerMock.replay(Catalog.class);
 
-        List<Column> cols2 = new ArrayList<Column>();
+        List<ColumnDef> cols2 = Lists.newArrayList();
         // invalid property
-        cols2.add(new Column("k1_int", ColumnType.createType(PrimitiveType.INT)));
-        cols2.add(new Column("k2_varchar", ColumnType.createType(PrimitiveType.VARCHAR)));
-        cols2.add(new Column("v1", ColumnType.createType(PrimitiveType.INT),
-                             true, AggregateType.MAX, "0", ""));
+        cols2.add(new ColumnDef("k1_int", new TypeDef(ScalarType.createType(PrimitiveType.INT))));
+        cols2.add(new ColumnDef("k2_varchar", new TypeDef(ScalarType.createType(PrimitiveType.VARCHAR))));
+        cols2.add(new ColumnDef("v1", new TypeDef(ScalarType.createType(PrimitiveType.INT)),
+                             true, AggregateType.MAX, false, "0", ""));
         cols2.get(0).setIsKey(true);
         cols2.get(1).setIsKey(true);
 
@@ -296,10 +302,10 @@ public class CreateTableTest {
         // 2. first is varchar
         properties.clear();
         cols2.clear();
-        cols2.add(new Column("k1_varchar", ColumnType.createType(PrimitiveType.VARCHAR)));
-        cols2.add(new Column("k2_varchar", ColumnType.createType(PrimitiveType.VARCHAR)));
-        cols2.add(new Column("v1", ColumnType.createType(PrimitiveType.INT),
-                             true, AggregateType.MAX, "0", ""));
+        cols2.add(new ColumnDef("k1_varchar", new TypeDef(ScalarType.createType(PrimitiveType.VARCHAR))));
+        cols2.add(new ColumnDef("k2_varchar", new TypeDef(ScalarType.createType(PrimitiveType.VARCHAR))));
+        cols2.add(new ColumnDef("v1", new TypeDef(ScalarType.createType(PrimitiveType.INT)),
+                             true, AggregateType.MAX, false, "0", ""));
         stmt1 = new CreateTableStmt(false, false, dbTableName, cols2, "olap",
                                     new KeysDesc(KeysType.AGG_KEYS, cols2Name), null,
                 new RandomDistributionDesc(1), null, null);
@@ -352,7 +358,7 @@ public class CreateTableTest {
                 .andReturn((short) 2).anyTimes();
         PowerMock.replay(Catalog.class);
 
-        CreateTableStmt stmt1 = new CreateTableStmt(false, false, dbTableName, cols, "olap",
+        CreateTableStmt stmt1 = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
                                                     new KeysDesc(KeysType.AGG_KEYS, colsName), null,
                 new RandomDistributionDesc(1), null, null);
 

@@ -55,7 +55,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TStorageType;
@@ -86,7 +85,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
     private void processAddColumn(AddColumnClause alterClause, OlapTable olapTable,
                                   Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
-        Column column = alterClause.getCol();
+        Column column = alterClause.getColumn();
         ColumnPosition columnPos = alterClause.getColPos();
         String targetIndexName = alterClause.getRollupName();
         checkIndexExists(olapTable, targetIndexName);
@@ -264,7 +263,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
     private void processModifyColumn(ModifyColumnClause alterClause, OlapTable olapTable,
                                     Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
-        Column modColumn = alterClause.getCol();
+        Column modColumn = alterClause.getColumn();
         if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
             if (modColumn.isKey() && null != modColumn.getAggregationType()) {
                 throw new DdlException("key column of aggregate key table cannot use aggregation method");
@@ -663,7 +662,7 @@ public class SchemaChangeHandler extends AlterHandler {
     private void checkRowLength(List<Column> modIndexSchema) throws DdlException {
         int rowLengthBytes = 0;
         for (Column column : modIndexSchema) {
-            rowLengthBytes += column.getColumnType().getMemlayoutBytes();
+            rowLengthBytes += column.getType().getStorageLayoutBytes();
         }
 
         if (rowLengthBytes > Config.max_layout_length_per_row) {

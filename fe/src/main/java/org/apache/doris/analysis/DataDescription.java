@@ -342,7 +342,7 @@ public class DataDescription {
         }
 
         if (args.get(0) != null) {
-            Column.validateDefaultValue(column.getColumnType(), args.get(0));
+            ColumnDef.validateDefaultValue(column.getOriginType(), args.get(0));
         }
     }
 
@@ -377,7 +377,7 @@ public class DataDescription {
         }
 
         if (replaceValue != null) {
-            Column.validateDefaultValue(column.getColumnType(), replaceValue);
+            ColumnDef.validateDefaultValue(column.getOriginType(), replaceValue);
         }
     }
     

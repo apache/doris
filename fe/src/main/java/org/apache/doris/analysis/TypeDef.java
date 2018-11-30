@@ -35,6 +35,18 @@ public class TypeDef implements ParseNode {
     this.parsedType = parsedType;
   }
 
+  public static TypeDef create(PrimitiveType type) {
+    return new TypeDef(ScalarType.createType(type));
+  }
+  public static TypeDef createDecimal(int precision, int scale) {
+    return new TypeDef(ScalarType.createDecimalType(precision, scale));
+  }
+  public static TypeDef createVarchar(int len) {
+    return new TypeDef(ScalarType.createVarchar(len));
+  }
+  public static TypeDef createChar(int len) {
+    return new TypeDef(ScalarType.createChar(len));
+  }
   @Override
   public void analyze(Analyzer analyzer) throws AnalysisException {
     if (isAnalyzed) {
@@ -80,7 +92,7 @@ public class TypeDef implements ParseNode {
         }
         int len = scalarType.getLength();
         // len is decided by child, when it is -1.
-        if (len < -1) {
+        if (len <= 0) {
           throw new AnalysisException(name + " size must be > 0: " + len);
         }
         if (scalarType.getLength() > maxLen) {
@@ -92,18 +104,25 @@ public class TypeDef implements ParseNode {
       case DECIMAL: {
         int precision = scalarType.decimalPrecision();
         int scale = scalarType.decimalScale();
-        if (precision > ScalarType.MAX_PRECISION) {
-          throw new AnalysisException("Decimal precision must be <= " +
-              ScalarType.MAX_PRECISION + ": " + precision);
+        // precision: [1, 27]
+        if (precision < 1 || precision > 27) {
+          throw new AnalysisException("Precision of decimal must between 1 and 27."
+                  + " Precision was set to: " + precision + ".");
         }
-        if (precision == 0) {
-          throw new AnalysisException("Decimal precision must be > 0: " + precision);
+        // scale: [0, 9]
+        if (scale < 0 || scale > 9) {
+          throw new AnalysisException("Scale of decimal must between 0 and 9."
+                  + " Scale was set to: " + scale + ".");
         }
-        if (scale > precision) {
-          throw new AnalysisException("Decimal scale (" + scale + ") must be <= " +
-              "precision (" + precision + ")");
+        // scale < precision
+        if (scale >= precision) {
+          throw new AnalysisException("Scale of decimal must be smaller than precision."
+                  + " Scale is " + scale + " and precision is " + precision);
         }
+        break;
       }
+      case INVALID_TYPE:
+        throw new AnalysisException("Invalid type.");
       default: break;
     }
   }

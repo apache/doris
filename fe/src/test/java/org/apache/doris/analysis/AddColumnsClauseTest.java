@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 
@@ -40,11 +40,11 @@ public class AddColumnsClauseTest {
 
     @Test
     public void testNormal() throws AnalysisException {
-        List<Column> columns = Lists.newArrayList();
-        Column definition = new Column("col1", ColumnType.createType(PrimitiveType.INT),
-                                       true, null, "0", "");
+        List<ColumnDef> columns = Lists.newArrayList();
+        ColumnDef definition = new ColumnDef("col1", new TypeDef(ScalarType.createType(PrimitiveType.INT)),
+                                       true, null, false,"0", "");
         columns.add(definition);
-        definition = new Column("col2", ColumnType.createType(PrimitiveType.INT), true, null, "0", "");
+        definition = new ColumnDef("col2", new TypeDef(ScalarType.createType(PrimitiveType.INT)), true, null, false, "0", "");
         columns.add(definition);
         AddColumnsClause clause = new AddColumnsClause(columns, null, null);
         clause.analyze(analyzer);
@@ -66,15 +66,14 @@ public class AddColumnsClauseTest {
                 clause.toString());
         Assert.assertNull(clause.getProperties());
         Assert.assertEquals("testTable", clause.getRollupName());
-        Assert.assertEquals(columns, clause.getColumns());
     }
 
     @Test(expected = AnalysisException.class)
     public void testNoDefault() throws AnalysisException {
-        List<Column> columns = Lists.newArrayList();
-        Column definition = new Column("col1", ColumnType.createType(PrimitiveType.INT));
+        List<ColumnDef> columns = Lists.newArrayList();
+        ColumnDef definition = new ColumnDef("col1", new TypeDef(ScalarType.createType(PrimitiveType.INT)));
         columns.add(definition);
-        definition = new Column("col2", ColumnType.createType(PrimitiveType.INT));
+        definition = new ColumnDef("col2", new TypeDef(ScalarType.createType(PrimitiveType.INT)));
         columns.add(definition);
         AddColumnsClause clause = new AddColumnsClause(columns, null, null);
 

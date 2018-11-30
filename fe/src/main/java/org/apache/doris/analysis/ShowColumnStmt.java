@@ -18,8 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
@@ -31,25 +31,25 @@ public class ShowColumnStmt extends ShowStmt {
     private static final TableName TABLE_NAME = new TableName(InfoSchemaDb.DATABASE_NAME, "COLUMNS");
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Field", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Type", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Null", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Key", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Default", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Extra", ColumnType.createVarchar(20)))
+                    .addColumn(new Column("Field", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Null", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Key", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Default", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Extra", ScalarType.createVarchar(20)))
                     .build();
 
     private static final ShowResultSetMetaData META_DATA_VERBOSE =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Field", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Type", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Collation", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Null", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Key", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Default", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Extra", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Privileges", ColumnType.createVarchar(20)))
-                    .addColumn(new Column("Comment", ColumnType.createVarchar(20)))
+                    .addColumn(new Column("Field", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Collation", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Null", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Key", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Default", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Extra", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Privileges", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Comment", ScalarType.createVarchar(20)))
                     .build();
 
     private ShowResultSetMetaData metaData;

@@ -113,15 +113,7 @@ public class ObjectWriter {
     }
 
     public static CreateTableStmt readCreateTableStmt(String filePath) throws IOException {
-        List<CreateTableStmt> stmts = null;
-        try {
-            stmts = read(filePath, CreateTableStmt.class);
-        } catch (IOException e) {
-            LOG.warn("failed to read CreateTableStmt: " + filePath, e);
-            throw e;
-        }
-        Preconditions.checkState(stmts.size() == 1);
-        return stmts.get(0);
+        throw new RuntimeException("Don't support CreateTableStmt serialization anymore.");
     }
 
     public static List<AlterTableStmt> readAlterTableStmt(String filePath) throws IOException {

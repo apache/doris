@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
@@ -289,7 +290,7 @@ public class KuduUtil {
         }
 
         if (col.getDefaultValue() != null) {
-            Column.validateDefaultValue(col.getColumnType(), col.getDefaultValue());
+            ColumnDef.validateDefaultValue(col.getOriginType(), col.getDefaultValue());
         }
 
         if (keysDesc.containsCol(col.getName())) {

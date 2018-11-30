@@ -18,25 +18,25 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW KEYS FROM TABLE
 public class ShowKeysStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Table", ColumnType.createVarchar(64)))
-                    .addColumn(new Column("Non_unique", ColumnType.createVarchar(10)))
-                    .addColumn(new Column("Key_name", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Seq_in_index", ColumnType.createVarchar(64)))
-                    .addColumn(new Column("Column_name", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Collation", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Cardinality", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Sub_part", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Packed", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Null", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Index_type", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Comment", ColumnType.createVarchar(80)))
+                    .addColumn(new Column("Table", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("Non_unique", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("Key_name", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Seq_in_index", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("Column_name", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Collation", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Cardinality", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Sub_part", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Packed", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Null", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Index_type", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Comment", ScalarType.createVarchar(80)))
                     .build();
 
     @Override

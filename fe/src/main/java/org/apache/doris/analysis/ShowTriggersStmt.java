@@ -18,23 +18,23 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 public class ShowTriggersStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Trigger", ColumnType.createVarchar(64)))
-                    .addColumn(new Column("Event", ColumnType.createVarchar(10)))
-                    .addColumn(new Column("Table", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Statement", ColumnType.createVarchar(64)))
-                    .addColumn(new Column("Timing", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Created", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("sql_mode", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Definer", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("character_set_client", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("collation_connection", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Database Collation", ColumnType.createVarchar(80)))
+                    .addColumn(new Column("Trigger", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("Event", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("Table", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Statement", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("Timing", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Created", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("sql_mode", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Definer", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("character_set_client", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("collation_connection", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Database Collation", ScalarType.createVarchar(80)))
                     .build();
 
     @Override

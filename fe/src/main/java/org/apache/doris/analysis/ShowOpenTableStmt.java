@@ -18,17 +18,17 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW OPEN TABLES
 public class ShowOpenTableStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Database", ColumnType.createVarchar(64)))
-                    .addColumn(new Column("Table", ColumnType.createVarchar(10)))
-                    .addColumn(new Column("In_use", ColumnType.createVarchar(80)))
-                    .addColumn(new Column("Name_locked", ColumnType.createVarchar(64)))
+                    .addColumn(new Column("Database", ScalarType.createVarchar(64)))
+                    .addColumn(new Column("Table", ScalarType.createVarchar(10)))
+                    .addColumn(new Column("In_use", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Name_locked", ScalarType.createVarchar(64)))
                     .build();
 
     @Override

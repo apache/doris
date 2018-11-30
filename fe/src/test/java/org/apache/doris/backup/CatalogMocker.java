@@ -40,6 +40,7 @@ import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
@@ -143,14 +144,14 @@ public class CatalogMocker {
     public static List<Column> TEST_ROLLUP_SCHEMA = Lists.newArrayList();
 
     static {
-        Column k1 = new Column("k1", new ColumnType(PrimitiveType.TINYINT, -1, -1, -1), true, null, "", "key1");
-        Column k2 = new Column("k2", new ColumnType(PrimitiveType.SMALLINT, -1, -1, -1), true, null, "", "key2");
-        Column k3 = new Column("k3", new ColumnType(PrimitiveType.INT, -1, -1, -1), true, null, "", "key3");
-        Column k4 = new Column("k4", new ColumnType(PrimitiveType.BIGINT, -1, -1, -1), true, null, "", "key4");
-        Column k5 = new Column("k5", new ColumnType(PrimitiveType.LARGEINT, -1, -1, -1), true, null, "", "key5");
-        Column k6 = new Column("k6", new ColumnType(PrimitiveType.DATE, -1, -1, -1), true, null, "", "key6");
-        Column k7 = new Column("k7", new ColumnType(PrimitiveType.DATETIME, -1, -1, -1), true, null, "", "key7");
-        Column k8 = new Column("k8", new ColumnType(PrimitiveType.DECIMAL, -1, 10, 3), true, null, "", "key8");
+        Column k1 = new Column("k1", ScalarType.createType(PrimitiveType.TINYINT), true, null, "", "key1");
+        Column k2 = new Column("k2", ScalarType.createType(PrimitiveType.SMALLINT), true, null, "", "key2");
+        Column k3 = new Column("k3", ScalarType.createType(PrimitiveType.INT), true, null, "", "key3");
+        Column k4 = new Column("k4", ScalarType.createType(PrimitiveType.BIGINT), true, null, "", "key4");
+        Column k5 = new Column("k5", ScalarType.createType(PrimitiveType.LARGEINT), true, null, "", "key5");
+        Column k6 = new Column("k6", ScalarType.createType(PrimitiveType.DATE), true, null, "", "key6");
+        Column k7 = new Column("k7", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", "key7");
+        Column k8 = new Column("k8", ScalarType.createDecimalType(10, 3), true, null, "", "key8");
         k1.setIsKey(true);
         k2.setIsKey(true);
         k3.setIsKey(true);
@@ -160,14 +161,14 @@ public class CatalogMocker {
         k7.setIsKey(true);
         k8.setIsKey(true);
 
-        Column v1 = new Column("v1", new 
-                        ColumnType(PrimitiveType.CHAR, 10, -1, -1), false, AggregateType.REPLACE, "none", " value1");
-        Column v2 = new Column("v2", new 
-                        ColumnType(PrimitiveType.FLOAT, -1, -1, -1), false, AggregateType.MAX, "none", " value2");
-        Column v3 = new Column("v3", new 
-                        ColumnType(PrimitiveType.DOUBLE, -1, -1, -1), false, AggregateType.MIN, "none", " value3");
-        Column v4 = new Column("v4", new 
-                        ColumnType(PrimitiveType.INT, -1, -1, -1), false, AggregateType.SUM, "", " value4");
+        Column v1 = new Column("v1",
+                ScalarType.createChar(10), false, AggregateType.REPLACE, "none", " value1");
+        Column v2 = new Column("v2",
+                ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.MAX, "none", " value2");
+        Column v3 = new Column("v3",
+                ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.MIN, "none", " value3");
+        Column v4 = new Column("v4",
+                ScalarType.createType(PrimitiveType.INT), false, AggregateType.SUM, "", " value4");
 
         TEST_TBL_BASE_SCHEMA.add(k1);
         TEST_TBL_BASE_SCHEMA.add(k2);

@@ -604,58 +604,7 @@ public class OlapTable extends Table {
 
     @Override
     public CreateTableStmt toCreateTableStmt(String dbName) {
-        Map<String, String> properties = Maps.newHashMap();
-
-        // partition
-        PartitionDesc partitionDesc = null;
-        if (partitionInfo.getType() == PartitionType.RANGE) {
-            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-            List<Column> partitionColumns = rangePartitionInfo.getPartitionColumns();
-            List<String> partitionColNames = Lists.newArrayList();
-            for (Column partCol : partitionColumns) {
-                partitionColNames.add(partCol.getName());
-            }
-
-            List<SingleRangePartitionDesc> singlePartitionDescs = Lists.newArrayList();
-            partitionDesc = new RangePartitionDesc(partitionColNames, singlePartitionDescs);
-        } else {
-            Short replicationNum = partitionInfo.getReplicationNum(nameToPartition.get(name).getId());
-            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, replicationNum.toString());
-            // and partition version info here for non-partitioned table
-            Partition partition = getPartition(name);
-            Preconditions.checkNotNull(partition);
-            long version = partition.getVisibleVersion();
-            long versionHash = partition.getVisibleVersionHash();
-            String versionProp = Joiner.on(",").join(version, versionHash);
-            properties.put(PropertyAnalyzer.PROPERTIES_VERSION_INFO, versionProp);
-        }
-
-        // keys
-        List<String> keysColumnNames = Lists.newArrayList();
-        for (Column column : baseSchema) {
-            if (column.isKey()) {
-                keysColumnNames.add(column.getName());
-            }
-        }
-        KeysDesc keysDesc = new KeysDesc(keysType, keysColumnNames);
-
-        // distribution
-        DistributionDesc distributionDesc = defaultDistributionInfo.toDistributionDesc();
-
-        // other properties
-        properties.put(PropertyAnalyzer.PROPERTIES_SHORT_KEY, indexIdToShortKeyColumnCount.get(id).toString());
-        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_TYPE, indexIdToStorageType.get(id).name());
-        if (bfColumns != null) {
-            String bfCols = Joiner.on(",").join(bfColumns);
-            properties.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, bfCols);
-            properties.put(PropertyAnalyzer.PROPERTIES_BF_FPP, String.valueOf(bfFpp));
-        }
-        properties.put(PropertyAnalyzer.PROPERTIES_SCHEMA_VERSION, indexIdToSchemaVersion.get(id).toString());
-
-        CreateTableStmt stmt = new CreateTableStmt(false, false, new TableName(dbName, name), baseSchema,
-                                                   type.name(), keysDesc, partitionDesc, distributionDesc,
-                                                   properties, null);
-        return stmt;
+        throw new RuntimeException("Don't support anymore");
     }
 
     public int getSignature(int signatureVersion, List<String> partNames) {

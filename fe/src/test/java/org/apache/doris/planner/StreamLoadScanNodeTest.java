@@ -26,11 +26,11 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -82,7 +82,7 @@ public class StreamLoadScanNodeTest {
         k1.setIsAllowNull(false);
         columns.add(k1);
 
-        Column k2 = new Column("k2", new ColumnType(PrimitiveType.VARCHAR, 25, 10, 5));
+        Column k2 = new Column("k2", ScalarType.createVarchar(25));
         k2.setIsKey(true);
         k2.setIsAllowNull(true);
         columns.add(k2);
@@ -94,7 +94,7 @@ public class StreamLoadScanNodeTest {
 
         columns.add(v1);
 
-        Column v2 = new Column("v2", new ColumnType(PrimitiveType.VARCHAR, 25, 10, 5));
+        Column v2 = new Column("v2", ScalarType.createVarchar(25));
         v2.setIsKey(false);
         v2.setAggregationType(AggregateType.REPLACE, false);
         v2.setIsAllowNull(false);

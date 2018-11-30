@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ColumnType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -32,11 +32,11 @@ public class ShowRolesStmt extends ShowStmt {
     static {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 
-        builder.addColumn(new Column("Name", ColumnType.createVarchar(100)));
-        builder.addColumn(new Column("Users", ColumnType.createVarchar(100)));
-        builder.addColumn(new Column("GlobalPrivs", ColumnType.createVarchar(300)));
-        builder.addColumn(new Column("DatabasePrivs", ColumnType.createVarchar(300)));
-        builder.addColumn(new Column("TablePrivs", ColumnType.createVarchar(300)));
+        builder.addColumn(new Column("Name", ScalarType.createVarchar(100)));
+        builder.addColumn(new Column("Users", ScalarType.createVarchar(100)));
+        builder.addColumn(new Column("GlobalPrivs", ScalarType.createVarchar(300)));
+        builder.addColumn(new Column("DatabasePrivs", ScalarType.createVarchar(300)));
+        builder.addColumn(new Column("TablePrivs", ScalarType.createVarchar(300)));
 
         META_DATA = builder.build();
     }
