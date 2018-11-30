@@ -216,8 +216,8 @@ OLAPStatus OLAPEngine::_link_index_and_data_files(
                 res = _create_hard_link(ref_table_data_path, data_path);
                 if (res != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to create hard link."
-                        << "tablet_path_prefix=" << tablet_path_prefix << ", "
-                        << "from_path=" << ref_table_data_path << ", to_path=" << data_path;
+                        << "tablet_path_prefix=" << tablet_path_prefix
+                        << ", from_path=" << ref_table_data_path << ", to_path=" << data_path;
                     return res;
                 }
             }
@@ -247,8 +247,8 @@ OLAPStatus OLAPEngine::_copy_index_and_data_files(
                 Status res = FileUtils::copy_file(ref_table_index_path, index_path);
                 if (!res.ok()) {
                     LOG(WARNING) << "fail to copy index file."
-                                 << "dest=" << index_path << ", "
-                                 << "src=" << ref_table_index_path;
+                                 << "dest=" << index_path
+                                 << ", src=" << ref_table_index_path;
                     return OLAP_ERR_COPY_FILE_ERROR;
                 }
 
@@ -259,8 +259,8 @@ OLAPStatus OLAPEngine::_copy_index_and_data_files(
                 res = FileUtils::copy_file(ref_table_data_path, data_path);
                 if (!res.ok()) {
                     LOG(WARNING) << "fail to copy data file."
-                                 << "dest=" << index_path << ", "
-                                 << "src=" << ref_table_index_path;
+                                 << "dest=" << index_path
+                                 << ", src=" << ref_table_index_path;
                     return OLAP_ERR_COPY_FILE_ERROR;
                 }
             }
@@ -438,8 +438,9 @@ OLAPStatus OLAPEngine::_create_incremental_snapshot_files(
         const OLAPTablePtr& ref_olap_table,
         const TSnapshotRequest& request,
         string* snapshot_path) {
-    OLAP_LOG_INFO("begin to create incremental snapshot files. [table=%ld schema_hash=%d]",
-                  request.tablet_id, request.schema_hash);
+    LOG(INFO) << "begin to create incremental snapshot files."
+              << "tablet=" << request.tablet_id
+              << ", schema_hash=" << request.schema_hash;
     OLAPStatus res = OLAP_SUCCESS;
 
     if (snapshot_path == nullptr) {
@@ -626,9 +627,9 @@ OLAPStatus OLAPEngine::_create_hard_link(const string& from_path, const string& 
 OLAPStatus OLAPEngine::storage_medium_migrate(
         TTabletId tablet_id, TSchemaHash schema_hash,
         TStorageMedium::type storage_medium) {
-    OLAP_LOG_INFO("begin to process storage media migrate. "
-                  "[tablet_id=%ld schema_hash=%d dest_storage_medium=%d]",
-                  tablet_id, schema_hash, storage_medium);
+    LOG(INFO) << "begin to process storage media migrate. "
+              << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash
+              << ", dest_storage_medium=" << storage_medium;
     DorisMetrics::storage_migrate_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
@@ -642,15 +643,15 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
     // judge case when no need to migrate
     uint32_t count = available_storage_medium_type_count();
     if (count <= 1) {
-        OLAP_LOG_INFO("available storage medium type count is less than 1, "
-                "no need to migrate. [count=%u]", count);
+        LOG(INFO) << "available storage medium type count is less than 1, "
+                  << "no need to migrate. count=" << count;
         return OLAP_SUCCESS;
     }
 
     TStorageMedium::type src_storage_medium = tablet->store()->storage_medium();
     if (src_storage_medium == storage_medium) {
-        OLAP_LOG_INFO("tablet is already on specified storage medium. "
-                "[storage_medium='%d']", storage_medium);
+        LOG(INFO) << "tablet is already on specified storage medium. "
+                  << "storage_medium=" << storage_medium;
         return OLAP_SUCCESS;
     }
 
