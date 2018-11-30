@@ -798,7 +798,7 @@ bool SchemaChangeDirectly::process(ColumnData* olap_data, SegmentGroup* new_segm
         return true;
     }
 
-    VLOG(3) << "init writer. table=" << _olap_table->full_name() << ", "
+    VLOG(3) << "init writer. table=" << _olap_table->full_name()
         << "block_row_size=" << _olap_table->num_rows_per_row_block();
     bool result = true;
     RowBlock* new_row_block = NULL;
@@ -884,10 +884,10 @@ bool SchemaChangeDirectly::process(ColumnData* olap_data, SegmentGroup* new_segm
             result = false;
         }
     } else {
-        OLAP_LOG_INFO("all row nums. "
-                      "[source_rows=%lu merged_rows=%lu filted_rows=%lu new_index_rows=%lu]",
-                      olap_data->segment_group()->num_rows(),
-                      merged_rows(), filted_rows(), new_segment_group->num_rows());
+        LOG(INFO) << "all row nums. source_rows=" << olap_data->segment_group()->num_rows()
+                  << ", merged_rows=" << merged_rows()
+                  << ", filted_rows=" << filted_rows()
+                  << ", new_index_rows=" << new_segment_group->num_rows();
     }
 
 DIRECTLY_PROCESS_ERR:
@@ -1095,10 +1095,10 @@ bool SchemaChangeWithSorting::process(ColumnData* olap_data, SegmentGroup* new_s
             result = false;
         }
     } else {
-        OLAP_LOG_INFO("all row nums. "
-                      "[source_rows=%lu merged_rows=%lu filted_rows=%lu new_index_rows=%lu]",
-                      olap_data->segment_group()->num_rows(),
-                      merged_rows(), filted_rows(), new_segment_group->num_rows());
+        LOG(INFO) << "all row nums. source_rows=" << olap_data->segment_group()->num_rows()
+                  << ", merged_rows=" << merged_rows()
+                  << ", filted_rows=" << filted_rows()
+                  << ", new_index_rows=" << new_segment_group->num_rows();
     }
 
 SORTING_PROCESS_ERR:
@@ -1301,8 +1301,8 @@ OLAPStatus SchemaChangeHandler::_check_and_clear_schema_change_info(
 
     if (tablet_id == request.new_tablet_req.tablet_id
             && schema_hash == request.new_tablet_req.tablet_schema.schema_hash) {
-        OLAP_LOG_INFO("schema change task for specified tablet has already finished. "
-                      "tablet_id=%ld schema_hash=%d", tablet_id, schema_hash);
+        LOG(INFO) << "schema change task for specified tablet has already finished. "
+                  << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
         return res;
     }
 
@@ -1359,7 +1359,7 @@ OLAPStatus SchemaChangeHandler::process_alter_table(
         AlterTabletType type,
         const TAlterTabletReq& request) {
     OLAPStatus res = OLAP_SUCCESS;
-    OLAP_LOG_INFO("begin to validate alter tablet request.");
+    LOG(INFO) << "begin to validate alter tablet request.";
 
     // 1. Lock schema_change_lock util schema change info is stored in table header
     if (!OLAPEngine::get_instance()->try_schema_change_lock(request.base_tablet_id)) {
@@ -1409,9 +1409,8 @@ OLAPStatus SchemaChangeHandler::_do_alter_table(
     OLAPStatus res = OLAP_SUCCESS;
     OLAPTablePtr new_olap_table;
     string base_root_path = ref_olap_table->storage_root_path_name();
-    OLAP_LOG_INFO("begin to do alter tablet job. new table[%d]",
-                  request.new_tablet_req.tablet_id);
 
+    LOG(INFO) << "begin to do alter tablet job. new_table_id=" << request.new_tablet_req.tablet_id;
     // 1. Create new table and register into OLAPEngine
     res = _create_new_olap_table(ref_olap_table,
                                  request.new_tablet_req,
@@ -1749,10 +1748,9 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     }
 
     OLAPStatus res = OLAP_SUCCESS;
-    OLAP_LOG_INFO("begin to convert delta version for schema changing. "
-                  "[src_tablet='%s' dest_tablet='%s']",
-                  src_olap_table->full_name().c_str(),
-                  dest_olap_table->full_name().c_str());
+    LOG(INFO) << "begin to convert delta version for schema changing. "
+              << "old_tablet=" << src_olap_table->full_name()
+              << ", dest_tablet=" << dest_olap_table->full_name();
 
     // a. 解析Alter请求，转换成内部的表示形式
     // 不使用DELETE_DATA命令指定的删除条件
@@ -1775,17 +1773,17 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     SchemaChange* sc_procedure = NULL;
     if (true == sc_sorting) {
         size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
-        OLAP_LOG_INFO("doing schema change with sorting.");
+        LOG(INFO) << "doing schema change with sorting.";
         sc_procedure = new(nothrow) SchemaChangeWithSorting(
                                 dest_olap_table,
                                 rb_changer,
                                 memory_limitation * 1024 * 1024 * 1024);
     } else if (true == sc_directly) {
-        OLAP_LOG_INFO("doing schema change directly.");
+        LOG(INFO) << "doing schema change directly.";
         sc_procedure = new(nothrow) SchemaChangeDirectly(
                                 dest_olap_table, rb_changer);
     } else {
-        OLAP_LOG_INFO("doing linked schema change.");
+        LOG(INFO) << "doing linked schema change.";
         sc_procedure = new(nothrow) LinkedSchemaChange(
                                 src_olap_table,
                                 dest_olap_table);
@@ -1958,10 +1956,9 @@ OLAPStatus SchemaChangeHandler::_save_schema_change_info(
 // @static
 OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
     OLAPStatus res = OLAP_SUCCESS;
-    OLAP_LOG_INFO("begin to process alter table job. "
-                  "[ref_olap_table='%s' new_olap_table='%s']",
-                  sc_params->ref_olap_table->full_name().c_str(),
-                  sc_params->new_olap_table->full_name().c_str());
+    LOG(INFO) << "begin to process alter table job. "
+              << "old_olap_table=" << sc_params->ref_olap_table->full_name()
+              << ", new_olap_table=" << sc_params->new_olap_table->full_name();
 
     // find end version
     int32_t end_version = -1;
@@ -1995,17 +1992,17 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
     // b. 生成历史数据转换器
     if (true == sc_sorting) {
         size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
-        OLAP_LOG_INFO("doing schema change with sorting.");
+        LOG(INFO) << "doing schema change with sorting.";
         sc_procedure = new(nothrow) SchemaChangeWithSorting(
                                sc_params->new_olap_table,
                                rb_changer,
                                memory_limitation * 1024 * 1024 * 1024);
     } else if (true == sc_directly) {
-        OLAP_LOG_INFO("doing schema change directly.");
+        LOG(INFO) << "doing schema change directly.";
         sc_procedure = new(nothrow) SchemaChangeDirectly(
                 sc_params->new_olap_table, rb_changer);
     } else {
-        OLAP_LOG_INFO("doing linked schema change.");
+        LOG(INFO) << "doing linked schema change.";
         sc_procedure = new(nothrow) LinkedSchemaChange(
                                 sc_params->ref_olap_table,
                                 sc_params->new_olap_table);
@@ -2211,7 +2208,7 @@ PROCESS_ALTER_EXIT:
     sc_params->ref_olap_table->release_data_sources(&(sc_params->ref_olap_data_arr));
     SAFE_DELETE(sc_procedure);
 
-    OLAP_LOG_INFO("finish to process alter table job. [res=%d]", res);
+    LOG(INFO) << "finish to process alter table job. res=" << res;
     return res;
 }
 

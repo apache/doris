@@ -84,8 +84,8 @@ OLAPStatus DeleteConditionHandler::store_cond(
     for (const TCondition& condition : conditions) {
         string condition_str = construct_sub_conditions(condition);
         del_cond->add_sub_conditions(condition_str);
-        OLAP_LOG_INFO("store one sub-delete condition. [condition='%s']",
-                      condition_str.c_str());
+        LOG(INFO) << "store one sub-delete condition." 
+                  << "condition=" << condition_str;
     }
 
     return OLAP_SUCCESS;
@@ -141,8 +141,8 @@ OLAPStatus DeleteConditionHandler::delete_cond(OLAPTablePtr table,
                 del_cond_str += sub_conditions.Get(i) + ";";
             }
 
-            OLAP_LOG_INFO("delete one condition. [version=%d condition=%s]",
-                             temp.version(), del_cond_str.c_str());
+            LOG(INFO) << "delete one condition. version=" << temp.version()
+                      << ", condition=" << del_cond_str;
 
             // 移除过滤条件
             // 因为pb没有提供直接删除数组特定元素的方法，所以用下面的删除方式；这种方式会改变存在
@@ -158,8 +158,7 @@ OLAPStatus DeleteConditionHandler::delete_cond(OLAPTablePtr table,
 }
 
 OLAPStatus DeleteConditionHandler::log_conds(OLAPTablePtr table) {
-    OLAP_LOG_INFO("display all delete condition. [full_name=%s]",
-                  table->full_name().c_str());
+    LOG(INFO) << "display all delete condition. tablet=" << table->full_name();
     table->obtain_header_rdlock();
     const del_cond_array& delete_conditions = table->delete_data_conditions();
 
@@ -173,8 +172,8 @@ OLAPStatus DeleteConditionHandler::log_conds(OLAPTablePtr table) {
             del_cond_str += sub_conditions.Get(i) + ";";
         }
 
-        OLAP_LOG_INFO("condition item: [version=%d condition=%s]",
-                      temp.version(), del_cond_str.c_str());
+        LOG(INFO) << "condition item: version=" << temp.version()
+                  << ", condition=" << del_cond_str;
     }
 
     table->release_header_lock();
