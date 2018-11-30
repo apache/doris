@@ -49,8 +49,8 @@ OLAPStatus PushHandler::process(
         const TPushReq& request,
         PushType push_type,
         vector<TTabletInfo>* tablet_info_vec) {
-    LOG(INFO) << "begin to push data. tablet=" << olap_table->full_name()
-              << ", version=" << request.version;
+    OLAP_LOG_INFO("begin to push data. [table='%s' version=%ld]",
+                   olap_table->full_name().c_str(), request.version);
 
     OLAPStatus res = OLAP_SUCCESS;
     _request = request;
@@ -107,11 +107,12 @@ OLAPStatus PushHandler::process(
         _release_header_lock();
 
         if (!is_schema_changing) {
-            LOG(INFO) << "schema change info is cleared after base table get related tablet, "
-                      << "maybe new tablet reach at the same time and load firstly. "
-                      << ", old_tablet=" << olap_table->full_name()
-                      << ", new_tablet=" << related_olap_table->full_name()
-                      << ", version=" << _request.version;
+            OLAP_LOG_INFO("schema change info is cleared after base table get related tablet, "
+                          "maybe new tablet reach at the same time and load firstly. ",
+                          "[base_table='%s' table='%s' version=%ld]",
+                          olap_table->full_name().c_str(),
+                          related_olap_table->full_name().c_str(),
+                          _request.version);
         } else if (related_olap_table->creation_time() > olap_table->creation_time()) {
             // If current table is old table, append it to table_infoes
             table_infoes.push_back(TableVars());
@@ -125,10 +126,11 @@ OLAPStatus PushHandler::process(
                 goto EXIT;
             }
 
-            LOG(INFO) << "data of new table is generated, stop convert from base table. "
-                      << "old_tablet=" << olap_table->full_name()
-                      << ", new_tablet=" << related_olap_table->full_name()
-                      << ", version=" << _request.version;
+            OLAP_LOG_INFO("data of new table is generated, stop convert from base table. "
+                          "[base_table='%s' table='%s' version=%ld]",
+                          related_olap_table->full_name().c_str(),
+                          olap_table->full_name().c_str(),
+                          _request.version);
             is_new_tablet_effective = true;
         }
     }
@@ -210,8 +212,8 @@ OLAPStatus PushHandler::process(
 
             res = table_var.olap_table->save_header();
             if (res != OLAP_SUCCESS) {
-                LOG(FATAL) << "fail to save header. res=" << res
-                           << ", table=" << table_var.olap_table->full_name();
+                LOG(FATAL) << "fail to save header. res=" << res << ", "
+                           << "table=" << table_var.olap_table->full_name();
                 goto EXIT;
             }
         }
@@ -292,7 +294,7 @@ EXIT:
     }
     _olap_table_arr.clear();
 
-    LOG(INFO) << "finish to process push. res=" << res;
+    OLAP_LOG_INFO("finish to process push. [res=%d]", res);
 
     return res;
 }
@@ -302,8 +304,8 @@ OLAPStatus PushHandler::process_realtime_push(
         const TPushReq& request,
         PushType push_type,
         vector<TTabletInfo>* tablet_info_vec) {
-    LOG(INFO) << "begin to realtime push. tablet=" << olap_table->full_name()
-              << ", transaction_id=" << request.transaction_id;
+    OLAP_LOG_INFO("begin to realtime push. [table=%s transaction_id=%ld]",
+                   olap_table->full_name().c_str(), request.transaction_id);
 
     OLAPStatus res = OLAP_SUCCESS;
     _request = request;
@@ -348,11 +350,10 @@ OLAPStatus PushHandler::process_realtime_push(
         olap_table->release_header_lock();
 
         if (is_schema_changing) {
-            LOG(INFO) << "find schema_change status when realtime push. "
-                      << "tablet=" << olap_table->full_name() 
-                      << ", related_tablet_id=" << related_tablet_id
-                      << ", related_schema_hash=" << related_schema_hash
-                      << ", transaction_id=" << request.transaction_id;
+            OLAP_LOG_INFO("find schema_change status when realtime push. "
+                          "[table=%s related_tablet_id=%ld related_schema_hash=%d transaction_id=%ld]",
+                          olap_table->full_name().c_str(),
+                          related_tablet_id, related_schema_hash, request.transaction_id);
             OLAPTablePtr related_olap_table = OLAPEngine::get_instance()->get_table(
                 related_tablet_id, related_schema_hash);
 
@@ -426,9 +427,9 @@ OLAPStatus PushHandler::process_realtime_push(
                 }
             }
             table_var.olap_table->release_header_lock();
-            LOG(INFO) << "success to check delete condition when realtime push. "
-                      << "tablet=" << table_var.olap_table->full_name()
-                      << ", transaction_id=" << request.transaction_id;
+            OLAP_LOG_INFO("success to check delete condition when realtime push. "
+                          "[table=%s transaction_id=%ld]",
+                          table_var.olap_table->full_name().c_str(), request.transaction_id);
         }
     }
 
@@ -479,10 +480,9 @@ EXIT:
         if (tablet_info_vec != NULL) {
             _get_tablet_infos(table_infoes, tablet_info_vec);
         }
-        LOG(INFO) << "process realtime push successfully. "
-                  << "tablet=" << olap_table->full_name()
-                  << ", partition_id=" << request.partition_id
-                  << ", transaction_id=" << request.transaction_id;
+        OLAP_LOG_INFO("process realtime push successfully. "
+                      "[table=%s partition_id=%ld transaction_id=%ld]",
+                      olap_table->full_name().c_str(), request.partition_id, request.transaction_id);
     } else {
 
         // error happens, clear
@@ -744,14 +744,16 @@ OLAPStatus PushHandler::_validate_request(
     }
 
     if (is_new_tablet_effective) {
-        LOG(INFO) << "maybe a alter tablet has already created from base tablet. "
-                  << "tablet=" << olap_table_for_raw->full_name()
-                  << ", version=" << _request.version;
+        OLAP_LOG_INFO("maybe a alter tablet has already created from base tablet. "
+                       "[table='%s' version=%d]",
+                       olap_table_for_raw->full_name().c_str(),
+                       _request.version);
         if (push_type == PUSH_FOR_DELETE
                 && _request.version == latest_delta->start_version()
                 && _request.version_hash == latest_delta->version_hash()) {
-            LOG(INFO) << "base tablet has already convert delete version for new tablet. "
-                      << "version=" << _request.version << ", version_hash=" << _request.version_hash;
+            OLAP_LOG_INFO("base tablet has already convert delete version for new tablet. "
+                          "[version=%ld version_hash=%lu]",
+                          _request.version, _request.version_hash);
             return OLAP_ERR_PUSH_VERSION_ALREADY_EXIST;
         }
     } else {
@@ -863,8 +865,8 @@ OLAPStatus PushHandler::_update_header(
     // Note we don't return fail here.
     res = olap_table->save_header();
     if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to save header. res=" << res
-                   << ", tablet=" << olap_table->full_name();
+        LOG(FATAL) << "fail to save header. res=" << res << ", "
+                   << "table=" << olap_table->full_name();
     }
 
     return res;
@@ -898,8 +900,8 @@ OLAPStatus PushHandler::_clear_alter_table_info(
         
         res = tablet->save_header();
         if (res != OLAP_SUCCESS) {
-            LOG(FATAL) << "fail to save header. res=" << res
-                       << ", table=" << tablet->full_name();
+            LOG(FATAL) << "fail to save header. res=" << res << ", "
+                       << "table=" << tablet->full_name();
             break;
         }
 
@@ -918,7 +920,7 @@ OLAPStatus PushHandler::_clear_alter_table_info(
             
             res = related_tablet->save_header();
             if (res != OLAP_SUCCESS) {
-                LOG(FATAL) << "fail to save header. res=" << res
+                LOG(FATAL) << "fail to save header. res=" << res << ", "
                            << "table=" << related_tablet->full_name();
                 break;
             }

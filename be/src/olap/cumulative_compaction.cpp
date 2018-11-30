@@ -71,7 +71,7 @@ OLAPStatus CumulativeCompaction::init(OLAPTablePtr table) {
     _release_header_lock();
     if (res != OLAP_SUCCESS) {
         _table->release_cumulative_lock();
-        LOG(INFO) << "no suitable delta versions. don't do cumulative compaction now.";
+        OLAP_LOG_INFO("no suitable delta versions. don't do cumulative compaction now.");
         return res;
     }
 
@@ -96,9 +96,10 @@ OLAPStatus CumulativeCompaction::run() {
     }
 
     // 0. 准备工作
-    LOG(INFO) << "start cumulative compaction. tablet=" << _table->full_name()
-              << ", cumulative_version=" << _cumulative_version.first << "-"
-              << _cumulative_version.second;
+    OLAP_LOG_INFO("start cumulative compaction [table=%s; cumulative_version=%d-%d]",
+                  _table->full_name().c_str(),
+                  _cumulative_version.first,
+                  _cumulative_version.second);
     OlapStopWatch watch;
 
     // 1. 计算新的cumulative文件的version hash
@@ -182,7 +183,7 @@ OLAPStatus CumulativeCompaction::_calculate_need_merged_versions() {
     Versions delta_versions;
     res = _get_delta_versions(&delta_versions);
     if (res != OLAP_SUCCESS) {
-        LOG(INFO) << "failed to get delta versions.";
+        OLAP_LOG_INFO("failed to get delta versions.");
         return res;
     }
 
@@ -300,7 +301,7 @@ OLAPStatus CumulativeCompaction::_get_delta_versions(Versions* delta_versions) {
     }
 
     if (delta_versions->size() == 0) {
-        LOG(INFO) << "no delta versions. cumulative_point=" << _old_cumulative_layer_point;
+        OLAP_LOG_INFO("no delta versions.[cumulative_point=%d]", _old_cumulative_layer_point);
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 
@@ -407,10 +408,9 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
             return OLAP_ERR_CHECK_LINES_ERROR;
         }
     } else {
-        LOG(INFO) << "all row nums. source_rows=" << source_rows
-                  << ", merged_rows=" << merged_rows
-                  << ", filted_rows=" << filted_rows
-                  << ", new_index_rows=" << _new_segment_group->num_rows();
+        OLAP_LOG_INFO("all row nums. "
+                      "[source_rows=%lu merged_rows=%lu filted_rows=%lu new_index_rows=%lu]",
+                      source_rows, merged_rows, filted_rows, _new_segment_group->num_rows());
     }
 
     // 3. add new cumulative file into table
@@ -452,9 +452,10 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     // 6. delete delta files which have been merged into new cumulative file
     _delete_unused_delta_files(&unused_indices);
 
-    LOG(INFO) << "succeed to do cumulative compaction. tablet=" << _table->full_name()
-              << ", cumulative_version=" << _cumulative_version.first << "-"
-              << _cumulative_version.second;
+    OLAP_LOG_INFO("succeed to do cumulative compaction. [table=%s; cumulative_version=%d-%d]",
+                  _table->full_name().c_str(),
+                  _cumulative_version.first,
+                  _cumulative_version.second);
     return res;
 }
 
