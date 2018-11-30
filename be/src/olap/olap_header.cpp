@@ -230,7 +230,7 @@ OLAPStatus OLAPHeader::add_version(Version version, VersionHash version_hash,
             for (const PSegmentGroup& segment_group : delta(i).segment_group()) {
                 if (segment_group.segment_group_id() == segment_group_id) {
                     LOG(WARNING) << "the version is existed."
-                        << "version=" << version.first << ", "
+                        << "version=" << version.first << "-"
                         << version.second;
                     return OLAP_ERR_HEADER_ADD_VERSION;
                 }
@@ -309,8 +309,8 @@ OLAPStatus OLAPHeader::add_pending_version(
             del_cond->set_version(0);
             for (const string& condition : *delete_conditions) {
                 del_cond->add_sub_conditions(condition);
-                OLAP_LOG_INFO("store one sub-delete condition. [condition='%s' transaction_id=%ld]",
-                              condition.c_str(), transaction_id);
+                LOG(INFO) << "store one sub-delete condition. condition=" << condition
+                          << ", transaction_id=" << transaction_id;
             }
         }
 
@@ -336,8 +336,8 @@ OLAPStatus OLAPHeader::add_pending_segment_group(
                 const PPendingSegmentGroup& pending_segment_group = delta.pending_segment_group(j);
                 if (pending_segment_group.pending_segment_group_id() == pending_segment_group_id) {
                     LOG(WARNING) << "pending segment_group already exists in header."
-                        << "transaction_id:" << transaction_id << ", "
-                        << "pending_segment_group_id: " << pending_segment_group_id;
+                        << "transaction_id:" << transaction_id
+                        << ", pending_segment_group_id: " << pending_segment_group_id;
                     return OLAP_ERR_HEADER_ADD_PENDING_DELTA;
                 }
             }
@@ -457,7 +457,7 @@ void OLAPHeader::add_delete_condition(const DeleteConditionMessage& delete_condi
     for (const string& condition : delete_condition.sub_conditions()) {
         del_cond->add_sub_conditions(condition);
     }
-    OLAP_LOG_INFO("add delete condition. [version=%d]", version);
+    LOG(INFO) << "add delete condition. version=" << version;
 }
 
 const PPendingDelta* OLAPHeader::get_pending_delta(int64_t transaction_id) const {

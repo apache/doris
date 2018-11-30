@@ -362,7 +362,7 @@ void ShardedLRUCache::prune() {
     for (int s = 0; s < kNumShards; s++) {
         num_prune += _shards[s].prune();
     }
-    OLAP_LOG_INFO("prune file descriptor: %d", num_prune);
+    LOG(INFO) << "prune file descriptor:" <<  num_prune;
 }
 
 size_t ShardedLRUCache::get_memory_usage() {
