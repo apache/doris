@@ -142,9 +142,8 @@ void* OLAPEngine::_garbage_sweeper_thread_callback(void* arg) {
                          max_interval, min_interval);
         min_interval = 1;
         max_interval = max_interval >= min_interval ? max_interval : min_interval;
-        LOG(INFO) << "force reset garbage sweep interval."
-                  << "max_interval" << max_interval
-                  << ", min_interval" << min_interval;
+        OLAP_LOG_INFO("force reset garbage sweep interval.  [max=%d min=%d].",
+                      max_interval, min_interval);
     }
 
     const double pi = 4 * std::atan(1);
@@ -225,7 +224,7 @@ void* OLAPEngine::_cumulative_compaction_thread_callback(void* arg) {
     LOG(INFO) << "try to start cumulative compaction process!";
     uint32_t interval = config::cumulative_compaction_check_interval_seconds;
     if (interval <= 0) {
-        LOG(WARNING) << "cumulative compaction check interval config is illegal:" << interval
+        LOG(WARNING) << "cumulative compaction check interval config is illegal:" << interval << ", "
             << "will be forced set to one";
         interval = 1;
     }

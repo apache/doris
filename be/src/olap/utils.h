@@ -517,6 +517,7 @@ bool valid_datetime(const std::string& value_str);
 #define OLAP_LOG_DEBUG(fmt, arg...)  OLAP_VLOG_WRITE(3, fmt, ##arg)
 #define OLAP_LOG_TRACE(fmt, arg...)  OLAP_VLOG_WRITE(20, fmt, ##arg)
 
+#define OLAP_LOG_INFO(fmt, arg...) OLAP_LOG_WRITE(INFO, fmt, ##arg)
 #define OLAP_LOG_WARNING(fmt, arg...) OLAP_LOG_WRITE(WARNING, fmt, ##arg)
 #define OLAP_LOG_FATAL(fmt, arg...) OLAP_LOG_WRITE(ERROR, fmt, ##arg)
 
