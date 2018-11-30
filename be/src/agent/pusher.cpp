@@ -147,7 +147,7 @@ AgentStatus Pusher::_download_file() {
     }
     if (status == DORIS_SUCCESS) {
         LOG(INFO) << "down load file success. local_file=" << _downloader_param.local_file_path
-                  << "remote_file=" << _downloader_param.remote_file_path
+                  << ", remote_file=" << _downloader_param.remote_file_path
                   << ", tablet_id" << _push_req.tablet_id
                   << ", cost=" << cost << ", file_size" << _push_req.http_file_size
                   << ", download rage:" << rate << "KB/s";
