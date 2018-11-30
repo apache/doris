@@ -46,7 +46,7 @@ import java.util.Set;
 public class TabletChecker extends Daemon {
     private static final Logger LOG = LogManager.getLogger(TabletChecker.class);
 
-    private static final long INTERVAL_MS = 60 * 1000L; // 1min
+    private static final long INTERVAL_MS = 20 * 1000L; // 20 second
 
     private Catalog catalog;
     private SystemInfoService infoService;

@@ -123,7 +123,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
     // being visited means:
     // 1. being visited in TabletScheduler.schedulePendingTablets()
     // 2. being visited in finishCloneTask()
-    private long lastVisitedTime = 0;
+    private long lastVisitedTime = -1;
 
     // an approximate timeout of this task, only be set when sending clone task.
     private long taskTimeoutMs = 0;
@@ -293,10 +293,6 @@ public class TabletInfo implements Comparable<TabletInfo> {
     public void setDestination(Long destBe, long destPathHash) {
         this.destBackendId = destBe;
         this.destPathHash = destPathHash;
-    }
-    
-    public String getErrMsg() {
-        return errMsg;
     }
     
     public void setErrMsg(String errMsg) {
@@ -784,14 +780,24 @@ public class TabletInfo implements Comparable<TabletInfo> {
         return result;
     }
     
+    /*
+     * First compared by dynamic priority. higher priority rank ahead.
+     * If priority is equals, compared by last visit time, earlier visit time rank ahead.
+     */
     @Override
     public int compareTo(TabletInfo o) {
-        if (dynamicPriority.ordinal() < o.getDynamicPriority().ordinal()) {
-            return -1;
-        } else if (dynamicPriority.ordinal() > o.getDynamicPriority().ordinal()) {
+        if (dynamicPriority.ordinal() < o.dynamicPriority.ordinal()) {
             return 1;
+        } else if (dynamicPriority.ordinal() > o.dynamicPriority.ordinal()) {
+            return -1;
         } else {
-            return 0;
+            if (lastVisitedTime < o.lastVisitedTime) {
+                return -1;
+            } else if (lastVisitedTime < o.lastVisitedTime) {
+                return 1;
+            } else {
+                return 0;
+            }
         }
     }
     

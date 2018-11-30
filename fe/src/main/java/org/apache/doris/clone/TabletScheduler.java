@@ -134,8 +134,10 @@ public class TabletScheduler extends Daemon {
     private boolean updateWorkingSlots() {
         ImmutableMap<Long, Backend> backends = infoService.getBackendsInCluster(null);
         for (Backend backend : backends.values()) {
-            if (!backend.hasPathHash()) {
+            if (!backend.hasPathHash() && backend.isAlive()) {
                 // when upgrading, backend may not get path info yet. so return false and wait for next round.
+                // and we should check if backend is alive. If backend is dead when upgrading, this backend
+                // will never report its path hash, and tablet scheduler is blocked.
                 LOG.info("not all backends have path info");
                 return false;
             }
@@ -362,6 +364,7 @@ public class TabletScheduler extends Daemon {
      * Try to schedule a single tablet.
      */
     private void scheduleTablet(TabletInfo tabletInfo, AgentBatchTask batchTask) throws SchedException {
+        LOG.debug("schedule tablet: {}", tabletInfo.getTabletId());
         long currentTime = System.currentTimeMillis();
         tabletInfo.setLastSchedTime(currentTime);
         tabletInfo.setLastVisitedTime(currentTime);

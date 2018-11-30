@@ -663,8 +663,6 @@ Status OLAPEngine::set_cluster_id(int32_t cluster_id) {
     return Status::OK;
 }
 
-
-
 std::vector<OlapStore*> OLAPEngine::get_stores_for_create_table(
         TStorageMedium::type storage_medium) {
     std::vector<OlapStore*> stores;
@@ -2793,19 +2791,19 @@ OLAPStatus OLAPEngine::finish_clone(OLAPTablePtr tablet, const string& clone_dir
 
 OLAPStatus OLAPEngine::obtain_shard_path_by_hash(
         int64_t path_hash, std::string* shard_path, OlapStore** store) {
-    OLAP_LOG_INFO("begin to process obtain root path by hash: %ld", path_hash);
+    LOG(INFO) << "begin to process obtain root path by hash: " <<  path_hash;
     OLAPStatus res = OLAP_SUCCESS;
 
     auto the_store = OLAPEngine::get_instance()->get_store(path_hash);
     if (the_store == nullptr) {
-        OLAP_LOG_WARNING("failed to get store by path hash: %ld", path_hash);
+        LOG(WARNING) << "failed to get store by path hash: " << path_hash;
         return OLAP_REQUEST_FAILED;
     }
 
     uint64_t shard = 0;
     res = the_store->get_shard(&shard);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to get root path shard. [res=%d]", res);
+        LOG(WARNING) << "fail to get root path shard. res: " << res;
         return res;
     }
     
@@ -2814,8 +2812,8 @@ OLAPStatus OLAPEngine::obtain_shard_path_by_hash(
     *shard_path = root_path_stream.str();
     *store = the_store;
 
-    OLAP_LOG_INFO("success to process obtain root path by hash. [path='%s']",
-                  shard_path->c_str());
+    LOG(INFO) << "success to process obtain root path by hash. path: "
+              << shard_path;
     return res;
 }
 
