@@ -5613,6 +5613,10 @@ public class Catalog {
                 throw new DdlException("Table[" + copiedTbl.getName() + "] is dropped");
             }
             
+            if (olapTable.getState() != OlapTableState.NORMAL) {
+                throw new DdlException("Table' state is not NORMAL: " + olapTable.getState());
+            }
+
             // check partitions
             for (Map.Entry<String, Long> entry : origPartitions.entrySet()) {
                 Partition partition = copiedTbl.getPartition(entry.getValue());
