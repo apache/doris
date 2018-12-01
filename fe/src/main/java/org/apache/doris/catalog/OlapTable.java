@@ -25,9 +25,6 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.KeysDesc;
-import org.apache.doris.analysis.PartitionDesc;
-import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.Status;
@@ -44,7 +41,6 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -884,5 +880,20 @@ public class OlapTable extends Table {
         }
         
         return copied;
+    }
+
+    /*
+     * this method is currently used for truncating table(partitions).
+     * the new partition is only different in tablet with the old partition.
+     * Other info such as id, name, schema, range, data property are all the same,
+     * so we don't need to change the info in PartitionInfo.
+     * 
+     * return the old partition.
+     */
+    public Partition replacePartition(Partition newPartition) {
+        Partition oldPartition = idToPartition.remove(newPartition.getId());
+        idToPartition.put(newPartition.getId(), newPartition);
+        nameToPartition.put(newPartition.getName(), newPartition);
+        return oldPartition;
     }
 }

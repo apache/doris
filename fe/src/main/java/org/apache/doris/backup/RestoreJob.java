@@ -365,7 +365,7 @@ public class RestoreJob extends AbstractJob {
                 }
                 
                 if (tbl.getType() != TableType.OLAP) {
-                    status = new Status(ErrCode.COMMON_ERROR, "Only support retore olap table: " + tbl.getName());
+                    status = new Status(ErrCode.COMMON_ERROR, "Only support retore OLAP table: " + tbl.getName());
                     return;
                 }
                 

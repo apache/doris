@@ -17,20 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Joiner.MapJoiner;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.HashMultimap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Multimap;
-import com.google.common.collect.Range;
-import com.google.common.collect.Sets;
-import com.sleepycat.je.rep.InsufficientLogException;
-import com.sleepycat.je.rep.NetworkRestore;
-import com.sleepycat.je.rep.NetworkRestoreConfig;
-
 import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJob;
 import org.apache.doris.alter.AlterJob.JobType;
@@ -75,7 +61,10 @@ import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.analysis.SingleRangePartitionDesc;
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableRenameClause;
+import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.AbstractBackupJob_D;
@@ -156,6 +145,7 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.TableInfo;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.SessionVariable;
@@ -176,6 +166,21 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Joiner.MapJoiner;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
+import com.google.common.collect.Range;
+import com.google.common.collect.Sets;
+import com.sleepycat.je.rep.InsufficientLogException;
+import com.sleepycat.je.rep.NetworkRestore;
+import com.sleepycat.je.rep.NetworkRestoreConfig;
+
 import org.apache.kudu.ColumnSchema;
 import org.apache.kudu.Schema;
 import org.apache.kudu.client.CreateTableOptions;
@@ -2814,8 +2819,8 @@ public class Catalog {
                 }
 
                 // check if meta changed
-                // rollup index may be added or dropped during add partition op
-                // schema may be changed during add partition op
+                // rollup index may be added or dropped during add partition operation.
+                // schema may be changed during add partition operation.
                 boolean metaChanged = false;
                 if (olapTable.getIndexNameToId().size() != indexIdToSchema.size()) {
                     metaChanged = true;
@@ -3823,7 +3828,6 @@ public class Catalog {
                 } // end for partitions
             }
         }
-
     }
 
     private void createTablets(String clusterName, MaterializedIndex index, ReplicaState replicaState,
@@ -5500,6 +5504,207 @@ public class Catalog {
 
         LOG.info("finished dumpping image to {}", dumpFilePath);
         return dumpFilePath;
+    }
+
+    /*
+     * Truncate specified table or partitions.
+     * The main idea is:
+     * 
+     * 1. using the same schema to create new table(partitions)
+     * 2. use the new created table(partitions) to replace the old ones.
+     * 
+     */
+    public void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException {
+        TableRef tblRef = truncateTableStmt.getTblRef();
+        TableName dbTbl = tblRef.getName();
+
+        // check, and save some info which need to be checked again later
+        Map<String, Long> origPartitions = Maps.newHashMap();
+        OlapTable copiedTbl = null;
+        Database db = getDb(dbTbl.getDb());
+        if (db == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbTbl.getDb());
+        }
+
+        db.readLock();
+        try {
+            Table table = db.getTable(dbTbl.getTbl());
+            if (table == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, dbTbl.getTbl());
+            }
+
+            if (table.getType() != TableType.OLAP) {
+                throw new DdlException("Only support truncate OLAP table");
+            }
+
+            OlapTable olapTable = (OlapTable) table;
+            if (olapTable.getState() != OlapTableState.NORMAL) {
+                throw new DdlException("Table' state is not NORMAL: " + olapTable.getState());
+            }
+            
+            if (tblRef.getPartitions() != null && !tblRef.getPartitions().isEmpty()) {
+                for (String partName: tblRef.getPartitions()) {
+                    Partition partition = olapTable.getPartition(partName);
+                    if (partition == null) {
+                        throw new DdlException("Partition " + partName + " does not exist");
+                    }
+                    
+                    origPartitions.put(partName, partition.getId());
+                }
+            } else {
+                for (Partition partition : olapTable.getPartitions()) {
+                    origPartitions.put(partition.getName(), partition.getId());
+                }
+            }
+            
+            copiedTbl = olapTable.selectiveCopy(origPartitions.keySet());
+
+        } finally {
+            db.readUnlock();
+        }
+        
+        // 2. use the copied table to create partitions
+        List<Partition> newPartitions = Lists.newArrayList();
+        // tabletIdSet to save all newly created tablet ids.
+        Set<Long> tabletIdSet = Sets.newHashSet();
+        try {
+            for (Map.Entry<String, Long> entry : origPartitions.entrySet()) {
+                long partitionId = entry.getValue();
+                Partition newPartition = createPartitionWithIndices(db.getClusterName(),
+                        db.getId(), copiedTbl.getId(), partitionId,
+                        entry.getKey(),
+                        copiedTbl.getIndexIdToShortKeyColumnCount(),
+                        copiedTbl.getIndexIdToSchemaHash(),
+                        copiedTbl.getIndexIdToStorageType(),
+                        copiedTbl.getIndexIdToSchema(),
+                        copiedTbl.getKeysType(),
+                        copiedTbl.getDefaultDistributionInfo(),
+                        copiedTbl.getPartitionInfo().getDataProperty(partitionId).getStorageMedium(),
+                        copiedTbl.getPartitionInfo().getReplicationNum(partitionId),
+                        null /* version info */,
+                        copiedTbl.getCopiedBfColumns(),
+                        copiedTbl.getBfFpp(),
+                        tabletIdSet,
+                        false /* not restore */);
+                newPartitions.add(newPartition);
+            }
+        } catch (DdlException e) {
+            // create partition failed, remove all newly created tablets
+            for (Long tabletId : tabletIdSet) {
+                Catalog.getCurrentInvertedIndex().deleteTablet(tabletId);
+            }
+            throw e;
+        }
+        Preconditions.checkState(origPartitions.size() == newPartitions.size());
+
+        // all partitions are created successfully, try replace the old partitions.
+        // before replacing, we need to check again. Things may be changed outside the database lock.
+        db.writeLock();
+        try {
+            OlapTable olapTable = (OlapTable) db.getTable(copiedTbl.getId());
+            if (olapTable == null) {
+                throw new DdlException("Table[" + copiedTbl.getName() + "] is dropped");
+            }
+            
+            // check partitions
+            for (Map.Entry<String, Long> entry : origPartitions.entrySet()) {
+                Partition partition = copiedTbl.getPartition(entry.getValue());
+                if (partition == null || !partition.getName().equals(entry.getKey())) {
+                    throw new DdlException("Partition [" + entry.getKey() + "] is changed");
+                }
+            }
+
+            // check if meta changed
+            // rollup index may be added or dropped, and schema may be changed during creating partition operation.
+            boolean metaChanged = false;
+            if (olapTable.getIndexNameToId().size() != copiedTbl.getIndexNameToId().size()) {
+                metaChanged = true;
+            } else {
+                // compare schemaHash
+                Map<Long, Integer> copiedIndexIdToSchemaHash = copiedTbl.getIndexIdToSchemaHash();
+                for (Map.Entry<Long, Integer> entry : olapTable.getIndexIdToSchemaHash().entrySet()) {
+                    long indexId = entry.getKey();
+                    if (!copiedIndexIdToSchemaHash.containsKey(indexId)) {
+                        metaChanged = true;
+                        break;
+                    }
+                    if (copiedIndexIdToSchemaHash.get(indexId) != entry.getValue()) {
+                        metaChanged = true;
+                        break;
+                    }
+                }
+            }
+
+            if (metaChanged) {
+                throw new DdlException("Table[" + copiedTbl.getName() + "]'s meta has been changed. try again.");
+            }
+
+            // replace
+            truncateTableInternal(olapTable, newPartitions);
+
+            // write edit log
+            TruncateTableInfo info = new TruncateTableInfo(db.getId(), olapTable.getId(), newPartitions);
+            editLog.logTruncateTable(info);
+        } finally {
+            db.writeUnlock();
+        }
+        
+        LOG.info("finished to truncate table {}, partitions: {}",
+                tblRef.getName().toSql(), tblRef.getPartitions());
+    }
+
+    private void truncateTableInternal(OlapTable olapTable, List<Partition> newPartitions) {
+        // use new partitions to replace the old ones.
+        Set<Long> oldTabletIds = Sets.newHashSet();
+        for (Partition newPartition : newPartitions) {
+            Partition oldPartition = olapTable.replacePartition(newPartition);
+            // save old tablets to be removed
+            for (MaterializedIndex index : oldPartition.getMaterializedIndices()) {
+                index.getTablets().stream().forEach(t -> {
+                    oldTabletIds.add(t.getId());
+                });
+            }
+        }
+
+        // remove the tablets in old partitions
+        for (Long tabletId : oldTabletIds) {
+            Catalog.getCurrentInvertedIndex().deleteTablet(tabletId);
+        }
+    }
+
+    public void replayTruncateTable(TruncateTableInfo info) {
+        Database db = getDb(info.getDbId());
+        db.writeLock();
+        try {
+            OlapTable olapTable = (OlapTable) db.getTable(info.getTblId());
+            truncateTableInternal(olapTable, info.getPartitions());
+
+            // if this is checkpoint thread, no need to handle inverted index
+            // because tablet and replica info are already in catalog, and inverted index will be rebuild
+            // when loading image
+            if (!Catalog.isCheckpointThread()) {
+                // add tablet to inverted index
+                TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+                for (Partition partition : info.getPartitions()) {
+                    long partitionId = partition.getId();
+                    for (MaterializedIndex mIndex : partition.getMaterializedIndices()) {
+                        long indexId = mIndex.getId();
+                        int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
+                        TabletMeta tabletMeta = new TabletMeta(db.getId(), olapTable.getId(),
+                                partitionId, indexId, schemaHash);
+                        for (Tablet tablet : mIndex.getTablets()) {
+                            long tabletId = tablet.getId();
+                            invertedIndex.addTablet(tabletId, tabletMeta);
+                            for (Replica replica : tablet.getReplicas()) {
+                                invertedIndex.addReplica(tabletId, replica);
+                            }
+                        }
+                    }
+                }
+            }
+        } finally {
+            db.writeUnlock();
+        }
     }
 }
 
