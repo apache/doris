@@ -849,8 +849,8 @@ OLAPStatus PushHandler::_update_header(
             new_indices,
             unused_indices);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_FATAL("fail to replace data sources. [res=%d table='%s']",
-                       res, olap_table->full_name().c_str());
+        LOG(FATAL) << "fail to replace data sources. res=" << res
+                   << ", tablet=" << olap_table->full_name();
         return res;
     }
 
@@ -891,8 +891,8 @@ OLAPStatus PushHandler::_clear_alter_table_info(
         res = SchemaChangeHandler::clear_schema_change_single_info(
                 tablet, NULL, false, false);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_FATAL("fail to clear schema change info of new table. [res=%d table='%s']",
-                           res, tablet->full_name().c_str());
+            LOG(FATAL) << "fail to clear schema change info of new table. res=" << res
+                       << ", tablet=" << tablet->full_name();
             break;
         }
         
@@ -911,8 +911,8 @@ OLAPStatus PushHandler::_clear_alter_table_info(
             res = SchemaChangeHandler::clear_schema_change_single_info(
                     related_tablet, NULL, false, false);
             if (res != OLAP_SUCCESS) {
-                OLAP_LOG_FATAL("fail to clear schema change info of old table. [res=%d table='%s']",
-                               res, related_tablet->full_name().c_str());
+                LOG(FATAL) << "fail to clear schema change info of old table. res=" << res
+                           << ", tablet=" << related_tablet->full_name();
                 break;
             }
             

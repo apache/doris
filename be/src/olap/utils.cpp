@@ -47,7 +47,7 @@ using std::vector;
     do {\
         int lock_ret = 0;\
         if (0 != (lock_ret = pthread_mutex_init(lockptr, param))) {\
-            OLAP_LOG_FATAL("fail to init mutex. [lock_ret=%d err='%m']", lock_ret);\
+            LOG(FATAL) << "fail to init mutex. err=" << strerror(lock_ret); \
         }\
     } while (0)
 
@@ -55,7 +55,7 @@ using std::vector;
     do {\
         int lock_ret = 0;\
         if (0 != (lock_ret = pthread_mutex_destroy(lockptr))) {\
-            OLAP_LOG_FATAL("fail to destroy mutex. [lock_ret=%d err='%m']", lock_ret);\
+            LOG(FATAL) << "fail to destroy mutex. err=" << strerror(lock_ret); \
         }\
     } while (0)
 
@@ -63,7 +63,7 @@ using std::vector;
     do {\
         int lock_ret = 0;\
         if (0 != (lock_ret = pthread_mutex_lock(lockptr))) {\
-            OLAP_LOG_FATAL("fail to lock mutex. [lock_ret=%d err='%m']", lock_ret);\
+            LOG(FATAL) << "fail to lock mutex. err=" << strerror(lock_ret); \
         }\
     } while (0)
 
@@ -71,7 +71,7 @@ using std::vector;
     do {\
         int lock_ret = 0;\
         if (0 != (lock_ret = pthread_mutex_unlock(lockptr))) {\
-            OLAP_LOG_FATAL("fail to unlock mutex. [lock_ret=%d err='%m']", lock_ret);\
+            LOG(FATAL) << "fail to unlock mutex. err=" << strerror(lock_ret); \
         }\
     } while (0)
 
@@ -79,7 +79,7 @@ using std::vector;
     do {\
         int lock_ret = 0;\
         if (0 != (lock_ret = pthread_rwlock_init(lockptr, param))) {\
-            OLAP_LOG_FATAL("fail to init rwlock. [lock_ret=%d err='%m']", lock_ret);\
+            LOG(FATAL) << "fail to init rwlock. err=" << strerror(lock_ret); \
         }\
     } while (0)
 
@@ -87,7 +87,7 @@ using std::vector;
     do {\
         int lock_ret = 0;\
         if (0 != (lock_ret = pthread_rwlock_destroy(lockptr))) {\
-            OLAP_LOG_FATAL("fail to destroy rwlock. [lock_ret=%d err='%m']", lock_ret);\
+            LOG(FATAL) << "fail to destroy rwlock. err=" << strerror(lock_ret); \
         }\
     } while (0)
 
@@ -95,7 +95,7 @@ using std::vector;
     do {\
         int lock_ret = 0;\
         if (0 != (lock_ret = pthread_rwlock_rdlock(lockptr))) {\
-            OLAP_LOG_FATAL("fail to lock reader lock. [lock_ret=%d err='%m']", lock_ret);\
+            LOG(FATAL) << "fail to lock reader lock. err=" << strerror(lock_ret); \
         }\
     } while (0)
 
@@ -103,7 +103,7 @@ using std::vector;
     do {\
         int lock_ret = 0;\
         if (0 != (lock_ret = pthread_rwlock_wrlock(lockptr))) {\
-            OLAP_LOG_FATAL("fail to lock writer lock. [lock_ret=%d err='%m']", lock_ret);\
+            LOG(FATAL) << "fail to lock writer lock. err=" << strerror(lock_ret); \
         }\
     } while (0)
 
@@ -111,7 +111,7 @@ using std::vector;
     do {\
         int lock_ret = 0;\
         if (0 != (lock_ret = pthread_rwlock_unlock(lockptr))) {\
-            OLAP_LOG_FATAL("fail to unlock rwlock. [lock_ret=%d err='%m']", lock_ret);\
+            LOG(FATAL) << "fail to unlock rwlock. err=" << strerror(lock_ret); \
         }\
     } while (0)
 
@@ -119,7 +119,7 @@ using std::vector;
     do {\
         int cond_ret = 0;\
         if (0 != (cond_ret = pthread_cond_init(condptr, param))) {\
-            OLAP_LOG_FATAL("fail to init cond. [cond_ret=%d err='%m']", cond_ret);\
+            LOG(FATAL) << "fail to init cond. err=" << strerror(cond_ret); \
         }\
     } while (0)
 
@@ -127,7 +127,7 @@ using std::vector;
     do {\
         int cond_ret = 0;\
         if (0 != (cond_ret = pthread_cond_destroy(condptr))) {\
-            OLAP_LOG_FATAL("fail to destroy cond. [cond_ret=%d err='%m']", cond_ret);\
+            LOG(FATAL) << "fail to destroy cond. err=" << strerror(cond_ret); \
         }\
     } while (0)
 
@@ -135,7 +135,7 @@ using std::vector;
     do {\
         int cond_ret = 0;\
         if (0 != (cond_ret = pthread_cond_wait(condptr, lockptr))) {\
-            OLAP_LOG_FATAL("fail to wait cond. [cond_ret=%d err='%m']", cond_ret);\
+            LOG(FATAL) << "fail to wait cond. err=" << strerror(cond_ret); \
         }\
     } while (0)
 
@@ -148,9 +148,9 @@ using std::vector;
         int cond_ret = 0;\
         cond_ret = pthread_cond_timedwait(condptr, lockptr, &outtime);\
         if (0 != cond_ret && ETIMEDOUT != cond_ret) {\
-            OLAP_LOG_FATAL("fail to timewait cond. "\
-                           "[cond_ret=%d err='%m' outtime.tv_sec=%d outtime.tv_nsec=%ld]",\
-                           cond_ret, outtime.tv_sec, outtime.tv_nsec);  \
+            LOG(FATAL) << "fail to timewait cond. err=" << strerror(cond_ret) \
+                       << ", outtime.tv_sec=" << outtime.tv_sec \
+                       << ", outtime.tv_nsec=" << outtime.tv_nsec; \
         }\
     } while (0)
 
@@ -158,7 +158,7 @@ using std::vector;
     do {\
         int cond_ret = 0;\
         if (0 != (cond_ret = pthread_cond_signal(condptr))) {\
-            OLAP_LOG_FATAL("fail to signal cond. [cond_ret=%d err='%m']", cond_ret);\
+            LOG(FATAL) << "fail to signal cond. err=" << strerror(cond_ret); \
         }\
     } while (0)
 
@@ -166,7 +166,7 @@ using std::vector;
     do {\
         int cond_ret = 0;\
         if (0 != (cond_ret = pthread_cond_broadcast(condptr))) {\
-            OLAP_LOG_FATAL("fail to broadcast cond. [cond_ret=%d err='%m']", cond_ret);\
+            LOG(FATAL) << "fail to broadcast cond. err=" << strerror(cond_ret); \
         }\
     } while (0)
 
@@ -1204,9 +1204,9 @@ void Condition::wait_for_seconds(uint32_t seconds) {
     int cond_ret = 0;
     cond_ret = pthread_cond_timedwait(&_cond, _mutex.getlock(), &outtime);
     if (0 != cond_ret && ETIMEDOUT != cond_ret) {
-        OLAP_LOG_FATAL("fail to timewait cond. "
-                       "[cond_ret=%d err='%m' outtime.tv_sec=%d outtime.tv_nsec=%ld]",
-                       cond_ret, outtime.tv_sec, outtime.tv_nsec); 
+        LOG(FATAL) << "fail to timewait cond. err=" << strerror(cond_ret)
+                   << ", outtime.tv_sec=" << outtime.tv_sec
+                   << ", outtime.tv_nsec=" << outtime.tv_nsec;
     }
 }
 

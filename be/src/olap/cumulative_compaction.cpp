@@ -77,7 +77,7 @@ OLAPStatus CumulativeCompaction::init(OLAPTablePtr table) {
 
     if (!_validate_need_merged_versions()) {
         _table->release_cumulative_lock();
-        OLAP_LOG_FATAL("error! invalid need merged versions");
+        LOG(FATAL) << "error! invalid need merged versions.";
         return OLAP_ERR_CUMULATIVE_INVALID_NEED_MERGED_VERSIONS;
     }
 
@@ -401,9 +401,11 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     bool row_nums_check = config::row_nums_check;
     if (row_nums_check) {
         if (source_rows != _new_segment_group->num_rows() + merged_rows + filted_rows) {
-            OLAP_LOG_FATAL("fail to check row num! "
-                           "[source_rows=%lu merged_rows=%lu filted_rows=%lu new_index_rows=%lu]",
-                           source_rows, merged_rows, filted_rows, _new_segment_group->num_rows());
+            LOG(FATAL) << "fail to check row num! "
+                       << "source_rows=" << source_rows
+                       << ", merged_rows=" << merged_rows
+                       << ", filted_rows=" << filted_rows
+                       << ", new_index_rows=" << _new_segment_group->num_rows();
             return OLAP_ERR_CHECK_LINES_ERROR;
         }
     } else {
@@ -430,11 +432,10 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     // 4. validate that delete action is right
     res = _validate_delete_file_action();
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_FATAL("delete action of cumulative compaction has error. roll back."
-                       "[table=%s; cumulative_version=%d-%d]",
-                       _table->full_name().c_str(),
-                       _cumulative_version.first,
-                       _cumulative_version.second);
+        LOG(FATAL) << "delete action of cumulative compaction has error. roll back."
+                   << "tablet=" << _table->full_name()
+                   << ", cumulative_version=" << _cumulative_version.first 
+                   << "-" << _cumulative_version.second;
         // if error happened, roll back
         OLAPStatus ret = _roll_back(unused_indices);
         if (ret != OLAP_SUCCESS) {
@@ -465,15 +466,15 @@ OLAPStatus CumulativeCompaction::_update_header(vector<SegmentGroup*>* unused_in
     OLAPStatus res = OLAP_SUCCESS;
     res = _table->replace_data_sources(&_need_merged_versions, &new_indices, unused_indices);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_FATAL("failed to replace data sources. [res=%d table=%s]",
-                       res, _table->full_name().c_str());
+        LOG(FATAL) << "failed to replace data sources. res=" << res
+                   << ", tablet=" << _table->full_name();
         return res;
     }
 
     res = _table->save_header();
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_FATAL("failed to save header. [res=%d table=%s]",
-                       res, _table->full_name().c_str());
+        LOG(FATAL) << "failed to save header. res=" << res
+                   << ", tablet=" << _table->full_name();
         return res;
     }
 

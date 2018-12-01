@@ -162,7 +162,7 @@ bool RowBlockChanger::change_row_block(
         RowBlock* mutable_block,
         uint64_t* filted_rows) const {
     if (mutable_block == NULL) {
-        OLAP_LOG_FATAL("mutable block is uninitialized.");
+        LOG(FATAL) << "mutable block is uninitialized.";
         return false;
     } else if (mutable_block->_tablet_schema.size() != _schema_mapping.size()) {
         OLAP_LOG_WARNING("mutable block does not match with schema mapping rules. "
@@ -616,7 +616,7 @@ bool RowBlockMerger::_make_heap(const vector<RowBlock*>& row_block_arr) {
         element.row_cursor = new(nothrow) RowCursor();
 
         if (element.row_cursor == NULL) {
-            OLAP_LOG_FATAL("failed to malloc RowCursor. [size=%ld]", sizeof(RowCursor));
+            LOG(FATAL) << "failed to malloc RowCursor. size=" << sizeof(RowCursor);
             return false;
         }
 
@@ -735,8 +735,7 @@ bool SchemaChangeDirectly::process(ColumnData* olap_data, SegmentGroup* new_segm
     if (NULL == _row_block_allocator) {
         if (NULL == (_row_block_allocator =
                          new(nothrow) RowBlockAllocator(_olap_table->tablet_schema(), 0))) {
-            OLAP_LOG_FATAL("failed to malloc RowBlockAllocator. [size=%ld]",
-                           sizeof(RowBlockAllocator));
+            LOG(FATAL) << "failed to malloc RowBlockAllocator. size=" << sizeof(RowBlockAllocator);
             return false;
         }
     }
@@ -877,10 +876,11 @@ bool SchemaChangeDirectly::process(ColumnData* olap_data, SegmentGroup* new_segm
     if (config::row_nums_check) {
         if (olap_data->segment_group()->num_rows()
             != new_segment_group->num_rows() + merged_rows() + filted_rows()) {
-            OLAP_LOG_FATAL("fail to check row num! "
-                           "[source_rows=%lu merged_rows=%lu filted_rows=%lu new_index_rows=%lu]",
-                           olap_data->segment_group()->num_rows(),
-                           merged_rows(), filted_rows(), new_segment_group->num_rows());
+            LOG(FATAL) << "fail to check row num! "
+                       << "source_rows=" << olap_data->segment_group()->num_rows()
+                       << ", merged_rows=" << merged_rows()
+                       << ", filted_rows=" << filted_rows()
+                       << ", new_index_rows=" << new_segment_group->num_rows();
             result = false;
         }
     } else {
@@ -921,8 +921,7 @@ bool SchemaChangeWithSorting::process(ColumnData* olap_data, SegmentGroup* new_s
     if (NULL == _row_block_allocator) {
         if (NULL == (_row_block_allocator = new(nothrow) RowBlockAllocator(
                         _olap_table->tablet_schema(), _memory_limitation))) {
-            OLAP_LOG_FATAL("failed to malloc RowBlockAllocator. [size=%ld]",
-                           sizeof(RowBlockAllocator));
+            LOG(FATAL) << "failed to malloc RowBlockAllocator. size=" << sizeof(RowBlockAllocator);
             return false;
         }
     }
@@ -1790,8 +1789,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     }
 
     if (NULL == sc_procedure) {
-        OLAP_LOG_FATAL("failed to malloc SchemaChange. [size=%ld]",
-                       sizeof(SchemaChangeWithSorting));
+        LOG(FATAL) << "failed to malloc SchemaChange. size=" << sizeof(SchemaChangeWithSorting);
         return OLAP_ERR_MALLOC_ERROR;
     }
 
@@ -1825,7 +1823,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
         }
 
         if (NULL == new_segment_group) {
-            OLAP_LOG_FATAL("failed to malloc SegmentGroup. [size=%ld]", sizeof(SegmentGroup));
+            LOG(FATAL) << "failed to malloc SegmentGroup. size=" << sizeof(SegmentGroup);
             res = OLAP_ERR_MALLOC_ERROR;
             goto SCHEMA_VERSION_CONVERT_ERR;
         }
@@ -1938,15 +1936,15 @@ OLAPStatus SchemaChangeHandler::_save_schema_change_info(
     // save new olap table header :只有一个父ref table
     res = new_olap_table->save_header();
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_FATAL("fail to save new table header. [res=%d table='%s']",
-                       res, new_olap_table->full_name().c_str());
+        LOG(FATAL) << "fail to save new table header. res=" << res
+                   << ", tablet=" << new_olap_table->full_name();
         return res;
     }
 
     res = ref_olap_table->save_header();
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_FATAL("fail to save ref table header. [res=%d table='%s']",
-                       res, ref_olap_table->full_name().c_str());
+        LOG(FATAL) << "fail to save ref table header. res=" << res
+                   << ", tablet=" << ref_olap_table->full_name().c_str();
         return res;
     }
 
@@ -2124,8 +2122,8 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
 
         // 保存header
         if (OLAP_SUCCESS != sc_params->new_olap_table->save_header()) {
-            OLAP_LOG_FATAL("fail to save header. [res=%d table='%s']",
-                           res, sc_params->new_olap_table->full_name().c_str());
+            LOG(FATAL) << "fail to save header. res=" << res
+                       << ", tablet=" << sc_params->new_olap_table->full_name();
         }
 
         // XXX: 此处需要验证ref_olap_data_arr中最后一个版本是否与new_olap_table的header中记录的最
@@ -2143,8 +2141,7 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
 
         // 保存header
         if (OLAP_SUCCESS != sc_params->ref_olap_table->save_header()) {
-            OLAP_LOG_FATAL("failed to save header. [table='%s']",
-                           sc_params->new_olap_table->full_name().c_str());
+            LOG(FATAL) << "failed to save header. tablet=" << sc_params->new_olap_table->full_name();
         }
 
         sc_params->new_olap_table->release_header_lock();

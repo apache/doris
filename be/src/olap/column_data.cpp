@@ -253,7 +253,7 @@ OLAPStatus ColumnData::_find_position_by_full_key(
         OLAP_LOG_DEBUG("get result iterator. [offset=%u start_pos='%s']", 
                 *it_result, start_position.to_string().c_str());
     } catch (std::exception& e) {
-        OLAP_LOG_FATAL("exception happens when doing seek. [e.what='%s']", e.what());
+        LOG(FATAL) << "exception happens when doing seek. exception=" << e.what();
         return OLAP_ERR_STL_ERROR;
     }
 

@@ -233,7 +233,7 @@ private:
         OLAPStatus res = OLAP_SUCCESS;
         RowBlockPosition position = _start_block_position;
         if (OLAP_SUCCESS != (res = _segment_group->advance_row_block(index, &position))) {
-            OLAP_LOG_FATAL("fail to advance row block. [res=%d]", res);
+            LOG(FATAL) << "fail to advance row block. res=" << res;
             throw ComparatorException();
         }
         const RowCursor* helper_cursor = _olap_data->seek_and_get_current_row(position);
