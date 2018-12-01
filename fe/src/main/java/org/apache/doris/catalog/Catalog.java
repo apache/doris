@@ -5635,7 +5635,7 @@ public class Catalog {
                         metaChanged = true;
                         break;
                     }
-                    if (copiedIndexIdToSchemaHash.get(indexId) != entry.getValue()) {
+                    if (!copiedIndexIdToSchemaHash.get(indexId).equals(entry.getValue()) {
                         metaChanged = true;
                         break;
                     }
