@@ -56,6 +56,7 @@ import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.TableInfo;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -364,6 +365,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DROP_REPOSITORY: {
                 data = new Text();
+                break;
+            }
+            case OperationType.OP_TRUNCATE_TABLE: {
+                data = TruncateTableInfo.read(in);
+                needRead = false;
                 break;
             }
             default: {

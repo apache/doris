@@ -365,7 +365,7 @@ public class RestoreJob extends AbstractJob {
                 }
                 
                 if (tbl.getType() != TableType.OLAP) {
-                    status = new Status(ErrCode.COMMON_ERROR, "Only support retore olap table: " + tbl.getName());
+                    status = new Status(ErrCode.COMMON_ERROR, "Only support retore OLAP table: " + tbl.getName());
                     return;
                 }
                 
@@ -662,7 +662,7 @@ public class RestoreJob extends AbstractJob {
                         long remotePartId = backupPartitionInfo.id;
                         Range<PartitionKey> remoteRange = remotePartitionInfo.getRange(remotePartId);
                         DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
-                        localPartitionInfo.addPartitionForRestore(restoredPart.getId(), remoteRange,
+                        localPartitionInfo.addPartition(restoredPart.getId(), remoteRange,
                                                                   remoteDataProperty, (short) restoreReplicationNum);
                         localTbl.addPartition(restoredPart);
                     }
@@ -857,7 +857,7 @@ public class RestoreJob extends AbstractJob {
                 long remotePartId = backupPartitionInfo.id;
                 Range<PartitionKey> remoteRange = remotePartitionInfo.getRange(remotePartId);
                 DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
-                localPartitionInfo.addPartitionForRestore(restorePart.getId(), remoteRange,
+                localPartitionInfo.addPartition(restorePart.getId(), remoteRange,
                                                           remoteDataProperty, (short) restoreReplicationNum);
                 localTbl.addPartition(restorePart);
 

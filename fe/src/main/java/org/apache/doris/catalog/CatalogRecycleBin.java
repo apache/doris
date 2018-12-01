@@ -558,7 +558,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
     // no need to use synchronized.
     // only called when loading image
     public void addTabletToInvertedIndex() {
-        // no need to handle idToDatabase. Databse is already empty before being put here
+        // no need to handle idToDatabase. Database is already empty before being put here
 
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         // idToTable
@@ -595,12 +595,12 @@ public class CatalogRecycleBin extends Daemon implements Writable {
             Partition partition = partitionInfo.getPartition();
             long partitionId = partition.getId();
 
-            // we need to get olaptable to get schema hash info
+            // we need to get olap table to get schema hash info
             // first find it in catalog. if not found, it should be in recycle bin
             OlapTable olapTable = null;
             Database db = Catalog.getInstance().getDb(dbId);
             if (db == null) {
-                // just log. db should be in recyle bin
+                // just log. db should be in recycle bin
                 if (!idToDatabase.containsKey(dbId)) {
                     LOG.error("db[{}] is neither in catalog nor in recylce bin"
                             + " when rebuilding inverted index from recycle bin, partition[{}]",
