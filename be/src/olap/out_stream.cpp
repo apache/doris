@@ -41,7 +41,7 @@ OutStreamFactory::OutStreamFactory(CompressKind compress_kind, uint32_t stream_b
         break;
 
     default:
-        OLAP_LOG_FATAL("unknown compress kind. [kind=%d]", compress_kind);
+        LOG(FATAL) << "unknown compress kind. kind=" << compress_kind;
     }
 }
 

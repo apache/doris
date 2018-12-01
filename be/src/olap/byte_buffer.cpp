@@ -44,8 +44,10 @@ void StorageByteBuffer::BufDeleter::operator()(char* p) {
 
     if (_is_mmap) {
         if (0 != munmap(p, _mmap_length)) {
-            OLAP_LOG_FATAL("fail to munmap: [mem='%p', len='%lu', errno='%d' errno_str='%s']",
-                    p, _mmap_length, Errno::no(), Errno::str());
+            LOG(FATAL) << "fail to munmap: mem=" << p
+                       << ", len=" << _mmap_length
+                       << ", errno=" << Errno::no()
+                       << ", errno_str=" << Errno::str();
         }
     } else {
         delete []p;

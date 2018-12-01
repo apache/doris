@@ -167,7 +167,7 @@ OLAPStatus BaseCompaction::run() {
             }
 
             ++sleep_count;
-            OLAP_LOG_FATAL("base compaction's delete action has error.sleep 1 minute...");
+            LOG(FATAL) << "base compaction's delete action has error.sleep 1 minute...";
             sleep(60);
         }
 
@@ -293,10 +293,10 @@ bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
     double cumulative_base_ratio = static_cast<double>(cumulative_total_size) / base_size;
     if (cumulative_base_ratio > base_cumulative_delta_ratio) {
         LOG(INFO) << "satisfy the base compaction policy. table=" << _table->full_name()
-            << "cumualtive_total_size=" << cumulative_total_size
-            << "base_size=" << base_size
-            << "cumulative_base_ratio=" << cumulative_base_ratio
-            << "policy_ratio=" << base_cumulative_delta_ratio;
+            << ", cumualtive_total_size=" << cumulative_total_size
+            << ", base_size=" << base_size
+            << ", cumulative_base_ratio=" << cumulative_base_ratio
+            << ", policy_ratio=" << base_cumulative_delta_ratio;
         return true;
     }
 
@@ -430,11 +430,10 @@ OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<SegmentGrou
                                        &_new_olap_indices,
                                        unused_olap_indices);
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_FATAL("fail to replace data sources. "
-                       "[res=%d table=%s; new_base=%d; old_base=%d]",
-                       _table->full_name().c_str(),
-                       _new_base_version.second,
-                       _old_base_version.second);
+        LOG(FATAL) << "fail to replace data sources. res" << res
+                   << ", tablet=" << _table->full_name()
+                   << ", new_base_version=" << _new_base_version.second
+                   << ", old_base_verison=" << _old_base_version.second;
         return res;
     }
 
@@ -448,11 +447,10 @@ OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<SegmentGrou
     // 暂时没办法做很好的处理,报FATAL
     res = _table->save_header();
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_FATAL("fail to save header. "
-                       "[res=%d table=%s; new_base=%d; old_base=%d]",
-                       _table->full_name().c_str(),
-                       _new_base_version.second,
-                       _old_base_version.second);
+        LOG(FATAL) << "fail to save header. res=" << res
+                   << ", tablet=" << _table->full_name()
+                   << ", new_base_version=" << _new_base_version.second
+                   << ", old_base_version=" << _old_base_version.second;
         return OLAP_ERR_BE_SAVE_HEADER_ERROR;
     }
     _new_olap_indices.clear();

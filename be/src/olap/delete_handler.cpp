@@ -366,7 +366,7 @@ OLAPStatus DeleteHandler::init(OLAPTablePtr olap_table, int32_t version) {
         temp.del_cond = new(std::nothrow) Conditions();
 
         if (temp.del_cond == NULL) {
-            OLAP_LOG_FATAL("fail to malloc Conditions. [size=%ld]", sizeof(Conditions));
+            LOG(FATAL) << "fail to malloc Conditions. size=" << sizeof(Conditions);
             return OLAP_ERR_MALLOC_ERROR;
         }
 
