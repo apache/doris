@@ -125,7 +125,7 @@ bool HandleTable::_resize() {
 
     // assert(new_list);
     if (NULL == new_list) {
-        OLAP_LOG_FATAL("failed to malloc new hash list. [new_length=%d]", new_length);
+        LOG(FATAL) << "failed to malloc new hash list. new_length=" << new_length;
         return false;
     }
 
@@ -150,7 +150,8 @@ bool HandleTable::_resize() {
     //assert(_elems == count);
     if (_elems != count) {
         delete [] new_list;
-        OLAP_LOG_FATAL("_elems not match new count. [_elems=%d count=%d]", _elems, count);
+        LOG(FATAL) << "_elems not match new count. elems=" << _elems
+                   << ", count=" << count;
         return false;
     }
 
@@ -192,8 +193,8 @@ void LRUCache::_ref(LRUHandle* e) {
 void LRUCache::_unref(LRUHandle* e) {
     // assert(e->refs > 0);
     if (e->refs <= 0) {
-        OLAP_LOG_FATAL("e->refs > 0, i do not know why, anyway, is something wrong."
-                "[e->refs=%d]", e->refs);
+        LOG(FATAL) << "e->refs > 0, i do not know why, anyway, is something wrong."
+                   << "e->refs=" << e->refs;
         return;
     }
     e->refs--;

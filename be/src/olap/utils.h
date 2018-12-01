@@ -518,13 +518,11 @@ bool valid_datetime(const std::string& value_str);
 #define OLAP_LOG_TRACE(fmt, arg...)  OLAP_VLOG_WRITE(20, fmt, ##arg)
 
 #define OLAP_LOG_WARNING(fmt, arg...) OLAP_LOG_WRITE(WARNING, fmt, ##arg)
-#define OLAP_LOG_FATAL(fmt, arg...) OLAP_LOG_WRITE(ERROR, fmt, ##arg)
 
 #define OLAP_LOG_DEBUG_SOCK(fmt, arg...) OLAP_LOG_WRITE(INFO, fmt, ##arg)
 #define OLAP_LOG_TRACE_SOCK(fmt, arg...) OLAP_LOG_WRITE(INFO, fmt, ##arg)
 #define OLAP_LOG_NOTICE_DIRECT_SOCK(fmt, arg...) OLAP_LOG_WRITE(INFO, fmt, ##arg)
 #define OLAP_LOG_WARNING_SOCK(fmt, arg...) OLAP_LOG_WRITE(WARNING, fmt, ##arg)
-#define OLAP_LOG_FATAL_SOCK(fmt, arg...) OLAP_LOG_WRITE(ERROR, fmt, ##arg)
 #define OLAP_LOG_SETBASIC(type, fmt, arg...)
 
 // Util used to get string name of thrift enum item

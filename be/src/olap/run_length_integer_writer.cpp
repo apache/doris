@@ -215,7 +215,7 @@ void RunLengthIntegerWriter::_determined_encoding() {
     }
 
     // never happen
-    OLAP_LOG_FATAL("ops: fail to determine encoding type.");
+    LOG(FATAL) << "ops: fail to determine encoding type.";
 }
 
 void RunLengthIntegerWriter::_prepare_patched_blob() {
