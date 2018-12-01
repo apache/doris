@@ -13,7 +13,7 @@ public class TabletInfoTest {
 
     @Test
     public void testPriorityCompare() {
-        // equal priority, but info1's last visit time is earlier than info2, so info1 should ranks ahead
+        // equal priority, but info3's last visit time is earlier than info2 and info1, so info1 should ranks ahead
         PriorityQueue<TabletInfo> pendingTablets = new PriorityQueue<>();
         TabletInfo info1 = new TabletInfo(TabletStatus.REPLICA_MISSING, "default_cluster",
                 1, 2, 3, 4, 1000, 6, TStorageMedium.SSD, System.currentTimeMillis());
@@ -25,12 +25,18 @@ public class TabletInfoTest {
         info2.setOrigPriority(Priority.NORMAL);
         info2.setLastVisitedTime(3);
 
-        pendingTablets.add(info2);
+        TabletInfo info3 = new TabletInfo(TabletStatus.REPLICA_MISSING, "default_cluster",
+                1, 2, 3, 4, 1001, 6, TStorageMedium.SSD, System.currentTimeMillis());
+        info3.setOrigPriority(Priority.NORMAL);
+        info3.setLastVisitedTime(1);
+
         pendingTablets.add(info1);
+        pendingTablets.add(info2);
+        pendingTablets.add(info3);
 
         TabletInfo expectedInfo = pendingTablets.poll();
         Assert.assertNotNull(expectedInfo);
-        Assert.assertEquals(info1.getTabletId(), expectedInfo.getTabletId());
+        Assert.assertEquals(info3.getTabletId(), expectedInfo.getTabletId());
 
         // priority is not equal, info2 is HIGH, should ranks ahead
         pendingTablets.clear();

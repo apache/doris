@@ -793,7 +793,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
         } else {
             if (lastVisitedTime < o.lastVisitedTime) {
                 return -1;
-            } else if (lastVisitedTime < o.lastVisitedTime) {
+            } else if (lastVisitedTime > o.lastVisitedTime) {
                 return 1;
             } else {
                 return 0;

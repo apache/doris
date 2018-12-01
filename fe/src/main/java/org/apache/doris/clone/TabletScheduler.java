@@ -514,7 +514,9 @@ public class TabletScheduler extends Daemon {
                 || deleteReplicaWithLowerVersion(tabletInfo)
                 || deleteReplicaNotInCluster(tabletInfo)
                 || deleteReplicaOnHighLoadBackend(tabletInfo)) {
-            return;
+            // if we delete at least one redundant replica, we still throw a SchedException with status UNRECOVERABLE
+            // to remove this tablet from the pendingTablets(consider it as finished)
+            throw new SchedException(Status.UNRECOVERABLE, "redundant replica is deleted");
         }
         throw new SchedException(Status.SCHEDULE_FAILED, "unable to delete any redundant replicas");
     }

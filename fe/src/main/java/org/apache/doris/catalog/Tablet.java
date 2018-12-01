@@ -401,7 +401,7 @@ public class Tablet extends MetaObject implements Writable {
         // 3. healthy replicas in cluster are not enough
         if (healthyReplicaNumInCluster < replicationNum) {
             return Pair.create(TabletStatus.REPLICA_MISSING_IN_CLUSTER, TabletInfo.Priority.LOW);
-        } else if (healthyReplicaNumInCluster > replicationNum) {
+        } else if (replicas.size() > replicationNum) {
             // we set REDUNDANT as VERY_HIGH, because delete redundant replicas can free the space quickly.
             return Pair.create(TabletStatus.REDUNDANT, TabletInfo.Priority.VERY_HIGH);
         }
