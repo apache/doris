@@ -44,6 +44,7 @@ import org.apache.doris.thrift.TTableType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
@@ -884,16 +885,27 @@ public class OlapTable extends Table {
 
     /*
      * this method is currently used for truncating table(partitions).
-     * the new partition is only different in tablet with the old partition.
-     * Other info such as id, name, schema, range, data property are all the same,
-     * so we don't need to change the info in PartitionInfo.
-     * 
+     * the new partition has new id, so we need to change all 'id-related' members
+     *
      * return the old partition.
      */
     public Partition replacePartition(Partition newPartition) {
-        Partition oldPartition = idToPartition.remove(newPartition.getId());
+        Partition oldPartition = nameToPartition.remove(newPartition.getName());
+        idToPartition.remove(oldPartition.getId());
+
         idToPartition.put(newPartition.getId(), newPartition);
         nameToPartition.put(newPartition.getName(), newPartition);
+
+        if (partitionInfo.getType() == PartitionType.RANGE) {
+            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
+            Range<PartitionKey> range = rangePartitionInfo.getRange(oldPartition.getId());
+            DataProperty dataProperty = rangePartitionInfo.getDataProperty(oldPartition.getId());
+            short replicationNum = rangePartitionInfo.getReplicationNum(oldPartition.getId());
+
+            rangePartitionInfo.dropPartition(oldPartition.getId());
+            rangePartitionInfo.addPartitionForRestore(newPartition.getId(), range, dataProperty, replicationNum);
+        }
+
         return oldPartition;
     }
 }

@@ -5569,9 +5569,15 @@ public class Catalog {
         Set<Long> tabletIdSet = Sets.newHashSet();
         try {
             for (Map.Entry<String, Long> entry : origPartitions.entrySet()) {
-                long partitionId = entry.getValue();
+                // the new partition must use new id
+                // If we still use the old partition id, the behavior of current load jobs on this partition
+                // will be undefined.
+                // By using a new id, load job will be aborted(just like partition is dropped),
+                // which is the right behavior.
+                long oldPartitionId = entry.getValue();
+                long newPartitionId = getNextId();
                 Partition newPartition = createPartitionWithIndices(db.getClusterName(),
-                        db.getId(), copiedTbl.getId(), partitionId,
+                        db.getId(), copiedTbl.getId(), newPartitionId,
                         entry.getKey(),
                         copiedTbl.getIndexIdToShortKeyColumnCount(),
                         copiedTbl.getIndexIdToSchemaHash(),
@@ -5579,8 +5585,8 @@ public class Catalog {
                         copiedTbl.getIndexIdToSchema(),
                         copiedTbl.getKeysType(),
                         copiedTbl.getDefaultDistributionInfo(),
-                        copiedTbl.getPartitionInfo().getDataProperty(partitionId).getStorageMedium(),
-                        copiedTbl.getPartitionInfo().getReplicationNum(partitionId),
+                        copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).getStorageMedium(),
+                        copiedTbl.getPartitionInfo().getReplicationNum(oldPartitionId),
                         null /* version info */,
                         copiedTbl.getCopiedBfColumns(),
                         copiedTbl.getBfFpp(),
@@ -5597,8 +5603,9 @@ public class Catalog {
         }
         Preconditions.checkState(origPartitions.size() == newPartitions.size());
 
-        // all partitions are created successfully, try replace the old partitions.
-        // before replacing, we need to check again. Things may be changed outside the database lock.
+        // all partitions are created successfully, try to replace the old partitions.
+        // before replacing, we need to check again.
+        // Things may be changed outside the database lock.
         db.writeLock();
         try {
             OlapTable olapTable = (OlapTable) db.getTable(copiedTbl.getId());
