@@ -672,7 +672,7 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
                         key, stream_buffer, stream_length, &_delete_cached_index_stream);
                 if (NULL == _cache_handle[cache_handle_index]) {
                     // 这里可能是cache insert中的malloc失败了, 先返回成功
-                    OLAP_LOG_FATAL("fail to insert lru cache.");
+                    LOG(FATAL) << "fail to insert lru cache.";
                 }
             }
         }

@@ -711,11 +711,9 @@ void OLAPEngine::_delete_tables_on_unused_root_path() {
     }
 
     if (_used_disk_not_enough(unused_root_path_num, total_root_path_num)) {
-        OLAP_LOG_FATAL("engine stop running, because more than %d disks error."
-                       "[total_disks=%d error_disks=%d]",
-                       _min_percentage_of_error_disk,
-                       total_root_path_num,
-                       unused_root_path_num);
+        LOG(FATAL) << "engine stop running, because more than " << _min_percentage_of_error_disk
+                   << " disks error. total_disks=" << total_root_path_num
+                   << ", error_disks=" << unused_root_path_num;
         exit(0);
     }
 
@@ -1360,8 +1358,8 @@ OLAPStatus OLAPEngine::drop_table(
     related_table->clear_schema_change_request();
     res = related_table->save_header();
     if (res != OLAP_SUCCESS) {
-        OLAP_LOG_FATAL("fail to save table header. [res=%d table=%s]",
-                       res, related_table->full_name().c_str());
+        LOG(FATAL) << "fail to save table header. res=" << res
+                   << ", tablet=" << related_table->full_name();
     }
 
     res = _drop_table_directly_unlocked(tablet_id, schema_hash, keep_files);
@@ -2463,7 +2461,7 @@ OLAPStatus OLAPEngine::compute_checksum(
         ReadLock rdlock(tablet->get_header_lock_ptr());
         const PDelta* message = tablet->lastest_version();
         if (message == NULL) {
-            OLAP_LOG_FATAL("fail to get latest version. [tablet_id=%ld]", tablet_id);
+            LOG(FATAL) << "fail to get latest version. tablet_id=" << tablet_id;
             return OLAP_ERR_VERSION_NOT_EXIST;
         }
 

@@ -300,7 +300,7 @@ OLAPStatus RowBlock::find_row(const RowCursor& key,
             *row_index = *it_result;
         }
     } catch (exception& e) {
-        OLAP_LOG_FATAL("exception happens. [e.what='%s']", e.what());
+        LOG(FATAL) << "exception happens. exception=" << e.what();
         return OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION;
     }
 
