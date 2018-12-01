@@ -57,6 +57,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -579,14 +580,14 @@ public class EditLog {
                 }
                 case OperationType.OP_UPSERT_TRANSACTION_STATE: {
                     final TransactionState state = (TransactionState) journal.getData();
-                    catalog.getCurrentGlobalTransactionMgr().replayUpsertTransactionState(state);
+                    Catalog.getCurrentGlobalTransactionMgr().replayUpsertTransactionState(state);
                     LOG.debug("opcode: {}, tid: {}", opCode, state.getTransactionId());
 
                     break;
                 }
                 case OperationType.OP_DELETE_TRANSACTION_STATE: {
                     final TransactionState state = (TransactionState) journal.getData();
-                    catalog.getCurrentGlobalTransactionMgr().replayDeleteTransactionState(state);
+                    Catalog.getCurrentGlobalTransactionMgr().replayDeleteTransactionState(state);
                     LOG.debug("opcode: {}, tid: {}", opCode, state.getTransactionId());
                     break;
                 }
@@ -598,6 +599,11 @@ public class EditLog {
                 case OperationType.OP_DROP_REPOSITORY: {
                     String repoName = ((Text) journal.getData()).toString();
                     catalog.getBackupHandler().getRepoMgr().removeRepo(repoName, true);
+                    break;
+                }
+                case OperationType.OP_TRUNCATE_TABLE: {
+                    TruncateTableInfo info = (TruncateTableInfo) journal.getData();
+                    catalog.replayTruncateTable(info);
                     break;
                 }
                 default: {
@@ -1053,5 +1059,9 @@ public class EditLog {
 
     public void logUpdateUserProperty(UserPropertyInfo propertyInfo) {
         logEdit(OperationType.OP_UPDATE_USER_PROPERTY, propertyInfo);
+    }
+
+    public void logTruncateTable(TruncateTableInfo info) {
+        logEdit(OperationType.OP_TRUNCATE_TABLE, info);
     }
 }

@@ -284,6 +284,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("triggers", new Integer(SqlParserSymbols.KW_TRIGGERS));
         keywordMap.put("trim", new Integer(SqlParserSymbols.KW_TRIM));
         keywordMap.put("true", new Integer(SqlParserSymbols.KW_TRUE));
+        keywordMap.put("truncate", new Integer(SqlParserSymbols.KW_TRUNCATE));
         keywordMap.put("type", new Integer(SqlParserSymbols.KW_TYPE));
         keywordMap.put("types", new Integer(SqlParserSymbols.KW_TYPES));
         keywordMap.put("unbounded", new Integer(SqlParserSymbols.KW_UNBOUNDED));

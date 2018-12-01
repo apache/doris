@@ -331,8 +331,8 @@ public class TabletInvertedIndex {
         return false;
     }
 
+    // always add tablet before adding replicas
     public void addTablet(long tabletId, TabletMeta tabletMeta) {
-        // always add tablet before adding replicas
         if (Catalog.isCheckpointThread()) {
             return;
         }
