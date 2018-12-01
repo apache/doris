@@ -98,20 +98,6 @@ public class GlobalTransactionMgr {
         this.idGenerator = new TransactionIdGenerator();
     }
 
-    public boolean checkIfTableHasRunningTxn(long dbId, long tblId) {
-        readLock();
-        try {
-            if (!dbIdToTxnLabels.containsRow(dbId)) {
-                return false;
-            }
-            
-            return dbIdToTxnLabels.row(dbId).values().stream().map(txnId -> idToTransactionState.get(txnId)).filter(
-                    v -> v != null).anyMatch(state -> state.isRunning());
-        } finally {
-            readUnlock();
-        }
-    }
-
     /**
      * the app could specify the transaction id
      *

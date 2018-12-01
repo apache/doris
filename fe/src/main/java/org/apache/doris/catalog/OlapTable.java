@@ -896,14 +896,17 @@ public class OlapTable extends Table {
         idToPartition.put(newPartition.getId(), newPartition);
         nameToPartition.put(newPartition.getName(), newPartition);
 
+        DataProperty dataProperty = partitionInfo.getDataProperty(oldPartition.getId());
+        short replicationNum = partitionInfo.getReplicationNum(oldPartition.getId());
+
         if (partitionInfo.getType() == PartitionType.RANGE) {
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
             Range<PartitionKey> range = rangePartitionInfo.getRange(oldPartition.getId());
-            DataProperty dataProperty = rangePartitionInfo.getDataProperty(oldPartition.getId());
-            short replicationNum = rangePartitionInfo.getReplicationNum(oldPartition.getId());
-
             rangePartitionInfo.dropPartition(oldPartition.getId());
-            rangePartitionInfo.addPartitionForRestore(newPartition.getId(), range, dataProperty, replicationNum);
+            rangePartitionInfo.addPartition(newPartition.getId(), range, dataProperty, replicationNum);
+        } else {
+            partitionInfo.dropPartition(oldPartition.getId());
+            partitionInfo.addPartition(newPartition.getId(), dataProperty, replicationNum);
         }
 
         return oldPartition;
