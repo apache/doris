@@ -67,8 +67,8 @@ public class DropTableStmt extends DdlStmt {
             tableName.setDb(analyzer.getDefaultDb());
         }
         tableName.analyze(analyzer);
-        // check access
 
+        // check access
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
                                                                 tableName.getTbl(), PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");

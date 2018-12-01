@@ -221,7 +221,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STORAGE, KW_STRING, 
     KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM, 
     KW_TABLE, KW_TABLES, KW_TABLET, KW_TERMINATED, KW_THAN, KW_THEN, KW_TIMESTAMP, KW_TINYINT,
-    KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TYPE, KW_TYPES,
+    KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TRUNCATE, KW_TYPE, KW_TYPES,
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNSIGNED, KW_USE, KW_USER, KW_USING,
     KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VIEW,
     KW_WARNINGS, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE;
@@ -242,7 +242,7 @@ terminal String COMMENTED_PLAN_HINTS;
 // Statement that the result of this parser.
 nonterminal StatementBase query, stmt, show_stmt, show_param, help_stmt, load_stmt, describe_stmt, alter_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
-    link_stmt, migrate_stmt, enter_stmt, unsupported_stmt, export_stmt, admin_stmt, import_columns_stmt, import_where_stmt;
+    link_stmt, migrate_stmt, enter_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt, import_columns_stmt, import_where_stmt;
 
 nonterminal ImportColumnDesc import_column_desc;
 nonterminal List<ImportColumnDesc> import_column_descs;
@@ -525,6 +525,8 @@ stmt ::=
     | export_stmt : stmt
     {: RESULT = stmt; :}
     | admin_stmt : stmt
+    {: RESULT = stmt; :}
+    | truncate_stmt : stmt
     {: RESULT = stmt; :}
     | /* empty: query only has comments */
     {:
@@ -3482,6 +3484,13 @@ admin_stmt ::=
     :}
     ;
 
+truncate_stmt ::=
+    KW_TRUNCATE KW_TABLE base_table_ref:tblRef
+    {:
+        RESULT = new TruncateTableStmt(tblRef);
+    :}
+    ;
+
 unsupported_stmt ::=
     KW_START KW_TRANSACTION opt_with_consistent_snapshot:v
     {:
@@ -3726,6 +3735,8 @@ keyword ::=
     | KW_TRANSACTION:id
     {: RESULT = id; :}
     | KW_TRIGGERS:id
+    {: RESULT = id; :}
+    | KW_TRUNCATE:id
     {: RESULT = id; :}
     | KW_TYPE:id
     {: RESULT = id; :}

@@ -25,9 +25,6 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.KeysDesc;
-import org.apache.doris.analysis.PartitionDesc;
-import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.Status;
@@ -44,10 +41,10 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
@@ -884,5 +881,34 @@ public class OlapTable extends Table {
         }
         
         return copied;
+    }
+
+    /*
+     * this method is currently used for truncating table(partitions).
+     * the new partition has new id, so we need to change all 'id-related' members
+     *
+     * return the old partition.
+     */
+    public Partition replacePartition(Partition newPartition) {
+        Partition oldPartition = nameToPartition.remove(newPartition.getName());
+        idToPartition.remove(oldPartition.getId());
+
+        idToPartition.put(newPartition.getId(), newPartition);
+        nameToPartition.put(newPartition.getName(), newPartition);
+
+        DataProperty dataProperty = partitionInfo.getDataProperty(oldPartition.getId());
+        short replicationNum = partitionInfo.getReplicationNum(oldPartition.getId());
+
+        if (partitionInfo.getType() == PartitionType.RANGE) {
+            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
+            Range<PartitionKey> range = rangePartitionInfo.getRange(oldPartition.getId());
+            rangePartitionInfo.dropPartition(oldPartition.getId());
+            rangePartitionInfo.addPartition(newPartition.getId(), range, dataProperty, replicationNum);
+        } else {
+            partitionInfo.dropPartition(oldPartition.getId());
+            partitionInfo.addPartition(newPartition.getId(), dataProperty, replicationNum);
+        }
+
+        return oldPartition;
     }
 }

@@ -79,17 +79,16 @@ public class RangePartitionInfo extends PartitionInfo {
         return partitionColumns;
     }
 
+    @Override
     public void dropPartition(long partitionId) {
+        super.dropPartition(partitionId);
         idToRange.remove(partitionId);
-        idToDataProperty.remove(partitionId);
-        idToReplicationNum.remove(partitionId);
     }
 
-    public void addPartitionForRestore(long partitionId, Range<PartitionKey> range, DataProperty dataProperty,
+    public void addPartition(long partitionId, Range<PartitionKey> range, DataProperty dataProperty,
             short replicationNum) {
+        addPartition(partitionId, dataProperty, replicationNum);
         idToRange.put(partitionId, range);
-        idToDataProperty.put(partitionId, dataProperty);
-        idToReplicationNum.put(partitionId, replicationNum);
     }
 
     public Range<PartitionKey> checkAndCreateRange(SingleRangePartitionDesc desc) throws DdlException {

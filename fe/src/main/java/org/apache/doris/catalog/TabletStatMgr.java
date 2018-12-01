@@ -146,9 +146,13 @@ public class TabletStatMgr extends Daemon {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
 
         for (Map.Entry<Long, TTabletStat> entry : result.getTablets_stats().entrySet()) {
+            if (invertedIndex.getTabletMeta(entry.getKey()) == null) {
+                // the replica is obsolete, ignore it.
+                continue;
+            }
             Replica replica = invertedIndex.getReplica(entry.getKey(), beId);
             if (replica == null) {
-                // replica may be deleted from catalog
+                // replica may be deleted from catalog, ignore it.
                 continue;
             }
             // TODO(cmy) no db lock protected. I think it is ok even we get wrong row num

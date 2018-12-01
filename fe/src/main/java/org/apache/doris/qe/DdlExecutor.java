@@ -53,6 +53,7 @@ import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
 import org.apache.doris.analysis.SyncStmt;
+import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -151,6 +152,8 @@ public class DdlExecutor {
             catalog.getBackupHandler().dropRepository((DropRepositoryStmt) ddlStmt);
         } else if (ddlStmt instanceof SyncStmt) {
             return;
+        } else if (ddlStmt instanceof TruncateTableStmt) {
+            catalog.truncateTable((TruncateTableStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

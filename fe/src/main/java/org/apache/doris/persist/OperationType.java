@@ -51,6 +51,7 @@ public class OperationType {
     public static final short OP_RESTORE_FINISH = 115;
     public static final short OP_BACKUP_JOB = 116;
     public static final short OP_RESTORE_JOB = 117;
+    public static final short OP_TRUNCATE_TABLE = 118;
 
     // 20~29 120~129 220~229 ...
     public static final short OP_START_ROLLUP = 20;
