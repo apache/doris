@@ -123,7 +123,8 @@ private:
             std::string* src_file_path,
             std::vector<std::string>* error_msgs,
             const std::vector<Version>* missing_versions,
-            bool* allow_incremental_clone);
+            bool* allow_incremental_clone,
+            double* copy_rate);
 
     void _alter_table(
             const TAlterTabletReq& create_rollup_request,

@@ -158,6 +158,10 @@ public class TabletInfo implements Comparable<TabletInfo> {
     
     private CloneTask cloneTask = null;
     
+    // the copy rate (Bytes/Second) of clone task.
+    // Used to gather statistics
+    private double copyRate = 0.0;
+
     private SystemInfoService infoService;
     
     public TabletInfo(TabletStatus status, String cluster, long dbId, long tblId, long partId,
@@ -675,6 +679,10 @@ public class TabletInfo implements Comparable<TabletInfo> {
         } finally {
             db.writeUnlock();
         }
+
+        if (request.isSetCopy_rate()) {
+            this.copyRate = request.getCopy_rate();
+        }
     }
     
     /*
@@ -769,6 +777,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
         result.add(TimeUtils.longToTimeString(lastSchedTime));
         result.add(TimeUtils.longToTimeString(lastVisitedTime));
         result.add(TimeUtils.longToTimeString(finishedTime));
+        result.add(String.valueOf(copyRate));
         result.add(String.valueOf(failedSchedCounter));
         result.add(String.valueOf(failedRunningCounter));
         result.add(TimeUtils.longToTimeString(lastAdjustPrioTime));
