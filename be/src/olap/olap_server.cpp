@@ -82,7 +82,7 @@ OLAPStatus OLAPEngine::_start_bg_worker() {
             _fd_cache_clean_callback(nullptr);
         });
 
-    OLAP_LOG_TRACE("init finished.");
+    VLOG(10) << "init finished.";
     return OLAP_SUCCESS;
 }
 

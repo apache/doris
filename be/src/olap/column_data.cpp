@@ -162,7 +162,7 @@ OLAPStatus ColumnData::_seek_to_block(const RowBlockPosition& block_pos, bool wi
         end_block = _segment_reader->block_count() - 1;
     }
 
-    OLAP_LOG_DEBUG("###---### seek from %u to %u", block_pos.data_offset, end_block);
+    VLOG(3) << "seek from " << block_pos.data_offset << " to " << end_block;
     return _segment_reader->seek_to_block(
         block_pos.data_offset, end_block, without_filter, &_next_block, &_segment_eof);
 }
@@ -250,8 +250,8 @@ OLAPStatus ColumnData::_find_position_by_full_key(
         } else {
             it_result = std::upper_bound(it_start, it_end, key, comparator);
         }
-        OLAP_LOG_DEBUG("get result iterator. [offset=%u start_pos='%s']", 
-                *it_result, start_position.to_string().c_str());
+        VLOG(3) << "get result iterator. offset=" << *it_result
+                << ", start_pos=" << start_position.to_string();
     } catch (std::exception& e) {
         LOG(FATAL) << "exception happens when doing seek. exception=" << e.what();
         return OLAP_ERR_STL_ERROR;

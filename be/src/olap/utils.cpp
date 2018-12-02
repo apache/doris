@@ -284,9 +284,9 @@ OLAPStatus olap_compress(const char* src_buf,
             
             return OLAP_ERR_COMPRESS_ERROR;
         } else if (*written_len > dest_len) {
-            OLAP_LOG_DEBUG("buffer overflow when compressing. [dest_len=%lu written_len=%lu]",
-                             dest_len,
-                             *written_len);
+            VLOG(3) << "buffer overflow when compressing. "
+                    << "dest_len=" << dest_len
+                    << ", written_len=" << *written_len;
             
             return OLAP_ERR_BUFFER_OVERFLOW;
         }
@@ -310,9 +310,9 @@ OLAPStatus olap_compress(const char* src_buf,
             
             return OLAP_ERR_COMPRESS_ERROR;
         } else if (*written_len > dest_len) {
-            OLAP_LOG_DEBUG("buffer overflow when compressing. [dest_len=%lu written_len=%lu]",
-                             dest_len,
-                             *written_len);
+            VLOG(3) << "buffer overflow when compressing. "
+                    << ", dest_len=" << dest_len
+                    << ", written_len=" << *written_len;
             
             return OLAP_ERR_BUFFER_OVERFLOW;
         }
@@ -323,13 +323,10 @@ OLAPStatus olap_compress(const char* src_buf,
         int lz4_res = LZ4_compress_default(src_buf, dest_buf, src_len, dest_len);
         *written_len = lz4_res;
         if (0 == lz4_res) {
-            OLAP_LOG_DEBUG("compress failed."
-                             "[src_len=%lu; dest_len=%lu; written_len=%lu; lz4_res=%d]",
-                             src_len,
-                             dest_len,
-                             *written_len,
-                             lz4_res);
-            
+            VLOG(3) << "compress failed. src_len=" << src_len
+                    << ", dest_len=" << dest_len
+                    << ", written_len=" << *written_len
+                    << ", lz4_res=" << lz4_res;
             return OLAP_ERR_BUFFER_OVERFLOW;
         }
         break;
@@ -1069,8 +1066,7 @@ OLAPStatus move_to_trash(const boost::filesystem::path& schema_hash_root,
     }
 
     // 3. remove file to trash
-    OLAP_LOG_DEBUG("move file to trash. [%s -> %s]",
-            old_file_path.c_str(), new_file_path.c_str());
+    VLOG(3) << "move file to trash. " << old_file_path << " -> " << new_file_path;
     if (rename(old_file_path.c_str(), new_file_path.c_str()) < 0) {
         OLAP_LOG_WARNING("move file to trash failed. [file=%s target='%s' err='%m']",
                 old_file_path.c_str(), new_file_path.c_str());
@@ -1109,7 +1105,7 @@ OLAPStatus Mutex::lock() {
 
 OLAPStatus Mutex::trylock() {
     if (0 != pthread_mutex_trylock(&_lock)) {
-        OLAP_LOG_DEBUG("failed to got the mutex lock. [err='%m']");
+        VLOG(3) << "failed to got the mutex lock. err=" << strerror(errno);
         return OLAP_ERR_RWLOCK_ERROR;
     }
 
@@ -1158,7 +1154,7 @@ OLAPStatus RWMutex::rdlock() {
 
 OLAPStatus RWMutex::tryrdlock() {
     if (0 != pthread_rwlock_tryrdlock(&_lock)) {
-        OLAP_LOG_DEBUG("failed to got the rwlock rdlock. [err='%m']");
+        VLOG(3) << "failed to got the rwlock rdlock. err=" << strerror(errno);
         return OLAP_ERR_RWLOCK_ERROR;
     }
 
@@ -1167,7 +1163,7 @@ OLAPStatus RWMutex::tryrdlock() {
 
 OLAPStatus RWMutex::trywrlock() {
     if (0 != pthread_rwlock_trywrlock(&_lock)) {
-        OLAP_LOG_DEBUG("failed to got the rwlock rdlock. [err='%m']");
+        VLOG(3) << "failed to got the rwlock rdlock. err=" << strerror(errno);
         return OLAP_ERR_RWLOCK_ERROR;
     }
 
@@ -1523,12 +1519,12 @@ OLAPStatus dir_walk(const string& root,
         }
 
         if (S_ISDIR(stat_data.st_mode)) {
-            OLAP_LOG_DEBUG("find dir. [d_name='%s']", direntp->d_name);
+            VLOG(3) << "find dir. d_name=" << direntp->d_name;
             if (NULL != dirs) {
                 dirs->insert(direntp->d_name);
             }
         } else {
-            OLAP_LOG_DEBUG("find file. [d_name='%s']", direntp->d_name);
+            VLOG(3) << "find file. d_name=" << direntp->d_name;
             if (NULL != files) {
                 files->insert(direntp->d_name);
             }

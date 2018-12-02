@@ -118,8 +118,7 @@ private:
     void _obtain_header_rdlock() {
         for (std::list<OLAPTablePtr>::iterator it = _olap_table_arr.begin();
                 it != _olap_table_arr.end(); ++it) {
-            OLAP_LOG_DEBUG("obtain all header locks rd. [table='%s']",
-                           (*it)->full_name().c_str());
+            VLOG(3) << "obtain all header locks rd. tablet=" << (*it)->full_name();
             (*it)->obtain_header_rdlock();
         }
 
@@ -130,8 +129,7 @@ private:
     void _obtain_header_wrlock() {
         for (std::list<OLAPTablePtr>::iterator it = _olap_table_arr.begin();
                 it != _olap_table_arr.end(); ++it) {
-            OLAP_LOG_DEBUG(
-                    "obtain all header locks wr. [table='%s']", (*it)->full_name().c_str());
+            VLOG(3) << "obtain all header locks wr. tablet=" << (*it)->full_name();
             (*it)->obtain_header_wrlock();
         }
 
@@ -143,8 +141,7 @@ private:
         if (_header_locked) {
             for (std::list<OLAPTablePtr>::reverse_iterator it = _olap_table_arr.rbegin();
                     it != _olap_table_arr.rend(); ++it) {
-                OLAP_LOG_DEBUG(
-                        "release all header locks. [table='%s']", (*it)->full_name().c_str());
+                VLOG(3) << "release all header locks. tablet=" << (*it)->full_name();
                 (*it)->release_header_lock();
             }
 

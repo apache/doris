@@ -591,11 +591,9 @@ public:
         _schema_change_status.status = status;
         _schema_change_status.schema_hash = schema_hash;
         _schema_change_status.version = version;
-        OLAP_LOG_DEBUG("set schema change status. [tablet_id=%d], "
-                       "[schema_hash=%d], [status=%d]",
-                       _tablet_id,
-                       _schema_change_status.schema_hash,
-                       _schema_change_status.status);
+        VLOG(3) << "set schema change status. tablet_id=" << _tablet_id
+                << ", schema_hash=" << _schema_change_status.schema_hash
+                << ", status=" << _schema_change_status.status;
     }
 
     void clear_schema_change_status() {

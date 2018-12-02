@@ -86,8 +86,6 @@ OLAPStatus BitFieldWriter::flush() {
 }
 
 void BitFieldWriter::get_position(PositionEntryWriter* index_entry) const {
-    // OLAP_LOG_DEBUG("begin recording position [BitFieldWriter], "
-    //                "recorded position count: %d", index_entry->positions_size());
     if (NULL != _byte_writer) {
         _byte_writer->get_position(index_entry);
     } else {
@@ -99,8 +97,6 @@ void BitFieldWriter::get_position(PositionEntryWriter* index_entry) const {
     }
 
     index_entry->add_position(8 - _bits_left);
-    // OLAP_LOG_DEBUG("end recording position [BitFieldWriter], "
-    //                "recorded position count: %d", index_entry->positions_size());
 }
 
 }  // namespace doris

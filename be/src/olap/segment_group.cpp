@@ -412,7 +412,7 @@ OLAPStatus SegmentGroup::find_short_key(const RowCursor& key,
         }
     }
 
-    OLAP_LOG_DEBUG("[seg='%d', offset='%d']", offset.segment, offset.offset);
+    VLOG(3) << "seg=" << offset.segment << ", offset=" << offset.offset;
     return _index.get_row_block_position(offset, pos);
 }
 
@@ -626,9 +626,8 @@ OLAPStatus SegmentGroup::finalize_segment(uint32_t data_segment_size, int64_t nu
         return res;
     }
 
-    OLAP_LOG_DEBUG("finalize_segment. [file_name='%s' file_length=%d]",
-                   _current_file_handler.file_name().c_str(),
-                   file_length);
+    VLOG(3) << "finalize_segment. file_name=" << _current_file_handler.file_name()
+            << ", file_length=" << file_length;
 
     if ((res = _current_file_handler.close()) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("close file error. [err=%m]");

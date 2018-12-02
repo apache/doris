@@ -52,7 +52,7 @@ AgentStatus Pusher::init() {
     AgentStatus status = DORIS_SUCCESS;
 
     if (_is_init) {
-        OLAP_LOG_DEBUG("has been inited");
+        VLOG(3) << "has been inited";
         return status;
     }
 
@@ -195,10 +195,8 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
             time_t now = time(NULL);
 
             if (_push_req.timeout > 0) {
-                OLAP_LOG_DEBUG(
-                    "check time out. time_out:%ld, now:%d",
-                    _push_req.timeout, now);
-
+                VLOG(3) << "check time out. time_out:" << _push_req.timeout
+                        << ", now:" << now;
                 if (_push_req.timeout < now) {
                     OLAP_LOG_WARNING("push time out");
                     status = DORIS_PUSH_TIME_OUT;
@@ -212,13 +210,10 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
                 _downloader_param.curl_opt_timeout = timeout;
             }
 
-            OLAP_LOG_DEBUG(
-                    "estimate_time_out: %d, download_timeout: %d, curl_opt_timeout: %d",
-                    estimate_time_out,
-                    _push_req.timeout,
-                    _downloader_param.curl_opt_timeout);
-            OLAP_LOG_DEBUG("download file, retry time:%d", i);
-
+            VLOG(3) << "estimate_time_out: " << estimate_time_out
+                    << ", download_timeout: " << estimate_time_out
+                    << ", curl_opt_timeout: " << _downloader_param.curl_opt_timeout
+                    << ", download file, retry time:" << i;
 #ifndef BE_TEST
             _file_downloader = new FileDownloader(_downloader_param);
             _download_status = _download_file();
@@ -233,9 +228,8 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
                 // Check file size
                 boost::filesystem::path local_file_path(_downloader_param.local_file_path);
                 uint64_t local_file_size = boost::filesystem::file_size(local_file_path);
-                OLAP_LOG_DEBUG(
-                    "file_size: %d, local_file_size: %d",
-                    file_size, local_file_size);
+                VLOG(3) << "file_size: " << file_size
+                        << ", local_file_size: " << local_file_size;
 
                 if (file_size != local_file_size) {
                     OLAP_LOG_WARNING(

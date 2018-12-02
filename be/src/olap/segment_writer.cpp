@@ -191,9 +191,9 @@ OLAPStatus SegmentWriter::_make_file_header(ColumnDataHeaderMessage* file_header
             data_length += stream->get_stream_length();
         }
 
-        OLAP_LOG_DEBUG("stream id=%u, type=%d, length=%ld",
-                it->first.unique_column_id(), it->first.kind(),
-                stream->get_stream_length());
+        VLOG(3) << "stream id=" << it->first.unique_column_id()
+                << ", type=" << it->first.kind()
+                << ", length=" << stream->get_stream_length();
     }
 
     file_header->set_index_length(index_length);
@@ -241,10 +241,8 @@ OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
         // 输出没有被掐掉的流
         if (!stream->is_suppressed()) {
             checksum = stream->crc32(checksum);
-            OLAP_LOG_DEBUG("stream id = %u, type = %d",
-                    it->first.unique_column_id(),
-                    it->first.kind());
-
+            VLOG(3) << "stream id=" << it->first.unique_column_id()
+                    << ", type=" << it->first.kind();
             res = stream->write_to_file(
                     &file_handle, _write_mbytes_per_sec);
             if (OLAP_SUCCESS != res) {

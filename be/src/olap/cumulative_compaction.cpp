@@ -171,8 +171,8 @@ OLAPStatus CumulativeCompaction::run() {
 
     _table->release_cumulative_lock();
 
-    OLAP_LOG_TRACE("elapsed time of doing cumulative compaction. [time=%ldus]",
-            watch.get_elapse_time_us());
+    VLOG(10) << "elapsed time of doing cumulative compaction. "
+             << "time=" << watch.get_elapse_time_us();
     return res;
 }
 
@@ -308,8 +308,8 @@ OLAPStatus CumulativeCompaction::_get_delta_versions(Versions* delta_versions) {
     // 因为我们总是保留最新的delta不合并到cumulative文件里，所以此时应该返回错误，不进行cumulative
     if (delta_versions->size() == 1) {
         delta_versions->clear();
-        OLAP_LOG_TRACE("only one delta version. no new delta versions.[cumulative_point=%d]",
-                       _old_cumulative_layer_point);
+        VLOG(10) << "only one delta version. no new delta versions. "
+                 << ", cumulative_point=" << _old_cumulative_layer_point;
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
     }
 
