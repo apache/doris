@@ -120,8 +120,10 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
 
     public void calcScore(double avgClusterUsedCapacityPercent, double avgClusterReplicaNumPerBackend) {
         double usedCapacityPercent = (totalUsedCapacityB / (double) totalCapacityB);
-        double capacityProportion = usedCapacityPercent / avgClusterUsedCapacityPercent;
-        double replicaNumProportion = totalReplicaNum / avgClusterReplicaNumPerBackend;
+        double capacityProportion = avgClusterUsedCapacityPercent <= 0 ? 0.0
+                : usedCapacityPercent / avgClusterUsedCapacityPercent;
+        double replicaNumProportion = avgClusterReplicaNumPerBackend <= 0 ? 0.0
+                : totalReplicaNum / avgClusterReplicaNumPerBackend;
         
         // If this backend's capacity used percent < 50%, set capacityCoefficient to 0.5.
         // Else if capacity used percent > 75%, set capacityCoefficient to 1.

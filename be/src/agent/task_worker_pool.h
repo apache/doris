@@ -124,7 +124,8 @@ private:
             std::vector<std::string>* error_msgs,
             const std::vector<Version>* missing_versions,
             bool* allow_incremental_clone,
-            double* copy_rate);
+            int64_t* copy_size,
+            int64_t* copy_time_ms);
 
     void _alter_table(
             const TAlterTabletReq& create_rollup_request,

@@ -28,7 +28,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.SchedException.Status;
-import org.apache.doris.clone.TabletScheduler.Slot;
+import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.ReplicaPersistInfo;
@@ -59,19 +59,40 @@ import java.util.Map;
 public class TabletInfo implements Comparable<TabletInfo> {
     private static final Logger LOG = LogManager.getLogger(TabletInfo.class);
     
-    // max interval time of a tablet being scheduled
-    private static final long MAX_NOT_BEING_SCHEDULED_INTERVAL_MS = 30 * 60 * 1000L; // 30 min
-    // min interval time of adjusting a tablet's priority
-    private static final long MIN_ADJUST_PRIORITY_INTERVAL_MS = 5 * 60 * 1000L; // 5 min
-    // min clone task timeout
-    private static final long MIN_CLONE_TASK_TIMEOUT_MS = 3 * 60 * 1000L; // 3 min
-    // max clone task timeout
-    private static final long MAX_CLONE_TASK_TIMEOUT_MS = 2 * 60 * 60 * 1000L; // 2 hour
-    // approximate min clone speed (MB/s)
-    private static final long MIN_CLONE_SPEED_MB_PER_SECOND = 5; // 5MB/sec
-    // threshold of times a tablet failed to be scheduled
+    /*
+     * SCHED_FAILED_COUNTER_THRESHOLD:
+     *    threshold of times a tablet failed to be scheduled
+     *    
+     * MIN_ADJUST_PRIORITY_INTERVAL_MS:
+     *    min interval time of adjusting a tablet's priority
+     *    
+     * MAX_NOT_BEING_SCHEDULED_INTERVAL_MS:
+     *    max gap time of a tablet NOT being scheduled.
+     *    
+     * These 3 params is for adjusting priority.
+     * If a tablet being scheduled failed for more than SCHED_FAILED_COUNTER_THRESHOLD times, its priority
+     * will be downgraded. And the interval between adjustment is larger than MIN_ADJUST_PRIORITY_INTERVAL_MS,
+     * to avoid being downgraded too soon.
+     * And if a tablet is not being scheduled longer than MAX_NOT_BEING_SCHEDULED_INTERVAL_MS, its priority
+     * will be upgraded, to avoid starvation.
+     * 
+     */
     private static final int SCHED_FAILED_COUNTER_THRESHOLD = 5;
-    // threshold of times a clone task failed to be processed
+    private static final long MIN_ADJUST_PRIORITY_INTERVAL_MS = 5 * 60 * 1000L; // 5 min
+    private static final long MAX_NOT_BEING_SCHEDULED_INTERVAL_MS = 30 * 60 * 1000L; // 30 min
+
+    /*
+     *  A clone task timeout is between MIN_CLONE_TASK_TIMEOUT_MS and MAX_CLONE_TASK_TIMEOUT_MS,
+     *  estimated by tablet size / MIN_CLONE_SPEED_MB_PER_SECOND.
+     */
+    private static final long MIN_CLONE_TASK_TIMEOUT_MS = 3 * 60 * 1000L; // 3 min
+    private static final long MAX_CLONE_TASK_TIMEOUT_MS = 2 * 60 * 60 * 1000L; // 2 hour
+    private static final long MIN_CLONE_SPEED_MB_PER_SECOND = 5; // 5MB/sec
+
+    /*
+     * If a clone task is failed to run more than RUNNING_FAILED_COUNTER_THRESHOLD, it will be removed
+     * from the tablet scheduler.
+     */
     private static final int RUNNING_FAILED_COUNTER_THRESHOLD = 3;
     
     public enum Priority {
@@ -98,31 +119,38 @@ public class TabletInfo implements Comparable<TabletInfo> {
     }
     
     public enum State {
-        PENDING, RUNNING, FINISHED, CANCELLED, TIMEOUT
+        PENDING, // tablet is not being scheduled
+        RUNNING, // tablet is being scheduled
+        FINISHED, // task is finished
+        CANCELLED, // task is failed
+        TIMEOUT // task is timeout
     }
     
+    /*
+     * origPriority is the origin priority being set when this tablet being added to scheduler.
+     * dynamicPriority will be set during tablet schedule processing, it will not be prior than origin priority.
+     * And dynamic priority is also used in priority queue compare in tablet scheduler.
+     */
     private Priority origPriority;
-    // dynamic priority will be set during tablet schedule processing,
-    // it can not be prior than origin priority.
-    // dynamic priority is also used in priority queue compare in tablet scheduler.
     private Priority dynamicPriority;
     
     // we change the dynamic priority based on how many times it fails to be scheduled
     private int failedSchedCounter = 0;
-    // clone task failed time
+    // clone task failed counter
     private int failedRunningCounter = 0;
     
     // last time this tablet being scheduled
     private long lastSchedTime = 0;
-    // last time adjust priority
+    // last time the dynamic priority being adjusted
     private long lastAdjustPrioTime = 0;
     
-    // last time this tablet info being visited.
-    // This time is used to see when this tablet being visited, for tracing.
-    // It does not same as 'lastSchedTime', which is used for adjusting priority.
+    // last time this tablet being visited.
     // being visited means:
     // 1. being visited in TabletScheduler.schedulePendingTablets()
     // 2. being visited in finishCloneTask()
+    //
+    // This time is used to observer when this tablet being visited, for debug tracing.
+    // It does not same as 'lastSchedTime', which is used for adjusting priority.
     private long lastVisitedTime = -1;
 
     // an approximate timeout of this task, only be set when sending clone task.
@@ -143,7 +171,6 @@ public class TabletInfo implements Comparable<TabletInfo> {
     private long createTime = -1;
     private long finishedTime = -1;
     
-    // components which will be set during processing
     private Tablet tablet = null;
     private long visibleVersion = -1;
     private long visibleVersionHash = -1;
@@ -158,9 +185,10 @@ public class TabletInfo implements Comparable<TabletInfo> {
     
     private CloneTask cloneTask = null;
     
-    // the copy rate (Bytes/Second) of clone task.
-    // Used to gather statistics
-    private double copyRate = 0.0;
+    // statistics gathered from clone task report
+    // the total size of clone files and the total cost time in ms.
+    private long copySize = 0;
+    private long copyTimeMs = 0;
 
     private SystemInfoService infoService;
     
@@ -307,6 +335,34 @@ public class TabletInfo implements Comparable<TabletInfo> {
         return cloneTask;
     }
     
+    public long getCopySize() {
+        return copySize;
+    }
+
+    public long getCopyTimeMs() {
+        return copyTimeMs;
+    }
+
+    public long getSrcBackendId() {
+        if (srcReplica != null) {
+            return srcReplica.getBackendId();
+        } else {
+            return -1;
+        }
+    }
+
+    public long getSrcPathHash() {
+        return srcPathHash;
+    }
+
+    public long getDestBackendId() {
+        return destBackendId;
+    }
+
+    public long getDestPathHash() {
+        return destPathHash;
+    }
+
     // database lock should be held.
     public long getTabletSize() {
         long max = Long.MIN_VALUE;
@@ -329,7 +385,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
     }
     
     // database lock should be held.
-    public void chooseSrcReplica(Map<Long, Slot> backendsWorkingSlots) throws SchedException {
+    public void chooseSrcReplica(Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
         /*
          * get all candidate source replicas
          * 1. source replica should be healthy.
@@ -360,7 +416,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
         
         // choose a replica which slot is available from candidates.
         for (Replica srcReplica : candidates) {
-            Slot slot = backendsWorkingSlots.get(srcReplica.getBackendId());
+            PathSlot slot = backendsWorkingSlots.get(srcReplica.getBackendId());
             if (slot == null) {
                 continue;
             }
@@ -381,7 +437,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
      * But we need to check that we can not choose the same replica as dest replica,
      * because replica info is changing all the time.
      */
-    public void chooseSrcReplicaForVersionIncomplete(Map<Long, Slot> backendsWorkingSlots)
+    public void chooseSrcReplicaForVersionIncomplete(Map<Long, PathSlot> backendsWorkingSlots)
             throws SchedException {
         chooseSrcReplica(backendsWorkingSlots);
         if (srcReplica.getBackendId() == destBackendId) {
@@ -397,7 +453,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
      * 
      * database lock should be held.
      */
-    public void chooseDestReplicaForVersionIncomplete(Map<Long, Slot> backendsWorkingSlots)
+    public void chooseDestReplicaForVersionIncomplete(Map<Long, PathSlot> backendsWorkingSlots)
             throws SchedException {
         Replica chosenReplica = null;
         for (Replica replica : tablet.getReplicas()) {
@@ -425,7 +481,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
         }
         
         // check if the dest replica has available slot
-        Slot slot = backendsWorkingSlots.get(chosenReplica.getBackendId());
+        PathSlot slot = backendsWorkingSlots.get(chosenReplica.getBackendId());
         if (slot == null) {
             throw new SchedException(Status.SCHEDULE_FAILED, "backend of dest replica is missing");
         }
@@ -445,14 +501,14 @@ public class TabletInfo implements Comparable<TabletInfo> {
     public void releaseResource(TabletScheduler tabletScheduler) {
         if (srcReplica != null) {
             Preconditions.checkState(srcPathHash != -1);
-            Slot slot = tabletScheduler.getBackendsWorkingSlots().get(srcReplica.getBackendId());
+            PathSlot slot = tabletScheduler.getBackendsWorkingSlots().get(srcReplica.getBackendId());
             if (slot != null) {
                 slot.freeSlot(srcPathHash);
             }
         }
         
         if (destPathHash != -1) {
-            Slot slot = tabletScheduler.getBackendsWorkingSlots().get(destBackendId);
+            PathSlot slot = tabletScheduler.getBackendsWorkingSlots().get(destBackendId);
             if (slot != null) {
                 slot.freeSlot(destPathHash);
             }
@@ -680,8 +736,12 @@ public class TabletInfo implements Comparable<TabletInfo> {
             db.writeUnlock();
         }
 
-        if (request.isSetCopy_rate()) {
-            this.copyRate = request.getCopy_rate();
+        if (request.isSetCopy_size()) {
+            this.copySize = request.getCopy_size();
+        }
+
+        if (request.isSetCopy_time_ms()) {
+            this.copyTimeMs = request.getCopy_time_ms();
         }
     }
     
@@ -777,7 +837,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
         result.add(TimeUtils.longToTimeString(lastSchedTime));
         result.add(TimeUtils.longToTimeString(lastVisitedTime));
         result.add(TimeUtils.longToTimeString(finishedTime));
-        result.add(String.valueOf(copyRate));
+        result.add(copyTimeMs > 0 ? String.valueOf(copySize / copyTimeMs / 1000.0) : "N/A");
         result.add(String.valueOf(failedSchedCounter));
         result.add(String.valueOf(failedRunningCounter));
         result.add(TimeUtils.longToTimeString(lastAdjustPrioTime));

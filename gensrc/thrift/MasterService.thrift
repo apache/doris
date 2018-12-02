@@ -51,7 +51,8 @@ struct TFinishTaskRequest {
     12: optional list<string> snapshot_files
     13: optional map<Types.TTabletId, list<string>> tablet_files
     14: optional list<Types.TTabletId> downloaded_tablet_ids
-    15: optional double copy_rate
+    15: optional i64 copy_size
+    16: optional i64 copy_time_ms
 }
 
 struct TTablet {

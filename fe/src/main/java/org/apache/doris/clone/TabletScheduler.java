@@ -104,7 +104,7 @@ public class TabletScheduler extends Daemon {
     private Queue<TabletInfo> schedHistory = EvictingQueue.create(1000);
 
     // be id -> #working slots
-    private Map<Long, Slot> backendsWorkingSlots = Maps.newConcurrentMap();
+    private Map<Long, PathSlot> backendsWorkingSlots = Maps.newConcurrentMap();
     // cluster name -> load statistic
     private Map<String, ClusterLoadStatistic> statisticMap = Maps.newConcurrentMap();
     private long lastStatUpdateTime = 0;
@@ -147,7 +147,7 @@ public class TabletScheduler extends Daemon {
         for (Long beId : backendsWorkingSlots.keySet()) {
             if (backends.containsKey(beId)) {
                 List<Long> pathHashes = backends.get(beId).getDisks().values().stream().map(v -> v.getPathHash()).collect(Collectors.toList());
-                backendsWorkingSlots.get(beId).updateSlots(pathHashes);
+                backendsWorkingSlots.get(beId).updatePaths(pathHashes);
             } else {
                 deletedBeIds.add(beId);
             }
@@ -163,7 +163,7 @@ public class TabletScheduler extends Daemon {
         for (Backend be : backends.values()) {
             if (!backendsWorkingSlots.containsKey(be.getId())) {
                 List<Long> pathHashes = be.getDisks().values().stream().map(v -> v.getPathHash()).collect(Collectors.toList());
-                Slot slot = new Slot(pathHashes, Config.schedule_slot_num_per_path);
+                PathSlot slot = new PathSlot(pathHashes, Config.schedule_slot_num_per_path);
                 backendsWorkingSlots.put(be.getId(), slot);
                 LOG.info("add new backend {} with slots num: {}", be.getId(), be.getDisks().size());
             }
@@ -172,7 +172,7 @@ public class TabletScheduler extends Daemon {
         return true;
     }
 
-    public Map<Long, Slot> getBackendsWorkingSlots() {
+    public Map<Long, PathSlot> getBackendsWorkingSlots() {
         return backendsWorkingSlots;
     }
 
@@ -707,7 +707,7 @@ public class TabletScheduler extends Daemon {
                 continue;
             }
 
-            Slot slot = backendsWorkingSlots.get(rootPathLoadStatistic.getBeId());
+            PathSlot slot = backendsWorkingSlots.get(rootPathLoadStatistic.getBeId());
             if (slot == null) {
                 LOG.debug("backend {} does not found when getting slots", rootPathLoadStatistic.getBeId());
                 continue;
@@ -720,7 +720,7 @@ public class TabletScheduler extends Daemon {
 
         // no root path with specified media type is found, get arbitrary one.
         for (RootPathLoadStatistic rootPathLoadStatistic : allFitPaths) {
-            Slot slot = backendsWorkingSlots.get(rootPathLoadStatistic.getBeId());
+            PathSlot slot = backendsWorkingSlots.get(rootPathLoadStatistic.getBeId());
             if (slot == null) {
                 LOG.debug("backend {} does not found when getting slots", rootPathLoadStatistic.getBeId());
                 continue;
@@ -802,8 +802,36 @@ public class TabletScheduler extends Daemon {
 
         Preconditions.checkState(tabletInfo.getState() == TabletInfo.State.FINISHED);
         stat.counterCloneTaskSucceeded.incrementAndGet();
+        gatherStatistics(tabletInfo);
         removeTabletInfo(tabletInfo, TabletInfo.State.FINISHED, "finished");
         return true;
+    }
+
+    /*
+     * Gather the running statistic of the task.
+     * It will be evaluated for future strategy.  
+     * This should only be called when the tablet is down with state FINISHED.
+     */
+    private void gatherStatistics(TabletInfo tabletInfo) {
+        if (tabletInfo.getCopySize() > 0 && tabletInfo.getCopyTimeMs() > 0) {
+            if (tabletInfo.getSrcBackendId() != -1 && tabletInfo.getSrcPathHash() != -1) {
+                PathSlot pathSlot = backendsWorkingSlots.get(tabletInfo.getSrcBackendId());
+                if (pathSlot != null) {
+                    pathSlot.updateStatistic(tabletInfo.getSrcPathHash(), tabletInfo.getCopySize(),
+                            tabletInfo.getCopyTimeMs());
+                }
+            }
+
+            if (tabletInfo.getDestBackendId() != -1 && tabletInfo.getDestPathHash() != -1) {
+                PathSlot pathSlot = backendsWorkingSlots.get(tabletInfo.getDestBackendId());
+                if (pathSlot != null) {
+                    pathSlot.updateStatistic(tabletInfo.getDestPathHash(), tabletInfo.getCopySize(),
+                            tabletInfo.getCopyTimeMs());
+                }
+            }
+
+            // TODO(cmy): update the slot num
+        }
     }
 
     /*
@@ -875,25 +903,26 @@ public class TabletScheduler extends Daemon {
     }
 
     /*
-     * A Slot keeps track of available slot num of a Backend.
+     * PathSlot keeps track of slot num per path of a Backend.
      * Each path on a Backend has several slot.
-     * If a path's slot num because 0, no task should be assigned to this path.
+     * If a path's available slot num because 0, no task should be assigned to this path.
      */
-    public class Slot {
+    public class PathSlot {
         // path hash -> slot num
-        private Map<Long, Integer> pathSlots = Maps.newConcurrentMap();
+        private Map<Long, Slot> pathSlots = Maps.newConcurrentMap();
 
-        public Slot(List<Long> paths, int initSlotNum) {
+        public PathSlot(List<Long> paths, int initSlotNum) {
             for (Long pathHash : paths) {
-                pathSlots.put(pathHash, initSlotNum);
+                pathSlots.put(pathHash, new Slot(initSlotNum));
             }
         }
 
-        public synchronized void updateSlots(List<Long> paths) {
+        // update the path
+        public synchronized void updatePaths(List<Long> paths) {
             // delete non exist path
-            Iterator<Map.Entry<Long, Integer>> iter = pathSlots.entrySet().iterator();
+            Iterator<Map.Entry<Long, Slot>> iter = pathSlots.entrySet().iterator();
             while (iter.hasNext()) {
-                Map.Entry<Long, Integer> entry = iter.next();
+                Map.Entry<Long, Slot> entry = iter.next();
                 if (!paths.contains(entry.getKey())) {
                     iter.remove();
                 }
@@ -902,9 +931,35 @@ public class TabletScheduler extends Daemon {
             // add new path
             for (Long pathHash : paths) {
                 if (!pathSlots.containsKey(pathHash)) {
-                    pathSlots.put(pathHash, Config.schedule_slot_num_per_path);
+                    pathSlots.put(pathHash, new Slot(Config.schedule_slot_num_per_path));
                 }
             }
+        }
+
+        // Update the total slots num of specified paths, increase or decrease
+        public synchronized void updateSlot(List<Long> pathHashs, boolean increase) {
+            for (Long pathHash : pathHashs) {
+                if (pathSlots.containsKey(pathHash)) {
+                    if (increase) {
+                        pathSlots.get(pathHash).total++;
+                    } else {
+                        pathSlots.get(pathHash).total--;
+                    }
+                    pathSlots.get(pathHash).rectify();
+                    LOG.debug("decrease path {} slots num to {}", pathHash, pathSlots.get(pathHash).total);
+                }
+            }
+        }
+
+        /*
+         * Update the statistic of specified path
+         */
+        public synchronized void updateStatistic(long pathHash, long copySize, long copyTimeMs) {
+            if (pathSlots.get(pathHash) == null) {
+                return;
+            }
+            pathSlots.get(pathHash).totalCopySize += copySize;
+            pathSlots.get(pathHash).totalCopyTimeMs += copyTimeMs;
         }
 
         /*
@@ -912,35 +967,44 @@ public class TabletScheduler extends Daemon {
          */
         public synchronized long takeSlot(long pathHash) {
             Preconditions.checkArgument(pathHash != -1);
-            Integer slot = pathSlots.get(pathHash);
-            if (slot == null || slot <= 0) {
+            Slot slot = pathSlots.get(pathHash);
+            if (slot == null) {
                 return -1;
             }
-            
-            pathSlots.put(pathHash, slot - 1);
+            slot.rectify();
+            if (slot.available <= 0) {
+                return -1;
+            }
+            slot.available--;
             return pathHash;
         }
 
         public synchronized void freeSlot(long pathHash) {
-            Integer slot = pathSlots.get(pathHash);
+            Slot slot = pathSlots.get(pathHash);
             if (slot == null) {
                 return;
             }
-            
-            pathSlots.put(pathHash, slot + 1);
+            slot.available++;
+            slot.rectify();
         }
 
         public synchronized int peekSlot(long pathHash) {
-            Integer slot = pathSlots.get(pathHash);
-            return slot == null ? -1 : slot;
+            Slot slot = pathSlots.get(pathHash);
+            if (slot == null) {
+                return -1;
+            }
+            slot.rectify();
+            return slot.available;
         }
 
         public synchronized List<String> getSlotInfo(long beId) {
             List<String> result = Lists.newArrayList();
             pathSlots.entrySet().stream().forEach(t -> {
+                t.getValue().rectify();
                 result.add(String.valueOf(beId));
                 result.add(String.valueOf(t.getKey()));
-                result.add(String.valueOf(t.getValue()));
+                result.add(String.valueOf(t.getValue().available));
+                result.add(String.valueOf(t.getValue().total));
             });
             return result;
         }
@@ -949,9 +1013,31 @@ public class TabletScheduler extends Daemon {
     public List<List<String>> getSlotsInfo() {
         List<List<String>> result = Lists.newArrayList();
         for (long beId : backendsWorkingSlots.keySet()) {
-            Slot slot = backendsWorkingSlots.get(beId);
+            PathSlot slot = backendsWorkingSlots.get(beId);
             result.add(slot.getSlotInfo(beId));
         }
         return result;
+    }
+
+    public class Slot {
+        public int total;
+        public int available;
+
+        public long totalCopySize;
+        public long totalCopyTimeMs;
+
+        public Slot(int total) {
+            this.total = total;
+            this.available = total;
+        }
+
+        public void rectify() {
+            if (total <= 0) {
+                total = 1;
+            }
+            if (available > total) {
+                available = total;
+            }
+        }
     }
 }

@@ -50,6 +50,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/snapshot_loader.h"
 #include "util/doris_metrics.h"
+#include "util/stopwatch.hpp"
 
 using std::deque;
 using std::list;
@@ -1050,7 +1051,8 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                 worker_pool_this->_env->olap_engine()->get_table(
                 clone_req.tablet_id, clone_req.schema_hash);
 
-        double copy_rate = 0.0;
+        int64_t copy_size = 0;
+        int64_t copy_time_ms = 0;
         if (tablet.get() != NULL) {
             LOG(INFO) << "clone tablet exist yet, begin to incremental clone. "
                       << "signature:" << agent_task_req.signature
@@ -1072,7 +1074,8 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                                                    &error_msgs,
                                                    &missing_versions,
                                                    &allow_incremental_clone,
-                                                   &copy_rate);
+                                                   &copy_size,
+                                                   &copy_time_ms);
             if (status == DORIS_SUCCESS) {
                 OLAPStatus olap_status = worker_pool_this->_env->olap_engine()->
                     finish_clone(tablet, local_data_path, clone_req.committed_version, allow_incremental_clone);
@@ -1092,7 +1095,8 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                                                        &src_file_path,
                                                        &error_msgs,
                                                        NULL, NULL,
-                                                       &copy_rate);
+                                                       &copy_size,
+                                                       &copy_time_ms);
                 if (status == DORIS_SUCCESS) {
                     LOG(INFO) << "download successfully when full clone. [table=" << tablet->full_name()
                               << " src_host=" << src_host.host << " src_file_path=" << src_file_path
@@ -1145,7 +1149,8 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                                                        &src_file_path,
                                                        &error_msgs,
                                                        NULL, NULL,
-                                                       &copy_rate);
+                                                       &copy_size,
+                                                       &copy_time_ms);
             }
 
             if (status == DORIS_SUCCESS) {
@@ -1269,7 +1274,8 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
         task_status.__set_error_msgs(error_msgs);
         finish_task_request.__set_task_status(task_status);
 
-        finish_task_request.__set_cpy_rate(copy_rate > 0 ? copy_rate : 0.0);
+        finish_task_request.__set_copy_size(copy_size);
+        finish_task_request.__set_copy_time_ms(copy_time_ms);
 
         worker_pool_this->_finish_task(finish_task_request);
         worker_pool_this->_remove_task_info(agent_task_req.task_type, agent_task_req.signature, "");
@@ -1289,7 +1295,8 @@ AgentStatus TaskWorkerPool::_clone_copy(
         vector<string>* error_msgs,
         const vector<Version>* missing_versions,
         bool* allow_incremental_clone,
-        double* copy_rate) {
+        int64_t* copy_size,
+        int64_t* copy_time_ms) {
     AgentStatus status = DORIS_SUCCESS;
 
     std::string token = _master_info.token;
@@ -1506,18 +1513,18 @@ AgentStatus TaskWorkerPool::_clone_copy(
             }
         } // Clone files from remote backend
 
-        uint64_t total_time_s = watch.elapsed_time() / 1000 / 1000 / 1000;
-        total_time_s = total_time_s > 0 : total_time_s : 0;
-        if (total_time_s == 0) {
-            // too short, rate is meaningless
-            *copy_rate = -1.0;
-        } else {
-            *copy_rate = total_file_size / ((double) total_time_s);
+        uint64_t total_time_ms = watch.elapsed_time() / 1000 / 1000;
+        total_time_ms = total_time_ms > 0 ? total_time_ms : 0;
+        double copy_rate = 0.0;
+        if (total_time_ms > 0) {
+            copy_rate = total_file_size / ((double) total_time_ms) / 1000;
         }
+        *copy_size = (int64_t) total_file_size;
+        *copy_time_ms = (int64_t) total_time_ms;
         LOG(INFO) << "succeed to copy tablet " << signature
                   << ", total file size: " << total_file_size << " B"
-                  << ", cost: " << total_time_ns / 1000 / 1000 / 1000 << " ms"
-                  << ", rate: " << *copy_rate << " B/s";
+                  << ", cost: " << total_time_ms << " ms"
+                  << ", rate: " << copy_rate << " B/s";
 
         // Release snapshot, if failed, ignore it. OLAP engine will drop useless snapshot
         TAgentResult release_snapshot_result;
