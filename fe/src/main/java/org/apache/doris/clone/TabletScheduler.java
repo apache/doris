@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletInfo.Priority;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.persist.ReplicaPersistInfo;
@@ -36,6 +37,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
+import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CloneTask;
 import org.apache.doris.thrift.TFinishTaskRequest;
@@ -77,11 +79,8 @@ import java.util.stream.Collectors;
 public class TabletScheduler extends Daemon {
     private static final Logger LOG = LogManager.getLogger(TabletScheduler.class);
 
-    // this is a init #working slot per path in a backend.
-    private static final int SLOT_NUM_PER_PATH = 1;
-
     // handle at most BATCH_NUM tablets in one loop
-    private static final int BATCH_NUM = 10;
+    private static final int MIN_BATCH_NUM = 10;
 
     // the minimum interval of updating cluster statistics and priority of tablet info
     private static final long STAT_UPDATE_INTERVAL_MS = 60 * 1000; // 1min
@@ -164,7 +163,7 @@ public class TabletScheduler extends Daemon {
         for (Backend be : backends.values()) {
             if (!backendsWorkingSlots.containsKey(be.getId())) {
                 List<Long> pathHashes = be.getDisks().values().stream().map(v -> v.getPathHash()).collect(Collectors.toList());
-                Slot slot = new Slot(pathHashes, SLOT_NUM_PER_PATH);
+                Slot slot = new Slot(pathHashes, Config.schedule_slot_num_per_path);
                 backendsWorkingSlots.put(be.getId(), slot);
                 LOG.info("add new backend {} with slots num: {}", be.getId(), be.getDisks().size());
             }
@@ -323,7 +322,12 @@ public class TabletScheduler extends Daemon {
                     // adjust priority to avoid some higher priority always be the first in pendingTablets
                     stat.counterTabletScheduledFailed.incrementAndGet();
                     dynamicAdjustPrioAndAddBackToPendingTablets(tabletInfo, e.getMessage());
+                } else if (e.getStatus() == Status.FINISHED) {
+                    // schedule redundant tablet will throw this exception
+                    stat.counterTabletScheduledSucceeded.incrementAndGet();
+                    removeTabletInfo(tabletInfo, TabletInfo.State.FINISHED, e.getMessage());
                 } else {
+                    Preconditions.checkState(e.getStatus() == Status.UNRECOVERABLE, e.getStatus());
                     // discard
                     stat.counterTabletScheduledDiscard.incrementAndGet();
                     removeTabletInfo(tabletInfo, TabletInfo.State.CANCELLED, e.getMessage());
@@ -343,6 +347,10 @@ public class TabletScheduler extends Daemon {
             }
             LOG.info("add clone task to agent task queue: {}", task);
         }
+
+        // send task immediately
+        AgentTaskExecutor.submit(batchTask);
+
         long cost = System.currentTimeMillis() - start;
         stat.counterTabletScheduleCostMs.addAndGet(cost);
     }
@@ -514,9 +522,9 @@ public class TabletScheduler extends Daemon {
                 || deleteReplicaWithLowerVersion(tabletInfo)
                 || deleteReplicaNotInCluster(tabletInfo)
                 || deleteReplicaOnHighLoadBackend(tabletInfo)) {
-            // if we delete at least one redundant replica, we still throw a SchedException with status UNRECOVERABLE
+            // if we delete at least one redundant replica, we still throw a SchedException with status FINISHED
             // to remove this tablet from the pendingTablets(consider it as finished)
-            throw new SchedException(Status.UNRECOVERABLE, "redundant replica is deleted");
+            throw new SchedException(Status.FINISHED, "redundant replica is deleted");
         }
         throw new SchedException(Status.SCHEDULE_FAILED, "unable to delete any redundant replicas");
     }
@@ -740,6 +748,7 @@ public class TabletScheduler extends Daemon {
         tabletInfo.setState(state);
         tabletInfo.releaseResource(this);
         tabletInfo.setFinishedTime(System.currentTimeMillis());
+        runningTablets.remove(tabletInfo.getTabletId());
         allTabletIds.remove(tabletInfo.getTabletId());
         schedHistory.add(tabletInfo);
         LOG.info("remove the tablet {}. because: {}", tabletInfo.getTabletId(), reason);
@@ -748,7 +757,7 @@ public class TabletScheduler extends Daemon {
     // get at most BATCH_NUM tablets from queue.
     private synchronized List<TabletInfo> getNextTabletInfoBatch() {
         List<TabletInfo> list = Lists.newArrayList();
-        int count = BATCH_NUM;
+        int count = Math.max(MIN_BATCH_NUM, backendsWorkingSlots.size());
         while (count > 0) {
             TabletInfo tablet = pendingTablets.poll();
             if (tablet == null) {
@@ -778,11 +787,12 @@ public class TabletScheduler extends Daemon {
         } catch (SchedException e) {
             tabletInfo.increaseFailedRunningCounter();
             tabletInfo.setErrMsg(e.getMessage());
-            if (e.getStatus() == Status.SCHEDULE_FAILED) {
+            if (e.getStatus() == Status.RUNNING_FAILED) {
                 stat.counterCloneTaskFailed.incrementAndGet();
                 addToRunningTablets(tabletInfo);
                 return false;
             } else {
+                Preconditions.checkState(e.getStatus() == Status.UNRECOVERABLE, e.getStatus());
                 // unrecoverable
                 stat.counterTabletScheduledDiscard.incrementAndGet();
                 removeTabletInfo(tabletInfo, TabletInfo.State.CANCELLED, e.getMessage());
@@ -892,7 +902,7 @@ public class TabletScheduler extends Daemon {
             // add new path
             for (Long pathHash : paths) {
                 if (!pathSlots.containsKey(pathHash)) {
-                    pathSlots.put(pathHash, SLOT_NUM_PER_PATH);
+                    pathSlots.put(pathHash, Config.schedule_slot_num_per_path);
                 }
             }
         }

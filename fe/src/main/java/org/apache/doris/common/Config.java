@@ -683,6 +683,12 @@ public class Config extends ConfigBase {
     @ConfField public static long tablet_repair_delay_factor_second = 60;
     
     /*
+     * the default slot number per path in tablet scheduler
+     * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
+     */
+    @ConfField public static int schedule_slot_num_per_path = 1;
+    
+    /*
      * set to true to use the TabletScheduler instead of the old CloneChecker
      */
     @ConfField public static boolean use_new_tablet_scheduler = false;

@@ -500,8 +500,8 @@ public class TabletInfo implements Comparable<TabletInfo> {
         // but there is no other way now.
         TBackend tSrcBe = new TBackend(srcBe.getHost(), srcBe.getBePort(), srcBe.getHttpPort());
         cloneTask = new CloneTask(destBackendId, dbId, tblId, partitionId, indexId,
-            tblId, schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
-            visibleVersion, visibleVersionHash);
+                tabletId, schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
+                visibleVersion, visibleVersionHash);
         cloneTask.setPathHash(srcPathHash, destPathHash);
         
         Replica cloneReplica = new Replica(
@@ -542,7 +542,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
             throws SchedException {
         Preconditions.checkState(state == State.RUNNING);
         Preconditions.checkArgument(cloneTask.getTaskVersion() == CloneTask.VERSION_2);
-        lastVisitedTime = System.currentTimeMillis();
+        setLastVisitedTime(System.currentTimeMillis());
         
         // 1. check the tablet status first
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
@@ -590,19 +590,19 @@ public class TabletInfo implements Comparable<TabletInfo> {
             // tablet is unhealthy, go on to check task report.
             // check if clone task success
             if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
-                throw new SchedException(Status.SCHEDULE_FAILED, request.getTask_status().getError_msgs().get(0));
+                throw new SchedException(Status.RUNNING_FAILED, request.getTask_status().getError_msgs().get(0));
             }
             
             if (dbId != cloneTask.getDbId() || tblId != cloneTask.getTableId()
                     || partitionId != cloneTask.getPartitionId() || indexId != cloneTask.getIndexId()
-                    || tabletId != cloneTask.getTableId() || destBackendId != cloneTask.getBackendId()) {
+                    || tabletId != cloneTask.getTabletId() || destBackendId != cloneTask.getBackendId()) {
                 String msg = String.format("clone task does not match the tablet info"
                         + ". clone task %d-%d-%d-%d-%d-%d"
                         + ", tablet info: %d-%d-%d-%d-%d-%d",
                         cloneTask.getDbId(), cloneTask.getTableId(), cloneTask.getPartitionId(),
                         cloneTask.getIndexId(), cloneTask.getTabletId(), cloneTask.getBackendId(),
                         dbId, tblId, partitionId, indexId, tablet.getId(), destBackendId);
-                throw new SchedException(Status.SCHEDULE_FAILED, msg);
+                throw new SchedException(Status.RUNNING_FAILED, msg);
             }
             
             // Here we do not check if the clone version is equal to the partition's visible version.
@@ -619,7 +619,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
                 String msg = String.format("the clone replica's version is stale. %d-%d, task visible version: %d-%d",
                         reportedTablet.getVersion(), reportedTablet.getVersion_hash(),
                         visibleVersion, visibleVersionHash);
-                throw new SchedException(Status.SCHEDULE_FAILED, msg);
+                throw new SchedException(Status.RUNNING_FAILED, msg);
             }
             
             // check if replica exist
@@ -639,7 +639,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
             if (replica.getLastFailedVersion() == reportedTablet.getVersion()
                     && replica.getLastFailedVersionHash() != reportedTablet.getVersion_hash()) {
                 // do not throw exception, cause we want this clone task retry again.
-                throw new SchedException(Status.SCHEDULE_FAILED,
+                throw new SchedException(Status.RUNNING_FAILED,
                         "replica's last failed version equals to report version: "
                                 + replica.getLastFailedTimestamp() + " but hash is different: "
                                 + replica.getLastFailedVersionHash() + " vs. " + reportedTablet.getVersion_hash());
@@ -766,11 +766,11 @@ public class TabletInfo implements Comparable<TabletInfo> {
         result.add(String.valueOf(destPathHash));
         result.add(String.valueOf(taskTimeoutMs));
         result.add(TimeUtils.longToTimeString(createTime));
+        result.add(TimeUtils.longToTimeString(lastSchedTime));
         result.add(TimeUtils.longToTimeString(lastVisitedTime));
         result.add(TimeUtils.longToTimeString(finishedTime));
         result.add(String.valueOf(failedSchedCounter));
         result.add(String.valueOf(failedRunningCounter));
-        result.add(TimeUtils.longToTimeString(lastSchedTime));
         result.add(TimeUtils.longToTimeString(lastAdjustPrioTime));
         result.add(String.valueOf(visibleVersion));
         result.add(String.valueOf(visibleVersionHash));

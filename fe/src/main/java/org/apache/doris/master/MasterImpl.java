@@ -689,7 +689,7 @@ public class MasterImpl {
             Preconditions.checkArgument(finishTabletInfos.size() == 1);
             Catalog.getInstance().getCloneInstance().finishCloneJob(cloneTask, finishTabletInfos.get(0));
 
-        } else if (cloneTask.getTaskVersion() == CloneTask.VERSION_1) {
+        } else if (cloneTask.getTaskVersion() == CloneTask.VERSION_2) {
             Catalog.getCurrentCatalog().getTabletScheduler().finishCloneTask(cloneTask, request);
         }
 
