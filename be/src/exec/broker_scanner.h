@@ -27,6 +27,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/mem_pool.h"
+#include "util/slice.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -121,8 +122,8 @@ private:
 
     std::unique_ptr<TextConverter> _text_converter;
 
-    uint8_t _value_separator;
-    uint8_t _line_delimiter;
+    char _value_separator;
+    char _line_delimiter;
 
     // Reader
     FileReader* _cur_file_reader;

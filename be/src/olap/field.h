@@ -24,12 +24,12 @@
 #include "olap/field_info.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/string_slice.h"
 #include "olap/types.h"
 #include "olap/utils.h"
 #include "runtime/mem_pool.h"
 #include "util/hash_util.hpp"
 #include "util/mem_util.hpp"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -151,8 +151,8 @@ inline int Field::index_cmp(char* left, char* right) const {
 
     int32_t res = 0;
     if (_type == OLAP_FIELD_TYPE_VARCHAR) {
-        StringSlice* l_slice = reinterpret_cast<StringSlice*>(left + 1);
-        StringSlice* r_slice = reinterpret_cast<StringSlice*>(right + 1);
+        Slice* l_slice = reinterpret_cast<Slice*>(left + 1);
+        Slice* r_slice = reinterpret_cast<Slice*>(right + 1);
 
         if (r_slice->size + OLAP_STRING_MAX_BYTES > _index_size) {
             // 如果field的实际长度比short key长，则仅比较前缀，确保相同short key的所有block都被扫描，
@@ -225,7 +225,7 @@ inline void Field::agg_init(char* dest, const char* src) {
     } else {
         bool is_null = *reinterpret_cast<const bool*>(src);
         *reinterpret_cast<bool*>(dest) = is_null;
-        StringSlice* slice = reinterpret_cast<StringSlice*>(dest + 1);
+        Slice* slice = reinterpret_cast<Slice*>(dest + 1);
         size_t hll_ptr = *(size_t*)(slice->data - sizeof(HllContext*));
         HllContext* context = (reinterpret_cast<HllContext*>(hll_ptr));
         HllSetHelper::init_context(context);
@@ -244,7 +244,7 @@ inline void Field::to_index(char* dest, const char* src) {
     if (_type == OLAP_FIELD_TYPE_VARCHAR) {
         // 先清零，再拷贝
         memset(dest + 1, 0, _index_size);
-        const StringSlice* slice = reinterpret_cast<const StringSlice*>(src + 1);
+        const Slice* slice = reinterpret_cast<const Slice*>(src + 1);
         size_t copy_size = slice->size < _index_size - OLAP_STRING_MAX_BYTES ?
                            slice->size : _index_size - OLAP_STRING_MAX_BYTES;
         *reinterpret_cast<StringLengthType*>(dest + 1) = copy_size;
@@ -252,7 +252,7 @@ inline void Field::to_index(char* dest, const char* src) {
     } else if (_type == OLAP_FIELD_TYPE_CHAR) {
         // 先清零，再拷贝
         memset(dest + 1, 0, _index_size);
-        const StringSlice* slice = reinterpret_cast<const StringSlice*>(src + 1);
+        const Slice* slice = reinterpret_cast<const Slice*>(src + 1);
         memory_copy(dest + 1, slice->data, _index_size);
     } else {
         memory_copy(dest + 1, src + 1, size());

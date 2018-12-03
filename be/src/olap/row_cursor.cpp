@@ -60,7 +60,7 @@ OLAPStatus RowCursor::_init(const std::vector<FieldInfo>& tablet_schema,
         if (type == OLAP_FIELD_TYPE_CHAR ||
             type == OLAP_FIELD_TYPE_VARCHAR ||
             type == OLAP_FIELD_TYPE_HLL) {
-            field_buf_lens.push_back(sizeof(StringSlice));
+            field_buf_lens.push_back(sizeof(Slice));
         } else {
             field_buf_lens.push_back(tablet_schema[i].length);
         }
@@ -185,12 +185,12 @@ OLAPStatus RowCursor::init_scan_key(const std::vector<FieldInfo>& tablet_schema,
         fixed_ptr = _fixed_buf + _field_array[cid]->get_offset();
         FieldType type = tablet_schema[cid].type;
         if (type == OLAP_FIELD_TYPE_VARCHAR) {
-            StringSlice* slice = reinterpret_cast<StringSlice*>(fixed_ptr + 1);
+            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
             slice->data = variable_ptr;
             slice->size = scan_keys[cid].length();
             variable_ptr += scan_keys[cid].length();
         } else if (type == OLAP_FIELD_TYPE_CHAR) {
-            StringSlice* slice = reinterpret_cast<StringSlice*>(fixed_ptr + 1);
+            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
             slice->data = variable_ptr;
             slice->size = std::max(scan_keys[cid].length(), (size_t)(tablet_schema[cid].length));
             variable_ptr += slice->size;
@@ -228,17 +228,17 @@ OLAPStatus RowCursor::allocate_memory_for_string_type(
         fixed_ptr = _fixed_buf + _field_array[cid]->get_offset();
         FieldType type = tablet_schema[cid].type;
         if (type == OLAP_FIELD_TYPE_VARCHAR) {
-            StringSlice* slice = reinterpret_cast<StringSlice*>(fixed_ptr + 1);
+            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
             slice->data = variable_ptr;
             slice->size = tablet_schema[cid].length - OLAP_STRING_MAX_BYTES;
             variable_ptr += slice->size;
         } else if (type == OLAP_FIELD_TYPE_CHAR) {
-            StringSlice* slice = reinterpret_cast<StringSlice*>(fixed_ptr + 1);
+            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
             slice->data = variable_ptr;
             slice->size = tablet_schema[cid].length;
             variable_ptr += slice->size;
         } else if (type == OLAP_FIELD_TYPE_HLL) {
-            StringSlice* slice = reinterpret_cast<StringSlice*>(fixed_ptr + 1);
+            Slice* slice = reinterpret_cast<Slice*>(fixed_ptr + 1);
             HllContext* context = nullptr;
             if (mem_pool != nullptr) {
                 char* mem = reinterpret_cast<char*>(mem_pool->allocate(sizeof(HllContext)));

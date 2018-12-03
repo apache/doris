@@ -87,7 +87,7 @@ SegmentGroup::SegmentGroup(OLAPTable* table, Version version, VersionHash versio
         _short_key_length += tablet_schema[i].index_length + 1;// 1 for null byte
         if (tablet_schema[i].type == OLAP_FIELD_TYPE_CHAR ||
             tablet_schema[i].type == OLAP_FIELD_TYPE_VARCHAR) {
-            _new_short_key_length += sizeof(StringSlice) + 1;
+            _new_short_key_length += sizeof(Slice) + 1;
         } else {
             _new_short_key_length += tablet_schema[i].index_length + 1;
         }
@@ -121,7 +121,7 @@ SegmentGroup::SegmentGroup(OLAPTable* table, bool delete_flag,
         _short_key_length += tablet_schema[i].index_length + 1;// 1 for null byte
         if (tablet_schema[i].type == OLAP_FIELD_TYPE_CHAR ||
             tablet_schema[i].type == OLAP_FIELD_TYPE_VARCHAR) {
-            _new_short_key_length += sizeof(StringSlice) + 1;
+            _new_short_key_length += sizeof(Slice) + 1;
         } else {
             _new_short_key_length += tablet_schema[i].index_length + 1;
         }
