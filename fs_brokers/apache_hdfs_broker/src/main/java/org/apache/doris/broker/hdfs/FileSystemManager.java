@@ -17,40 +17,31 @@
 
 package org.apache.doris.broker.hdfs;
 
+import com.google.common.base.Strings;
 import org.apache.doris.thrift.TBrokerFD;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
-
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FSDataInputStream;
-import org.apache.hadoop.fs.FSDataOutputStream;
-import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
+import org.apache.hadoop.fs.*;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.util.StringUtils;
 import org.apache.log4j.Logger;
-import com.google.common.base.Strings;
 
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.Base64;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.security.MessageDigest;
 
 public class FileSystemManager {
 
@@ -90,6 +81,25 @@ public class FileSystemManager {
         readBufferSize = BrokerConfig.hdfs_read_buffer_size_kb << 10;
         writeBufferSize = BrokerConfig.hdfs_write_buffer_size_kb << 10;
         handleManagementPool.schedule(new FileSystemExpirationChecker(), 0, TimeUnit.SECONDS);
+    }
+
+    private static String preparePrincipal(String originalPrincipal) throws UnknownHostException {
+        String finalPrincipal = originalPrincipal;
+        String[] components = originalPrincipal.split("[/@]");
+        if (components != null && components.length == 3) {
+            if (components[1].equals("_HOST")) {
+                // Convert hostname(fqdn) to lower case according to SecurityUtil.getServerPrincipal
+                finalPrincipal = components[0] + "/" +
+                        StringUtils.toLowerCase(InetAddress.getLocalHost().getCanonicalHostName())
+                        + "@" + components[2];
+            } else if (components[1].equals("_IP")) {
+                finalPrincipal = components[0] + "/" +
+                        InetAddress.getByName(InetAddress.getLocalHost().getCanonicalHostName()).getHostAddress()
+                        + "@" + components[2];
+            }
+        }
+
+        return finalPrincipal;
     }
     
     /**
@@ -196,7 +206,7 @@ public class FileSystemManager {
                     conf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
                             AUTHENTICATION_KERBEROS);
 
-                    String principal = properties.get(KERBEROS_PRINCIPAL);
+                    String principal = preparePrincipal(properties.get(KERBEROS_PRINCIPAL));
                     String keytab = "";
                     if (properties.containsKey(KERBEROS_KEYTAB)) {
                         keytab = properties.get(KERBEROS_KEYTAB);
