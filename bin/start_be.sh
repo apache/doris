@@ -55,7 +55,7 @@ rm -f ${UDF_RUNTIME_DIR}/*
 pidfile=$PID_DIR/be.pid
 
 if [ -f $pidfile ]; then
-    if [ -d /proc/$(cat $pidfile) ]; then
+    if kill -0 $(cat $pidfile) > /dev/null 2>&1; then
         echo "Backend running as process `cat $pidfile`. Stop it first."
         exit 1
     else
