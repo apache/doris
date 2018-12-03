@@ -54,7 +54,7 @@ void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
             if (field_info.type == OLAP_FIELD_TYPE_CHAR ||
                 field_info.type == OLAP_FIELD_TYPE_VARCHAR ||
                 field_info.type == OLAP_FIELD_TYPE_HLL) {
-                field_size = sizeof(StringSlice);
+                field_size = sizeof(Slice);
             } else {
                 field_size = field_info.length;
             }
@@ -98,7 +98,7 @@ void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
             if (field_info.type == OLAP_FIELD_TYPE_CHAR ||
                 field_info.type == OLAP_FIELD_TYPE_VARCHAR ||
                 field_info.type == OLAP_FIELD_TYPE_HLL) {
-                field_size = sizeof(StringSlice);
+                field_size = sizeof(Slice);
             } else {
                 field_size = field_info.length;
             }

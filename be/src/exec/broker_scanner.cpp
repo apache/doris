@@ -37,38 +37,6 @@
 
 namespace doris {
 
-class Slice {
-public:
-    Slice(const uint8_t* data, int size) : _data(data), _size(size) { }
-    Slice(const std::string& str) : _data((const uint8_t*)str.data()), _size(str.size()) { }
-
-    ~Slice() {
-        // No need to delete _begin, because it only record the index in a std::string.
-        // The c-string will be released along with the std::string object.
-    }
-
-    int size() const {
-        return _size;
-    }
-
-    const uint8_t* data() const {
-        return _data;
-    }
-
-    const uint8_t* end() const {
-        return _data + _size;
-    }
-private:
-    friend std::ostream& operator<<(std::ostream& os, const Slice& slice);
-    const uint8_t* _data;
-    int _size;
-};
-
-std::ostream& operator<<(std::ostream& os, const Slice& slice) {
-    os <<  std::string((const char*)slice._data, slice._size);
-    return os;
-}
-
 BrokerScanner::BrokerScanner(RuntimeState* state,
                              RuntimeProfile* profile,
                              const TBrokerScanRangeParams& params, 
@@ -81,8 +49,8 @@ BrokerScanner::BrokerScanner(RuntimeState* state,
         _ranges(ranges),
         _broker_addresses(broker_addresses),
         // _splittable(params.splittable),
-        _value_separator(params.column_separator),
-        _line_delimiter(params.line_delimiter),
+        _value_separator(static_cast<char>(params.column_separator)),
+        _line_delimiter(static_cast<char>(params.line_delimiter)),
         _cur_file_reader(nullptr),
         _cur_line_reader(nullptr),
         _cur_decompressor(nullptr),
@@ -397,9 +365,9 @@ void BrokerScanner::close() {
 void BrokerScanner::split_line(
         const Slice& line, std::vector<Slice>* values) {
     // line-begin char and line-end char are considered to be 'delimeter'
-    const uint8_t* value = line.data();
-    const uint8_t* ptr = line.data();
-    for (size_t i = 0; i < line.size(); ++i, ++ptr) {
+    const char* value = line.data;
+    const char* ptr = line.data;
+    for (size_t i = 0; i < line.size; ++i, ++ptr) {
         if (*ptr == _value_separator) {
             values->emplace_back(value, ptr - value);
             value = ptr + 1;
@@ -411,12 +379,12 @@ void BrokerScanner::split_line(
 void BrokerScanner::fill_fix_length_string(
         const Slice& value, MemPool* pool,
         char** new_value_p, const int new_value_length) {
-    if (new_value_length != 0 && value.size() < new_value_length) {
+    if (new_value_length != 0 && value.size < new_value_length) {
         *new_value_p = reinterpret_cast<char*>(pool->allocate(new_value_length));
 
         // 'value' is guaranteed not to be nullptr
-        memcpy(*new_value_p, value.data(), value.size());
-        for (int i = value.size(); i < new_value_length; ++i) {
+        memcpy(*new_value_p, value.data, value.size);
+        for (int i = value.size; i < new_value_length; ++i) {
             (*new_value_p)[i] = '\0';
         }
     }
@@ -430,13 +398,13 @@ bool BrokerScanner::check_decimal_input(
         const Slice& slice,
         int precision, int scale,
         std::stringstream* error_msg) {
-    const uint8_t* value = slice.data();
-    int value_length = slice.size();
+    const char* value = slice.data;
+    size_t value_length = slice.size;
 
     if (value_length > (precision + 2)) {
         (*error_msg) << "the length of decimal value is overflow. "
                 << "precision in schema: (" << precision << ", " << scale << "); "
-                << "value: [" << slice << "]; "
+                << "value: [" << slice.to_string() << "]; "
                 << "str actual length: " << value_length << ";";
         return false;
     }
@@ -479,21 +447,21 @@ bool BrokerScanner::check_decimal_input(
     if (value_int_len > (precision - scale)) {
         (*error_msg) << "the int part length longer than schema precision ["
                 << precision << "]. "
-                << "value [" << slice << "]. ";
+                << "value [" << slice.to_string() << "]. ";
         return false;
     } else if (value_frac_len > scale) {
         (*error_msg) << "the frac part length longer than schema scale ["
                 << scale << "]. "
-                << "value [" << slice << "]. ";
+                << "value [" << slice.to_string() << "]. ";
         return false;
     }
     return true;
 }
 
 bool is_null(const Slice& slice) {
-    return slice.size() == 2 && 
-        slice.data()[0] == '\\' && 
-        slice.data()[1] == 'N';
+    return slice.size == 2 && 
+        slice.data[0] == '\\' && 
+        slice.data[1] == 'N';
 }
 
 // Writes a slot in _tuple from an value containing text data.
@@ -503,29 +471,29 @@ bool BrokerScanner::write_slot(
         Tuple* tuple, MemPool* tuple_pool,
         std::stringstream* error_msg) {
 
-    if (value.size() == 0 && !slot->type().is_string_type()) {
+    if (value.size == 0 && !slot->type().is_string_type()) {
         (*error_msg) << "the length of input should not be 0. "
                 << "column_name: " << column_name << "; "
                 << "type: " << slot->type();
         return false;
     }
 
-    char* value_to_convert = (char*)value.data();
-    int value_to_convert_length = value.size();
+    char* value_to_convert = value.data;
+    size_t value_to_convert_length = value.size;
 
     // Fill all the spaces if it is 'TYPE_CHAR' type
     if (slot->type().is_string_type()) {
         int char_len = column_type.len;
-        if (value.size() > char_len) {
+        if (value.size > char_len) {
             (*error_msg) << "the length of input is too long than schema. "
                     << "column_name: " << column_name << "; "
-                    << "input_str: [" << value << "] "
+                    << "input_str: [" << value.to_string() << "] "
                     << "type: " << slot->type() << "; "
                     << "schema length: " << char_len << "; "
-                    << "actual length: " << value.size() << "; ";
+                    << "actual length: " << value.size << "; ";
             return false;
         }
-        if (slot->type().type == TYPE_CHAR && value.size() < char_len) {
+        if (slot->type().type == TYPE_CHAR && value.size < char_len) {
             if (!is_null(value)) {
                 fill_fix_length_string(
                         value, tuple_pool,
@@ -547,7 +515,7 @@ bool BrokerScanner::write_slot(
         (*error_msg) << "convert csv string to "
             << slot->type() << " failed. "
             << "column_name: " << column_name << "; "
-            << "input_str: [" << value << "]; ";
+            << "input_str: [" << value.to_string() << "]; ";
         return false;
     }
 
@@ -576,7 +544,7 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
         error_msg << "actual column number is less than schema column number. "
             << "actual number: " << values.size() << " sep: " << _value_separator << ", "
             << "schema number: " << _src_slot_descs.size() << "; ";
-        _state->append_error_msg_to_file(std::string((const char*)line.data(), line.size()),
+        _state->append_error_msg_to_file(std::string(line.data, line.size),
                                          error_msg.str());
         _counter->num_rows_filtered++;
         return false;
@@ -585,7 +553,7 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
         error_msg << "actual column number is more than schema column number. "
             << "actual number: " << values.size() << " sep: " << _value_separator << ", "
             << "schema number: " << _src_slot_descs.size() << "; ";
-        _state->append_error_msg_to_file(std::string((const char*)line.data(), line.size()),
+        _state->append_error_msg_to_file(std::string(line.data, line.size),
                                          error_msg.str());
         _counter->num_rows_filtered++;
         return false;
@@ -601,8 +569,8 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
         _src_tuple->set_not_null(slot_desc->null_indicator_offset());
         void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
         StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        str_slot->ptr = (char*)value.data();
-        str_slot->len = value.size();
+        str_slot->ptr = value.data;
+        str_slot->len = value.size;
     }
 
     return true;
@@ -624,7 +592,7 @@ bool BrokerScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPoo
                 std::stringstream error_msg;
                 error_msg << "column(" << slot_desc->col_name() << ") value is null";
                 _state->append_error_msg_to_file(
-                    std::string((const char*)line.data(), line.size()), error_msg.str());
+                    std::string(line.data, line.size), error_msg.str());
                 _counter->num_rows_filtered++;
                 return false;
             }

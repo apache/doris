@@ -106,7 +106,7 @@ OLAPStatus StringColumnDirectReader::init(
         return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
     }
 
-    _values = reinterpret_cast<StringSlice*>(mem_pool->allocate(size * sizeof(StringSlice)));
+    _values = reinterpret_cast<Slice*>(mem_pool->allocate(size * sizeof(Slice)));
 
     ReadOnlyFileStream* length_stream = extract_stream(_column_unique_id,
                                         StreamInfoMessage::LENGTH,
@@ -436,7 +436,7 @@ OLAPStatus StringColumnDictionaryReader::init(
     }
     */
 
-    _values = reinterpret_cast<StringSlice*>(mem_pool->allocate(size * sizeof(StringSlice)));
+    _values = reinterpret_cast<Slice*>(mem_pool->allocate(size * sizeof(Slice)));
     int64_t read_buffer_size = 1024;
     char* _read_buffer = new(std::nothrow) char[read_buffer_size];
 

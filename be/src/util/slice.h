@@ -31,35 +31,44 @@ namespace doris {
 
 /// @brief A wrapper around externally allocated data.
 ///
-/// StringSlice is a simple structure containing a pointer into some external
-/// storage and a size. The user of a StringSlice must ensure that the slice
+/// Slice is a simple structure containing a pointer into some external
+/// storage and a size. The user of a Slice must ensure that the slice
 /// is not used after the corresponding external storage has been
 /// deallocated.
 ///
-/// Multiple threads can invoke const methods on a StringSlice without
+/// Multiple threads can invoke const methods on a Slice without
 /// external synchronization, but if any of the threads may call a
-/// non-const method, all threads accessing the same StringSlice must use
+/// non-const method, all threads accessing the same Slice must use
 /// external synchronization.
-struct StringSlice {
+struct Slice {
 public:
     char* data;
     size_t size;
     // Intentionally copyable
 
     /// Create an empty slice.
-    StringSlice() : data(const_cast<char*>("")), size(0) { }
+    Slice() : data(const_cast<char*>("")), size(0) { }
 
 
     /// Create a slice that refers to a @c char byte array.
-    StringSlice(const char* d, size_t n) :
+    Slice(const char* d, size_t n) :
         data(const_cast<char*>(d)), size(n) { }
+    
+    // Create a slice that refers to a @c uint8_t byte array.
+    //
+    // @param [in] d
+    //   The input array.
+    // @param [in] n
+    //   Number of bytes in the array.
+    Slice(const uint8_t* s, size_t n) :
+       data(const_cast<char*>(reinterpret_cast<const char*>(s))), size(n) { }
 
     /// Create a slice that refers to the contents of the given string.
-    StringSlice(const std::string& s) : // NOLINT(runtime/explicit)
+    Slice(const std::string& s) : // NOLINT(runtime/explicit)
         data(const_cast<char*>(s.data())), size(s.size()) { }
 
     /// Create a slice that refers to a C-string s[0,strlen(s)-1].
-    StringSlice(const char* s) : // NOLINT(runtime/explicit)
+    Slice(const char* s) : // NOLINT(runtime/explicit)
         data(const_cast<char*>(s)), size(strlen(s)) { }
 
     /*
@@ -121,24 +130,24 @@ public:
     std::string to_string() const { return std::string(data, size); }
 
     /// Do a three-way comparison of the slice's data.
-    int compare(const StringSlice& b) const;
+    int compare(const Slice& b) const;
 
     /// Check whether the slice starts with the given prefix.
-    bool starts_with(const StringSlice& x) const {
+    bool starts_with(const Slice& x) const {
         return ((size >= x.size) &&
                 (mem_equal(data, x.data, x.size)));
     }
 
     /// @brief Comparator struct, useful for ordered collections (like STL maps).
     struct Comparator {
-        /// Compare two slices using StringSlice::compare()
+        /// Compare two slices using Slice::compare()
         ///
         /// @param [in] a
-        ///   The slice to call StringSlice::compare() at.
+        ///   The slice to call Slice::compare() at.
         /// @param [in] b
-        ///   The slice to use as a parameter for StringSlice::compare().
-        /// @return @c true iff @c a is less than @c b by StringSlice::compare().
-        bool operator()(const StringSlice& a, const StringSlice& b) const {
+        ///   The slice to use as a parameter for Slice::compare().
+        /// @return @c true iff @c a is less than @c b by Slice::compare().
+        bool operator()(const Slice& a, const Slice& b) const {
             return a.compare(b) < 0;
         }
     };
@@ -156,7 +165,7 @@ public:
         }
     }
 
-    friend bool operator==(const StringSlice& x, const StringSlice& y);
+    friend bool operator==(const Slice& x, const Slice& y);
 
     static bool mem_equal(const void* a, const void* b, size_t n) {
         return memcmp(a, b, n) == 0;
@@ -169,17 +178,17 @@ public:
 };
 
 /// Check whether two slices are identical.
-inline bool operator==(const StringSlice& x, const StringSlice& y) {
+inline bool operator==(const Slice& x, const Slice& y) {
     return ((x.size == y.size) &&
-            (StringSlice::mem_equal(x.data, y.data, x.size)));
+            (Slice::mem_equal(x.data, y.data, x.size)));
 }
 
 /// Check whether two slices are not identical.
-inline bool operator!=(const StringSlice& x, const StringSlice& y) {
+inline bool operator!=(const Slice& x, const Slice& y) {
     return !(x == y);
 }
 
-inline int StringSlice::compare(const StringSlice& b) const {
+inline int Slice::compare(const Slice& b) const {
     const int min_len = (size < b.size) ? size : b.size;
     int r = mem_compare(data, b.data, min_len);
     if (r == 0) {
@@ -189,11 +198,11 @@ inline int StringSlice::compare(const StringSlice& b) const {
     return r;
 }
 
-/// @brief STL map whose keys are StringSlices.
+/// @brief STL map whose keys are Slices.
 ///
 /// An example of usage:
 /// @code
-///   typedef StringSliceMap<int>::type MySliceMap;
+///   typedef SliceMap<int>::type MySliceMap;
 ///
 ///   MySliceMap my_map;
 ///   my_map.insert(MySliceMap::value_type(a, 1));
@@ -205,9 +214,9 @@ inline int StringSlice::compare(const StringSlice& b) const {
 ///   }
 /// @endcode
 template <typename T>
-struct StringSliceMap {
+struct SliceMap {
     /// A handy typedef for the slice map with appropriate comparison operator.
-    typedef std::map<StringSlice, T, StringSlice::Comparator> type;
+    typedef std::map<Slice, T, Slice::Comparator> type;
 };
 
 }  // namespace doris

@@ -266,7 +266,7 @@ OLAPStatus ColumnWriter::write(RowCursor* row_cursor) {
                 _field_info.type == OLAP_FIELD_TYPE_VARCHAR ||
                 _field_info.type == OLAP_FIELD_TYPE_HLL)
             {
-                StringSlice* slice = reinterpret_cast<StringSlice*>(buf);
+                Slice* slice = reinterpret_cast<Slice*>(buf);
                 _bf->add_bytes(slice->data, slice->size);
             } else {
                 _bf->add_bytes(buf, field->size());

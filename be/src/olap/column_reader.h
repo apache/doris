@@ -123,7 +123,7 @@ public:
 private:
     bool _eof;
     uint32_t _column_unique_id;
-    StringSlice* _values;
+    Slice* _values;
     ReadOnlyFileStream* _data_stream;
     RunLengthIntegerReader* _length_reader;
 };
@@ -158,7 +158,7 @@ private:
     bool _eof;
     uint32_t _dictionary_size;
     uint32_t _column_unique_id;
-    StringSlice* _values;
+    Slice* _values;
     char* _read_buffer;
     //uint64_t _dictionary_size;
     //uint64_t* _offset_dictionary;   // 用来查找响应数据的数字对应的offset
@@ -335,27 +335,27 @@ public:
             }
             case OLAP_FIELD_TYPE_CHAR: {
                 _values =
-                    reinterpret_cast<void*>(mem_pool->allocate(size * sizeof(StringSlice)));
+                    reinterpret_cast<void*>(mem_pool->allocate(size * sizeof(Slice)));
                 int32_t length = _length;
                 char* string_buffer = reinterpret_cast<char*>(mem_pool->allocate(size * length));
                 memset(string_buffer, 0, size * length);
                 for (int i = 0; i < size; ++i) {
                     memory_copy(string_buffer, _default_value.c_str(), _default_value.length());
-                    ((StringSlice*)_values)[i].size = length;
-                    ((StringSlice*)_values)[i].data = string_buffer;
+                    ((Slice*)_values)[i].size = length;
+                    ((Slice*)_values)[i].data = string_buffer;
                     string_buffer += length;
                 }
                 break;
             }
             case OLAP_FIELD_TYPE_VARCHAR: {
                 _values =
-                    reinterpret_cast<void*>(mem_pool->allocate(size * sizeof(StringSlice)));
+                    reinterpret_cast<void*>(mem_pool->allocate(size * sizeof(Slice)));
                 int32_t length = _default_value.length();
                 char* string_buffer = reinterpret_cast<char*>(mem_pool->allocate(size * length));
                 for (int i = 0; i < size; ++i) {
                     memory_copy(string_buffer, _default_value.c_str(), length);
-                    ((StringSlice*)_values)[i].size = length;
-                    ((StringSlice*)_values)[i].data = string_buffer;
+                    ((Slice*)_values)[i].size = length;
+                    ((Slice*)_values)[i].data = string_buffer;
                     string_buffer += length;
                 }
                 break;
