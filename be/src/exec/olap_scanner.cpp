@@ -361,7 +361,7 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         size_t len = field->size();
         switch (slot_desc->type().type) {
         case TYPE_CHAR: {
-            StringSlice* slice = reinterpret_cast<StringSlice*>(ptr);
+            Slice* slice = reinterpret_cast<Slice*>(ptr);
             StringValue *slot = tuple->get_string_slot(slot_desc->tuple_offset());
             slot->ptr = slice->data;
             slot->len = strnlen(slot->ptr, slice->size);
@@ -369,7 +369,7 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
         }
         case TYPE_VARCHAR:
         case TYPE_HLL: {
-            StringSlice* slice = reinterpret_cast<StringSlice*>(ptr);
+            Slice* slice = reinterpret_cast<Slice*>(ptr);
             StringValue *slot = tuple->get_string_slot(slot_desc->tuple_offset());
             slot->ptr = slice->data;
             slot->len = slice->size;

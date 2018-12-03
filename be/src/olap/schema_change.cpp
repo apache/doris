@@ -289,7 +289,7 @@ bool RowBlockChanger::change_row_block(
 
                         write_helper.set_not_null(i);
                         int p = ref_block.tablet_schema()[ref_column].length - 1;
-                        StringSlice* slice = reinterpret_cast<StringSlice*>(field_to_read->get_ptr(read_helper.get_buf()));
+                        Slice* slice = reinterpret_cast<Slice*>(field_to_read->get_ptr(read_helper.get_buf()));
                         char* buf = slice->data;
                         while (p >= 0 && buf[p] == '\0') {
                             p--;

@@ -438,7 +438,7 @@ public:
             bool is_null = field->is_null(cursor->get_buf());
             if (!is_null) {
                 char* buf = field->get_ptr(cursor->get_buf());
-                StringSlice* slice = reinterpret_cast<StringSlice*>(buf);
+                Slice* slice = reinterpret_cast<Slice*>(buf);
                 res = write(slice->data, slice->size);
                 if (res != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to write varchar, res=" << res;
@@ -521,7 +521,7 @@ public:
 
             if (!is_null) {
                 //const char* str = reinterpret_cast<const char*>(buf);
-                StringSlice* slice = reinterpret_cast<StringSlice*>(buf);
+                Slice* slice = reinterpret_cast<Slice*>(buf);
                 res = VarStringColumnWriter::write(slice->data, slice->size);
                 if (res != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to write fix-length string, res=" << res;

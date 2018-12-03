@@ -71,7 +71,7 @@ void MemTable::insert(Tuple* tuple) {
         switch (type.type) {
             case TYPE_CHAR: {
                 const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
-                StringSlice* dest = (StringSlice*)(_tuple_buf + offset);
+                Slice* dest = (Slice*)(_tuple_buf + offset);
                 dest->size = (*_field_infos)[i].length;
                 dest->data = _arena.Allocate(dest->size);
                 memcpy(dest->data, src->ptr, src->len);
@@ -80,7 +80,7 @@ void MemTable::insert(Tuple* tuple) {
             }
             case TYPE_VARCHAR: {
                 const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
-                StringSlice* dest = (StringSlice*)(_tuple_buf + offset);
+                Slice* dest = (Slice*)(_tuple_buf + offset);
                 dest->size = src->len;
                 dest->data = _arena.Allocate(dest->size);
                 memcpy(dest->data, src->ptr, dest->size);
@@ -88,7 +88,7 @@ void MemTable::insert(Tuple* tuple) {
             }
             case TYPE_HLL: {
                 const StringValue* src = tuple->get_string_slot(slot->tuple_offset());
-                StringSlice* dest = (StringSlice*)(_tuple_buf + offset);
+                Slice* dest = (Slice*)(_tuple_buf + offset);
                 dest->size = src->len;
                 bool exist = _skip_list->Contains(_tuple_buf);
                 if (exist) {

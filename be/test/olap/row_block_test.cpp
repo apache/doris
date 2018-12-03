@@ -163,7 +163,7 @@ TEST_F(TestRowBlock, write_and_read) {
         {
             char buf[10];
             memset(buf, 'a' + i, 10);
-            StringSlice val(buf, 10);
+            Slice val(buf, 10);
             row.set_not_null(1);
             row.set_field_content(1, (const char*)&val, block.mem_pool());
         }
@@ -171,7 +171,7 @@ TEST_F(TestRowBlock, write_and_read) {
         {
             char buf[10];
             memset(buf, '0' + i, 10);
-            StringSlice val(buf, 10);
+            Slice val(buf, 10);
             row.set_not_null(2);
             row.set_field_content(2, (const char*)&val, block.mem_pool());
         }
@@ -203,7 +203,7 @@ TEST_F(TestRowBlock, write_and_read) {
             }
             {
                 ASSERT_FALSE(row.is_null(1));
-                StringSlice* slice = (StringSlice*)row.get_field_content_ptr(1);
+                Slice* slice = (Slice*)row.get_field_content_ptr(1);
                 char buf[10];
                 memset(buf, 'a' + i, 10);
                 ASSERT_EQ(10, slice->size);
@@ -211,7 +211,7 @@ TEST_F(TestRowBlock, write_and_read) {
             }
             {
                 ASSERT_FALSE(row.is_null(2));
-                StringSlice* slice = (StringSlice*)row.get_field_content_ptr(2);
+                Slice* slice = (Slice*)row.get_field_content_ptr(2);
                 char buf[20];
                 memset(buf, '0' + i, 10);
                 ASSERT_EQ(10, slice->size);
@@ -279,7 +279,7 @@ TEST_F(TestRowBlock, write_and_read_without_nullbyte) {
         {
             char buf[10];
             memset(buf, 'a' + i, 10);
-            StringSlice val(buf, 10);
+            Slice val(buf, 10);
             row.set_not_null(1);
             row.set_field_content(1, (const char*)&val, block.mem_pool());
         }
@@ -287,7 +287,7 @@ TEST_F(TestRowBlock, write_and_read_without_nullbyte) {
         {
             char buf[10];
             memset(buf, '0' + i, 10);
-            StringSlice val(buf, 10);
+            Slice val(buf, 10);
             row.set_not_null(2);
             row.set_field_content(2, (const char*)&val, block.mem_pool());
         }
@@ -319,7 +319,7 @@ TEST_F(TestRowBlock, write_and_read_without_nullbyte) {
             }
             {
                 ASSERT_FALSE(row.is_null(1));
-                StringSlice* slice = (StringSlice*)row.get_field_content_ptr(1);
+                Slice* slice = (Slice*)row.get_field_content_ptr(1);
                 char buf[10];
                 memset(buf, 'a' + i, 10);
                 ASSERT_EQ(10, slice->size);
@@ -327,7 +327,7 @@ TEST_F(TestRowBlock, write_and_read_without_nullbyte) {
             }
             {
                 ASSERT_FALSE(row.is_null(2));
-                StringSlice* slice = (StringSlice*)row.get_field_content_ptr(2);
+                Slice* slice = (Slice*)row.get_field_content_ptr(2);
                 char buf[20];
                 memset(buf, '0' + i, 10);
                 ASSERT_EQ(10, slice->size);
@@ -394,14 +394,14 @@ TEST_F(TestRowBlock, compress_failed) {
         {
             char buf[10];
             memset(buf, 'a' + i, 10);
-            StringSlice val(buf, 10);
+            Slice val(buf, 10);
             row.set_field_content(1, (const char*)&val, block.mem_pool());
         }
         // varchar
         {
             char buf[10];
             memset(buf, '0' + i, 10);
-            StringSlice val(buf, 10);
+            Slice val(buf, 10);
             row.set_field_content(2, (const char*)&val, block.mem_pool());
         }
     }
@@ -471,14 +471,14 @@ TEST_F(TestRowBlock, decompress_failed) {
         {
             char buf[10];
             memset(buf, 'a' + i, 10);
-            StringSlice val(buf, 10);
+            Slice val(buf, 10);
             row.set_field_content(1, (const char*)&val, block.mem_pool());
         }
         // varchar
         {
             char buf[10];
             memset(buf, '0' + i, 10);
-            StringSlice val(buf, 10);
+            Slice val(buf, 10);
             row.set_field_content(2, (const char*)&val, block.mem_pool());
         }
     }
@@ -572,7 +572,7 @@ TEST_F(TestRowBlock, find_row) {
         {
             char buf[10];
             memset(buf, 'a' + i, 10);
-            StringSlice val(buf, 10);
+            Slice val(buf, 10);
             row.set_not_null(1);
             row.set_field_content(1, (const char*)&val, block.mem_pool());
         }
@@ -580,7 +580,7 @@ TEST_F(TestRowBlock, find_row) {
         {
             char buf[10];
             memset(buf, '0' + i, 10);
-            StringSlice val(buf, 10);
+            Slice val(buf, 10);
             row.set_not_null(2);
             row.set_field_content(2, (const char*)&val, block.mem_pool());
         }
@@ -602,7 +602,7 @@ TEST_F(TestRowBlock, find_row) {
             {
                 char buf[10];
                 memset(buf, 'a' + i, 10);
-                StringSlice val(buf, 10);
+                Slice val(buf, 10);
                 find_row.set_not_null(1);
                 find_row.set_field_content(1, (const char*)&val, block.mem_pool());
             }
@@ -610,7 +610,7 @@ TEST_F(TestRowBlock, find_row) {
             {
                 char buf[10];
                 memset(buf, '0' + i, 10);
-                StringSlice val(buf, 10);
+                Slice val(buf, 10);
                 find_row.set_not_null(2);
                 find_row.set_field_content(2, (const char*)&val, block.mem_pool());
             }
@@ -633,14 +633,14 @@ TEST_F(TestRowBlock, find_row) {
             {
                 char buf[10];
                 memset(buf, 'c', 9);
-                StringSlice val(buf, 9);
+                Slice val(buf, 9);
                 find_row.set_field_content(1, (const char*)&val, block.mem_pool());
             }
             // varchar
             {
                 char buf[10];
                 memset(buf, '0', 10);
-                StringSlice val(buf, 10);
+                Slice val(buf, 10);
                 find_row.set_field_content(2, (const char*)&val, block.mem_pool());
             }
             uint32_t row_index;
@@ -658,14 +658,14 @@ TEST_F(TestRowBlock, find_row) {
             {
                 char buf[10];
                 memset(buf, 'c', 9);
-                StringSlice val(buf, 9);
+                Slice val(buf, 9);
                 find_row.set_field_content(1, (const char*)&val, block.mem_pool());
             }
             // varchar
             {
                 char buf[10];
                 memset(buf, '0', 10);
-                StringSlice val(buf, 10);
+                Slice val(buf, 10);
                 find_row.set_field_content(2, (const char*)&val, block.mem_pool());
             }
             uint32_t row_index;

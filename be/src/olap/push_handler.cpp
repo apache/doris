@@ -1060,7 +1060,7 @@ OLAPStatus BinaryReader::next(RowCursor* row, MemPool* mem_pool) {
         if (schema[i].type == OLAP_FIELD_TYPE_CHAR
                 || schema[i].type == OLAP_FIELD_TYPE_VARCHAR
                 || schema[i].type == OLAP_FIELD_TYPE_HLL) {
-            StringSlice slice(_row_buf + offset, field_size);
+            Slice slice(_row_buf + offset, field_size);
             row->set_field_content(i, reinterpret_cast<char*>(&slice), mem_pool);
         } else {
             row->set_field_content(i, _row_buf + offset, mem_pool);
@@ -1183,7 +1183,7 @@ OLAPStatus LzoBinaryReader::next(RowCursor* row, MemPool* mem_pool) {
         if (schema[i].type == OLAP_FIELD_TYPE_CHAR
                 || schema[i].type == OLAP_FIELD_TYPE_VARCHAR
                 || schema[i].type == OLAP_FIELD_TYPE_HLL) {
-            StringSlice slice(_row_buf + _next_row_start + offset, field_size);
+            Slice slice(_row_buf + _next_row_start + offset, field_size);
             row->set_field_content(i, reinterpret_cast<char*>(&slice), mem_pool);
         } else {
             row->set_field_content(i, _row_buf + _next_row_start + offset, mem_pool);

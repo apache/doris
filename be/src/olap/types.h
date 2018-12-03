@@ -28,10 +28,10 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/field_info.h"
-#include "olap/string_slice.h"
 #include "runtime/mem_pool.h"
 #include "util/hash_util.hpp"
 #include "util/mem_util.hpp"
+#include "util/slice.h"
 #include "util/types.h"
 
 namespace doris {
@@ -708,18 +708,18 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME> {
 
 template<>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> {
-    typedef StringSlice CppType;
+    typedef Slice CppType;
     static const char* name() {
         return "char";
     }
     static int equal(const void* left, const void* right) {
-        const StringSlice* l_slice = reinterpret_cast<const StringSlice*>(left);
-        const StringSlice* r_slice = reinterpret_cast<const StringSlice*>(right);
+        const Slice* l_slice = reinterpret_cast<const Slice*>(left);
+        const Slice* r_slice = reinterpret_cast<const Slice*>(right);
         return *l_slice == *r_slice;
     }
     static int cmp(const void* left, const void* right) {
-        const StringSlice* l_slice = reinterpret_cast<const StringSlice*>(left);
-        const StringSlice* r_slice = reinterpret_cast<const StringSlice*>(right);
+        const Slice* l_slice = reinterpret_cast<const Slice*>(left);
+        const Slice* r_slice = reinterpret_cast<const Slice*>(right);
         return l_slice->compare(*r_slice);
     }
     static OLAPStatus from_string(char* buf, const std::string& scan_key) {
@@ -730,7 +730,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> {
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
 
-        StringSlice* slice = reinterpret_cast<StringSlice*>(buf);
+        Slice* slice = reinterpret_cast<Slice*>(buf);
         memory_copy(slice->data, scan_key.c_str(), value_len);
         if (slice->size < value_len) {
             /*
@@ -743,34 +743,34 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> {
         return OLAP_SUCCESS;
     }
     static std::string to_string(char* src) {
-        StringSlice* slice = reinterpret_cast<StringSlice*>(src);
+        Slice* slice = reinterpret_cast<Slice*>(src);
         return slice->to_string();
     }
     static void copy_with_pool(char* dest, const char* src, MemPool* mem_pool) {
-        StringSlice* l_slice = reinterpret_cast<StringSlice*>(dest);
-        const StringSlice* r_slice = reinterpret_cast<const StringSlice*>(src);
+        Slice* l_slice = reinterpret_cast<Slice*>(dest);
+        const Slice* r_slice = reinterpret_cast<const Slice*>(src);
         l_slice->data = reinterpret_cast<char*>(mem_pool->allocate(r_slice->size));
         memory_copy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
     static void copy_without_pool(char* dest, const char* src) {
-        StringSlice* l_slice = reinterpret_cast<StringSlice*>(dest);
-        const StringSlice* r_slice = reinterpret_cast<const StringSlice*>(src);
+        Slice* l_slice = reinterpret_cast<Slice*>(dest);
+        const Slice* r_slice = reinterpret_cast<const Slice*>(src);
         memory_copy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
     static void set_to_max(char* buf) {
         // this function is used by scan key,
         // the size may be greater than length in schema.
-        StringSlice* slice = reinterpret_cast<StringSlice*>(buf);
+        Slice* slice = reinterpret_cast<Slice*>(buf);
         memset(slice->data, 0xff, slice->size);
     }
     static void set_to_min(char* buf) {
-        StringSlice* slice = reinterpret_cast<StringSlice*>(buf);
+        Slice* slice = reinterpret_cast<Slice*>(buf);
         memset(slice->data, 0, slice->size);
     }
     static bool is_min(char* buf) {
-        StringSlice* slice = reinterpret_cast<StringSlice*>(buf);
+        Slice* slice = reinterpret_cast<Slice*>(buf);
         size_t i = 0;
         while (i < slice->size) {
             if (slice->data[i] != '\0') {
@@ -781,25 +781,25 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> {
         return true;
     }
     static uint32_t hash_code(char* data, uint32_t seed) {
-        StringSlice* slice = reinterpret_cast<StringSlice*>(data);
+        Slice* slice = reinterpret_cast<Slice*>(data);
         return HashUtil::hash(slice->data, slice->size, seed);
     }
 };
 
 template<>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {
-    typedef StringSlice CppType;
+    typedef Slice CppType;
     static const char* name() {
         return "varchar";
     }
     static int equal(const void* left, const void* right) {
-        const StringSlice* l_slice = reinterpret_cast<const StringSlice*>(left);
-        const StringSlice* r_slice = reinterpret_cast<const StringSlice*>(right);
+        const Slice* l_slice = reinterpret_cast<const Slice*>(left);
+        const Slice* r_slice = reinterpret_cast<const Slice*>(right);
         return *l_slice == *r_slice;
     }
     static int cmp(const void* left, const void* right) {
-        const StringSlice* l_slice = reinterpret_cast<const StringSlice*>(left);
-        const StringSlice* r_slice = reinterpret_cast<const StringSlice*>(right);
+        const Slice* l_slice = reinterpret_cast<const Slice*>(left);
+        const Slice* r_slice = reinterpret_cast<const Slice*>(right);
         return l_slice->compare(*r_slice);
     }
     static OLAPStatus from_string(char* buf, const std::string& scan_key) {
@@ -810,44 +810,44 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
 
-        StringSlice* slice = reinterpret_cast<StringSlice*>(buf);
+        Slice* slice = reinterpret_cast<Slice*>(buf);
         memory_copy(slice->data, scan_key.c_str(), value_len);
         slice->size = value_len;
         return OLAP_SUCCESS;
     }
     static std::string to_string(char* src) {
-        StringSlice* slice = reinterpret_cast<StringSlice*>(src);
+        Slice* slice = reinterpret_cast<Slice*>(src);
         return slice->to_string();
     }
     static void copy_with_pool(char* dest, const char* src, MemPool* mem_pool) {
-        StringSlice* l_slice = reinterpret_cast<StringSlice*>(dest);
-        const StringSlice* r_slice = reinterpret_cast<const StringSlice*>(src);
+        Slice* l_slice = reinterpret_cast<Slice*>(dest);
+        const Slice* r_slice = reinterpret_cast<const Slice*>(src);
 
         l_slice->data = reinterpret_cast<char*>(mem_pool->allocate(r_slice->size));
         memory_copy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
     static void copy_without_pool(char* dest, const char* src) {
-        StringSlice* l_slice = reinterpret_cast<StringSlice*>(dest);
-        const StringSlice* r_slice = reinterpret_cast<const StringSlice*>(src);
+        Slice* l_slice = reinterpret_cast<Slice*>(dest);
+        const Slice* r_slice = reinterpret_cast<const Slice*>(src);
         memory_copy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
     static void set_to_max(char* buf) {
-        StringSlice* slice = reinterpret_cast<StringSlice*>(buf);
+        Slice* slice = reinterpret_cast<Slice*>(buf);
         slice->size = 1;
         memset(slice->data, 0xFF, 1);
     }
     static void set_to_min(char* buf) {
-        StringSlice* slice = reinterpret_cast<StringSlice*>(buf);
+        Slice* slice = reinterpret_cast<Slice*>(buf);
         slice->size = 0;
     }
     static bool is_min(char* buf) {
-        StringSlice* slice = reinterpret_cast<StringSlice*>(buf);
+        Slice* slice = reinterpret_cast<Slice*>(buf);
         return (slice->size == 0);
     }
     static uint32_t hash_code(char* data, uint32_t seed) {
-        StringSlice* slice = reinterpret_cast<StringSlice*>(data);
+        Slice* slice = reinterpret_cast<Slice*>(data);
         return HashUtil::hash(slice->data, slice->size, seed);
     }
 };
