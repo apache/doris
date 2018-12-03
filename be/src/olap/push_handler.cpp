@@ -337,8 +337,9 @@ OLAPStatus PushHandler::process_realtime_push(
 
     // only when fe sends schema_change true, should consider to push related table
     if (_request.is_schema_changing) {
-        OLAP_LOG_DEBUG("push req specify schema changing is true. [table=%s transaction_id=%ld]",
-                       olap_table->full_name().c_str(), request.transaction_id);
+        VLOG(3) << "push req specify schema changing is true. "
+                << "tablet=" << olap_table->full_name()
+                << ", transaction_id=" << request.transaction_id;
         TTabletId related_tablet_id;
         TSchemaHash related_schema_hash;
 
@@ -539,8 +540,7 @@ OLAPStatus PushHandler::_convert(
     uint32_t  num_rows = 0;
 
     do {
-        OLAP_LOG_DEBUG("start to convert delta file.");
-
+        VLOG(3) << "start to convert delta file.";
         std::vector<FieldInfo> tablet_schema = curr_olap_table->tablet_schema();
 
         //curr_olap_table->set_tablet_schema();
@@ -582,7 +582,7 @@ OLAPStatus PushHandler::_convert(
         }
 
         // 2. New SegmentGroup of curr_olap_table for current push
-        OLAP_LOG_DEBUG("init SegmentGroup.");
+        VLOG(3) << "init SegmentGroup.";
 
         if (_request.__isset.transaction_id) {
             // create pending data dir
@@ -616,9 +616,8 @@ OLAPStatus PushHandler::_convert(
         curr_olap_indices->push_back(delta_segment_group);
 
         // 3. New Writer to write data into SegmentGroup
-        OLAP_LOG_DEBUG("init writer. [table='%s' block_row_size=%lu]",
-                       curr_olap_table->full_name().c_str(),
-                       curr_olap_table->num_rows_per_row_block());
+        VLOG(3) << "init writer. tablet=" << curr_olap_table->full_name()
+                << ", block_row_size=" << curr_olap_table->num_rows_per_row_block();
 
         if (NULL == (writer = ColumnDataWriter::create(curr_olap_table, delta_segment_group, true))) {
             OLAP_LOG_WARNING("fail to create writer. [table='%s']",
@@ -636,8 +635,7 @@ OLAPStatus PushHandler::_convert(
         // 5. Read data from raw file and write into SegmentGroup of curr_olap_table
         if (_request.__isset.http_file_path) {
             // Convert from raw to delta
-            OLAP_LOG_DEBUG("start to convert row file to delta.");
-
+            VLOG(3) << "start to convert row file to delta.";
             while (!reader->eof()) {
                 if (OLAP_SUCCESS != (res = writer->attached_by(&row))) {
                     OLAP_LOG_WARNING(
@@ -671,8 +669,7 @@ OLAPStatus PushHandler::_convert(
             break;
         }
 
-        OLAP_LOG_DEBUG("load the index.");
-
+        VLOG(3) << "load the index.";
         if (OLAP_SUCCESS != (res = delta_segment_group->load())) {
             OLAP_LOG_WARNING("fail to load index. [res=%d table='%s' version=%ld]",
                              res, curr_olap_table->full_name().c_str(), _request.version);
@@ -682,7 +679,7 @@ OLAPStatus PushHandler::_convert(
         _write_rows += delta_segment_group->num_rows();
 
         // 7. Convert data for schema change tables
-        OLAP_LOG_TRACE("load to related tables of schema_change if possible. ");
+        VLOG(10) << "load to related tables of schema_change if possible.";
         if (NULL != new_olap_table.get()) {
             // create related tablet's pending data dir
             string dir_path = new_olap_table->construct_pending_data_dir_path();
@@ -712,9 +709,8 @@ OLAPStatus PushHandler::_convert(
     SAFE_DELETE(reader);
     SAFE_DELETE(writer);
     OLAP_LOG_NOTICE_PUSH("processed_rows", "%d", num_rows);
-    OLAP_LOG_TRACE("convert delta file end. [table='%s' res=%d]",
-                   curr_olap_table->full_name().c_str(), res);
-
+    VLOG(10) << "convert delta file end. res=" << res
+             << ", tablet=" << curr_olap_table->full_name();
     return res;
 }
 
@@ -809,10 +805,8 @@ OLAPStatus PushHandler::_get_versions_reverted(
         return OLAP_ERR_PUSH_VERSION_INCORRECT;
     }
 
-    OLAP_LOG_DEBUG("latest deltas was founded. [table='%s' version=%d-%d]",
-                   olap_table->full_name().c_str(),
-                   latest_delta->start_version(), latest_delta->end_version());
-
+    VLOG(3) << "latest deltas was founded. tablet=" << olap_table->full_name()
+            << ", version=" << latest_delta->start_version() << "-" << latest_delta->end_version();
     // Remove the cumulative delta that end_version == request.version()
     if (_request.version == latest_delta->start_version()) {
         Versions all_versions;
@@ -821,8 +815,8 @@ OLAPStatus PushHandler::_get_versions_reverted(
         for (Versions::const_iterator v = all_versions.begin(); v != all_versions.end(); ++v) {
             if (v->second == _request.version) {
                 unused_versions->push_back(*v);
-                OLAP_LOG_DEBUG("Add unused version. [table='%s' version=%d-%d]",
-                               olap_table->full_name().c_str(), v->first, v->second);
+                VLOG(3) << "Add unused version. tablet=" << olap_table->full_name()
+                        << "version=" << v->first << "-" << v->second;
             }
         }
 

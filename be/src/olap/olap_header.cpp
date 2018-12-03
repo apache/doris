@@ -710,10 +710,9 @@ OLAPStatus OLAPHeader::select_versions_to_span(const Version& target_version,
                                 << (*span_versions)[span_versions->size() - 1].second << ' ';
     }
 
-    OLAP_LOG_TRACE("calculated shortest path. [version='%d-%d' path='%s']",
-                   target_version.first,
-                   target_version.second,
-                   shortest_path_for_debug.str().c_str());
+    VLOG(10) << "calculated shortest path. "
+             << "version=" << target_version.first << "-" << target_version.second
+             << "path=" << shortest_path_for_debug.str();
 
     return OLAP_SUCCESS;
 }
@@ -860,7 +859,7 @@ static OLAPStatus construct_version_graph(
         vector<Vertex>* version_graph,
         unordered_map<int, int>* vertex_helper_map) {
     if (versions_in_header.size() == 0) {
-        OLAP_LOG_DEBUG("there is no version in the header.");
+        VLOG(3) << "there is no version in the header.";
         return OLAP_SUCCESS;
     }
 
@@ -872,9 +871,9 @@ static OLAPStatus construct_version_graph(
     for (int i = 0; i < versions_in_header.size(); ++i) {
         vertex_values.push_back(versions_in_header.Get(i).start_version());
         vertex_values.push_back(versions_in_header.Get(i).end_version() + 1);
-        OLAP_LOG_DEBUG("added two vertex_values. [version='%d-%d']",
-                       versions_in_header.Get(i).start_version(),
-                       versions_in_header.Get(i).end_version() + 1);
+        VLOG(3) << "added two vertex_values. "
+                << "version=" << versions_in_header.Get(i).start_version()
+                << "-" << versions_in_header.Get(i).end_version() + 1;
     }
 
     sort(vertex_values.begin(), vertex_values.end());
@@ -1019,10 +1018,9 @@ static OLAPStatus delete_version_from_graph(
 
     if (num_isolated_vertex > 1 + static_cast<int>(RATIO_OF_ISOLATED_VERTEX
                                                    * version_graph->size())) {
-        OLAP_LOG_DEBUG("the number of isolated vertexes reaches specified ratio,"
-                       "reconstruct version graph. [num_isolated_vertex=%d num_vertex=%lu]",
-                       num_isolated_vertex,
-                       version_graph->size());
+        VLOG(3) << "the number of isolated vertexes reaches specified ratio,"
+                << "reconstruct version graph. num_isolated_vertex=" << num_isolated_vertex
+                << ", num_vertex=" << version_graph->size();
 
         // Release memory of version graph.
         for (vector<Vertex>::iterator it = version_graph->begin();
@@ -1055,7 +1053,7 @@ static OLAPStatus add_vertex_to_graph(int vertex_value,
 
     // Vertex with vertex_value already exists.
     if (vertex_helper_map->find(vertex_value) != vertex_helper_map->end()) {
-        OLAP_LOG_DEBUG("vertex with vertex value already exists. [value=%d]", vertex_value);
+        VLOG(3) << "vertex with vertex value already exists. value=" << vertex_value;
         return OLAP_SUCCESS;
     }
 

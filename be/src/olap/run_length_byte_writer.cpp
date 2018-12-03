@@ -138,12 +138,8 @@ OLAPStatus RunLengthByteWriter::flush() {
 }
 
 void RunLengthByteWriter::get_position(PositionEntryWriter* index_entry) const {
-    // OLAP_LOG_DEBUG("begin recording position [RunLengthByteWriter], "
-    //                "recorded position count: %d", index_entry->positions_size());
     _output->get_position(index_entry);
     index_entry->add_position(_num_literals);
-    // OLAP_LOG_DEBUG("end recording position [RunLengthByteWriter], "
-    //                "recorded position count: %d", index_entry->positions_size());
 }
 
 }  // namespace doris
