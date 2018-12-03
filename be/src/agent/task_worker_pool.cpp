@@ -813,7 +813,7 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
         }
 
         if (status == DORIS_SUCCESS) {
-            OLAP_LOG_DEBUG("push ok.signature: %ld", agent_task_req.signature);
+            VLOG(3) << "push ok.signature: " << agent_task_req.signature;
             error_msgs.push_back("push success");
 
             ++_s_report_version;

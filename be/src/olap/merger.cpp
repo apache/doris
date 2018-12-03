@@ -93,7 +93,7 @@ OLAPStatus Merger::merge(const vector<ColumnData*>& olap_data_arr,
         // Read one row into row_cursor
         OLAPStatus res = reader.next_row_with_aggregation(&row_cursor, &eof);
         if (OLAP_SUCCESS == res && eof) {
-            OLAP_LOG_DEBUG("reader read to the end.");
+            VLOG(3) << "reader read to the end.";
             break;
         } else if (OLAP_SUCCESS != res) {
             OLAP_LOG_WARNING("reader read failed.");

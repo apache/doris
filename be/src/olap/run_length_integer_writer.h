@@ -114,7 +114,7 @@ public:
 
     void print_position_debug_info() {
         _output->print_position_debug_info();
-        OLAP_LOG_TRACE("_num_literals: %lu", _num_literals);
+        VLOG(10) << "_num_literals=" << _num_literals;
     }
 
 private:

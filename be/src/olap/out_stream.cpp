@@ -295,21 +295,13 @@ OLAPStatus OutStream::write(const char* buffer, uint64_t length) {
 }
 
 void OutStream::get_position(PositionEntryWriter* index_entry) const {
-    //OLAP_LOG_DEBUG("begin recording position [OutStream], "
-    //               "recorded position count: %d", index_entry->positions_size());
-    //OLAP_LOG_DEBUG("add _spilled_bytes: %lu", _spilled_bytes);
     index_entry->add_position(_spilled_bytes);
 
     if (NULL != _current) {
         index_entry->add_position(_current->position() - sizeof(StreamHead));
-        //OLAP_LOG_DEBUG("add current: %lu", _current->position() - sizeof(StreamHead));
     } else {
         index_entry->add_position(0);
-        //OLAP_LOG_DEBUG("add current: 0");
     }
-
-    //OLAP_LOG_DEBUG("end recording position [OutStream], "
-    //               "recorded position count: %d", index_entry->positions_size());
 }
 
 uint64_t OutStream::get_stream_length() const {
@@ -357,7 +349,7 @@ OLAPStatus OutStream::write_to_file(FileHandler* file_handle,
 
     for (std::vector<StorageByteBuffer*>::const_iterator it = _output_buffers.begin();
             it != _output_buffers.end(); ++it) {
-        OLAP_LOG_DEBUG("write stream begin: %lu", file_handle->tell());
+        VLOG(3) << "write stream begin:" << file_handle->tell();
 
         res = file_handle->write((*it)->array(), (*it)->limit());
         if (OLAP_SUCCESS != res) {
@@ -365,7 +357,7 @@ OLAPStatus OutStream::write_to_file(FileHandler* file_handle,
             return res;
         }
 
-        OLAP_LOG_DEBUG("write stream end: %lu", file_handle->tell());
+        VLOG(3) << "write stream end:" << file_handle->tell();
 
         total_stream_len += (*it)->limit();
         if (write_mbytes_per_sec > 0) {
@@ -373,8 +365,8 @@ OLAPStatus OutStream::write_to_file(FileHandler* file_handle,
             int64_t sleep_time =
                     total_stream_len / write_mbytes_per_sec - delta_time_us;
             if (sleep_time > 0) {
-                OLAP_LOG_DEBUG("sleep to limit merge speed. [time=%lu bytes=%lu]",
-                        sleep_time, total_stream_len);
+                VLOG(3) << "sleep to limit merge speed. time=" << sleep_time
+                        << ", bytes=" << total_stream_len;
                 usleep(sleep_time);
             }
         }

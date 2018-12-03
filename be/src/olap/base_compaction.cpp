@@ -101,7 +101,7 @@ OLAPStatus BaseCompaction::run() {
         return res;
     }
 
-    OLAP_LOG_TRACE("new_base_version_hash", "%ld", new_base_version_hash);
+    VLOG(10) << "new_base_version_hash" << new_base_version_hash;
 
     // 2. 获取生成新base需要的data sources
     vector<ColumnData*> base_data_sources;
@@ -377,9 +377,8 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     // 4. 如果merge成功，则将新base文件对应的olap index载入
     _new_olap_indices.push_back(new_base);
 
-    OLAP_LOG_TRACE("merge new base success, start load index. [table='%s' version=%d]",
-                   _table->full_name().c_str(),
-                   _new_base_version.second);
+    VLOG(10) << "merge new base success, start load index. tablet=" << _table->full_name()
+             << ", version=" << _new_base_version.second;
 
     res = new_base->load();
     if (res != OLAP_SUCCESS) {
@@ -515,7 +514,7 @@ bool BaseCompaction::_validate_need_merged_versions(
         return false;
     }
 
-    OLAP_LOG_TRACE("valid need merged version");
+    VLOG(10) << "valid need merged version";
     return true;
 }
 
