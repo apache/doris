@@ -431,7 +431,7 @@ bool Cond::eval(const BloomFilter& bf) const {
     case OP_EQ: {
         bool existed = false;
         if (operand_field->is_string_type()) {
-            StringSlice* slice = (StringSlice*)(operand_field->ptr());
+            Slice* slice = (Slice*)(operand_field->ptr());
             existed = bf.test_bytes(slice->data, slice->size);
         } else {
             existed = bf.test_bytes(operand_field->ptr(), operand_field->size());
@@ -443,7 +443,7 @@ bool Cond::eval(const BloomFilter& bf) const {
         for (; it != operand_set.end(); ++it) {
             bool existed = false;
             if ((*it)->is_string_type()) {
-                StringSlice* slice = (StringSlice*)((*it)->ptr());
+                Slice* slice = (Slice*)((*it)->ptr());
                 existed = bf.test_bytes(slice->data, slice->size);
             } else {
                 existed = bf.test_bytes((*it)->ptr(), (*it)->size());

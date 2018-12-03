@@ -39,7 +39,7 @@ NewStatus IOError(const std::string& context, int err) {
     return NewStatus::IOError(context, ErrnoToString(err), err);
 }
 
-NewStatus::NewStatus(Code code, const StringSlice& msg, const StringSlice& msg2, int32_t posix_code)
+NewStatus::NewStatus(Code code, const Slice& msg, const Slice& msg2, int32_t posix_code)
         : _code(code), _posix_code(posix_code) {
     DCHECK(code != kOk);
     const uint32_t len1 = msg.size;

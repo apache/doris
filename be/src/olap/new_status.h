@@ -6,7 +6,7 @@
 #define DORIS_BE_SRC_OLAP_STATUS_H
 
 #include <string>
-#include "olap/string_slice.h"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -30,51 +30,51 @@ public:
     static NewStatus OK() { return NewStatus(); }
 
     // Return error status of an appropriate type.
-    static NewStatus NotFound(const StringSlice& msg, const StringSlice& msg2 = StringSlice(),
+    static NewStatus NotFound(const Slice& msg, const Slice& msg2 = Slice(),
                            int32_t posix_code = -1) {
         return NewStatus(kNotFound, msg, msg2, posix_code);
     }
-    static NewStatus Corruption(const StringSlice& msg, const StringSlice& msg2 = StringSlice(),
+    static NewStatus Corruption(const Slice& msg, const Slice& msg2 = Slice(),
                              int32_t posix_code = -1) {
         return NewStatus(kCorruption, msg, msg2, posix_code);
     }
-    static NewStatus NotSupported(const StringSlice& msg, const StringSlice& msg2 = StringSlice(),
+    static NewStatus NotSupported(const Slice& msg, const Slice& msg2 = Slice(),
                                int32_t posix_code = -1) {
         return NewStatus(kNotSupported, msg, msg2, posix_code);
     }
-    static NewStatus InvalidArgument(const StringSlice& msg, const StringSlice& msg2 = StringSlice(),
+    static NewStatus InvalidArgument(const Slice& msg, const Slice& msg2 = Slice(),
                                   int32_t posix_code = -1) {
         return NewStatus(kInvalidArgument, msg, msg2, posix_code);
     }
-    static NewStatus AlreadyExist(const StringSlice& msg, const StringSlice& msg2 = StringSlice(),
+    static NewStatus AlreadyExist(const Slice& msg, const Slice& msg2 = Slice(),
                                   int32_t posix_code = -1) {
         return NewStatus(kAlreadyExist, msg, msg2, posix_code);
     }
-    static NewStatus NoSpace(const StringSlice& msg, const StringSlice& msg2 = StringSlice(),
+    static NewStatus NoSpace(const Slice& msg, const Slice& msg2 = Slice(),
                           int32_t posix_code = -1) {
         return NewStatus(kNoSpace, msg, msg2, posix_code);
     }
-    static NewStatus EndOfFile(const StringSlice& msg, const StringSlice& msg2 = StringSlice(),
+    static NewStatus EndOfFile(const Slice& msg, const Slice& msg2 = Slice(),
                             int32_t posix_code = -1) {
         return NewStatus(kEndOfFile, msg, msg2, posix_code);
     }
-    static NewStatus DiskFailure(const StringSlice& msg, const StringSlice& msg2 = StringSlice(),
+    static NewStatus DiskFailure(const Slice& msg, const Slice& msg2 = Slice(),
                               int32_t posix_code = -1) {
         return NewStatus(kDiskFailure, msg, msg2, posix_code);
     }
-    static NewStatus IOError(const StringSlice& msg, const StringSlice& msg2 = StringSlice(),
+    static NewStatus IOError(const Slice& msg, const Slice& msg2 = Slice(),
                           int32_t posix_code = -1) {
         return NewStatus(kIOError, msg, msg2, posix_code);
     }
-    static NewStatus TimedOut(const StringSlice& msg, const StringSlice& msg2 = StringSlice(),
+    static NewStatus TimedOut(const Slice& msg, const Slice& msg2 = Slice(),
                            int32_t posix_code = -1) {
         return NewStatus(kTimedOut, msg, msg2, posix_code);
     }
-    static NewStatus MemoryLimitExceeded(const StringSlice& msg, const StringSlice& msg2 = StringSlice(),
+    static NewStatus MemoryLimitExceeded(const Slice& msg, const Slice& msg2 = Slice(),
                                       int32_t posix_code = -1) {
         return NewStatus(kMemoryLimitExceeded, msg, msg2, posix_code);
     }
-    static NewStatus DeadLock(const StringSlice& msg, const StringSlice& msg2 = StringSlice(),
+    static NewStatus DeadLock(const Slice& msg, const Slice& msg2 = Slice(),
                            int32_t posix_code = -1) {
         return NewStatus(kDeadLock, msg, msg2, posix_code);
     }
@@ -159,7 +159,7 @@ private:
     //    _state[4..]  == message
     const char* _state;
 
-    NewStatus(Code code, const StringSlice& msg, const StringSlice& msg2, int32_t posix_code);
+    NewStatus(Code code, const Slice& msg, const Slice& msg2, int32_t posix_code);
     static const char* CopyState(const char* s);
 };
 

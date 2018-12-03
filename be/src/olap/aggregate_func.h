@@ -198,8 +198,8 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_CHAR>
         bool r_null = *reinterpret_cast<const bool*>(right);
         *reinterpret_cast<bool*>(left) = r_null;
         if (!r_null) {
-            StringSlice* l_slice = reinterpret_cast<StringSlice*>(left + 1);
-            const StringSlice* r_slice = reinterpret_cast<const StringSlice*>(right + 1);
+            Slice* l_slice = reinterpret_cast<Slice*>(left + 1);
+            const Slice* r_slice = reinterpret_cast<const Slice*>(right + 1);
             if (arena == nullptr || l_slice->size >= r_slice->size) {
                 memory_copy(l_slice->data, r_slice->data, r_slice->size);
                 l_slice->size = r_slice->size;
@@ -224,13 +224,13 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_VARCH
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL> {
     static void aggregate(char* left, const char* right, Arena* arena) {
-        StringSlice* l_slice = reinterpret_cast<StringSlice*>(left + 1);
+        Slice* l_slice = reinterpret_cast<Slice*>(left + 1);
         size_t hll_ptr = *(size_t*)(l_slice->data - sizeof(HllContext*));
         HllContext* context = (reinterpret_cast<HllContext*>(hll_ptr));
         HllSetHelper::fill_set(right + 1, context);
     }
     static void finalize(char* data) {
-        StringSlice* slice = reinterpret_cast<StringSlice*>(data);
+        Slice* slice = reinterpret_cast<Slice*>(data);
         size_t hll_ptr = *(size_t*)(slice->data - sizeof(HllContext*));
         HllContext* context = (reinterpret_cast<HllContext*>(hll_ptr));
         std::map<int, uint8_t> index_to_value;

@@ -191,7 +191,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
         storage_field_offset += (*_fields)[i].index_length + null_byte;
         mem_ptr = mem_buf + mem_field_offset;
         if ((*_fields)[i].type == OLAP_FIELD_TYPE_VARCHAR) {
-            mem_field_offset += sizeof(StringSlice) + 1;
+            mem_field_offset += sizeof(Slice) + 1;
             for (size_t j = 0; j < num_entries; ++j) {
                 /*
                  * Varchar is null_byte|length|content in OlapIndex storage
@@ -207,7 +207,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
                 // 2. copy length and content
                 size_t storage_field_bytes =
                     *reinterpret_cast<StringLengthType*>(storage_ptr + null_byte);
-                StringSlice* slice = reinterpret_cast<StringSlice*>(mem_ptr + 1);
+                Slice* slice = reinterpret_cast<Slice*>(mem_ptr + 1);
                 char* data = reinterpret_cast<char*>(_mem_pool->allocate(storage_field_bytes));
                 memory_copy(data, storage_ptr + sizeof(StringLengthType) + null_byte, storage_field_bytes);
                 slice->data = data;
@@ -217,7 +217,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
                 storage_ptr += storage_row_bytes;
             }
         } else if ((*_fields)[i].type == OLAP_FIELD_TYPE_CHAR) {
-            mem_field_offset += sizeof(StringSlice) + 1;
+            mem_field_offset += sizeof(Slice) + 1;
             size_t storage_field_bytes = (*_fields)[i].index_length;
             for (size_t j = 0; j < num_entries; ++j) {
                 /*
@@ -232,7 +232,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
                 memory_copy(mem_ptr, storage_ptr, null_byte);
 
                 // 2. copy length and content
-                StringSlice* slice = reinterpret_cast<StringSlice*>(mem_ptr + 1);
+                Slice* slice = reinterpret_cast<Slice*>(mem_ptr + 1);
                 char* data = reinterpret_cast<char*>(_mem_pool->allocate(storage_field_bytes));
                 memory_copy(data, storage_ptr + null_byte, storage_field_bytes);
                 slice->data = data;
