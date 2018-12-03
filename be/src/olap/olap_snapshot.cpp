@@ -292,7 +292,7 @@ OLAPStatus OLAPEngine::_create_snapshot_files(
             ref_olap_table, snapshot_id_path);
     string header_path = _get_header_full_path(ref_olap_table, schema_full_path);
     if (check_dir_existed(schema_full_path)) {
-        OLAP_LOG_TRACE("remove the old schema_full_path.");
+        VLOG(10) << "remove the old schema_full_path.";
         remove_all_dir(schema_full_path);
     }
     create_dirs(schema_full_path);
@@ -410,12 +410,12 @@ OLAPStatus OLAPEngine::_create_snapshot_files(
     SAFE_DELETE(new_olap_header);
 
     if (header_locked) {
-        OLAP_LOG_TRACE("release header lock.");
+        VLOG(10) << "release header lock.";
         ref_olap_table->release_header_lock();
     }
 
     if (ref_olap_table.get() != NULL) {
-        OLAP_LOG_TRACE("release data sources.");
+        VLOG(10) << "release data sources.";
         ref_olap_table->release_data_sources(&olap_data_sources);
     }
 
@@ -458,7 +458,7 @@ OLAPStatus OLAPEngine::_create_incremental_snapshot_files(
 
     string schema_full_path = _get_schema_hash_full_path(ref_olap_table, snapshot_id_path);
     if (check_dir_existed(schema_full_path)) {
-        OLAP_LOG_TRACE("remove the old schema_full_path.");
+        VLOG(10) << "remove the old schema_full_path.";
         remove_all_dir(schema_full_path);
     }
     create_dirs(schema_full_path);
@@ -492,9 +492,10 @@ OLAPStatus OLAPEngine::_create_incremental_snapshot_files(
             const PDelta* incremental_delta =
                 ref_olap_table->get_incremental_delta(Version(missing_version, missing_version));
             if (incremental_delta != nullptr) {
-                OLAP_LOG_DEBUG("success to find missing version when snapshot, "
-                               "begin to link files. [table=%ld schema_hash=%d version=%ld]",
-                               request.tablet_id, request.schema_hash, missing_version);
+                VLOG(3) << "success to find missing version when snapshot, "
+                        << "begin to link files. tablet_id=" << request.tablet_id
+                        << ", schema_hash=" << request.schema_hash
+                        << ", version=" << missing_version;
                 // link files
                 for (uint32_t i = 0; i < incremental_delta->segment_group(0).num_segments(); i++) {
                     int32_t segment_group_id = incremental_delta->segment_group(0).segment_group_id();
@@ -614,8 +615,8 @@ string OLAPEngine::_construct_data_file_path(
 
 OLAPStatus OLAPEngine::_create_hard_link(const string& from_path, const string& to_path) {
     if (link(from_path.c_str(), to_path.c_str()) == 0) {
-        OLAP_LOG_TRACE("success to create hard link from path=%s to path=%s]",
-                from_path.c_str(), to_path.c_str());
+        VLOG(10) << "success to create hard link from_path=" << from_path
+                 << ", to_path=" << to_path;
         return OLAP_SUCCESS;
     } else {
         OLAP_LOG_WARNING("failed to create hard link from path=%s to path=%s errno=%d",
@@ -702,8 +703,8 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
         root_path_stream << stores[0]->path() << DATA_PREFIX << "/" << shard;
         string schema_hash_path = _get_schema_hash_full_path(tablet, root_path_stream.str());
         if (check_dir_existed(schema_hash_path)) {
-            OLAP_LOG_DEBUG("schema hash path already exist, remove it. [schema_hash_path='%s']",
-                    schema_hash_path.c_str());
+            VLOG(3) << "schema hash path already exist, remove it. "
+                    << "schema_hash_path=" << schema_hash_path;
             remove_all_dir(schema_hash_path);
         }
         create_dirs(schema_hash_path);

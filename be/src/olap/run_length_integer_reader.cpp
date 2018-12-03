@@ -43,7 +43,6 @@ OLAPStatus RunLengthIntegerReader::_read_values() {
     } else {
         int enc = (first_byte >> 6) & 0x03;
 
-        //OLAP_LOG_DEBUG("decoding with %d", enc);
         if (RunLengthIntegerWriter::SHORT_REPEAT == enc) {
             res = _read_short_repeat_values(first_byte);
         } else if (RunLengthIntegerWriter::DIRECT == enc) {

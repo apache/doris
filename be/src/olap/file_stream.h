@@ -174,13 +174,6 @@ private:
                 OLAPStatus res = _file_handler->pread(out_buffer,
                              length,
                              _used + _offset);
-
-                // OLAP_LOG_DEBUG("FILE read from %lu to %lu [%lu - %lu], length %lu",
-                //                _used + _offset,
-                //                _used + _offset + length,
-                //                _offset,
-                //                _offset + _length,
-                //                length);
                 if (OLAP_SUCCESS != res) {
                     OLAP_LOG_WARNING("fail to read from file. [res=%d]", res);
                     return res;

@@ -106,12 +106,12 @@ public:
     }
 
     void print_position_debug_info() {
-        OLAP_LOG_TRACE("compress %lu", _spilled_bytes);
+        VLOG(10) << "compress: " << _spilled_bytes;
 
         if (_current != NULL) {
-            OLAP_LOG_TRACE("uncompress %lu", _current->position() - sizeof(StreamHead));
+            VLOG(10) << "uncompress=" << ( _current->position() - sizeof(StreamHead));
         } else {
-            OLAP_LOG_TRACE("uncompress 0");
+            VLOG(10) << "uncompress 0";
         }
     }
 

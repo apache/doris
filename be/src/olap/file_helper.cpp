@@ -69,8 +69,8 @@ OLAPStatus FileHandler::open(const string& file_name, int flag) {
         return OLAP_ERR_IO_ERROR;
     }
 
-    VLOG(3) << "success to open file. [file_name='"
-            << file_name << "' flag=" << flag << " fd=" << _fd << "]";
+    VLOG(3) << "success to open file. file_name=" << file_name
+            << ", mode=" << flag << " fd=" << _fd;
     _is_using_cache = false;
     _file_name = file_name;
     return OLAP_SUCCESS;
@@ -92,8 +92,8 @@ OLAPStatus FileHandler::open_with_cache(const string& file_name, int flag) {
         FileDescriptor* file_desc =
             reinterpret_cast<FileDescriptor*>(fd_cache->value(_cache_handle));
         _fd = file_desc->fd;
-        VLOG(3) << "success to open file with cache. [file_name='" << file_name
-                   << "' flag=" << flag << " fd=" << _fd << "]";
+        VLOG(3) << "success to open file with cache. file_name=" << file_name
+                << ", mode=" << flag << " fd=" << _fd;
     } else {
         _fd = ::open(file_name.c_str(), flag);
         if (_fd < 0) {
@@ -109,8 +109,9 @@ OLAPStatus FileHandler::open_with_cache(const string& file_name, int flag) {
         _cache_handle = fd_cache->insert(
                             key, file_desc, 1,
                             &_delete_cache_file_descriptor);
-        OLAP_LOG_DEBUG("success to open file with cache. [file_name='%s' flag=%d fd=%d]",
-                        file_name.c_str(), flag, _fd);
+        VLOG(3) << "success to open file with cache. "
+                << "file_name=" << file_name 
+                << ", mode=" << flag << ", fd=" << _fd;
     }
     _is_using_cache = true;
     _file_name = file_name;
@@ -140,8 +141,8 @@ OLAPStatus FileHandler::open_with_mode(const string& file_name, int flag, int mo
         return OLAP_ERR_IO_ERROR;
     }
 
-    OLAP_LOG_DEBUG("success to open file. [file_name='%s' flag=%d mode=%d fd=%d]",
-                   file_name.c_str(), flag, mode, _fd);
+    VLOG(3) << "success to open file. file_name=" << file_name
+            << ", mode=" << mode << ", fd=" << _fd;
     _file_name = file_name;
     return OLAP_SUCCESS;
 }
@@ -178,8 +179,8 @@ OLAPStatus FileHandler::close() {
         }
     }
 
-    OLAP_LOG_DEBUG("finished to close file. [file_name='%s' fd=%d]",
-                    _file_name.c_str(), _fd);
+    VLOG(3) << "finished to close file. "
+            << "file_name=" << _file_name << ", fd=" << _fd;
     _fd = -1;
     _file_name = "";
     _wr_length = 0;
@@ -320,8 +321,8 @@ OLAPStatus FileHandlerWithBuf::open(const string& file_name, const char* mode) {
         return OLAP_ERR_IO_ERROR;
     }
 
-    OLAP_LOG_DEBUG("success to open file. [file_name='%s' flag='%s']",
-                   file_name.c_str(), mode);
+    VLOG(3) << "success to open file. "
+            << "file_name=" << file_name << ", mode=" << mode;
     _file_name = file_name;
     return OLAP_SUCCESS;
 }

@@ -329,11 +329,10 @@ bool RowBlockChanger::change_row_block(
 
                 if (mutable_block->tablet_schema()[i].type <
                         ref_block.tablet_schema()[ref_column].type) {
-                    OLAP_LOG_DEBUG("type degraded while altering column. "
-                                   "[column='%s' origin_type=%d alter_type=%d]",
-                                   mutable_block->tablet_schema()[i].name.c_str(),
-                                   ref_block._tablet_schema[ref_column].type,
-                                   mutable_block->_tablet_schema[i].type);
+                    VLOG(3) << "type degraded while altering column. "
+                            << "column=" << mutable_block->tablet_schema()[i].name
+                            << ", origin_type=" << ref_block._tablet_schema[ref_column].type
+                            << ", alter_type=" << mutable_block->_tablet_schema[i].type;
                 }
             }
         } else {
@@ -362,7 +361,6 @@ bool RowBlockChanger::change_row_block(
     //  （其实在init时就可以重新init成少的，filter留下的new_row_num）
     // 在split_table时，可能会出现因为过滤导致没有数据
     mutable_block->finalize(new_row_num);
-    // OLAP_LOG_DEBUG("finilize one block with row_num=%u. ", new_row_num);
     return true;
 }
 
@@ -470,7 +468,7 @@ RowBlockAllocator::RowBlockAllocator(const vector<FieldInfo>& tablet_schema,
         _row_len += (*it).length;
     }
 
-    OLAP_LOG_DEBUG("RowBlockAllocator(). [row_len=%ld]", _row_len);
+    VLOG(3) << "RowBlockAllocator(). row_len=" << _row_len;
 }
 
 RowBlockAllocator::~RowBlockAllocator() {
@@ -487,8 +485,8 @@ OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block,
 
     if (_memory_limitation > 0
             && _memory_allocated + row_block_size > _memory_limitation) {
-        OLAP_LOG_DEBUG("RowBlockAllocator::alocate() memory exceeded. [m_memory_allocated=%ld]",
-                       _memory_allocated);
+        VLOG(3) << "RowBlockAllocator::alocate() memory exceeded. "
+                << "m_memory_allocated=" << _memory_allocated;
         *row_block = NULL;
         return OLAP_SUCCESS;
     }
@@ -513,12 +511,10 @@ OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block,
     }
 
     _memory_allocated += row_block_size;
-    OLAP_LOG_DEBUG("RowBlockAllocator::allocate() "
-                   "[this=%p num_rows=%ld m_memory_allocated=%ld p=%p]",
-                   this,
-                   num_rows,
-                   _memory_allocated,
-                   *row_block);
+    VLOG(3) << "RowBlockAllocator::allocate() this=" << this
+            << ", num_rows=" << num_rows
+            << ", m_memory_allocated=" << _memory_allocated
+            << ", row_block_addr=" << *row_block;
     return res;
 }
 
@@ -530,12 +526,10 @@ void RowBlockAllocator::release(RowBlock* row_block) {
 
     _memory_allocated -= row_block->capacity() * _row_len;
 
-    OLAP_LOG_DEBUG("RowBlockAllocator::release() "
-                   "[this=%p num_rows=%ld m_memory_allocated=%ld p=%p]",
-                   this,
-                   row_block->capacity(),
-                   _memory_allocated,
-                   row_block);
+    VLOG(3) << "RowBlockAllocator::release() this=" << this
+            << ", num_rows=" << row_block->capacity()
+            << ", m_memory_allocated=" << _memory_allocated
+            << ", row_block_addr=" << row_block;
     delete row_block;
 }
 
@@ -664,7 +658,7 @@ SchemaChangeDirectly::SchemaChangeDirectly(
         _dst_cursor(NULL) {}
 
 SchemaChangeDirectly::~SchemaChangeDirectly() {
-    OLAP_LOG_DEBUG("~SchemaChangeDirectly()");
+    VLOG(3) << "~SchemaChangeDirectly()";
     SAFE_DELETE(_row_block_allocator);
     SAFE_DELETE(_src_cursor);
     SAFE_DELETE(_dst_cursor);
@@ -691,8 +685,8 @@ bool LinkedSchemaChange::process(ColumnData* olap_data, SegmentGroup* new_segmen
         string index_path = new_segment_group->construct_index_file_path(new_segment_group->segment_group_id(), i);
         string base_table_index_path = olap_data->segment_group()->construct_index_file_path(olap_data->segment_group()->segment_group_id(), i);
         if (link(base_table_index_path.c_str(), index_path.c_str()) == 0) {
-            OLAP_LOG_DEBUG("success to create hard link. [from_path=%s to_path=%s]",
-                           base_table_index_path.c_str(), index_path.c_str());
+            VLOG(3) << "success to create hard link. from_path=" << base_table_index_path
+                    << ", to_path=" << index_path;
         } else {
             LOG(WARNING) << "fail to create hard link. [from_path=" << base_table_index_path.c_str()
                          << " to_path=" << index_path.c_str()
@@ -703,8 +697,8 @@ bool LinkedSchemaChange::process(ColumnData* olap_data, SegmentGroup* new_segmen
         string data_path = new_segment_group->construct_data_file_path(new_segment_group->segment_group_id(), i);
         string base_table_data_path = olap_data->segment_group()->construct_data_file_path(olap_data->segment_group()->segment_group_id(), i);
         if (link(base_table_data_path.c_str(), data_path.c_str()) == 0) {
-            OLAP_LOG_DEBUG("success to create hard link. [from_path=%s to_path=%s]",
-                           base_table_data_path.c_str(), data_path.c_str());
+            VLOG(3) << "success to create hard link. from_path=" << base_table_data_path
+                    << ", to_path=" << data_path;
         } else {
             LOG(WARNING) << "fail to create hard link. [from_path=" << base_table_data_path.c_str()
                          << " to_path=" << data_path.c_str()
@@ -913,7 +907,7 @@ SchemaChangeWithSorting::SchemaChangeWithSorting(OLAPTablePtr olap_table,
 }
 
 SchemaChangeWithSorting::~SchemaChangeWithSorting() {
-    OLAP_LOG_DEBUG("~SchemaChangeWithSorting()");
+    VLOG(3) << "~SchemaChangeWithSorting()";
     SAFE_DELETE(_row_block_allocator);
 }
 
@@ -1133,10 +1127,8 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
         goto INTERNAL_SORTING_ERR;
     }
 
-    OLAP_LOG_DEBUG("init writer. [table='%s' block_row_size=%lu]",
-                   _olap_table->full_name().c_str(),
-                   _olap_table->num_rows_per_row_block());
-
+    VLOG(3) << "init writer. tablet=" << _olap_table->full_name()
+            << ", block_row_size=" << _olap_table->num_rows_per_row_block();
     writer = ColumnDataWriter::create(_olap_table, *temp_segment_group, false);
     if (NULL == writer) {
         OLAP_LOG_WARNING("failed to create writer.");
@@ -1263,7 +1255,7 @@ OLAPStatus SchemaChangeHandler::clear_schema_change_single_info(
     }
 
     if (!check_only) {
-        OLAP_LOG_DEBUG("broke old schema change chain");
+        VLOG(3) << "broke old schema change chain";
         olap_table->clear_schema_change_request();
     }
 
@@ -1451,8 +1443,8 @@ OLAPStatus SchemaChangeHandler::_do_alter_table(
     // wait transactions to publish version
     int num = 0;
     while (!transaction_ids.empty()) {
-        OLAP_LOG_DEBUG("wait transactions when schema change. [tablet='%s' transaction_size=%d]",
-                       ref_olap_table->full_name().c_str(), transaction_ids.size());
+        VLOG(3) << "wait transactions when schema change. tablet=" << ref_olap_table->full_name()
+                << ", transaction_size=" << transaction_ids.size();
         num++;
         if (num % 100 == 0) {
             for (int64_t transaction_id : transaction_ids) {
@@ -1471,9 +1463,10 @@ OLAPStatus SchemaChangeHandler::_do_alter_table(
         }
         for (int64_t transaction_id : finished_transactions) {
             transaction_ids.erase(transaction_id);
-            OLAP_LOG_DEBUG("transaction finished when schema change is waiting. "
-                           "[tablet=%s transaction_id=%ld transaction_size=%d]",
-                           ref_olap_table->full_name().c_str(), transaction_id, transaction_ids.size());
+            VLOG(3) << "transaction finished when schema change is waiting. "
+                    << "tablet=" << ref_olap_table->full_name()
+                    << ", transaction_id=" << transaction_id
+                    << ", transaction_size=" << transaction_ids.size();
         }
     }
 
@@ -1484,14 +1477,15 @@ OLAPStatus SchemaChangeHandler::_do_alter_table(
 
     // before calculating version_to_be_changed,
     // remove all data from new tablet, prevent to rewrite data(those double pushed when wait)
-    OLAP_LOG_DEBUG("begin to remove all data from new tablet to prevent rewrite. [new_tablet=%s]",
-                   new_olap_table->full_name().c_str());
+    VLOG(3) << "begin to remove all data from new tablet to prevent rewrite. "
+            << "new_tablet=" << new_olap_table->full_name();
     // only remove the version <= base_tablet's latest version
     const PDelta* lastest_file_version = ref_olap_table->lastest_version();
     if (lastest_file_version != NULL) {
-        OLAP_LOG_DEBUG("find the latest version of base tablet when remove all data from new. "
-                       "[base_tablet=%s version=%d-%d]", ref_olap_table->full_name().c_str(),
-                       lastest_file_version->start_version(), lastest_file_version->end_version());
+        VLOG(3) << "find the latest version of base tablet when remove all data from new. "
+                << "base_tablet=" << ref_olap_table->full_name()
+                << ", version=" << lastest_file_version->start_version()
+                << "-" << lastest_file_version->end_version();
         vector<Version> new_tablet_versions;
         new_olap_table->list_versions(&new_tablet_versions);
         for (vector<Version>::const_iterator it = new_tablet_versions.begin();
@@ -1506,9 +1500,10 @@ OLAPStatus SchemaChangeHandler::_do_alter_table(
                     segment_group->delete_all_files();
                     delete segment_group;
                 }
-                OLAP_LOG_DEBUG("unregister data source from new tablet when schema change. "
-                               "[new_tablet=%s version=%d-%d res=%d]",
-                               new_olap_table->full_name().c_str(), it->first, it->second, res);
+                VLOG(3) << "unregister data source from new tablet when schema change. "
+                        << "new_tablet=" << new_olap_table->full_name()
+                        << ", version=" << it->first << "-" << it->second
+                        << ", res=" << res;
             }
         }
         // save header
@@ -1615,17 +1610,17 @@ OLAPStatus SchemaChangeHandler::_do_alter_table(
         CgroupsMgr::apply_system_cgroup();
 
         // process the job : special for query table split key
-        OLAP_LOG_TRACE("starts to alter table. [new_table='%s' ref_table='%s']",
-                       sc_params.new_olap_table->full_name().c_str(),
-                       sc_params.ref_olap_table->full_name().c_str());
+        VLOG(10) << "starts to alter table. "
+                 << "old_tablet=" << sc_params.ref_olap_table->full_name()
+                 << ", new_tablet=" << sc_params.new_olap_table->full_name();
 
         if ((res = _alter_table(&sc_params)) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("failed to alter table. [request='%s']",
                              sc_params.debug_message.c_str());
         }
 
-        OLAP_LOG_TRACE("schema change thread completed the job. [request='%s']",
-                       sc_params.debug_message.c_str());
+        VLOG(10) << "schema change thread completed the job. "
+                 << "request=" << sc_params.debug_message;
     } else {
         // Delete olap table when submit alter table failed.
         OLAPEngine::get_instance()->drop_table(
@@ -2016,8 +2011,8 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
     // c. 转换历史数据
     for (vector<ColumnData*>::iterator it = sc_params->ref_olap_data_arr.end() - 1;
             it >= sc_params->ref_olap_data_arr.begin(); --it) {
-        OLAP_LOG_TRACE("begin to convert a history delta. [version='%d-%d']",
-                       (*it)->version().first, (*it)->version().second);
+        VLOG(10) << "begin to convert a history delta. "
+                 << "version=" << (*it)->version().first << "-" << (*it)->version().second;
 
         // set status for monitor
         // 只要有一个new_table为running，ref table就设置为running
@@ -2048,8 +2043,8 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
         (*it)->set_delete_handler(sc_params->delete_handler);
         int del_ret = (*it)->delete_pruning_filter();
         if (DEL_SATISFIED == del_ret) {
-            OLAP_LOG_DEBUG("filter delta in schema change: %d, %d",
-                           (*it)->version().first, (*it)->version().second);
+            VLOG(3) << "filter delta in schema change:"
+                    << (*it)->version().first << "-" << (*it)->version().second;
             res = sc_procedure->create_init_version(new_segment_group->table()->tablet_id(),
                                                     new_segment_group->table()->schema_hash(),
                                                     new_segment_group->version(),
@@ -2062,12 +2057,12 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
                 OLAP_GOTO(PROCESS_ALTER_EXIT);
             }
         } else if (DEL_PARTIAL_SATISFIED == del_ret) {
-            OLAP_LOG_DEBUG("filter delta partially in schema change: %d, %d",
-                           (*it)->version().first, (*it)->version().second);
+            VLOG(3) << "filter delta partially in schema change:"
+                    << (*it)->version().first << "-" << (*it)->version().second;
             (*it)->set_delete_status(DEL_PARTIAL_SATISFIED);
         } else {
-            OLAP_LOG_DEBUG("not filter delta in schema change: %d, %d",
-                           (*it)->version().first, (*it)->version().second);
+            VLOG(3) << "not filter delta in schema change:"
+                    << (*it)->version().first << "-" << (*it)->version().second;
             (*it)->set_delete_status(DEL_NOT_SATISFIED);
         }
 
@@ -2107,10 +2102,8 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
                 goto PROCESS_ALTER_EXIT;
             }
 
-            OLAP_LOG_DEBUG("register new version. [table='%s' version='%d-%d']",
-                           sc_params->new_olap_table->full_name().c_str(),
-                           (*it)->version().first,
-                           (*it)->version().second);
+            VLOG(3) << "register new version. tablet=" << sc_params->new_olap_table->full_name()
+                    << ", version=" << (*it)->version().first << "-" << (*it)->version().second;
         } else {
             OLAP_LOG_WARNING("version already exist, version revert occured. "
                              "[table='%s' version='%d-%d']",
@@ -2148,9 +2141,8 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
         sc_params->ref_olap_table->release_header_lock();
         sc_params->new_olap_table->release_push_lock();
 
-        OLAP_LOG_TRACE("succeed to convert a history version. [version='%d-%d']",
-                       (*it)->version().first,
-                       (*it)->version().second);
+        VLOG(10) << "succeed to convert a history version."
+            << ", version=" << (*it)->version().first << "-" << (*it)->version().second;
 
         // 释放ColumnData
         vector<ColumnData*> olap_data_to_be_released(it, it + 1);
@@ -2186,8 +2178,8 @@ PROCESS_ALTER_EXIT:
                 ALTER_TABLE_FINISHED,
                 sc_params->ref_olap_table->schema_hash(),
                 -1);
-        OLAP_LOG_DEBUG("set alter table job status. [status=%d]",
-                       sc_params->ref_olap_table->schema_change_status().status);
+        VLOG(3) << "set alter table job status. "
+                << "status=" << sc_params->ref_olap_table->schema_change_status().status;
     } else {
         sc_params->ref_olap_table->set_schema_change_status(
                 ALTER_TABLE_FAILED,
@@ -2198,8 +2190,8 @@ PROCESS_ALTER_EXIT:
                 ALTER_TABLE_FAILED,
                 sc_params->ref_olap_table->schema_hash(),
                 -1);
-        OLAP_LOG_DEBUG("set alter table job status. [status=%d]",
-                       sc_params->ref_olap_table->schema_change_status().status);
+        VLOG(3) << "set alter table job status. "
+                << "status=" << sc_params->ref_olap_table->schema_change_status().status;
     }
 
     sc_params->ref_olap_table->release_data_sources(&(sc_params->ref_olap_data_arr));
@@ -2238,10 +2230,8 @@ OLAPStatus SchemaChangeHandler::_parse_request(OLAPTablePtr ref_olap_table,
             }
 
             column_mapping->ref_column = column_index;
-            OLAP_LOG_DEBUG("A column refered to existed column will be added after schema changing."
-                           "[column='%s' ref_column='%s']",
-                           column_name.c_str(),
-                           new_column_schema.referenced_column.c_str());
+            VLOG(3) << "A column refered to existed column will be added after schema changing."
+                    << "column=" << column_name << ", ref_column=" << new_column_schema.referenced_column;
             continue;
         }
 
@@ -2267,10 +2257,9 @@ OLAPStatus SchemaChangeHandler::_parse_request(OLAPTablePtr ref_olap_table,
                 return res;
             }
 
-            OLAP_LOG_TRACE("A column with default value will be added after schema chaning. "
-                           "[column='%s' default_value='%s']",
-                           column_name.c_str(),
-                           new_column_schema.default_value.c_str());
+            VLOG(10) << "A column with default value will be added after schema chaning. "
+                     << "column=" << column_name
+                     << ", default_value=" << new_column_schema.default_value;
             continue;
         }
 
@@ -2285,10 +2274,9 @@ OLAPStatus SchemaChangeHandler::_parse_request(OLAPTablePtr ref_olap_table,
             return res;
         }
 
-        OLAP_LOG_DEBUG("A new schema delta is converted while droping column. "
-                       "Droped column will be assigned as '0' for the older schema. "
-                       "[column='%s']",
-                       column_name.c_str());
+        VLOG(3) << "A new schema delta is converted while droping column. "
+                << "Droped column will be assigned as '0' for the older schema. "
+                << "column=" << column_name;
     }
 
     // Check if re-aggregation is needed.
@@ -2378,8 +2366,8 @@ OLAPStatus SchemaChange::create_init_version(
         Version version,
         VersionHash version_hash,
         SegmentGroup* segment_group) {
-    OLAP_LOG_DEBUG("begin to create init version. [begin=%d end=%d]",
-                   version.first, version.second);
+    VLOG(3) << "begin to create init version. "
+            << "begin=" << version.first << ", end=" << version.second;
 
     OLAPTablePtr table;
     ColumnDataWriter* writer = NULL;
@@ -2423,7 +2411,7 @@ OLAPStatus SchemaChange::create_init_version(
         }
     } while (0);
 
-    OLAP_LOG_DEBUG("create init version end. [res=%d]", res);
+    VLOG(3) << "create init version end. res=" << res;
     SAFE_DELETE(writer);
     return res;
 }

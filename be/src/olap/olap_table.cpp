@@ -1697,7 +1697,7 @@ OLAPStatus OLAPTable::split_range(
 
     // 如果找不到合适的segment_group，就直接返回startkey，endkey
     if (base_index == NULL) {
-        OLAP_LOG_DEBUG("there is no base file now, may be tablet is empty.");
+        VLOG(3) << "there is no base file now, may be tablet is empty.";
         // it may be right if the table is empty, so we return success.
         ranges->emplace_back(start_key.to_tuple());
         ranges->emplace_back(end_key.to_tuple());
@@ -1721,7 +1721,7 @@ OLAPStatus OLAPTable::split_range(
     }
 
     step_pos = start_pos;
-    OLAP_LOG_DEBUG("start post = %d, %d", start_pos.segment, start_pos.index_offset);
+    VLOG(3) << "start_pos=" << start_pos.segment << ", " << start_pos.index_offset;
 
     //find last row_block is end_key is given, or using last_row_block
     if (base_index->find_short_key(end_key, &helper_cursor, false, &end_pos) != OLAP_SUCCESS) {
@@ -1731,7 +1731,7 @@ OLAPStatus OLAPTable::split_range(
         }
     }
 
-    OLAP_LOG_DEBUG("end post = %d, %d", end_pos.segment, end_pos.index_offset);
+    VLOG(3) << "end_pos=" << end_pos.segment << ", " << end_pos.index_offset;
 
     //get rows between first and last
     OLAPStatus res = OLAP_SUCCESS;

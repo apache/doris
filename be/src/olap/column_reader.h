@@ -42,7 +42,6 @@ class ColumnEncodingMessage;
 inline ReadOnlyFileStream* extract_stream(uint32_t column_unique_id,
         StreamInfoMessage::Kind kind,
         std::map<StreamName, ReadOnlyFileStream*>* streams) {
-    //OLAP_LOG_DEBUG("try to get stream: id=%u, kind=%d", column_unique_id, kind);
     StreamName stream_name(column_unique_id, kind);
     std::map<StreamName, ReadOnlyFileStream*>::iterator it = streams->find(stream_name);
 

@@ -593,10 +593,9 @@ bool Conditions::delete_conditions_eval(const RowCursor& row) const {
         }
     }
 
-    OLAP_LOG_DEBUG("Row meets the delete conditions. [condition_count=%zu; row=%s]",
-                   _columns.size(),
-                   row.to_string().c_str());
-
+    VLOG(3) << "Row meets the delete conditions. "
+            << "condition_count=" << _columns.size() 
+            << ", row=" << row.to_string();
     return true;
 }
 
