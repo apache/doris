@@ -27,6 +27,7 @@
 #include "gen_cpp/Types_types.h"
 
 #include "common/status.h"
+#include "olap/tablet.h"
 #include "runtime/client_cache.h"
 
 namespace doris {
@@ -79,8 +80,7 @@ public:
 
     Status move(
         const std::string& snapshot_path,
-        const std::string& tablet_path,
-        const std::string& store_path,
+        TabletSharedPtr tablet,
         bool overwrite);
 
 private:

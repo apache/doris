@@ -80,29 +80,30 @@ Status OlapScanner::_prepare(
         strtoul(scan_range->scan_range().version_hash.c_str(), nullptr, 10);
     {
         std::string err;
-        _olap_table = OLAPEngine::get_instance()->get_table(tablet_id, schema_hash, true, &err);
-        if (_olap_table.get() == nullptr) {
+        _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash, true, &err);
+        if (_tablet.get() == nullptr) {
             std::stringstream ss;
-            ss << "failed to get tablet: " << tablet_id << " with schema hash: " << schema_hash
-               << ", reason: " << err;
+            ss << "failed to get tablet. tablet_id=" << tablet_id
+               << ", with schema_hash=" << schema_hash
+               << ", reason=" << err;
             LOG(WARNING) << ss.str();
             return Status(ss.str());
         }
         {
-            ReadLock rdlock(_olap_table->get_header_lock_ptr());
-            const PDelta* delta = _olap_table->lastest_version();
-            if (delta == NULL) {
+            ReadLock rdlock(_tablet->get_header_lock_ptr());
+            const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
+            if (rowset == NULL) {
                 std::stringstream ss;
                 ss << "fail to get latest version of tablet: " << tablet_id;
                 OLAP_LOG_WARNING(ss.str().c_str());
                 return Status(ss.str());
             }
 
-            if (delta->end_version() == _version
-                && delta->version_hash() != version_hash) {
+            if (rowset->end_version() == _version
+                && rowset->version_hash() != version_hash) {
                 OLAP_LOG_WARNING("fail to check latest version hash. "
                                  "[tablet_id=%ld version_hash=%ld request_version_hash=%ld]",
-                                 tablet_id, delta->version_hash(), version_hash);
+                                 tablet_id, rowset->version_hash(), version_hash);
 
                 std::stringstream ss;
                 ss << "fail to check version hash of tablet: " << tablet_id;
@@ -131,7 +132,7 @@ Status OlapScanner::open() {
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init reader.[res=%d]", res);
         std::stringstream ss;
-        ss << "failed to initialize storage reader. tablet=" << _params.olap_table->full_name()
+        ss << "failed to initialize storage reader. tablet=" << _params.tablet->full_name()
            << ", res=" << res << ", backend=" << BackendOptions::get_localhost();
         return Status(ss.str().c_str());
     }
@@ -144,7 +145,7 @@ Status OlapScanner::_init_params(
         const std::vector<TCondition>& is_nulls) {
     RETURN_IF_ERROR(_init_return_columns());
 
-    _params.olap_table = _olap_table;
+    _params.tablet = _tablet;
     _params.reader_type = READER_QUERY;
     _params.aggregation = _aggregation;
     _params.version = Version(0, _version);
@@ -177,11 +178,11 @@ Status OlapScanner::_init_params(
     if (_aggregation) {
         _params.return_columns = _return_columns;
     } else {
-        for (size_t i = 0; i < _olap_table->num_key_fields(); ++i) {
+        for (size_t i = 0; i < _tablet->num_key_columns(); ++i) {
             _params.return_columns.push_back(i);
         }
         for (auto index : _return_columns) {
-            if (_olap_table->tablet_schema()[index].is_key) {
+            if (_tablet->tablet_schema().column(index).is_key()) {
                 continue;
             } else {
                 _params.return_columns.push_back(index);
@@ -190,12 +191,12 @@ Status OlapScanner::_init_params(
     }
 
     // use _params.return_columns, because reader use this to merge sort
-    OLAPStatus res = _read_row_cursor.init(_olap_table->tablet_schema(), _params.return_columns);
+    OLAPStatus res = _read_row_cursor.init(_tablet->tablet_schema(), _params.return_columns);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init row cursor.[res=%d]", res);
         return Status("failed to initialize storage read row cursor");
     }
-    _read_row_cursor.allocate_memory_for_string_type(_olap_table->tablet_schema());
+    _read_row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
     for (auto cid : _return_columns) {
         _query_fields.push_back(_read_row_cursor.get_field_by_index(cid));
     }
@@ -208,7 +209,7 @@ Status OlapScanner::_init_return_columns() {
         if (!slot->is_materialized()) {
             continue;
         }
-        int32_t index = _olap_table->get_field_index(slot->col_name());
+        int32_t index = _tablet->field_index(slot->col_name());
         if (index < 0) {
             std::stringstream ss;
             ss << "field name is invalied. field="  << slot->col_name();
@@ -216,12 +217,13 @@ Status OlapScanner::_init_return_columns() {
             return Status(ss.str());
         }
         _return_columns.push_back(index);
-        if (_olap_table->tablet_schema()[index].type == OLAP_FIELD_TYPE_VARCHAR ||
-                _olap_table->tablet_schema()[index].type == OLAP_FIELD_TYPE_HLL) {
+        const TabletColumn& column = _tablet->tablet_schema().column(index);
+        if (column.type() == OLAP_FIELD_TYPE_VARCHAR ||
+                column.type() == OLAP_FIELD_TYPE_HLL) {
             _request_columns_size.push_back(
-                _olap_table->tablet_schema()[index].length - sizeof(StringLengthType));
+                column.length() - sizeof(StringLengthType));
         } else {
-            _request_columns_size.push_back(_olap_table->tablet_schema()[index].length);
+            _request_columns_size.push_back(column.length());
         }
         _query_slots.push_back(slot);
     }

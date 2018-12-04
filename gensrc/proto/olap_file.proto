@@ -24,14 +24,14 @@ option java_package = "org.apache.doris.proto";
 import "olap_common.proto";
 import "types.proto";
 
-message ColumnPruning {
+message ZoneMap {
     required bytes min = 1;
     required bytes max = 2;
     optional bool null_flag = 3;
 }
 
 message DeltaPruning {
-    repeated ColumnPruning column_pruning = 1;
+    repeated ZoneMap zone_maps = 1;
 }
 
 // define OLAP FileVersion Message, Base, delta and cumulative delta 
@@ -53,37 +53,80 @@ message FileVersionMessage { // Deprecated, Use PDelta instead
 }
 
 message PDelta {
-    required int64 start_version = 1;
-    required int64 end_version = 2;
-    required int64 version_hash = 3;
-    required int64 creation_time = 4;
-    repeated PSegmentGroup segment_group = 5;
-    optional DeleteConditionMessage delete_condition = 6;
+    required int64 start_version = 1;   // RowsetMetaPB.start_version
+    required int64 end_version = 2;     // RowsetMetaPB.end_version
+    required int64 version_hash = 3;    // RowsetMetaPB.version_hash
+    required int64 creation_time = 4;   // RowsetMetaPB.creation_time
+    repeated SegmentGroupPB segment_group = 5;  // RowsetMetaPB.extra_properties
+    optional DeletePredicatePB delete_condition = 6;    // RowsetMetaPB.delete_predicate
 }
 
-message PSegmentGroup {
+enum RowsetTypePB {
+    ALPHA_ROWSET = 0; // doris原有的列存格式
+    BETA_ROWSET  = 1; // 新列存
+}
+
+enum RowsetStatePB {
+    PREPARED = 0; // 表示正在写入Rowset
+    COMMITTED = 1; // 表示rowset 写入完成，但是用户还不可见；这个状态下的rowset，BE不能自行判断是否删除，必须由FE的指令
+    VISIBLE = 2; // 表示rowset 已经对用户可见
+}
+
+message RowsetMetaPB {
+    required int64 rowset_id = 1;
+    optional int64 partition_id = 2;
+    optional int64 tablet_id = 3;
+    optional int64 txn_id = 4;
+    optional int32 tablet_schema_hash = 5;  // tablet id and schema hash could find tablet
+    optional RowsetTypePB rowset_type = 6;  // alpha
+    optional RowsetStatePB rowset_state = 7;
+    optional int64 start_version = 8;   // PDelta.start_version
+    optional int64 end_version = 9; // PDelta.end_version
+    optional int64 version_hash = 10; // PDelta.version_hash
+    optional int64 num_rows = 11;   // calculated from segment group
+    optional int64 total_disk_size = 12;   // calculated by index + data
+    optional int64 data_disk_size = 13;   // calculated sum(segmentgroup.data_size)
+    optional int64 index_disk_size = 14;   // calculated sum(segmentgroup.index_size)
+    // column min/max/null flag statistic info
+    repeated ZoneMap zone_maps = 15; // not set, not used currently
+    optional DeletePredicatePB delete_predicate = 16;
+    optional bool empty = 17;   // calculated from segment group
+    optional PUniqueId load_id = 18;
+    optional bool delete_flag = 19;  // not set, get from olap index header msg?
+    optional int64 creation_time = 20; // PDelta.creation_time
+    optional PUniqueId tablet_uid = 21;
+    // spare field id for future use
+    optional AlphaRowsetExtraMetaPB alpha_rowset_extra_meta_pb = 50;
+}
+
+message AlphaRowsetExtraMetaPB {
+    repeated SegmentGroupPB segment_groups = 1;
+}
+
+message SegmentGroupPB {
     required int32 segment_group_id = 1;
     required int32 num_segments = 2;
     required int64 index_size = 3;
     required int64 data_size = 4;
     required int64 num_rows = 5;
-    repeated ColumnPruning column_pruning = 6;
+    repeated ZoneMap zone_maps = 6;
     optional bool empty = 7;
+    optional PUniqueId load_id = 8;
 }
 
 message PPendingDelta {
-    required int64 partition_id = 1;
-    required int64 transaction_id = 2;
-    required int64 creation_time = 3;
-    repeated PPendingSegmentGroup pending_segment_group = 4;
-    optional DeleteConditionMessage delete_condition = 5;
+    required int64 partition_id = 1;    // RowsetMetaPB.partition_id
+    required int64 transaction_id = 2;  // RowsetMetaPB.txn_id
+    required int64 creation_time = 3;   // RowsetMetaPB.creation_time
+    repeated PendingSegmentGroupPB pending_segment_group = 4;   // RowsetMetaPB.extra_properties
+    optional DeletePredicatePB delete_condition = 5;    // RowsetMetaPB.delete_predicate
 }
 
-message PPendingSegmentGroup {
+message PendingSegmentGroupPB {
     required int32 pending_segment_group_id = 1;
     required int32 num_segments = 2;
     required PUniqueId load_id = 3;
-    repeated ColumnPruning column_pruning = 4;
+    repeated ZoneMap zone_maps = 4;
     optional bool empty = 5;
 }
 
@@ -109,40 +152,133 @@ enum KeysType {
     AGG_KEYS = 2;
 }
 
-message DeleteConditionMessage {
+message DeletePredicatePB {
     required int32 version = 1;
-    repeated string sub_conditions = 2;
+    repeated string sub_predicates = 2;
 }
 
 message OLAPHeaderMessage {
-    required uint32 num_rows_per_data_block = 1;
+    required uint32 num_rows_per_data_block = 1;    // TabletSchemaPB.num_rows_per_row_block
 
-    repeated FileVersionMessage file_version = 2; // Deprecated. Use PDelta instead.
+    repeated FileVersionMessage file_version = 2; // Deprecated. Use PDelta instead after stream load
 
-    required int32 cumulative_layer_point = 3;
-    required uint32 num_short_key_fields = 4;
-    repeated ColumnMessage column = 5;
-    required int64 creation_time = 6;
+    required int32 cumulative_layer_point = 3;  // TabletMetaPB.cumulative_layer_point
+    required uint32 num_short_key_fields = 4;   // TabletSchemaPB.num_short_key_columns
+    repeated ColumnMessage column = 5;  // TabletSchemaPB.column
+    required int64 creation_time = 6;   // TabletMetaPB.creation_time
     repeated int32 selectivity = 7; // Deprecated.
-    optional SchemaChangeStatusMessage schema_change_status = 8;
-    optional DataFileType data_file_type = 9 [default = OLAP_DATA_FILE];
-    optional uint32 next_column_unique_id = 10 [default = 0];
-    optional CompressKind compress_kind = 11 [default = COMPRESS_LZO];
-    optional uint32 segment_size = 12 [default = 4292870144];
-    repeated DeleteConditionMessage delete_data_conditions = 13;
+    optional SchemaChangeStatusMessage schema_change_status = 8;    // TabletMetaPB.alter_task
+    optional DataFileType data_file_type = 9 [default = OLAP_DATA_FILE];    // ? only column oriented
+    optional uint32 next_column_unique_id = 10 [default = 0];   // TabletSchemaPB.next_column_unique_id
+    optional CompressKind compress_kind = 11 [default = COMPRESS_LZO];  // TabletSchemaPB.compress_kind
+    optional uint32 segment_size = 12 [default = 4292870144];   // ? not used
+    repeated DeletePredicatePB delete_data_conditions = 13; // not serialized any more, just read from PDelta
     // bloom filter false positive probability
-    optional double bf_fpp = 14;
-    optional KeysType keys_type = 15;
-    repeated PDelta delta = 16;
-    repeated PPendingDelta pending_delta = 17;
-    repeated PDelta incremental_delta = 18;
+    optional double bf_fpp = 14;    // TabletSchemaPB.bf_fpp
+    optional KeysType keys_type = 15;   // TabletSchemaPB.keys_type
+    repeated PDelta delta = 16; // TabletMetaPB.rs_metas
+    repeated PPendingDelta pending_delta = 17;  // need write to olap meta store
+    repeated PDelta incremental_delta = 18; // TabletMetaPB.inc_rs_metas
 
     // if true, this tablet will not do compaction,
     // and does not create init version
-    optional bool in_restore_mode = 19 [default = false];
-    optional int64 tablet_id = 20;
-    optional int32 schema_hash = 21;
-    optional uint64 shard = 22;
+    optional bool in_restore_mode = 19 [default = false];   // TabletMetaPB.is_restore_mode
+    optional int64 tablet_id = 20;  // TabletMetaPB.tablet_id
+    optional int32 schema_hash = 21;    // TabletMetaPB.schema_hash? int32 vs int64
+    optional uint64 shard = 22; // TabletMetaPB.shard_id? int64 vs int32
+}
+
+enum AlterTabletState {
+    ALTER_PREPARED = 0;
+    ALTER_RUNNING = 1;
+    ALTER_FINISHED = 2;
+    ALTER_FAILED = 3;
+}
+
+enum AlterTabletType {
+    SCHEMA_CHANGE = 1;
+    ROLLUP = 2;
+}
+
+message AlterTabletPB {
+    optional AlterTabletState alter_state = 1;
+    required int64 related_tablet_id = 2;
+    optional int32 related_schema_hash = 3;
+    optional AlterTabletType alter_type = 4;
+}
+
+enum ColumnType {
+    TINYINT = 0;
+    SMALLINT = 1;
+    INT = 2;
+    BIGINT = 3;
+    LARGEINT = 4;
+    FLOAT = 5;
+    DOUBLE = 6;
+    DECIMAL = 7;
+    CHAR = 8;
+    VARCHAR = 9;
+    HLL = 10;
+    DATE = 11;
+    DATETIME = 12;
+}
+
+message ColumnPB {
+    required int32 unique_id = 1; // ColumnMessage.unique_id
+    optional string name = 2; // ColumnMessage.name
+    required string type = 3; // ColumnMessage.type
+    optional bool is_key = 4; // ColumnMessage.is_key
+    optional string aggregation = 5; // ColumnMessage.aggregation
+    optional bool is_nullable = 6; // ColumnMessage.is_allow_null
+    optional bytes default_value = 7; // ColumnMessage.default_value ?
+    optional int32 precision = 8; // ColumnMessage.precision
+    optional int32 frac = 9; // ColumnMessage.frac
+    optional int32 length = 10; // ColumnMessage.length
+    optional int32 index_length = 11; // ColumnMessage.index_length
+    optional bool is_bf_column = 12; // ColumnMessage.is_bf_column
+    optional int32 referenced_column_id = 13; //   
+    optional string referenced_column = 14; // ColumnMessage.referenced_column?
+
+}
+
+message TabletSchemaPB {
+    optional KeysType keys_type = 1;    // OLAPHeaderMessage.keys_type
+    repeated ColumnPB column = 2;   // OLAPHeaderMessage.column
+    optional int32 num_short_key_columns = 3;   // OLAPHeaderMessage.num_short_key_fields
+    optional int32 num_rows_per_row_block = 4;  // OLAPHeaderMessage.num_rows_per_data_block
+    optional CompressKind compress_kind = 5; // OLAPHeaderMessage.compress_kind
+    optional double bf_fpp = 6; // OLAPHeaderMessage.bf_fpp
+    optional uint32 next_column_unique_id = 7; // OLAPHeaderMessage.next_column_unique_id
+}
+
+enum TabletStatePB {
+    PB_NOTREADY  = 0; // under alter table, rollup, clone
+    PB_RUNNING = 1;
+    PB_TOMBSTONED = 2;
+    PB_STOPPED = 3;
+    PB_SHUTDOWN = 4;
+}
+
+message TabletMetaPB {
+    optional int64 table_id = 1;    // ?
+    optional int64 partition_id = 2;    // ?
+    optional int64 tablet_id = 3;   // OlapHeaderMessage.tablet_id
+    optional int32 schema_hash = 4; // OlapHeaderMessage.schema_hash
+    optional int32 shard_id = 5;    // OlapHeaderMessage.shard
+    optional int64 creation_time = 6;   // OlapHeaderMessage.creation_time
+    optional int64 cumulative_layer_point = 7;  // OlapHeaderMessage.cumulative_layer_point
+
+    optional TabletStatePB tablet_state = 8;
+    optional TabletSchemaPB schema = 9;
+    repeated RowsetMetaPB rs_metas = 10;
+    repeated RowsetMetaPB inc_rs_metas = 11;
+    optional AlterTabletPB alter_task = 12;
+    // if true, this tablet will not do compaction,
+    // and does not create init version
+    optional bool in_restore_mode = 13 [default = false];   // OlapHeaderMessage.in_restore_mode
+    // a uniqued id to identified tablet with same tablet_id and schema hash
+    optional PUniqueId tablet_uid = 14;
+    optional int64 end_rowset_id = 15;
 }
 
 message OLAPIndexHeaderMessage {
@@ -163,4 +299,3 @@ message OLAPDataHeaderMessage {
 message OLAPRawDeltaHeaderMessage {
     required int32 schema_hash = 2;
 }
-

@@ -30,7 +30,7 @@
 #include "http/http_response.h"
 #include "http/http_status.h"
 #include "olap/olap_define.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 
 namespace doris {
@@ -103,7 +103,7 @@ void ReloadTabletAction::reload(
     clone_req.__set_schema_hash(schema_hash);
 
     OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
-    res = _exec_env->olap_engine()->load_header(path, clone_req);
+    res = _exec_env->storage_engine()->load_header(path, clone_req);
     if (res != OLAPStatus::OLAP_SUCCESS) {
         LOG(WARNING) << "load header failed. status: " << res
                      << ", signature: " << tablet_id;

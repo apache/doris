@@ -35,6 +35,7 @@
 #include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/Status_types.h"
 #include "olap/utils.h"
+#include "olap/snapshot_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/etl_job_mgr.h"
 #include "util/debug_util.h"
@@ -71,11 +72,11 @@ AgentServer::AgentServer(ExecEnv* exec_env,
     }
 
     // init task worker pool
-    _create_table_workers = new TaskWorkerPool(
+    _create_tablet_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::CREATE_TABLE,
             _exec_env,
             master_info);
-    _drop_table_workers = new TaskWorkerPool(
+    _drop_tablet_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::DROP_TABLE,
             _exec_env,
             master_info);
@@ -99,7 +100,7 @@ AgentServer::AgentServer(ExecEnv* exec_env,
             TaskWorkerPool::TaskWorkerType::DELETE,
             _exec_env,
             master_info);
-    _alter_table_workers = new TaskWorkerPool(
+    _alter_tablet_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
             _exec_env,
             master_info);
@@ -109,10 +110,6 @@ AgentServer::AgentServer(ExecEnv* exec_env,
             master_info);
     _storage_medium_migrate_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::STORAGE_MEDIUM_MIGRATE,
-            _exec_env,
-            master_info);
-    _cancel_delete_data_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::CANCEL_DELETE_DATA,
             _exec_env,
             master_info);
     _check_consistency_workers = new TaskWorkerPool(
@@ -127,7 +124,7 @@ AgentServer::AgentServer(ExecEnv* exec_env,
             TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE,
             _exec_env,
             master_info);
-    _report_olap_table_workers = new TaskWorkerPool(
+    _report_tablet_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::REPORT_OLAP_TABLE,
             _exec_env,
             master_info);
@@ -156,21 +153,20 @@ AgentServer::AgentServer(ExecEnv* exec_env,
             _exec_env,
             master_info);
 #ifndef BE_TEST
-    _create_table_workers->start();
-    _drop_table_workers->start();
+    _create_tablet_workers->start();
+    _drop_tablet_workers->start();
     _push_workers->start();
     _publish_version_workers->start();
     _clear_alter_task_workers->start();
     _clear_transaction_task_workers->start();
     _delete_workers->start();
-    _alter_table_workers->start();
+    _alter_tablet_workers->start();
     _clone_workers->start();
     _storage_medium_migrate_workers->start();
-    _cancel_delete_data_workers->start();
     _check_consistency_workers->start();
     _report_task_workers->start();
     _report_disk_state_workers->start();
-    _report_olap_table_workers->start();
+    _report_tablet_workers->start();
     _upload_workers->start();
     _download_workers->start();
     _make_snapshot_workers->start();
@@ -185,11 +181,11 @@ AgentServer::AgentServer(ExecEnv* exec_env,
 }
 
 AgentServer::~AgentServer() {
-    if (_create_table_workers != NULL) {
-        delete _create_table_workers;
+    if (_create_tablet_workers != NULL) {
+        delete _create_tablet_workers;
     }
-    if (_drop_table_workers != NULL) {
-        delete _drop_table_workers;
+    if (_drop_tablet_workers != NULL) {
+        delete _drop_tablet_workers;
     }
     if (_push_workers != NULL) {
         delete _push_workers;
@@ -206,17 +202,14 @@ AgentServer::~AgentServer() {
     if (_delete_workers != NULL) {
         delete _delete_workers;
     }
-    if (_alter_table_workers != NULL) {
-        delete _alter_table_workers;
+    if (_alter_tablet_workers != NULL) {
+        delete _alter_tablet_workers;
     }
     if (_clone_workers != NULL) {
         delete _clone_workers;
     }
     if (_storage_medium_migrate_workers != NULL) {
         delete _storage_medium_migrate_workers;
-    }
-    if (_cancel_delete_data_workers != NULL) {
-        delete _cancel_delete_data_workers;
     }
     if (_check_consistency_workers != NULL) {
         delete _check_consistency_workers;
@@ -227,8 +220,8 @@ AgentServer::~AgentServer() {
     if (_report_disk_state_workers != NULL) {
         delete _report_disk_state_workers;
     }
-    if (_report_olap_table_workers != NULL) {
-        delete _report_olap_table_workers;
+    if (_report_tablet_workers != NULL) {
+        delete _report_tablet_workers;
     }
     if (_upload_workers != NULL) {
         delete _upload_workers;
@@ -277,14 +270,14 @@ void AgentServer::submit_tasks(
         switch (task_type) {
         case TTaskType::CREATE:
             if (task.__isset.create_tablet_req) {
-               _create_table_workers->submit_task(task);
+               _create_tablet_workers->submit_task(task);
             } else {
                 status_code = TStatusCode::ANALYSIS_ERROR;
             }
             break;
         case TTaskType::DROP:
             if (task.__isset.drop_tablet_req) {
-                _drop_table_workers->submit_task(task);
+                _drop_tablet_workers->submit_task(task);
             } else {
                 status_code = TStatusCode::ANALYSIS_ERROR;
             }
@@ -328,7 +321,7 @@ void AgentServer::submit_tasks(
         case TTaskType::ROLLUP:
         case TTaskType::SCHEMA_CHANGE:
             if (task.__isset.alter_tablet_req) {
-                _alter_table_workers->submit_task(task);
+                _alter_tablet_workers->submit_task(task);
             } else {
                 status_code = TStatusCode::ANALYSIS_ERROR;
             }
@@ -343,13 +336,6 @@ void AgentServer::submit_tasks(
         case TTaskType::STORAGE_MEDIUM_MIGRATE:
             if (task.__isset.storage_medium_migrate_req) {
                 _storage_medium_migrate_workers->submit_task(task);
-            } else {
-                status_code = TStatusCode::ANALYSIS_ERROR;
-            }
-            break;
-        case TTaskType::CANCEL_DELETE:
-            if (task.__isset.cancel_delete_data_req) {
-                _cancel_delete_data_workers->submit_task(task);
             } else {
                 status_code = TStatusCode::ANALYSIS_ERROR;
             }
@@ -423,10 +409,10 @@ void AgentServer::make_snapshot(TAgentResult& return_value,
     TStatus status;
     vector<string> error_msgs;
     TStatusCode::type status_code = TStatusCode::OK;
-
+    return_value.__set_snapshot_version(PREFERRED_SNAPSHOT_VERSION);
     string snapshot_path;
     OLAPStatus make_snapshot_status =
-            _exec_env->olap_engine()->make_snapshot(snapshot_request, &snapshot_path);
+            SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path);
     if (make_snapshot_status != OLAP_SUCCESS) {
         status_code = TStatusCode::RUNTIME_ERROR;
         OLAP_LOG_WARNING("make_snapshot failed. tablet_id: %ld, schema_hash: %ld, status: %d",
@@ -453,7 +439,7 @@ void AgentServer::release_snapshot(TAgentResult& return_value, const std::string
     TStatusCode::type status_code = TStatusCode::OK;
 
     OLAPStatus release_snapshot_status =
-            _exec_env->olap_engine()->release_snapshot(snapshot_path);
+            SnapshotManager::instance()->release_snapshot(snapshot_path);
     if (release_snapshot_status != OLAP_SUCCESS) {
         status_code = TStatusCode::RUNTIME_ERROR;
         LOG(WARNING) << "release_snapshot failed. snapshot_path: " << snapshot_path << ", status: " << release_snapshot_status;

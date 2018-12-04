@@ -100,25 +100,30 @@ public:
         }
     }
 
-    void SetFieldInfo(FieldInfo &field_info, std::string name,
-            FieldType type, FieldAggregationMethod aggregation,
-            uint32_t length, bool is_allow_null, bool is_key) {
-        field_info.name = name;
-        field_info.type = type;
-        field_info.aggregation = aggregation;
-        field_info.length = length;
-        field_info.is_allow_null = is_allow_null;
-        field_info.is_key = is_key;
-        field_info.precision = 1000;
-        field_info.frac = 10000;
-        field_info.unique_id = 0;
-        field_info.is_bf_column = false;
+    void SetTabletSchema(std::string name,
+            const std::string& type, const std::string& aggregation,
+            uint32_t length, bool is_allow_null, bool is_key, TabletSchema* tablet_schema) {
+        TabletSchemaPB tablet_schema_pb;
+        static int id = 0;
+        ColumnPB* column = tablet_schema_pb.add_column();
+        column->set_unique_id(++id);
+        column->set_name(name);
+        column->set_type(type);
+        column->set_is_key(is_key);
+        column->set_is_nullable(is_allow_null);
+        column->set_length(length);
+        column->set_aggregation(aggregation);
+        column->set_precision(1000);
+        column->set_frac(1000);
+        column->set_is_bf_column(false);
+
+        tablet_schema->init_from_pb(tablet_schema_pb);
     }
 
-    void InitVectorizedBatch(const std::vector<FieldInfo>& schema,
+    void InitVectorizedBatch(const TabletSchema* tablet_schema,
                              const std::vector<uint32_t>& ids, 
                              int size) {
-        _vectorized_batch = new VectorizedRowBatch(schema, ids, size);
+        _vectorized_batch = new VectorizedRowBatch(tablet_schema, ids, size);
         _vectorized_batch->set_size(size);
     }
     std::unique_ptr<MemTracker> _mem_tracker;
@@ -128,17 +133,15 @@ public:
 
 #define TEST_IN_LIST_PREDICATE(TYPE, TYPE_NAME, FIELD_TYPE) \
 TEST_F(TestInListPredicate, TYPE_NAME##_COLUMN) { \
-    std::vector<FieldInfo> schema; \
-    FieldInfo field_info; \
-    SetFieldInfo(field_info, std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, \
-                 OLAP_FIELD_AGGREGATION_REPLACE, 1, false, true); \
-    schema.push_back(field_info); \
+    TabletSchema tablet_schema; \
+    SetTabletSchema(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, \
+                 "REPLACE", 1, false, true, &tablet_schema); \
     int size = 10; \
     std::vector<uint32_t> return_columns; \
-    for (int i = 0; i < schema.size(); ++i) { \
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) { \
         return_columns.push_back(i); \
     } \
-    InitVectorizedBatch(schema, return_columns, size); \
+    InitVectorizedBatch(&tablet_schema, return_columns, size); \
     ColumnVector* col_vector = _vectorized_batch->column(0); \
      \
     /* for no nulls */ \
@@ -181,24 +184,22 @@ TEST_F(TestInListPredicate, TYPE_NAME##_COLUMN) { \
     ASSERT_EQ(*(col_data + sel[0]), 5); \
 } \
 
-TEST_IN_LIST_PREDICATE(int8_t, TINYINT, OLAP_FIELD_TYPE_TINYINT)
-TEST_IN_LIST_PREDICATE(int16_t, SMALLINT, OLAP_FIELD_TYPE_SMALLINT)
-TEST_IN_LIST_PREDICATE(int32_t, INT, OLAP_FIELD_TYPE_INT)
-TEST_IN_LIST_PREDICATE(int64_t, BIGINT, OLAP_FIELD_TYPE_BIGINT)
-TEST_IN_LIST_PREDICATE(int128_t, LARGEINT, OLAP_FIELD_TYPE_LARGEINT)
+TEST_IN_LIST_PREDICATE(int8_t, TINYINT, "TINYINT")
+TEST_IN_LIST_PREDICATE(int16_t, SMALLINT, "SMALLINT")
+TEST_IN_LIST_PREDICATE(int32_t, INT, "INT")
+TEST_IN_LIST_PREDICATE(int64_t, BIGINT, "BIGINT")
+TEST_IN_LIST_PREDICATE(int128_t, LARGEINT, "LARGEINT")
 
 TEST_F(TestInListPredicate, FLOAT_COLUMN) {
-    std::vector<FieldInfo> schema;
-    FieldInfo field_info;
-    SetFieldInfo(field_info, std::string("FLOAT_COLUMN"), OLAP_FIELD_TYPE_FLOAT,
-                 OLAP_FIELD_AGGREGATION_REPLACE, 1, false, true);
-    schema.push_back(field_info);
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("FLOAT_COLUMN"), "FLOAT",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls
@@ -241,17 +242,15 @@ TEST_F(TestInListPredicate, FLOAT_COLUMN) {
 }
 
 TEST_F(TestInListPredicate, DOUBLE_COLUMN) {
-    std::vector<FieldInfo> schema;
-    FieldInfo field_info;
-    SetFieldInfo(field_info, std::string("DOUBLE_COLUMN"), OLAP_FIELD_TYPE_DOUBLE,
-                 OLAP_FIELD_AGGREGATION_REPLACE, 1, false, true);
-    schema.push_back(field_info);
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("DOUBLE_COLUMN"), "DOUBLE",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls
@@ -295,17 +294,15 @@ TEST_F(TestInListPredicate, DOUBLE_COLUMN) {
 }
 
 TEST_F(TestInListPredicate, DECIMAL_COLUMN) {
-    std::vector<FieldInfo> schema;
-    FieldInfo field_info;
-    SetFieldInfo(field_info, std::string("DECIMAL_COLUMN"), OLAP_FIELD_TYPE_DECIMAL,
-                 OLAP_FIELD_AGGREGATION_REPLACE, 1, false, true);
-    schema.push_back(field_info);
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("DECIMAL_COLUMN"), "DECIMAL",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls
@@ -358,17 +355,15 @@ TEST_F(TestInListPredicate, DECIMAL_COLUMN) {
 }
 
 TEST_F(TestInListPredicate, CHAR_COLUMN) {
-    std::vector<FieldInfo> schema;
-    FieldInfo field_info;
-    SetFieldInfo(field_info, std::string("STRING_COLUMN"), OLAP_FIELD_TYPE_CHAR,
-                 OLAP_FIELD_AGGREGATION_REPLACE, 1, false, true);
-    schema.push_back(field_info);
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("STRING_COLUMN"), "CHAR",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls
@@ -443,17 +438,15 @@ TEST_F(TestInListPredicate, CHAR_COLUMN) {
 }
 
 TEST_F(TestInListPredicate, VARCHAR_COLUMN) {
-    std::vector<FieldInfo> schema;
-    FieldInfo field_info;
-    SetFieldInfo(field_info, std::string("STRING_COLUMN"), OLAP_FIELD_TYPE_VARCHAR,
-                 OLAP_FIELD_AGGREGATION_REPLACE, 1, false, true);
-    schema.push_back(field_info);
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("STRING_COLUMN"), "VARCHAR",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 10;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls
@@ -526,17 +519,15 @@ TEST_F(TestInListPredicate, VARCHAR_COLUMN) {
 }
 
 TEST_F(TestInListPredicate, DATE_COLUMN) {
-    std::vector<FieldInfo> schema;
-    FieldInfo field_info;
-    SetFieldInfo(field_info, std::string("DATE_COLUMN"), OLAP_FIELD_TYPE_DATE,
-                 OLAP_FIELD_AGGREGATION_REPLACE, 1, false, true);
-    schema.push_back(field_info);
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("DATE_COLUMN"), "DATE",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 6;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls
@@ -597,17 +588,15 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
 }
 
 TEST_F(TestInListPredicate, DATETIME_COLUMN) {
-    std::vector<FieldInfo> schema;
-    FieldInfo field_info;
-    SetFieldInfo(field_info, std::string("DATETIME_COLUMN"), OLAP_FIELD_TYPE_DATETIME,
-                 OLAP_FIELD_AGGREGATION_REPLACE, 1, false, true);
-    schema.push_back(field_info);
+    TabletSchema tablet_schema;
+    SetTabletSchema(std::string("DATETIME_COLUMN"), "DATETIME",
+                 "REPLACE", 1, false, true, &tablet_schema);
     int size = 6;
     std::vector<uint32_t> return_columns;
-    for (int i = 0; i < schema.size(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
-    InitVectorizedBatch(schema, return_columns, size);
+    InitVectorizedBatch(&tablet_schema, return_columns, size);
     ColumnVector* col_vector = _vectorized_batch->column(0);
 
     // for no nulls

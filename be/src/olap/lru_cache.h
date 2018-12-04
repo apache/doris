@@ -247,9 +247,9 @@ namespace doris {
         }
     } LRUHandle;
 
-    // We provide our own simple hash table since it removes a whole bunch
+    // We provide our own simple hash tablet since it removes a whole bunch
     // of porting hacks and is also faster than some of the built-in hash
-    // table implementations in some of the compiler/runtime combinations
+    // tablet implementations in some of the compiler/runtime combinations
     // we have tested.  E.g., readrandom speeds up by ~5% over the g++
     // 4.4.3's builtin hashtable.
 
@@ -270,7 +270,7 @@ namespace doris {
             LRUHandle* remove(const CacheKey& key, uint32_t hash);
 
         private:
-            // The table consists of an array of buckets where each bucket is
+            // The tablet consists of an array of buckets where each bucket is
             // a linked list of cache entries that hash into the bucket.
             uint32_t _length;
             uint32_t _elems;
@@ -343,7 +343,7 @@ namespace doris {
             // Entries are in use by clients, and have refs >= 2 and in_cache==true.
             LRUHandle _in_use;
 
-            HandleTable _table;
+            HandleTable _tablet;
 
             uint64_t _lookup_count;    // cache查找总次数
             uint64_t _hit_count;       // 命中cache的总次数

@@ -43,9 +43,9 @@ Status EngineMetaReader::get_hints(
     auto tablet_id = scan_range->scan_range().tablet_id;
     int32_t schema_hash = strtoul(scan_range->scan_range().schema_hash.c_str(), NULL, 10);
     std::string err;
-    OLAPTablePtr table = OLAPEngine::get_instance()->get_table(
+    TabletSharedPtr table = StorageEngine::instance()->tablet_manager()->get_tablet(
         tablet_id, schema_hash, true, &err);
-    if (table.get() == NULL) {
+    if (table == nullptr) {
         std::stringstream ss;
         ss << "failed to get tablet: " << tablet_id << "with schema hash: "
             << schema_hash << ", reason: " << err;

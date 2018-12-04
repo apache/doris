@@ -23,9 +23,7 @@
 #include <set>
 #include <map>
 
-// #include "olap/field_info.h"
 #include "olap/olap_common.h"
-// #include "olap/olap_define.h"
 
 namespace doris {
 
