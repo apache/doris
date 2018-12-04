@@ -63,6 +63,19 @@ abstract public class ScanNode extends PlanNode {
     }
 
     /**
+     * cast expr to SlotDescriptor type
+     */
+    protected Expr castToSlot(SlotDescriptor slotDesc, Expr expr) throws UserException {
+        PrimitiveType dstType = slotDesc.getType().getPrimitiveType();
+        PrimitiveType srcType = expr.getType().getPrimitiveType();
+        if (dstType != srcType) {
+            return expr.castTo(slotDesc.getType());
+        } else {
+            return expr;
+        }
+    }
+
+    /**
      * Returns all scan ranges plus their locations. Needs to be preceded by a call to
      * finalize().
      *
