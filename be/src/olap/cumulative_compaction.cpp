@@ -32,7 +32,7 @@ using std::vector;
 
 namespace doris {
 
-OLAPStatus CumulativeCompaction::init(OLAPTablePtr table) {
+OLAPStatus CumulativeCompaction::init(TabletPtr table) {
     LOG(INFO) << "init cumulative compaction handler. [table=" << table->full_name() << "]";
 
     if (_is_init) {

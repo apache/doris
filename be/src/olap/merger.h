@@ -29,7 +29,7 @@ class ColumnData;
 class Merger {
 public:
     // parameter index is created by caller, and it is empty.
-    Merger(OLAPTablePtr table, SegmentGroup* index, ReaderType type);
+    Merger(TabletPtr table, SegmentGroup* index, ReaderType type);
 
     virtual ~Merger() {};
 
@@ -44,7 +44,7 @@ public:
         return _row_count;
     }
 private:
-    OLAPTablePtr _table;
+    TabletPtr _table;
     SegmentGroup* _segment_group;
     ReaderType _reader_type;
     uint64_t _row_count;

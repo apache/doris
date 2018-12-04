@@ -43,7 +43,7 @@ Status EngineMetaReader::get_hints(
         RuntimeProfile* profile) {
     auto tablet_id = scan_range->scan_range().tablet_id;
     int32_t schema_hash = strtoul(scan_range->scan_range().schema_hash.c_str(), NULL, 10);
-    OLAPTablePtr table = OLAPEngine::get_instance()->get_table(
+    TabletPtr table = OLAPEngine::get_instance()->get_table(
         tablet_id, schema_hash);
     if (table.get() == NULL) {
         LOG(WARNING) << "tablet does not exist. tablet_id=" << tablet_id << ", schema_hash="

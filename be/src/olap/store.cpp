@@ -506,7 +506,7 @@ OLAPStatus OlapStore::_load_table_from_header(OLAPEngine* engine, TTabletId tabl
         }
         return OLAP_ERR_HEADER_INIT_FAILED;
     }
-    OLAPTablePtr olap_table =
+    TabletPtr olap_table =
         OLAPTable::create_from_header(olap_header.release(), this);
     if (olap_table == nullptr) {
         LOG(WARNING) << "fail to new table. tablet_id=" << tablet_id << ", schema_hash:" << schema_hash;

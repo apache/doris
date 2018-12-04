@@ -40,7 +40,7 @@ using std::vector;
 
 namespace doris {
 
-OLAPStatus BaseCompaction::init(OLAPTablePtr table, bool is_manual_trigger) {
+OLAPStatus BaseCompaction::init(TabletPtr table, bool is_manual_trigger) {
     // 表在首次查询或PUSH等操作时，会被加载到内存
     // 如果表没有被加载，表明该表上目前没有任何操作，所以不进行BE操作
     if (!table->is_loaded()) {

@@ -54,7 +54,7 @@ public:
     // 返回值：
     // - 如果触发cumulative compaction，返回OLAP_SUCCESS
     // - 否则，返回对应错误码
-    OLAPStatus init(OLAPTablePtr table);
+    OLAPStatus init(TabletPtr table);
 
     // 执行cumulative compaction
     //
@@ -164,7 +164,7 @@ private:
     // 当delta文件的大小超过该值时，我们认为该delta文件是cumulative文件
     size_t _max_delta_file_size;
     // 待执行cumulative compaction的olap table
-    OLAPTablePtr _table;
+    TabletPtr _table;
     // 新cumulative文件的版本
     Version _cumulative_version;
     // 新cumulative文件的version hash

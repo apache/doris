@@ -65,7 +65,7 @@ OLAPStatus OLAPEngine::make_snapshot(
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    OLAPTablePtr ref_olap_table = get_table(request.tablet_id, request.schema_hash);
+    TabletPtr ref_olap_table = get_table(request.tablet_id, request.schema_hash);
     if (ref_olap_table.get() == NULL) {
         OLAP_LOG_WARNING("failed to get olap table. [table=%ld schema_hash=%d]",
                 request.tablet_id, request.schema_hash);
@@ -113,7 +113,7 @@ OLAPStatus OLAPEngine::release_snapshot(const string& snapshot_path) {
 }
 
 OLAPStatus OLAPEngine::_calc_snapshot_id_path(
-        const OLAPTablePtr& olap_table,
+        const TabletPtr& olap_table,
         string* out_path) {
     OLAPStatus res = OLAP_SUCCESS;
     if (out_path == nullptr) {
@@ -138,7 +138,7 @@ OLAPStatus OLAPEngine::_calc_snapshot_id_path(
 }
 
 string OLAPEngine::_get_schema_hash_full_path(
-        const OLAPTablePtr& ref_olap_table,
+        const TabletPtr& ref_olap_table,
         const string& location) const {
     stringstream schema_full_path_stream;
     schema_full_path_stream << location
@@ -150,7 +150,7 @@ string OLAPEngine::_get_schema_hash_full_path(
 }
 
 string OLAPEngine::_get_header_full_path(
-        const OLAPTablePtr& ref_olap_table,
+        const TabletPtr& ref_olap_table,
         const std::string& schema_hash_path) const {
     stringstream header_name_stream;
     header_name_stream << schema_hash_path << "/" << ref_olap_table->tablet_id() << ".hdr";
@@ -183,7 +183,7 @@ void OLAPEngine::_update_header_file_info(
 
 OLAPStatus OLAPEngine::_link_index_and_data_files(
         const string& schema_hash_path,
-        const OLAPTablePtr& ref_olap_table,
+        const TabletPtr& ref_olap_table,
         const vector<VersionEntity>& version_entity_vec) {
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -229,7 +229,7 @@ OLAPStatus OLAPEngine::_link_index_and_data_files(
 
 OLAPStatus OLAPEngine::_copy_index_and_data_files(
         const string& schema_hash_path,
-        const OLAPTablePtr& ref_olap_table,
+        const TabletPtr& ref_olap_table,
         vector<VersionEntity>& version_entity_vec) {
     std::stringstream prefix_stream;
     prefix_stream << schema_hash_path << "/" << ref_olap_table->tablet_id();
@@ -271,7 +271,7 @@ OLAPStatus OLAPEngine::_copy_index_and_data_files(
 }
 
 OLAPStatus OLAPEngine::_create_snapshot_files(
-        const OLAPTablePtr& ref_olap_table,
+        const TabletPtr& ref_olap_table,
         const TSnapshotRequest& request,
         string* snapshot_path) {
     OLAPStatus res = OLAP_SUCCESS;
@@ -435,7 +435,7 @@ OLAPStatus OLAPEngine::_create_snapshot_files(
 }
 
 OLAPStatus OLAPEngine::_create_incremental_snapshot_files(
-        const OLAPTablePtr& ref_olap_table,
+        const TabletPtr& ref_olap_table,
         const TSnapshotRequest& request,
         string* snapshot_path) {
     LOG(INFO) << "begin to create incremental snapshot files."
@@ -634,7 +634,7 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
     DorisMetrics::storage_migrate_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
-    OLAPTablePtr tablet = get_table(tablet_id, schema_hash);
+    TabletPtr tablet = get_table(tablet_id, schema_hash);
     if (tablet.get() == NULL) {
         OLAP_LOG_WARNING("can't find olap table. [tablet_id=%ld schema_hash=%d]",
                 tablet_id, schema_hash);
@@ -743,7 +743,7 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
 
         // if old table finished schema change, then the schema change status of the new table is DONE
         // else the schema change status of the new table is FAILED
-        OLAPTablePtr new_tablet = get_table(tablet_id, schema_hash);
+        TabletPtr new_tablet = get_table(tablet_id, schema_hash);
         if (new_tablet.get() == NULL) {
             OLAP_LOG_WARNING("get null olap table. [tablet_id=%ld schema_hash=%d]",
                              tablet_id, schema_hash);
@@ -770,7 +770,7 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
 OLAPStatus OLAPEngine::_generate_new_header(
         OlapStore* store,
         const uint64_t new_shard,
-        const OLAPTablePtr& tablet,
+        const TabletPtr& tablet,
         const vector<VersionEntity>& version_entity_vec, OLAPHeader* new_olap_header) {
     if (store == nullptr) {
         LOG(WARNING) << "fail to generate new header for store is null";

@@ -26,7 +26,7 @@ namespace doris {
 class MockCommandExecutor : public OLAPEngine {
 public:
     MOCK_METHOD1(create_table, OLAPStatus(const TCreateTabletReq& request));
-    MOCK_METHOD2(get_table, OLAPTablePtr(TTabletId tablet_id, TSchemaHash schema_hash));
+    MOCK_METHOD2(get_table, TabletPtr(TTabletId tablet_id, TSchemaHash schema_hash));
     MOCK_METHOD1(drop_table, OLAPStatus(const TDropTabletReq& request));
     MOCK_METHOD2(
             push,
@@ -95,13 +95,13 @@ public:
     MOCK_METHOD3(
             get_info_before_incremental_clone,
             std::string(
-                    OLAPTablePtr tablet,
+                    TabletPtr tablet,
                     int64_t committed_version,
                     std::vector<Version>* missing_versions));
     MOCK_METHOD4(
             finish_clone,
             OLAPStatus(
-                    OLAPTablePtr tablet,
+                    TabletPtr tablet,
                     const std::string& clone_dir,
                     int64_t committed_version,
                     bool is_incremental_clone));

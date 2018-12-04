@@ -57,7 +57,7 @@ AgentStatus Pusher::init() {
     }
 
     // Check replica exist
-    OLAPTablePtr olap_table;
+    TabletPtr olap_table;
     olap_table = _engine->get_table(
             _push_req.tablet_id,
             _push_req.schema_hash);
