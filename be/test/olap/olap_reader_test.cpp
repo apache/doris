@@ -170,7 +170,7 @@ public:
         CommandExecutor command_executor = CommandExecutor();
         res = command_executor.create_table(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        OLAPTablePtr tablet = command_executor.get_table(
+        TabletSharedPtr tablet = command_executor.get_table(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet.get() != NULL);
         _tablet_path = tablet->tablet_path();
@@ -706,7 +706,7 @@ public:
         CommandExecutor command_executor = CommandExecutor();
         res = command_executor.create_table(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        OLAPTablePtr tablet = command_executor.get_table(
+        TabletSharedPtr tablet = command_executor.get_table(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet.get() != NULL);
         _tablet_path = tablet->tablet_path();
@@ -1189,7 +1189,7 @@ public:
         CommandExecutor command_executor = CommandExecutor();
         res = command_executor.create_table(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        OLAPTablePtr tablet = command_executor.get_table(
+        TabletSharedPtr tablet = command_executor.get_table(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet.get() != NULL);
         _tablet_path = tablet->tablet_path();

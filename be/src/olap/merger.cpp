@@ -35,7 +35,7 @@ using std::vector;
 
 namespace doris {
 
-Merger::Merger(OLAPTablePtr table, SegmentGroup* segment_group, ReaderType type) : 
+Merger::Merger(TabletSharedPtr table, SegmentGroup* segment_group, ReaderType type) : 
         _table(table),
         _segment_group(segment_group),
         _reader_type(type),
