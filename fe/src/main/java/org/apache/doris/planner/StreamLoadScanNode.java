@@ -328,16 +328,6 @@ public class StreamLoadScanNode extends ScanNode {
         srcTupleDesc.computeMemLayout();
     }
 
-    private Expr castToSlot(SlotDescriptor slotDesc, Expr expr) throws UserException {
-        PrimitiveType dstType = slotDesc.getType().getPrimitiveType();
-        PrimitiveType srcType = expr.getType().getPrimitiveType();
-        if (dstType != srcType) {
-            return expr.castTo(slotDesc.getType());
-        } else {
-            return expr;
-        }
-    }
-
     @Override
     protected void toThrift(TPlanNode planNode) {
         planNode.setNode_type(TPlanNodeType.BROKER_SCAN_NODE);

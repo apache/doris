@@ -411,25 +411,6 @@ public class BrokerScanNode extends ScanNode {
         context.tupleDescriptor.computeMemLayout();
     }
 
-    private Expr castToSlot(SlotDescriptor slotDesc, Expr expr) throws AnalysisException {
-        PrimitiveType destType = slotDesc.getType().getPrimitiveType();
-        PrimitiveType srcType = expr.getType().getPrimitiveType();
-
-        if (destType.isStringType()) {
-            if (srcType.isStringType()) {
-                return expr;
-            } else {
-                CastExpr castExpr = (CastExpr)expr.castTo(Type.VARCHAR);
-                return castExpr;
-            }
-        } else if (destType != srcType) {
-            CastExpr castExpr = (CastExpr)expr.castTo(slotDesc.getType());
-            return castExpr;
-        }
-
-        return expr;
-    }
-
     private TScanRangeLocations newLocations(TBrokerScanRangeParams params, String brokerName)
             throws UserException {
         List<Backend> candidateBes = Lists.newArrayList();
