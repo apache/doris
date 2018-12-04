@@ -55,7 +55,7 @@ public:
 
     // 检查cond表示的删除条件是否符合要求；
     // 如果不符合要求，返回OLAP_ERR_DELETE_INVALID_CONDITION；符合要求返回OLAP_SUCCESS
-    OLAPStatus check_condition_valid(OLAPTablePtr table, const TCondition& cond);
+    OLAPStatus check_condition_valid(TabletSharedPtr table, const TCondition& cond);
 
     // 存储指定版本号的删除条件到Header文件中。因此，调用之前需要对Header文件加写锁
     //
@@ -68,7 +68,7 @@ public:
     //     * OLAP_ERR_DELETE_INVALID_PARAMETERS：函数参数不符合要求
     //     * OLAP_ERR_DELETE_INVALID_CONDITION：del_condition不符合要求
     OLAPStatus store_cond(
-            OLAPTablePtr table,
+            TabletSharedPtr table,
             const int32_t version,
             const std::vector<TCondition>& conditions);
 
@@ -90,7 +90,7 @@ public:
     //         * 这个表没有指定版本号的删除条件
     //     * OLAP_ERR_DELETE_INVALID_PARAMETERS：函数参数不符合要求
     OLAPStatus delete_cond(
-            OLAPTablePtr table, const int32_t version, bool delete_smaller_version_conditions);
+            TabletSharedPtr table, const int32_t version, bool delete_smaller_version_conditions);
 
     // 将一个olap engine的表上存有的所有删除条件打印到log中。调用前只需要给Header文件加读锁
     //
@@ -98,15 +98,15 @@ public:
     //     table: 要打印删除条件的olap engine表
     // 返回值：
     //     OLAP_SUCCESS：调用成功
-    OLAPStatus log_conds(OLAPTablePtr table);
+    OLAPStatus log_conds(TabletSharedPtr table);
 private:
 
     // 检查指定的删除条件版本是否符合要求；
     // 如果不符合要求，返回OLAP_ERR_DELETE_INVALID_VERSION；符合要求返回OLAP_SUCCESS
-    OLAPStatus _check_version_valid(OLAPTablePtr table, const int32_t filter_version);
+    OLAPStatus _check_version_valid(TabletSharedPtr table, const int32_t filter_version);
 
     // 检查指定版本的删除条件是否已经存在。如果存在，返回指定版本删除条件的数组下标；不存在返回-1
-    int _check_whether_condition_exist(OLAPTablePtr, int cond_version);
+    int _check_whether_condition_exist(TabletSharedPtr, int cond_version);
 };
 
 // 表示一个删除条件
@@ -154,7 +154,7 @@ public:
     //     * OLAP_SUCCESS: 调用成功
     //     * OLAP_ERR_DELETE_INVALID_PARAMETERS: 参数不符合要求
     //     * OLAP_ERR_MALLOC_ERROR: 在填充_del_conds时，分配内存失败
-    OLAPStatus init(OLAPTablePtr olap_table, int32_t version);
+    OLAPStatus init(TabletSharedPtr olap_table, int32_t version);
 
     // 判定一条数据是否符合删除条件
     //

@@ -66,11 +66,11 @@ private:
     
     bool _is_init = false;
     WriteRequest _req;
-    OLAPTablePtr _table;
+    TabletSharedPtr _table;
     SegmentGroup* _cur_segment_group;
     std::vector<SegmentGroup*> _segment_group_vec;
     std::vector<SegmentGroup*> _new_segment_group_vec;
-    OLAPTablePtr _new_table;
+    TabletSharedPtr _new_table;
     ColumnDataWriter* _writer;
     MemTable* _mem_table;
     Schema* _schema;

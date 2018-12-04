@@ -27,7 +27,7 @@ namespace doris {
 
 SegmentWriter::SegmentWriter(
         const std::string& file_name,
-        OLAPTablePtr table,
+        TabletSharedPtr table,
         uint32_t stream_buffer_size) : 
         _file_name(file_name),
         _table(table),
