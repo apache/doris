@@ -48,7 +48,7 @@ class RuntimeState;
 // Params for Reader,
 // mainly include tablet, data version and fetch range.
 struct ReaderParams {
-    TabletPtr olap_table;
+    TabletSharedPtr olap_table;
     ReaderType reader_type;
     bool aggregation;
     Version version;
@@ -198,7 +198,7 @@ private:
 
     Version _version;
 
-    TabletPtr _olap_table;
+    TabletSharedPtr _olap_table;
 
     // _own_data_sources is data source that reader aquire from olap_table, so we need to
     // release these when reader closing

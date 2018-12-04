@@ -44,7 +44,7 @@ class RowBlockPosition;
 class OlapStore;
 
 // Define OLAPTable's shared_ptr. It is used for
-typedef std::shared_ptr<OLAPTable> TabletPtr;
+typedef std::shared_ptr<OLAPTable> TabletSharedPtr;
 
 enum BaseCompactionStage {
     BASE_COMPACTION_WAITING = 0,
@@ -94,17 +94,17 @@ struct SchemaChangeStatus {
 
 class OLAPTable : public std::enable_shared_from_this<OLAPTable> {
 public:
-    static TabletPtr create_from_header_file(
+    static TabletSharedPtr create_from_header_file(
             TTabletId tablet_id,
             TSchemaHash schema_hash,
             const std::string& header_file,
             OlapStore* store = nullptr);
-    static TabletPtr create_from_header_file_for_check(
+    static TabletSharedPtr create_from_header_file_for_check(
             TTabletId tablet_id,
             TSchemaHash schema_hash,
             const std::string& header_file);
 
-    static TabletPtr create_from_header(
+    static TabletSharedPtr create_from_header(
             OLAPHeader* header,
             OlapStore* store = nullptr);
 
@@ -578,7 +578,7 @@ public:
                                    const std::vector<Version>& versions_to_changed,
                                    const AlterTabletType alter_table_type);
 
-    bool remove_last_schema_change_version(TabletPtr new_olap_table);
+    bool remove_last_schema_change_version(TabletSharedPtr new_olap_table);
     void clear_schema_change_request();
 
     SchemaChangeStatus schema_change_status() {

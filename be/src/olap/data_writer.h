@@ -31,8 +31,8 @@ class ColumnDataWriter {
 public:
     // Factory function
     // 调用者获得新建的对象, 并负责delete释放
-    static ColumnDataWriter* create(TabletPtr table, SegmentGroup* segment_group, bool is_push_write);
-    ColumnDataWriter(TabletPtr table, SegmentGroup* segment_group, bool is_push_write);
+    static ColumnDataWriter* create(TabletSharedPtr table, SegmentGroup* segment_group, bool is_push_write);
+    ColumnDataWriter(TabletSharedPtr table, SegmentGroup* segment_group, bool is_push_write);
     ~ColumnDataWriter();
     OLAPStatus init();
     OLAPStatus attached_by(RowCursor* row_cursor);
@@ -50,7 +50,7 @@ private:
     OLAPStatus _init_segment();
 
     bool _is_push_write;
-    TabletPtr _table;
+    TabletSharedPtr _table;
     // first is min, second is max
     std::vector<std::pair<WrapperField*, WrapperField*>> _column_statistics;
     uint32_t _row_index;

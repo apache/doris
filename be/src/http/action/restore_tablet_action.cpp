@@ -84,7 +84,7 @@ Status RestoreTabletAction::_handle(HttpRequest *req) {
     int32_t schema_hash = std::atoi(schema_hash_str.c_str());
     LOG(INFO) << "get restore tablet action request: " << tablet_id << "-" << schema_hash;
 
-    TabletPtr tablet =
+    TabletSharedPtr tablet =
             OLAPEngine::get_instance()->get_table(tablet_id, schema_hash);
     if (tablet.get() != nullptr) {
         LOG(WARNING) << "find tablet. tablet_id=" << tablet_id << " schema_hash=" << schema_hash;

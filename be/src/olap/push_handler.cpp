@@ -45,7 +45,7 @@ namespace doris {
 //           clear schema change info in both current table and related tables,
 //           finally we will only push for current tables
 OLAPStatus PushHandler::process_realtime_push(
-        TabletPtr olap_table,
+        TabletSharedPtr olap_table,
         const TPushReq& request,
         PushType push_type,
         vector<TTabletInfo>* tablet_info_vec) {
@@ -101,7 +101,7 @@ OLAPStatus PushHandler::process_realtime_push(
                       << ", related_tablet_id=" << related_tablet_id
                       << ", related_schema_hash=" << related_schema_hash
                       << ", transaction_id=" << request.transaction_id;
-            TabletPtr related_olap_table = OLAPEngine::get_instance()->get_table(
+            TabletSharedPtr related_olap_table = OLAPEngine::get_instance()->get_table(
                 related_tablet_id, related_schema_hash);
 
             // if related tablet not exists, only push current tablet
@@ -273,8 +273,8 @@ void PushHandler::_get_tablet_infos(
 }
 
 OLAPStatus PushHandler::_convert(
-        TabletPtr curr_olap_table,
-        TabletPtr new_olap_table,
+        TabletSharedPtr curr_olap_table,
+        TabletSharedPtr new_olap_table,
         Indices* curr_olap_indices,
         Indices* new_olap_indices,
         AlterTabletType alter_table_type) {
@@ -462,8 +462,8 @@ OLAPStatus PushHandler::_convert(
 }
 
 OLAPStatus PushHandler::_validate_request(
-        TabletPtr olap_table_for_raw,
-        TabletPtr olap_table_for_schema_change,
+        TabletSharedPtr olap_table_for_raw,
+        TabletSharedPtr olap_table_for_schema_change,
         bool is_new_tablet_effective,
         PushType push_type) {
     const PDelta* latest_delta = olap_table_for_raw->lastest_delta();
@@ -529,7 +529,7 @@ OLAPStatus PushHandler::_validate_request(
 // user submit a push job and cancel it soon, but some 
 // tablets already push success.
 OLAPStatus PushHandler::_get_versions_reverted(
-        TabletPtr olap_table,
+        TabletSharedPtr olap_table,
         bool is_new_tablet,
         PushType push_type,
         Versions* unused_versions) {
@@ -579,7 +579,7 @@ OLAPStatus PushHandler::_get_versions_reverted(
 }
 
 OLAPStatus PushHandler::_update_header(
-        TabletPtr olap_table,
+        TabletSharedPtr olap_table,
         Versions* unused_versions,
         Indices* new_indices,
         Indices* unused_indices) {
@@ -623,8 +623,8 @@ void PushHandler::_delete_old_indices(Indices* unused_indices) {
 }
 
 OLAPStatus PushHandler::_clear_alter_table_info(
-        TabletPtr tablet,
-        TabletPtr related_tablet) {
+        TabletSharedPtr tablet,
+        TabletSharedPtr related_tablet) {
     OLAPStatus res = OLAP_SUCCESS;
     _obtain_header_wrlock();
 
@@ -704,7 +704,7 @@ BinaryReader::BinaryReader()
 }
 
 OLAPStatus BinaryReader::init(
-        TabletPtr table,
+        TabletSharedPtr table,
         BinaryFile* file) {
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -834,7 +834,7 @@ LzoBinaryReader::LzoBinaryReader()
 }
 
 OLAPStatus LzoBinaryReader::init(
-        TabletPtr table,
+        TabletSharedPtr table,
         BinaryFile* file) {
     OLAPStatus res = OLAP_SUCCESS;
 

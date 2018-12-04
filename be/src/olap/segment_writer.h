@@ -30,7 +30,7 @@ class ColumnDataHeaderMessage;
 class SegmentWriter {
 public:
     explicit SegmentWriter(const std::string& file_name,
-            TabletPtr table,
+            TabletSharedPtr table,
             uint32_t stream_buffer_size);
     ~SegmentWriter();
     OLAPStatus init(uint32_t write_mbytes_per_sec);
@@ -45,7 +45,7 @@ private:
     OLAPStatus _make_file_header(ColumnDataHeaderMessage* file_header);
 
     std::string _file_name;
-    TabletPtr _table;
+    TabletSharedPtr _table;
     uint32_t _stream_buffer_size; // 输出缓冲区大小
     std::vector<ColumnWriter*> _root_writers;
     OutStreamFactory* _stream_factory;

@@ -1042,7 +1042,7 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
         string src_file_path;
         TBackend src_host;
         // Check local tablet exist or not
-        TabletPtr tablet =
+        TabletSharedPtr tablet =
                 worker_pool_this->_env->olap_engine()->get_table(
                 clone_req.tablet_id, clone_req.schema_hash);
         if (tablet.get() != NULL) {
@@ -2293,7 +2293,7 @@ AgentStatus TaskWorkerPool::_move_dir(
      bool overwrite,
      std::vector<std::string>* error_msgs) {
 
-    TabletPtr tablet = _env->olap_engine()->get_table(
+    TabletSharedPtr tablet = _env->olap_engine()->get_table(
                 tablet_id, schema_hash);
     if (tablet.get() == NULL) {
         LOG(INFO) << "failed to get tablet. tablet_id:" << tablet_id

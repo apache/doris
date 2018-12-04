@@ -206,7 +206,7 @@ protected:
     typedef RepeatedPtrField<DeleteConditionMessage> del_cond_array;
 
     std::string _tablet_path;
-    TabletPtr _olap_table;
+    TabletSharedPtr _olap_table;
     TCreateTabletReq _create_tablet;
     DeleteConditionHandler _delete_condition_handler;
 };
@@ -507,7 +507,7 @@ protected:
     typedef RepeatedPtrField<DeleteConditionMessage> del_cond_array;
 
     std::string _tablet_path;
-    TabletPtr _olap_table;
+    TabletSharedPtr _olap_table;
     TCreateTabletReq _create_tablet;
 };
 
@@ -831,7 +831,7 @@ protected:
 
     std::string _tablet_path;
     RowCursor _data_row_cursor;
-    TabletPtr _olap_table;
+    TabletSharedPtr _olap_table;
     TCreateTabletReq _create_tablet;
     DeleteHandler _delete_handler;
 };

@@ -89,7 +89,7 @@ public:
 // 所有归属于同一列上的条件二元组，聚合在一个CondColumn上
 class CondColumn {
 public:
-    CondColumn(TabletPtr table, int32_t index) : _col_index(index), _table(table) {
+    CondColumn(TabletSharedPtr table, int32_t index) : _col_index(index), _table(table) {
         _conds.clear();
         _is_key = _table->tablet_schema()[_col_index].is_key;
     }
@@ -120,7 +120,7 @@ private:
     bool                _is_key;
     int32_t             _col_index;
     std::vector<Cond*>   _conds;
-    TabletPtr      _table;
+    TabletSharedPtr      _table;
 };
 
 // 一次请求所关联的条件
@@ -139,7 +139,7 @@ public:
         _columns.clear();
     }
 
-    void set_table(TabletPtr table) {
+    void set_table(TabletSharedPtr table) {
         long do_not_remove_me_until_you_want_a_heart_attacking = table.use_count();
         OLAP_UNUSED_ARG(do_not_remove_me_until_you_want_a_heart_attacking);
 
@@ -164,7 +164,7 @@ public:
     }
 
 private:
-    TabletPtr _table;     // ref to OLAPTable to access schema
+    TabletSharedPtr _table;     // ref to OLAPTable to access schema
     CondColumns _columns;   // list of condition column
 };
 

@@ -55,12 +55,12 @@ bool version_entity_sorter(const VersionEntity& a, const VersionEntity& b) {
 }
 
 RowBlockChanger::RowBlockChanger(const std::vector<FieldInfo> &tablet_schema,
-                                 const TabletPtr &ref_olap_table) {
+                                 const TabletSharedPtr &ref_olap_table) {
     _schema_mapping.resize(tablet_schema.size());
 }
 
 RowBlockChanger::RowBlockChanger(const vector<FieldInfo>& tablet_schema,
-                                 const TabletPtr& ref_olap_table,
+                                 const TabletSharedPtr& ref_olap_table,
                                  const DeleteHandler& delete_handler) {
     _schema_mapping.resize(tablet_schema.size());
     _delete_handler = delete_handler;
@@ -533,7 +533,7 @@ void RowBlockAllocator::release(RowBlock* row_block) {
     delete row_block;
 }
 
-RowBlockMerger::RowBlockMerger(TabletPtr olap_table) : _olap_table(olap_table) {}
+RowBlockMerger::RowBlockMerger(TabletSharedPtr olap_table) : _olap_table(olap_table) {}
 
 RowBlockMerger::~RowBlockMerger() {}
 
@@ -644,12 +644,12 @@ bool RowBlockMerger::_pop_heap() {
 }
 
 LinkedSchemaChange::LinkedSchemaChange(
-        TabletPtr base_olap_table, TabletPtr new_olap_table) :
+        TabletSharedPtr base_olap_table, TabletSharedPtr new_olap_table) :
         _base_olap_table(base_olap_table),
         _new_olap_table(new_olap_table) {}
 
 SchemaChangeDirectly::SchemaChangeDirectly(
-        TabletPtr olap_table,
+        TabletSharedPtr olap_table,
         const RowBlockChanger& row_block_changer) :
         _olap_table(olap_table),
         _row_block_changer(row_block_changer),
@@ -890,7 +890,7 @@ DIRECTLY_PROCESS_ERR:
     return result;
 }
 
-SchemaChangeWithSorting::SchemaChangeWithSorting(TabletPtr olap_table,
+SchemaChangeWithSorting::SchemaChangeWithSorting(TabletSharedPtr olap_table,
                                                  const RowBlockChanger& row_block_changer,
                                                  size_t memory_limitation) :
         _olap_table(olap_table),
@@ -1226,12 +1226,12 @@ OLAPStatus SchemaChangeHandler::clear_schema_change_single_info(
         AlterTabletType* alter_table_type,
         bool only_one,
         bool check_only) {
-    TabletPtr olap_table = OLAPEngine::get_instance()->get_table(tablet_id, schema_hash);
+    TabletSharedPtr olap_table = OLAPEngine::get_instance()->get_table(tablet_id, schema_hash);
     return clear_schema_change_single_info(olap_table, alter_table_type, only_one, check_only);
 }
 
 OLAPStatus SchemaChangeHandler::clear_schema_change_single_info(
-        TabletPtr olap_table,
+        TabletSharedPtr olap_table,
         AlterTabletType* type,
         bool only_one,
         bool check_only) {
@@ -1263,7 +1263,7 @@ OLAPStatus SchemaChangeHandler::clear_schema_change_single_info(
 }
 
 OLAPStatus SchemaChangeHandler::_check_and_clear_schema_change_info(
-        TabletPtr olap_table,
+        TabletSharedPtr olap_table,
         const TAlterTabletReq& request) {
     // check for schema change chain ( A->B)
     // broken old relation if a chain was found and there is no version to be changed
@@ -1317,7 +1317,7 @@ OLAPStatus SchemaChangeHandler::_check_and_clear_schema_change_info(
     }
 
     // clear schema change info of related tablet
-    TabletPtr tablet = OLAPEngine::get_instance()->get_table(
+    TabletSharedPtr tablet = OLAPEngine::get_instance()->get_table(
             tablet_id, schema_hash);
     if (tablet.get() == NULL) {
         OLAP_LOG_WARNING("get null tablet! [tablet_id=%ld schema_hash=%d]",
@@ -1360,7 +1360,7 @@ OLAPStatus SchemaChangeHandler::process_alter_table(
     }
 
     // 2. Get base table
-    TabletPtr ref_olap_table = OLAPEngine::get_instance()->get_table(
+    TabletSharedPtr ref_olap_table = OLAPEngine::get_instance()->get_table(
             request.base_tablet_id, request.base_schema_hash);
     if (ref_olap_table.get() == NULL) {
         OLAP_LOG_WARNING("fail to find base table. [base_table=%ld base_schema_hash=%d]",
@@ -1380,7 +1380,7 @@ OLAPStatus SchemaChangeHandler::process_alter_table(
     }
 
     // 4. return failed if new table already exist in OLAPEngine.
-    TabletPtr new_tablet = OLAPEngine::get_instance()->get_table(
+    TabletSharedPtr new_tablet = OLAPEngine::get_instance()->get_table(
             request.new_tablet_req.tablet_id, request.new_tablet_req.tablet_schema.schema_hash);
     if (new_tablet.get() != NULL) {
         res = OLAP_SUCCESS;
@@ -1395,10 +1395,10 @@ OLAPStatus SchemaChangeHandler::process_alter_table(
 
 OLAPStatus SchemaChangeHandler::_do_alter_table(
         AlterTabletType type,
-        TabletPtr ref_olap_table,
+        TabletSharedPtr ref_olap_table,
         const TAlterTabletReq& request) {
     OLAPStatus res = OLAP_SUCCESS;
-    TabletPtr new_olap_table;
+    TabletSharedPtr new_olap_table;
     string base_root_path = ref_olap_table->storage_root_path_name();
 
     LOG(INFO) << "begin to do alter tablet job. new_table_id=" << request.new_tablet_req.tablet_id;
@@ -1632,10 +1632,10 @@ OLAPStatus SchemaChangeHandler::_do_alter_table(
 }
 
 OLAPStatus SchemaChangeHandler::_create_new_olap_table(
-        const TabletPtr ref_olap_table,
+        const TabletSharedPtr ref_olap_table,
         const TCreateTabletReq& request,
         const string* ref_root_path,
-        TabletPtr* out_new_olap_table) {
+        TabletSharedPtr* out_new_olap_table) {
     OLAPStatus res = OLAP_SUCCESS;
     OLAPTable* new_olap_table = NULL;
     bool is_table_added = false;
@@ -1646,7 +1646,7 @@ OLAPStatus SchemaChangeHandler::_create_new_olap_table(
 
     do {
         // 2. Create table with only header, no deltas
-        TabletPtr new_olap_table = OLAPEngine::get_instance()->create_table(
+        TabletSharedPtr new_olap_table = OLAPEngine::get_instance()->create_table(
                 request, ref_root_path, true, ref_olap_table);
         if (new_olap_table == NULL) {
             OLAP_LOG_WARNING("failed to create table. [table=%ld xml_path=%d]",
@@ -1697,7 +1697,7 @@ OLAPStatus SchemaChangeHandler::_create_new_olap_table(
             break;
         }
 
-        TabletPtr olap_table;
+        TabletSharedPtr olap_table;
         olap_table = OLAPEngine::get_instance()->get_table(
                 request.tablet_id, request.tablet_schema.schema_hash);
         if (olap_table.get() == NULL) {
@@ -1732,8 +1732,8 @@ OLAPStatus SchemaChangeHandler::_create_new_olap_table(
 }
 
 OLAPStatus SchemaChangeHandler::schema_version_convert(
-        TabletPtr src_olap_table,
-        TabletPtr dest_olap_table,
+        TabletSharedPtr src_olap_table,
+        TabletSharedPtr dest_olap_table,
         vector<SegmentGroup*>* ref_segment_groups,
         vector<SegmentGroup*>* new_segment_groups) {
     if (NULL == new_segment_groups) {
@@ -1862,7 +1862,7 @@ SCHEMA_VERSION_CONVERT_ERR:
 }
 
 OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
-        TabletPtr ref_olap_table,
+        TabletSharedPtr ref_olap_table,
         vector<Version>& versions_to_be_changed) {
     int32_t request_version = 0;
     const PDelta* lastest_version = ref_olap_table->lastest_version();
@@ -1902,8 +1902,8 @@ OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
 // 增加A->(B|C|...) 的schema_change信息
 OLAPStatus SchemaChangeHandler::_save_schema_change_info(
         AlterTabletType alter_table_type,
-        TabletPtr ref_olap_table,
-        TabletPtr new_olap_table,
+        TabletSharedPtr ref_olap_table,
+        TabletSharedPtr new_olap_table,
         const vector<Version>& versions_to_be_changed) {
 
     // check new table exists,
@@ -2203,8 +2203,8 @@ PROCESS_ALTER_EXIT:
 
 // @static
 // 分析column的mapping以及filter key的mapping
-OLAPStatus SchemaChangeHandler::_parse_request(TabletPtr ref_olap_table,
-                                               TabletPtr new_olap_table,
+OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr ref_olap_table,
+                                               TabletSharedPtr new_olap_table,
                                                RowBlockChanger* rb_changer,
                                                bool* sc_sorting,
                                                bool* sc_directly) {
@@ -2369,7 +2369,7 @@ OLAPStatus SchemaChange::create_init_version(
     VLOG(3) << "begin to create init version. "
             << "begin=" << version.first << ", end=" << version.second;
 
-    TabletPtr table;
+    TabletSharedPtr table;
     ColumnDataWriter* writer = NULL;
     OLAPStatus res = OLAP_SUCCESS;
 

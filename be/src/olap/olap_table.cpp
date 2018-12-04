@@ -54,7 +54,7 @@ using boost::filesystem::path;
 
 namespace doris {
 
-TabletPtr OLAPTable::create_from_header_file(
+TabletSharedPtr OLAPTable::create_from_header_file(
         TTabletId tablet_id, TSchemaHash schema_hash,
         const string& header_file, OlapStore* store) {
     OLAPHeader* olap_header = NULL;
@@ -90,7 +90,7 @@ TabletPtr OLAPTable::create_from_header_file(
     return create_from_header(olap_header, store);
 }
 
-TabletPtr OLAPTable::create_from_header_file_for_check(
+TabletSharedPtr OLAPTable::create_from_header_file_for_check(
         TTabletId tablet_id, TSchemaHash schema_hash, const string& header_file) {
     OLAPHeader* olap_header = NULL;
 
@@ -106,7 +106,7 @@ TabletPtr OLAPTable::create_from_header_file_for_check(
         return NULL;
     }
 
-    TabletPtr olap_table = std::make_shared<OLAPTable>(olap_header);
+    TabletSharedPtr olap_table = std::make_shared<OLAPTable>(olap_header);
     if (olap_table == NULL) {
         OLAP_LOG_WARNING("fail to validate table. [header_file=%s]", header_file.c_str());
         delete olap_header;
@@ -128,7 +128,7 @@ OLAPTable::OLAPTable(OLAPHeader* header)
     _table_for_check = true;
 }
 
-TabletPtr OLAPTable::create_from_header(
+TabletSharedPtr OLAPTable::create_from_header(
         OLAPHeader* header,
         OlapStore* store) {
     auto olap_table = std::make_shared<OLAPTable>(header, store);
@@ -982,7 +982,7 @@ OLAPStatus OLAPTable::_handle_existed_version(int64_t transaction_id, const Vers
             return res;
         } else if (!push_for_delete) {
             DeleteConditionHandler del_cond_handler;
-            TabletPtr olap_table_ptr =
+            TabletSharedPtr olap_table_ptr =
                 OLAPEngine::get_instance()->get_table(_tablet_id, _schema_hash);
             if (olap_table_ptr.get() != nullptr) {
                 del_cond_handler.delete_cond(olap_table_ptr, version.first, false);
@@ -2155,7 +2155,7 @@ void OLAPTable::set_schema_change_request(TTabletId tablet_id,
     schema_change_status->set_schema_change_type(alter_table_type);
 }
 
-bool OLAPTable::remove_last_schema_change_version(TabletPtr new_olap_table) {
+bool OLAPTable::remove_last_schema_change_version(TabletSharedPtr new_olap_table) {
     if (!_header->has_schema_change_status()) {
         return false;
     }
