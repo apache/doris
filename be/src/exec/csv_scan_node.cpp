@@ -484,6 +484,11 @@ bool CsvScanNode::check_and_write_text_slot(
                 << "type: " << slot->type() << "; "
                 << "input_str: [" << std::string(value, value_length) << "].";
         return false;
+    } else if (!slot->is_nullable() && is_null(value, value_length)) {
+        (*error_msg) << "value cannot be null. column name: " << column_name
+                << "; type: " << slot->type() << "; input_str: ["
+                << std::string(value, value_length) << "].";
+        return false;
     }
 
     if (slot->is_nullable() && is_null(value, value_length)) {
