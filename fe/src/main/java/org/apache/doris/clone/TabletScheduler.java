@@ -26,6 +26,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
@@ -513,11 +514,11 @@ public class TabletScheduler extends Daemon {
                 throw new SchedException(Status.UNRECOVERABLE, "table's state is not NORMAL");
             }
 
-            if (statusPair.first != TabletStatus.VERSION_INCOMPLETE && tableState != OlapTableState.NORMAL) {
-                // If table is under ALTER process, do not allow to add or delete replica.
+            if (statusPair.first != TabletStatus.VERSION_INCOMPLETE && partition.getState() != PartitionState.NORMAL) {
+                // If table is under ALTER process(before FINISHING), do not allow to add or delete replica.
                 // VERSION_INCOMPLETE will repair the replica in place, which is allowed.
                 throw new SchedException(Status.UNRECOVERABLE,
-                        "table's state is not NORMAL but tablet status is " + statusPair.first.name());
+                    "table is in alter process, but tablet status is " + statusPair.first.name());
             }
 
             tabletCtx.setTabletStatus(statusPair.first);

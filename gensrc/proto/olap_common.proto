@@ -22,22 +22,22 @@ package doris;
 option java_package = "org.apache.doris.proto";
 
 message ColumnMessage {
-    required string name = 1;
-    required string type = 2;
-    required string aggregation = 3;
-    required uint32 length = 4;
-    required bool is_key = 5;
-    optional string default_value = 6;
-    optional string referenced_column = 7;
-    optional uint32 index_length = 8;
-    optional uint32 precision = 9 [default = 27];
-    optional uint32 frac = 10 [default = 9];
-    optional bool is_allow_null = 11 [default=false];
-    optional uint32 unique_id = 12;
-    repeated uint32 sub_column = 13;
-    optional bool is_root_column = 14 [default=false];
+    required string name = 1;   // ColumnPB.name
+    required string type = 2;   // ColumnPB.type
+    required string aggregation = 3;    // ColumnPB.aggregation
+    required uint32 length = 4; // ColumnPB.length
+    required bool is_key = 5;   // ColumnPB.is_key
+    optional string default_value = 6;  // ColumnPB.default_value
+    optional string referenced_column = 7;  // ColumnPB.
+    optional uint32 index_length = 8;   // ColumnPB.index_length
+    optional uint32 precision = 9 [default = 27];   // ColumnPB.precision
+    optional uint32 frac = 10 [default = 9];    // ColumnPB.frac
+    optional bool is_allow_null = 11 [default=false];   // ColumnPB.is_nullable
+    optional uint32 unique_id = 12; // ColumnPB.unique_id
+    repeated uint32 sub_column = 13;    // not used 
+    optional bool is_root_column = 14 [default=false]; // not used
     // is bloom filter column
-    optional bool is_bf_column = 15 [default=false];
+    optional bool is_bf_column = 15 [default=false];    // ColumnPB.is_bf_column
 }
 
 enum CompressKind {

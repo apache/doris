@@ -22,8 +22,7 @@
 #include <cmath>
 #include <fstream>
 
-#include "olap/column_data.h"
-#include "olap/olap_table.h"
+#include "olap/rowset/column_data.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
 #include "olap/utils.h"
@@ -58,26 +57,23 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
     OLAPStatus res = OLAP_SUCCESS;
 
     SegmentMetaInfo meta;
-    OLAPIndexHeaderMessage pb;
     uint32_t adler_checksum = 0;
     uint32_t num_entries = 0;
 
     if (file == NULL) {
         res = OLAP_ERR_INPUT_PARAMETER_ERROR;
-        OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
+        LOG(WARNING) << "load index error. file=" << file << ", res=" << res;
         return res;
     }
 
     FileHandler file_handler;
     if ((res = file_handler.open_with_cache(file, O_RDONLY)) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to open index file. [file='%s']", file);
-        OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
+        LOG(WARNING) << "load index error. file=" << file << ", res=" << res;
         return res;
     }
 
     if ((res = meta.file_header.unserialize(&file_handler)) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to read index file header. [file='%s']", file);
-        OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
+        LOG(WARNING) << "load index error. file=" << file << ", res=" << res;
         file_handler.close();
         return res;
     }
@@ -94,25 +90,24 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
     } else {
         null_supported = meta.file_header.message().null_supported();
     }
-    size_t num_short_key_fields = short_key_num();
+    size_t num_short_key_columns = short_key_num();
     bool is_align = false;
     if (!null_supported) {
-        is_align = (0 == storage_length % (entry_length() - num_short_key_fields));
+        is_align = (0 == storage_length % (entry_length() - num_short_key_columns));
     } else {
         is_align = (0 == storage_length % entry_length());
     }
     if (!is_align) {
         res = OLAP_ERR_INDEX_LOAD_ERROR;
-        OLAP_LOG_WARNING("fail to load_segment, buffer length is not correct.");
-        OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
+        LOG(WARNING) << "load index error. file=" << file << ", res=" << res;
         file_handler.close();
         return res;
     }
 
     // calculate the total size of all segments
     if (!null_supported) {
-        _index_size += meta.file_header.file_length() + num_entries * num_short_key_fields;
-        num_entries = storage_length / (entry_length() - num_short_key_fields);
+        _index_size += meta.file_header.file_length() + num_entries * num_short_key_columns;
+        num_entries = storage_length / (entry_length() - num_short_key_columns);
     } else {
         _index_size += meta.file_header.file_length();
         num_entries = storage_length / entry_length();
@@ -175,7 +170,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
      */
 
     size_t storage_row_bytes = entry_length();
-    storage_row_bytes -= (null_supported ? 0 : num_short_key_fields);
+    storage_row_bytes -= (null_supported ? 0 : num_short_key_columns);
     char* storage_ptr = storage_data;
     size_t storage_field_offset = 0;
 
@@ -186,11 +181,12 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
     size_t mem_field_offset = 0;
 
     size_t null_byte = null_supported ? 1 : 0;
-    for (size_t i = 0; i < num_short_key_fields; ++i) {
+    for (size_t i = 0; i < num_short_key_columns; ++i) {
+        const TabletColumn& column = (*_short_key_columns)[i];
         storage_ptr = storage_data + storage_field_offset;
-        storage_field_offset += (*_fields)[i].index_length + null_byte;
+        storage_field_offset += column.index_length() + null_byte;
         mem_ptr = mem_buf + mem_field_offset;
-        if ((*_fields)[i].type == OLAP_FIELD_TYPE_VARCHAR) {
+        if (column.type() == OLAP_FIELD_TYPE_VARCHAR) {
             mem_field_offset += sizeof(Slice) + 1;
             for (size_t j = 0; j < num_entries; ++j) {
                 /*
@@ -216,9 +212,9 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
                 mem_ptr += mem_row_bytes;
                 storage_ptr += storage_row_bytes;
             }
-        } else if ((*_fields)[i].type == OLAP_FIELD_TYPE_CHAR) {
+        } else if (column.type() == OLAP_FIELD_TYPE_CHAR) {
             mem_field_offset += sizeof(Slice) + 1;
-            size_t storage_field_bytes = (*_fields)[i].index_length;
+            size_t storage_field_bytes = column.index_length();
             for (size_t j = 0; j < num_entries; ++j) {
                 /*
                  * Char is in nullbyte|content with fixed length in OlapIndex
@@ -242,7 +238,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
                 storage_ptr += storage_row_bytes;
             }
         } else {
-            size_t storage_field_bytes = (*_fields)[i].index_length;
+            size_t storage_field_bytes = column.index_length();
             mem_field_offset += storage_field_bytes + 1;
             for (size_t j = 0; j < num_entries; ++j) {
                 memory_copy(mem_ptr + 1 - null_byte, storage_ptr, storage_field_bytes + null_byte);
@@ -271,16 +267,16 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t *current_num_rows_per
 }
 
 OLAPStatus MemIndex::init(size_t short_key_len, size_t new_short_key_len,
-                          size_t short_key_num, RowFields* fields) {
-    if (fields == NULL) {
-        OLAP_LOG_WARNING("fail to init MemIndex, NULL short key fields.");
+                          size_t short_key_num, std::vector<TabletColumn>* short_key_columns) {
+    if (short_key_columns == nullptr) {
+        LOG(WARNING) << "fail to init MemIndex, NULL short key columns.";
         return OLAP_ERR_INDEX_LOAD_ERROR;
     }
 
     _key_length = short_key_len;
     _new_key_length = new_short_key_len;
     _key_num = short_key_num;
-    _fields = fields;
+    _short_key_columns = short_key_columns;
 
     return OLAP_SUCCESS;
 }

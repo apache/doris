@@ -60,29 +60,28 @@ public:
     ~RowCursor();
     
     // 根据传入schema的创建RowCursor
-    OLAPStatus init(const std::vector<FieldInfo>& tablet_schema);
+    OLAPStatus init(const TabletSchema& schema);
+    OLAPStatus init(const std::vector<TabletColumn>& schema);
 
     // 根据传入schema的前n列创建RowCursor
-    OLAPStatus init(const std::vector<FieldInfo>& tablet_schema,
+    OLAPStatus init(const std::vector<TabletColumn>& schema,
                     size_t column_count);
+    OLAPStatus init(const TabletSchema& schema, size_t column_count);
 
     // 根据传入schema和column id list创建RowCursor，
     // 用于计算过程只使用部分非前缀连续列的场景
-    OLAPStatus init(const std::vector<FieldInfo>& tablet_schema,
+    OLAPStatus init(const TabletSchema& schema,
                     const std::vector<uint32_t>& columns);
 
     // 用传入的key的size来初始化
     // 目前仅用在拆分key区间的时候
-    OLAPStatus init_scan_key(const std::vector<FieldInfo>& tablet_schema,
+    OLAPStatus init_scan_key(const TabletSchema& schema,
                              const std::vector<std::string>& keys);
 
-    OLAPStatus init_scan_key(const std::vector<FieldInfo>& tablet_schema,
-                             const std::vector<size_t>& field_lengths);
-
     //allocate memory for string type, which include char, varchar, hyperloglog
-    OLAPStatus allocate_memory_for_string_type(const std::vector<FieldInfo>& tablet_schema,
+    OLAPStatus allocate_memory_for_string_type(const TabletSchema& schema,
                                                MemPool* mem_pool = nullptr);
- 
+
     // 两个RowCurosr做比较，返回-1，0，1
     int cmp(const RowCursor& other) const;
 
@@ -179,7 +178,7 @@ public:
     inline uint32_t hash_code(uint32_t seed) const;
 private:
     // common init function
-    OLAPStatus _init(const std::vector<FieldInfo>& tablet_schema,
+    OLAPStatus _init(const std::vector<TabletColumn>& schema,
                      const std::vector<uint32_t>& columns);
 
     std::vector<Field*> _field_array;    // store point array of field

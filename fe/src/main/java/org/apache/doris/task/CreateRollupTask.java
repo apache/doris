@@ -107,6 +107,8 @@ public class CreateRollupTask extends AgentTask {
             tSchema.setBloom_filter_fpp(bfFpp);
         }
         createTabletReq.setTablet_schema(tSchema);
+        createTabletReq.setTable_id(tableId);
+        createTabletReq.setPartition_id(partitionId);
 
         tAlterTabletReq.setNew_tablet_req(createTabletReq);
 

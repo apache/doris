@@ -19,7 +19,6 @@
 #define DORIS_BE_SRC_AGENT_MOCK_MOCK_PUSHER_H
 
 #include "gmock/gmock.h"
-#include "agent/pusher.h"
 
 namespace doris {
 

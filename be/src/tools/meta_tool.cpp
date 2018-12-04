@@ -24,18 +24,19 @@
 #include <gflags/gflags.h>
 
 #include "common/status.h"
-#include "olap/store.h"
-#include "olap/olap_header_manager.h"
+#include "gen_cpp/olap_file.pb.h"
+#include "olap/data_dir.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/olap_define.h"
-#include "olap/olap_header.h"
+#include "olap/tablet_meta.h"
 #include "olap/olap_meta.h"
 #include "olap/utils.h"
 #include "json2pb/pb_to_json.h"
 
-using doris::OlapStore;
+using doris::DataDir;
 using doris::OlapMeta;
-using doris::OlapHeaderManager;
-using doris::OLAPHeader;
+using doris::TabletMetaManager;
+using doris::TabletMeta;
 using doris::OLAPStatus;
 using doris::OLAP_SUCCESS;
 using doris::Status;
@@ -83,12 +84,12 @@ int main(int argc, char** argv) {
 
         root_path = path_prefix + root_path_postfix;
     }
-    std::unique_ptr<OlapStore> store(new(std::nothrow) OlapStore(root_path));
+    std::unique_ptr<DataDir> store(new(std::nothrow) DataDir(root_path));
     if (store.get() == NULL) {
         std::cout << "new store failed" << std::endl;
         return -1;
     }
-    Status st = store->load();
+    Status st = store->init();
     if (!st.ok()) {
         std::cout << "store load failed" << std::endl;
         return -1;
@@ -96,7 +97,7 @@ int main(int argc, char** argv) {
 
     if (FLAGS_operation == "get_header") {
         std::string value;
-        OLAPStatus s = OlapHeaderManager::get_json_header(store.get(), FLAGS_tablet_id, FLAGS_schema_hash, &value);
+        OLAPStatus s = TabletMetaManager::get_json_header(store.get(), FLAGS_tablet_id, FLAGS_schema_hash, &value);
         if (s == doris::OLAP_ERR_META_KEY_NOT_FOUND) {
             std::cout << "no header for tablet_id:" << FLAGS_tablet_id
                     << " schema_hash:" << FLAGS_schema_hash;
@@ -105,21 +106,21 @@ int main(int argc, char** argv) {
         std::cout << value << std::endl;
     } else if (FLAGS_operation == "flag") {
         bool converted = false;
-        OLAPStatus s = OlapHeaderManager::get_header_converted(store.get(), converted);
+        OLAPStatus s = TabletMetaManager::get_header_converted(store.get(), converted);
         if (s != OLAP_SUCCESS) {
             std::cout << "get header converted flag failed" << std::endl;
             return -1;
         }
         std::cout << "is_header_converted is " << converted << std::endl;
     } else if (FLAGS_operation == "load_header") {
-        OLAPStatus s = OlapHeaderManager::load_json_header(store.get(), FLAGS_json_header_path);
+        OLAPStatus s = TabletMetaManager::load_json_header(store.get(), FLAGS_json_header_path);
         if (s != OLAP_SUCCESS) {
             std::cout << "load header failed" << std::endl;
             return -1;
         }
         std::cout << "load header successfully" << std::endl;
     } else if (FLAGS_operation == "delete_header") {
-        OLAPStatus s = OlapHeaderManager::remove(store.get(), FLAGS_tablet_id, FLAGS_schema_hash);
+        OLAPStatus s = TabletMetaManager::remove(store.get(), FLAGS_tablet_id, FLAGS_schema_hash);
         if (s != OLAP_SUCCESS) {
             std::cout << "delete header failed for tablet_id:" << FLAGS_tablet_id
                     << " schema_hash:" << FLAGS_schema_hash << std::endl;
@@ -129,26 +130,26 @@ int main(int argc, char** argv) {
     } else if (FLAGS_operation == "rollback") {
         auto rollback_func = [&root_path](long tablet_id,
                 long schema_hash, const std::string& value) -> bool {
-            OLAPHeader olap_header;
-            bool parsed = olap_header.ParseFromString(value);
+            TabletMeta tablet_meta;
+            bool parsed = tablet_meta.deserialize(value);
             if (!parsed) {
                 std::cout << "parse header failed";
                 return true;
             }
             std::string tablet_id_str = std::to_string(tablet_id);
-            std::string schema_hash_path = root_path + "/data/" + std::to_string(olap_header.shard())
+            std::string schema_hash_path = root_path + "/data/" + std::to_string(tablet_meta.shard_id())
                     + "/" + tablet_id_str + "/" + std::to_string(schema_hash);
             std::string header_file_path = schema_hash_path + "/" + tablet_id_str + ".hdr";
             std::cout << "save header to path:" << header_file_path << std::endl;
-            OLAPStatus s = olap_header.save(header_file_path);
+            OLAPStatus s = tablet_meta.save(header_file_path);
             if (s != OLAP_SUCCESS) {
                 std::cout << "save header file to path:" << header_file_path << " failed" << std::endl;
             }
             return true;
         };
-        OlapHeaderManager::traverse_headers(store->get_meta(), rollback_func);
+        TabletMetaManager::traverse_headers(store->get_meta(), rollback_func);
     } else if (FLAGS_operation == "show_header") {
-        OLAPHeader header(FLAGS_pb_header_path);
+        TabletMeta header(FLAGS_pb_header_path);
         OLAPStatus s = header.load_and_init();
         if (s != OLAP_SUCCESS) {
             std::cout << "load pb header file:" << FLAGS_pb_header_path << " failed" << std::endl;
@@ -157,7 +158,9 @@ int main(int argc, char** argv) {
         std::string json_header;
         json2pb::Pb2JsonOptions json_options;
         json_options.pretty_json = true;
-        json2pb::ProtoMessageToJson(header, &json_header, json_options);
+        TabletMetaPB tablet_meta_pb;
+        header.to_tablet_pb(&tablet_meta_pb);
+        json2pb::ProtoMessageToJson(tablet_meta_pb, &json_header, json_options);
         std::cout << "header:" << std::endl;
         std::cout << json_header << std::endl;
     } else {

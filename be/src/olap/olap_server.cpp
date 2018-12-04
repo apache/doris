@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -29,7 +29,7 @@
 #include "olap/cumulative_compaction.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "agent/cgroups_mgr.h"
 
 using std::string;
@@ -39,59 +39,89 @@ namespace doris {
 // number of running SCHEMA-CHANGE threads
 volatile uint32_t g_schema_change_active_threads = 0;
 
-OLAPStatus OLAPEngine::_start_bg_worker() {
+OLAPStatus StorageEngine::_start_bg_worker() {
+    _unused_rowset_monitor_thread =  std::thread(
+        [this] {
+            _unused_rowset_monitor_thread_callback(nullptr);
+        });
+    _unused_rowset_monitor_thread.detach();
+
     // start thread for monitoring the snapshot and trash folder
     _garbage_sweeper_thread = std::thread(
         [this] {
             _garbage_sweeper_thread_callback(nullptr);
         });
-
-    // start thread for monitoring the table with io error
+    _garbage_sweeper_thread.detach();
+    // start thread for monitoring the tablet with io error
     _disk_stat_monitor_thread = std::thread(
         [this] {
             _disk_stat_monitor_thread_callback(nullptr);
         });
+    _disk_stat_monitor_thread.detach();
 
-    // start thread for monitoring the unused index
-    _unused_index_thread = std::thread(
-        [this] {
-            _unused_index_thread_callback(nullptr);
-        });
     // convert store map to vector
-    std::vector<OlapStore*> store_vec;
+    std::vector<DataDir*> data_dirs;
     for (auto& tmp_store : _store_map) {
-        store_vec.push_back(tmp_store.second);
+        data_dirs.push_back(tmp_store.second);
     }
-    int32_t store_num = store_vec.size();
+    int32_t data_dir_num = data_dirs.size();
     // start be and ce threads for merge data
-    int32_t base_compaction_num_threads = config::base_compaction_num_threads_per_disk * store_num;
+    int32_t base_compaction_num_threads = config::base_compaction_num_threads_per_disk * data_dir_num;
     _base_compaction_threads.reserve(base_compaction_num_threads);
     for (uint32_t i = 0; i < base_compaction_num_threads; ++i) {
         _base_compaction_threads.emplace_back(
-            [this, store_num, store_vec, i] {
-                _base_compaction_thread_callback(nullptr, store_vec[i % store_num]);
+            [this, data_dir_num, data_dirs, i] {
+                _base_compaction_thread_callback(nullptr, data_dirs[i % data_dir_num]);
             });
     }
+    for (auto& thread : _base_compaction_threads) {
+        thread.detach();
+    }
 
-    int32_t cumulative_compaction_num_threads = config::cumulative_compaction_num_threads_per_disk * store_num;
+    int32_t cumulative_compaction_num_threads = config::cumulative_compaction_num_threads_per_disk * data_dir_num;
     _cumulative_compaction_threads.reserve(cumulative_compaction_num_threads);
     for (uint32_t i = 0; i < cumulative_compaction_num_threads; ++i) {
         _cumulative_compaction_threads.emplace_back(
-            [this, store_num, store_vec, i] {
-                _cumulative_compaction_thread_callback(nullptr, store_vec[i % store_num]);
+            [this, data_dir_num, data_dirs, i] {
+                _cumulative_compaction_thread_callback(nullptr, data_dirs[i % data_dir_num]);
             });
+    }
+    for (auto& thread : _cumulative_compaction_threads) {
+        thread.detach();
     }
 
     _fd_cache_clean_thread = std::thread(
         [this] {
             _fd_cache_clean_callback(nullptr);
         });
+    _fd_cache_clean_thread.detach();
+
+    // path scan and gc thread
+    if (config::path_gc_check) {
+        for (auto data_dir : get_stores()) {
+            _path_scan_threads.emplace_back(
+            [this, data_dir] {
+                _path_scan_thread_callback((void*)data_dir);
+            });
+
+            _path_gc_threads.emplace_back(
+            [this, data_dir] {
+                _path_gc_thread_callback((void*)data_dir);
+            });
+        }
+        for (auto& thread : _path_scan_threads) {
+            thread.detach();
+        }
+        for (auto& thread : _path_gc_threads) {
+            thread.detach();
+        }
+    }
 
     VLOG(10) << "init finished.";
     return OLAP_SUCCESS;
 }
 
-void* OLAPEngine::_fd_cache_clean_callback(void* arg) {
+void* StorageEngine::_fd_cache_clean_callback(void* arg) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
@@ -106,10 +136,10 @@ void* OLAPEngine::_fd_cache_clean_callback(void* arg) {
         start_clean_fd_cache();
     }
 
-    return NULL;
+    return nullptr;
 }
 
-void* OLAPEngine::_base_compaction_thread_callback(void* arg, OlapStore* store) {
+void* StorageEngine::_base_compaction_thread_callback(void* arg, DataDir* data_dir) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
@@ -127,15 +157,15 @@ void* OLAPEngine::_base_compaction_thread_callback(void* arg, OlapStore* store) 
         // cgroup is not initialized at this time
         // add tid to cgroup
         CgroupsMgr::apply_system_cgroup();
-        perform_base_compaction(store);
+        perform_base_compaction(data_dir);
 
         usleep(interval * 1000000);
     }
 
-    return NULL;
+    return nullptr;
 }
 
-void* OLAPEngine::_garbage_sweeper_thread_callback(void* arg) {
+void* StorageEngine::_garbage_sweeper_thread_callback(void* arg) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
@@ -178,10 +208,10 @@ void* OLAPEngine::_garbage_sweeper_thread_callback(void* arg) {
         }
     }
 
-    return NULL;
+    return nullptr;
 }
 
-void* OLAPEngine::_disk_stat_monitor_thread_callback(void* arg) {
+void* StorageEngine::_disk_stat_monitor_thread_callback(void* arg) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
@@ -189,8 +219,8 @@ void* OLAPEngine::_disk_stat_monitor_thread_callback(void* arg) {
     uint32_t interval = config::disk_stat_monitor_interval;
 
     if (interval <= 0) {
-        OLAP_LOG_WARNING("disk_stat_monitor_interval config is illegal: [%d], "
-                         "force set to 1", interval);
+        LOG(WARNING) << "disk_stat_monitor_interval config is illegal: " << interval
+                << ", force set to 1";
         interval = 1;
     }
 
@@ -199,31 +229,10 @@ void* OLAPEngine::_disk_stat_monitor_thread_callback(void* arg) {
         sleep(interval);
     }
 
-    return NULL;
+    return nullptr;
 }
 
-void* OLAPEngine::_unused_index_thread_callback(void* arg) {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-
-    uint32_t interval = config::unused_index_monitor_interval;
-
-    if (interval <= 0) {
-        OLAP_LOG_WARNING("unused_index_monitor_interval config is illegal: [%d], "
-                         "force set to 1", interval);
-        interval = 1;
-    }
-
-    while (true) {
-        start_delete_unused_index();
-        sleep(interval);
-    }
-
-    return NULL;
-}
-
-void* OLAPEngine::_cumulative_compaction_thread_callback(void* arg, OlapStore* store) {
+void* StorageEngine::_cumulative_compaction_thread_callback(void* arg, DataDir* data_dir) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
@@ -240,11 +249,32 @@ void* OLAPEngine::_cumulative_compaction_thread_callback(void* arg, OlapStore* s
         // cgroup is not initialized at this time
         // add tid to cgroup
         CgroupsMgr::apply_system_cgroup();
-        perform_cumulative_compaction(store);
+        perform_cumulative_compaction(data_dir);
         usleep(interval * 1000000);
     }
 
-    return NULL;
+    return nullptr;
+}
+
+void* StorageEngine::_unused_rowset_monitor_thread_callback(void* arg) {
+#ifdef GOOGLE_PROFILER
+    ProfilerRegisterThread();
+#endif
+
+    uint32_t interval = config::unused_rowset_monitor_interval;
+
+    if (interval <= 0) {
+        LOG(WARNING) << "unused_rowset_monitor_interval config is illegal: " << interval
+                << ", force set to 1";
+        interval = 1;
+    }
+
+    while (true) {
+        start_delete_unused_rowset();
+        sleep(interval);
+    }
+
+    return nullptr;
 }
 
 }  // namespace doris

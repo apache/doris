@@ -18,220 +18,232 @@
 #include <gtest/gtest.h>
 
 #include "olap/row_cursor.h"
+#include "olap/tablet_schema.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
 #include "util/logging.h"
 
 namespace doris {
 
-void set_tablet_schema_for_init(std::vector<FieldInfo>* tablet_schema) {
-    FieldInfo k1;
-    k1.name = "k1";
-    k1.type = OLAP_FIELD_TYPE_TINYINT;
-    k1.length = 1;
-    k1.is_key = true;
-    k1.index_length = 1;
-    k1.is_allow_null = true;
-    tablet_schema->push_back(k1);
+void set_tablet_schema_for_init(TabletSchema* tablet_schema) {
+    TabletSchemaPB tablet_schema_pb;
+    ColumnPB* column_1 = tablet_schema_pb.add_column();
+    column_1->set_unique_id(1);
+    column_1->set_name("column_1");
+    column_1->set_type("TINYINT");
+    column_1->set_is_key(true);
+    column_1->set_is_nullable(true);
+    column_1->set_length(1);
+    column_1->set_index_length(1);
 
-    FieldInfo k2;
-    k2.name = "k2";
-    k2.type = OLAP_FIELD_TYPE_SMALLINT;
-    k2.length = 2;
-    k2.default_value = "0";
-    k2.is_key = true;
-    k2.index_length = 2;
-    k2.is_allow_null = true;
-    tablet_schema->push_back(k2);
+    ColumnPB* column_2 = tablet_schema_pb.add_column();
+    column_2->set_unique_id(2);
+    column_2->set_name("column_2");
+    column_2->set_type("SMALLINT");
+    column_2->set_is_key(true);
+    column_2->set_is_nullable(true);
+    column_2->set_length(2);
+    column_2->set_index_length(2);
+    column_2->set_default_value("0");
 
-    FieldInfo k3;
-    k3.name = "k3";
-    k3.type = OLAP_FIELD_TYPE_INT;
-    k3.length = 4;
-    k3.is_key = true;
-    k3.index_length = 4;
-    k3.is_allow_null = true;
-    tablet_schema->push_back(k3);
+    ColumnPB* column_3 = tablet_schema_pb.add_column();
+    column_3->set_unique_id(3);
+    column_3->set_name("column_3");
+    column_3->set_type("INT");
+    column_3->set_is_key(true);
+    column_3->set_is_nullable(true);
+    column_3->set_length(4);
+    column_3->set_index_length(4);
 
-    FieldInfo k4;
-    k4.name = "k4";
-    k4.type = OLAP_FIELD_TYPE_DATE;
-    k4.length = 3;
-    k4.is_key = true;
-    k4.index_length = 3;
-    k4.is_allow_null = true;
-    tablet_schema->push_back(k4);
+    ColumnPB* column_4 = tablet_schema_pb.add_column();
+    column_4->set_unique_id(4);
+    column_4->set_name("column_4");
+    column_4->set_type("DATE");
+    column_4->set_is_key(true);
+    column_4->set_is_nullable(true);
+    column_4->set_length(3);
+    column_4->set_index_length(3);
 
-    FieldInfo k5;
-    k5.name = "k5";
-    k5.type = OLAP_FIELD_TYPE_DATETIME;
-    k5.length = 8;
-    k5.is_key = true;
-    k5.index_length = 8;
-    k5.is_allow_null = true;
-    tablet_schema->push_back(k5);
+    ColumnPB* column_5 = tablet_schema_pb.add_column();
+    column_5->set_unique_id(5);
+    column_5->set_name("column_5");
+    column_5->set_type("DATETIME");
+    column_5->set_is_key(true);
+    column_5->set_is_nullable(true);
+    column_5->set_length(8);
+    column_5->set_index_length(8);
 
-    FieldInfo k6;
-    k6.name = "k6";
-    k6.type = OLAP_FIELD_TYPE_DECIMAL;
-    k6.length = 12;
-    k6.precision = 6;
-    k6.frac = 3;
-    k6.is_key = true;
-    k6.index_length = 12;
-    k6.is_allow_null = true;
-    tablet_schema->push_back(k6);
+    ColumnPB* column_6 = tablet_schema_pb.add_column();
+    column_6->set_unique_id(6);
+    column_6->set_name("column_6");
+    column_6->set_type("DECIMAL");
+    column_6->set_is_key(true);
+    column_6->set_is_nullable(true);
+    column_6->set_length(12);
+    column_6->set_index_length(12);
+    column_6->set_frac(3);
+    column_6->set_precision(6);
 
-    FieldInfo k7;
-    k7.name = "k7";
-    k7.type = OLAP_FIELD_TYPE_CHAR;
-    k7.length = 4;
-    k7.default_value = "char";
-    k7.is_key = true;
-    k7.index_length = 4;
-    k7.is_allow_null = true;
-    tablet_schema->push_back(k7);
+    ColumnPB* column_7 = tablet_schema_pb.add_column();
+    column_7->set_unique_id(7);
+    column_7->set_name("column_7");
+    column_7->set_type("CHAR");
+    column_7->set_is_key(true);
+    column_7->set_is_nullable(true);
+    column_7->set_length(4);
+    column_7->set_index_length(4);
+    column_7->set_default_value("char");
 
-    FieldInfo v1;
-    v1.name = "v1";
-    v1.type = OLAP_FIELD_TYPE_BIGINT;
-    v1.length = 8;
-    v1.aggregation = OLAP_FIELD_AGGREGATION_SUM;
-    v1.is_key = false;
-    v1.is_allow_null = true;
-    tablet_schema->push_back(v1);
+    ColumnPB* column_8 = tablet_schema_pb.add_column();
+    column_8->set_unique_id(8);
+    column_8->set_name("column_8");
+    column_8->set_type("BIGINT");
+    column_8->set_is_nullable(true);
+    column_8->set_length(8);
+    column_8->set_aggregation("SUM");
+    column_8->set_is_key(false);
 
-    FieldInfo v2;
-    v2.name = "v2";
-    v2.type = OLAP_FIELD_TYPE_VARCHAR;
-    v2.length = 16 + OLAP_STRING_MAX_BYTES;
-    v2.aggregation = OLAP_FIELD_AGGREGATION_REPLACE;
-    v2.is_key = false;
-    v2.is_allow_null = true;
-    tablet_schema->push_back(v2);
+    ColumnPB* column_9 = tablet_schema_pb.add_column();
+    column_9->set_unique_id(9);
+    column_9->set_name("column_9");
+    column_9->set_type("VARCHAR");
+    column_9->set_is_nullable(true);
+    column_9->set_length(16 + OLAP_STRING_MAX_BYTES);
+    column_9->set_aggregation("REPLACE");
+    column_9->set_is_key(false);
 
-    FieldInfo v3;
-    v3.name = "v3";
-    v3.type = OLAP_FIELD_TYPE_LARGEINT;
-    v3.length = 16;
-    v3.aggregation = OLAP_FIELD_AGGREGATION_MAX;
-    v3.is_key = false;
-    v3.is_allow_null = true;
-    tablet_schema->push_back(v3);
+    ColumnPB* column_10 = tablet_schema_pb.add_column();
+    column_10->set_unique_id(10);
+    column_10->set_name("column_10");
+    column_10->set_type("LARGEINT");
+    column_10->set_is_nullable(true);
+    column_10->set_length(16);
+    column_10->set_aggregation("MAX");
+    column_10->set_is_key(false);
 
-    FieldInfo v4;
-    v4.name = "v4";
-    v4.type = OLAP_FIELD_TYPE_DECIMAL;
-    v4.length = 12;
-    v4.aggregation = OLAP_FIELD_AGGREGATION_MIN;
-    v4.is_key = false;
-    v4.is_allow_null = true;
-    tablet_schema->push_back(v4);
+    ColumnPB* column_11 = tablet_schema_pb.add_column();
+    column_11->set_unique_id(11);
+    column_11->set_name("column_11");
+    column_11->set_type("DECIMAL");
+    column_11->set_is_nullable(true);
+    column_11->set_length(12);
+    column_11->set_aggregation("MIN");
+    column_11->set_is_key(false);
 
-    FieldInfo v5;
-    v5.name = "v5";
-    v5.type = OLAP_FIELD_TYPE_HLL;
-    v5.length = HLL_COLUMN_DEFAULT_LEN;
-    v5.aggregation = OLAP_FIELD_AGGREGATION_HLL_UNION;
-    v5.is_key = false;
-    v5.is_allow_null = true;
-    tablet_schema->push_back(v5);
+    ColumnPB* column_12 = tablet_schema_pb.add_column();
+    column_12->set_unique_id(12);
+    column_12->set_name("column_12");
+    column_12->set_type("HLL");
+    column_12->set_is_nullable(true);
+    column_12->set_length(HLL_COLUMN_DEFAULT_LEN);
+    column_12->set_aggregation("HLL_UNION");
+    column_12->set_is_key(false);
+
+    tablet_schema->init_from_pb(tablet_schema_pb);
 }
 
-void set_tablet_schema_for_scan_key(std::vector<FieldInfo>* tablet_schema) {
-    FieldInfo k1;
-    k1.name = "k1";
-    k1.type = OLAP_FIELD_TYPE_CHAR;
-    k1.length = 4;
-    k1.index_length = 4;
-    k1.default_value = "char";
-    k1.is_key = true;
-    k1.is_allow_null = true;
-    tablet_schema->push_back(k1);
+void set_tablet_schema_for_scan_key(TabletSchema* tablet_schema) {
+    TabletSchemaPB tablet_schema_pb;
 
-    FieldInfo k2;
-    k2.name = "k2";
-    k2.type = OLAP_FIELD_TYPE_VARCHAR;
-    k2.length = 16 + OLAP_STRING_MAX_BYTES;
-    k2.index_length = 20;
-    k2.is_key = true;
-    k2.is_allow_null = true;
-    tablet_schema->push_back(k2);
+    ColumnPB* column_1 = tablet_schema_pb.add_column();
+    column_1->set_unique_id(1);
+    column_1->set_name("column_1");
+    column_1->set_type("CHAR");
+    column_1->set_is_key(true);
+    column_1->set_is_nullable(true);
+    column_1->set_length(4);
+    column_1->set_index_length(4);
+    column_1->set_default_value("char");
 
-    FieldInfo v1;
-    v1.name = "v1";
-    v1.type = OLAP_FIELD_TYPE_LARGEINT;
-    v1.length = 16;
-    v1.aggregation = OLAP_FIELD_AGGREGATION_MAX;
-    v1.is_key = false;
-    v1.is_allow_null = true;
-    tablet_schema->push_back(v1);
+    ColumnPB* column_2 = tablet_schema_pb.add_column();
+    column_2->set_unique_id(2);
+    column_2->set_name("column_2");
+    column_2->set_type("VARCHAR");
+    column_2->set_is_key(true);
+    column_2->set_is_nullable(true);
+    column_2->set_length(16 + OLAP_STRING_MAX_BYTES);
+    column_2->set_index_length(20);
 
-    FieldInfo v2;
-    v2.name = "v2";
-    v2.type = OLAP_FIELD_TYPE_DECIMAL;
-    v2.length = 12;
-    v2.aggregation = OLAP_FIELD_AGGREGATION_MIN;
-    v2.is_key = false;
-    v2.is_allow_null = true;
-    tablet_schema->push_back(v2);
+    ColumnPB* column_3 = tablet_schema_pb.add_column();
+    column_3->set_unique_id(3);
+    column_3->set_name("column_3");
+    column_3->set_type("LARGEINT");
+    column_3->set_is_nullable(true);
+    column_3->set_length(16);
+    column_3->set_aggregation("MAX");
+    column_3->set_is_key(false);
+
+    ColumnPB* column_4 = tablet_schema_pb.add_column();
+    column_4->set_unique_id(9);
+    column_4->set_name("column_4");
+    column_4->set_type("DECIMAL");
+    column_4->set_is_nullable(true);
+    column_4->set_length(12);
+    column_4->set_aggregation("MIN");
+    column_4->set_is_key(false);
+
+    tablet_schema->init_from_pb(tablet_schema_pb);
 }
 
-void set_tablet_schema_for_cmp_and_aggregate(std::vector<FieldInfo>* tablet_schema) {
-    FieldInfo k1;
-    k1.name = "k1";
-    k1.type = OLAP_FIELD_TYPE_CHAR;
-    k1.length = 4;
-    k1.default_value = "char";
-    k1.is_key = true;
-    k1.index_length = 4;
-    k1.is_allow_null = true;
-    tablet_schema->push_back(k1);
+void set_tablet_schema_for_cmp_and_aggregate(TabletSchema* tablet_schema) {
+    TabletSchemaPB tablet_schema_pb;
 
-    FieldInfo k2;
-    k2.name = "k2";
-    k2.type = OLAP_FIELD_TYPE_INT;
-    k2.length = 4;
-    k2.is_key = true;
-    k2.index_length = 4;
-    k2.is_allow_null = true;
-    tablet_schema->push_back(k2);
+    ColumnPB* column_1 = tablet_schema_pb.add_column();
+    column_1->set_unique_id(1);
+    column_1->set_name("column_1");
+    column_1->set_type("CHAR");
+    column_1->set_is_key(true);
+    column_1->set_is_nullable(true);
+    column_1->set_length(4);
+    column_1->set_index_length(4);
+    column_1->set_default_value("char");
 
-    FieldInfo v1;
-    v1.name = "v1";
-    v1.type = OLAP_FIELD_TYPE_LARGEINT;
-    v1.length = 16;
-    v1.aggregation = OLAP_FIELD_AGGREGATION_SUM;
-    v1.is_key = false;
-    v1.is_allow_null = true;
-    tablet_schema->push_back(v1);
+    ColumnPB* column_2 = tablet_schema_pb.add_column();
+    column_2->set_unique_id(2);
+    column_2->set_name("column_2");
+    column_2->set_type("INT");
+    column_2->set_is_key(true);
+    column_2->set_is_nullable(true);
+    column_2->set_length(4);
+    column_2->set_index_length(4);
 
-    FieldInfo v2;
-    v2.name = "v2";
-    v2.type = OLAP_FIELD_TYPE_DOUBLE;
-    v2.length = 8;
-    v2.aggregation = OLAP_FIELD_AGGREGATION_MIN;
-    v2.is_key = false;
-    v2.is_allow_null = true;
-    tablet_schema->push_back(v2);
+    ColumnPB* column_3 = tablet_schema_pb.add_column();
+    column_3->set_unique_id(3);
+    column_3->set_name("column_3");
+    column_3->set_type("LARGEINT");
+    column_3->set_is_nullable(true);
+    column_3->set_length(16);
+    column_3->set_aggregation("SUM");
+    column_3->set_is_key(false);
 
-    FieldInfo v3;
-    v3.name = "v3";
-    v3.type = OLAP_FIELD_TYPE_DECIMAL;
-    v3.length = 12;
-    v3.aggregation = OLAP_FIELD_AGGREGATION_MAX;
-    v3.is_key = false;
-    v3.is_allow_null = true;
-    tablet_schema->push_back(v3);
+    ColumnPB* column_4 = tablet_schema_pb.add_column();
+    column_4->set_unique_id(9);
+    column_4->set_name("column_4");
+    column_4->set_type("DOUBLE");
+    column_4->set_is_nullable(true);
+    column_4->set_length(8);
+    column_4->set_aggregation("MIN");
+    column_4->set_is_key(false);
 
-    FieldInfo v4;
-    v4.name = "v4";
-    v4.type = OLAP_FIELD_TYPE_VARCHAR;
-    v4.length = 16 + OLAP_STRING_MAX_BYTES;
-    v4.aggregation = OLAP_FIELD_AGGREGATION_REPLACE;
-    v4.is_key = false;
-    v4.is_allow_null = true;
-    tablet_schema->push_back(v4);
+    ColumnPB* column_5 = tablet_schema_pb.add_column();
+    column_5->set_unique_id(3);
+    column_5->set_name("column_5");
+    column_5->set_type("DECIMAL");
+    column_5->set_is_nullable(true);
+    column_5->set_length(12);
+    column_5->set_aggregation("MAX");
+    column_5->set_is_key(false);
+
+    ColumnPB* column_6 = tablet_schema_pb.add_column();
+    column_6->set_unique_id(9);
+    column_6->set_name("column_6");
+    column_6->set_type("VARCHAR");
+    column_6->set_is_nullable(true);
+    column_6->set_length(16 + OLAP_STRING_MAX_BYTES);
+    column_6->set_aggregation("REPLACE");
+    column_6->set_is_key(false);
+
+    tablet_schema->init_from_pb(tablet_schema_pb);
 }
 
 class TestRowCursor : public testing::Test {
@@ -250,7 +262,7 @@ public:
 };
 
 TEST_F(TestRowCursor, InitRowCursor) {
-    std::vector<FieldInfo> tablet_schema;
+    TabletSchema tablet_schema;
     set_tablet_schema_for_init(&tablet_schema);
     RowCursor row;
     OLAPStatus res = row.init(tablet_schema);
@@ -260,7 +272,7 @@ TEST_F(TestRowCursor, InitRowCursor) {
 }
 
 TEST_F(TestRowCursor, InitRowCursorWithColumnCount) {
-    std::vector<FieldInfo> tablet_schema;
+    TabletSchema tablet_schema;
     set_tablet_schema_for_init(&tablet_schema);
     RowCursor row;
     OLAPStatus res = row.init(tablet_schema, 5);
@@ -272,11 +284,11 @@ TEST_F(TestRowCursor, InitRowCursorWithColumnCount) {
 }
 
 TEST_F(TestRowCursor, InitRowCursorWithColIds) {
-    std::vector<FieldInfo> tablet_schema;
+    TabletSchema tablet_schema;
     set_tablet_schema_for_init(&tablet_schema);
 
     std::vector<uint32_t> col_ids;
-    for (size_t i = 0; i < tablet_schema.size() / 2; ++i) {
+    for (size_t i = 0; i < tablet_schema.num_columns() / 2; ++i) {
         col_ids.push_back(i * 2);
     }
 
@@ -288,7 +300,7 @@ TEST_F(TestRowCursor, InitRowCursorWithColIds) {
 }
 
 TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
-    std::vector<FieldInfo> tablet_schema;
+    TabletSchema tablet_schema;
     set_tablet_schema_for_scan_key(&tablet_schema);
 
     std::vector<std::string> scan_keys;
@@ -311,7 +323,7 @@ TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
 }
 
 TEST_F(TestRowCursor, SetMinAndMaxKey) {
-    std::vector<FieldInfo> tablet_schema;
+    TabletSchema tablet_schema;
     set_tablet_schema_for_init(&tablet_schema);
 
     RowCursor min_row;
@@ -321,7 +333,7 @@ TEST_F(TestRowCursor, SetMinAndMaxKey) {
 
     res = min_row.build_min_key();
     ASSERT_EQ(res, OLAP_SUCCESS);
-    for (size_t i = 0; i < tablet_schema.size(); ++i) {
+    for (size_t i = 0; i < tablet_schema.num_columns(); ++i) {
         ASSERT_TRUE(min_row.is_min(i));
     }
 
@@ -332,7 +344,7 @@ TEST_F(TestRowCursor, SetMinAndMaxKey) {
 }
 
 TEST_F(TestRowCursor, EqualAndCompare) {
-    std::vector<FieldInfo> tablet_schema;
+    TabletSchema tablet_schema;
     set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
 
     RowCursor left;
@@ -373,7 +385,7 @@ TEST_F(TestRowCursor, EqualAndCompare) {
 }
 
 TEST_F(TestRowCursor, IndexCmp) {
-    std::vector<FieldInfo> tablet_schema;
+    TabletSchema tablet_schema;
     set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
 
     RowCursor left;
@@ -414,7 +426,7 @@ TEST_F(TestRowCursor, IndexCmp) {
 }
 
 TEST_F(TestRowCursor, FullKeyCmp) {
-    std::vector<FieldInfo> tablet_schema;
+    TabletSchema tablet_schema;
     set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
 
     RowCursor left;
@@ -454,7 +466,7 @@ TEST_F(TestRowCursor, FullKeyCmp) {
 }
 
 TEST_F(TestRowCursor, AggregateWithoutNull) {
-    std::vector<FieldInfo> tablet_schema;
+    TabletSchema tablet_schema;
     set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
 
     RowCursor row;
@@ -514,7 +526,7 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
 }
 
 TEST_F(TestRowCursor, AggregateWithNull) {
-    std::vector<FieldInfo> tablet_schema;
+    TabletSchema tablet_schema;
     set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
 
     RowCursor row;

@@ -227,14 +227,6 @@ TEST_F(DorisMetricsTest, Normal) {
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("22", ((SimpleMetric*)metric)->to_string().c_str());
     }
-    {
-        DorisMetrics::cancel_delete_requests_total.increment(23);
-        auto metric = metrics->get_metric("engine_requests_total",
-                                          MetricLabels().add("type", "cancel_delete")
-                                          .add("status", "total"));
-        ASSERT_TRUE(metric != nullptr);
-        ASSERT_STREQ("23", ((SimpleMetric*)metric)->to_string().c_str());
-    }
     //  comapction
     {
         DorisMetrics::base_compaction_deltas_total.increment(30);
