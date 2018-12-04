@@ -46,11 +46,11 @@ public:
     typedef std::vector<ColumnMapping> SchemaMapping;
 
     RowBlockChanger(const std::vector<FieldInfo>& tablet_schema,
-                    const OLAPTablePtr& ref_olap_table,
+                    const TabletSharedPtr& ref_olap_table,
                     const DeleteHandler& delete_handler);
 
     RowBlockChanger(const std::vector<FieldInfo>& tablet_schema,
-                    const OLAPTablePtr& ref_olap_table);
+                    const TabletSharedPtr& ref_olap_table);
     
     virtual ~RowBlockChanger();
 
@@ -112,7 +112,7 @@ private:
 
 class RowBlockMerger {
 public:
-    explicit RowBlockMerger(OLAPTablePtr olap_table);
+    explicit RowBlockMerger(TabletSharedPtr olap_table);
     virtual ~RowBlockMerger();
 
     bool merge(
@@ -134,7 +134,7 @@ private:
     bool _make_heap(const std::vector<RowBlock*>& row_block_arr);
     bool _pop_heap();
 
-    OLAPTablePtr _olap_table;
+    TabletSharedPtr _olap_table;
     std::priority_queue<MergeElement> _heap;
 };
 
@@ -184,16 +184,14 @@ private:
 class LinkedSchemaChange : public SchemaChange {
 public:
     explicit LinkedSchemaChange(
-                OLAPTablePtr base_olap_table, 
-                OLAPTablePtr new_olap_table,
-                const RowBlockChanger& row_block_changer);
+                TabletSharedPtr base_olap_table,
+                TabletSharedPtr new_olap_table);
     ~LinkedSchemaChange() {}
 
     bool process(ColumnData* olap_data, SegmentGroup* new_segment_group);
 private:
-    OLAPTablePtr _base_olap_table;
-    OLAPTablePtr _new_olap_table;
-    const RowBlockChanger& _row_block_changer;
+    TabletSharedPtr _base_olap_table;
+    TabletSharedPtr _new_olap_table;
     DISALLOW_COPY_AND_ASSIGN(LinkedSchemaChange);
 };
 
@@ -203,14 +201,14 @@ public:
     // @params olap_table           the instance of table which has new schema.
     // @params row_block_changer    changer to modifiy the data of RowBlock
     explicit SchemaChangeDirectly(
-            OLAPTablePtr olap_table,
+            TabletSharedPtr olap_table,
             const RowBlockChanger& row_block_changer);
     virtual ~SchemaChangeDirectly();
 
     virtual bool process(ColumnData* olap_data, SegmentGroup* new_segment_group);
 
 private:
-    OLAPTablePtr _olap_table;
+    TabletSharedPtr _olap_table;
     const RowBlockChanger& _row_block_changer;
     RowBlockAllocator* _row_block_allocator;
     RowCursor* _src_cursor;
@@ -225,7 +223,7 @@ private:
 class SchemaChangeWithSorting : public SchemaChange {
 public:
     explicit SchemaChangeWithSorting(
-            OLAPTablePtr olap_table,
+            TabletSharedPtr olap_table,
             const RowBlockChanger& row_block_changer,
             size_t memory_limitation);
     virtual ~SchemaChangeWithSorting();
@@ -242,7 +240,7 @@ private:
             std::vector<SegmentGroup*>& src_segment_group_arr,
             SegmentGroup* segment_group);
 
-    OLAPTablePtr _olap_table;
+    TabletSharedPtr _olap_table;
     const RowBlockChanger& _row_block_changer;
     size_t _memory_limitation;
     Version _temp_delta_versions;
@@ -259,8 +257,8 @@ public:
     OLAPStatus process_alter_table(AlterTabletType alter_table_type,
                                    const TAlterTabletReq& request);
 
-    OLAPStatus schema_version_convert(OLAPTablePtr ref_olap_table,
-                                      OLAPTablePtr new_olap_table,
+    OLAPStatus schema_version_convert(TabletSharedPtr ref_olap_table,
+                                      TabletSharedPtr new_olap_table,
                                       std::vector<SegmentGroup*>* ref_segment_groups,
                                       std::vector<SegmentGroup*>* new_segment_groups);
 
@@ -285,7 +283,7 @@ public:
                                                       bool only_one,
                                                       bool check_only);
 
-    static OLAPStatus clear_schema_change_single_info(OLAPTablePtr olap_table,
+    static OLAPStatus clear_schema_change_single_info(TabletSharedPtr olap_table,
                                                       AlterTabletType* alter_table_type,
                                                       bool only_one,
                                                       bool check_only);
@@ -297,21 +295,21 @@ private:
     // Returns:
     //  成功：如果存在历史信息，没有问题的就清空；或者没有历史信息
     //  失败：否则如果有历史信息且无法清空的（有version还没有完成）
-    OLAPStatus _check_and_clear_schema_change_info(OLAPTablePtr olap_table,
+    OLAPStatus _check_and_clear_schema_change_info(TabletSharedPtr olap_table,
                                                    const TAlterTabletReq& request);
 
-    OLAPStatus _get_versions_to_be_changed(OLAPTablePtr ref_olap_table,
+    OLAPStatus _get_versions_to_be_changed(TabletSharedPtr ref_olap_table,
                                            std::vector<Version>& versions_to_be_changed);
 
     OLAPStatus _do_alter_table(AlterTabletType type,
-                               OLAPTablePtr ref_olap_table,
+                               TabletSharedPtr ref_olap_table,
                                const TAlterTabletReq& request);
 
     struct SchemaChangeParams {
         // 为了让calc_split_key也可使用普通schema_change的线程，才设置了此type
         AlterTabletType alter_table_type;
-        OLAPTablePtr ref_olap_table;
-        OLAPTablePtr new_olap_table;
+        TabletSharedPtr ref_olap_table;
+        TabletSharedPtr new_olap_table;
         std::vector<ColumnData*> ref_olap_data_arr;
         std::string debug_message;
         DeleteHandler delete_handler;
@@ -321,23 +319,23 @@ private:
     };
 
     // 根据给定的table_desc，创建OLAPTable，并挂接到OLAPEngine中
-    OLAPStatus _create_new_olap_table(const OLAPTablePtr ref_olap_table,
+    OLAPStatus _create_new_olap_table(const TabletSharedPtr ref_olap_table,
                                       const TCreateTabletReq& create_tablet_req,
                                       const std::string* ref_root_path,
-                                      OLAPTablePtr* out_new_olap_table);
+                                      TabletSharedPtr* out_new_olap_table);
 
     // 增加A->(B|C|...) 的schema_change信息
     //  在split table时，增加split-table status相关的信息
     //  其他的都增加在schema-change status中
     OLAPStatus _save_schema_change_info(AlterTabletType alter_table_type,
-                                        OLAPTablePtr ref_olap_table,
-                                        OLAPTablePtr new_olap_table,
+                                        TabletSharedPtr ref_olap_table,
+                                        TabletSharedPtr new_olap_table,
                                         const std::vector<Version>& versions_to_be_changed);
 
     static OLAPStatus _alter_table(SchemaChangeParams* sc_params);
 
-    static OLAPStatus _parse_request(OLAPTablePtr ref_olap_table,
-                                     OLAPTablePtr new_olap_table,
+    static OLAPStatus _parse_request(TabletSharedPtr ref_olap_table,
+                                     TabletSharedPtr new_olap_table,
                                      RowBlockChanger* rb_changer,
                                      bool* sc_sorting, 
                                      bool* sc_directly);
