@@ -95,6 +95,10 @@ public class TabletInfo implements Comparable<TabletInfo> {
      */
     private static final int RUNNING_FAILED_COUNTER_THRESHOLD = 3;
     
+    public enum Type {
+        NEED_BALANCE, NEED_REPAIR
+    }
+
     public enum Priority {
         LOW,
         NORMAL,
@@ -126,6 +130,8 @@ public class TabletInfo implements Comparable<TabletInfo> {
         TIMEOUT // task is timeout
     }
     
+    private Type type;
+
     /*
      * origPriority is the origin priority being set when this tablet being added to scheduler.
      * dynamicPriority will be set during tablet schedule processing, it will not be prior than origin priority.
@@ -192,22 +198,24 @@ public class TabletInfo implements Comparable<TabletInfo> {
 
     private SystemInfoService infoService;
     
-    public TabletInfo(TabletStatus status, String cluster, long dbId, long tblId, long partId,
-            long idxId, long tabletId, int schemaHash, TStorageMedium storageMedium, long createTime) {
-        this.tabletStatus = status;
+    public TabletInfo(Type type, String cluster, long dbId, long tblId, long partId,
+            long idxId, long tabletId, long createTime) {
+        this.type = type;
         this.cluster = cluster;
         this.dbId = dbId;
         this.tblId = tblId;
         this.partitionId = partId;
         this.indexId = idxId;
         this.tabletId = tabletId;
-        this.schemaHash = schemaHash;
-        this.storageMedium = storageMedium;
         this.createTime = createTime;
         this.infoService = Catalog.getCurrentSystemInfo();
         this.state = State.PENDING;
     }
     
+    public Type getType() {
+        return type;
+    }
+
     public Priority getOrigPriority() {
         return origPriority;
     }
@@ -281,10 +289,18 @@ public class TabletInfo implements Comparable<TabletInfo> {
         return tabletId;
     }
     
+    public void setSchemaHash(int schemaHash) {
+        this.schemaHash = schemaHash;
+    }
+
     public int getSchemaHash() {
         return schemaHash;
     }
     
+    public void setStorageMedium(TStorageMedium storageMedium) {
+        this.storageMedium = storageMedium;
+    }
+
     public TStorageMedium getStorageMedium() {
         return storageMedium;
     }
@@ -353,6 +369,11 @@ public class TabletInfo implements Comparable<TabletInfo> {
 
     public long getSrcPathHash() {
         return srcPathHash;
+    }
+
+    public void setSrc(Replica srcReplica) {
+        this.srcReplica = srcReplica;
+        this.srcPathHash = srcReplica.getPathHash();
     }
 
     public long getDestBackendId() {
@@ -503,14 +524,22 @@ public class TabletInfo implements Comparable<TabletInfo> {
             Preconditions.checkState(srcPathHash != -1);
             PathSlot slot = tabletScheduler.getBackendsWorkingSlots().get(srcReplica.getBackendId());
             if (slot != null) {
-                slot.freeSlot(srcPathHash);
+                if (type == Type.NEED_REPAIR) {
+                    slot.freeSlot(srcPathHash);
+                } else {
+                    slot.freeBalanceSlot(srcPathHash);
+                }
             }
         }
         
         if (destPathHash != -1) {
             PathSlot slot = tabletScheduler.getBackendsWorkingSlots().get(destBackendId);
             if (slot != null) {
-                slot.freeSlot(destPathHash);
+                if (type == Type.NEED_REPAIR) {
+                    slot.freeSlot(destPathHash);
+                } else {
+                    slot.freeBalanceSlot(destPathHash);
+                }
             }
         }
         
@@ -824,6 +853,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
     public List<String> getBrief() {
         List<String> result = Lists.newArrayList();
         result.add(String.valueOf(tabletId));
+        result.add(type.name());
         result.add(tabletStatus.name());
         result.add(state.name());
         result.add(origPriority.name());

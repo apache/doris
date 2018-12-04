@@ -29,7 +29,7 @@ public class TabletSchedulerStat {
      */
     @StatField("num of tablet check round")
     public AtomicLong counterTabletCheckRound = new AtomicLong(0L);
-    @StatField("cost of tablet check")
+    @StatField("cost of tablet check(ms)")
     public AtomicLong counterTabletCheckCostMs = new AtomicLong(0L);
     @StatField("num of tablet checked in tablet checker")
     public AtomicLong counterTabletChecked = new AtomicLong(0L);
@@ -43,7 +43,7 @@ public class TabletSchedulerStat {
      */
     @StatField("num of tablet schedule round")
     public AtomicLong counterTabletScheduleRound = new AtomicLong(0L);
-    @StatField("cost of tablet schedule")
+    @StatField("cost of tablet schedule(ms)")
     public AtomicLong counterTabletScheduleCostMs = new AtomicLong(0L);
     @StatField("num of tablet being scheduled")
     public AtomicLong counterTabletScheduled = new AtomicLong(0L);
@@ -85,6 +85,8 @@ public class TabletSchedulerStat {
     public AtomicLong counterReplicaRedundantErr = new AtomicLong(0L);
     @StatField("num of replica missing in cluster error")
     public AtomicLong counterReplicaMissingInClusterErr = new AtomicLong(0L);
+    @StatField("num of balance scheduled")
+    public AtomicLong counterBalanceSchedule = new AtomicLong(0L);
 
     private TabletSchedulerStat lastSnapshot = null;
 

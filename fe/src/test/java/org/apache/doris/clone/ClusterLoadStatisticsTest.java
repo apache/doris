@@ -142,9 +142,10 @@ public class ClusterLoadStatisticsTest {
 
     @Test
     public void test() {
-        ClusterLoadStatistic loadStatistic = new ClusterLoadStatistic(catalog, systemInfoService, invertedIndex);
-        loadStatistic.init(SystemInfoService.DEFAULT_CLUSTER);
-        List<List<String>> infos = loadStatistic.getCLusterStatistic();
+        ClusterLoadStatistic loadStatistic = new ClusterLoadStatistic(SystemInfoService.DEFAULT_CLUSTER,
+                catalog, systemInfoService, invertedIndex);
+        loadStatistic.init();
+        List<List<String>> infos = loadStatistic.getClusterStatistic();
         System.out.println(infos);
         Assert.assertEquals(3, infos.size());
     }

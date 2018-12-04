@@ -52,7 +52,7 @@ public class Tablet extends MetaObject implements Writable {
         REPLICA_MISSING, // not enough alive replica num
         VERSION_INCOMPLETE, // alive replica num is enough, but version is missing
         REDUNDANT, // too much replicas
-        REPLICA_MISSING_IN_CLUSTER // not enough healthy replicas in correct cluster
+        REPLICA_MISSING_IN_CLUSTER, // not enough healthy replicas in correct cluster
     }
 
     private long id;

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.BalanceStatus.ErrCode;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -32,9 +33,17 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
     private static final Logger LOG = LogManager.getLogger(BackendLoadStatistic.class);
+
+    public enum Classification {
+        INIT,
+        LOW, // load score is Config.balance_load_score_threshold lower than average load score of cluster
+        MID, // between LOW and HIGH
+        HIGH // load score is Config.balance_load_score_threshold higher than average load score of cluster
+    }
 
     private SystemInfoService infoService;
     private TabletInvertedIndex invertedIndex;
@@ -48,9 +57,15 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
     private long totalUsedCapacityB = 0;
     private long totalReplicaNum = 0;
 
-    private double replicaNumCoefficient = 0.5;
-    private double capacityCoefficient = 0.5;
-    private double loadScore = 0.0;
+    public static class LoadScore {
+        public double replicaNumCoefficient = 0.5;
+        public double capacityCoefficient = 0.5;
+        public double score = 0.0;
+    }
+
+    private LoadScore loadScore;
+
+    private Classification clazz = Classification.INIT;
 
     private List<RootPathLoadStatistic> pathStatistics = Lists.newArrayList();
 
@@ -87,7 +102,15 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
     }
 
     public double getLoadScore() {
-        return loadScore;
+        return loadScore.score;
+    }
+
+    public void setClazz(Classification clazz) {
+        this.clazz = clazz;
+    }
+
+    public Classification getClazz() {
+        return clazz;
     }
 
     public void init() throws LoadBalanceException {
@@ -114,31 +137,75 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
 
         totalReplicaNum = invertedIndex.getTabletNumByBackendId(beId);
 
+        classifyPathByLoad();
+
         // sort the list
         Collections.sort(pathStatistics);
     }
 
+    private void classifyPathByLoad() {
+        long totalCapacity = 0;
+        long totalUsedCapacity = 0;
+        for (RootPathLoadStatistic pathStat : pathStatistics) {
+            totalCapacity += pathStat.getCapacityB();
+            totalUsedCapacity += pathStat.getUsedCapacityB();
+        }
+        double avgUsedPercent = totalCapacity == 0 ? 0.0 : totalUsedCapacity / (double) totalCapacity;
+
+        int lowCounter = 0;
+        int midCounter = 0;
+        int highCounter = 0;
+        for (RootPathLoadStatistic pathStat : pathStatistics) {
+            if (Math.abs(pathStat.getUsedPercent() - avgUsedPercent)
+                    / avgUsedPercent > Config.balance_load_score_threshold) {
+                if (pathStat.getUsedPercent() > avgUsedPercent) {
+                    pathStat.setClazz(Classification.HIGH);
+                    highCounter++;
+                } else if (pathStat.getUsedPercent() < avgUsedPercent) {
+                    pathStat.setClazz(Classification.LOW);
+                    lowCounter++;
+                }
+            } else {
+                pathStat.setClazz(Classification.MID);
+                midCounter++;
+            }
+        }
+
+        LOG.info("classify path by load. avg used percent: {}. low/mid/high: {}/{}/{}",
+                avgUsedPercent, lowCounter, midCounter, highCounter);
+    }
+
     public void calcScore(double avgClusterUsedCapacityPercent, double avgClusterReplicaNumPerBackend) {
-        double usedCapacityPercent = (totalUsedCapacityB / (double) totalCapacityB);
+        loadScore = calcSore(totalUsedCapacityB, totalCapacityB, totalReplicaNum, avgClusterUsedCapacityPercent,
+                avgClusterReplicaNumPerBackend);
+        
+        LOG.debug("backend {}, capacity coefficient: {}, replica coefficient: {}, load score: {}",
+                beId, loadScore.capacityCoefficient, loadScore.replicaNumCoefficient, loadScore.score);
+    }
+
+    public static LoadScore calcSore(long beUsedCapacityB, long beTotalCapacity, long beTotalReplicaNum,
+            double avgClusterUsedCapacityPercent, double avgClusterReplicaNumPerBackend) {
+        
+        double usedCapacityPercent = (beUsedCapacityB / (double) beTotalCapacity);
         double capacityProportion = avgClusterUsedCapacityPercent <= 0 ? 0.0
                 : usedCapacityPercent / avgClusterUsedCapacityPercent;
         double replicaNumProportion = avgClusterReplicaNumPerBackend <= 0 ? 0.0
-                : totalReplicaNum / avgClusterReplicaNumPerBackend;
+                : beTotalReplicaNum / avgClusterReplicaNumPerBackend;
         
+        LoadScore loadScore = new LoadScore();
+
         // If this backend's capacity used percent < 50%, set capacityCoefficient to 0.5.
         // Else if capacity used percent > 75%, set capacityCoefficient to 1.
         // Else, capacityCoefficient changed smoothly from 0.5 to 1 with used capacity increasing
         // Function: (2 * usedCapacityPercent - 0.5)
-        capacityCoefficient = usedCapacityPercent < 0.5 ? 0.5
+        loadScore.capacityCoefficient = usedCapacityPercent < 0.5 ? 0.5
                 : (usedCapacityPercent > Config.capacity_used_percent_high_water ? 1.0
                         : (2 * usedCapacityPercent - 0.5));
-        replicaNumCoefficient = 1 - capacityCoefficient;
-
-        loadScore = capacityProportion * capacityCoefficient + replicaNumProportion * replicaNumCoefficient;
-        LOG.debug("backend {}, used capacity percent: {}, capacity proportion: {}, replica proportion: {},"
-                + " capacity coefficient: {}, replica coefficient: {}, load score: {}",
-                  beId, usedCapacityPercent, capacityProportion, replicaNumProportion,
-                  capacityCoefficient, replicaNumCoefficient, loadScore);
+        loadScore.replicaNumCoefficient = 1 - loadScore.capacityCoefficient;
+        loadScore.score = capacityProportion * loadScore.capacityCoefficient
+                + replicaNumProportion * loadScore.replicaNumCoefficient;
+        
+        return loadScore;
     }
 
     public BalanceStatus isFit(long tabletSize, List<RootPathLoadStatistic> result, boolean isSupplement) {
@@ -158,6 +225,28 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
         return status;
     }
 
+    /*
+     * Classify the paths into 'low', 'mid' and 'high'
+     */
+    public void getPathStatisticByClass(
+            Set<Long> low,
+            Set<Long> mid,
+            Set<Long> high) {
+
+        for (RootPathLoadStatistic pathStat : pathStatistics) {
+            if (pathStat.getClazz() == Classification.LOW) {
+                low.add(pathStat.getPathHash());
+            } else if (pathStat.getClazz() == Classification.HIGH) {
+                high.add(pathStat.getPathHash());
+            } else {
+                mid.add(pathStat.getPathHash());
+            }
+        }
+
+        LOG.debug("after adjust, backend {} path classification low/mid/high: {}/{}/{}",
+                beId, low.size(), mid.size(), high.size());
+    }
+
     public List<RootPathLoadStatistic> getPathStatistics() {
         return pathStatistics;
     }
@@ -171,7 +260,24 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
         return sb.toString();
     }
 
-    // ascend order
+    public List<String> getInfo() {
+        List<String> info = Lists.newArrayList();
+        info.add(String.valueOf(beId));
+        info.add(clusterName);
+        info.add(String.valueOf(isAvailable));
+        info.add(String.valueOf(totalUsedCapacityB));
+        info.add(String.valueOf(totalCapacityB));
+        info.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalUsedCapacityB * 100
+                / (double) totalCapacityB)));
+        info.add(String.valueOf(loadScore.replicaNumCoefficient));
+        info.add(String.valueOf(loadScore.capacityCoefficient));
+        info.add(String.valueOf(loadScore.replicaNumCoefficient));
+        info.add(String.valueOf(loadScore));
+        info.add(clazz.name());
+        return info;
+    }
+
+    // ascend order by load score
     @Override
     public int compareTo(BackendLoadStatistic o) {
         if (getLoadScore() > o.getLoadScore()) {

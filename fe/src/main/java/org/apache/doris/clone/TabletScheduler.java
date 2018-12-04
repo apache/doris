@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletInfo.Priority;
+import org.apache.doris.clone.TabletInfo.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
@@ -85,6 +86,10 @@ public class TabletScheduler extends Daemon {
     // the minimum interval of updating cluster statistics and priority of tablet info
     private static final long STAT_UPDATE_INTERVAL_MS = 60 * 1000; // 1min
 
+    private static final long SCHEDULE_INTERVAL_MS = 5000; // 5s
+
+    public static final int BALANCE_SLOT_NUM_FOR_PATH = 2;
+
     /*
      * Tablet is added to pendingTablets as well it's id in allTabletIds.
      * TabletScheduler will take tablet from pendingTablets but will not remove it's id from allTabletIds when
@@ -109,6 +114,8 @@ public class TabletScheduler extends Daemon {
     private Map<String, ClusterLoadStatistic> statisticMap = Maps.newConcurrentMap();
     private long lastStatUpdateTime = 0;
     
+    private long lastSlotAdjustTime = 0;
+
     private Catalog catalog;
     private SystemInfoService infoService;
     private TabletInvertedIndex invertedIndex;
@@ -116,7 +123,7 @@ public class TabletScheduler extends Daemon {
 
     public TabletScheduler(Catalog catalog, SystemInfoService infoService, TabletInvertedIndex invertedIndex,
             TabletSchedulerStat stat) {
-        super("tablet scheduler", 5000);
+        super("tablet scheduler", SCHEDULE_INTERVAL_MS);
         this.catalog = catalog;
         this.infoService = infoService;
         this.invertedIndex = invertedIndex;
@@ -236,7 +243,7 @@ public class TabletScheduler extends Daemon {
 
         handleRunningTablets();
 
-        doBalance();
+        selectTabletsForBalance();
 
         stat.counterTabletScheduleRound.incrementAndGet();
     }
@@ -263,9 +270,9 @@ public class TabletScheduler extends Daemon {
         statisticMap.clear();
         List<String> clusterNames = infoService.getClusterNames();
         for (String clusterName : clusterNames) {
-            ClusterLoadStatistic clusterLoadStatistic = new ClusterLoadStatistic(catalog, infoService,
-                    invertedIndex);
-            clusterLoadStatistic.init(clusterName);
+            ClusterLoadStatistic clusterLoadStatistic = new ClusterLoadStatistic(clusterName, catalog,
+                    infoService, invertedIndex);
+            clusterLoadStatistic.init();
             statisticMap.put(clusterName, clusterLoadStatistic);
             LOG.info("update cluster {} load statistic:\n {}", clusterName, clusterLoadStatistic.getBrief());
         }
@@ -309,7 +316,7 @@ public class TabletScheduler extends Daemon {
     private void schedulePendingTablets() {
         long start = System.currentTimeMillis();
         List<TabletInfo> currentBatch = getNextTabletInfoBatch();
-        LOG.debug("get {} tablets info to schedule", currentBatch.size());
+        LOG.debug("get {} tablets to schedule", currentBatch.size());
 
         AgentBatchTask batchTask = new AgentBatchTask();
         for (TabletInfo tabletInfo : currentBatch) {
@@ -378,6 +385,7 @@ public class TabletScheduler extends Daemon {
         tabletInfo.setLastVisitedTime(currentTime);
         stat.counterTabletScheduled.incrementAndGet();
 
+        // check this tablet again
         Database db = catalog.getDb(tabletInfo.getDbId());
         if (db == null) {
             throw new SchedException(Status.UNRECOVERABLE, "db does not exist");
@@ -386,7 +394,6 @@ public class TabletScheduler extends Daemon {
         Pair<TabletStatus, TabletInfo.Priority> statusPair = null;
         db.writeLock();
         try {
-            // check this tablet again
             OlapTable tbl = (OlapTable) db.getTable(tabletInfo.getTblId());
             if (tbl == null) {
                 throw new SchedException(Status.UNRECOVERABLE, "tbl does not exist");
@@ -406,46 +413,57 @@ public class TabletScheduler extends Daemon {
             Preconditions.checkNotNull(tablet);
 
             statusPair = tablet.getHealthStatusWithPriority(
-                                               infoService, tabletInfo.getCluster(),
-                partition.getVisibleVersion(),
-                partition.getVisibleVersionHash(),
-                                               tbl.getPartitionInfo().getReplicationNum(partition.getId()));
+                    infoService, tabletInfo.getCluster(),
+                    partition.getVisibleVersion(),
+                    partition.getVisibleVersionHash(),
+                    tbl.getPartitionInfo().getReplicationNum(partition.getId()));
 
-            if (statusPair.first == TabletStatus.HEALTHY) {
+            if (statusPair.first == TabletStatus.HEALTHY && tabletInfo.getType() == TabletInfo.Type.NEED_REPAIR) {
                 throw new SchedException(Status.UNRECOVERABLE, "tablet is healthy");
+            } else if (statusPair.first != TabletStatus.HEALTHY
+                    && tabletInfo.getType() == TabletInfo.Type.NEED_BALANCE) {
+                // we do not use an unhealthy tablet to do balance
+                throw new SchedException(Status.UNRECOVERABLE, "tablet is not suitable for balance");
             }
 
-            // we do not concern priority here. once we take the tablet out of priority queue,
-            // priority is meaningless.
-
+            // we do not concern priority here.
+            // once we take the tablet out of priority queue, priority is meaningless.
             tabletInfo.setTabletStatus(statusPair.first);
             tabletInfo.setTablet(tablet);
             tabletInfo.setVersionInfo(partition.getVisibleVersion(), partition.getVisibleVersionHash(),
-                                      partition.getCommittedVersion(), partition.getCommittedVersionHash());
+                    partition.getCommittedVersion(), partition.getCommittedVersionHash());
+            tabletInfo.setSchemaHash(tbl.getSchemaHashByIndexId(idx.getId()));
+            tabletInfo.setStorageMedium(tbl.getPartitionInfo().getDataProperty(partition.getId()).getStorageMedium());
 
-            handleTabletByStatus(statusPair.first, tabletInfo, batchTask);
+            handleTabletByTypeAndStatus(statusPair.first, tabletInfo, batchTask);
         } finally {
             db.writeUnlock();
         }
+
     }
 
-    private void handleTabletByStatus(TabletStatus status, TabletInfo tabletInfo, AgentBatchTask batchTask)
+    private void handleTabletByTypeAndStatus(TabletStatus status, TabletInfo tabletInfo, AgentBatchTask batchTask)
             throws SchedException {
-        switch (status) {
-            case REPLICA_MISSING:
-                handleReplicaMissing(tabletInfo, batchTask);
-                break;
-            case VERSION_INCOMPLETE:
-                handleReplicaVersionIncomplete(tabletInfo, batchTask);
-                break;
-            case REDUNDANT:
-                handleRedundantReplica(tabletInfo);
-                break;
-            case REPLICA_MISSING_IN_CLUSTER:
-                handleReplicaClusterMigration(tabletInfo, batchTask);
-                break;
-            default:
-                break;
+        if (tabletInfo.getType() == Type.NEED_REPAIR) {
+            switch (status) {
+                case REPLICA_MISSING:
+                    handleReplicaMissing(tabletInfo, batchTask);
+                    break;
+                case VERSION_INCOMPLETE:
+                    handleReplicaVersionIncomplete(tabletInfo, batchTask);
+                    break;
+                case REDUNDANT:
+                    handleRedundantReplica(tabletInfo);
+                    break;
+                case REPLICA_MISSING_IN_CLUSTER:
+                    handleReplicaClusterMigration(tabletInfo, batchTask);
+                    break;
+                default:
+                    break;
+            }
+        } else {
+            // balance
+            doBalance(tabletInfo, batchTask);
         }
     }
 
@@ -663,8 +681,22 @@ public class TabletScheduler extends Daemon {
         handleReplicaMissing(tabletInfo, batchTask);
     }
 
-    private void doBalance() {
-        // TODO(cmy)
+    /*
+     * Try to select some alternative tablets for balance. Add them to pendingTablets with priority LOW,
+     * and waiting to be scheduled.
+     */
+    private void selectTabletsForBalance() {
+        LoadBalancer loadBalancer = new LoadBalancer(statisticMap);
+        List<TabletInfo> alternativeTablets = loadBalancer.selectAlternativeTablets();
+        for (TabletInfo tabletInfo : alternativeTablets) {
+            addTablet(tabletInfo, false);
+        }
+    }
+
+    private void doBalance(TabletInfo tabletInfo, AgentBatchTask batchTask) throws SchedException {
+        stat.counterBalanceSchedule.incrementAndGet();
+        LoadBalancer loadBalancer = new LoadBalancer(statisticMap);
+        loadBalancer.createBalanceTask(tabletInfo, backendsWorkingSlots, batchTask);
     }
 
     // choose a path on a backend which is fit for the tablet
@@ -676,6 +708,7 @@ public class TabletScheduler extends Daemon {
         List<BackendLoadStatistic> beStatistics = statistic.getBeLoadStatistics();
 
         // get all available paths which this tablet can fit in.
+        // beStatistics is sorted by load score in ascend order, so select from first to last.
         List<RootPathLoadStatistic> allFitPaths = Lists.newArrayList();
         for (int i = 0; i < beStatistics.size(); i++) {
             BackendLoadStatistic bes = beStatistics.get(i);
@@ -699,7 +732,7 @@ public class TabletScheduler extends Daemon {
             throw new SchedException(Status.SCHEDULE_FAILED, "unable to find dest path for new replica");
         }
 
-        // all fit paths has already been sorted by load score in 'allFitPaths'.
+        // all fit paths has already been sorted by load score in 'allFitPaths' in ascend order.
         // just get first available path.
         // we try to find a path with specified media type, if not find, arbitrarily use one.
         for (RootPathLoadStatistic rootPathLoadStatistic : allFitPaths) {
@@ -754,10 +787,10 @@ public class TabletScheduler extends Daemon {
         LOG.info("remove the tablet {}. because: {}", tabletInfo.getTabletId(), reason);
     }
 
-    // get at most BATCH_NUM tablets from queue.
+    // get next batch of tablets from queue.
     private synchronized List<TabletInfo> getNextTabletInfoBatch() {
         List<TabletInfo> list = Lists.newArrayList();
-        int count = Math.max(MIN_BATCH_NUM, backendsWorkingSlots.size());
+        int count = Math.max(MIN_BATCH_NUM, getCurrentAvailableSlotNum());
         while (count > 0) {
             TabletInfo tablet = pendingTablets.poll();
             if (tablet == null) {
@@ -768,6 +801,14 @@ public class TabletScheduler extends Daemon {
             count--;
         }
         return list;
+    }
+
+    private int getCurrentAvailableSlotNum() {
+        int total = 0;
+        for (PathSlot pathSlot : backendsWorkingSlots.values()) {
+            total += pathSlot.getTotalAvailSlotNum();
+        }
+        return total;
     }
 
     /*
@@ -829,9 +870,16 @@ public class TabletScheduler extends Daemon {
                             tabletInfo.getCopyTimeMs());
                 }
             }
-
-            // TODO(cmy): update the slot num
         }
+
+        if (System.currentTimeMillis() - lastSlotAdjustTime < STAT_UPDATE_INTERVAL_MS) {
+            return;
+        }
+
+        // TODO(cmy): update the slot num base on statistic.
+        // need to find a better way to determine the slot number.
+
+        lastSlotAdjustTime = System.currentTimeMillis();
     }
 
     /*
@@ -997,6 +1045,35 @@ public class TabletScheduler extends Daemon {
             return slot.available;
         }
 
+        public synchronized int getTotalAvailSlotNum() {
+            int total = 0;
+            for (Slot slot : pathSlots.values()) {
+                total += slot.available;
+            }
+            return total;
+        }
+
+        /*
+         * get path whose balance slot num is larger than 0
+         */
+        public synchronized Set<Long> getAvailPathsForBalance() {
+            Set<Long> pathHashs = Sets.newHashSet();
+            for (Map.Entry<Long, Slot> entry : pathSlots.entrySet()) {
+                if (entry.getValue().balanceSlot > 0) {
+                    pathHashs.add(entry.getKey());
+                }
+            }
+            return pathHashs;
+        }
+
+        public synchronized int getAvailBalanceSlotNum() {
+            int num = 0;
+            for (Map.Entry<Long, Slot> entry : pathSlots.entrySet()) {
+                num += entry.getValue().balanceSlot;
+            }
+            return num;
+        }
+
         public synchronized List<String> getSlotInfo(long beId) {
             List<String> result = Lists.newArrayList();
             pathSlots.entrySet().stream().forEach(t -> {
@@ -1005,8 +1082,44 @@ public class TabletScheduler extends Daemon {
                 result.add(String.valueOf(t.getKey()));
                 result.add(String.valueOf(t.getValue().available));
                 result.add(String.valueOf(t.getValue().total));
+                result.add(String.valueOf(t.getValue().getAvgRate()));
             });
             return result;
+        }
+
+        public synchronized long takeBalanceSlot(long pathHash) {
+            Slot slot = pathSlots.get(pathHash);
+            if (slot == null) {
+                return -1;
+            }
+            if (slot.balanceSlot > 0) {
+                slot.balanceSlot--;
+                return pathHash;
+            }
+            return -1;
+        }
+
+        public synchronized long takeAnAvailBalanceSlotFrom(Set<Long> pathHashs) {
+            for (Long pathHash : pathHashs) {
+                Slot slot = pathSlots.get(pathHash);
+                if (slot == null) {
+                    continue;
+                }
+                if (slot.balanceSlot > 0) {
+                    slot.balanceSlot--;
+                    return pathHash;
+                }
+            }
+            return -1;
+        }
+
+        public void freeBalanceSlot(long destPathHash) {
+            Slot slot = pathSlots.get(destPathHash);
+            if (slot == null) {
+                return;
+            }
+            slot.balanceSlot++;
+            slot.rectify();
         }
     }
 
@@ -1022,13 +1135,16 @@ public class TabletScheduler extends Daemon {
     public class Slot {
         public int total;
         public int available;
+        // slot reserved for balance
+        public int balanceSlot;
 
-        public long totalCopySize;
-        public long totalCopyTimeMs;
+        public long totalCopySize = 0;
+        public long totalCopyTimeMs = 0;
 
         public Slot(int total) {
             this.total = total;
             this.available = total;
+            this.balanceSlot = BALANCE_SLOT_NUM_FOR_PATH;
         }
 
         public void rectify() {
@@ -1038,6 +1154,18 @@ public class TabletScheduler extends Daemon {
             if (available > total) {
                 available = total;
             }
+
+            if (balanceSlot > BALANCE_SLOT_NUM_FOR_PATH) {
+                balanceSlot = BALANCE_SLOT_NUM_FOR_PATH;
+            }
+        }
+
+        // return avg rate, Bytes/S
+        public double getAvgRate() {
+            if (totalCopyTimeMs / 1000 == 0) {
+                return 0.0;
+            }
+            return totalCopySize / ((double) totalCopyTimeMs / 1000);
         }
     }
 }

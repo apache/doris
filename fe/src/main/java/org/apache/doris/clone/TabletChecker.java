@@ -46,7 +46,7 @@ import java.util.Set;
 public class TabletChecker extends Daemon {
     private static final Logger LOG = LogManager.getLogger(TabletChecker.class);
 
-    private static final long INTERVAL_MS = 20 * 1000L; // 20 second
+    private static final long CHECK_INTERVAL_MS = 20 * 1000L; // 20 second
 
     private Catalog catalog;
     private SystemInfoService infoService;
@@ -59,7 +59,7 @@ public class TabletChecker extends Daemon {
 
     public TabletChecker(Catalog catalog, SystemInfoService infoService, TabletScheduler tabletScheduler,
             TabletSchedulerStat stat) {
-        super("tablet checker", INTERVAL_MS);
+        super("tablet checker", CHECK_INTERVAL_MS);
         this.catalog = catalog;
         this.infoService = infoService;
         this.tabletScheduler = tabletScheduler;
@@ -150,12 +150,11 @@ public class TabletChecker extends Daemon {
                                     continue;
                                 }
 
-                                TabletInfo tabletInfo = new TabletInfo(statusWithPrio.first,
+                                TabletInfo tabletInfo = new TabletInfo(
+                                        TabletInfo.Type.NEED_REPAIR,
                                         db.getClusterName(),
                                         db.getId(), olapTbl.getId(),
                                         partition.getId(), idx.getId(), tablet.getId(),
-                                        olapTbl.getSchemaHashByIndexId(idx.getId()),
-                                        olapTbl.getPartitionInfo().getDataProperty(partition.getId()).getStorageMedium(),
                                         System.currentTimeMillis());
                                 tabletInfo.setOrigPriority(statusWithPrio.second);
 

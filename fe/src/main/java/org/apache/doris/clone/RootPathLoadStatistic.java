@@ -17,6 +17,7 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.clone.BackendLoadStatistic.Classification;
 import org.apache.doris.clone.BalanceStatus.ErrCode;
 import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TStorageMedium;
@@ -33,7 +34,7 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
     private long capacityB;
     private long usedCapacityB;
 
-    private boolean hasTask = false;
+    private Classification clazz = Classification.INIT;
 
     public RootPathLoadStatistic(long beId, String path, Long pathHash, TStorageMedium storageMedium,
             long capacityB, long usedCapacityB) {
@@ -69,12 +70,16 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
         return usedCapacityB;
     }
 
-    public void setHasTask(boolean hasTask) {
-        this.hasTask = hasTask;
+    public double getUsedPercent() {
+        return capacityB <= 0 ? 0.0 : usedCapacityB / (double) capacityB;
     }
 
-    public boolean hasTask() {
-        return hasTask;
+    public void setClazz(Classification clazz) {
+        this.clazz = clazz;
+    }
+
+    public Classification getClazz() {
+        return clazz;
     }
 
     public BalanceStatus isFit(long tabletSize, boolean isSupplement) {
@@ -98,8 +103,8 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
 
     @Override
     public int compareTo(RootPathLoadStatistic o) {
-        double myPercent = usedCapacityB / (double) capacityB;
-        double otherPercent = o.usedCapacityB / (double) capacityB;
+        double myPercent = getUsedPercent();
+        double otherPercent = o.getUsedPercent();
         if (myPercent < otherPercent) {
             return 1;
         } else if (myPercent > otherPercent) {

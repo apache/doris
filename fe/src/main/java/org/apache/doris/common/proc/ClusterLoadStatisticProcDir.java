@@ -30,7 +30,8 @@ import java.util.Map;
 public class ClusterLoadStatisticProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("BeId").add("Cluster").add("Available").add("UsedCapacity").add("Capacity")
-            .add("UsedPercent").add("ReplicaNum").add("Score")
+            .add("UsedPercent").add("ReplicaNum").add("CapCoeff").add("ReplCoeff").add("Score")
+            .add("Class")
             .build();
 
     private Map<String, ClusterLoadStatistic> statMap;
@@ -43,7 +44,7 @@ public class ClusterLoadStatisticProcDir implements ProcDirInterface {
         statMap = Catalog.getCurrentCatalog().getTabletScheduler().getStatisticMap();
 
         statMap.values().stream().forEach(t -> {
-            List<List<String>> statistics = t.getCLusterStatistic();
+            List<List<String>> statistics = t.getClusterStatistic();
             statistics.stream().forEach(v -> {
                 result.addRow(v);
             });

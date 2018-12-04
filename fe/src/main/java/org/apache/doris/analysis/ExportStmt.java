@@ -152,7 +152,7 @@ public class ExportStmt extends StatementBase {
 
         FsBroker broker = analyzer.getCatalog().getBrokerMgr().getAnyBroker(brokerDesc.getName());
         if (broker == null) {
-            throw new AnalysisException("broker is not exist");
+            throw new AnalysisException("failed to get alive broker");
         }
 
         // check properties

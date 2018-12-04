@@ -692,5 +692,12 @@ public class Config extends ConfigBase {
      * set to true to use the TabletScheduler instead of the old CloneChecker
      */
     @ConfField public static boolean use_new_tablet_scheduler = false;
+
+    /*
+     * the threshold of cluster balance score, if a backend's load score is 10% lower than average score,
+     * this backend will be marked as LOW load, if load score is 10% higher than average score, HIGH load
+     * will be marked.
+     */
+    @ConfField public static double balance_load_score_threshold = 0.1; // 10%
 }
 

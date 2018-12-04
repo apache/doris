@@ -1,8 +1,7 @@
 package org.apache.doris.clone;
 
-import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletInfo.Priority;
-import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.clone.TabletInfo.Type;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -15,18 +14,18 @@ public class TabletInfoTest {
     public void testPriorityCompare() {
         // equal priority, but info3's last visit time is earlier than info2 and info1, so info1 should ranks ahead
         PriorityQueue<TabletInfo> pendingTablets = new PriorityQueue<>();
-        TabletInfo info1 = new TabletInfo(TabletStatus.REPLICA_MISSING, "default_cluster",
-                1, 2, 3, 4, 1000, 6, TStorageMedium.SSD, System.currentTimeMillis());
+        TabletInfo info1 = new TabletInfo(Type.NEED_REPAIR, "default_cluster",
+                1, 2, 3, 4, 1000, System.currentTimeMillis());
         info1.setOrigPriority(Priority.NORMAL);
         info1.setLastVisitedTime(2);
 
-        TabletInfo info2 = new TabletInfo(TabletStatus.REPLICA_MISSING, "default_cluster",
-                1, 2, 3, 4, 1001, 6, TStorageMedium.SSD, System.currentTimeMillis());
+        TabletInfo info2 = new TabletInfo(Type.NEED_REPAIR, "default_cluster",
+                1, 2, 3, 4, 1001, System.currentTimeMillis());
         info2.setOrigPriority(Priority.NORMAL);
         info2.setLastVisitedTime(3);
 
-        TabletInfo info3 = new TabletInfo(TabletStatus.REPLICA_MISSING, "default_cluster",
-                1, 2, 3, 4, 1001, 6, TStorageMedium.SSD, System.currentTimeMillis());
+        TabletInfo info3 = new TabletInfo(Type.NEED_REPAIR, "default_cluster",
+                1, 2, 3, 4, 1001, System.currentTimeMillis());
         info3.setOrigPriority(Priority.NORMAL);
         info3.setLastVisitedTime(1);
 
@@ -55,8 +54,6 @@ public class TabletInfoTest {
         expectedInfo = pendingTablets.poll();
         Assert.assertNotNull(expectedInfo);
         Assert.assertEquals(info2.getTabletId(), expectedInfo.getTabletId());
-
-
     }
 
 }
