@@ -25,7 +25,7 @@
 #include "common/status.h"
 #include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/Status_types.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "olap/utils.h"
 #include "service/backend_options.h"
 #include "util/thrift_server.h"
@@ -41,7 +41,7 @@ namespace doris {
 HeartbeatServer::HeartbeatServer(TMasterInfo* master_info) :
         _master_info(master_info),
         _epoch(0) {
-    _olap_engine = OLAPEngine::get_instance();
+    _olap_engine = StorageEngine::instance();
 }
 
 void HeartbeatServer::init_cluster_id() {

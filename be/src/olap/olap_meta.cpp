@@ -55,10 +55,10 @@ OlapMeta::~OlapMeta() {
     for (auto handle : _handles) {
         delete handle;
     }
-    if (_db != NULL) {
+    if (_db != nullptr) {
         _db->Close();
         delete _db;
-        _db= NULL;
+        _db= nullptr;
     }
 }
 
@@ -79,21 +79,21 @@ OLAPStatus OlapMeta::init() {
     meta_column_family.prefix_extractor.reset(NewFixedPrefixTransform(PREFIX_LENGTH));
     column_families.emplace_back(META_COLUMN_FAMILY, meta_column_family);
     Status s = DB::Open(options, db_path, column_families, &_handles, &_db);
-    if (!s.ok() || _db == NULL) {
+    if (!s.ok() || _db == nullptr) {
         LOG(WARNING) << "rocks db open failed, reason:" << s.ToString();
         return OLAP_ERR_META_OPEN_DB;
     }
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key, std::string& value) {
+OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key, std::string* value) {
     DorisMetrics::meta_read_request_total.increment(1);
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     int64_t duration_ns = 0;
     Status s = Status::OK();
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        s = _db->Get(ReadOptions(), handle, Slice(key), &value);
+        s = _db->Get(ReadOptions(), handle, Slice(key), value);
     }
     DorisMetrics::meta_read_request_duration_us.increment(duration_ns / 1000);
     if (s.IsNotFound()) {
@@ -180,6 +180,27 @@ OLAPStatus OlapMeta::iterate(const int column_family_index, const std::string& p
 
 std::string OlapMeta::get_root_path() {
     return _root_path;
+}
+
+OLAPStatus OlapMeta::get_tablet_convert_finished(bool& flag) {
+    // get is_header_converted flag
+    std::string value;
+    std::string key = TABLET_CONVERT_FINISHED;
+    OLAPStatus s = get(DEFAULT_COLUMN_FAMILY_INDEX, key, &value);
+    if (s == OLAP_ERR_META_KEY_NOT_FOUND || value == "false") {
+        flag = false;
+    } else if (value == "true") {
+        flag = true;
+    } else {
+        LOG(WARNING) << "invalid _is_header_converted. _is_header_converted=" << value;
+        return OLAP_ERR_HEADER_INVALID_FLAG;
+    }
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus OlapMeta::set_tablet_convert_finished() {
+    OLAPStatus s = put(DEFAULT_COLUMN_FAMILY_INDEX, TABLET_CONVERT_FINISHED, CONVERTED_FLAG);
+    return s;
 }
 
 }

@@ -1,152 +1,188 @@
 {
-    "num_rows_per_data_block": 1024,
-    "file_version": [
+    "table_id": 15670,
+    "partition_id": 15671,
+    "tablet_id": 15672,
+    "schema_hash": 567997577,
+    "shard_id": 34,
+    "creation_time": 1553765664,
+    "cumulative_layer_point": 2,
+    "tablet_state": "PB_NOTREADY",
+    "schema": {
+        "keys_type": "AGG_KEYS",
+        "column": [
+            {
+                "unique_id": 0,
+                "name": "k1",
+                "type": "BIGINT",
+                "is_key": true,
+                "aggregation": "NONE",
+                "is_nullable": false,
+                "length": 8,
+                "index_length": 8
+            },
+            {
+                "unique_id": 1,
+                "name": "v1",
+                "type": "HLL",
+                "is_key": false,
+                "aggregation": "HLL_UNION",
+                "is_nullable": false,
+                "default_value": "MA==",
+                "length": 16387,
+                "index_length": 16
+            },
+            {
+                "unique_id": 2,
+                "name": "v2",
+                "type": "INT",
+                "is_key": false,
+                "aggregation": "SUM",
+                "is_nullable": false,
+                "length": 4,
+                "index_length": 4
+            }
+        ],
+        "num_short_key_columns": 1,
+        "num_rows_per_row_block": 1024,
+        "compress_kind": "COMPRESS_LZ4",
+        "next_column_unique_id": 3
+    },
+    "rs_metas": [
         {
-            "num_segments": 1,
+            "rowset_id": 540072,
+            "tablet_id": 15673,
+            "tablet_schema_hash": 567997577,
+            "rowset_type": "ALPHA_ROWSET",
+            "rowset_state": "VISIBLE",
             "start_version": 0,
             "end_version": 1,
             "version_hash": 0,
-            "max_timestamp": 0,
-            "index_size": 67,
-            "data_size": 477,
             "num_rows": 0,
-            "creation_time": 1534750461,
-            "delta_pruning": {
-                "column_pruning": [
+            "total_disk_size": 0,
+            "data_disk_size": 0,
+            "index_disk_size": 0,
+            "empty": true,
+            "creation_time": 1553765664,
+            "alpha_rowset_extra_meta_pb": {
+                "segment_groups": [
                     {
-                        "min": "OTk5OS0xMi0zMQ==",
-                        "max": "MC0wMC0wMA==",
-                        "null_flag": false
-                    },
-                    {
-                        "min": "MjE0NzQ4MzY0Nw==",
-                        "max": "MA==",
-                        "null_flag": false
-                    },
-                    {
-                        "min": "MzI3Njc=",
-                        "max": "MA==",
-                        "null_flag": false
-                    },
-                    {
-                        "min": "/w==",
-                        "max": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                        "null_flag": false
+                        "segment_group_id": 0,
+                        "num_segments": 0,
+                        "index_size": 0,
+                        "data_size": 0,
+                        "num_rows": 0,
+                        "empty": true
                     }
                 ]
             }
         },
         {
-            "num_segments": 1,
+            "rowset_id": 540081,
+            "tablet_id": 15673,
+            "txn_id": 4042,
+            "tablet_schema_hash": 567997577,
+            "rowset_type": "ALPHA_ROWSET",
+            "rowset_state": "VISIBLE",
             "start_version": 2,
             "end_version": 2,
-            "version_hash": 0,
-            "max_timestamp": 0,
-            "index_size": 67,
-            "data_size": 477,
-            "num_rows": 0,
-            "creation_time": 1534750461,
-            "delta_pruning": {
-                "column_pruning": [
+            "version_hash": 8391828013814912580,
+            "num_rows": 3929,
+            "total_disk_size": 84699,
+            "data_disk_size": 84464,
+            "index_disk_size": 235,
+            "empty": false,
+            "load_id": {
+                "hi": -5350970832824939812,
+                "lo": -6717994719194512122
+            },
+            "creation_time": 1553765670,
+            "alpha_rowset_extra_meta_pb": {
+                "segment_groups": [
                     {
-                        "min": "OTk5OS0xMi0zMQ==",
-                        "max": "MC0wMC0wMA==",
-                        "null_flag": false
-                    },
-                    {
-                        "min": "MjE0NzQ4MzY0Nw==",
-                        "max": "MA==",
-                        "null_flag": false
-                    },
-                    {
-                        "min": "MzI3Njc=",
-                        "max": "MA==",
-                        "null_flag": false
-                    },
-                    {
-                        "min": "/w==",
-                        "max": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-                        "null_flag": false
+                        "segment_group_id": 0,
+                        "num_segments": 1,
+                        "index_size": 132,
+                        "data_size": 576,
+                        "num_rows": 5,
+                        "zone_maps": [
+                            {
+                                "min": "MQ==",
+                                "max": "NQ==",
+                                "null_flag": false
+                            },
+                            {
+                                "min": "MQ==",
+                                "max": "Mw==",
+                                "null_flag": false
+                            },
+                            {
+                                "min": "J2J1c2gn",
+                                "max": "J3RvbSc=",
+                                "null_flag": false
+                            }
+                        ],
+                        "empty": false
                     }
                 ]
             }
         }
     ],
-    "cumulative_layer_point": 2,
-    "num_short_key_fields": 4,
-    "column": [
+    "inc_rs_metas": [
         {
-            "name": "event_day",
-            "type": "DATE",
-            "aggregation": "NONE",
-            "length": 3,
-            "is_key": true,
-            "index_length": 3,
-            "is_allow_null": true,
-            "unique_id": 0,
-            "is_root_column": true
-        },
-        {
-            "name": "siteid",
-            "type": "INT",
-            "aggregation": "NONE",
-            "length": 4,
-            "is_key": true,
-            "default_value": "10",
-            "index_length": 4,
-            "is_allow_null": true,
-            "unique_id": 1,
-            "is_root_column": true
-        },
-        {
-            "name": "citycode",
-            "type": "SMALLINT",
-            "aggregation": "NONE",
-            "length": 2,
-            "is_key": true,
-            "index_length": 2,
-            "is_allow_null": true,
-            "unique_id": 2,
-            "is_root_column": true
-        },
-        {
-            "name": "username",
-            "type": "VARCHAR",
-            "aggregation": "NONE",
-            "length": 34,
-            "is_key": true,
-            "default_value": "",
-            "index_length": 20,
-            "is_allow_null": true,
-            "unique_id": 3,
-            "is_root_column": true
-        },
-        {
-            "name": "pv",
-            "type": "BIGINT",
-            "aggregation": "SUM",
-            "length": 8,
-            "is_key": false,
-            "default_value": "0",
-            "index_length": 8,
-            "is_allow_null": true,
-            "unique_id": 4,
-            "is_root_column": true
+            "rowset_id": 540081,
+            "tablet_id": 15673,
+            "txn_id": 4042,
+            "tablet_schema_hash": 567997577,
+            "rowset_type": "ALPHA_ROWSET",
+            "rowset_state": "VISIBLE",
+            "start_version": 2,
+            "end_version": 2,
+            "version_hash": 8391828013814912580,
+            "num_rows": 3929,
+            "total_disk_size": 84699,
+            "data_disk_size": 84464,
+            "index_disk_size": 235,
+            "empty": false,
+            "load_id": {
+                "hi": -5350970832824939812,
+                "lo": -6717994719194512122
+            },
+            "creation_time": 1553765670,
+            "alpha_rowset_extra_meta_pb": {
+                "segment_groups": [
+                    {
+                        "segment_group_id": 0,
+                        "num_segments": 1,
+                        "index_size": 132,
+                        "data_size": 576,
+                        "num_rows": 5,
+                        "zone_maps": [
+                            {
+                                "min": "MQ==",
+                                "max": "NQ==",
+                                "null_flag": false
+                            },
+                            {
+                                "min": "MQ==",
+                                "max": "Mw==",
+                                "null_flag": false
+                            },
+                            {
+                                "min": "J2J1c2gn",
+                                "max": "J3RvbSc=",
+                                "null_flag": false
+                            }
+                        ],
+                        "empty": false
+                    }
+                ]
+            }
         }
     ],
-    "creation_time": 1534750461,
-    "selectivity": [
-        1,
-        1,
-        1,
-        1
-    ],
-    "data_file_type": "COLUMN_ORIENTED_FILE",
-    "next_column_unique_id": 5,
-    "compress_kind": "COMPRESS_LZ4",
-    "segment_size": 268435456,
-    "keys_type": "AGG_KEYS",
-    "tablet_id": 20487,
-    "schema_hash": 1520686811,
-    "shard": 0
+    "in_restore_mode": false,
+    "tablet_uid": {
+        "hi": 10,
+        "lo": 10
+    },
+    "end_rowset_id": 10000
 }

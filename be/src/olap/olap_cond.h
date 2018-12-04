@@ -24,11 +24,11 @@
 #include <unordered_set>
 #include <vector>
 
+#include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/column_data_file.pb.h"
 #include "olap/bloom_filter.hpp"
 #include "olap/stream_index_common.h"
 #include "olap/field.h"
-#include "olap/olap_table.h"
 #include "olap/row_cursor.h"
 
 namespace doris {
@@ -67,17 +67,17 @@ public:
     Cond();
     ~Cond();
 
-    OLAPStatus init(const TCondition& tcond, const FieldInfo& fi);
-    
+    OLAPStatus init(const TCondition& tcond, const TabletColumn& column);
+
     // 用一行数据的指定列同条件进行比较，如果符合过滤条件，
     // 即按照此条件，行应被过滤掉，则返回true，否则返回false
     bool eval(char* right) const;
-    
-    bool eval(const std::pair<WrapperField*, WrapperField*>& statistic) const;
-    int del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const;
+
+    bool eval(const KeyRange& statistic) const;
+    int del_eval(const KeyRange& stat) const;
 
     bool eval(const BloomFilter& bf) const;
-    
+
     CondOp op;
     // valid when op is not OP_IN
     WrapperField* operand_field;
@@ -89,16 +89,16 @@ public:
 // 所有归属于同一列上的条件二元组，聚合在一个CondColumn上
 class CondColumn {
 public:
-    CondColumn(OLAPTablePtr table, int32_t index) : _col_index(index), _table(table) {
+    CondColumn(const TabletSchema& tablet_schema, int32_t index) : _col_index(index) {
         _conds.clear();
-        _is_key = _table->tablet_schema()[_col_index].is_key;
+        _is_key = tablet_schema.column(_col_index).is_key();
     }
     ~CondColumn();
 
     // Convert condition's operand from string to Field*, and append this condition to _conds
     // return true if success, otherwise return false
     bool add_condition(Cond* condition);
-    OLAPStatus add_cond(const TCondition& tcond, const FieldInfo& fi);
+    OLAPStatus add_cond(const TCondition& tcond, const TabletColumn& column);
 
     // 对一行数据中的指定列，用所有过滤条件进行比较，如果所有条件都满足，则过滤此行
     bool eval(const RowCursor& row) const;
@@ -120,7 +120,6 @@ private:
     bool                _is_key;
     int32_t             _col_index;
     std::vector<Cond*>   _conds;
-    OLAPTablePtr      _table;
 };
 
 // 一次请求所关联的条件
@@ -139,11 +138,8 @@ public:
         _columns.clear();
     }
 
-    void set_table(OLAPTablePtr table) {
-        long do_not_remove_me_until_you_want_a_heart_attacking = table.use_count();
-        OLAP_UNUSED_ARG(do_not_remove_me_until_you_want_a_heart_attacking);
-
-        _table = table;
+    void set_tablet_schema(const TabletSchema* schema) {
+        _schema = schema;
     }
 
     // 如果成功，则_columns中增加一项，如果失败则无视此condition，同时输出日志
@@ -154,17 +150,26 @@ public:
     
     bool delete_conditions_eval(const RowCursor& row) const;
     
-    bool delta_pruning_filter(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistics) const;
-    int delete_pruning_filter(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistics) const;
+    bool rowset_pruning_filter(const std::vector<KeyRange>& zone_maps) const;
+    int delete_pruning_filter(const std::vector<KeyRange>& zone_maps) const;
 
     const CondColumns& columns() const {
         return _columns;
     }
 
 private:
-    OLAPTablePtr _table;     // ref to OLAPTable to access schema
+    int32_t _get_field_index(const std::string& field_name) const {
+        for (int i = 0; i < _schema->num_columns(); i++) {
+            if (_schema->column(i).name() == field_name) {
+                return i;
+            }
+        }
+        LOG(WARNING) << "invalid field name. [name='" << field_name << "']";
+        return -1;
+    }
+
+private:
+    const TabletSchema* _schema;
     CondColumns _columns;   // list of condition column
 };
 

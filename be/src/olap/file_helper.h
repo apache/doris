@@ -351,9 +351,9 @@ OLAPStatus FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
     if (OLAP_SUCCESS != file_handler->pread(&_fixed_file_header,
                                             _fixed_file_header_size, 0)) {
         char errmsg[64];
-        LOG(WARNING) << "fail to load header structure from file. [file='"
+        LOG(WARNING) << "fail to load header structure from file. file="
                      << file_handler->file_name()
-                     << "' err='" << strerror_r(errno, errmsg, 64) << "']";
+                     << ", error=" << strerror_r(errno, errmsg, 64);
         return OLAP_ERR_IO_ERROR;
     }
 
@@ -364,9 +364,9 @@ OLAPStatus FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
         if (OLAP_SUCCESS != file_handler->pread(&tmp_header,
                                                 sizeof(tmp_header), 0)) {
             char errmsg[64];
-            LOG(WARNING) << "fail to load header structure from file. [file='"
+            LOG(WARNING) << "fail to load header structure from file. file="
                          << file_handler->file_name()
-                         << "' err='" << strerror_r(errno, errmsg, 64) << "']";
+                         << ", error=" << strerror_r(errno, errmsg, 64);
             return OLAP_ERR_IO_ERROR;
         }
 
@@ -389,9 +389,9 @@ OLAPStatus FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
     if (OLAP_SUCCESS != file_handler->pread(&_extra_fixed_header,
             sizeof(_extra_fixed_header), _fixed_file_header_size)) {
         char errmsg[64];
-        LOG(WARNING) << "fail to load extra fixed header from file. [file='"
+        LOG(WARNING) << "fail to load extra fixed header from file. file="
                      << file_handler->file_name()
-                     << "' err='" << strerror_r(errno, errmsg, 64) << "']";
+                     << ", error=" << strerror_r(errno, errmsg, 64);
         return OLAP_ERR_IO_ERROR;
     }
 
@@ -399,27 +399,27 @@ OLAPStatus FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
 
     if (NULL == buf.get()) {
         char errmsg[64];
-        LOG(WARNING) << "malloc protobuf buf error. [file='"
+        LOG(WARNING) << "malloc protobuf buf error. file="
                      << file_handler->file_name()
-                     << "' err='" << strerror_r(errno, errmsg, 64) << "']";
+                     << ", error=" << strerror_r(errno, errmsg, 64);
         return OLAP_ERR_MALLOC_ERROR;
     }
 
     if (OLAP_SUCCESS != file_handler->pread(buf.get(), _fixed_file_header.protobuf_length,
             _fixed_file_header_size + sizeof(_extra_fixed_header))) {
         char errmsg[64];
-        LOG(WARNING) << "fail to load protobuf from file. [file='"
+        LOG(WARNING) << "fail to load protobuf from file. file="
                      << file_handler->file_name()
-                     << "' err='" << strerror_r(errno, errmsg, 64) << "']";
+                     << ", error=" << strerror_r(errno, errmsg, 64);
         return OLAP_ERR_IO_ERROR;
     }
 
     real_file_length = file_handler->length();
 
     if (file_length() != static_cast<uint64_t>(real_file_length)) {
-        LOG(WARNING) << "file length is not match. [file='" << file_handler->file_name()
-                     << "' file_length=" << file_length()
-                     << " real_file_length=" << real_file_length << "]";
+        LOG(WARNING) << "file length is not match. file=" << file_handler->file_name()
+                     << ", file_length=" << file_length()
+                     << ", real_file_length=" << real_file_length;
         return OLAP_ERR_FILE_DATA_ERROR;
     }
 
@@ -428,9 +428,9 @@ OLAPStatus FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
                                           buf.get(), _fixed_file_header.protobuf_length);
 
     if (real_protobuf_checksum != _fixed_file_header.protobuf_checksum) {
-        LOG(WARNING) << "checksum is not match. [file='" << file_handler->file_name()
-                     << "' expect=" << _fixed_file_header.protobuf_checksum
-                     << " actual=" << real_protobuf_checksum << "]";
+        LOG(WARNING) << "checksum is not match. file=" << file_handler->file_name()
+                     << ", expect=" << _fixed_file_header.protobuf_checksum
+                     << ", actual=" << real_protobuf_checksum;
         return OLAP_ERR_CHECKSUM_ERROR;
     }
 
@@ -438,12 +438,12 @@ OLAPStatus FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
         std::string protobuf_str(buf.get(), _fixed_file_header.protobuf_length);
 
         if (!_proto.ParseFromString(protobuf_str)) {
-            LOG(WARNING) << "fail to parse file content to protobuf object. [file='"
-                         << file_handler->file_name() << "']";
+            LOG(WARNING) << "fail to parse file content to protobuf object. file="
+                         << file_handler->file_name();
             return OLAP_ERR_PARSE_PROTOBUF_ERROR;
         }
     } catch (...) {
-        LOG(WARNING) << "fail to load protobuf. [file='" << file_handler->file_name() << "']";
+        LOG(WARNING) << "fail to load protobuf. file='" << file_handler->file_name();
         return OLAP_ERR_PARSE_PROTOBUF_ERROR;
     }
 

@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_UTIL_UID_UTIL_H
 
 #include <ostream>
+#include <string>
 
 #include <boost/functional/hash.hpp>
 #include <boost/uuid/uuid.hpp>
@@ -42,6 +43,22 @@ inline void to_hex(T val, char* buf) {
     }
 }
 
+template<typename T>
+inline void from_hex(T* ret, const std::string& buf) {
+    T val = 0;
+    for (int i = 0; i < buf.length(); ++i) {
+        int buf_val = 0;
+        if (buf.c_str()[i] >= '0' && buf.c_str()[i] <= '9')
+		    buf_val = buf.c_str()[i] - '0';
+	    else {
+		    buf_val = buf.c_str()[i] - 'a' + 10;
+        }
+        val <<= 4;
+        val = val | buf_val;
+    }
+    *ret = val;
+}
+
 struct UniqueId {
     int64_t hi;
     int64_t lo;
@@ -54,6 +71,10 @@ struct UniqueId {
     UniqueId(int64_t hi_, int64_t lo_) : hi(hi_), lo(lo_) { }
     UniqueId(const TUniqueId& tuid) : hi(tuid.hi), lo(tuid.lo) { }
     UniqueId(const PUniqueId& puid) : hi(puid.hi()), lo(puid.lo()) { }
+    UniqueId(const std::string& hi_str, const std::string& lo_str) {
+        from_hex(&hi, hi_str);
+        from_hex(&lo, lo_str);
+    }
     ~UniqueId() noexcept { }
 
     std::string to_string() const {
@@ -64,12 +85,27 @@ struct UniqueId {
         return {buf, 33};
     }
 
+    // std::map std::set needs this operator
+    bool operator<(const UniqueId& right) const {
+        if (hi != right.hi) {
+            return hi < right.hi;
+        } else {
+            return lo < right.lo;
+        }
+    }
+
+    // std::unordered_map need this api
     size_t hash(size_t seed = 0) const {
         return doris::HashUtil::hash(this, sizeof(*this), seed);
     }
 
+    // std::unordered_map need this api
     bool operator==(const UniqueId& rhs) const {
         return hi == rhs.hi && lo == rhs.lo;
+    }
+
+    bool operator!=(const UniqueId& rhs) const {
+        return hi != rhs.hi || lo != rhs.lo;
     }
 
     TUniqueId to_thrift() const {

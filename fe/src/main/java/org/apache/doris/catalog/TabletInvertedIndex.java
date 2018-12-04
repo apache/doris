@@ -33,6 +33,7 @@ import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Table;
 
 import org.apache.logging.log4j.LogManager;
@@ -108,7 +109,7 @@ public class TabletInvertedIndex {
                              Map<Long, TTabletInfo> foundTabletsWithInvalidSchema,
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap, 
                              ListMultimap<Long, TPartitionVersionInfo> transactionsToPublish, 
-                             ListMultimap<Long, Long> transactionsToClear, 
+                             SetMultimap<Long, Long> transactionsToClear, 
                              ListMultimap<Long, Long> tabletRecoveryMap) {
         long start = 0L;
         readLock();

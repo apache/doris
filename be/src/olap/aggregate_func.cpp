@@ -142,12 +142,12 @@ AggregateFuncResolver::~AggregateFuncResolver() {}
 
 AggregateFunc get_aggregate_func(const FieldAggregationMethod agg_method,
                                  const FieldType field_type) {
-    return AggregateFuncResolver::get_instance()->get_aggregate_func(agg_method, field_type);
+    return AggregateFuncResolver::instance()->get_aggregate_func(agg_method, field_type);
 }
 
 FinalizeFunc get_finalize_func(const FieldAggregationMethod agg_method,
                                  const FieldType field_type) {
-    return AggregateFuncResolver::get_instance()->get_finalize_func(agg_method, field_type);
+    return AggregateFuncResolver::instance()->get_finalize_func(agg_method, field_type);
 }
 
 } // namespace doris

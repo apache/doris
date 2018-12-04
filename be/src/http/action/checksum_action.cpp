@@ -30,7 +30,8 @@
 #include "http/http_response.h"
 #include "http/http_status.h"
 #include "olap/olap_define.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
+#include "olap/task/engine_checksum_task.h"
 #include "runtime/exec_env.h"
 
 namespace doris {
@@ -125,11 +126,11 @@ void ChecksumAction::handle(HttpRequest *req) {
 int64_t ChecksumAction::do_checksum(int64_t tablet_id, int64_t version, int64_t version_hash,
         int32_t schema_hash, HttpRequest *req) {
 
-    OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
+    OLAPStatus res = OLAP_SUCCESS;
     uint32_t checksum;
-    res = _exec_env->olap_engine()->compute_checksum(
-            tablet_id, schema_hash, version, version_hash, &checksum);
-    if (res != OLAPStatus::OLAP_SUCCESS) {
+    EngineChecksumTask engine_task(tablet_id, schema_hash, version, version_hash, &checksum);
+    res = engine_task.execute();
+    if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "checksum failed. status: " << res
                      << ", signature: " << tablet_id;
         return -1L;

@@ -93,21 +93,20 @@ private:
     ExecEnv* _exec_env;
     const TMasterInfo& _master_info;
 
-    TaskWorkerPool* _create_table_workers;
-    TaskWorkerPool* _drop_table_workers;
+    TaskWorkerPool* _create_tablet_workers;
+    TaskWorkerPool* _drop_tablet_workers;
     TaskWorkerPool* _push_workers;
     TaskWorkerPool* _publish_version_workers;
     TaskWorkerPool* _clear_alter_task_workers;
     TaskWorkerPool* _clear_transaction_task_workers;
     TaskWorkerPool* _delete_workers;
-    TaskWorkerPool* _alter_table_workers;
+    TaskWorkerPool* _alter_tablet_workers;
     TaskWorkerPool* _clone_workers;
     TaskWorkerPool* _storage_medium_migrate_workers;
-    TaskWorkerPool* _cancel_delete_data_workers;
     TaskWorkerPool* _check_consistency_workers;
     TaskWorkerPool* _report_task_workers;
     TaskWorkerPool* _report_disk_state_workers;
-    TaskWorkerPool* _report_olap_table_workers;
+    TaskWorkerPool* _report_tablet_workers;
     TaskWorkerPool* _upload_workers;
     TaskWorkerPool* _download_workers;
     TaskWorkerPool* _make_snapshot_workers;
