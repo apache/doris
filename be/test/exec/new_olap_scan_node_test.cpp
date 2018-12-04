@@ -52,7 +52,7 @@ public:
     }
 
     void TearDown() {
-        OLAPEngine::get_instance()->clear();
+        StorageEngine::get_instance()->clear();
         SessionManager::get_instance()->delete_session_by_fd(123);
 
         system("rm -rf ./testrun");
@@ -71,19 +71,17 @@ public:
                unused_flag_path.c_str(),
                unused_flag_path.size());
 
-        OLAPRootPath::get_instance()->init();
+        StorageEngine::get_instance()->_lru_cache = newLRU_cache(10000);
 
-        OLAPEngine::get_instance()->_lru_cache = newLRU_cache(10000);
-
-        _olap_header = new
-        OLAPHeader("./testrun/case3/clickuserid_online_userid_type_planid_unitid_winfoid.hdr");
-        _olap_header->load();
-        _olap_table = new OLAPTable(_olap_header);
-        _olap_table->load_indices();
-        _olap_table->_root_path_name = "./testrun/case3";
+        _tablet_meta = new
+        TabletMeta("./testrun/case3/clickuserid_online_userid_type_planid_unitid_winfoid.hdr");
+        _tablet_meta->load();
+        tablet = new Tablet(_tablet_meta);
+        tablet->load_indices();
+        tablet->_root_path_name = "./testrun/case3";
 
         TableDescription description("fc", "clickuserid_online", "userid_type_planid_unitid_winfoid");
-        OLAPEngine::get_instance()->add_table(description, _olap_table);
+        StorageEngine::get_instance()->add_table(description, tablet);
 
         // init session manager
         SessionManager::get_instance()->init();
@@ -272,8 +270,8 @@ public:
     }
 
 private:
-    OLAPHeader* _olap_header;
-    OLAPTable* _olap_table;
+    TabletMeta* _tablet_meta;
+    Tablet* tablet;
 
     TPlanNode _tnode;
     ObjectPool _obj_pool;

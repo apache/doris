@@ -27,8 +27,9 @@
 // #include <gutil/strings/substitute.h>
 // #include <gutil/strings/join.h>
 
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "util/uid_util.h"
+#include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/filesystem_util.h"
 #include "runtime/exec_env.h"
