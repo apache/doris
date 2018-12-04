@@ -55,7 +55,7 @@ public:
     // 返回值：
     // - 如果init执行成功，即可以执行BE，则返回OLAP_SUCCESS；
     // - 其它情况下，返回相应的错误码
-    OLAPStatus init(OLAPTablePtr table, bool is_manual_trigger = false);
+    OLAPStatus init(TabletSharedPtr table, bool is_manual_trigger = false);
 
     // 执行BaseCompaction, 可能会持续很长时间
     //
@@ -164,7 +164,7 @@ private:
     }
 
     // 需要进行操作的Table指针
-    OLAPTablePtr _table;
+    TabletSharedPtr _table;
     // 新base的version
     Version _new_base_version;
     // 现有base的version

@@ -51,7 +51,7 @@ AgentStatus Pusher::init() {
     AgentStatus status = DORIS_SUCCESS;
 
     // Check replica exist
-    OLAPTablePtr olap_table;
+    TabletSharedPtr olap_table;
     olap_table = _engine->get_table(
             _push_req.tablet_id,
             _push_req.schema_hash);

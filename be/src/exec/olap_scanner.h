@@ -115,7 +115,7 @@ private:
     ReaderParams _params;
     std::unique_ptr<Reader> _reader;
 
-    OLAPTablePtr _olap_table;
+    TabletSharedPtr _olap_table;
     int64_t _version;
 
     std::vector<uint32_t> _return_columns;

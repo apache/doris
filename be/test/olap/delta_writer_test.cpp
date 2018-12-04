@@ -397,7 +397,7 @@ TEST_F(TestDeltaWriter, write) {
     ASSERT_EQ(res, OLAP_SUCCESS);
 
     // publish version success
-    OLAPTablePtr table = OLAPEngine::get_instance()->get_table(write_req.tablet_id, write_req.schema_hash);
+    TabletSharedPtr table = OLAPEngine::get_instance()->get_table(write_req.tablet_id, write_req.schema_hash);
     TPublishVersionRequest publish_req;
     publish_req.transaction_id = write_req.transaction_id;
     TPartitionVersionInfo info;
@@ -591,7 +591,7 @@ TEST_F(TestSchemaChange, schema_change) {
     ASSERT_EQ(res, OLAP_SUCCESS);
 
     // publish version success
-    OLAPTablePtr table = OLAPEngine::get_instance()->get_table(write_req.tablet_id, write_req.schema_hash);
+    TabletSharedPtr table = OLAPEngine::get_instance()->get_table(write_req.tablet_id, write_req.schema_hash);
     TPublishVersionRequest publish_req;
     publish_req.transaction_id = write_req.transaction_id;
     TPartitionVersionInfo info;

@@ -44,261 +44,8 @@ namespace doris {
 //           this usually means schema change is over,
 //           clear schema change info in both current table and related tables,
 //           finally we will only push for current tables
-OLAPStatus PushHandler::process(
-        OLAPTablePtr olap_table,
-        const TPushReq& request,
-        PushType push_type,
-        vector<TTabletInfo>* tablet_info_vec) {
-    LOG(INFO) << "begin to push data. tablet=" << olap_table->full_name()
-              << ", version=" << request.version;
-
-    OLAPStatus res = OLAP_SUCCESS;
-    _request = request;
-    _olap_table_arr.clear();
-    _olap_table_arr.push_back(olap_table);
-    vector<TableVars> table_infoes(1);
-    table_infoes[0].olap_table = olap_table;
-
-    bool is_push_locked = false;
-    bool is_new_tablet = false;
-    bool is_new_tablet_effective = false;
-
-    // 1. Get related tablets first if tablet in alter table status,
-    TTabletId tablet_id;
-    TSchemaHash schema_hash;
-    AlterTabletType alter_table_type;
-    OLAPTablePtr related_olap_table;
-    _obtain_header_rdlock();
-    bool is_schema_changing = olap_table->get_schema_change_request(
-            &tablet_id, &schema_hash, NULL, &alter_table_type);
-    _release_header_lock();
-
-    if (is_schema_changing) {
-        related_olap_table = OLAPEngine::get_instance()->get_table(tablet_id, schema_hash);
-        if (NULL == related_olap_table.get()) {
-            OLAP_LOG_WARNING("can't find olap table, clear invalid schema change info."
-                             "[table=%ld schema_hash=%d]", tablet_id, schema_hash);
-            _obtain_header_wrlock();
-            olap_table->clear_schema_change_request();
-            _release_header_lock();
-            is_schema_changing = false;
-        } else {
-            // _olap_table_arr is used to obtain header lock,
-            // to avoid deadlock, we must lock tablet header in time order.
-            if (related_olap_table->creation_time() < olap_table->creation_time()) {
-                _olap_table_arr.push_front(related_olap_table);
-            } else {
-                _olap_table_arr.push_back(related_olap_table);
-            }
-        }
-    }
-
-    // Obtain push lock to avoid simultaneously PUSH and
-    // conflict with alter table operations.
-    for (OLAPTablePtr table : _olap_table_arr) {
-        table->obtain_push_lock();
-    }
-    is_push_locked = true;
-
-    if (is_schema_changing) {
-        _obtain_header_rdlock();
-        is_schema_changing = olap_table->get_schema_change_request(
-                &tablet_id, &schema_hash, NULL, &alter_table_type);
-        _release_header_lock();
-
-        if (!is_schema_changing) {
-            LOG(INFO) << "schema change info is cleared after base table get related tablet, "
-                      << "maybe new tablet reach at the same time and load firstly. "
-                      << ", old_tablet=" << olap_table->full_name()
-                      << ", new_tablet=" << related_olap_table->full_name()
-                      << ", version=" << _request.version;
-        } else if (related_olap_table->creation_time() > olap_table->creation_time()) {
-            // If current table is old table, append it to table_infoes
-            table_infoes.push_back(TableVars());
-            TableVars& new_item = table_infoes.back();
-            new_item.olap_table = related_olap_table;
-        } else {
-            // if current table is new table, clear schema change info
-            res = _clear_alter_table_info(olap_table, related_olap_table);
-            if (res != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("fail to clear schema change info. [res=%d]", res);
-                goto EXIT;
-            }
-
-            LOG(INFO) << "data of new table is generated, stop convert from base table. "
-                      << "old_tablet=" << olap_table->full_name()
-                      << ", new_tablet=" << related_olap_table->full_name()
-                      << ", version=" << _request.version;
-            is_new_tablet_effective = true;
-        }
-    }
-
-    // To keep logic of alter_table/rollup_table consistent
-    if (table_infoes.size() == 1) {
-        table_infoes.resize(2);
-    }
-
-    // 2. validate request: version and version_hash chek
-    _obtain_header_rdlock();
-    res = _validate_request(table_infoes[0].olap_table,
-                            table_infoes[1].olap_table,
-                            is_new_tablet_effective,
-                            push_type);
-    _release_header_lock();
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to validate request. [res=%d table='%s' version=%ld]",
-                         res, olap_table->full_name().c_str(), _request.version);
-        goto EXIT;
-    }
-
-    // 3. Remove reverted version including delta and cumulative,
-    //    which will be deleted by background thread
-    _obtain_header_wrlock();
-    for (TableVars& table_var : table_infoes) {
-        if (NULL == table_var.olap_table.get()) {
-            continue;
-        }
-
-        res = _get_versions_reverted(table_var.olap_table,
-                                     is_new_tablet,
-                                     push_type,
-                                     &(table_var.unused_versions));
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("failed to get reverted versions. "
-                             "[res=%d table='%s' version=%ld]",
-                             res, table_var.olap_table->full_name().c_str(), _request.version);
-            goto EXIT;
-        }
-
-        if (table_var.unused_versions.size() != 0) {
-            res = _update_header(table_var.olap_table,
-                                 &(table_var.unused_versions),
-                                 &(table_var.added_indices),
-                                 &(table_var.unused_indices));
-            if (res != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("fail to update header for revert. "
-                                 "[res=%d table='%s' version=%ld]",
-                                 res, table_var.olap_table->full_name().c_str(), _request.version);
-                goto EXIT;
-            }
-
-            _delete_old_indices(&(table_var.unused_indices));
-        }
-
-        // If there are more than one table, others is doing alter table
-        is_new_tablet = true;
-    }
-    _release_header_lock();
-
-    // 4. Save delete condition when push for delete
-    if (push_type == PUSH_FOR_DELETE) {
-        _obtain_header_wrlock();
-        DeleteConditionHandler del_cond_handler;
-
-        for (TableVars& table_var : table_infoes) {
-            if (table_var.olap_table.get() == NULL) {
-                continue;
-            }
-
-            res = del_cond_handler.store_cond(
-                    table_var.olap_table, request.version, request.delete_conditions);
-            if (res != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("fail to store delete condition. [res=%d table='%s']",
-                                 res, table_var.olap_table->full_name().c_str());
-                goto EXIT;
-            }
-
-            res = table_var.olap_table->save_header();
-            if (res != OLAP_SUCCESS) {
-                LOG(FATAL) << "fail to save header. res=" << res
-                           << ", table=" << table_var.olap_table->full_name();
-                goto EXIT;
-            }
-        }
-
-        _release_header_lock();
-    }
-
-    // 5. Convert local data file into delta_file and build index,
-    //    which may take a long time
-    res = _convert(table_infoes[0].olap_table,
-                   table_infoes[1].olap_table,
-                   &(table_infoes[0].added_indices),
-                   &(table_infoes[1].added_indices),
-                   alter_table_type);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to convert data. [res=%d]", res);
-        goto EXIT;
-    }
-
-    // Update table header: add new version and remove reverted version
-    _obtain_header_wrlock();
-    for (TableVars& table_var : table_infoes) {
-        if (NULL == table_var.olap_table.get()) {
-            continue;
-        }
-
-        res = _update_header(table_var.olap_table,
-                             &(table_var.unused_versions),
-                             &(table_var.added_indices),
-                             &(table_var.unused_indices));
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to update header of new delta."
-                             "[res=%d table='%s' version=%ld]",
-                             res, table_var.olap_table->full_name().c_str(), _request.version);
-            goto EXIT;
-        }
-    }
-    _release_header_lock();
-
-    // 6. Delete unused versions which include delta and commulative,
-    //    which, in fact, is added to list and deleted by background thread
-    for (TableVars& table_var : table_infoes) {
-        if (NULL == table_var.olap_table.get()) {
-            continue;
-        }
-
-        _delete_old_indices(&(table_var.unused_indices));
-    }
-
-EXIT:
-    _release_header_lock();
-
-    // Get tablet infos for output
-    if (res == OLAP_SUCCESS || res == OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
-        if (tablet_info_vec != NULL) {
-            _get_tablet_infos(table_infoes, tablet_info_vec);
-        }
-        res = OLAP_SUCCESS;
-    }
-
-    // Clear added_indices when error happens
-    for (TableVars& table_var : table_infoes) {
-        if (table_var.olap_table.get() == NULL) {
-            continue;
-        }
-
-        for (SegmentGroup* segment_group : table_var.added_indices) {
-            segment_group->delete_all_files();
-            SAFE_DELETE(segment_group);
-        }
-    }
-
-    // Release push lock
-    if (is_push_locked) {
-        for (OLAPTablePtr table : _olap_table_arr) {
-            table->release_push_lock();
-        }
-    }
-    _olap_table_arr.clear();
-
-    LOG(INFO) << "finish to process push. res=" << res;
-
-    return res;
-}
-
 OLAPStatus PushHandler::process_realtime_push(
-        OLAPTablePtr olap_table,
+        TabletSharedPtr olap_table,
         const TPushReq& request,
         PushType push_type,
         vector<TTabletInfo>* tablet_info_vec) {
@@ -354,7 +101,7 @@ OLAPStatus PushHandler::process_realtime_push(
                       << ", related_tablet_id=" << related_tablet_id
                       << ", related_schema_hash=" << related_schema_hash
                       << ", transaction_id=" << request.transaction_id;
-            OLAPTablePtr related_olap_table = OLAPEngine::get_instance()->get_table(
+            TabletSharedPtr related_olap_table = OLAPEngine::get_instance()->get_table(
                 related_tablet_id, related_schema_hash);
 
             // if related tablet not exists, only push current tablet
@@ -526,8 +273,8 @@ void PushHandler::_get_tablet_infos(
 }
 
 OLAPStatus PushHandler::_convert(
-        OLAPTablePtr curr_olap_table,
-        OLAPTablePtr new_olap_table,
+        TabletSharedPtr curr_olap_table,
+        TabletSharedPtr new_olap_table,
         Indices* curr_olap_indices,
         Indices* new_olap_indices,
         AlterTabletType alter_table_type) {
@@ -720,8 +467,8 @@ OLAPStatus PushHandler::_convert(
 }
 
 OLAPStatus PushHandler::_validate_request(
-        OLAPTablePtr olap_table_for_raw,
-        OLAPTablePtr olap_table_for_schema_change,
+        TabletSharedPtr olap_table_for_raw,
+        TabletSharedPtr olap_table_for_schema_change,
         bool is_new_tablet_effective,
         PushType push_type) {
     const PDelta* latest_delta = olap_table_for_raw->lastest_delta();
@@ -787,7 +534,7 @@ OLAPStatus PushHandler::_validate_request(
 // user submit a push job and cancel it soon, but some 
 // tablets already push success.
 OLAPStatus PushHandler::_get_versions_reverted(
-        OLAPTablePtr olap_table,
+        TabletSharedPtr olap_table,
         bool is_new_tablet,
         PushType push_type,
         Versions* unused_versions) {
@@ -837,7 +584,7 @@ OLAPStatus PushHandler::_get_versions_reverted(
 }
 
 OLAPStatus PushHandler::_update_header(
-        OLAPTablePtr olap_table,
+        TabletSharedPtr olap_table,
         Versions* unused_versions,
         Indices* new_indices,
         Indices* unused_indices) {
@@ -881,8 +628,8 @@ void PushHandler::_delete_old_indices(Indices* unused_indices) {
 }
 
 OLAPStatus PushHandler::_clear_alter_table_info(
-        OLAPTablePtr tablet,
-        OLAPTablePtr related_tablet) {
+        TabletSharedPtr tablet,
+        TabletSharedPtr related_tablet) {
     OLAPStatus res = OLAP_SUCCESS;
     _obtain_header_wrlock();
 
@@ -962,7 +709,7 @@ BinaryReader::BinaryReader()
 }
 
 OLAPStatus BinaryReader::init(
-        OLAPTablePtr table,
+        TabletSharedPtr table,
         BinaryFile* file) {
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -1092,7 +839,7 @@ LzoBinaryReader::LzoBinaryReader()
 }
 
 OLAPStatus LzoBinaryReader::init(
-        OLAPTablePtr table,
+        TabletSharedPtr table,
         BinaryFile* file) {
     OLAPStatus res = OLAP_SUCCESS;
 

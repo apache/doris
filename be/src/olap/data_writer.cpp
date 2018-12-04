@@ -26,7 +26,7 @@
 
 namespace doris {
 
-ColumnDataWriter* ColumnDataWriter::create(OLAPTablePtr table, SegmentGroup* segment_group, bool is_push_write) {
+ColumnDataWriter* ColumnDataWriter::create(TabletSharedPtr table, SegmentGroup* segment_group, bool is_push_write) {
     ColumnDataWriter* writer = NULL;
     switch (table->data_file_type()) {
     case COLUMN_ORIENTED_FILE:
@@ -40,7 +40,7 @@ ColumnDataWriter* ColumnDataWriter::create(OLAPTablePtr table, SegmentGroup* seg
     return writer;
 }
 
-ColumnDataWriter::ColumnDataWriter(OLAPTablePtr table, SegmentGroup* segment_group, bool is_push_write)
+ColumnDataWriter::ColumnDataWriter(TabletSharedPtr table, SegmentGroup* segment_group, bool is_push_write)
     : _is_push_write(is_push_write),
       _table(table),
       _column_statistics(_table->num_key_fields(),
