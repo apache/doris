@@ -26,11 +26,11 @@
 #include "http/http_headers.h"
 #include "http/http_status.h"
 
-#include "olap/olap_header_manager.h"
-#include "olap/olap_engine.h"
+#include "olap/tablet_meta_manager.h"
+#include "olap/storage_engine.h"
 #include "olap/olap_define.h"
-#include "olap/olap_header.h"
-#include "olap/olap_table.h"
+#include "olap/tablet_meta.h"
+#include "olap/tablet.h"
 #include "common/logging.h"
 #include "util/json_util.h"
 
@@ -49,12 +49,12 @@ Status MetaAction::_handle_header(HttpRequest *req, std::string* json_header) {
     }
     uint64_t tablet_id = std::stoull(req_tablet_id);
     uint32_t schema_hash = std::stoul(req_schema_hash);
-    OLAPTablePtr olap_table = OLAPEngine::get_instance()->get_table(tablet_id, schema_hash);
-    if (olap_table == nullptr) {
+    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+    if (tablet == nullptr) {
         LOG(WARNING) << "no tablet for tablet_id:" << tablet_id << " schema hash:" << schema_hash;
         return Status::InternalError("no tablet exist");
     }
-    OLAPStatus s = OlapHeaderManager::get_json_header(olap_table->store(), tablet_id, schema_hash, json_header);
+    OLAPStatus s = TabletMetaManager::get_json_header(tablet->data_dir(), tablet_id, schema_hash, json_header);
     if (s == OLAP_ERR_META_KEY_NOT_FOUND) {
         return Status::InternalError("no header exist");
     } else if (s != OLAP_SUCCESS) {

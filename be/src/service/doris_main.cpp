@@ -153,17 +153,17 @@ int main(int argc, char** argv) {
     // options
     doris::EngineOptions options;
     options.store_paths = paths;
-    doris::OLAPEngine* engine = nullptr;
-    auto st = doris::OLAPEngine::open(options, &engine);
+    doris::StorageEngine* engine = nullptr;
+    auto st = doris::StorageEngine::open(options, &engine);
     if (!st.ok()) {
-        LOG(FATAL) << "fail to open OLAPEngine, res=" << st.get_error_msg();
+        LOG(FATAL) << "fail to open StorageEngine, res=" << st.get_error_msg();
         exit(-1);
     }
 
     // start backend service for the coordinator on be_port
     auto exec_env = doris::ExecEnv::GetInstance();
     doris::ExecEnv::init(exec_env, paths);
-    exec_env->set_olap_engine(engine);
+    exec_env->set_storage_engine(engine);
 
     doris::FrontendHelper::setup(exec_env);
     doris::ThriftServer* be_server = nullptr;

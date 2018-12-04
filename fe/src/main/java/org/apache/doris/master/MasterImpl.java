@@ -116,7 +116,7 @@ public class MasterImpl {
         AgentTask task = AgentTaskQueue.getTask(backendId, taskType, signature);
         if (task == null) {
             if (taskType != TTaskType.DROP && taskType != TTaskType.STORAGE_MEDIUM_MIGRATE
-                    && taskType != TTaskType.CANCEL_DELETE && taskType != TTaskType.RELEASE_SNAPSHOT) {
+                    && taskType != TTaskType.RELEASE_SNAPSHOT) {
                 String errMsg = "cannot find task. type: " + taskType + ", backendId: " + backendId
                         + ", signature: " + signature;
                 LOG.warn(errMsg);
@@ -132,7 +132,7 @@ public class MasterImpl {
                 // We start to let FE perceive the task's error msg
                 if (taskType != TTaskType.MAKE_SNAPSHOT && taskType != TTaskType.UPLOAD
                         && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE
-                        && taskType != TTaskType.CLONE) {
+                        && taskType != TTaskType.CLONE && taskType != TTaskType.PUBLISH_VERSION) {
                     return result;
                 }
             }
@@ -570,6 +570,10 @@ public class MasterImpl {
         publishVersionTask.addErrorTablets(errorTabletIds);
         publishVersionTask.setIsFinished(true);
 
+        if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
+            // not remove the task from queue and be will retry
+            return;
+        }
         AgentTaskQueue.removeTask(publishVersionTask.getBackendId(), 
                                   publishVersionTask.getTaskType(), 
                                   publishVersionTask.getSignature());

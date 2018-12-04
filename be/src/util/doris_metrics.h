@@ -83,7 +83,6 @@ public:
     static IntCounter storage_migrate_requests_total;
     static IntCounter delete_requests_total;
     static IntCounter delete_requests_failed;
-    static IntCounter cancel_delete_requests_total;
     static IntCounter clone_requests_total;
     static IntCounter clone_requests_failed;
 

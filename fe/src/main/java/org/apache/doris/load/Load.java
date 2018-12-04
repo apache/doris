@@ -87,7 +87,6 @@ import org.apache.doris.task.AgentClient;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
-import org.apache.doris.task.CancelDeleteTask;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TMiniLoadRequest;
@@ -3452,26 +3451,6 @@ public class Load {
             } finally {
                 db.writeUnlock();
             }
-        } catch (Exception e) {
-            // cancel delete
-            // need not save cancel delete task in AgentTaskQueue
-            AgentBatchTask cancelDeleteBatchTask = new AgentBatchTask();
-            for (AgentTask task : deleteBatchTask.getAllTasks()) {
-                PushTask pushTask = (PushTask) task;
-                CancelDeleteTask cancelDeleteTask =
-                        new CancelDeleteTask(task.getBackendId(), task.getDbId(), task.getTableId(),
-                                             task.getPartitionId(), task.getIndexId(), task.getTabletId(),
-                                             pushTask.getSchemaHash(), pushTask.getVersion(),
-                                             pushTask.getVersionHash());
-                cancelDeleteBatchTask.addTask(cancelDeleteTask);
-            }
-            if (cancelDeleteBatchTask.getTaskNum() > 0) {
-                AgentTaskExecutor.submit(cancelDeleteBatchTask);
-            }
-
-            String failMsg = "delete fail, " + e.getMessage();
-            LOG.warn(failMsg);
-            throw new DdlException(failMsg);
         } finally {
             // clear tasks
             List<AgentTask> tasks = deleteBatchTask.getAllTasks();
