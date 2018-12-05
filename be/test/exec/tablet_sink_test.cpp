@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/olap_table_sink.h"
+#include "exec/tablet_sink.h"
 
 #include <gtest/gtest.h>
 

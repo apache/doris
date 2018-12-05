@@ -27,7 +27,7 @@
 #include "common/status.h"
 #include "common/object_pool.h"
 #include "exec/data_sink.h"
-#include "exec/olap_table_info.h"
+#include "exec/tablet_info.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gen_cpp/palo_internal_service.pb.h"

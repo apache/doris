@@ -115,14 +115,14 @@ void set_default_create_tablet_request(TCreateTabletReq* request) {
 
 // SQL for generate data(./be/test/olap/test_data/all_types_1000):
 //
-// create table delete_test_row (k1 tinyint, k2 int, k3 varchar(64), 
+// create tablet delete_test_row (k1 tinyint, k2 int, k3 varchar(64), 
 // k4 date, k5 datetime, k6 decimal(6,3), k7 smallint default "0", 
 // k8 char(16) default "char", v bigint sum) engine=olap distributed by 
 // random buckets 1 properties ("storage_type" = "row");
 //
 // load label label1 (data infile 
 // ("hdfs://host:port/dir") 
-// into table `delete_test_row` (k1,k2,v,k3,k4,k5,k6));
+// into tablet `delete_test_row` (k1,k2,v,k3,k4,k5,k6));
 void set_default_push_request(TPushReq* request) {
     request->tablet_id = 10003;
     request->schema_hash = 1508825676;
@@ -146,7 +146,7 @@ public:
 
     void TearDown() {
         // Remove all dir.
-        OLAPEngine::get_instance()->drop_table(
+        OLAPEngine::get_instance()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
@@ -156,7 +156,7 @@ public:
 
     void init_olap() {
         // Create local data dir for OLAPEngine.
-        config::storage_root_path = "./test_run/row_table";
+        config::storage_root_path = "./test_run/row_tablet";
         remove_all_dir(config::storage_root_path);
         ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
 
@@ -168,9 +168,9 @@ public:
         OLAPStatus res = OLAP_SUCCESS;
         set_default_create_tablet_request(&_create_tablet);
         CommandExecutor command_executor = CommandExecutor();
-        res = command_executor.create_table(_create_tablet);
+        res = command_executor.create_tablet(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        TabletSharedPtr tablet = command_executor.get_table(
+        TabletSharedPtr tablet = command_executor.get_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet.get() != NULL);
         _tablet_path = tablet->tablet_path();
@@ -190,21 +190,21 @@ public:
         //ExecEnv* exec_env = new ExecEnv();
         //_runtime_stat.init(fragment_id, query_options, "test", exec_env);
 
-        TDescriptorTable t_desc_table;
+        TDescriptorTable t_desc_tablet;
 
-        // table descriptors
-        TTableDescriptor t_table_desc;
+        // tablet descriptors
+        TTableDescriptor t_tablet_desc;
 
-        t_table_desc.id = 0;
-        t_table_desc.tableType = TTableType::OLAP_TABLE;
-        t_table_desc.numCols = 0;
-        t_table_desc.numClusteringCols = 0;
-        t_table_desc.olapTable.tableName = "";
-        t_table_desc.tableName = "";
-        t_table_desc.dbName = "";
-        t_table_desc.__isset.mysqlTable = true;
-        t_desc_table.tableDescriptors.push_back(t_table_desc);
-        t_desc_table.__isset.tableDescriptors = true;
+        t_tablet_desc.id = 0;
+        t_tablet_desc.tableType = TTableType::OLAP_TABLE;
+        t_tablet_desc.numCols = 0;
+        t_tablet_desc.numClusteringCols = 0;
+        t_tablet_desc.olapTable.tableName = "";
+        t_tablet_desc.tableName = "";
+        t_tablet_desc.dbName = "";
+        t_tablet_desc.__isset.mysqlTable = true;
+        t_desc_tablet.tableDescriptors.push_back(t_tablet_desc);
+        t_desc_tablet.__isset.tableDescriptors = true;
         // TSlotDescriptor
         int offset = 1;
         int i = 0;
@@ -220,7 +220,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k1");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int8_t);
         }
         ++i;
@@ -236,7 +236,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k2");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int32_t);
         }
         ++i;       
@@ -252,7 +252,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k3");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(StringValue);
         }
         ++i;       
@@ -268,7 +268,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k4");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(DateTimeValue);
         }
         ++i;
@@ -284,7 +284,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k5");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(DateTimeValue);
         }
         ++i;
@@ -300,7 +300,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k6");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(decimal12_t);
         }
         ++i;
@@ -316,7 +316,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k7");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int16_t);
         }
         ++i;       
@@ -332,7 +332,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k8");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(StringValue);
         }
         ++i;      
@@ -348,11 +348,11 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("v");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int64_t);
         }
 
-        t_desc_table.__isset.slotDescriptors = true;
+        t_desc_tablet.__isset.slotDescriptors = true;
         // TTupleDescriptor
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = 0;
@@ -360,9 +360,9 @@ public:
         t_tuple_desc.numNullBytes = 1;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
-        t_desc_table.tupleDescriptors.push_back(t_tuple_desc);
+        t_desc_tablet.tupleDescriptors.push_back(t_tuple_desc);
 
-        DescriptorTbl::create(&_obj_pool, t_desc_table, &_desc_tbl);
+        DescriptorTbl::create(&_obj_pool, t_desc_tablet, &_desc_tbl);
     }
 
     void init_scan_node_k1_v() {
@@ -372,21 +372,21 @@ public:
         //ExecEnv* exec_env = new ExecEnv();
         //_runtime_stat.init(fragment_id, query_options, "test", exec_env);
 
-        TDescriptorTable t_desc_table;
+        TDescriptorTable t_desc_tablet;
 
-        // table descriptors
-        TTableDescriptor t_table_desc;
+        // tablet descriptors
+        TTableDescriptor t_tablet_desc;
 
-        t_table_desc.id = 0;
-        t_table_desc.tableType = TTableType::OLAP_TABLE;
-        t_table_desc.numCols = 0;
-        t_table_desc.numClusteringCols = 0;
-        t_table_desc.olapTable.tableName = "";
-        t_table_desc.tableName = "";
-        t_table_desc.dbName = "";
-        t_table_desc.__isset.mysqlTable = true;
-        t_desc_table.tableDescriptors.push_back(t_table_desc);
-        t_desc_table.__isset.tableDescriptors = true;
+        t_tablet_desc.id = 0;
+        t_tablet_desc.tableType = TTableType::OLAP_TABLE;
+        t_tablet_desc.numCols = 0;
+        t_tablet_desc.numClusteringCols = 0;
+        t_tablet_desc.olapTable.tableName = "";
+        t_tablet_desc.tableName = "";
+        t_tablet_desc.dbName = "";
+        t_tablet_desc.__isset.mysqlTable = true;
+        t_desc_tablet.tableDescriptors.push_back(t_tablet_desc);
+        t_desc_tablet.__isset.tableDescriptors = true;
         // TSlotDescriptor
         int offset = 1;
         int i = 0;
@@ -402,7 +402,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k1");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int8_t);
         }
         ++i;    
@@ -418,11 +418,11 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("v");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int64_t);
         }
 
-        t_desc_table.__isset.slotDescriptors = true;
+        t_desc_tablet.__isset.slotDescriptors = true;
         // TTupleDescriptor
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = 0;
@@ -430,9 +430,9 @@ public:
         t_tuple_desc.numNullBytes = 1;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
-        t_desc_table.tupleDescriptors.push_back(t_tuple_desc);
+        t_desc_tablet.tupleDescriptors.push_back(t_tuple_desc);
 
-        DescriptorTbl::create(&_obj_pool, t_desc_table, &_desc_tbl);
+        DescriptorTbl::create(&_obj_pool, t_desc_tablet, &_desc_tbl);
     }
 
 private:
@@ -681,7 +681,7 @@ public:
 
     void TearDown() {
         // Remove all dir.
-        OLAPEngine::get_instance()->drop_table(
+        OLAPEngine::get_instance()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
@@ -691,7 +691,7 @@ public:
 
     void init_olap() {
         // Create local data dir for OLAPEngine.
-        config::storage_root_path = "./test_run/column_table";
+        config::storage_root_path = "./test_run/column_tablet";
         remove_all_dir(config::storage_root_path);
         ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
 
@@ -704,9 +704,9 @@ public:
         set_default_create_tablet_request(&_create_tablet);
         _create_tablet.tablet_schema.storage_type = TStorageType::COLUMN;
         CommandExecutor command_executor = CommandExecutor();
-        res = command_executor.create_table(_create_tablet);
+        res = command_executor.create_tablet(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        TabletSharedPtr tablet = command_executor.get_table(
+        TabletSharedPtr tablet = command_executor.get_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet.get() != NULL);
         _tablet_path = tablet->tablet_path();
@@ -726,21 +726,21 @@ public:
         //ExecEnv* exec_env = new ExecEnv();
         //_runtime_stat.init(fragment_id, query_options, "test", exec_env);
 
-        TDescriptorTable t_desc_table;
+        TDescriptorTable t_desc_tablet;
 
-        // table descriptors
-        TTableDescriptor t_table_desc;
+        // tablet descriptors
+        TTableDescriptor t_tablet_desc;
 
-        t_table_desc.id = 0;
-        t_table_desc.tableType = TTableType::OLAP_TABLE;
-        t_table_desc.numCols = 0;
-        t_table_desc.numClusteringCols = 0;
-        t_table_desc.olapTable.tableName = "";
-        t_table_desc.tableName = "";
-        t_table_desc.dbName = "";
-        t_table_desc.__isset.mysqlTable = true;
-        t_desc_table.tableDescriptors.push_back(t_table_desc);
-        t_desc_table.__isset.tableDescriptors = true;
+        t_tablet_desc.id = 0;
+        t_tablet_desc.tableType = TTableType::OLAP_TABLE;
+        t_tablet_desc.numCols = 0;
+        t_tablet_desc.numClusteringCols = 0;
+        t_tablet_desc.olapTable.tableName = "";
+        t_tablet_desc.tableName = "";
+        t_tablet_desc.dbName = "";
+        t_tablet_desc.__isset.mysqlTable = true;
+        t_desc_tablet.tableDescriptors.push_back(t_tablet_desc);
+        t_desc_tablet.__isset.tableDescriptors = true;
         // TSlotDescriptor
         int offset = 1;
         int i = 0;
@@ -756,7 +756,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k1");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int8_t);
         }
         ++i;
@@ -772,7 +772,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k2");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int32_t);
         }
         ++i;       
@@ -788,7 +788,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k3");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(StringValue);
         }
         ++i;       
@@ -804,7 +804,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k4");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(DateTimeValue);
         }
         ++i;
@@ -820,7 +820,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k5");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(DateTimeValue);
         }
         ++i;
@@ -836,7 +836,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k6");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(decimal12_t);
         }
         ++i;
@@ -852,7 +852,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k7");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int16_t);
         }
         ++i;       
@@ -868,7 +868,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k8");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(StringValue);
         }
         ++i;      
@@ -884,11 +884,11 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("v");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int64_t);
         }
 
-        t_desc_table.__isset.slotDescriptors = true;
+        t_desc_tablet.__isset.slotDescriptors = true;
         // TTupleDescriptor
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = 0;
@@ -896,9 +896,9 @@ public:
         t_tuple_desc.numNullBytes = 1;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
-        t_desc_table.tupleDescriptors.push_back(t_tuple_desc);
+        t_desc_tablet.tupleDescriptors.push_back(t_tuple_desc);
 
-        DescriptorTbl::create(&_obj_pool, t_desc_table, &_desc_tbl);
+        DescriptorTbl::create(&_obj_pool, t_desc_tablet, &_desc_tbl);
     }
 
     
@@ -909,21 +909,21 @@ public:
         //ExecEnv* exec_env = new ExecEnv();
         //_runtime_stat.init(fragment_id, query_options, "test", exec_env);
 
-        TDescriptorTable t_desc_table;
+        TDescriptorTable t_desc_tablet;
 
-        // table descriptors
-        TTableDescriptor t_table_desc;
+        // tablet descriptors
+        TTableDescriptor t_tablet_desc;
 
-        t_table_desc.id = 0;
-        t_table_desc.tableType = TTableType::OLAP_TABLE;
-        t_table_desc.numCols = 0;
-        t_table_desc.numClusteringCols = 0;
-        t_table_desc.olapTable.tableName = "";
-        t_table_desc.tableName = "";
-        t_table_desc.dbName = "";
-        t_table_desc.__isset.mysqlTable = true;
-        t_desc_table.tableDescriptors.push_back(t_table_desc);
-        t_desc_table.__isset.tableDescriptors = true;
+        t_tablet_desc.id = 0;
+        t_tablet_desc.tableType = TTableType::OLAP_TABLE;
+        t_tablet_desc.numCols = 0;
+        t_tablet_desc.numClusteringCols = 0;
+        t_tablet_desc.olapTable.tableName = "";
+        t_tablet_desc.tableName = "";
+        t_tablet_desc.dbName = "";
+        t_tablet_desc.__isset.mysqlTable = true;
+        t_desc_tablet.tableDescriptors.push_back(t_tablet_desc);
+        t_desc_tablet.__isset.tableDescriptors = true;
         // TSlotDescriptor
         int offset = 1;
         int i = 0;
@@ -939,7 +939,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k1");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int8_t);
         }
         ++i;    
@@ -955,11 +955,11 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("v");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int64_t);
         }
 
-        t_desc_table.__isset.slotDescriptors = true;
+        t_desc_tablet.__isset.slotDescriptors = true;
         // TTupleDescriptor
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = 0;
@@ -967,9 +967,9 @@ public:
         t_tuple_desc.numNullBytes = 1;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
-        t_desc_table.tupleDescriptors.push_back(t_tuple_desc);
+        t_desc_tablet.tupleDescriptors.push_back(t_tuple_desc);
 
-        DescriptorTbl::create(&_obj_pool, t_desc_table, &_desc_tbl);
+        DescriptorTbl::create(&_obj_pool, t_desc_tablet, &_desc_tbl);
     }
 
 private:
@@ -1165,7 +1165,7 @@ public:
 
     void TearDown() {
         // Remove all dir.
-        OLAPEngine::get_instance()->drop_table(
+        OLAPEngine::get_instance()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
@@ -1175,7 +1175,7 @@ public:
 
     void init_olap() {
         // Create local data dir for OLAPEngine.
-        config::storage_root_path = "./test_run/row_table";
+        config::storage_root_path = "./test_run/row_tablet";
         remove_all_dir(config::storage_root_path);
         ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
 
@@ -1187,9 +1187,9 @@ public:
         OLAPStatus res = OLAP_SUCCESS;
         set_default_create_tablet_request(&_create_tablet);
         CommandExecutor command_executor = CommandExecutor();
-        res = command_executor.create_table(_create_tablet);
+        res = command_executor.create_tablet(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        TabletSharedPtr tablet = command_executor.get_table(
+        TabletSharedPtr tablet = command_executor.get_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet.get() != NULL);
         _tablet_path = tablet->tablet_path();
@@ -1226,21 +1226,21 @@ public:
         //ExecEnv* exec_env = new ExecEnv();
         //_runtime_stat.init(fragment_id, query_options, "test", exec_env);
 
-        TDescriptorTable t_desc_table;
+        TDescriptorTable t_desc_tablet;
 
-        // table descriptors
-        TTableDescriptor t_table_desc;
+        // tablet descriptors
+        TTableDescriptor t_tablet_desc;
 
-        t_table_desc.id = 0;
-        t_table_desc.tableType = TTableType::OLAP_TABLE;
-        t_table_desc.numCols = 0;
-        t_table_desc.numClusteringCols = 0;
-        t_table_desc.olapTable.tableName = "";
-        t_table_desc.tableName = "";
-        t_table_desc.dbName = "";
-        t_table_desc.__isset.mysqlTable = true;
-        t_desc_table.tableDescriptors.push_back(t_table_desc);
-        t_desc_table.__isset.tableDescriptors = true;
+        t_tablet_desc.id = 0;
+        t_tablet_desc.tableType = TTableType::OLAP_TABLE;
+        t_tablet_desc.numCols = 0;
+        t_tablet_desc.numClusteringCols = 0;
+        t_tablet_desc.olapTable.tableName = "";
+        t_tablet_desc.tableName = "";
+        t_tablet_desc.dbName = "";
+        t_tablet_desc.__isset.mysqlTable = true;
+        t_desc_tablet.tableDescriptors.push_back(t_tablet_desc);
+        t_desc_tablet.__isset.tableDescriptors = true;
         // TSlotDescriptor
         int offset = 1;
         int i = 0;
@@ -1256,7 +1256,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k1");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int8_t);
         }
         ++i;
@@ -1272,7 +1272,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k2");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int32_t);
         }
         ++i;       
@@ -1288,7 +1288,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k3");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(StringValue);
         }
         ++i;       
@@ -1304,7 +1304,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k4");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(DateTimeValue);
         }
         ++i;
@@ -1320,7 +1320,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k5");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(DateTimeValue);
         }
         ++i;
@@ -1336,7 +1336,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k6");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(decimal12_t);
         }
         ++i;
@@ -1352,7 +1352,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k7");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int16_t);
         }
         ++i;       
@@ -1368,7 +1368,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k8");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(StringValue);
         }
         ++i;      
@@ -1384,11 +1384,11 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("v");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int64_t);
         }
 
-        t_desc_table.__isset.slotDescriptors = true;
+        t_desc_tablet.__isset.slotDescriptors = true;
         // TTupleDescriptor
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = 0;
@@ -1396,9 +1396,9 @@ public:
         t_tuple_desc.numNullBytes = 1;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
-        t_desc_table.tupleDescriptors.push_back(t_tuple_desc);
+        t_desc_tablet.tupleDescriptors.push_back(t_tuple_desc);
 
-        DescriptorTbl::create(&_obj_pool, t_desc_table, &_desc_tbl);
+        DescriptorTbl::create(&_obj_pool, t_desc_tablet, &_desc_tbl);
     }
 
     
@@ -1409,21 +1409,21 @@ public:
         //ExecEnv* exec_env = new ExecEnv();
         //_runtime_stat.init(fragment_id, query_options, "test", exec_env);
 
-        TDescriptorTable t_desc_table;
+        TDescriptorTable t_desc_tablet;
 
-        // table descriptors
-        TTableDescriptor t_table_desc;
+        // tablet descriptors
+        TTableDescriptor t_tablet_desc;
 
-        t_table_desc.id = 0;
-        t_table_desc.tableType = TTableType::OLAP_TABLE;
-        t_table_desc.numCols = 0;
-        t_table_desc.numClusteringCols = 0;
-        t_table_desc.olapTable.tableName = "";
-        t_table_desc.tableName = "";
-        t_table_desc.dbName = "";
-        t_table_desc.__isset.mysqlTable = true;
-        t_desc_table.tableDescriptors.push_back(t_table_desc);
-        t_desc_table.__isset.tableDescriptors = true;
+        t_tablet_desc.id = 0;
+        t_tablet_desc.tableType = TTableType::OLAP_TABLE;
+        t_tablet_desc.numCols = 0;
+        t_tablet_desc.numClusteringCols = 0;
+        t_tablet_desc.olapTable.tableName = "";
+        t_tablet_desc.tableName = "";
+        t_tablet_desc.dbName = "";
+        t_tablet_desc.__isset.mysqlTable = true;
+        t_desc_tablet.tableDescriptors.push_back(t_tablet_desc);
+        t_desc_tablet.__isset.tableDescriptors = true;
         // TSlotDescriptor
         int offset = 1;
         int i = 0;
@@ -1439,7 +1439,7 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("k1");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int8_t);
         }
         ++i;    
@@ -1455,11 +1455,11 @@ public:
             t_slot_desc.__set_slotIdx(i);
             t_slot_desc.__set_isMaterialized(true);
             t_slot_desc.__set_colName("v");
-            t_desc_table.slotDescriptors.push_back(t_slot_desc);
+            t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int64_t);
         }
 
-        t_desc_table.__isset.slotDescriptors = true;
+        t_desc_tablet.__isset.slotDescriptors = true;
         // TTupleDescriptor
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = 0;
@@ -1467,9 +1467,9 @@ public:
         t_tuple_desc.numNullBytes = 1;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
-        t_desc_table.tupleDescriptors.push_back(t_tuple_desc);
+        t_desc_tablet.tupleDescriptors.push_back(t_tuple_desc);
 
-        DescriptorTbl::create(&_obj_pool, t_desc_table, &_desc_tbl);
+        DescriptorTbl::create(&_obj_pool, t_desc_tablet, &_desc_tbl);
     }
 
 private:

@@ -31,7 +31,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_engine.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 
 using std::list;
 using std::string;
@@ -57,11 +57,11 @@ AgentStatus Pusher::init() {
     }
 
     // Check replica exist
-    TabletSharedPtr olap_table;
-    olap_table = _engine->get_table(
+    TabletSharedPtr tablet;
+    tablet = _engine->get_tablet(
             _push_req.tablet_id,
             _push_req.schema_hash);
-    if (olap_table.get() == NULL) {
+    if (tablet.get() == NULL) {
         OLAP_LOG_WARNING("get tables failed. tablet_id: %ld, schema_hash: %ld",
                          _push_req.tablet_id, _push_req.schema_hash);
         status = DORIS_PUSH_INVALID_TABLE;
@@ -82,7 +82,7 @@ AgentStatus Pusher::init() {
 
         // Get local download path
         LOG(INFO) << "start get file. remote_full_path: " << remote_full_path;
-        string root_path = olap_table->storage_root_path_name();
+        string root_path = tablet->storage_root_path_name();
 
         status = _get_tmp_file_dir(root_path, &tmp_file_dir);
         if (DORIS_SUCCESS != status) {

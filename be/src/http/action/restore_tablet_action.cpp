@@ -85,7 +85,7 @@ Status RestoreTabletAction::_handle(HttpRequest *req) {
     LOG(INFO) << "get restore tablet action request: " << tablet_id << "-" << schema_hash;
 
     TabletSharedPtr tablet =
-            OLAPEngine::get_instance()->get_table(tablet_id, schema_hash);
+            OLAPEngine::get_instance()->get_tablet(tablet_id, schema_hash);
     if (tablet.get() != nullptr) {
         LOG(WARNING) << "find tablet. tablet_id=" << tablet_id << " schema_hash=" << schema_hash;
         return Status("tablet already exists, can not restore.");
