@@ -19,7 +19,7 @@
 #define DORIS_BE_SRC_OLAP_MERGER_H
 
 #include "olap/olap_define.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 
 namespace doris {
 
@@ -29,7 +29,7 @@ class ColumnData;
 class Merger {
 public:
     // parameter index is created by caller, and it is empty.
-    Merger(TabletSharedPtr table, SegmentGroup* index, ReaderType type);
+    Merger(TabletSharedPtr tablet, SegmentGroup* index, ReaderType type);
 
     virtual ~Merger() {};
 
@@ -44,7 +44,7 @@ public:
         return _row_count;
     }
 private:
-    TabletSharedPtr _table;
+    TabletSharedPtr _tablet;
     SegmentGroup* _segment_group;
     ReaderType _reader_type;
     uint64_t _row_count;

@@ -59,19 +59,19 @@ MockMasterServerClient::MockMasterServerClient(
 TEST(TaskWorkerPoolTest, TestStart) {
     TMasterInfo master_info;
     ExecEnv env;
-    TaskWorkerPool task_worker_pool_create_table(
+    TaskWorkerPool task_worker_pool_create_tablet(
             TaskWorkerPool::TaskWorkerType::CREATE_TABLE,
             &env,
             master_info);
-    task_worker_pool_create_table.start();
-    EXPECT_EQ(task_worker_pool_create_table._worker_count, config::create_table_worker_count);
+    task_worker_pool_create_tablet.start();
+    EXPECT_EQ(task_worker_pool_create_tablet._worker_count, config::create_tablet_worker_count);
 
-    TaskWorkerPool task_worker_pool_drop_table(
+    TaskWorkerPool task_worker_pool_drop_tablet(
             TaskWorkerPool::TaskWorkerType::DROP_TABLE,
             &env,
             master_info);
-    task_worker_pool_drop_table.start();
-    EXPECT_EQ(task_worker_pool_create_table._worker_count, config::drop_table_worker_count);
+    task_worker_pool_drop_tablet.start();
+    EXPECT_EQ(task_worker_pool_create_tablet._worker_count, config::drop_tablet_worker_count);
 
     TaskWorkerPool task_worker_pool_push(
             TaskWorkerPool::TaskWorkerType::PUSH,
@@ -88,12 +88,12 @@ TEST(TaskWorkerPoolTest, TestStart) {
     task_worker_pool_publish_version.start();
     EXPECT_EQ(task_worker_pool_publish_version._worker_count, config::publish_version_worker_count);
 
-    TaskWorkerPool task_worker_pool_alter_table(
+    TaskWorkerPool task_worker_pool_alter_tablet(
             TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
             &env,
             master_info);
-    task_worker_pool_alter_table.start();
-    EXPECT_EQ(task_worker_pool_alter_table._worker_count, config::alter_table_worker_count);
+    task_worker_pool_alter_tablet.start();
+    EXPECT_EQ(task_worker_pool_alter_tablet._worker_count, config::alter_tablet_worker_count);
 
     TaskWorkerPool task_worker_pool_clone(
             TaskWorkerPool::TaskWorkerType::CLONE,
@@ -125,12 +125,12 @@ TEST(TaskWorkerPoolTest, TestStart) {
     task_worker_pool_report_disk_state.start();
     EXPECT_EQ(task_worker_pool_report_disk_state._worker_count, REPORT_DISK_STATE_WORKER_COUNT);
 
-    TaskWorkerPool task_worker_pool_report_olap_table(
+    TaskWorkerPool task_worker_pool_report_tablet(
             TaskWorkerPool::TaskWorkerType::REPORT_OLAP_TABLE,
             &env,
             master_info);
-    task_worker_pool_report_olap_table.start();
-    EXPECT_EQ(task_worker_pool_report_olap_table._worker_count, REPORT_OLAP_TABLE_WORKER_COUNT);
+    task_worker_pool_report_tablet.start();
+    EXPECT_EQ(task_worker_pool_report_tablet._worker_count, REPORT_OLAP_TABLE_WORKER_COUNT);
     
     TaskWorkerPool task_worker_pool_upload(
             TaskWorkerPool::TaskWorkerType::UPLOAD,
@@ -411,7 +411,7 @@ TEST(TaskWorkerPoolTest, TestCreateTable) {
     task_worker_pool._master_client = &mock_master_server_client;
 
     // Create table failed
-    EXPECT_CALL(mock_command_executor, create_table(_))
+    EXPECT_CALL(mock_command_executor, create_tablet(_))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
@@ -421,12 +421,12 @@ TEST(TaskWorkerPoolTest, TestCreateTable) {
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(1, task_worker_pool._tasks.size());
-    task_worker_pool._create_table_worker_thread_callback(&task_worker_pool);
+    task_worker_pool._create_tablet_worker_thread_callback(&task_worker_pool);
     EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(0, task_worker_pool._tasks.size());
 
     // Create table success
-    EXPECT_CALL(mock_command_executor, create_table(_))
+    EXPECT_CALL(mock_command_executor, create_tablet(_))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
@@ -436,7 +436,7 @@ TEST(TaskWorkerPoolTest, TestCreateTable) {
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(1, task_worker_pool._tasks.size());
-    task_worker_pool._create_table_worker_thread_callback(&task_worker_pool);
+    task_worker_pool._create_tablet_worker_thread_callback(&task_worker_pool);
     EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(0, task_worker_pool._tasks.size());
 
@@ -467,7 +467,7 @@ TEST(TaskWorkerPoolTest, TestDropTableTask) {
     task_worker_pool._master_client = &mock_master_server_client;
 
     // Drop table failed
-    EXPECT_CALL(mock_command_executor, drop_table(_))
+    EXPECT_CALL(mock_command_executor, drop_tablet(_))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
@@ -477,12 +477,12 @@ TEST(TaskWorkerPoolTest, TestDropTableTask) {
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(1, task_worker_pool._tasks.size());
-    task_worker_pool._drop_table_worker_thread_callback(&task_worker_pool);
+    task_worker_pool._drop_tablet_worker_thread_callback(&task_worker_pool);
     EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(0, task_worker_pool._tasks.size());
 
     // Drop table success
-    EXPECT_CALL(mock_command_executor, drop_table(_))
+    EXPECT_CALL(mock_command_executor, drop_tablet(_))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_master_server_client, finish_task(_, _))
@@ -492,7 +492,7 @@ TEST(TaskWorkerPoolTest, TestDropTableTask) {
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(1, task_worker_pool._tasks.size());
-    task_worker_pool._drop_table_worker_thread_callback(&task_worker_pool);
+    task_worker_pool._drop_tablet_worker_thread_callback(&task_worker_pool);
     EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(0, task_worker_pool._tasks.size());
 
@@ -528,12 +528,12 @@ TEST(TaskWorkerPoolTest, TestSchemaChange) {
     agent_task_request.alter_tablet_req.base_schema_hash = 56789;
     agent_task_request.alter_tablet_req.__set_new_tablet_req(create_tablet_req1);
 
-    EXPECT_CALL(mock_command_executor, show_alter_table_status(
+    EXPECT_CALL(mock_command_executor, show_alter_tablet_status(
             agent_task_request.alter_tablet_req.base_tablet_id,
             agent_task_request.alter_tablet_req.base_schema_hash))
             .Times(1)
             .WillOnce(Return(ALTER_TABLE_FAILED));
-    EXPECT_CALL(mock_command_executor, drop_table(_))
+    EXPECT_CALL(mock_command_executor, drop_tablet(_))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_command_executor, schema_change(_))
@@ -545,19 +545,19 @@ TEST(TaskWorkerPoolTest, TestSchemaChange) {
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(1, task_worker_pool._tasks.size());
-    task_worker_pool._alter_table_worker_thread_callback(&task_worker_pool);
+    task_worker_pool._alter_tablet_worker_thread_callback(&task_worker_pool);
     EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(0, task_worker_pool._tasks.size());
     
     // New tablet size ok, last schema change status is failed
     // Delete failed alter table tablet file success
     // Do schema change failed
-    EXPECT_CALL(mock_command_executor, show_alter_table_status(
+    EXPECT_CALL(mock_command_executor, show_alter_tablet_status(
             agent_task_request.alter_tablet_req.base_tablet_id,
             agent_task_request.alter_tablet_req.base_schema_hash))
             .Times(1)
             .WillOnce(Return(ALTER_TABLE_FAILED));
-    EXPECT_CALL(mock_command_executor, drop_table(_))
+    EXPECT_CALL(mock_command_executor, drop_tablet(_))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_command_executor, schema_change(_))
@@ -570,19 +570,19 @@ TEST(TaskWorkerPoolTest, TestSchemaChange) {
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(1, task_worker_pool._tasks.size());
-    task_worker_pool._alter_table_worker_thread_callback(&task_worker_pool);
+    task_worker_pool._alter_tablet_worker_thread_callback(&task_worker_pool);
     EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(0, task_worker_pool._tasks.size());
 
     // New tablet size ok, last schema change status is failed
     // Delete failed alter table tablet file success
     // Do schema change success, check status failed
-    EXPECT_CALL(mock_command_executor, show_alter_table_status(
+    EXPECT_CALL(mock_command_executor, show_alter_tablet_status(
             agent_task_request.alter_tablet_req.base_tablet_id,
             agent_task_request.alter_tablet_req.base_schema_hash))
             .Times(1)
             .WillOnce(Return(ALTER_TABLE_FAILED));
-    EXPECT_CALL(mock_command_executor, drop_table(_))
+    EXPECT_CALL(mock_command_executor, drop_tablet(_))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_command_executor, schema_change(_))
@@ -598,18 +598,18 @@ TEST(TaskWorkerPoolTest, TestSchemaChange) {
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(1, task_worker_pool._tasks.size());
-    task_worker_pool._alter_table_worker_thread_callback(&task_worker_pool);
+    task_worker_pool._alter_tablet_worker_thread_callback(&task_worker_pool);
     EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(0, task_worker_pool._tasks.size());
     
     // New tablet size ok, last schema change status is ok
     // Do schema change success, check status running then success
-    EXPECT_CALL(mock_command_executor, show_alter_table_status(
+    EXPECT_CALL(mock_command_executor, show_alter_tablet_status(
             agent_task_request.alter_tablet_req.base_tablet_id,
             agent_task_request.alter_tablet_req.base_schema_hash))
             .Times(1)
             .WillOnce(Return(ALTER_TABLE_FINISHED));
-    EXPECT_CALL(mock_command_executor, drop_table(_))
+    EXPECT_CALL(mock_command_executor, drop_tablet(_))
             .Times(0);
     EXPECT_CALL(mock_command_executor, schema_change(_))
             .Times(1)
@@ -624,7 +624,7 @@ TEST(TaskWorkerPoolTest, TestSchemaChange) {
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(1, task_worker_pool._tasks.size());
-    task_worker_pool._alter_table_worker_thread_callback(&task_worker_pool);
+    task_worker_pool._alter_tablet_worker_thread_callback(&task_worker_pool);
     EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(0, task_worker_pool._tasks.size());
 
@@ -659,14 +659,14 @@ TEST(TaskWorkerPoolTest, TestRollup) {
     agent_task_request.alter_tablet_req.base_tablet_id = 12345;
     agent_task_request.alter_tablet_req.base_schema_hash = 56789;
     agent_task_request.alter_tablet_req.__set_new_tablet_req(create_tablet_req1);
-    EXPECT_CALL(mock_command_executor, show_alter_table_status(
+    EXPECT_CALL(mock_command_executor, show_alter_tablet_status(
             agent_task_request.alter_tablet_req.base_tablet_id,
             agent_task_request.alter_tablet_req.base_schema_hash))
             .Times(1)
             .WillOnce(Return(ALTER_TABLE_FINISHED));
-    EXPECT_CALL(mock_command_executor, drop_table(_))
+    EXPECT_CALL(mock_command_executor, drop_tablet(_))
             .Times(0);
-    EXPECT_CALL(mock_command_executor, create_rollup_table(_))
+    EXPECT_CALL(mock_command_executor, create_rollup_tablet(_))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_command_executor, report_tablet_info(_))
@@ -679,7 +679,7 @@ TEST(TaskWorkerPoolTest, TestRollup) {
     task_worker_pool.submit_task(agent_task_request);
     EXPECT_EQ(1, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(1, task_worker_pool._tasks.size());
-    task_worker_pool._alter_table_worker_thread_callback(&task_worker_pool);
+    task_worker_pool._alter_tablet_worker_thread_callback(&task_worker_pool);
     EXPECT_EQ(0, task_worker_pool._s_task_signatures[agent_task_request.task_type].size());
     EXPECT_EQ(0, task_worker_pool._tasks.size());
 
@@ -920,12 +920,12 @@ TEST(TaskWorkerPoolTest, TestClone) {
     std::vector<int64_t> missing_versions;
     snapshot_request2.__set_missing_version(missing_versions);
 
-    std::shared_ptr<OLAPTable> olap_table_ok(new OLAPTable(NULL, nullptr));
-    EXPECT_CALL(mock_command_executor, get_table(
+    std::shared_ptr<Tablet> tablet_ok(new Tablet(NULL, nullptr));
+    EXPECT_CALL(mock_command_executor, get_tablet(
             agent_task_request.clone_req.tablet_id,
             agent_task_request.clone_req.schema_hash))
             .Times(1)
-            .WillOnce(Return(olap_table_ok));
+            .WillOnce(Return(tablet_ok));
     EXPECT_CALL(mock_command_executor, get_info_before_incremental_clone(_, _, _))
             .Times(1);
     EXPECT_CALL(mock_agent_server_client, make_snapshot(snapshot_request2, _))
@@ -958,11 +958,11 @@ TEST(TaskWorkerPoolTest, TestClone) {
     agent_result2.__set_snapshot_path("path");
     agent_result2.status.status_code = TStatusCode::OK;
 
-    EXPECT_CALL(mock_command_executor, get_table(
+    EXPECT_CALL(mock_command_executor, get_tablet(
             agent_task_request.clone_req.tablet_id,
             agent_task_request.clone_req.schema_hash))
             .Times(1)
-            .WillOnce(Return(olap_table_ok));
+            .WillOnce(Return(tablet_ok));
     EXPECT_CALL(mock_command_executor, get_info_before_incremental_clone(_, _, _))
             .Times(1)
             .WillOnce(Return("./test_data/5/6"));
@@ -1002,11 +1002,11 @@ TEST(TaskWorkerPoolTest, TestClone) {
     // Tablet has exist
     // incremental clone success
     // get tablet info failed
-    EXPECT_CALL(mock_command_executor, get_table(
+    EXPECT_CALL(mock_command_executor, get_tablet(
             agent_task_request.clone_req.tablet_id,
             agent_task_request.clone_req.schema_hash))
             .Times(1)
-            .WillOnce(Return(olap_table_ok));
+            .WillOnce(Return(tablet_ok));
     EXPECT_CALL(mock_command_executor, get_info_before_incremental_clone(_, _, _))
             .Times(1)
             .WillOnce(Return("./test_data/5/6"));
@@ -1047,11 +1047,11 @@ TEST(TaskWorkerPoolTest, TestClone) {
     // incremental clone's make snapshot failed
     // full clone's make snapshot success
     // full clone failed
-    EXPECT_CALL(mock_command_executor, get_table(
+    EXPECT_CALL(mock_command_executor, get_tablet(
             agent_task_request.clone_req.tablet_id,
             agent_task_request.clone_req.schema_hash))
             .Times(1)
-            .WillOnce(Return(olap_table_ok));
+            .WillOnce(Return(tablet_ok));
     EXPECT_CALL(mock_command_executor, get_info_before_incremental_clone(_, _, _))
             .Times(1)
             .WillOnce(Return("./test_data/5/6"));
@@ -1094,11 +1094,11 @@ TEST(TaskWorkerPoolTest, TestClone) {
     // incremental clone's make snapshot failed
     // full clone's make snapshot success
     // full clone success
-    EXPECT_CALL(mock_command_executor, get_table(
+    EXPECT_CALL(mock_command_executor, get_tablet(
             agent_task_request.clone_req.tablet_id,
             agent_task_request.clone_req.schema_hash))
             .Times(1)
-            .WillOnce(Return(olap_table_ok));
+            .WillOnce(Return(tablet_ok));
     EXPECT_CALL(mock_command_executor, get_info_before_incremental_clone(_, _, _))
             .Times(1)
             .WillOnce(Return("./test_data/5/6"));
@@ -1138,12 +1138,12 @@ TEST(TaskWorkerPoolTest, TestClone) {
     EXPECT_EQ(0, task_worker_pool._tasks.size());
 
     // Tablet not exist, obtain root path failed, do not get tablet info
-    std::shared_ptr<OLAPTable> olap_table_null(NULL);
-    EXPECT_CALL(mock_command_executor, get_table(
+    std::shared_ptr<Tablet> tablet_null(NULL);
+    EXPECT_CALL(mock_command_executor, get_tablet(
             agent_task_request.clone_req.tablet_id,
             agent_task_request.clone_req.schema_hash))
             .Times(1)
-            .WillOnce(Return(olap_table_null));
+            .WillOnce(Return(tablet_null));
     EXPECT_CALL(mock_command_executor, obtain_shard_path(_, _))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
@@ -1162,11 +1162,11 @@ TEST(TaskWorkerPoolTest, TestClone) {
 
     // Tablet not exist, obtain root path success, make snapshot failed
     agent_result2.__isset.snapshot_path = false;
-    EXPECT_CALL(mock_command_executor, get_table(
+    EXPECT_CALL(mock_command_executor, get_tablet(
             agent_task_request.clone_req.tablet_id,
             agent_task_request.clone_req.schema_hash))
             .Times(1)
-            .WillOnce(Return(olap_table_null));
+            .WillOnce(Return(tablet_null));
     EXPECT_CALL(mock_command_executor, obtain_shard_path(_, _))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
@@ -1196,11 +1196,11 @@ TEST(TaskWorkerPoolTest, TestClone) {
     clone_req.schema_hash = 6;
     agent_task_request.__set_clone_req(clone_req);
     agent_result2.__set_snapshot_path("path");
-    EXPECT_CALL(mock_command_executor, get_table(
+    EXPECT_CALL(mock_command_executor, get_tablet(
             agent_task_request.clone_req.tablet_id,
             agent_task_request.clone_req.schema_hash))
             .Times(1)
-            .WillOnce(Return(olap_table_null));
+            .WillOnce(Return(tablet_null));
     EXPECT_CALL(mock_command_executor, obtain_shard_path(_, _))
             .Times(1)
             .WillOnce(
@@ -1232,11 +1232,11 @@ TEST(TaskWorkerPoolTest, TestClone) {
 
     // Tablet not exist, obtain root path success, make snapshot success
     // List remote dir success, get remote file length failed
-    EXPECT_CALL(mock_command_executor, get_table(
+    EXPECT_CALL(mock_command_executor, get_tablet(
             agent_task_request.clone_req.tablet_id,
             agent_task_request.clone_req.schema_hash))
             .Times(1)
-            .WillOnce(Return(olap_table_null));
+            .WillOnce(Return(tablet_null));
     EXPECT_CALL(mock_command_executor, obtain_shard_path(_, _))
             .Times(1)
             .WillOnce(
@@ -1273,11 +1273,11 @@ TEST(TaskWorkerPoolTest, TestClone) {
     // Tablet not exist, obtain root path success, make snapshot success
     // List remote dir success, get remote file length success
     // Download file failed
-    EXPECT_CALL(mock_command_executor, get_table(
+    EXPECT_CALL(mock_command_executor, get_tablet(
             agent_task_request.clone_req.tablet_id,
             agent_task_request.clone_req.schema_hash))
             .Times(1)
-            .WillOnce(Return(olap_table_null));
+            .WillOnce(Return(tablet_null));
     EXPECT_CALL(mock_command_executor, obtain_shard_path(_, _))
             .Times(1)
             .WillOnce(
@@ -1317,11 +1317,11 @@ TEST(TaskWorkerPoolTest, TestClone) {
     // Tablet not exist, obtain root path success, make snapshot success
     // List remote dir success, get remote file length success
     // Download file success, but file size is wrong
-    EXPECT_CALL(mock_command_executor, get_table(
+    EXPECT_CALL(mock_command_executor, get_tablet(
             agent_task_request.clone_req.tablet_id,
             agent_task_request.clone_req.schema_hash))
             .Times(1)
-            .WillOnce(Return(olap_table_null));
+            .WillOnce(Return(tablet_null));
     EXPECT_CALL(mock_command_executor, obtain_shard_path(_, _))
             .Times(1)
             .WillOnce(
@@ -1362,11 +1362,11 @@ TEST(TaskWorkerPoolTest, TestClone) {
     // Tablet not exist, obtain root path success, make snapshot success
     // List remote dir success, get remote file length success
     // Download file success, load header failed
-    EXPECT_CALL(mock_command_executor, get_table(
+    EXPECT_CALL(mock_command_executor, get_tablet(
             agent_task_request.clone_req.tablet_id,
             agent_task_request.clone_req.schema_hash))
             .Times(1)
-            .WillOnce(Return(olap_table_null));
+            .WillOnce(Return(tablet_null));
     EXPECT_CALL(mock_command_executor, obtain_shard_path(_, _))
             .Times(1)
             .WillOnce(
@@ -1411,11 +1411,11 @@ TEST(TaskWorkerPoolTest, TestClone) {
     // List remote dir success, get remote file length success
     // Download file success, load header success
     // Release snapshot failed, get tablet info failed
-    EXPECT_CALL(mock_command_executor, get_table(
+    EXPECT_CALL(mock_command_executor, get_tablet(
             agent_task_request.clone_req.tablet_id,
             agent_task_request.clone_req.schema_hash))
             .Times(1)
-            .WillOnce(Return(olap_table_null));
+            .WillOnce(Return(tablet_null));
     EXPECT_CALL(mock_command_executor, obtain_shard_path(_, _))
             .Times(1)
             .WillOnce(
@@ -1461,11 +1461,11 @@ TEST(TaskWorkerPoolTest, TestClone) {
     // List remote dir success, get remote file length success
     // Download file success, load header success
     // Release snapshot success, get tablet info success
-    EXPECT_CALL(mock_command_executor, get_table(
+    EXPECT_CALL(mock_command_executor, get_tablet(
             agent_task_request.clone_req.tablet_id,
             agent_task_request.clone_req.schema_hash))
             .Times(1)
-            .WillOnce(Return(olap_table_null));
+            .WillOnce(Return(tablet_null));
     EXPECT_CALL(mock_command_executor, obtain_shard_path(_, _))
             .Times(1)
             .WillOnce(
@@ -1683,7 +1683,7 @@ TEST(TaskWorkerPoolTest, TestReportOlapTable) {
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_master_server_client, report(_, _))
             .Times(0);
-    task_worker_pool._report_olap_table_worker_thread_callback(&task_worker_pool);
+    task_worker_pool._report_tablet_worker_thread_callback(&task_worker_pool);
 
     // Get tablet info success, report failed
     EXPECT_CALL(mock_command_executor, report_all_tablets_info(_))
@@ -1692,7 +1692,7 @@ TEST(TaskWorkerPoolTest, TestReportOlapTable) {
     EXPECT_CALL(mock_master_server_client, report(_, _))
             .Times(1)
             .WillOnce(Return(DORIS_ERROR));
-    task_worker_pool._report_olap_table_worker_thread_callback(&task_worker_pool);
+    task_worker_pool._report_tablet_worker_thread_callback(&task_worker_pool);
 
     // Get tablet info success, report success
     EXPECT_CALL(mock_command_executor, report_all_tablets_info(_))
@@ -1701,7 +1701,7 @@ TEST(TaskWorkerPoolTest, TestReportOlapTable) {
     EXPECT_CALL(mock_master_server_client, report(_, _))
             .Times(1)
             .WillOnce(Return(DORIS_SUCCESS));
-    task_worker_pool._report_olap_table_worker_thread_callback(&task_worker_pool);
+    task_worker_pool._report_tablet_worker_thread_callback(&task_worker_pool);
 
     task_worker_pool._command_executor = original_command_executor;
     task_worker_pool._master_client = original_master_server_client;
@@ -1859,10 +1859,10 @@ TEST(TaskWorkerPoolTest, TestDropTable) {
 
     TTabletId tablet_id = 123;
     TSchemaHash schema_hash = 456;
-    EXPECT_CALL(mock_command_executor, show_alter_table_status(tablet_id, schema_hash))
+    EXPECT_CALL(mock_command_executor, show_alter_tablet_status(tablet_id, schema_hash))
             .Times(1)
             .WillOnce(Return(ALTER_TABLE_RUNNING));
-    AlterTableStatus status = task_worker_pool._show_alter_table_status(tablet_id, schema_hash);
+    AlterTableStatus status = task_worker_pool._show_alter_tablet_status(tablet_id, schema_hash);
     EXPECT_EQ(ALTER_TABLE_RUNNING, status);
 
     task_worker_pool._command_executor = original_command_executor;

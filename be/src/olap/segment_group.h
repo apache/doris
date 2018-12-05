@@ -32,7 +32,7 @@
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 #include "olap/row_cursor.h"
 #include "olap/olap_index.h"
 #include "olap/utils.h"
@@ -48,12 +48,10 @@ namespace doris {
 class SegmentGroup {
     friend class MemIndex;
 public:
-    typedef std::vector<ColumnMapping> SchemaMapping;
-
-    SegmentGroup(OLAPTable* table, Version version, VersionHash version_hash,
+    SegmentGroup(Tablet* tablet, Version version, VersionHash version_hash,
               bool delete_flag, int segment_group_id, int32_t num_segments);
 
-    SegmentGroup(OLAPTable* table, bool delete_flag, int32_t segment_group_id,
+    SegmentGroup(Tablet* tablet, bool delete_flag, int32_t segment_group_id,
               int32_t num_segments, bool is_pending,
               TPartitionId partition_id, TTransactionId transaction_id);
 
@@ -156,9 +154,9 @@ public:
     void delete_all_files();
 
     // getters and setters.
-    // get associated OLAPTable pointer
-    inline OLAPTable* table() const { return _table; }
-    inline void set_table(OLAPTable* table) { _table = table; }
+    // get associated Tablet pointer
+    inline Tablet* tablet() const { return _tablet; }
+    inline void set_tablet(Tablet* tablet) { _tablet = tablet; }
 
     inline Version version() const { return _version; }
     inline VersionHash version_hash() const { return _version_hash; }
@@ -244,7 +242,7 @@ public:
 private:
     void _check_io_error(OLAPStatus res);
 
-    OLAPTable* _table;                 // table definition for this segmentgroup
+    Tablet* _tablet;                 // tablet definition for this segmentgroup
     Version _version;                  // version of associated data file
     VersionHash _version_hash;         // version hash for this segmentgroup
     bool _delete_flag;

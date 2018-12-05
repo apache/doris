@@ -26,7 +26,7 @@
 #include "olap/merger.h"
 #include "olap/column_data.h"
 #include "olap/olap_define.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 
 namespace doris {
 
@@ -49,12 +49,12 @@ public:
     // - 计算可合并的delta文件
     //
     // 输入参数：
-    // - table 待执行cumulative compaction的olap table
+    // - tablet 待执行cumulative compaction的tablet
     //
     // 返回值：
     // - 如果触发cumulative compaction，返回OLAP_SUCCESS
     // - 否则，返回对应错误码
-    OLAPStatus init(TabletSharedPtr table);
+    OLAPStatus init(TabletSharedPtr tablet);
 
     // 执行cumulative compaction
     //
@@ -102,7 +102,7 @@ private:
     // - 如果不成功，返回相应错误码
     OLAPStatus _do_cumulative_compaction();
 
-    // 将合并得到的新cumulative文件载入table
+    // 将合并得到的新cumulative文件载入tablet
     //
     // 输出参数：
     // - unused_indices: 返回不再使用的delta文件对应的olap index
@@ -136,18 +136,18 @@ private:
     OLAPStatus _roll_back(const std::vector<SegmentGroup*>& old_olap_indices);
 
     void _obtain_header_rdlock() {
-        _table->obtain_header_rdlock();
+        _tablet->obtain_header_rdlock();
         _header_locked = true;
     }
 
     void _obtain_header_wrlock() {
-        _table->obtain_header_wrlock();
+        _tablet->obtain_header_wrlock();
         _header_locked = true;
     }
 
     void _release_header_lock() {
         if (_header_locked) {
-            _table->release_header_lock();
+            _tablet->release_header_lock();
             _header_locked = false;
         }
     }
@@ -163,8 +163,8 @@ private:
     // 一个cumulative文件大小的最大值
     // 当delta文件的大小超过该值时，我们认为该delta文件是cumulative文件
     size_t _max_delta_file_size;
-    // 待执行cumulative compaction的olap table
-    TabletSharedPtr _table;
+    // 待执行cumulative compaction的tablet
+    TabletSharedPtr _tablet;
     // 新cumulative文件的版本
     Version _cumulative_version;
     // 新cumulative文件的version hash

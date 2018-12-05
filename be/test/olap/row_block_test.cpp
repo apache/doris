@@ -22,7 +22,7 @@
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "olap/row_block.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/logging.h"

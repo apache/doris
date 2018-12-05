@@ -94,20 +94,20 @@ private:
     uint32_t _get_next_task_index(int32_t thread_count, std::deque<TAgentTaskRequest>& tasks,
             TPriority::type priority);
 
-    static void* _create_table_worker_thread_callback(void* arg_this);
-    static void* _drop_table_worker_thread_callback(void* arg_this);
+    static void* _create_tablet_worker_thread_callback(void* arg_this);
+    static void* _drop_tablet_worker_thread_callback(void* arg_this);
     static void* _push_worker_thread_callback(void* arg_this);
     static void* _publish_version_worker_thread_callback(void* arg_this);
     static void* _clear_alter_task_worker_thread_callback(void* arg_this);
     static void* _clear_transaction_task_worker_thread_callback(void* arg_this);
-    static void* _alter_table_worker_thread_callback(void* arg_this);
+    static void* _alter_tablet_worker_thread_callback(void* arg_this);
     static void* _clone_worker_thread_callback(void* arg_this);
     static void* _storage_medium_migrate_worker_thread_callback(void* arg_this);
     static void* _cancel_delete_data_worker_thread_callback(void* arg_this);
     static void* _check_consistency_worker_thread_callback(void* arg_this);
     static void* _report_task_worker_thread_callback(void* arg_this);
     static void* _report_disk_state_worker_thread_callback(void* arg_this);
-    static void* _report_olap_table_worker_thread_callback(void* arg_this);
+    static void* _report_tablet_worker_thread_callback(void* arg_this);
     static void* _upload_worker_thread_callback(void* arg_this);
     static void* _download_worker_thread_callback(void* arg_this);
     static void* _make_snapshot_thread_callback(void* arg_this);
@@ -127,17 +127,17 @@ private:
             int64_t* copy_size,
             int64_t* copy_time_ms);
 
-    void _alter_table(
+    void _alter_tablet(
             const TAlterTabletReq& create_rollup_request,
             int64_t signature,
             const TTaskType::type task_type,
             TFinishTaskRequest* finish_task_request);
 
-    AlterTableStatus _show_alter_table_status(
+    AlterTableStatus _show_alter_tablet_status(
             const TTabletId tablet_id,
             const TSchemaHash schema_hash);
 
-    AgentStatus _drop_table(const TDropTabletReq& drop_tablet_req);
+    AgentStatus _drop_tablet(const TDropTabletReq& drop_tablet_req);
 
     AgentStatus _get_tablet_info(
             const TTabletId tablet_id,

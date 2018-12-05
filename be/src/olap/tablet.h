@@ -39,12 +39,12 @@ class FieldInfo;
 class ColumnData;
 class OLAPHeader;
 class SegmentGroup;
-class OLAPTable;
+class Tablet;
 class RowBlockPosition;
 class OlapStore;
 
-// Define OLAPTable's shared_ptr. It is used for
-typedef std::shared_ptr<OLAPTable> TabletSharedPtr;
+// Define Tablet's shared_ptr. It is used for
+typedef std::shared_ptr<Tablet> TabletSharedPtr;
 
 enum BaseCompactionStage {
     BASE_COMPACTION_WAITING = 0,
@@ -92,7 +92,7 @@ struct SchemaChangeStatus {
     int32_t version;
 };
 
-class OLAPTable : public std::enable_shared_from_this<OLAPTable> {
+class Tablet : public std::enable_shared_from_this<Tablet> {
 public:
     static TabletSharedPtr create_from_header_file(
             TTabletId tablet_id,
@@ -108,12 +108,12 @@ public:
             OLAPHeader* header,
             OlapStore* store = nullptr);
 
-    explicit OLAPTable(OLAPHeader* header, OlapStore* store);
-    explicit OLAPTable(OLAPHeader* header);
+    explicit Tablet(OLAPHeader* header, OlapStore* store);
+    explicit Tablet(OLAPHeader* header);
 
-    virtual ~OLAPTable();
+    virtual ~Tablet();
 
-    // Initializes table and loads indices for all versions.
+    // Initializes tablet and loads indices for all versions.
     // Returns OLAP_SUCCESS on success.
     OLAPStatus load();
 
@@ -229,7 +229,7 @@ public:
     // used for restore, merge the (0, to_version) in 'hdr'
     OLAPStatus merge_header(const OLAPHeader& hdr, int to_version);
 
-    // Used by monitoring OLAPTable
+    // Used by monitoring Tablet
     void list_data_files(std::set<std::string>* filenames) const;
 
     void list_index_files(std::set<std::string>* filenames) const;
@@ -241,14 +241,14 @@ public:
     // Return version list and their corresponding version hashes
     void list_version_entities(std::vector<VersionEntity>* version_entities) const;
 
-    // mark this table to be dropped, all files will be deleted when
-    // ~OLAPTable()
+    // mark this tablet to be dropped, all files will be deleted when
+    // ~Tablet()
     void mark_dropped() {
         _is_dropped = true;
     }
 
-    // Delete all files for this table (.hdr, *.dat, *.idx). This should only
-    // be called if no one is accessing the table.
+    // Delete all files for this tablet (.hdr, *.dat, *.idx). This should only
+    // be called if no one is accessing the tablet.
     void delete_all_files();
 
     // Methods to obtain and release locks.
@@ -316,9 +316,9 @@ public:
 
     // Construct index file path according version, version_hash and segment
     // We construct file path through header file name. header file name likes:
-    //      tables_root_path/db/table/index/table_index_schemaversion.hdr
+    //      tables_root_path/db/tablet/index/table_index_schemaversion.hdr
     // Index file path is:
-    //          tables_root_path/db/table/index
+    //          tables_root_path/db/tablet/index
     //             /table_index_schemaversion_start_end_versionhash_segment.idx
     // The typical index file path is:
     // /home/work/olap/storage/data/db2/DailyWinfoIdeaStats/PRIMARY/
@@ -368,18 +368,18 @@ public:
 
     size_t get_return_column_size(const std::string& field_name) const;
 
-    // One row in a specified OLAPTable comprises of fixed number of columns
+    // One row in a specified Tablet comprises of fixed number of columns
     // with fixed length.
     size_t get_row_size() const;
 
-    // Get olap table statistics for SHOW STATUS
+    // Get tablet statistics for SHOW STATUS
     size_t get_index_size() const;
 
     int64_t get_data_size() const;
 
     int64_t get_num_rows() const;
 
-    // Returns fully qualified name for this OLAP table.
+    // Returns fully qualified name for this OLAP tablet.
     // eg. db4.DailyUnitStats.PRIMARY
     const std::string& full_name() const {
         return _full_name;
@@ -569,20 +569,20 @@ public:
         _header->set_cumulative_layer_point(new_point);
     }
 
-    // Judge whether olap table in schema change state
+    // Judge whether tablet in schema change state
     bool is_schema_changing();
 
     bool get_schema_change_request(TTabletId* tablet_id,
                                    SchemaHash* schema_hash,
                                    std::vector<Version>* versions_to_changed,
-                                   AlterTabletType* alter_table_type) const;
+                                   AlterTabletType* alter_tablet_type) const;
 
     void set_schema_change_request(TTabletId tablet_id,
                                    TSchemaHash schema_hash,
                                    const std::vector<Version>& versions_to_changed,
-                                   const AlterTabletType alter_table_type);
+                                   const AlterTabletType alter_tablet_type);
 
-    bool remove_last_schema_change_version(TabletSharedPtr new_olap_table);
+    bool remove_last_schema_change_version(TabletSharedPtr new_tablet);
     void clear_schema_change_request();
 
     SchemaChangeStatus schema_change_status() {
@@ -717,11 +717,11 @@ private:
     OLAPHeader* _header;
     size_t _num_rows_per_row_block;
     CompressKind _compress_kind;
-    // Set it true when table is dropped, table files and data structures
-    // can be used and not deleted until table is destructed.
+    // Set it true when tablet is dropped, tablet files and data structures
+    // can be used and not deleted until tablet is destructed.
     bool _is_dropped;
     std::string _full_name;
-    std::vector<FieldInfo> _tablet_schema;  // field info vector is table schema.
+    std::vector<FieldInfo> _tablet_schema;  // field info vector is tablet schema.
 
     // Version mapping to SegmentGroup.
     // data source can be base delta, cumulative delta, singleton delta.
@@ -752,9 +752,9 @@ private:
     Mutex _load_lock;
     std::string _tablet_path;
 
-    bool _table_for_check;
+    bool _tablet_for_check;
 
-    DISALLOW_COPY_AND_ASSIGN(OLAPTable);
+    DISALLOW_COPY_AND_ASSIGN(Tablet);
 };
 
 }  // namespace doris

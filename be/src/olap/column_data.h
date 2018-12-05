@@ -33,7 +33,7 @@
 
 namespace doris {
 
-class OLAPTable;
+class Tablet;
 
 
 class SegmentReader;
@@ -171,7 +171,7 @@ private:
     OlapReaderStatistics _owned_stats;
     OlapReaderStatistics* _stats = &_owned_stats;
 
-    OLAPTable* _table;
+    Tablet* _tablet;
     // whether in normal read, use return columns to load block
     bool _is_normal_read = false;
     bool _end_key_is_set = false;

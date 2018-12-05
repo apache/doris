@@ -26,7 +26,7 @@
 #include "gen_cpp/Types_types.h"
 #include "olap/field.h"
 #include "olap/olap_engine.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 #include "olap/utils.h"
 #include "runtime/tuple.h"
 #include "util/descriptor_helper.h"
@@ -63,7 +63,7 @@ void tear_down() {
     remove_all_dir(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
 }
 
-void create_table_request(TCreateTabletReq* request) {
+void create_tablet_request(TCreateTabletReq* request) {
     request->tablet_id = 10003;
     request->__set_version(1);
     request->__set_version_hash(0);
@@ -211,7 +211,7 @@ void create_table_request(TCreateTabletReq* request) {
     request->tablet_schema.columns.push_back(v10);
 }
 
-TDescriptorTable create_descriptor_table() {
+TDescriptorTable create_descriptor_tablet() {
     TDescriptorTableBuilder dtb;
     TTupleDescriptorBuilder tuple_builder;
 
@@ -286,11 +286,11 @@ public:
 
 TEST_F(TestDeltaWriter, open) {
     TCreateTabletReq request;
-    create_table_request(&request);
-    OLAPStatus res = k_engine->create_table(request);
+    create_tablet_request(&request);
+    OLAPStatus res = k_engine->create_tablet(request);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
-    TDescriptorTable tdesc_tbl = create_descriptor_table();
+    TDescriptorTable tdesc_tbl = create_descriptor_tablet();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
@@ -311,17 +311,17 @@ TEST_F(TestDeltaWriter, open) {
     TDropTabletReq drop_request;
     auto tablet_id = 10003;
     auto schema_hash = 270068375;
-    res = k_engine->drop_table(tablet_id, schema_hash);
+    res = k_engine->drop_tablet(tablet_id, schema_hash);
     ASSERT_EQ(OLAP_SUCCESS, res);
 }
 
 TEST_F(TestDeltaWriter, write) {
     TCreateTabletReq request;
-    create_table_request(&request);
-    OLAPStatus res = k_engine->create_table(request);
+    create_tablet_request(&request);
+    OLAPStatus res = k_engine->create_tablet(request);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
-    TDescriptorTable tdesc_tbl = create_descriptor_table();
+    TDescriptorTable tdesc_tbl = create_descriptor_tablet();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
@@ -397,24 +397,24 @@ TEST_F(TestDeltaWriter, write) {
     ASSERT_EQ(res, OLAP_SUCCESS);
 
     // publish version success
-    TabletSharedPtr table = OLAPEngine::get_instance()->get_table(write_req.tablet_id, write_req.schema_hash);
+    TabletSharedPtr tablet = OLAPEngine::get_instance()->get_tablet(write_req.tablet_id, write_req.schema_hash);
     TPublishVersionRequest publish_req;
     publish_req.transaction_id = write_req.transaction_id;
     TPartitionVersionInfo info;
     info.partition_id = write_req.partition_id;
-    info.version = table->lastest_version()->end_version() + 1;
-    info.version_hash = table->lastest_version()->version_hash() + 1;
+    info.version = tablet->lastest_version()->end_version() + 1;
+    info.version_hash = tablet->lastest_version()->version_hash() + 1;
     std::vector<TPartitionVersionInfo> partition_version_infos;
     partition_version_infos.push_back(info);
     publish_req.partition_version_infos = partition_version_infos;
     std::vector<TTabletId> error_tablet_ids;
     res = k_engine->publish_version(publish_req, &error_tablet_ids);
 
-    ASSERT_EQ(1, table->get_num_rows());
+    ASSERT_EQ(1, tablet->get_num_rows());
 
     auto tablet_id = 10003;
     auto schema_hash = 270068375;
-    res = k_engine->drop_table(tablet_id, schema_hash);
+    res = k_engine->drop_tablet(tablet_id, schema_hash);
     ASSERT_EQ(OLAP_SUCCESS, res);
 }
 
@@ -466,14 +466,14 @@ void schema_change_request(const TCreateTabletReq& base_request, TCreateTabletRe
     request->tablet_schema.columns.push_back(base_request.tablet_schema.columns[19]);
 }
 
-AlterTableStatus show_alter_table_status(const TAlterTabletReq& request) {
+AlterTableStatus show_alter_tablet_status(const TAlterTabletReq& request) {
     AlterTableStatus status = ALTER_TABLE_RUNNING;
     uint32_t max_retry = MAX_RETRY_TIMES;
     while (max_retry > 0) {
-        status = k_engine->show_alter_table_status(
+        status = k_engine->show_alter_tablet_status(
                 request.base_tablet_id, request.base_schema_hash);
         if (status != ALTER_TABLE_RUNNING) { break; }
-        LOG(INFO) << "doing alter table......";
+        LOG(INFO) << "doing alter tablet......";
         --max_retry;
         sleep(1);
     }
@@ -508,13 +508,13 @@ TEST_F(TestSchemaChange, schema_change) {
     AlterTableStatus status = ALTER_TABLE_WAITING;
 
     // 1. Prepare for schema change.
-    // create base table
+    // create base tablet
     TCreateTabletReq create_base_tablet;
-    create_table_request(&create_base_tablet);
-    res = k_engine->create_table(create_base_tablet);
+    create_tablet_request(&create_base_tablet);
+    res = k_engine->create_tablet(create_base_tablet);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
-    TDescriptorTable tdesc_tbl = create_descriptor_table();
+    TDescriptorTable tdesc_tbl = create_descriptor_tablet();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
@@ -591,13 +591,13 @@ TEST_F(TestSchemaChange, schema_change) {
     ASSERT_EQ(res, OLAP_SUCCESS);
 
     // publish version success
-    TabletSharedPtr table = OLAPEngine::get_instance()->get_table(write_req.tablet_id, write_req.schema_hash);
+    TabletSharedPtr tablet = OLAPEngine::get_instance()->get_tablet(write_req.tablet_id, write_req.schema_hash);
     TPublishVersionRequest publish_req;
     publish_req.transaction_id = write_req.transaction_id;
     TPartitionVersionInfo info;
     info.partition_id = write_req.partition_id;
-    info.version = table->lastest_version()->end_version() + 1;
-    info.version_hash = table->lastest_version()->version_hash() + 1;
+    info.version = tablet->lastest_version()->end_version() + 1;
+    info.version_hash = tablet->lastest_version()->version_hash() + 1;
     std::vector<TPartitionVersionInfo> partition_version_infos;
     partition_version_infos.push_back(info);
     publish_req.partition_version_infos = partition_version_infos;
@@ -620,7 +620,7 @@ TEST_F(TestSchemaChange, schema_change) {
 
     // 3. Verify schema change result.
     // show schema change status
-    status = show_alter_table_status(request);
+    status = show_alter_tablet_status(request);
     ASSERT_EQ(ALTER_TABLE_FINISHED, status);
     
     // check new tablet information
@@ -636,13 +636,13 @@ TEST_F(TestSchemaChange, schema_change) {
     // 4. Retry the same schema change request.
     res = k_engine->schema_change(request);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    status = k_engine->show_alter_table_status(
+    status = k_engine->show_alter_tablet_status(
             request.base_tablet_id, request.base_schema_hash);
     ASSERT_EQ(ALTER_TABLE_FINISHED, status);
 
     auto tablet_id = create_new_tablet.tablet_id;
     auto schema_hash = create_new_tablet.tablet_schema.schema_hash;
-    res = k_engine->drop_table(tablet_id, schema_hash);
+    res = k_engine->drop_tablet(tablet_id, schema_hash);
     ASSERT_EQ(OLAP_SUCCESS, res);
 }
 

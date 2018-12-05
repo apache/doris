@@ -119,7 +119,7 @@ OLAPStatus RowCursor::init(const vector<FieldInfo>& tablet_schema) {
 
 OLAPStatus RowCursor::init(const vector<FieldInfo>& tablet_schema, size_t column_count) {
     if (column_count > tablet_schema.size()) {
-        OLAP_LOG_WARNING("input param are invalid. Column count is bigger than table schema size."
+        OLAP_LOG_WARNING("input param are invalid. Column count is bigger than tablet schema size."
                          "[column_count=%lu tablet_schema.size=%lu]",
                          column_count,
                          tablet_schema.size());
@@ -145,7 +145,7 @@ OLAPStatus RowCursor::init_scan_key(const std::vector<FieldInfo>& tablet_schema,
                                     const std::vector<std::string>& scan_keys) {
     size_t scan_key_size = scan_keys.size();
     if (scan_key_size > tablet_schema.size()) {
-        OLAP_LOG_WARNING("input param are invalid. Column count is bigger than table schema size."
+        OLAP_LOG_WARNING("input param are invalid. Column count is bigger than tablet schema size."
                          "[column_count=%lu tablet_schema.size=%lu]",
                          scan_key_size ,
                          tablet_schema.size());

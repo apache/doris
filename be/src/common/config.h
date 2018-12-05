@@ -55,9 +55,9 @@ namespace config {
     // the count of heart beat service
     CONF_Int32(heartbeat_service_thread_count, "1");
     // the count of thread to create table
-    CONF_Int32(create_table_worker_count, "3");
+    CONF_Int32(create_tablet_worker_count, "3");
     // the count of thread to drop table
-    CONF_Int32(drop_table_worker_count, "3");
+    CONF_Int32(drop_tablet_worker_count, "3");
     // the count of thread to batch load
     CONF_Int32(push_worker_count_normal_priority, "3");
     // the count of thread to high priority batch load
@@ -71,7 +71,7 @@ namespace config {
     // the count of thread to delete
     CONF_Int32(delete_worker_count, "3");
     // the count of thread to alter table
-    CONF_Int32(alter_table_worker_count, "3");
+    CONF_Int32(alter_tablet_worker_count, "3");
     // the count of thread to clone
     CONF_Int32(clone_worker_count, "3");
     // the count of thread to clone
@@ -93,9 +93,9 @@ namespace config {
     // the interval time(seconds) for agent report disk state to FE
     CONF_Int32(report_disk_state_interval_seconds, "60");
     // the interval time(seconds) for agent report olap table to FE
-    CONF_Int32(report_olap_table_interval_seconds, "60");
+    CONF_Int32(report_tablet_interval_seconds, "60");
     // the timeout(seconds) for alter table
-    CONF_Int32(alter_table_timeout_seconds, "86400");
+    CONF_Int32(alter_tablet_timeout_seconds, "86400");
     // the timeout(seconds) for make snapshot
     CONF_Int32(make_snapshot_timeout_seconds, "600");
     // the timeout(seconds) for release snapshot

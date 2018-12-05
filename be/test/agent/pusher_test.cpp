@@ -25,7 +25,7 @@
 #include "agent/pusher.h"
 #include "olap/mock_command_executor.h"
 #include "olap/olap_define.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 #include "util/logging.h"
 
 using ::testing::_;
@@ -51,19 +51,19 @@ TEST(PusherTest, TestInit) {
     tmp = pusher._engine;
     pusher._engine = &mock_command_executor;
 
-    OLAPTable* olap_table = NULL;
-    // not init, can not get olap table
-    EXPECT_CALL(mock_command_executor, get_table(1, 12345))
+    Tablet* tablet = NULL;
+    // not init, can not get tablet
+    EXPECT_CALL(mock_command_executor, get_tablet(1, 12345))
             .Times(1)
-            .WillOnce(Return(std::shared_ptr<OLAPTable>(olap_table)));
+            .WillOnce(Return(std::shared_ptr<Tablet>(tablet)));
     AgentStatus ret = pusher.init();
     EXPECT_EQ(DORIS_PUSH_INVALID_TABLE, ret);
 
-    // not init, can get olap table, and empty remote path
-    olap_table = new OLAPTable(new OLAPHeader("./test_data/header"), nullptr);
-    EXPECT_CALL(mock_command_executor, get_table(1, 12345))
+    // not init, can get tablet, and empty remote path
+    tablet = new Tablet(new OLAPHeader("./test_data/header"), nullptr);
+    EXPECT_CALL(mock_command_executor, get_tablet(1, 12345))
             .Times(1)
-            .WillOnce(Return(std::shared_ptr<OLAPTable>(olap_table)));
+            .WillOnce(Return(std::shared_ptr<Tablet>(tablet)));
     ret = pusher.init();
     EXPECT_EQ(DORIS_SUCCESS, ret);
     EXPECT_TRUE(pusher._is_init);
@@ -76,15 +76,15 @@ TEST(PusherTest, TestInit) {
     // not inited, remote path not empty
     string http_file_path = "http://xx";
     string root_path_name = "./test_data/data";
-    olap_table = new OLAPTable(new OLAPHeader("./test_data/header"), nullptr);
+    tablet = new Tablet(new OLAPHeader("./test_data/header"), nullptr);
     push_req.__set_http_file_path(http_file_path);
     Pusher pusher2(nullptr, push_req);
     tmp = pusher2._engine;
     pusher2._engine = &mock_command_executor;
-    olap_table->_storage_root_path = root_path_name;
-    EXPECT_CALL(mock_command_executor, get_table(1, 12345))
+    tablet->_storage_root_path = root_path_name;
+    EXPECT_CALL(mock_command_executor, get_tablet(1, 12345))
             .Times(1)
-            .WillOnce(Return(std::shared_ptr<OLAPTable>(olap_table)));
+            .WillOnce(Return(std::shared_ptr<Tablet>(tablet)));
     ret = pusher2.init();
     EXPECT_EQ(DORIS_SUCCESS, ret);
     EXPECT_TRUE(pusher2._is_init);

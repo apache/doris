@@ -58,21 +58,21 @@ TEST(SubmitTasksTest, TestSubmitTasks){
 
     // Master info inited, submit task
     tasks.clear();
-    TAgentTaskRequest create_table_task;
+    TAgentTaskRequest create_tablet_task;
     TCreateTabletReq create_tablet_req;
-    create_table_task.task_type = TTaskType::CREATE;
-    create_table_task.__set_create_tablet_req(create_tablet_req);
-    tasks.push_back(create_table_task);
-    TAgentTaskRequest drop_table_task;
+    create_tablet_task.task_type = TTaskType::CREATE;
+    create_tablet_task.__set_create_tablet_req(create_tablet_req);
+    tasks.push_back(create_tablet_task);
+    TAgentTaskRequest drop_tablet_task;
     TDropTabletReq drop_tablet_req;
-    drop_table_task.task_type = TTaskType::DROP;
-    drop_table_task.__set_drop_tablet_req(drop_tablet_req);
-    tasks.push_back(drop_table_task);
-    TAgentTaskRequest alter_table_task;
+    drop_tablet_task.task_type = TTaskType::DROP;
+    drop_tablet_task.__set_drop_tablet_req(drop_tablet_req);
+    tasks.push_back(drop_tablet_task);
+    TAgentTaskRequest alter_tablet_task;
     TAlterTabletReq alter_tablet_req;
-    alter_table_task.task_type = TTaskType::ROLLUP;
-    alter_table_task.__set_alter_tablet_req(alter_tablet_req);
-    tasks.push_back(alter_table_task);
+    alter_tablet_task.task_type = TTaskType::ROLLUP;
+    alter_tablet_task.__set_alter_tablet_req(alter_tablet_req);
+    tasks.push_back(alter_tablet_task);
     TAgentTaskRequest clone_task;
     TCloneReq clone_req;
     clone_task.task_type = TTaskType::CLONE;

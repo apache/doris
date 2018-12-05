@@ -20,7 +20,7 @@
 
 #include "olap/memtable.h"
 #include "olap/olap_engine.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 #include "olap/schema_change.h"
 #include "olap/data_writer.h"
 #include "runtime/descriptors.h"
@@ -66,11 +66,11 @@ private:
     
     bool _is_init = false;
     WriteRequest _req;
-    TabletSharedPtr _table;
+    TabletSharedPtr _tablet;
     SegmentGroup* _cur_segment_group;
     std::vector<SegmentGroup*> _segment_group_vec;
     std::vector<SegmentGroup*> _new_segment_group_vec;
-    TabletSharedPtr _new_table;
+    TabletSharedPtr _new_tablet;
     ColumnDataWriter* _writer;
     MemTable* _mem_table;
     Schema* _schema;
