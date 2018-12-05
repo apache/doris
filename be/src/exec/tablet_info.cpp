@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/olap_table_info.h"
+#include "exec/tablet_info.h"
 
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"

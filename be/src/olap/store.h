@@ -67,8 +67,8 @@ public:
     }
     TStorageMedium::type storage_medium() const { return _storage_medium; }
 
-    OLAPStatus register_table(OLAPTable* table);
-    OLAPStatus deregister_table(OLAPTable* table);
+    OLAPStatus register_tablet(Tablet* tablet);
+    OLAPStatus deregister_tablet(Tablet* tablet);
 
     std::string get_tablet_schema_hash_path_from_header(OLAPHeader* header);
 
@@ -81,8 +81,8 @@ public:
     static std::string get_root_path_from_schema_hash_path_in_trash(const std::string& schema_hash_dir_in_trash);
 
     OLAPStatus load_tables(OLAPEngine* engine);
-    OLAPStatus check_none_row_oriented_table_in_store(OLAPEngine* engine);
-    OLAPStatus _check_none_row_oriented_table_in_store(
+    OLAPStatus check_none_row_oriented_tablet_in_store(OLAPEngine* engine);
+    OLAPStatus _check_none_row_oriented_tablet_in_store(
                         OLAPEngine* engine, TTabletId tablet_id,
                         TSchemaHash schema_hash, const std::string& header);
 
@@ -99,7 +99,7 @@ private:
     Status _read_cluster_id(const std::string& path, int32_t* cluster_id);
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id); 
 
-    OLAPStatus _load_table_from_header(OLAPEngine* engine, TTabletId tablet_id,
+    OLAPStatus _load_tablet_from_header(OLAPEngine* engine, TTabletId tablet_id,
                 TSchemaHash schema_hash, const std::string& header);
 
 private:

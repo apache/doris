@@ -138,7 +138,7 @@ enum HllDataType {
 
 enum AlterTabletType {
     ALTER_TABLET_SCHEMA_CHANGE = 1,           // add/drop/alter column
-    ALTER_TABLET_CREATE_ROLLUP_TABLE= 2,           // split one table to several sub tables
+    ALTER_TABLET_CREATE_ROLLUP_TABLE= 2,           // split one tablet to several sub tables
 };
 
 enum AlterTableStatus {

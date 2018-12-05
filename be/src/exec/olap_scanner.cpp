@@ -79,8 +79,8 @@ Status OlapScanner::_prepare(
     VersionHash version_hash =
         strtoul(scan_range->scan_range().version_hash.c_str(), nullptr, 10);
     {
-        _olap_table = OLAPEngine::get_instance()->get_table(tablet_id, schema_hash);
-        if (_olap_table.get() == nullptr) {
+        _tablet = OLAPEngine::get_instance()->get_tablet(tablet_id, schema_hash);
+        if (_tablet.get() == nullptr) {
             OLAP_LOG_WARNING("tablet does not exist. [tablet_id=%ld schema_hash=%d]",
                              tablet_id, schema_hash);
 
@@ -89,8 +89,8 @@ Status OlapScanner::_prepare(
             return Status(ss.str());
         }
         {
-            ReadLock rdlock(_olap_table->get_header_lock_ptr());
-            const PDelta* delta = _olap_table->lastest_version();
+            ReadLock rdlock(_tablet->get_header_lock_ptr());
+            const PDelta* delta = _tablet->lastest_version();
             if (delta == NULL) {
                 std::stringstream ss;
                 ss << "fail to get latest version of tablet: " << tablet_id;
@@ -130,7 +130,7 @@ Status OlapScanner::open() {
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init reader.[res=%d]", res);
         std::stringstream ss;
-        ss << "failed to initialize storage reader. tablet=" << _params.olap_table->full_name()
+        ss << "failed to initialize storage reader. tablet=" << _params.tablet->full_name()
            << ", res=" << res << ", backend=" << BackendOptions::get_localhost();
         return Status(ss.str().c_str());
     }
@@ -143,7 +143,7 @@ Status OlapScanner::_init_params(
         const std::vector<TCondition>& is_nulls) {
     RETURN_IF_ERROR(_init_return_columns());
 
-    _params.olap_table = _olap_table;
+    _params.tablet = _tablet;
     _params.reader_type = READER_QUERY;
     _params.aggregation = _aggregation;
     _params.version = Version(0, _version);
@@ -176,11 +176,11 @@ Status OlapScanner::_init_params(
     if (_aggregation) {
         _params.return_columns = _return_columns;
     } else {
-        for (size_t i = 0; i < _olap_table->num_key_fields(); ++i) {
+        for (size_t i = 0; i < _tablet->num_key_fields(); ++i) {
             _params.return_columns.push_back(i);
         }
         for (auto index : _return_columns) {
-            if (_olap_table->tablet_schema()[index].is_key) {
+            if (_tablet->tablet_schema()[index].is_key) {
                 continue;
             } else {
                 _params.return_columns.push_back(index);
@@ -189,12 +189,12 @@ Status OlapScanner::_init_params(
     }
 
     // use _params.return_columns, because reader use this to merge sort
-    OLAPStatus res = _read_row_cursor.init(_olap_table->tablet_schema(), _params.return_columns);
+    OLAPStatus res = _read_row_cursor.init(_tablet->tablet_schema(), _params.return_columns);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init row cursor.[res=%d]", res);
         return Status("failed to initialize storage read row cursor");
     }
-    _read_row_cursor.allocate_memory_for_string_type(_olap_table->tablet_schema());
+    _read_row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
     for (auto cid : _return_columns) {
         _query_fields.push_back(_read_row_cursor.get_field_by_index(cid));
     }
@@ -207,7 +207,7 @@ Status OlapScanner::_init_return_columns() {
         if (!slot->is_materialized()) {
             continue;
         }
-        int32_t index = _olap_table->get_field_index(slot->col_name());
+        int32_t index = _tablet->get_field_index(slot->col_name());
         if (index < 0) {
             std::stringstream ss;
             ss << "field name is invalied. field="  << slot->col_name();
@@ -215,12 +215,12 @@ Status OlapScanner::_init_return_columns() {
             return Status(ss.str());
         }
         _return_columns.push_back(index);
-        if (_olap_table->tablet_schema()[index].type == OLAP_FIELD_TYPE_VARCHAR ||
-                _olap_table->tablet_schema()[index].type == OLAP_FIELD_TYPE_HLL) {
+        if (_tablet->tablet_schema()[index].type == OLAP_FIELD_TYPE_VARCHAR ||
+                _tablet->tablet_schema()[index].type == OLAP_FIELD_TYPE_HLL) {
             _request_columns_size.push_back(
-                _olap_table->tablet_schema()[index].length - sizeof(StringLengthType));
+                _tablet->tablet_schema()[index].length - sizeof(StringLengthType));
         } else {
-            _request_columns_size.push_back(_olap_table->tablet_schema()[index].length);
+            _request_columns_size.push_back(_tablet->tablet_schema()[index].length);
         }
         _query_slots.push_back(slot);
     }

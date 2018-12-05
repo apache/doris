@@ -27,7 +27,7 @@
 #include "exec/broker_writer.h"
 #include "olap/file_helper.h"
 #include "olap/olap_engine.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 #include "runtime/exec_env.h"
 #include "runtime/broker_mgr.h"
 #include "util/file_utils.h"
@@ -556,7 +556,7 @@ Status SnapshotLoader::move(
         // than we merge the 2 .hdr file before reloading it.
     
         // load header in tablet dir to get the base vesion
-        TabletSharedPtr tablet = OLAPEngine::get_instance()->get_table(
+        TabletSharedPtr tablet = OLAPEngine::get_instance()->get_tablet(
                 tablet_id, schema_hash);
         if (tablet.get() == NULL) {
             std::stringstream ss;

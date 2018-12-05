@@ -78,11 +78,11 @@ AgentServer::AgentServer(ExecEnv* exec_env,
 //    boost::filesystem::create_directories(config::agent_tmp_dir);
 
     // init task worker pool
-    _create_table_workers = new TaskWorkerPool(
+    _create_tablet_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::CREATE_TABLE,
             _exec_env,
             master_info);
-    _drop_table_workers = new TaskWorkerPool(
+    _drop_tablet_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::DROP_TABLE,
             _exec_env,
             master_info);
@@ -106,7 +106,7 @@ AgentServer::AgentServer(ExecEnv* exec_env,
             TaskWorkerPool::TaskWorkerType::DELETE,
             _exec_env,
             master_info);
-    _alter_table_workers = new TaskWorkerPool(
+    _alter_tablet_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
             _exec_env,
             master_info);
@@ -134,7 +134,7 @@ AgentServer::AgentServer(ExecEnv* exec_env,
             TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE,
             _exec_env,
             master_info);
-    _report_olap_table_workers = new TaskWorkerPool(
+    _report_tablet_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::REPORT_OLAP_TABLE,
             _exec_env,
             master_info);
@@ -163,21 +163,21 @@ AgentServer::AgentServer(ExecEnv* exec_env,
             _exec_env,
             master_info);
 #ifndef BE_TEST
-    _create_table_workers->start();
-    _drop_table_workers->start();
+    _create_tablet_workers->start();
+    _drop_tablet_workers->start();
     _push_workers->start();
     _publish_version_workers->start();
     _clear_alter_task_workers->start();
     _clear_transaction_task_workers->start();
     _delete_workers->start();
-    _alter_table_workers->start();
+    _alter_tablet_workers->start();
     _clone_workers->start();
     _storage_medium_migrate_workers->start();
     _cancel_delete_data_workers->start();
     _check_consistency_workers->start();
     _report_task_workers->start();
     _report_disk_state_workers->start();
-    _report_olap_table_workers->start();
+    _report_tablet_workers->start();
     _upload_workers->start();
     _download_workers->start();
     _make_snapshot_workers->start();
@@ -192,11 +192,11 @@ AgentServer::AgentServer(ExecEnv* exec_env,
 }
 
 AgentServer::~AgentServer() {
-    if (_create_table_workers != NULL) {
-        delete _create_table_workers;
+    if (_create_tablet_workers != NULL) {
+        delete _create_tablet_workers;
     }
-    if (_drop_table_workers != NULL) {
-        delete _drop_table_workers;
+    if (_drop_tablet_workers != NULL) {
+        delete _drop_tablet_workers;
     }
     if (_push_workers != NULL) {
         delete _push_workers;
@@ -213,8 +213,8 @@ AgentServer::~AgentServer() {
     if (_delete_workers != NULL) {
         delete _delete_workers;
     }
-    if (_alter_table_workers != NULL) {
-        delete _alter_table_workers;
+    if (_alter_tablet_workers != NULL) {
+        delete _alter_tablet_workers;
     }
     if (_clone_workers != NULL) {
         delete _clone_workers;
@@ -234,8 +234,8 @@ AgentServer::~AgentServer() {
     if (_report_disk_state_workers != NULL) {
         delete _report_disk_state_workers;
     }
-    if (_report_olap_table_workers != NULL) {
-        delete _report_olap_table_workers;
+    if (_report_tablet_workers != NULL) {
+        delete _report_tablet_workers;
     }
     if (_upload_workers != NULL) {
         delete _upload_workers;
@@ -284,14 +284,14 @@ void AgentServer::submit_tasks(
         switch (task_type) {
         case TTaskType::CREATE:
             if (task.__isset.create_tablet_req) {
-               _create_table_workers->submit_task(task);
+               _create_tablet_workers->submit_task(task);
             } else {
                 status_code = TStatusCode::ANALYSIS_ERROR;
             }
             break;
         case TTaskType::DROP:
             if (task.__isset.drop_tablet_req) {
-                _drop_table_workers->submit_task(task);
+                _drop_tablet_workers->submit_task(task);
             } else {
                 status_code = TStatusCode::ANALYSIS_ERROR;
             }
@@ -335,7 +335,7 @@ void AgentServer::submit_tasks(
         case TTaskType::ROLLUP:
         case TTaskType::SCHEMA_CHANGE:
             if (task.__isset.alter_tablet_req) {
-                _alter_table_workers->submit_task(task);
+                _alter_tablet_workers->submit_task(task);
             } else {
                 status_code = TStatusCode::ANALYSIS_ERROR;
             }

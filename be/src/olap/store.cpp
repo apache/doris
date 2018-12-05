@@ -235,8 +235,8 @@ Status OlapStore::_init_file_system() {
         mount_device = s.st_dev;
     }
 
-    FILE* mount_table = nullptr;
-    if ((mount_table = setmntent(kMtabPath, "r")) == NULL) {
+    FILE* mount_tablet = nullptr;
+    if ((mount_tablet = setmntent(kMtabPath, "r")) == NULL) {
         char errmsg[64];
         LOG(WARNING) << "setmntent failed, path=" << kMtabPath
             << ", errno=" << errno << ", errmsg=" << strerror_r(errno, errmsg, 64);
@@ -245,7 +245,7 @@ Status OlapStore::_init_file_system() {
 
     bool is_find = false;
     struct mntent* mount_entry = NULL;
-    while ((mount_entry = getmntent(mount_table)) != NULL) {
+    while ((mount_entry = getmntent(mount_tablet)) != NULL) {
         if (strcmp(_path.c_str(), mount_entry->mnt_dir) == 0
                 || strcmp(_path.c_str(), mount_entry->mnt_fsname) == 0) {
             is_find = true;
@@ -263,7 +263,7 @@ Status OlapStore::_init_file_system() {
         }
     }
 
-    endmntent(mount_table);
+    endmntent(mount_tablet);
 
     if (!is_find) {
         LOG(WARNING) << "fail to find file system, path=" << _path;
@@ -421,18 +421,18 @@ OlapMeta* OlapStore::get_meta() {
     return _meta;
 }
 
-OLAPStatus OlapStore::register_table(OLAPTable* table) {
+OLAPStatus OlapStore::register_tablet(Tablet* tablet) {
     std::lock_guard<std::mutex> l(_mutex);
 
-    TabletInfo tablet_info(table->tablet_id(), table->schema_hash());
+    TabletInfo tablet_info(tablet->tablet_id(), tablet->schema_hash());
     _tablet_set.insert(tablet_info);
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OlapStore::deregister_table(OLAPTable* table) {
+OLAPStatus OlapStore::deregister_tablet(Tablet* tablet) {
     std::lock_guard<std::mutex> l(_mutex);
 
-    TabletInfo tablet_info(table->tablet_id(), table->schema_hash());
+    TabletInfo tablet_info(tablet->tablet_id(), tablet->schema_hash());
     _tablet_set.erase(tablet_info);
     return OLAP_SUCCESS;
 }
@@ -476,7 +476,7 @@ std::string OlapStore::get_root_path_from_schema_hash_path_in_trash(
     return schema_hash_path_in_trash.parent_path().parent_path().parent_path().parent_path().string();
 }
 
-OLAPStatus OlapStore::_load_table_from_header(OLAPEngine* engine, TTabletId tablet_id,
+OLAPStatus OlapStore::_load_tablet_from_header(OLAPEngine* engine, TTabletId tablet_id,
         TSchemaHash schema_hash, const std::string& header) {
     std::unique_ptr<OLAPHeader> olap_header(new OLAPHeader());
     bool parsed = olap_header->ParseFromString(header);
@@ -506,77 +506,77 @@ OLAPStatus OlapStore::_load_table_from_header(OLAPEngine* engine, TTabletId tabl
         }
         return OLAP_ERR_HEADER_INIT_FAILED;
     }
-    TabletSharedPtr olap_table =
-        OLAPTable::create_from_header(olap_header.release(), this);
-    if (olap_table == nullptr) {
-        LOG(WARNING) << "fail to new table. tablet_id=" << tablet_id << ", schema_hash:" << schema_hash;
+    TabletSharedPtr tablet =
+        Tablet::create_from_header(olap_header.release(), this);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "fail to new tablet. tablet_id=" << tablet_id << ", schema_hash:" << schema_hash;
         return OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
     }
 
-    if (olap_table->lastest_version() == nullptr && !olap_table->is_schema_changing()) {
+    if (tablet->lastest_version() == nullptr && !tablet->is_schema_changing()) {
         LOG(WARNING) << "tablet not in schema change state without delta is invalid."
-                     << "tablet=" << olap_table->full_name();
+                     << "tablet=" << tablet->full_name();
         // tablet state is invalid, drop tablet
-        olap_table->mark_dropped();
+        tablet->mark_dropped();
         return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
     }
 
-    res = engine->add_table(tablet_id, schema_hash, olap_table);
+    res = engine->add_tablet(tablet_id, schema_hash, tablet);
     if (res != OLAP_SUCCESS) {
         // insert existed tablet return OLAP_SUCCESS
         if (res == OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE) {
-            LOG(WARNING) << "add duplicate table. table=" << olap_table->full_name();
+            LOG(WARNING) << "add duplicate tablet. tablet=" << tablet->full_name();
         }
 
-        LOG(WARNING) << "failed to add table. table=" << olap_table->full_name();
+        LOG(WARNING) << "failed to add tablet. tablet=" << tablet->full_name();
         return res;
     }
-    res = engine->register_table_into_root_path(olap_table.get());
+    res = engine->register_tablet_into_root_path(tablet.get());
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to register table into root path. root_path=" << olap_table->storage_root_path_name();
+        LOG(WARNING) << "fail to register tablet into root path. root_path=" << tablet->storage_root_path_name();
 
-        if (engine->drop_table(tablet_id, schema_hash) != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to drop table when create table failed. "
+        if (engine->drop_tablet(tablet_id, schema_hash) != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to drop tablet when create tablet failed. "
                 <<"tablet=" << tablet_id << " schema_hash=" << schema_hash;
         }
 
         return res;
     }
     // load pending data (for realtime push), will add transaction relationship into engine
-    olap_table->load_pending_data();
+    tablet->load_pending_data();
 
     return OLAP_SUCCESS;
 }
 
 OLAPStatus OlapStore::load_tables(OLAPEngine* engine) {
-    auto load_table_func = [this, engine](long tablet_id,
+    auto load_tablet_func = [this, engine](long tablet_id,
             long schema_hash, const std::string& value) -> bool {
-        OLAPStatus status = _load_table_from_header(engine, tablet_id, schema_hash, value);
+        OLAPStatus status = _load_tablet_from_header(engine, tablet_id, schema_hash, value);
         if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "load table from header failed. status:" << status
+            LOG(WARNING) << "load tablet from header failed. status:" << status
                 << "tablet=" << tablet_id << "." << schema_hash;
         };
         return true;
     };
-    OLAPStatus status = OlapHeaderManager::traverse_headers(_meta, load_table_func);
+    OLAPStatus status = OlapHeaderManager::traverse_headers(_meta, load_tablet_func);
     return status;
 }
 
-OLAPStatus OlapStore::check_none_row_oriented_table_in_store(OLAPEngine* engine) {
-    auto load_table_func = [this, engine](long tablet_id,
+OLAPStatus OlapStore::check_none_row_oriented_tablet_in_store(OLAPEngine* engine) {
+    auto load_tablet_func = [this, engine](long tablet_id,
             long schema_hash, const std::string& value) -> bool {
-        OLAPStatus status = _check_none_row_oriented_table_in_store(engine, tablet_id, schema_hash, value);
+        OLAPStatus status = _check_none_row_oriented_tablet_in_store(engine, tablet_id, schema_hash, value);
         if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "load table from header failed. status:" << status
+            LOG(WARNING) << "load tablet from header failed. status:" << status
                 << "tablet=" << tablet_id << "." << schema_hash;
         };
         return true;
     };
-    OLAPStatus status = OlapHeaderManager::traverse_headers(_meta, load_table_func);
+    OLAPStatus status = OlapHeaderManager::traverse_headers(_meta, load_tablet_func);
     return status;
 }
 
-OLAPStatus OlapStore::_check_none_row_oriented_table_in_store(
+OLAPStatus OlapStore::_check_none_row_oriented_tablet_in_store(
                         OLAPEngine* engine, TTabletId tablet_id,
                         TSchemaHash schema_hash, const std::string& header) {
     std::unique_ptr<OLAPHeader> olap_header(new OLAPHeader());
@@ -589,7 +589,7 @@ OLAPStatus OlapStore::_check_none_row_oriented_table_in_store(
     RETURN_NOT_OK(olap_header->init());
     LOG(INFO) << "data_file_type:" << olap_header->data_file_type();
     if (olap_header->data_file_type() == OLAP_DATA_FILE) {
-        LOG(FATAL) << "Not support row-oriented table any more. Please convert it to column-oriented table."
+        LOG(FATAL) << "Not support row-oriented tablet any more. Please convert it to column-oriented tablet."
                    << "tablet=" << tablet_id << "." << schema_hash;
     }
 

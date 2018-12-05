@@ -24,7 +24,7 @@
 #include <boost/filesystem.hpp>
 
 #include "olap/olap_engine.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 #include "olap/schema_change.h"
 
 using std::list;
@@ -74,7 +74,7 @@ OLAPStatus PushHandler::process_realtime_push(
         // if push finished, report success to fe
         if (tablet->has_pending_data(request.transaction_id)) {
             OLAP_LOG_WARNING("pending data exists in tablet, which means push finished,"
-                             "return success. [table=%s transaction_id=%ld]",
+                             "return success. [tablet=%s transaction_id=%ld]",
                              tablet->full_name().c_str(), request.transaction_id);
             res = OLAP_SUCCESS;
         }
@@ -82,7 +82,7 @@ OLAPStatus PushHandler::process_realtime_push(
         goto EXIT;
     }
 
-    // only when fe sends schema_change true, should consider to push related table
+    // only when fe sends schema_change true, should consider to push related tablet
     if (_request.is_schema_changing) {
         VLOG(3) << "push req specify schema changing is true. "
                 << "tablet=" << tablet->full_name()
@@ -101,22 +101,20 @@ OLAPStatus PushHandler::process_realtime_push(
                       << ", related_tablet_id=" << related_tablet_id
                       << ", related_schema_hash=" << related_schema_hash
                       << ", transaction_id=" << request.transaction_id;
-            TabletSharedPtr related_tablet = OLAPEngine::get_instance()->get_table(
+            TabletSharedPtr related_tablet = OLAPEngine::get_instance()->get_tablet(
                 related_tablet_id, related_schema_hash);
 
             // if related tablet not exists, only push current tablet
             if (NULL == related_tablet.get()) {
-                // only print a warn log here not call clear schema change state in tablet
-                // the schema change state will be cleared when another schema change request comes
-                OLAP_LOG_WARNING("can't find related table, only push current tablet. "
-                                 "[table=%s related_tablet_id=%ld related_schema_hash=%d]",
+                OLAP_LOG_WARNING("can't find related tablet, only push current tablet. "
+                                 "[tablet=%s related_tablet_id=%ld related_schema_hash=%d]",
                                  tablet->full_name().c_str(),
                                  related_tablet_id, related_schema_hash);
 
-            // if current tablet is new table, only push current tablet
+            // if current tablet is new tablet, only push current tablet
             } else if (tablet->creation_time() > related_tablet->creation_time()) {
-                OLAP_LOG_WARNING("current table is new, only push current tablet. "
-                                 "[table=%s related_tablet=%s]",
+                OLAP_LOG_WARNING("current tablet is new, only push current tablet. "
+                                 "[tablet=%s related_tablet=%s]",
                                  tablet->full_name().c_str(),
                                  related_tablet->full_name().c_str());
 
@@ -133,7 +131,7 @@ OLAPStatus PushHandler::process_realtime_push(
                 if (res == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
                     OLAP_LOG_WARNING("related tablet's transaction exists in engine, "
                                      "only push current tablet. "
-                                     "[related_table=%s transaction_id=%ld]",
+                                     "[related_tablet=%s transaction_id=%ld]",
                                      related_tablet->full_name().c_str(),
                                      request.transaction_id);
                 } else {
@@ -201,7 +199,6 @@ OLAPStatus PushHandler::process_realtime_push(
         }
 
         for (SegmentGroup* segment_group : tablet_var.added_indices) {
-
             res = tablet_var.tablet->add_pending_data(
                 segment_group, push_type == PUSH_FOR_DELETE ? &request.delete_conditions : NULL);
 
@@ -211,7 +208,7 @@ OLAPStatus PushHandler::process_realtime_push(
                 res = OLAP_SUCCESS;
 
             } else if (res != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("fail to add pending data to tablet. [table=%s transaction_id=%ld]",
+                OLAP_LOG_WARNING("fail to add pending data to tablet. [tablet=%s transaction_id=%ld]",
                                  tablet_var.tablet->full_name().c_str(), request.transaction_id);
                 goto EXIT;
             }
@@ -222,7 +219,7 @@ EXIT:
     // if transaction existed in engine but push not finished, not report to fe
     if (res == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
         OLAP_LOG_WARNING("find transaction existed when realtime push, not report. ",
-                         "[table=%s partition_id=%ld transaction_id=%ld]",
+                         "[tablet=%s partition_id=%ld transaction_id=%ld]",
                          tablet->full_name().c_str(),
                          request.partition_id, request.transaction_id);
         return res;
@@ -315,7 +312,7 @@ OLAPStatus PushHandler::_convert(
                 need_decompress = true;
             }
             if (NULL == (reader = IBinaryReader::create(need_decompress))) {
-                OLAP_LOG_WARNING("fail to create reader. [table='%s' file='%s']",
+                OLAP_LOG_WARNING("fail to create reader. [tablet='%s' file='%s']",
                                  curr_tablet->full_name().c_str(),
                                  _request.http_file_path.c_str());
                 res = OLAP_ERR_MALLOC_ERROR;
@@ -324,7 +321,7 @@ OLAPStatus PushHandler::_convert(
 
             // init BinaryReader
             if (OLAP_SUCCESS != (res = reader->init(curr_tablet, &raw_file))) {
-                OLAP_LOG_WARNING("fail to init reader. [res=%d table='%s' file='%s']",
+                OLAP_LOG_WARNING("fail to init reader. [res=%d tablet='%s' file='%s']",
                                  res,
                                  curr_tablet->full_name().c_str(),
                                  _request.http_file_path.c_str());
@@ -341,7 +338,7 @@ OLAPStatus PushHandler::_convert(
             string dir_path = curr_tablet->construct_pending_data_dir_path();
             if (!check_dir_existed(dir_path) && (res = create_dirs(dir_path)) != OLAP_SUCCESS) {
                 if (!check_dir_existed(dir_path)) {
-                    OLAP_LOG_WARNING("fail to create pending dir. [res=%d table=%s]",
+                    OLAP_LOG_WARNING("fail to create pending dir. [res=%d tablet=%s]",
                                      res, curr_tablet->full_name().c_str());
                     break;
                 }
@@ -360,7 +357,7 @@ OLAPStatus PushHandler::_convert(
         }
 
         if (NULL == delta_segment_group) {
-            OLAP_LOG_WARNING("fail to malloc SegmentGroup. [table='%s' size=%ld]",
+            OLAP_LOG_WARNING("fail to malloc SegmentGroup. [tablet='%s' size=%ld]",
                              curr_tablet->full_name().c_str(), sizeof(SegmentGroup));
             res = OLAP_ERR_MALLOC_ERROR;
             break;
@@ -372,7 +369,7 @@ OLAPStatus PushHandler::_convert(
                 << ", block_row_size=" << curr_tablet->num_rows_per_row_block();
 
         if (NULL == (writer = ColumnDataWriter::create(curr_tablet, delta_segment_group, true))) {
-            OLAP_LOG_WARNING("fail to create writer. [table='%s']",
+            OLAP_LOG_WARNING("fail to create writer. [tablet='%s']",
                              curr_tablet->full_name().c_str());
             res = OLAP_ERR_MALLOC_ERROR;
             break;
@@ -391,7 +388,7 @@ OLAPStatus PushHandler::_convert(
             while (!reader->eof()) {
                 if (OLAP_SUCCESS != (res = writer->attached_by(&row))) {
                     OLAP_LOG_WARNING(
-                            "fail to attach row to writer. [res=%d table='%s' read_rows=%u]",
+                            "fail to attach row to writer. [res=%d tablet='%s' read_rows=%u]",
                             res, curr_tablet->full_name().c_str(), num_rows);
                     break;
                 }
@@ -423,7 +420,7 @@ OLAPStatus PushHandler::_convert(
 
         VLOG(3) << "load the index.";
         if (OLAP_SUCCESS != (res = delta_segment_group->load())) {
-            OLAP_LOG_WARNING("fail to load index. [res=%d table='%s' version=%ld]",
+            OLAP_LOG_WARNING("fail to load index. [res=%d tablet='%s' version=%ld]",
                              res, curr_tablet->full_name().c_str(), _request.version);
             break;
         }
@@ -437,7 +434,7 @@ OLAPStatus PushHandler::_convert(
             string dir_path = new_tablet->construct_pending_data_dir_path();
             if (!check_dir_existed(dir_path) && (res = create_dirs(dir_path)) != OLAP_SUCCESS) {
                 if (!check_dir_existed(dir_path)) {
-                    OLAP_LOG_WARNING("fail to create pending dir. [res=%d table=%s]",
+                    OLAP_LOG_WARNING("fail to create pending dir. [res=%d tablet=%s]",
                                      res, new_tablet->full_name().c_str());
                     break;
                 }
@@ -451,7 +448,7 @@ OLAPStatus PushHandler::_convert(
                     new_olap_indices);
             if (res != OLAP_SUCCESS) {
                 OLAP_LOG_WARNING("failed to change schema version for delta."
-                                 "[res=%d new_table='%s']",
+                                 "[res=%d new_tablet='%s']",
                                  res, new_tablet->full_name().c_str());
             }
 
@@ -500,14 +497,14 @@ BinaryReader::BinaryReader()
 }
 
 OLAPStatus BinaryReader::init(
-        TabletSharedPtr table,
+        TabletSharedPtr tablet,
         BinaryFile* file) {
     OLAPStatus res = OLAP_SUCCESS;
 
     do {
         _file = file;
         _content_len = _file->file_length() - _file->header_size();
-        _row_buf_size = table->get_row_size();
+        _row_buf_size = tablet->get_row_size();
 
         if (NULL == (_row_buf = new(std::nothrow) char[_row_buf_size])) {
             OLAP_LOG_WARNING("fail to malloc one row buf. [size=%zu]", _row_buf_size);
@@ -521,7 +518,7 @@ OLAPStatus BinaryReader::init(
             break;
         }
 
-        _table = table;
+        _tablet = tablet;
         _ready = true;
     } while (0);
 
@@ -545,10 +542,10 @@ OLAPStatus BinaryReader::next(RowCursor* row, MemPool* mem_pool) {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    const vector<FieldInfo>& schema = _table->tablet_schema();
+    const vector<FieldInfo>& schema = _tablet->tablet_schema();
     size_t offset = 0;
     size_t field_size = 0;
-    size_t num_null_bytes = (_table->num_null_fields() + 7) / 8;
+    size_t num_null_bytes = (_tablet->num_null_fields() + 7) / 8;
 
     if (OLAP_SUCCESS != (res = _file->read(_row_buf + offset, num_null_bytes))) {
         OLAP_LOG_WARNING("read file for one row fail. [res=%d]", res);
@@ -630,7 +627,7 @@ LzoBinaryReader::LzoBinaryReader()
 }
 
 OLAPStatus LzoBinaryReader::init(
-        TabletSharedPtr table,
+        TabletSharedPtr tablet,
         BinaryFile* file) {
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -651,7 +648,7 @@ OLAPStatus LzoBinaryReader::init(
             break;
         }
 
-        _table = table;
+        _tablet = tablet;
         _ready = true;
     } while (0);
 
@@ -684,10 +681,10 @@ OLAPStatus LzoBinaryReader::next(RowCursor* row, MemPool* mem_pool) {
         }
     }
 
-    const vector<FieldInfo>& schema = _table->tablet_schema();
+    const vector<FieldInfo>& schema = _tablet->tablet_schema();
     size_t offset = 0;
     size_t field_size = 0;
-    size_t num_null_bytes = (_table->num_null_fields() + 7) / 8;
+    size_t num_null_bytes = (_tablet->num_null_fields() + 7) / 8;
 
     size_t p = 0;
     for (size_t i = 0; i < schema.size(); ++i) {
@@ -764,7 +761,7 @@ OLAPStatus LzoBinaryReader::_next_block() {
         SAFE_DELETE_ARRAY(_row_buf);
 
         _max_row_num = _row_num;
-        _max_row_buf_size = _max_row_num * _table->get_row_size();
+        _max_row_buf_size = _max_row_num * _tablet->get_row_size();
         if (NULL == (_row_buf = new(std::nothrow) char[_max_row_buf_size])) {
             OLAP_LOG_WARNING("fail to malloc rows buf. [size=%zu]", _max_row_buf_size);
             res = OLAP_ERR_MALLOC_ERROR;

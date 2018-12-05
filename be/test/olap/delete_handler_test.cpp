@@ -174,12 +174,12 @@ protected:
         // create base tablet
         OLAPStatus res = OLAP_SUCCESS;
         set_default_create_tablet_request(&_create_tablet);
-        res = k_engine->create_table(_create_tablet);
+        res = k_engine->create_tablet(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        _olap_table = k_engine->get_table(
+        tablet = k_engine->get_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        ASSERT_TRUE(_olap_table.get() != NULL);
-        _tablet_path = _olap_table->tablet_path();
+        ASSERT_TRUE(tablet.get() != NULL);
+        _tablet_path = tablet->tablet_path();
     }
 
     OLAPStatus push_empty_delta(int32_t version) {
@@ -194,8 +194,8 @@ protected:
 
     void TearDown() {
         // Remove all dir.
-        _olap_table.reset();
-        OLAPEngine::get_instance()->drop_table(
+        tablet.reset();
+        OLAPEngine::get_instance()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
@@ -206,7 +206,7 @@ protected:
     typedef RepeatedPtrField<DeleteConditionMessage> del_cond_array;
 
     std::string _tablet_path;
-    TabletSharedPtr _olap_table;
+    TabletSharedPtr tablet;
     TCreateTabletReq _create_tablet;
     DeleteConditionHandler _delete_condition_handler;
 };
@@ -234,12 +234,12 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     condition.condition_values.push_back("5");
     conditions.push_back(condition);
 
-    success_res = _delete_condition_handler.store_cond(_olap_table, 3, conditions);
+    success_res = _delete_condition_handler.store_cond(tablet, 3, conditions);
     ASSERT_EQ(OLAP_SUCCESS, success_res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(3));
 
     // 验证存储在header中的过滤条件正确
-    const del_cond_array& delete_conditions = _olap_table->delete_data_conditions();
+    const del_cond_array& delete_conditions = tablet->delete_data_conditions();
     ASSERT_EQ(size_t(1), delete_conditions.size());
     EXPECT_EQ(3, delete_conditions.Get(0).version());
     ASSERT_EQ(size_t(3), delete_conditions.Get(0).sub_conditions_size());
@@ -255,11 +255,11 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     condition.condition_values.push_back("1");
     conditions.push_back(condition);
 
-    success_res = _delete_condition_handler.store_cond(_olap_table, 3, conditions);
+    success_res = _delete_condition_handler.store_cond(tablet, 3, conditions);
     ASSERT_EQ(OLAP_SUCCESS, success_res);
 
     // 验证存储相同版本号的过滤条件情况下，新的过滤条件替换掉旧的过滤条件
-    const del_cond_array& new_delete_conditions = _olap_table->delete_data_conditions();
+    const del_cond_array& new_delete_conditions = tablet->delete_data_conditions();
     ASSERT_EQ(size_t(1), new_delete_conditions.size());
     EXPECT_EQ(3, new_delete_conditions.Get(0).version());
     ASSERT_EQ(size_t(1), new_delete_conditions.Get(0).sub_conditions_size());
@@ -279,11 +279,11 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     condition.condition_values.push_back("2");
     conditions.push_back(condition);
 
-    success_res = _delete_condition_handler.store_cond(_olap_table, 4, conditions);
+    success_res = _delete_condition_handler.store_cond(tablet, 4, conditions);
     ASSERT_EQ(OLAP_SUCCESS, success_res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(4));
 
-    const del_cond_array& all_delete_conditions = _olap_table->delete_data_conditions();
+    const del_cond_array& all_delete_conditions = tablet->delete_data_conditions();
     ASSERT_EQ(size_t(2), all_delete_conditions.size());
     EXPECT_EQ(3, all_delete_conditions.Get(0).version());
     ASSERT_EQ(size_t(1), all_delete_conditions.Get(0).sub_conditions_size());
@@ -298,7 +298,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
 TEST_F(TestDeleteConditionHandler, StoreCondInvalidParameters) {
     // 空的过滤条件
     std::vector<TCondition> conditions;
-    OLAPStatus failed_res = _delete_condition_handler.store_cond(_olap_table, 3, conditions);
+    OLAPStatus failed_res = _delete_condition_handler.store_cond(tablet, 3, conditions);
     ASSERT_EQ(OLAP_ERR_DELETE_INVALID_PARAMETERS, failed_res);
 
     // 负的版本号: -10
@@ -309,7 +309,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondInvalidParameters) {
     condition.condition_values.push_back("2");
     conditions.push_back(condition);
 
-    failed_res = _delete_condition_handler.store_cond(_olap_table, -10, conditions);
+    failed_res = _delete_condition_handler.store_cond(tablet, -10, conditions);
     ASSERT_EQ(OLAP_ERR_DELETE_INVALID_PARAMETERS, failed_res);
 }
 
@@ -324,7 +324,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondNonexistentColumn) {
     condition.condition_values.push_back("2");
     conditions.push_back(condition);
 
-    OLAPStatus failed_res = _delete_condition_handler.store_cond(_olap_table, 3, conditions);
+    OLAPStatus failed_res = _delete_condition_handler.store_cond(tablet, 3, conditions);
     ASSERT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, failed_res);
 
     // 'v'是value列
@@ -335,7 +335,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondNonexistentColumn) {
     condition.condition_values.push_back("5");
     conditions.push_back(condition);
 
-    failed_res = _delete_condition_handler.store_cond(_olap_table, 3, conditions);
+    failed_res = _delete_condition_handler.store_cond(tablet, 3, conditions);
     ASSERT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, failed_res);
 }
 
@@ -362,7 +362,7 @@ TEST_F(TestDeleteConditionHandler, DeleteCondRemoveOneCondition) {
     condition.condition_values.push_back("5");
     conditions.push_back(condition);
 
-    res = _delete_condition_handler.store_cond(_olap_table, 3, conditions);
+    res = _delete_condition_handler.store_cond(tablet, 3, conditions);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(3));
 
@@ -373,7 +373,7 @@ TEST_F(TestDeleteConditionHandler, DeleteCondRemoveOneCondition) {
     condition.condition_values.push_back("1");
     conditions.push_back(condition);
 
-    res = _delete_condition_handler.store_cond(_olap_table, 4, conditions);
+    res = _delete_condition_handler.store_cond(tablet, 4, conditions);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(4));
 
@@ -384,15 +384,15 @@ TEST_F(TestDeleteConditionHandler, DeleteCondRemoveOneCondition) {
     condition.condition_values.push_back("1");
     conditions.push_back(condition);
 
-    res = _delete_condition_handler.store_cond(_olap_table, 5, conditions);
+    res = _delete_condition_handler.store_cond(tablet, 5, conditions);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(5));
 
     // 删除版本号为8的过滤条件
-    res = _delete_condition_handler.delete_cond(_olap_table, 5, false);
+    res = _delete_condition_handler.delete_cond(tablet, 5, false);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
-    const del_cond_array& all_delete_conditions = _olap_table->delete_data_conditions();
+    const del_cond_array& all_delete_conditions = tablet->delete_data_conditions();
     ASSERT_EQ(size_t(2), all_delete_conditions.size());
 
     EXPECT_EQ(3, all_delete_conditions.Get(0).version());
@@ -429,7 +429,7 @@ TEST_F(TestDeleteConditionHandler, DeleteCondRemovBelowCondition) {
     condition.condition_values.push_back("5");
     conditions.push_back(condition);
 
-    res = _delete_condition_handler.store_cond(_olap_table, 3, conditions);
+    res = _delete_condition_handler.store_cond(tablet, 3, conditions);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(3));
 
@@ -440,7 +440,7 @@ TEST_F(TestDeleteConditionHandler, DeleteCondRemovBelowCondition) {
     condition.condition_values.push_back("1");
     conditions.push_back(condition);
 
-    res = _delete_condition_handler.store_cond(_olap_table, 4, conditions);
+    res = _delete_condition_handler.store_cond(tablet, 4, conditions);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(4));
 
@@ -451,15 +451,15 @@ TEST_F(TestDeleteConditionHandler, DeleteCondRemovBelowCondition) {
     condition.condition_values.push_back("1");
     conditions.push_back(condition);
 
-    res = _delete_condition_handler.store_cond(_olap_table, 5, conditions);
+    res = _delete_condition_handler.store_cond(tablet, 5, conditions);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(5));
 
     // 删除版本号为7以及版本号小于7的过滤条件
-    res = _delete_condition_handler.delete_cond(_olap_table, 4, true);
+    res = _delete_condition_handler.delete_cond(tablet, 4, true);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
-    const del_cond_array& all_delete_conditions = _olap_table->delete_data_conditions();
+    const del_cond_array& all_delete_conditions = tablet->delete_data_conditions();
     ASSERT_EQ(size_t(1), all_delete_conditions.size());
 
     EXPECT_EQ(5, all_delete_conditions.Get(0).version());
@@ -485,18 +485,18 @@ protected:
         // create base tablet
         OLAPStatus res = OLAP_SUCCESS;
         set_default_create_tablet_request(&_create_tablet);
-        res = k_engine->create_table(_create_tablet);
+        res = k_engine->create_tablet(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        _olap_table = k_engine->get_table(
+        tablet = k_engine->get_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        ASSERT_TRUE(_olap_table.get() != NULL);
-        _tablet_path = _olap_table->tablet_path();
+        ASSERT_TRUE(tablet.get() != NULL);
+        _tablet_path = tablet->tablet_path();
     }
 
     void TearDown() {
         // Remove all dir.
-        _olap_table.reset();
-        OLAPEngine::get_instance()->drop_table(
+        tablet.reset();
+        OLAPEngine::get_instance()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
@@ -507,7 +507,7 @@ protected:
     typedef RepeatedPtrField<DeleteConditionMessage> del_cond_array;
 
     std::string _tablet_path;
-    TabletSharedPtr _olap_table;
+    TabletSharedPtr tablet;
     TCreateTabletReq _create_tablet;
 };
 
@@ -542,7 +542,7 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     condition.condition_values.push_back("-1");
     conditions.push_back(condition);
 
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_SUCCESS, res);
 
     // k5类型为int128
@@ -553,7 +553,7 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     condition.condition_values.push_back("1");
     conditions.push_back(condition);
 
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_SUCCESS, res);
 
     // k9类型为decimal, precision=6, frac=3
@@ -564,22 +564,22 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     condition.condition_values.push_back("2.3");
     conditions.push_back(condition);
 
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_SUCCESS, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_SUCCESS, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-2");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_SUCCESS, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-2.3");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_SUCCESS, res);
 
     // k10,k11类型分别为date, datetime
@@ -596,7 +596,7 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     condition.condition_values.push_back("2014-01-01 00:00:00");
     conditions.push_back(condition);
 
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_SUCCESS, res);
 
     // k12,k13类型分别为string(64), varchar(64)
@@ -613,7 +613,7 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
     condition.condition_values.push_back("YWFhYQ==");
     conditions.push_back(condition);
 
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_SUCCESS, res);
 }
 
@@ -630,133 +630,133 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     condition.condition_values.push_back("1000");
     conditions.push_back(condition);
 
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k1的值越下界，k1类型为int8
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-1000");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k2的值越上界，k2类型为int16
     conditions[0].condition_values.clear();
     conditions[0].column_name = "k2";
     conditions[0].condition_values.push_back("32768");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k2的值越下界，k2类型为int16
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-32769");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k3的值越上界，k3类型为int32
     conditions[0].condition_values.clear();
     conditions[0].column_name = "k3";
     conditions[0].condition_values.push_back("2147483648");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k3的值越下界，k3类型为int32
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-2147483649");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k4的值越上界，k2类型为int64
     conditions[0].condition_values.clear();
     conditions[0].column_name = "k4";
     conditions[0].condition_values.push_back("9223372036854775808");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k4的值越下界，k1类型为int64
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-9223372036854775809");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k5的值越上界，k5类型为int128
     conditions[0].condition_values.clear();
     conditions[0].column_name = "k5";
     conditions[0].condition_values.push_back("170141183460469231731687303715884105728");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k5的值越下界，k5类型为int128
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("-170141183460469231731687303715884105729");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k9整数部分长度过长，k9类型为decimal, precision=6, frac=3
     conditions[0].condition_values.clear();
     conditions[0].column_name = "k9";
     conditions[0].condition_values.push_back("1234.5");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k9小数部分长度过长，k9类型为decimal, precision=6, frac=3
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("1.2345");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k9没有小数部分，但包含小数点
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("1.");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k10类型的过滤值不符合对应格式，k10为date
     conditions[0].condition_values.clear();
     conditions[0].column_name = "k10";
     conditions[0].condition_values.push_back("20130101");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-64-01");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-40");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k11类型的过滤值不符合对应格式，k11为datetime
     conditions[0].condition_values.clear();
     conditions[0].column_name = "k11";
     conditions[0].condition_values.push_back("20130101 00:00:00");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-64-01 00:00:00");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-40 00:00:00");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-01 24:00:00");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-01 00:60:00");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     conditions[0].condition_values.clear();
     conditions[0].condition_values.push_back("2013-01-01 00:00:60");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 
     // 测试k12和k13类型的过滤值过长，k12,k13类型分别为string(64), varchar(64)
@@ -765,7 +765,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].condition_values.push_back("YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYW"
                                     "FhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYW"
                                     "FhYWFhYWFhYWFhYWFhYWFhYWFhYWE=;k13=YWFhYQ==");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
     
     conditions[0].condition_values.clear();
@@ -773,7 +773,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
     conditions[0].condition_values.push_back("YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYW"
                                     "FhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYW"
                                     "FhYWFhYWFhYWFhYWFhYWFhYWFhYWE=;k13=YWFhYQ==");
-    res = cond_handler.store_cond(_olap_table, 2, conditions);
+    res = cond_handler.store_cond(tablet, 2, conditions);
     EXPECT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, res);
 }
 
@@ -794,15 +794,15 @@ protected:
         // create base tablet
         OLAPStatus res = OLAP_SUCCESS;
         set_default_create_tablet_request(&_create_tablet);
-        res = k_engine->create_table(_create_tablet);
+        res = k_engine->create_tablet(_create_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
-        _olap_table = k_engine->get_table(
+        tablet = k_engine->get_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        ASSERT_TRUE(_olap_table.get() != NULL);
-        _tablet_path = _olap_table->tablet_path();
+        ASSERT_TRUE(tablet.get() != NULL);
+        _tablet_path = tablet->tablet_path();
 
-        _data_row_cursor.init(_olap_table->tablet_schema());
-        _data_row_cursor.allocate_memory_for_string_type(_olap_table->tablet_schema());
+        _data_row_cursor.init(tablet->tablet_schema());
+        _data_row_cursor.allocate_memory_for_string_type(tablet->tablet_schema());
     }
 
     OLAPStatus push_empty_delta(int32_t version) {
@@ -817,9 +817,9 @@ protected:
 
     void TearDown() {
         // Remove all dir.
-        _olap_table.reset();
+        tablet.reset();
         _delete_handler.finalize();
-        OLAPEngine::get_instance()->drop_table(
+        OLAPEngine::get_instance()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
@@ -831,7 +831,7 @@ protected:
 
     std::string _tablet_path;
     RowCursor _data_row_cursor;
-    TabletSharedPtr _olap_table;
+    TabletSharedPtr tablet;
     TCreateTabletReq _create_tablet;
     DeleteHandler _delete_handler;
 };
@@ -842,7 +842,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     DeleteConditionHandler delete_condition_handler;
 
     // Header中还没有删除条件
-    res = _delete_handler.init(_olap_table, 2);
+    res = _delete_handler.init(tablet, 2);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     // 往头文件中添加过滤条件
@@ -865,7 +865,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     condition.condition_values.push_back("5");
     conditions.push_back(condition);
 
-    res = delete_condition_handler.store_cond(_olap_table, 3, conditions);
+    res = delete_condition_handler.store_cond(tablet, 3, conditions);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(3));
 
@@ -876,7 +876,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     condition.condition_values.push_back("3");
     conditions.push_back(condition);
 
-    res = delete_condition_handler.store_cond(_olap_table, 4, conditions);
+    res = delete_condition_handler.store_cond(tablet, 4, conditions);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(4));
 
@@ -887,7 +887,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     condition.condition_values.push_back("1");
     conditions.push_back(condition);
 
-    res = delete_condition_handler.store_cond(_olap_table, 5, conditions);
+    res = delete_condition_handler.store_cond(tablet, 5, conditions);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(5));
 
@@ -898,13 +898,13 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     condition.condition_values.push_back("3");
     conditions.push_back(condition);
 
-    res = delete_condition_handler.store_cond(_olap_table, 6, conditions);
+    res = delete_condition_handler.store_cond(tablet, 6, conditions);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(6));
 
     // 从header文件中取出版本号小于等于7的过滤条件
     _delete_handler.finalize();
-    res = _delete_handler.init(_olap_table, 4);
+    res = _delete_handler.init(tablet, 4);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(2, _delete_handler.conditions_num());
     vector<int32_t> conds_version = _delete_handler.get_conds_version();
@@ -937,12 +937,12 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     condition.condition_values.push_back("4");
     conditions.push_back(condition);
 
-    res = cond_handler.store_cond(_olap_table, 3, conditions);
+    res = cond_handler.store_cond(tablet, 3, conditions);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(3));
 
     // 指定版本号为10以载入Header中的所有过滤条件(在这个case中，只有过滤条件1)
-    _delete_handler.init(_olap_table, 10);
+    _delete_handler.init(tablet, 10);
 
     // 构造一行测试数据
     vector<string> data_str;
@@ -995,7 +995,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     condition.condition_values.push_back("4");
     conditions.push_back(condition);
 
-    res = cond_handler.store_cond(_olap_table, 3, conditions);
+    res = cond_handler.store_cond(tablet, 3, conditions);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(3));
 
@@ -1007,7 +1007,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     condition.condition_values.push_back("3");
     conditions.push_back(condition);
 
-    res = cond_handler.store_cond(_olap_table, 4, conditions);
+    res = cond_handler.store_cond(tablet, 4, conditions);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(4));
 
@@ -1019,12 +1019,12 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     condition.condition_values.push_back("5");
     conditions.push_back(condition);
 
-    res = cond_handler.store_cond(_olap_table, 5, conditions);
+    res = cond_handler.store_cond(tablet, 5, conditions);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(5));
 
     // 指定版本号为10以载入Header中的所有三条过滤条件
-    _delete_handler.init(_olap_table, 10);
+    _delete_handler.init(tablet, 10);
 
     vector<string> data_str;
     data_str.push_back("4");
@@ -1068,7 +1068,7 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     condition.condition_values.push_back("4");
     conditions.push_back(condition);
 
-    res = cond_handler.store_cond(_olap_table, 3, conditions);
+    res = cond_handler.store_cond(tablet, 3, conditions);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(3));
 
@@ -1080,12 +1080,12 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     condition.condition_values.push_back("3");
     conditions.push_back(condition);
 
-    res = cond_handler.store_cond(_olap_table, 4, conditions);
+    res = cond_handler.store_cond(tablet, 4, conditions);
     ASSERT_EQ(OLAP_SUCCESS, res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(4));
 
     // 指定版本号为10以载入Header中的所有过滤条件(过滤条件1，过滤条件2)
-    _delete_handler.init(_olap_table, 10);
+    _delete_handler.init(tablet, 10);
 
     // 构造一行测试数据
     vector<string> data_str;

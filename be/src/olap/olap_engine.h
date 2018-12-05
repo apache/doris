@@ -40,13 +40,13 @@
 #include "olap/lru_cache.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 #include "olap/olap_meta.h"
 #include "olap/options.h"
 
 namespace doris {
 
-class OLAPTable;
+class Tablet;
 class OlapStore;
 
 struct RootPathInfo {
@@ -85,31 +85,31 @@ public:
         return _s_instance;
     }
 
-    // Get table pointer
-    TabletSharedPtr get_table(TTabletId tablet_id, SchemaHash schema_hash, bool load_table = true);
+    // Get tablet pointer
+    TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash, bool load_tablet = true);
 
     OLAPStatus get_tables_by_id(TTabletId tablet_id, std::list<TabletSharedPtr>* table_list);    
 
     bool check_tablet_id_exist(TTabletId tablet_id);
 
-    OLAPStatus create_table(const TCreateTabletReq& request);
+    OLAPStatus create_tablet(const TCreateTabletReq& request);
 
-    // Create new table for OLAPEngine
+    // Create new tablet for OLAPEngine
     //
-    // Return OLAPTable *  succeeded; Otherwise, return NULL if failed
-    TabletSharedPtr create_table(const TCreateTabletReq& request,
+    // Return Tablet *  succeeded; Otherwise, return NULL if failed
+    TabletSharedPtr create_tablet(const TCreateTabletReq& request,
                               const std::string* ref_root_path, 
-                              const bool is_schema_change_table,
-                              const TabletSharedPtr ref_olap_table);
+                              const bool is_schema_change_tablet,
+                              const TabletSharedPtr ref_tablet);
 
-    // Add a table pointer to OLAPEngine
-    // If force, drop the existing table add this new one
+    // Add a tablet pointer to OLAPEngine
+    // If force, drop the existing tablet add this new one
     //
     // Return OLAP_SUCCESS, if run ok
     //        OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR, if find duplication
     //        OLAP_ERR_NOT_INITED, if not inited
-    OLAPStatus add_table(TTabletId tablet_id, SchemaHash schema_hash,
-                         const TabletSharedPtr& table, bool force = false);
+    OLAPStatus add_tablet(TTabletId tablet_id, SchemaHash schema_hash,
+                         const TabletSharedPtr& tablet, bool force = false);
 
     OLAPStatus add_transaction(TPartitionId partition_id, TTransactionId transaction_id,
                                TTabletId tablet_id, SchemaHash schema_hash,
@@ -136,24 +136,24 @@ public:
 
     OLAPStatus clone_full_data(TabletSharedPtr tablet, OLAPHeader& clone_header);
 
-    // Add empty data for OLAPTable
+    // Add empty data for Tablet
     //
     // Return OLAP_SUCCESS, if run ok
     OLAPStatus create_init_version(
             TTabletId tablet_id, SchemaHash schema_hash,
             Version version, VersionHash version_hash);
 
-    // Drop a table by description
+    // Drop a tablet by description
     // If set keep_files == true, files will NOT be deleted when deconstruction.
     // Return OLAP_SUCCESS, if run ok
-    //        OLAP_ERR_TABLE_DELETE_NOEXIST_ERROR, if table not exist
+    //        OLAP_ERR_TABLE_DELETE_NOEXIST_ERROR, if tablet not exist
     //        OLAP_ERR_NOT_INITED, if not inited
-    OLAPStatus drop_table(
+    OLAPStatus drop_tablet(
             TTabletId tablet_id, SchemaHash schema_hash, bool keep_files = false);
 
-    // Drop table directly with check schema change info.
-    OLAPStatus _drop_table_directly(TTabletId tablet_id, TSchemaHash schema_hash, bool keep_files = false);
-    OLAPStatus _drop_table_directly_unlocked(TTabletId tablet_id, TSchemaHash schema_hash, bool keep_files = false);
+    // Drop tablet directly with check schema change info.
+    OLAPStatus _drop_tablet_directly(TTabletId tablet_id, TSchemaHash schema_hash, bool keep_files = false);
+    OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id, TSchemaHash schema_hash, bool keep_files = false);
 
     OLAPStatus drop_tables_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
 
@@ -184,11 +184,11 @@ public:
     // 获取cache的使用情况信息
     void get_cache_status(rapidjson::Document* document) const;
 
-    void check_none_row_oriented_table(const std::vector<OlapStore*>& stores);
-    OLAPStatus check_none_row_oriented_table_in_path(
+    void check_none_row_oriented_tablet(const std::vector<OlapStore*>& stores);
+    OLAPStatus check_none_row_oriented_tablet_in_path(
                     OlapStore* store, TTabletId tablet_id,
                     SchemaHash schema_hash, const std::string& schema_hash_path);
-    OLAPStatus _check_none_row_oriented_table_in_store(OlapStore* store);
+    OLAPStatus _check_none_row_oriented_tablet_in_store(OlapStore* store);
 
     // Note: 这里只能reload原先已经存在的root path，即re-load启动时就登记的root path
     // 是允许的，但re-load全新的path是不允许的，因为此处没有彻底更新ce调度器信息
@@ -219,7 +219,7 @@ public:
 
     void get_all_available_root_path(std::vector<std::string>* available_paths);
 
-    OLAPStatus register_table_into_root_path(OLAPTable* olap_table);
+    OLAPStatus register_tablet_into_root_path(Tablet* tablet);
 
     // 磁盘状态监测。监测unused_flag路劲新的对应root_path unused标识位，
     // 当检测到有unused标识时，从内存中删除对应表信息，磁盘数据不动。
@@ -227,9 +227,9 @@ public:
     // 重新加载数据。
     void start_disk_stat_monitor();
 
-    // get root path for creating table. The returned vector of root path should be random, 
-    // for avoiding that all the table would be deployed one disk.
-    std::vector<OlapStore*> get_stores_for_create_table(
+    // get root path for creating tablet. The returned vector of root path should be random, 
+    // for avoiding that all the tablet would be deployed one disk.
+    std::vector<OlapStore*> get_stores_for_create_tablet(
         TStorageMedium::type storage_medium);
     OlapStore* get_store(const std::string& path);
 
@@ -272,12 +272,12 @@ public:
     // the main logical is that generating a new tablet with different
     // schema on base tablet.
     
-    // Create rollup tablet on base tablet, after create_rollup_table,
+    // Create rollup tablet on base tablet, after create_rollup_tablet,
     // both base tablet and new tablet is effective.
     //
     // @param [in] request specify base tablet, new tablet and its schema
     // @return OLAP_SUCCESS if submit success
-    OLAPStatus create_rollup_table(const TAlterTabletReq& request);
+    OLAPStatus create_rollup_tablet(const TAlterTabletReq& request);
 
     // Do schema change on tablet, OLAPEngine support
     // add column, drop column, alter column type and order,
@@ -288,11 +288,11 @@ public:
     // @return OLAP_SUCCESS if submit success
     OLAPStatus schema_change(const TAlterTabletReq& request);
 
-    // Show status of all alter table operation.
+    // Show status of all alter tablet operation.
     // 
     // @param [in] tablet_id & schema_hash specify a tablet
-    // @return alter table status
-    AlterTableStatus show_alter_table_status(TTabletId tablet_id, TSchemaHash schema_hash);
+    // @return alter tablet status
+    AlterTableStatus show_alter_tablet_status(TTabletId tablet_id, TSchemaHash schema_hash);
 
     OLAPStatus compute_checksum(
         TTabletId tablet_id,
@@ -364,7 +364,7 @@ public:
         std::unique_lock<std::mutex> lk(_report_mtx);
         auto cv_status = _report_cv.wait_for(lk, std::chrono::seconds(timeout_sec));
         if (cv_status == std::cv_status::no_timeout) {
-            is_tablet_report ? _is_report_olap_table_already = true : 
+            is_tablet_report ? _is_report_tablet_already = true : 
                     _is_report_disk_state_already = true;
         }
     }
@@ -389,15 +389,15 @@ private:
     OLAPStatus _judge_and_update_effective_cluster_id(int32_t cluster_id);
 
     OLAPStatus _calc_snapshot_id_path(
-            const TabletSharedPtr& olap_table,
+            const TabletSharedPtr& tablet,
             std::string* out_path);
 
     std::string _get_schema_hash_full_path(
-            const TabletSharedPtr& ref_olap_table,
+            const TabletSharedPtr& ref_tablet,
             const std::string& location) const;
 
     std::string _get_header_full_path(
-            const TabletSharedPtr& ref_olap_table,
+            const TabletSharedPtr& ref_tablet,
             const std::string& schema_hash_path) const;
 
     void _update_header_file_info(
@@ -406,25 +406,25 @@ private:
 
     OLAPStatus _link_index_and_data_files(
             const std::string& header_path,
-            const TabletSharedPtr& ref_olap_table,
+            const TabletSharedPtr& ref_tablet,
             const std::vector<VersionEntity>& version_entity_vec);
 
     OLAPStatus _copy_index_and_data_files(
             const std::string& header_path,
-            const TabletSharedPtr& ref_olap_table,
+            const TabletSharedPtr& ref_tablet,
             std::vector<VersionEntity>& version_entity_vec);
 
     OLAPStatus _create_snapshot_files(
-            const TabletSharedPtr& ref_olap_table,
+            const TabletSharedPtr& ref_tablet,
             const TSnapshotRequest& request,
             std::string* snapshot_path);
 
     OLAPStatus _create_incremental_snapshot_files(
-           const TabletSharedPtr& ref_olap_table,
+           const TabletSharedPtr& ref_tablet,
            const TSnapshotRequest& request,
            std::string* snapshot_path);
 
-    OLAPStatus _prepare_snapshot_dir(const TabletSharedPtr& ref_olap_table,
+    OLAPStatus _prepare_snapshot_dir(const TabletSharedPtr& ref_tablet,
            std::string* snapshot_id_path);
 
     OLAPStatus _append_single_delta(
@@ -453,7 +453,7 @@ private:
 
     OLAPStatus _start_bg_worker();
 
-    OLAPStatus _create_init_version(TabletSharedPtr olap_table, const TCreateTabletReq& request);
+    OLAPStatus _create_init_version(TabletSharedPtr tablet, const TCreateTabletReq& request);
 
 private:
     struct TableInstances {
@@ -497,7 +497,7 @@ private:
     typedef std::map<int64_t, TableInstances> tablet_map_t;
     typedef std::map<std::string, uint32_t> file_system_task_count_t;
 
-    TabletSharedPtr _get_table_with_no_lock(TTabletId tablet_id, SchemaHash schema_hash);
+    TabletSharedPtr _get_tablet_with_no_lock(TTabletId tablet_id, SchemaHash schema_hash);
 
     // 遍历root所指定目录, 通过dirs返回此目录下所有有文件夹的名字, files返回所有文件的名字
     OLAPStatus _dir_walk(const std::string& root,
@@ -507,23 +507,23 @@ private:
     // 扫描目录, 加载表
     OLAPStatus _load_store(OlapStore* store);
 
-    OLAPStatus _create_new_table_header(const TCreateTabletReq& request,
+    OLAPStatus _create_new_tablet_header(const TCreateTabletReq& request,
                                              OlapStore* store,
-                                             const bool is_schema_change_table,
-                                             const TabletSharedPtr ref_olap_table,
+                                             const bool is_schema_change_tablet,
+                                             const TabletSharedPtr ref_tablet,
                                              OLAPHeader* header);
 
     OLAPStatus _check_existed_or_else_create_dir(const std::string& path);
 
     TabletSharedPtr _find_best_tablet_to_compaction(CompactionType compaction_type);
-    bool _can_do_compaction(TabletSharedPtr table);
+    bool _can_do_compaction(TabletSharedPtr tablet);
 
     void _cancel_unfinished_schema_change();
 
     OLAPStatus _do_sweep(
             const std::string& scan_root, const time_t& local_tm_now, const uint32_t expire);
 
-    void _build_tablet_info(TabletSharedPtr olap_table, TTabletInfo* tablet_info);
+    void _build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tablet_info);
     void _build_tablet_stat();
 
     EngineOptions _options;
@@ -543,7 +543,7 @@ private:
     RWMutex _transaction_tablet_map_lock;
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
     std::map<TxnKey, std::map<TabletInfo, std::vector<PUniqueId>>> _transaction_tablet_map;
-    size_t _global_table_id;
+    size_t _global_tablet_id;
     Cache* _file_descriptor_lru_cache;
     Cache* _index_stream_lru_cache;
     uint32_t _max_base_compaction_task_per_disk;
@@ -576,7 +576,7 @@ private:
     // garbage sweep thread process function. clear snapshot and trash folder
     void* _garbage_sweeper_thread_callback(void* arg);
 
-    // delete table with io error process function
+    // delete tablet with io error process function
     void* _disk_stat_monitor_thread_callback(void* arg);
 
     // unused index process function
@@ -611,7 +611,7 @@ private:
     std::mutex _report_mtx;
     std::condition_variable _report_cv;
     std::atomic_bool _is_report_disk_state_already;
-    std::atomic_bool _is_report_olap_table_already;
+    std::atomic_bool _is_report_tablet_already;
 };
 
 }  // namespace doris
