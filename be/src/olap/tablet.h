@@ -749,6 +749,7 @@ private:
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 };
 
+
 }  // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_OLAP_TABLE_H
