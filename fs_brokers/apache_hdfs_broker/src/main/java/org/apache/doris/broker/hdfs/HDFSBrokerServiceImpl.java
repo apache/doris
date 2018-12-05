@@ -69,7 +69,12 @@ public class HDFSBrokerServiceImpl implements TPaloBrokerService.Iface {
         logger.debug("received a list path request, request detail: " + request);
         TBrokerListResponse response = new TBrokerListResponse();
         try {
-            List<TBrokerFileStatus> fileStatuses = fileSystemManager.listPath(request.path, request.properties);
+            boolean fileNameOnly = false;
+            if (request.isSetFileNameOnly()) {
+                fileNameOnly = request.isFileNameOnly();
+            }
+            List<TBrokerFileStatus> fileStatuses = fileSystemManager.listPath(request.path, fileNameOnly,
+                    request.properties);
             response.setOpStatus(generateOKStatus());
             response.setFiles(fileStatuses);
             return response;
