@@ -371,7 +371,7 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
     RETURN_IF_ERROR(normalize_conjuncts());
 
     VLOG(1) << "BuildOlapFilters";
-    // 2. Using ColumnValueRange to Build OlapEngine filters
+    // 2. Using ColumnValueRange to Build StorageEngine filters
     RETURN_IF_ERROR(build_olap_filters());
 
     VLOG(1) << "SelectScanRanges";
@@ -383,7 +383,7 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
     RETURN_IF_ERROR(build_scan_key());
 
     VLOG(1) << "SplitScanRange";
-    // 5. Query OlapEngine to split `Sub ScanRange` to serval `Sub Sub ScanRange`
+    // 5. Query StorageEngine to split `Sub ScanRange` to serval `Sub Sub ScanRange`
     RETURN_IF_ERROR(split_scan_range());
 
     VLOG(1) << "StartScanThread";
@@ -710,7 +710,7 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
                 // 1.3 Push InPredicate value into ColumnValueRange
                 HybirdSetBase::IteratorBase* iter = pred->hybird_set()->begin();
                 while (iter->has_next()) {
-                    // column in (NULL,...) counldn't push down to OlapEngine
+                    // column in (NULL,...) counldn't push down to StorageEngine
                     // so that discard whole ColumnValueRange
                     if (NULL == iter->get_value()) {
                         range->clear();

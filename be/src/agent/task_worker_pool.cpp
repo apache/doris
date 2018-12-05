@@ -37,7 +37,7 @@
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/olap_common.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/store.h"
 #include "olap/utils.h"
@@ -1848,7 +1848,7 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
 
 #ifndef BE_TEST
         // wait for notifying until timeout
-        OLAPEngine::get_instance()->wait_for_report_notify(
+        StorageEngine::get_instance()->wait_for_report_notify(
                 config::report_disk_state_interval_seconds, false);
     }
 #endif
@@ -1885,7 +1885,7 @@ void* TaskWorkerPool::_report_tablet_worker_thread_callback(void* arg_this) {
                              report_all_tablets_info_status);
 #ifndef BE_TEST
             // wait for notifying until timeout
-            OLAPEngine::get_instance()->wait_for_report_notify(
+            StorageEngine::get_instance()->wait_for_report_notify(
                     config::report_tablet_interval_seconds, true);
             continue;
 #else
@@ -1905,7 +1905,7 @@ void* TaskWorkerPool::_report_tablet_worker_thread_callback(void* arg_this) {
 
 #ifndef BE_TEST
         // wait for notifying until timeout
-        OLAPEngine::get_instance()->wait_for_report_notify(
+        StorageEngine::get_instance()->wait_for_report_notify(
                 config::report_tablet_interval_seconds, true);
     }
 #endif

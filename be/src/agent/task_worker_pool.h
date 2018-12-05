@@ -32,7 +32,7 @@
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "olap/olap_define.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "olap/utils.h"
 
 namespace doris {

@@ -25,12 +25,12 @@
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/olap_common.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 
 namespace doris {
 
 class OLAPRootPath;
-class OLAPEngine;
+class StorageEngine;
 
 // A OlapStore used to manange data in same path.
 // Now, After OlapStore was created, it will never be deleted for easy implementation.
@@ -80,10 +80,10 @@ public:
 
     static std::string get_root_path_from_schema_hash_path_in_trash(const std::string& schema_hash_dir_in_trash);
 
-    OLAPStatus load_tables(OLAPEngine* engine);
-    OLAPStatus check_none_row_oriented_tablet_in_store(OLAPEngine* engine);
+    OLAPStatus load_tables(StorageEngine* engine);
+    OLAPStatus check_none_row_oriented_tablet_in_store(StorageEngine* engine);
     OLAPStatus _check_none_row_oriented_tablet_in_store(
-                        OLAPEngine* engine, TTabletId tablet_id,
+                        StorageEngine* engine, TTabletId tablet_id,
                         TSchemaHash schema_hash, const std::string& header);
 
 private:
@@ -99,12 +99,12 @@ private:
     Status _read_cluster_id(const std::string& path, int32_t* cluster_id);
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id); 
 
-    OLAPStatus _load_tablet_from_header(OLAPEngine* engine, TTabletId tablet_id,
+    OLAPStatus _load_tablet_from_header(StorageEngine* engine, TTabletId tablet_id,
                 TSchemaHash schema_hash, const std::string& header);
 
 private:
     friend class OLAPRootPath;
-    friend class OLAPEngine;
+    friend class StorageEngine;
     
     std::string _path;
     int64_t _path_hash;

@@ -21,7 +21,7 @@
 #include <list>
 #include <vector>
 
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "util/doris_metrics.h"
 
 using std::list;
@@ -483,7 +483,7 @@ OLAPStatus CumulativeCompaction::_update_header(vector<SegmentGroup*>* unused_in
 
 void CumulativeCompaction::_delete_unused_delta_files(vector<SegmentGroup*>* unused_indices) {
     if (!unused_indices->empty()) {
-        OLAPEngine* unused_index = OLAPEngine::get_instance();
+        StorageEngine* unused_index = StorageEngine::get_instance();
 
         for (vector<SegmentGroup*>::iterator it = unused_indices->begin();
                 it != unused_indices->end(); ++it) {

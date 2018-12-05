@@ -19,11 +19,11 @@
 #define DORIS_BE_SRC_OLAP_MOCK_MOCK_COMMAND_EXECUTOR_H
 
 #include "gmock/gmock.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 
 namespace doris {
 
-class MockCommandExecutor : public OLAPEngine {
+class MockCommandExecutor : public StorageEngine {
 public:
     MOCK_METHOD1(create_tablet, OLAPStatus(const TCreateTabletReq& request));
     MOCK_METHOD2(get_tablet, TabletSharedPtr(TTabletId tablet_id, TSchemaHash schema_hash));

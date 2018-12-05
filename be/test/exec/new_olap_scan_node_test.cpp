@@ -52,7 +52,7 @@ public:
     }
 
     void TearDown() {
-        OLAPEngine::get_instance()->clear();
+        StorageEngine::get_instance()->clear();
         SessionManager::get_instance()->delete_session_by_fd(123);
 
         system("rm -rf ./testrun");
@@ -73,7 +73,7 @@ public:
 
         OLAPRootPath::get_instance()->init();
 
-        OLAPEngine::get_instance()->_lru_cache = newLRU_cache(10000);
+        StorageEngine::get_instance()->_lru_cache = newLRU_cache(10000);
 
         _olap_header = new
         OLAPHeader("./testrun/case3/clickuserid_online_userid_type_planid_unitid_winfoid.hdr");
@@ -83,7 +83,7 @@ public:
         tablet->_root_path_name = "./testrun/case3";
 
         TableDescription description("fc", "clickuserid_online", "userid_type_planid_unitid_winfoid");
-        OLAPEngine::get_instance()->add_table(description, tablet);
+        StorageEngine::get_instance()->add_table(description, tablet);
 
         // init session manager
         SessionManager::get_instance()->init();

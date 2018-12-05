@@ -146,7 +146,7 @@ public:
 
     void TearDown() {
         // Remove all dir.
-        OLAPEngine::get_instance()->drop_tablet(
+        StorageEngine::get_instance()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
@@ -155,7 +155,7 @@ public:
     }
 
     void init_olap() {
-        // Create local data dir for OLAPEngine.
+        // Create local data dir for StorageEngine.
         config::storage_root_path = "./test_run/row_tablet";
         remove_all_dir(config::storage_root_path);
         ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
@@ -681,7 +681,7 @@ public:
 
     void TearDown() {
         // Remove all dir.
-        OLAPEngine::get_instance()->drop_tablet(
+        StorageEngine::get_instance()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
@@ -690,7 +690,7 @@ public:
     }
 
     void init_olap() {
-        // Create local data dir for OLAPEngine.
+        // Create local data dir for StorageEngine.
         config::storage_root_path = "./test_run/column_tablet";
         remove_all_dir(config::storage_root_path);
         ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
@@ -1165,7 +1165,7 @@ public:
 
     void TearDown() {
         // Remove all dir.
-        OLAPEngine::get_instance()->drop_tablet(
+        StorageEngine::get_instance()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
@@ -1174,7 +1174,7 @@ public:
     }
 
     void init_olap() {
-        // Create local data dir for OLAPEngine.
+        // Create local data dir for StorageEngine.
         config::storage_root_path = "./test_run/row_tablet";
         remove_all_dir(config::storage_root_path);
         ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);

@@ -23,7 +23,7 @@
 
 #include <boost/filesystem.hpp>
 
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/schema_change.h"
 
@@ -64,7 +64,7 @@ OLAPStatus PushHandler::process_realtime_push(
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    res = OLAPEngine::get_instance()->add_transaction(
+    res = StorageEngine::get_instance()->add_transaction(
         request.partition_id, request.transaction_id,
         tablet->tablet_id(), tablet->schema_hash(), load_id);
 
@@ -101,7 +101,7 @@ OLAPStatus PushHandler::process_realtime_push(
                       << ", related_tablet_id=" << related_tablet_id
                       << ", related_schema_hash=" << related_schema_hash
                       << ", transaction_id=" << request.transaction_id;
-            TabletSharedPtr related_tablet = OLAPEngine::get_instance()->get_tablet(
+            TabletSharedPtr related_tablet = StorageEngine::get_instance()->get_tablet(
                 related_tablet_id, related_schema_hash);
 
             // if related tablet not exists, only push current tablet
@@ -123,7 +123,7 @@ OLAPStatus PushHandler::process_realtime_push(
                 PUniqueId load_id;
                 load_id.set_hi(0);
                 load_id.set_lo(0);
-                res = OLAPEngine::get_instance()->add_transaction(
+                res = StorageEngine::get_instance()->add_transaction(
                     request.partition_id, request.transaction_id,
                     related_tablet->tablet_id(), related_tablet->schema_hash(), load_id);
 
@@ -243,14 +243,14 @@ EXIT:
                 continue;
             }
 
-            OLAPEngine::get_instance()->delete_transaction(
+            StorageEngine::get_instance()->delete_transaction(
                 request.partition_id, request.transaction_id,
                 tablet_var.tablet->tablet_id(), tablet_var.tablet->schema_hash());
 
             // actually, olap_index may has been deleted in delete_transaction()
             for (SegmentGroup* segment_group : tablet_var.added_indices) {
                 segment_group->release();
-                OLAPEngine::get_instance()->add_unused_index(segment_group);
+                StorageEngine::get_instance()->add_unused_index(segment_group);
             }
         }
     }
@@ -269,7 +269,7 @@ void PushHandler::_get_tablet_infos(
         TTabletInfo tablet_info;
         tablet_info.tablet_id = tablet_var.tablet->tablet_id();
         tablet_info.schema_hash = tablet_var.tablet->schema_hash();
-        OLAPEngine::get_instance()->report_tablet_info(&tablet_info);
+        StorageEngine::get_instance()->report_tablet_info(&tablet_info);
         tablet_info_vec->push_back(tablet_info);
     }
 }
