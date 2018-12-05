@@ -70,9 +70,9 @@ public:
     OLAPStatus register_tablet(Tablet* tablet);
     OLAPStatus deregister_tablet(Tablet* tablet);
 
-    std::string get_tablet_schema_hash_path_from_header(OLAPHeader* header);
+    std::string get_tablet_schema_hash_path_from_header(TabletMeta* header);
 
-    std::string get_tablet_path_from_header(OLAPHeader* header);
+    std::string get_tablet_path_from_header(TabletMeta* header);
 
     std::string get_shard_path_from_header(const std::string& shard_string);
 

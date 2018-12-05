@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/olap_header.h"
+#include "olap/tablet_meta.h"
 
 #include <algorithm>
 #include <fstream>
@@ -73,13 +73,13 @@ static OLAPStatus add_vertex_to_graph(int vertex_value,
                                   vector<Vertex>* version_graph,
                                   unordered_map<int, int>* vertex_helper_map);
 
-OLAPHeader::~OLAPHeader() {
+TabletMeta::~TabletMeta() {
     // Release memory of version graph.
     clear_version_graph(&_version_graph, &_vertex_helper_map);
     Clear();
 }
 
-void OLAPHeader::change_file_version_to_delta() {
+void TabletMeta::change_file_version_to_delta() {
     // convert FileVersionMessage to PDelta and PSegmentGroup in initialization.
     // FileVersionMessage is used in previous code, and PDelta and PSegmentGroup
     // is used in streaming load branch.
@@ -91,7 +91,7 @@ void OLAPHeader::change_file_version_to_delta() {
     clear_file_version();
 }
 
-OLAPStatus OLAPHeader::init() {
+OLAPStatus TabletMeta::init() {
     clear_version_graph(&_version_graph, &_vertex_helper_map);
     if (construct_version_graph(delta(),
                                 &_version_graph,
@@ -107,7 +107,7 @@ OLAPStatus OLAPHeader::init() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPHeader::load_and_init() {
+OLAPStatus TabletMeta::load_and_init() {
     // check the tablet_path is not empty
     if (_file_name == "") {
         LOG(WARNING) << "file_path is empty for header";
@@ -151,7 +151,7 @@ OLAPStatus OLAPHeader::load_and_init() {
     return init();
 }
 
-OLAPStatus OLAPHeader::load_for_check() {
+OLAPStatus TabletMeta::load_for_check() {
     FileHeader<OLAPHeaderMessage> file_header;
     FileHandler file_handler;
 
@@ -176,11 +176,11 @@ OLAPStatus OLAPHeader::load_for_check() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPHeader::save() {
+OLAPStatus TabletMeta::save() {
     return save(_file_name);
 }
 
-OLAPStatus OLAPHeader::save(const string& file_path) {
+OLAPStatus TabletMeta::save(const string& file_path) {
     // check the tablet_path is not empty
     if (file_path == "") {
         LOG(WARNING) << "file_path is empty for header";
@@ -212,7 +212,7 @@ OLAPStatus OLAPHeader::save(const string& file_path) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPHeader::add_version(Version version, VersionHash version_hash,
+OLAPStatus TabletMeta::add_version(Version version, VersionHash version_hash,
                 int32_t segment_group_id, int32_t num_segments,
                 int64_t index_size, int64_t data_size, int64_t num_rows,
                 bool empty, const std::vector<KeyRange>* column_statistics) {
@@ -287,7 +287,7 @@ OLAPStatus OLAPHeader::add_version(Version version, VersionHash version_hash,
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPHeader::add_pending_version(
+OLAPStatus TabletMeta::add_pending_version(
         int64_t partition_id, int64_t transaction_id,
         const std::vector<string>* delete_conditions) {
     for (int i = 0; i < pending_delta_size(); ++i) {
@@ -322,7 +322,7 @@ OLAPStatus OLAPHeader::add_pending_version(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPHeader::add_pending_segment_group(
+OLAPStatus TabletMeta::add_pending_segment_group(
         int64_t transaction_id, int32_t num_segments,
         int32_t pending_segment_group_id, const PUniqueId& load_id,
         bool empty, const std::vector<KeyRange>* column_statistics) {
@@ -369,7 +369,7 @@ OLAPStatus OLAPHeader::add_pending_segment_group(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPHeader::add_incremental_version(Version version, VersionHash version_hash,
+OLAPStatus TabletMeta::add_incremental_version(Version version, VersionHash version_hash,
                 int32_t segment_group_id, int32_t num_segments,
                 int64_t index_size, int64_t data_size, int64_t num_rows,
                 bool empty, const std::vector<KeyRange>* column_statistics) {
@@ -433,7 +433,7 @@ OLAPStatus OLAPHeader::add_incremental_version(Version version, VersionHash vers
     return OLAP_SUCCESS;
 }
 
-void OLAPHeader::add_delete_condition(const DeleteConditionMessage& delete_condition,
+void TabletMeta::add_delete_condition(const DeleteConditionMessage& delete_condition,
                                       int64_t version) {
     // check whether condition exist
     DeleteConditionMessage* del_cond = NULL;
@@ -460,7 +460,7 @@ void OLAPHeader::add_delete_condition(const DeleteConditionMessage& delete_condi
     LOG(INFO) << "add delete condition. version=" << version;
 }
 
-const PPendingDelta* OLAPHeader::get_pending_delta(int64_t transaction_id) const {
+const PPendingDelta* TabletMeta::get_pending_delta(int64_t transaction_id) const {
     for (int i = 0; i < pending_delta_size(); i++) {
         if (pending_delta(i).transaction_id() == transaction_id) {
             return &pending_delta(i);
@@ -469,7 +469,7 @@ const PPendingDelta* OLAPHeader::get_pending_delta(int64_t transaction_id) const
     return nullptr;
 }
 
-const PPendingSegmentGroup* OLAPHeader::get_pending_segment_group(int64_t transaction_id,
+const PPendingSegmentGroup* TabletMeta::get_pending_segment_group(int64_t transaction_id,
         int32_t pending_segment_group_id) const {
     for (int i = 0; i < pending_delta_size(); i++) {
         if (pending_delta(i).transaction_id() == transaction_id) {
@@ -485,7 +485,7 @@ const PPendingSegmentGroup* OLAPHeader::get_pending_segment_group(int64_t transa
     return nullptr;
 }
 
-const PDelta* OLAPHeader::get_incremental_version(Version version) const {
+const PDelta* TabletMeta::get_incremental_version(Version version) const {
     for (int i = 0; i < incremental_delta_size(); i++) {
         if (incremental_delta(i).start_version() == version.first
             && incremental_delta(i).end_version() == version.second) {
@@ -495,7 +495,7 @@ const PDelta* OLAPHeader::get_incremental_version(Version version) const {
     return nullptr;
 }
 
-OLAPStatus OLAPHeader::delete_version(Version version) {
+OLAPStatus TabletMeta::delete_version(Version version) {
     // Find the version that need to be deleted.
     int index = -1;
     for (int i = 0; i < delta_size(); ++i) {
@@ -529,7 +529,7 @@ OLAPStatus OLAPHeader::delete_version(Version version) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPHeader::delete_all_versions() {
+OLAPStatus TabletMeta::delete_all_versions() {
     clear_file_version();
     clear_delta();
     clear_pending_delta();
@@ -545,7 +545,7 @@ OLAPStatus OLAPHeader::delete_all_versions() {
     return OLAP_SUCCESS;
 }
 
-void OLAPHeader::delete_pending_delta(int64_t transaction_id) {
+void TabletMeta::delete_pending_delta(int64_t transaction_id) {
     int index = -1;
     for (int i = 0; i < pending_delta_size(); ++i) {
         if (pending_delta(i).transaction_id() == transaction_id) {
@@ -564,7 +564,7 @@ void OLAPHeader::delete_pending_delta(int64_t transaction_id) {
     }
 }
 
-void OLAPHeader::delete_incremental_delta(Version version) {
+void TabletMeta::delete_incremental_delta(Version version) {
     int index = -1;
     for (int i = 0; i < incremental_delta_size(); ++i) {
         if (incremental_delta(i).start_version() == version.first
@@ -586,7 +586,7 @@ void OLAPHeader::delete_incremental_delta(Version version) {
 
 // This function is called when base-compaction, cumulative-compaction, quering.
 // we use BFS algorithm to get the shortest version path.
-OLAPStatus OLAPHeader::select_versions_to_span(const Version& target_version,
+OLAPStatus TabletMeta::select_versions_to_span(const Version& target_version,
                                            vector<Version>* span_versions) {
     if (target_version.first > target_version.second) {
         OLAP_LOG_WARNING("invalid param target_version. [start_version_id=%d end_version_id=%d]",
@@ -717,7 +717,7 @@ OLAPStatus OLAPHeader::select_versions_to_span(const Version& target_version,
     return OLAP_SUCCESS;
 }
 
-const PDelta* OLAPHeader::get_lastest_delta_version() const {
+const PDelta* TabletMeta::get_lastest_delta_version() const {
     if (delta_size() == 0) {
         return nullptr;
     }
@@ -739,7 +739,7 @@ const PDelta* OLAPHeader::get_lastest_delta_version() const {
     return max_delta;
 }
 
-const PDelta* OLAPHeader::get_lastest_version() const {
+const PDelta* TabletMeta::get_lastest_version() const {
     if (delta_size() == 0) {
         return nullptr;
     }
@@ -758,12 +758,12 @@ const PDelta* OLAPHeader::get_lastest_version() const {
     return max_delta;
 }
 
-Version OLAPHeader::get_latest_version() const {
+Version TabletMeta::get_latest_version() const {
     auto delta = get_lastest_version();
     return {delta->start_version(), delta->end_version()};
 }
 
-const PDelta* OLAPHeader::get_delta(int index) const {
+const PDelta* TabletMeta::get_delta(int index) const {
     if (delta_size() == 0) {
         return nullptr;
     }
@@ -771,7 +771,7 @@ const PDelta* OLAPHeader::get_delta(int index) const {
     return &delta(index);
 }
 
-void OLAPHeader::_convert_file_version_to_delta(const FileVersionMessage& version,
+void TabletMeta::_convert_file_version_to_delta(const FileVersionMessage& version,
                                                 PDelta* delta) {
     delta->set_start_version(version.start_version());
     delta->set_end_version(version.end_version());
@@ -792,7 +792,7 @@ void OLAPHeader::_convert_file_version_to_delta(const FileVersionMessage& versio
     }
 }
 
-const uint32_t OLAPHeader::get_cumulative_compaction_score() const{
+const uint32_t TabletMeta::get_cumulative_compaction_score() const{
     uint32_t score = 0;
     bool base_version_exists = false;
     const int32_t point = cumulative_layer_point();
@@ -810,7 +810,7 @@ const uint32_t OLAPHeader::get_cumulative_compaction_score() const{
     return base_version_exists ? score : 0;
 }
 
-const uint32_t OLAPHeader::get_base_compaction_score() const{
+const uint32_t TabletMeta::get_base_compaction_score() const{
     uint32_t score = 0;
     const int32_t point = cumulative_layer_point();
     bool base_version_exists = false;
@@ -828,7 +828,7 @@ const uint32_t OLAPHeader::get_base_compaction_score() const{
     return base_version_exists ? score : 0;
 }
 
-const OLAPStatus OLAPHeader::version_creation_time(const Version& version,
+const OLAPStatus TabletMeta::version_creation_time(const Version& version,
                                                    int64_t* creation_time) const {
     if (delta_size() == 0) {
         return OLAP_ERR_VERSION_NOT_EXIST;
@@ -864,7 +864,7 @@ static OLAPStatus construct_version_graph(
     }
 
     CHECK_GRAPH_PARAMS(version_graph, vertex_helper_map);
-    // Distill vertex values from versions in OLAPHeader.
+    // Distill vertex values from versions in TabletMeta.
     vector<int> vertex_values;
     vertex_values.reserve(2 * versions_in_header.size());
 
@@ -901,7 +901,7 @@ static OLAPStatus construct_version_graph(
         last_vertex_value = vertex_values[i];
     }
 
-    // Create edges for version graph according to OLAPHeader's versions.
+    // Create edges for version graph according to TabletMeta's versions.
     for (int i = 0; i < versions_in_header.size(); ++i) {
         // Versions in header are unique.
         // We ensure vertex_helper_map has its start_version.
@@ -1069,7 +1069,7 @@ static OLAPStatus add_vertex_to_graph(int vertex_value,
     return OLAP_SUCCESS;
 }
 
-const PDelta* OLAPHeader::get_base_version() const {
+const PDelta* TabletMeta::get_base_version() const {
     if (delta_size() == 0) {
         return nullptr;
     }

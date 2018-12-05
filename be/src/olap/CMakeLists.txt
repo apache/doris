@@ -52,13 +52,10 @@ add_library(Olap STATIC
     new_status.cpp
     null_predicate.cpp
     olap_cond.cpp
-    olap_header.cpp
-    olap_header_manager.cpp
     olap_index.cpp
     olap_meta.cpp
     olap_server.cpp
     olap_snapshot.cpp
-    tablet.cpp
     options.cpp
     out_stream.cpp
     push_handler.cpp
@@ -80,6 +77,9 @@ add_library(Olap STATIC
     stream_index_reader.cpp
     stream_index_writer.cpp
     stream_name.cpp
+    tablet.cpp
+    tablet_meta.cpp
+    tablet_meta_manager.cpp
     types.cpp 
     utils.cpp
     wrapper_field.cpp
