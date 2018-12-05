@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_OLAP_ENGINE_H
-#define DORIS_BE_SRC_OLAP_OLAP_ENGINE_H
+#ifndef DORIS_BE_SRC_OLAP_STORAGE_ENGINE_H
+#define DORIS_BE_SRC_OLAP_STORAGE_ENGINE_H
 
 #include <ctime>
 #include <list>
@@ -65,23 +65,23 @@ struct RootPathInfo {
     TStorageMedium::type storage_medium;  // 存储介质类型：SSD|HDD
 };
 
-// OLAPEngine singleton to manage all Table pointers.
+// StorageEngine singleton to manage all Table pointers.
 // Providing add/drop/get operations.
-// OLAPEngine instance doesn't own the Table resources, just hold the pointer,
+// StorageEngine instance doesn't own the Table resources, just hold the pointer,
 // allocation/deallocation must be done outside.
-class OLAPEngine {
+class StorageEngine {
 public:
-    OLAPEngine() { }
-    OLAPEngine(const EngineOptions& options);
-    ~OLAPEngine();
+    StorageEngine() { }
+    StorageEngine(const EngineOptions& options);
+    ~StorageEngine();
 
-    static Status open(const EngineOptions& options, OLAPEngine** engine_ptr);
+    static Status open(const EngineOptions& options, StorageEngine** engine_ptr);
 
-    static void set_instance(OLAPEngine* engine) {
+    static void set_instance(StorageEngine* engine) {
         _s_instance = engine;
     }
 
-    static OLAPEngine *get_instance() {
+    static StorageEngine *get_instance() {
         return _s_instance;
     }
 
@@ -94,7 +94,7 @@ public:
 
     OLAPStatus create_tablet(const TCreateTabletReq& request);
 
-    // Create new tablet for OLAPEngine
+    // Create new tablet for StorageEngine
     //
     // Return Tablet *  succeeded; Otherwise, return NULL if failed
     TabletSharedPtr create_tablet(const TCreateTabletReq& request,
@@ -102,7 +102,7 @@ public:
                               const bool is_schema_change_tablet,
                               const TabletSharedPtr ref_tablet);
 
-    // Add a tablet pointer to OLAPEngine
+    // Add a tablet pointer to StorageEngine
     // If force, drop the existing tablet add this new one
     //
     // Return OLAP_SUCCESS, if run ok
@@ -284,7 +284,7 @@ public:
     // @return OLAP_SUCCESS if submit success
     OLAPStatus create_rollup_tablet(const TAlterTabletReq& request);
 
-    // Do schema change on tablet, OLAPEngine support
+    // Do schema change on tablet, StorageEngine support
     // add column, drop column, alter column type and order,
     // after schema_change, base tablet is abandoned.
     // Note that the two tablets has same tablet_id but different schema_hash
@@ -316,7 +316,7 @@ public:
     // @param [out] tablet_info_vec return tablet lastest status, which
     //              include version info, row count, data size, etc
     // @return OLAP_SUCCESS if submit delete_data success
-    virtual OLAPStatus delete_data(
+    OLAPStatus delete_data(
             const TPushReq& request,
             std::vector<TTabletInfo>* tablet_info_vec);
 
@@ -325,15 +325,15 @@ public:
 
     // before doing incremental clone,
     // need to calculate tablet's download dir and tablet's missing versions
-    virtual std::string get_info_before_incremental_clone(TabletSharedPtr tablet,
+    std::string get_info_before_incremental_clone(TabletSharedPtr tablet,
         int64_t committed_version, std::vector<Version>* missing_versions);
 
-    virtual OLAPStatus finish_clone(TabletSharedPtr tablet, const std::string& clone_dir,
+    OLAPStatus finish_clone(TabletSharedPtr tablet, const std::string& clone_dir,
                                     int64_t committed_version, bool is_incremental_clone);
 
 
     // Obtain the path by specified path hash
-    virtual OLAPStatus obtain_shard_path_by_hash(
+    OLAPStatus obtain_shard_path_by_hash(
             int64_t path_hash,
             std::string* shared_path,
             OlapStore** store);
@@ -342,7 +342,7 @@ public:
     //
     // @param [out] shard_path choose an available root_path to clone new tablet
     // @return error code
-    virtual OLAPStatus obtain_shard_path(
+    OLAPStatus obtain_shard_path(
             TStorageMedium::type storage_medium,
             std::string* shared_path,
             OlapStore** store);
@@ -352,9 +352,9 @@ public:
     // @param [in] root_path specify root path of new tablet
     // @param [in] request specify new tablet info
     // @return OLAP_SUCCESS if load tablet success
-    virtual OLAPStatus load_header(
+    OLAPStatus load_header(
         const std::string& shard_path, const TCloneReq& request);
-    virtual OLAPStatus load_header(
+    OLAPStatus load_header(
         OlapStore* store,
             const std::string& shard_path,
             TTabletId tablet_id,
@@ -572,7 +572,7 @@ private:
     // last update time of tablet stat cache
     int64_t _tablet_stat_cache_update_time_ms;
 
-    static OLAPEngine* _s_instance;
+    static StorageEngine* _s_instance;
 
     // snapshot
     Mutex _snapshot_mutex;
@@ -629,4 +629,4 @@ private:
 
 }  // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_OLAP_ENGINE_H
+#endif // DORIS_BE_SRC_OLAP_STORAGE_ENGINE_H

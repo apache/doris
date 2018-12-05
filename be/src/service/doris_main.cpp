@@ -153,10 +153,10 @@ int main(int argc, char** argv) {
     // options
     doris::EngineOptions options;
     options.store_paths = paths;
-    doris::OLAPEngine* engine = nullptr;
-    auto st = doris::OLAPEngine::open(options, &engine);
+    doris::StorageEngine* engine = nullptr;
+    auto st = doris::StorageEngine::open(options, &engine);
     if (!st.ok()) {
-        LOG(FATAL) << "fail to open OLAPEngine, res=" << st.get_error_msg();
+        LOG(FATAL) << "fail to open StorageEngine, res=" << st.get_error_msg();
         exit(-1);
     }
 

@@ -30,7 +30,7 @@
 #include "exec/broker_writer.h"
 #include "exec/schema_scanner/frontend_helper.h"
 #include "olap/file_helper.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "runtime/exec_env.h"
 #include "runtime/broker_mgr.h"
@@ -596,7 +596,7 @@ Status SnapshotLoader::move(
         // than we merge the 2 .hdr file before reloading it.
     
         // load header in tablet dir to get the base vesion
-        TabletSharedPtr tablet = OLAPEngine::get_instance()->get_tablet(
+        TabletSharedPtr tablet = StorageEngine::get_instance()->get_tablet(
                 tablet_id, schema_hash);
         if (tablet.get() == NULL) {
             std::stringstream ss;
@@ -700,14 +700,14 @@ Status SnapshotLoader::move(
 
     // fixme: there is no header now and can not call load_one_tablet here
     // reload header
-    OlapStore* store = OLAPEngine::get_instance()->get_store(store_path);
+    OlapStore* store = StorageEngine::get_instance()->get_store(store_path);
     if (store == nullptr) {
         std::stringstream ss;
         ss << "failed to get store by path: " << store_path;
         LOG(WARNING) << ss.str();
         return Status(ss.str());
     }
-    OLAPStatus ost = OLAPEngine::get_instance()->load_one_tablet(
+    OLAPStatus ost = StorageEngine::get_instance()->load_one_tablet(
             store, tablet_id, schema_hash, tablet_path, true);
     if (ost != OLAP_SUCCESS) {
         std::stringstream ss;
