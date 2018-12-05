@@ -69,7 +69,7 @@ SegmentReader::SegmentReader(
         _runtime_state(runtime_state),
         _shared_buffer(NULL),
         _stats(stats) {
-    _lru_cache = OLAPEngine::get_instance()->index_stream_lru_cache();
+    _lru_cache = StorageEngine::get_instance()->index_stream_lru_cache();
     _tracker.reset(new MemTracker(-1));
     _mem_pool.reset(new MemPool(_tracker.get()));
 }

@@ -196,7 +196,7 @@ ${DORIS_TEST_BINARY_DIR}/http/http_utils_test
 ${DORIS_TEST_BINARY_DIR}/http/stream_load_test
 ${DORIS_TEST_BINARY_DIR}/http/http_client_test
 
-# Running OLAPEngine Unittest
+# Running StorageEngine Unittest
 ${DORIS_TEST_BINARY_DIR}/olap/bit_field_test
 ${DORIS_TEST_BINARY_DIR}/olap/byte_buffer_test
 ${DORIS_TEST_BINARY_DIR}/olap/run_length_byte_test

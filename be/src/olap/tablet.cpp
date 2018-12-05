@@ -31,14 +31,14 @@
 #include "olap/column_data.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "olap/olap_index.h"
 #include "olap/reader.h"
 #include "olap/store.h"
 #include "olap/row_cursor.h"
 #include "util/defer_op.h"
 #include "olap/olap_header_manager.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "olap/utils.h"
 #include "olap/data_writer.h"
 
@@ -261,7 +261,7 @@ Tablet::~Tablet() {
     for (auto& it : _pending_data_sources) {
         // false means can't remove the transaction from header, also prevent the loading of tablet
         for (SegmentGroup* segment_group : it.second) {
-            OLAPEngine::get_instance()->delete_transaction(
+            StorageEngine::get_instance()->delete_transaction(
                     segment_group->partition_id(), segment_group->transaction_id(),
                     _tablet_id, _schema_hash, false);
             SAFE_DELETE(segment_group);
@@ -751,7 +751,7 @@ void Tablet::delete_pending_data(int64_t transaction_id) {
     // delete from data sources
     for (SegmentGroup* segment_group : it->second) {
         segment_group->release();
-        OLAPEngine::get_instance()->add_unused_index(segment_group);
+        StorageEngine::get_instance()->add_unused_index(segment_group);
     }
     _pending_data_sources.erase(it);
 
@@ -1006,7 +1006,7 @@ OLAPStatus Tablet::_handle_existed_version(int64_t transaction_id, const Version
         } else if (!push_for_delete) {
             DeleteConditionHandler del_cond_handler;
             TabletSharedPtr tablet_ptr =
-                OLAPEngine::get_instance()->get_tablet(_tablet_id, _schema_hash);
+                StorageEngine::get_instance()->get_tablet(_tablet_id, _schema_hash);
             if (tablet_ptr.get() != nullptr) {
                 del_cond_handler.delete_cond(tablet_ptr, version.first, false);
             }
@@ -1014,8 +1014,7 @@ OLAPStatus Tablet::_handle_existed_version(int64_t transaction_id, const Version
         // delete local data
         //SegmentGroup *existed_index = NULL;
         std::vector<SegmentGroup*> existed_index_vec;
-        std::vector<string> files_to_remove;
-        _delete_incremental_data(version, version_hash, &files_to_remove);
+        _delete_incremental_data(version, version_hash);
         res = unregister_data_source(version, &existed_index_vec);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to unregister data when publish version. [tablet=" << full_name()
@@ -1028,10 +1027,9 @@ OLAPStatus Tablet::_handle_existed_version(int64_t transaction_id, const Version
             LOG(FATAL) << "fail to save header when unregister data. [tablet=" << full_name()
                        << " transaction_id=" << transaction_id << "]";
         }
-        remove_files(files_to_remove);
-        // use OLAPEngine to delete this segment_group
+        // use StorageEngine to delete this segment_group
         if (!existed_index_vec.empty()) {
-            OLAPEngine *unused_index = OLAPEngine::get_instance();
+            StorageEngine *unused_index = StorageEngine::get_instance();
             for (SegmentGroup* segment_group : existed_index_vec) {
                 unused_index->add_unused_index(segment_group);
             }
@@ -1429,7 +1427,7 @@ OLAPStatus Tablet::clone_data(const OLAPHeader& clone_header,
             if (it != _data_sources.end()) {
                 std::vector<SegmentGroup*> index_to_delete_vec = it->second;
                 _data_sources.erase(it);
-                OLAPEngine* unused_index = OLAPEngine::get_instance();
+                StorageEngine* unused_index = StorageEngine::get_instance();
                 for (SegmentGroup* segment_group : index_to_delete_vec) {
                     unused_index->add_unused_index(segment_group);
                 }
@@ -2208,7 +2206,7 @@ void Tablet::set_io_error() {
     OLAP_LOG_WARNING("io error occur.[tablet_full_name='%s', root_path_name='%s']",
                      _full_name.c_str(),
                      _storage_root_path.c_str());
-    OLAPEngine::get_instance()->set_store_used_flag(_storage_root_path, false);
+    StorageEngine::get_instance()->set_store_used_flag(_storage_root_path, false);
 }
 
 bool OLAPTable::is_used() {

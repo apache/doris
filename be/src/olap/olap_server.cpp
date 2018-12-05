@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 
 #include <sys/socket.h>
 #include <unistd.h>
@@ -29,7 +29,7 @@
 #include "olap/cumulative_compaction.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "agent/cgroups_mgr.h"
 
 using std::string;
@@ -39,7 +39,7 @@ namespace doris {
 // number of running SCHEMA-CHANGE threads
 volatile uint32_t g_schema_change_active_threads = 0;
 
-OLAPStatus OLAPEngine::_start_bg_worker() {
+OLAPStatus StorageEngine::_start_bg_worker() {
     // start thread for monitoring the snapshot and trash folder
     _garbage_sweeper_thread = std::thread(
         [this] {
@@ -91,7 +91,7 @@ OLAPStatus OLAPEngine::_start_bg_worker() {
     return OLAP_SUCCESS;
 }
 
-void* OLAPEngine::_fd_cache_clean_callback(void* arg) {
+void* StorageEngine::_fd_cache_clean_callback(void* arg) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
@@ -109,7 +109,7 @@ void* OLAPEngine::_fd_cache_clean_callback(void* arg) {
     return NULL;
 }
 
-void* OLAPEngine::_base_compaction_thread_callback(void* arg, OlapStore* store) {
+void* StorageEngine::_base_compaction_thread_callback(void* arg, OlapStore* store) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
@@ -135,7 +135,7 @@ void* OLAPEngine::_base_compaction_thread_callback(void* arg, OlapStore* store) 
     return NULL;
 }
 
-void* OLAPEngine::_garbage_sweeper_thread_callback(void* arg) {
+void* StorageEngine::_garbage_sweeper_thread_callback(void* arg) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
@@ -181,7 +181,7 @@ void* OLAPEngine::_garbage_sweeper_thread_callback(void* arg) {
     return NULL;
 }
 
-void* OLAPEngine::_disk_stat_monitor_thread_callback(void* arg) {
+void* StorageEngine::_disk_stat_monitor_thread_callback(void* arg) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
@@ -202,7 +202,7 @@ void* OLAPEngine::_disk_stat_monitor_thread_callback(void* arg) {
     return NULL;
 }
 
-void* OLAPEngine::_unused_index_thread_callback(void* arg) {
+void* StorageEngine::_unused_index_thread_callback(void* arg) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
@@ -223,7 +223,7 @@ void* OLAPEngine::_unused_index_thread_callback(void* arg) {
     return NULL;
 }
 
-void* OLAPEngine::_cumulative_compaction_thread_callback(void* arg, OlapStore* store) {
+void* StorageEngine::_cumulative_compaction_thread_callback(void* arg, OlapStore* store) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif

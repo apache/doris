@@ -37,7 +37,7 @@ class LoadPathMgr;
 class LoadStreamMgr;
 class MemTracker;
 class MetricRegistry;
-class OLAPEngine;
+class StorageEngine;
 class PoolMemTrackerRegistry;
 class PriorityThreadPool;
 class PullLoadTaskMgr;
@@ -115,8 +115,8 @@ public:
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
     void set_store_paths(const std::vector<StorePath>& paths) { _store_paths = paths; }
-    OLAPEngine* olap_engine() { return _olap_engine; }
-    void set_olap_engine(OLAPEngine* olap_engine) { _olap_engine = olap_engine; }
+    StorageEngine* olap_engine() { return _olap_engine; }
+    void set_olap_engine(StorageEngine* olap_engine) { _olap_engine = olap_engine; }
 
     StreamLoadExecutor* stream_load_executor() { return _stream_load_executor; }
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
@@ -163,7 +163,7 @@ private:
     ReservationTracker* _buffer_reservation = nullptr;
     BufferPool* _buffer_pool = nullptr;
 
-    OLAPEngine* _olap_engine = nullptr;
+    StorageEngine* _olap_engine = nullptr;
 
     StreamLoadExecutor* _stream_load_executor = nullptr;
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;

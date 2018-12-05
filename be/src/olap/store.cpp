@@ -476,7 +476,7 @@ std::string OlapStore::get_root_path_from_schema_hash_path_in_trash(
     return schema_hash_path_in_trash.parent_path().parent_path().parent_path().parent_path().string();
 }
 
-OLAPStatus OlapStore::_load_tablet_from_header(OLAPEngine* engine, TTabletId tablet_id,
+OLAPStatus OlapStore::_load_tablet_from_header(StorageEngine* engine, TTabletId tablet_id,
         TSchemaHash schema_hash, const std::string& header) {
     std::unique_ptr<OLAPHeader> olap_header(new OLAPHeader());
     OLAPStatus res = OLAP_SUCCESS;
@@ -556,7 +556,7 @@ OLAPStatus OlapStore::_load_tablet_from_header(OLAPEngine* engine, TTabletId tab
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OlapStore::load_tables(OLAPEngine* engine) {
+OLAPStatus OlapStore::load_tables(StorageEngine* engine) {
     auto load_tablet_func = [this, engine](long tablet_id,
             long schema_hash, const std::string& value) -> bool {
         OLAPStatus status = _load_tablet_from_header(engine, tablet_id, schema_hash, value);
@@ -570,7 +570,7 @@ OLAPStatus OlapStore::load_tables(OLAPEngine* engine) {
     return status;
 }
 
-OLAPStatus OlapStore::check_none_row_oriented_tablet_in_store(OLAPEngine* engine) {
+OLAPStatus OlapStore::check_none_row_oriented_tablet_in_store(StorageEngine* engine) {
     auto load_tablet_func = [this, engine](long tablet_id,
             long schema_hash, const std::string& value) -> bool {
         OLAPStatus status = _check_none_row_oriented_tablet_in_store(engine, tablet_id, schema_hash, value);
@@ -585,7 +585,7 @@ OLAPStatus OlapStore::check_none_row_oriented_tablet_in_store(OLAPEngine* engine
 }
 
 OLAPStatus OlapStore::_check_none_row_oriented_tablet_in_store(
-                        OLAPEngine* engine, TTabletId tablet_id,
+                        StorageEngine* engine, TTabletId tablet_id,
                         TSchemaHash schema_hash, const std::string& header) {
     std::unique_ptr<OLAPHeader> olap_header(new OLAPHeader());
     bool parsed = olap_header->ParseFromString(header);

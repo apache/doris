@@ -52,7 +52,6 @@ add_library(Olap STATIC
     new_status.cpp
     null_predicate.cpp
     olap_cond.cpp
-    olap_engine.cpp
     olap_header.cpp
     olap_header_manager.cpp
     olap_index.cpp
@@ -75,6 +74,7 @@ add_library(Olap STATIC
     segment_reader.cpp
     segment_writer.cpp
     serialize.cpp
+    storage_engine.cpp
     store.cpp
     stream_index_common.cpp
     stream_index_reader.cpp

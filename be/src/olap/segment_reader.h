@@ -36,7 +36,7 @@
 #include "olap/lru_cache.h"
 #include "olap/olap_cond.h"
 #include "olap/olap_define.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/row_cursor.h"
 #include "runtime/runtime_state.h"

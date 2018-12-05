@@ -25,7 +25,7 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/field.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/utils.h"
 #include "runtime/tuple.h"
@@ -42,7 +42,7 @@ namespace doris {
 static const uint32_t MAX_RETRY_TIMES = 10;
 static const uint32_t MAX_PATH_LEN = 1024;
 
-OLAPEngine* k_engine = nullptr;
+StorageEngine* k_engine = nullptr;
 
 void set_up() {
     char buffer[MAX_PATH_LEN];
@@ -55,7 +55,7 @@ void set_up() {
 
     doris::EngineOptions options;
     options.store_paths = paths;
-    doris::OLAPEngine::open(options, &k_engine);
+    doris::StorageEngine::open(options, &k_engine);
 }
 
 void tear_down() {
@@ -267,7 +267,7 @@ public:
     ~TestDeltaWriter() { }
 
     void SetUp() {
-        // Create local data dir for OLAPEngine.
+        // Create local data dir for StorageEngine.
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
         config::storage_root_path = std::string(buffer) + "/data_push";
@@ -397,7 +397,7 @@ TEST_F(TestDeltaWriter, write) {
     ASSERT_EQ(res, OLAP_SUCCESS);
 
     // publish version success
-    TabletSharedPtr tablet = OLAPEngine::get_instance()->get_tablet(write_req.tablet_id, write_req.schema_hash);
+    TabletSharedPtr tablet = StorageEngine::get_instance()->get_tablet(write_req.tablet_id, write_req.schema_hash);
     TPublishVersionRequest publish_req;
     publish_req.transaction_id = write_req.transaction_id;
     TPartitionVersionInfo info;
@@ -486,7 +486,7 @@ public:
     ~TestSchemaChange() { }
 
     void SetUp() {
-        // Create local data dir for OLAPEngine.
+        // Create local data dir for StorageEngine.
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
         config::storage_root_path = std::string(buffer) + "/data_schema_change";
@@ -591,7 +591,7 @@ TEST_F(TestSchemaChange, schema_change) {
     ASSERT_EQ(res, OLAP_SUCCESS);
 
     // publish version success
-    TabletSharedPtr tablet = OLAPEngine::get_instance()->get_tablet(write_req.tablet_id, write_req.schema_hash);
+    TabletSharedPtr tablet = StorageEngine::get_instance()->get_tablet(write_req.tablet_id, write_req.schema_hash);
     TPublishVersionRequest publish_req;
     publish_req.transaction_id = write_req.transaction_id;
     TPartitionVersionInfo info;

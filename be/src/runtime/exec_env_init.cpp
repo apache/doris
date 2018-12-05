@@ -38,7 +38,7 @@
 #include "util/parse_util.h"
 #include "util/mem_info.h"
 #include "util/debug_util.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "util/network_util.h"
 #include "util/bfd_parser.h"
 #include "runtime/etl_job_mgr.h"

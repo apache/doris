@@ -80,7 +80,7 @@ Status OlapScanner::_prepare(
         strtoul(scan_range->scan_range().version_hash.c_str(), nullptr, 10);
     {
         std::string err;
-        _tablet = OLAPEngine::get_instance()->get_table(tablet_id, schema_hash, true, &err);
+        _tablet = StorageEngine::get_instance()->get_table(tablet_id, schema_hash, true, &err);
         if (_tablet == nullptr) {
             OLAP_LOG_WARNING("tablet does not exist. [tablet_id=%ld schema_hash=%d]",
                              tablet_id, schema_hash);

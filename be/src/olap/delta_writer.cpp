@@ -47,13 +47,13 @@ DeltaWriter::~DeltaWriter() {
 }
 
 void DeltaWriter::_garbage_collection() {
-    OLAPEngine::get_instance()->delete_transaction(_req.partition_id, _req.transaction_id,
+    StorageEngine::get_instance()->delete_transaction(_req.partition_id, _req.transaction_id,
                                                    _req.tablet_id, _req.schema_hash);
     for (SegmentGroup* segment_group : _segment_group_vec) {
         OLAPEngine::get_instance()->add_unused_index(segment_group);
     }
     if (_new_tablet != nullptr) {
-        OLAPEngine::get_instance()->delete_transaction(_req.partition_id, _req.transaction_id,
+        StorageEngine::get_instance()->delete_transaction(_req.partition_id, _req.transaction_id,
                                                        _new_tablet->tablet_id(), _new_tablet->schema_hash());
         for (SegmentGroup* segment_group : _new_segment_group_vec) {
             OLAPEngine::get_instance()->add_unused_index(segment_group);
@@ -62,7 +62,7 @@ void DeltaWriter::_garbage_collection() {
 }
 
 OLAPStatus DeltaWriter::init() {
-    _tablet = OLAPEngine::get_instance()->get_tablet(_req.tablet_id, _req.schema_hash);
+    _tablet = StorageEngine::get_instance()->get_tablet(_req.tablet_id, _req.schema_hash);
     if (_tablet == nullptr) {
         LOG(WARNING) << "tablet_id: " << _req.tablet_id << ", "
                      << "schema_hash: " << _req.schema_hash << " not found";
@@ -81,7 +81,7 @@ OLAPStatus DeltaWriter::init() {
 OLAPStatus DeltaWriter::_init() {
     {
         MutexLock push_lock(_tablet->get_push_lock());
-        RETURN_NOT_OK(OLAPEngine::get_instance()->add_transaction(
+        RETURN_NOT_OK(StorageEngine::get_instance()->add_transaction(
                             _req.partition_id, _req.transaction_id,
                             _req.tablet_id, _req.schema_hash, _req.load_id));
         //_segment_group_id = _tablet->current_pending_segment_group_id(_req.transaction_id);
@@ -99,8 +99,8 @@ OLAPStatus DeltaWriter::_init() {
                           << "new_tablet_id: " << new_tablet_id << ", "
                           << "new_schema_hash: " << new_schema_hash << ", "
                           << "transaction_id: " << _req.transaction_id;
-                _new_tablet = OLAPEngine::get_instance()->get_tablet(new_tablet_id, new_schema_hash);
-                OLAPEngine::get_instance()->add_transaction(
+                _new_tablet = StorageEngine::get_instance()->get_tablet(new_tablet_id, new_schema_hash);
+                StorageEngine::get_instance()->add_transaction(
                                     _req.partition_id, _req.transaction_id,
                                     new_tablet_id, new_schema_hash, _req.load_id);
             }
