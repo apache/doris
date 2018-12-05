@@ -57,7 +57,7 @@ public:
 
     // Load local data file into specified tablet.
     OLAPStatus process_realtime_push(
-            TabletSharedPtr olap_table,
+            TabletSharedPtr tablet,
             const TPushReq& request,
             PushType push_type,
             std::vector<TTabletInfo>* tablet_info_vec);
@@ -68,11 +68,11 @@ private:
     // Convert local data file to internal formatted delta,
     // return new delta's SegmentGroup
     OLAPStatus _convert(
-            TabletSharedPtr curr_olap_table,
-            TabletSharedPtr new_olap_table_vec,
+            TabletSharedPtr curr_tablet,
+            TabletSharedPtr new_tablet_vec,
             Indices* curr_olap_indices,
             Indices* new_olap_indices,
-            AlterTabletType alter_table_type);
+            AlterTabletType alter_tablet_type);
 
     // Only for debug
     std::string _debug_version_list(const Versions& versions) const;
@@ -123,7 +123,7 @@ public:
     static IBinaryReader* create(bool need_decompress);
     virtual ~IBinaryReader() {}
 
-    virtual OLAPStatus init(TabletSharedPtr table, BinaryFile* file) = 0;
+    virtual OLAPStatus init(TabletSharedPtr tablet, BinaryFile* file) = 0;
     virtual OLAPStatus finalize() = 0;
 
     virtual OLAPStatus next(RowCursor* row, MemPool* mem_pool) = 0;
@@ -145,7 +145,7 @@ protected:
     }
 
     BinaryFile* _file;
-    TabletSharedPtr _table;
+    TabletSharedPtr _tablet;
     size_t _content_len;
     size_t _curr;
     uint32_t _adler_checksum;
@@ -160,7 +160,7 @@ public:
         finalize();
     }
 
-    virtual OLAPStatus init(TabletSharedPtr table, BinaryFile* file);
+    virtual OLAPStatus init(TabletSharedPtr tablet, BinaryFile* file);
     virtual OLAPStatus finalize();
 
     virtual OLAPStatus next(RowCursor* row, MemPool* mem_pool);
@@ -181,7 +181,7 @@ public:
         finalize();
     }
 
-    virtual OLAPStatus init(TabletSharedPtr table, BinaryFile* file);
+    virtual OLAPStatus init(TabletSharedPtr tablet, BinaryFile* file);
     virtual OLAPStatus finalize();
 
     virtual OLAPStatus next(RowCursor* row, MemPool* mem_pool);

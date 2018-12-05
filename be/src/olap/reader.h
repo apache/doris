@@ -39,7 +39,7 @@
 
 namespace doris {
 
-class OLAPTable;
+class Tablet;
 class RowCursor;
 class RowBlock;
 class CollectIterator;
@@ -48,7 +48,7 @@ class RuntimeState;
 // Params for Reader,
 // mainly include tablet, data version and fetch range.
 struct ReaderParams {
-    TabletSharedPtr olap_table;
+    TabletSharedPtr tablet;
     ReaderType reader_type;
     bool aggregation;
     Version version;
@@ -77,7 +77,7 @@ struct ReaderParams {
     std::string to_string() {
         std::stringstream ss;
 
-        ss << "table=" << olap_table->full_name()
+        ss << "tablet=" << tablet->full_name()
            << " reader_type=" << reader_type
            << " aggregation=" << aggregation
            << " version=" << version.first << "-" << version.second
@@ -198,9 +198,9 @@ private:
 
     Version _version;
 
-    TabletSharedPtr _olap_table;
+    TabletSharedPtr _tablet;
 
-    // _own_data_sources is data source that reader aquire from olap_table, so we need to
+    // _own_data_sources is data source that reader aquire from tablet, so we need to
     // release these when reader closing
     std::vector<ColumnData*> _own_data_sources;
     std::vector<ColumnData*> _data_sources;

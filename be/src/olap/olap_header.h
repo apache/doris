@@ -29,7 +29,7 @@
 #include "olap/olap_define.h"
 
 namespace doris {
-// Class for managing olap table header.
+// Class for managing tablet header.
 class OLAPHeader : public OLAPHeaderMessage {
 public:
     explicit OLAPHeader() :

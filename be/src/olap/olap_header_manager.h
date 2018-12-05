@@ -26,7 +26,7 @@
 
 namespace doris {
 
-// Helper Class for managing olap table headers of one root path.
+// Helper Class for managing tablet headers of one root path.
 class OlapHeaderManager {
 public:
     static OLAPStatus get_header(OlapStore* store, TTabletId tablet_id, TSchemaHash schema_hash, OLAPHeader* header);

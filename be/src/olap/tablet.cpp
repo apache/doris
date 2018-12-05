@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 
 #include <ctype.h>
 #include <pthread.h>
@@ -54,7 +54,7 @@ using boost::filesystem::path;
 
 namespace doris {
 
-TabletSharedPtr OLAPTable::create_from_header_file(
+TabletSharedPtr Tablet::create_from_header_file(
         TTabletId tablet_id, TSchemaHash schema_hash,
         const string& header_file, OlapStore* store) {
     OLAPHeader* olap_header = NULL;
@@ -90,7 +90,7 @@ TabletSharedPtr OLAPTable::create_from_header_file(
     return create_from_header(olap_header, store);
 }
 
-TabletSharedPtr OLAPTable::create_from_header_file_for_check(
+TabletSharedPtr Tablet::create_from_header_file_for_check(
         TTabletId tablet_id, TSchemaHash schema_hash, const string& header_file) {
     OLAPHeader* olap_header = NULL;
 
@@ -106,41 +106,41 @@ TabletSharedPtr OLAPTable::create_from_header_file_for_check(
         return NULL;
     }
 
-    TabletSharedPtr olap_table = std::make_shared<OLAPTable>(olap_header);
-    if (olap_table == NULL) {
-        OLAP_LOG_WARNING("fail to validate table. [header_file=%s]", header_file.c_str());
+    TabletSharedPtr tablet = std::make_shared<Tablet>(olap_header);
+    if (tablet == NULL) {
+        OLAP_LOG_WARNING("fail to validate tablet. [header_file=%s]", header_file.c_str());
         delete olap_header;
         return NULL;
     }
-    olap_table->_tablet_id = tablet_id;
-    olap_table->_schema_hash = schema_hash;
-    olap_table->_full_name = std::to_string(tablet_id) + "." + std::to_string(schema_hash);
-    return olap_table;
+    tablet->_tablet_id = tablet_id;
+    tablet->_schema_hash = schema_hash;
+    tablet->_full_name = std::to_string(tablet_id) + "." + std::to_string(schema_hash);
+    return tablet;
 }
 
-OLAPTable::OLAPTable(OLAPHeader* header)
+Tablet::Tablet(OLAPHeader* header)
         : _header(header) {
     if (header->has_tablet_id()) {
         _tablet_id =  header->tablet_id();
         _schema_hash = header->schema_hash();
         _full_name = std::to_string(header->tablet_id()) + "." + std::to_string(header->schema_hash());
     }
-    _table_for_check = true;
+    _tablet_for_check = true;
 }
 
-TabletSharedPtr OLAPTable::create_from_header(
+TabletSharedPtr Tablet::create_from_header(
         OLAPHeader* header,
         OlapStore* store) {
-    auto olap_table = std::make_shared<OLAPTable>(header, store);
-    if (olap_table == NULL) {
-        LOG(WARNING) << "fail to malloc a table.";
+    auto tablet = std::make_shared<Tablet>(header, store);
+    if (tablet == NULL) {
+        LOG(WARNING) << "fail to malloc a tablet.";
         return nullptr;
     }
 
-    return olap_table;
+    return tablet;
 }
 
-OLAPTable::OLAPTable(OLAPHeader* header, OlapStore* store) :
+Tablet::Tablet(OLAPHeader* header, OlapStore* store) :
         _header(header),
         _is_dropped(false),
         _num_fields(0),
@@ -236,11 +236,11 @@ OLAPTable::OLAPTable(OLAPHeader* header, OlapStore* store) :
     _tablet_path = tablet_path_stream.str();
     _storage_root_path = store->path();
     _full_name = std::to_string(header->tablet_id()) + "." + std::to_string(header->schema_hash());
-    _table_for_check = false;
+    _tablet_for_check = false;
 }
 
-OLAPTable::~OLAPTable() {
-    if (_table_for_check) {
+Tablet::~Tablet() {
+    if (_tablet_for_check) {
         return;
     }
 
@@ -248,7 +248,7 @@ OLAPTable::~OLAPTable() {
         return;  // for convenience of mock test.
     }
 
-    // ensure that there is nobody using OLAPTable, like acquiring OLAPData(SegmentGroup)
+    // ensure that there is nobody using Tablet, like acquiring OLAPData(SegmentGroup)
     obtain_header_wrlock();
     for (auto& it : _data_sources) {
         for (SegmentGroup* segment_group : it.second) {
@@ -274,7 +274,7 @@ OLAPTable::~OLAPTable() {
 
     // 移动数据目录
     if (_is_dropped) {
-        LOG(INFO) << "drop table:" << full_name() << ", tablet path:" << _tablet_path;
+        LOG(INFO) << "drop tablet:" << full_name() << ", tablet path:" << _tablet_path;
         path table_path(_tablet_path);
         std::string header_path = _tablet_path + "/" + std::to_string(_tablet_id) + ".hdr";
         OLAPStatus s = OlapHeaderManager::dump_header(_store, _tablet_id, _schema_hash, header_path);
@@ -283,13 +283,13 @@ OLAPTable::~OLAPTable() {
         s = OlapHeaderManager::remove(_store, _tablet_id, _schema_hash);
         LOG(INFO) << "finish remove tablet header:" << full_name() << ", res:" << s;
         if (move_to_trash(table_path, table_path) != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to delete table. [table_path=" << _tablet_path << "]";
+            LOG(WARNING) << "fail to delete tablet. [table_path=" << _tablet_path << "]";
         }
-        LOG(INFO) << "finish drop table:" << full_name();
+        LOG(INFO) << "finish drop tablet:" << full_name();
     }
 }
 
-OLAPStatus OLAPTable::load() {
+OLAPStatus Tablet::load() {
     OLAPStatus res = OLAP_SUCCESS;
     MutexLock l(&_load_lock);
 
@@ -353,11 +353,11 @@ EXIT:
     return res;
 }
 
-OLAPStatus OLAPTable::load_indices() {
+OLAPStatus Tablet::load_indices() {
     OLAPStatus res = OLAP_SUCCESS;
     ReadLock rdlock(&_header_lock);
     OLAPHeader* header = _header;
-    VLOG(3) << "begin to load indices. table=" << full_name() << ", "
+    VLOG(3) << "begin to load indices. tablet=" << full_name() << ", "
         << "version_size=" << header->file_delta_size();
 
     for (int delta_id = 0; delta_id < header->delta_size(); ++delta_id) {
@@ -371,7 +371,7 @@ OLAPStatus OLAPTable::load_indices() {
                                         false, psegment_group.segment_group_id(), psegment_group.num_segments());
             if (segment_group == nullptr) {
                 LOG(WARNING) << "fail to create olap segment_group. [version='" << version.first
-                    << "-" << version.second << "' table='" << full_name() << "']";
+                    << "-" << version.second << "' tablet='" << full_name() << "']";
                 return OLAP_ERR_MALLOC_ERROR;
             }
 
@@ -428,7 +428,7 @@ OLAPStatus OLAPTable::load_indices() {
                 return res;
             }
 
-            VLOG(3) << "load SegmentGroup success. table=" << full_name() << ", "
+            VLOG(3) << "load SegmentGroup success. tablet=" << full_name() << ", "
                     << "version=" << version.first << "-" << version.second << ", "
                     << "version_hash=" << segment_group->version_hash() << ", "
                     << "num_segments=" << segment_group->num_segments();
@@ -438,7 +438,7 @@ OLAPStatus OLAPTable::load_indices() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPTable::save_header() {
+OLAPStatus Tablet::save_header() {
     OLAPStatus res = OlapHeaderManager::save(_store, _tablet_id, _schema_hash, _header);
     if (res != OLAP_SUCCESS) {
        LOG(WARNING) << "fail to save header. [res=" << res << " root=" << _storage_root_path << "]";
@@ -447,22 +447,22 @@ OLAPStatus OLAPTable::save_header() {
     return res;
 }
 
-OLAPStatus OLAPTable::select_versions_to_span( const Version& version,
+OLAPStatus Tablet::select_versions_to_span( const Version& version,
                                            vector<Version>* span_versions) const {
     OLAPStatus res = _header->select_versions_to_span(version, span_versions);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to generate shortest version path. [version='" << version.first
-                     << "-" << version.second << "' table='" << full_name() << "']";
+                     << "-" << version.second << "' tablet='" << full_name() << "']";
     }
     return res;
 }
 
-void OLAPTable::acquire_data_sources(const Version& version, vector<ColumnData*>* sources) const {
+void Tablet::acquire_data_sources(const Version& version, vector<ColumnData*>* sources) const {
     vector<Version> span_versions;
 
     if (_header->select_versions_to_span(version, &span_versions) != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to generate shortest version path. [version='" << version.first
-                     << "-" << version.second << "' table='" << full_name() << "']";
+                     << "-" << version.second << "' tablet='" << full_name() << "']";
         return;
     }
 
@@ -470,10 +470,10 @@ void OLAPTable::acquire_data_sources(const Version& version, vector<ColumnData*>
     return;
 }
 
-void OLAPTable::acquire_data_sources_by_versions(const vector<Version>& version_list,
+void Tablet::acquire_data_sources_by_versions(const vector<Version>& version_list,
                                                  vector<ColumnData*>* sources) const {
     if (sources == NULL) {
-        LOG(WARNING) << "output parameter for data sources is null. table=" << full_name();
+        LOG(WARNING) << "output parameter for data sources is null. tablet=" << full_name();
         return;
     }
 
@@ -486,7 +486,7 @@ void OLAPTable::acquire_data_sources_by_versions(const vector<Version>& version_
         version_olap_index_map_t::const_iterator it2 = _data_sources.find(*it1);
         if (it2 == _data_sources.end()) {
             LOG(WARNING) << "fail to find SegmentGroup for version. [version='" << it1->first
-                         << "-" << it1->second << "' table='" << full_name() << "']";
+                         << "-" << it1->second << "' tablet='" << full_name() << "']";
             release_data_sources(sources);
             return;
         }
@@ -495,7 +495,7 @@ void OLAPTable::acquire_data_sources_by_versions(const vector<Version>& version_
             ColumnData* olap_data = ColumnData::create(segment_group);
             if (olap_data == NULL) {
                 LOG(WARNING) << "fail to malloc Data. [version='" << it1->first
-                    << "-" << it1->second << "' table='" << full_name() << "']";
+                    << "-" << it1->second << "' tablet='" << full_name() << "']";
                 release_data_sources(sources);
                 return;
             }
@@ -504,7 +504,7 @@ void OLAPTable::acquire_data_sources_by_versions(const vector<Version>& version_
 
             if (olap_data->init() != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to initial olap data. [version='" << it1->first
-                    << "-" << it1->second << "' table='" << full_name() << "']";
+                    << "-" << it1->second << "' tablet='" << full_name() << "']";
                 release_data_sources(sources);
                 return;
             }
@@ -512,9 +512,9 @@ void OLAPTable::acquire_data_sources_by_versions(const vector<Version>& version_
     }
 }
 
-OLAPStatus OLAPTable::release_data_sources(vector<ColumnData*>* data_sources) const {
+OLAPStatus Tablet::release_data_sources(vector<ColumnData*>* data_sources) const {
     if (data_sources == NULL) {
-        LOG(WARNING) << "parameter data_sources is null. [table='" << full_name() << "']";
+        LOG(WARNING) << "parameter data_sources is null. [tablet='" << full_name() << "']";
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -527,12 +527,12 @@ OLAPStatus OLAPTable::release_data_sources(vector<ColumnData*>* data_sources) co
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPTable::register_data_source(const std::vector<SegmentGroup*>& index_vec) {
+OLAPStatus Tablet::register_data_source(const std::vector<SegmentGroup*>& index_vec) {
     OLAPStatus res = OLAP_SUCCESS;
 
     if (index_vec.empty()) {
         LOG(WARNING) << "parameter segment_group is null."
-                     << "table=" << full_name();
+                     << "tablet=" << full_name();
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -546,7 +546,7 @@ OLAPStatus OLAPTable::register_data_source(const std::vector<SegmentGroup*>& ind
                                    segment_group->num_segments(), segment_group->index_size(), segment_group->data_size(),
                                    segment_group->num_rows(), segment_group->empty(), column_statistics);
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to add version to olap header. table=" << full_name() << ", "
+            LOG(WARNING) << "fail to add version to olap header. tablet=" << full_name() << ", "
                          << "version=" << version.first << "-" << version.second;
             return res;
         }
@@ -554,7 +554,7 @@ OLAPStatus OLAPTable::register_data_source(const std::vector<SegmentGroup*>& ind
         // put the new segment_group into _data_sources.
         // 由于对header的操作可能失败，因此对_data_sources要放在这里
         _data_sources[version].push_back(segment_group);
-        VLOG(3) << "succeed to register data source. table=" << full_name() << ", "
+        VLOG(3) << "succeed to register data source. tablet=" << full_name() << ", "
                 << "version=" << version.first << "-" << version.second << ", "
                 << "version_hash=" << segment_group->version_hash() << ", "
                 << "segment_group_id=" << segment_group->segment_group_id() << ", "
@@ -564,19 +564,19 @@ OLAPStatus OLAPTable::register_data_source(const std::vector<SegmentGroup*>& ind
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPTable::unregister_data_source(const Version& version, std::vector<SegmentGroup*>* segment_group_vec) {
+OLAPStatus Tablet::unregister_data_source(const Version& version, std::vector<SegmentGroup*>* segment_group_vec) {
     OLAPStatus res = OLAP_SUCCESS;
     version_olap_index_map_t::iterator it = _data_sources.find(version);
     if (it == _data_sources.end()) {
         LOG(WARNING) << "olap segment_group for version does not exists. [version='" << version.first
-                     << "-" << version.second << "' table='" << full_name() << "']";
+                     << "-" << version.second << "' tablet='" << full_name() << "']";
         return OLAP_ERR_VERSION_NOT_EXIST;
     }
 
     // delete a reference to the data source in the header file
     if ((res = _header->delete_version(version)) != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to delete version from olap header. [version='" << version.first
-                     << "-" << version.second << "' table='" << full_name() << "']";
+                     << "-" << version.second << "' tablet='" << full_name() << "']";
         return res;
     }
 
@@ -585,29 +585,29 @@ OLAPStatus OLAPTable::unregister_data_source(const Version& version, std::vector
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPTable::add_pending_version(int64_t partition_id, int64_t transaction_id,
+OLAPStatus Tablet::add_pending_version(int64_t partition_id, int64_t transaction_id,
                                         const std::vector<string>* delete_conditions) {
    WriteLock wrlock(&_header_lock);
    OLAPStatus res = _header->add_pending_version(partition_id, transaction_id, delete_conditions);
    if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to add pending delta to header."
-                     << "table=" << full_name() << ", "
+                     << "tablet=" << full_name() << ", "
                      << "transaction_id=" << transaction_id;
         return res;
    }
    res = save_header();
    if (res != OLAP_SUCCESS) {
        _header->delete_pending_delta(transaction_id);
-       LOG(FATAL) << "fail to save header when add pending segment_group. [table=" << full_name()
+       LOG(FATAL) << "fail to save header when add pending segment_group. [tablet=" << full_name()
            << " transaction_id=" << transaction_id << "]";
        return res;
    }
    return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPTable::add_pending_segment_group(SegmentGroup* segment_group) {
+OLAPStatus Tablet::add_pending_segment_group(SegmentGroup* segment_group) {
     if (segment_group == nullptr) {
-        LOG(WARNING) << "parameter segment_group is null. [table=" << full_name() << "]";
+        LOG(WARNING) << "parameter segment_group is null. [tablet=" << full_name() << "]";
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -624,7 +624,7 @@ OLAPStatus OLAPTable::add_pending_segment_group(SegmentGroup* segment_group) {
                                       segment_group->segment_group_id(), segment_group->load_id(),
                                       segment_group->empty(), column_statistics);
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to add pending segment_group to header. [table=" << full_name()
+        LOG(WARNING) << "fail to add pending segment_group to header. [tablet=" << full_name()
                      << " transaction_id=" << transaction_id << "]";
         release_header_lock();
         return res;
@@ -634,7 +634,7 @@ OLAPStatus OLAPTable::add_pending_segment_group(SegmentGroup* segment_group) {
     res = save_header();
     if (res != OLAP_SUCCESS) {
         _header->delete_pending_delta(transaction_id);
-        LOG(FATAL) << "fail to save header when add pending segment_group. [table=" << full_name()
+        LOG(FATAL) << "fail to save header when add pending segment_group. [tablet=" << full_name()
                    << " transaction_id=" << transaction_id << "]";
         release_header_lock();
         return res;
@@ -644,12 +644,12 @@ OLAPStatus OLAPTable::add_pending_segment_group(SegmentGroup* segment_group) {
     _pending_data_sources[transaction_id].push_back(segment_group);
     release_header_lock();
     VLOG(3) << "add pending data to tablet successfully."
-            << "table=" << full_name() << ", transaction_id=" << transaction_id;
+            << "tablet=" << full_name() << ", transaction_id=" << transaction_id;
 
     return res;
 }
 
-int32_t OLAPTable::current_pending_segment_group_id(int64_t transaction_id) {
+int32_t Tablet::current_pending_segment_group_id(int64_t transaction_id) {
     ReadLock rdlock(&_header_lock);
     int32_t segment_group_id = -1;
     if (_pending_data_sources.find(transaction_id) != _pending_data_sources.end()) {
@@ -662,16 +662,16 @@ int32_t OLAPTable::current_pending_segment_group_id(int64_t transaction_id) {
     return segment_group_id;
 }
 
-OLAPStatus OLAPTable::add_pending_data(SegmentGroup* segment_group, const std::vector<TCondition>* delete_conditions) {
+OLAPStatus Tablet::add_pending_data(SegmentGroup* segment_group, const std::vector<TCondition>* delete_conditions) {
     if (segment_group == nullptr) {
-        LOG(WARNING) << "parameter segment_group is null. table=" << full_name(); 
+        LOG(WARNING) << "parameter segment_group is null. tablet=" << full_name(); 
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
     obtain_header_wrlock();
     int64_t transaction_id = segment_group->transaction_id();
     if (_pending_data_sources.find(transaction_id) != _pending_data_sources.end()) {
-        LOG(WARNING) << "find pending data existed when add to tablet. [table=" << full_name()
+        LOG(WARNING) << "find pending data existed when add to tablet. [tablet=" << full_name()
                      << " transaction_id=" << transaction_id << "]";
         release_header_lock();
         return OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST;
@@ -694,7 +694,7 @@ OLAPStatus OLAPTable::add_pending_data(SegmentGroup* segment_group, const std::v
     }
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to add pending delta to header."
-                     << "table=" << full_name() << ", "
+                     << "tablet=" << full_name() << ", "
                      << "transaction_id=" << transaction_id;
         release_header_lock();
         return res;
@@ -709,7 +709,7 @@ OLAPStatus OLAPTable::add_pending_data(SegmentGroup* segment_group, const std::v
                                       segment_group->segment_group_id(), segment_group->load_id(),
                                       segment_group->empty(), column_statistics);
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to add pending segment_group to header. [table=" << full_name()
+        LOG(WARNING) << "fail to add pending segment_group to header. [tablet=" << full_name()
                      << " transaction_id=" << transaction_id << "]";
         release_header_lock();
         return res;
@@ -719,7 +719,7 @@ OLAPStatus OLAPTable::add_pending_data(SegmentGroup* segment_group, const std::v
     res = save_header();
     if (res != OLAP_SUCCESS) {
         _header->delete_pending_delta(transaction_id);
-        LOG(FATAL) << "fail to save header when add pending segment_group. [table=" << full_name()
+        LOG(FATAL) << "fail to save header when add pending segment_group. [tablet=" << full_name()
                    << " transaction_id=" << transaction_id << "]";
         release_header_lock();
         return res;
@@ -729,22 +729,17 @@ OLAPStatus OLAPTable::add_pending_data(SegmentGroup* segment_group, const std::v
     _pending_data_sources[transaction_id].push_back(segment_group);
     release_header_lock();
     VLOG(3) << "add pending data to tablet successfully."
-            << "table=" << full_name() << ", transaction_id=" << transaction_id;
+            << "tablet=" << full_name() << ", transaction_id=" << transaction_id;
     return res;
 
 }
 
-bool OLAPTable::has_pending_data(int64_t transaction_id) {
+bool Tablet::has_pending_data(int64_t transaction_id) {
     ReadLock rdlock(&_header_lock);
     return _pending_data_sources.find(transaction_id) != _pending_data_sources.end();
 }
 
-bool OLAPTable::has_pending_data() {
-    ReadLock rdlock(&_header_lock);
-    return !_pending_data_sources.empty();
-}
-
-void OLAPTable::delete_pending_data(int64_t transaction_id) {
+void Tablet::delete_pending_data(int64_t transaction_id) {
     obtain_header_wrlock();
 
     auto it = _pending_data_sources.find(transaction_id);
@@ -765,17 +760,17 @@ void OLAPTable::delete_pending_data(int64_t transaction_id) {
 
     // save header
     if (save_header() != OLAP_SUCCESS) {
-        LOG(FATAL) << "failed to save header when delete pending data. [table=" << full_name()
+        LOG(FATAL) << "failed to save header when delete pending data. [tablet=" << full_name()
                    << " transaction_id=" << transaction_id << "]";
     }
 
     release_header_lock();
-    LOG(INFO) << "delete pending data from tablet. [table=" << full_name()
+    LOG(INFO) << "delete pending data from tablet. [tablet=" << full_name()
               << " transaction_id=" << transaction_id << "]";
 
 }
 
-void OLAPTable::get_expire_pending_data(vector<int64_t>* transaction_ids) {
+void Tablet::get_expire_pending_data(vector<int64_t>* transaction_ids) {
     time_t now = time(NULL);
     ReadLock rdlock(&_header_lock);
 
@@ -783,14 +778,14 @@ void OLAPTable::get_expire_pending_data(vector<int64_t>* transaction_ids) {
         double diff = difftime(now, it.creation_time());
         if (diff >= config::pending_data_expire_time_sec) {
             transaction_ids->push_back(it.transaction_id());
-            VLOG(3) << "find expire pending data. table=" << full_name() << ", "
+            VLOG(3) << "find expire pending data. tablet=" << full_name() << ", "
                     << "transaction_id=" << it.transaction_id() << " exist_sec=" << diff;
         }
     }
 }
 
-void OLAPTable::load_pending_data() {
-    LOG(INFO) << "begin to load pending_data. table=" << full_name() << ", "
+void Tablet::load_pending_data() {
+    LOG(INFO) << "begin to load pending_data. tablet=" << full_name() << ", "
               << "pending_delta size=" << _header->pending_delta_size();
     MutexLock load_lock(&_load_lock);
 
@@ -829,7 +824,7 @@ void OLAPTable::load_pending_data() {
 
             if (segment_group->validate() != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to validate segment_group when load pending data."
-                             << "table=" << full_name() << ", "
+                             << "tablet=" << full_name() << ", "
                              << "transaction_id=" << segment_group->transaction_id();
                 error_pending_data.insert(segment_group->transaction_id());
                 break;
@@ -865,7 +860,7 @@ void OLAPTable::load_pending_data() {
 
             if (segment_group->load() != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to load segment_group when load pending data."
-                    << "table=" << full_name() << ", transaction_id=" << pending_delta.transaction_id();
+                    << "tablet=" << full_name() << ", transaction_id=" << pending_delta.transaction_id();
                 error_pending_data.insert(pending_delta.transaction_id());
                 break;
             }
@@ -875,12 +870,12 @@ void OLAPTable::load_pending_data() {
             continue;
         }
 
-        VLOG(3) << "load pending data successfully. table=" << full_name() << ", "
+        VLOG(3) << "load pending data successfully. tablet=" << full_name() << ", "
                 << "partition_id=" << pending_delta.partition_id() << ", "
                 << "transaction_id=" << pending_delta.transaction_id();
     }
 
-    LOG(INFO) << "finish to load pending data. table=" << full_name() << ", "
+    LOG(INFO) << "finish to load pending data. tablet=" << full_name() << ", "
               << "error_data_size=" << error_pending_data.size();
 
     for (int64_t error_data : error_pending_data) {
@@ -891,7 +886,7 @@ void OLAPTable::load_pending_data() {
 // 1. need to replace local data if same version existed
 // 2. move pending data to version data
 // 3. move pending data to incremental data, it won't be merged, so we can do incremental clone
-OLAPStatus OLAPTable::publish_version(int64_t transaction_id, Version version,
+OLAPStatus Tablet::publish_version(int64_t transaction_id, Version version,
                                       VersionHash version_hash) {
     OLAPStatus lock_status = _migration_lock.tryrdlock();
     if (lock_status != OLAP_SUCCESS) {
@@ -908,7 +903,7 @@ OLAPStatus OLAPTable::_publish_version(int64_t transaction_id, Version version,
     WriteLock wrlock(&_header_lock);
     if (_pending_data_sources.find(transaction_id) == _pending_data_sources.end()) {
         LOG(WARNING) << "pending data not exists in tablet, not finished or deleted."
-                     << "table=" << full_name() << ", "
+                     << "tablet=" << full_name() << ", "
                      << "transaction_id=" << transaction_id;
         return OLAP_ERR_TRANSACTION_NOT_EXIST;
     }
@@ -946,7 +941,7 @@ OLAPStatus OLAPTable::_publish_version(int64_t transaction_id, Version version,
     // add incremental version, if failed, ignore it
     res = _add_incremental_data(index_vec, transaction_id, version, version_hash);
     VLOG(3) << "finish to add incremental version. res=" << res << ", "
-            << "table=" << full_name() << ", "
+            << "tablet=" << full_name() << ", "
             << "transaction_id=" << transaction_id << ", "
             << "version=" << version.first << "-" << version.second;
 
@@ -954,7 +949,7 @@ OLAPStatus OLAPTable::_publish_version(int64_t transaction_id, Version version,
     res = save_header();
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to save header when publish version. res=" << res << ", "
-                   << "table=" << full_name() << ", "
+                   << "tablet=" << full_name() << ", "
                    << "transaction_id=" << transaction_id;
         return res;
     }
@@ -964,7 +959,7 @@ OLAPStatus OLAPTable::_publish_version(int64_t transaction_id, Version version,
     if (res != OLAP_SUCCESS) {
         remove_files(linked_files);
         LOG(FATAL) << "fail to save header when publish version. res=" << res << ", "
-                   << "table=" << full_name() << ", "
+                   << "tablet=" << full_name() << ", "
                    << "transaction_id=" << transaction_id;
         return res;
     }
@@ -979,7 +974,7 @@ OLAPStatus OLAPTable::_publish_version(int64_t transaction_id, Version version,
 
 // 1. if version is same and version_hash different, delete local data, save header
 // 2. if version_hash is same or version is merged, publish success, delete transaction, save header
-OLAPStatus OLAPTable::_handle_existed_version(int64_t transaction_id, const Version& version,
+OLAPStatus Tablet::_handle_existed_version(int64_t transaction_id, const Version& version,
                                               const VersionHash& version_hash) {
     const PDelta* existed_delta = nullptr;
     for (int i = 0; i < file_delta_size(); ++i) {
@@ -1000,7 +995,7 @@ OLAPStatus OLAPTable::_handle_existed_version(int64_t transaction_id, const Vers
     if (existed_delta->start_version() == version.first
         && existed_delta->end_version() == version.second
         && existed_delta->version_hash() != version_hash) {
-        LOG(INFO) << "version_hash is different when publish version, delete local data. [table=" << full_name()
+        LOG(INFO) << "version_hash is different when publish version, delete local data. [tablet=" << full_name()
                   << " transaction_id=" << transaction_id << "]";
         // remove delete condition if current type is PUSH_FOR_DELETE,
         // this occurs when user cancel delete_data soon after submit it
@@ -1010,10 +1005,10 @@ OLAPStatus OLAPTable::_handle_existed_version(int64_t transaction_id, const Vers
             return res;
         } else if (!push_for_delete) {
             DeleteConditionHandler del_cond_handler;
-            TabletSharedPtr olap_table_ptr =
-                OLAPEngine::get_instance()->get_table(_tablet_id, _schema_hash);
-            if (olap_table_ptr.get() != nullptr) {
-                del_cond_handler.delete_cond(olap_table_ptr, version.first, false);
+            TabletSharedPtr tablet_ptr =
+                OLAPEngine::get_instance()->get_tablet(_tablet_id, _schema_hash);
+            if (tablet_ptr.get() != nullptr) {
+                del_cond_handler.delete_cond(tablet_ptr, version.first, false);
             }
         }
         // delete local data
@@ -1023,7 +1018,7 @@ OLAPStatus OLAPTable::_handle_existed_version(int64_t transaction_id, const Vers
         _delete_incremental_data(version, version_hash, &files_to_remove);
         res = unregister_data_source(version, &existed_index_vec);
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to unregister data when publish version. [table=" << full_name()
+            LOG(WARNING) << "fail to unregister data when publish version. [tablet=" << full_name()
                          << " version=" << version.first << "-" << version.second << " res=" << res << "]";
             return res;
         }
@@ -1043,17 +1038,17 @@ OLAPStatus OLAPTable::_handle_existed_version(int64_t transaction_id, const Vers
         }
     // if version_hash is same or version is merged, publish success
     } else {
-        LOG(INFO) << "version_hash is same when publish version, publish success. [table=" << full_name()
+        LOG(INFO) << "version_hash is same when publish version, publish success. [tablet=" << full_name()
                   << " transaction_id=" << transaction_id << "]";
         res = OLAP_ERR_PUSH_VERSION_ALREADY_EXIST;
     }
     return res;
 }
 
-OLAPStatus OLAPTable::_add_incremental_data(std::vector<SegmentGroup*>& index_vec, int64_t transaction_id,
+OLAPStatus Tablet::_add_incremental_data(std::vector<SegmentGroup*>& index_vec, int64_t transaction_id,
                                             const Version& version, const VersionHash& version_hash) {
     if (index_vec.empty()) {
-        LOG(WARNING) << "no parameter when add incremental data. table=" << full_name();
+        LOG(WARNING) << "no parameter when add incremental data. tablet=" << full_name();
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -1063,7 +1058,7 @@ OLAPStatus OLAPTable::_add_incremental_data(std::vector<SegmentGroup*>& index_ve
     if (!check_dir_existed(dir_path)) {
         res = create_dirs(dir_path);
         if (res != OLAP_SUCCESS && !check_dir_existed(dir_path)) {
-            LOG(WARNING) << "fail to create segment_group dir. table=" << full_name() << ", "
+            LOG(WARNING) << "fail to create segment_group dir. tablet=" << full_name() << ", "
                          << " transaction_id=" << transaction_id;
             return res;
         }
@@ -1096,7 +1091,7 @@ OLAPStatus OLAPTable::_add_incremental_data(std::vector<SegmentGroup*>& index_ve
                 segment_group->num_rows(), segment_group->empty(), column_statistics);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to add incremental data. res=" << res << ", "
-                         << "table=" << full_name() << ", "
+                         << "tablet=" << full_name() << ", "
                          << "transaction_id=" << transaction_id << ", "
                          << "version=" << version.first << "-" << version.second;
             remove_files(linked_files);
@@ -1107,21 +1102,7 @@ OLAPStatus OLAPTable::_add_incremental_data(std::vector<SegmentGroup*>& index_ve
     return res;
 }
 
-bool OLAPTable::has_expired_incremental_data() {
-    bool exist = false;
-    time_t now = time(NULL);
-    ReadLock rdlock(&_header_lock);
-    for (auto& it : _header->incremental_delta()) {
-        double diff = difftime(now, it.creation_time());
-        if (diff >= config::incremental_delta_expire_time_sec) {
-            exist = true;
-            break;
-        }
-    }
-    return exist;
-}
-
-void OLAPTable::delete_expired_incremental_data() {
+void Tablet::delete_expire_incremental_data() {
     time_t now = time(NULL);
     std::vector<std::pair<Version, VersionHash>> expired_versions;
     std::vector<string> files_to_remove;
@@ -1136,11 +1117,10 @@ void OLAPTable::delete_expired_incremental_data() {
                     << "exist_sec=" << diff;
         }
     }
-
-    if (expired_versions.empty()) { return; }
-
-    for (auto& it : expired_versions) {
-        _delete_incremental_data(it.first, it.second, &files_to_remove);
+    for (auto& it : expire_versions) {
+        _delete_incremental_data(it.first, it.second);
+        VLOG(3) << "delete expire incremental data. tablet=" << full_name() << ", "
+                << "version=" << it.first.first << "-" << it.first.second;
     }
 
     if (save_header() != OLAP_SUCCESS) {
@@ -1150,9 +1130,7 @@ void OLAPTable::delete_expired_incremental_data() {
     remove_files(files_to_remove);
 }
 
-void OLAPTable::_delete_incremental_data(const Version& version,
-                                         const VersionHash& version_hash,
-                                         vector<string>* files_to_remove) {
+void Tablet::_delete_incremental_data(const Version& version, const VersionHash& version_hash) {
     const PDelta* incremental_delta = get_incremental_delta(version);
     if (incremental_delta == nullptr) { return; }
 
@@ -1171,11 +1149,11 @@ void OLAPTable::_delete_incremental_data(const Version& version,
     }
 
     _header->delete_incremental_delta(version);
-    VLOG(3) << "delete incremental data. table=" << full_name() << ", "
+    VLOG(3) << "delete incremental data. tablet=" << full_name() << ", "
             << "version=" << version.first << "-" << version.second;
 }
 
-void OLAPTable::get_missing_versions_with_header_locked(
+void Tablet::get_missing_versions_with_header_locked(
         int64_t until_version, std::vector<Version>* missing_versions) const {
     DCHECK(until_version > 0) << "invalid until_version: " << until_version;
     std::list<Version> existing_versions;
@@ -1208,7 +1186,7 @@ void OLAPTable::get_missing_versions_with_header_locked(
     }
 }
 
-const PDelta* OLAPTable::least_complete_version(
+const PDelta* Tablet::least_complete_version(
     const vector<Version>& missing_versions) const {
 
     const PDelta* least_delta = nullptr;
@@ -1217,7 +1195,7 @@ const PDelta* OLAPTable::least_complete_version(
         for (int i = 0; i < _header->file_delta_size(); ++i) {
             const PDelta* delta = _header->get_delta(i);
             if (delta->end_version() == version.first - 1) {
-                LOG(INFO) << "find least complete version. table=" << full_name() << ", "
+                LOG(INFO) << "find least complete version. tablet=" << full_name() << ", "
                     << "version=" << delta->start_version() << "-" << delta->end_version() << ", "
                     << "version_hash=" << delta->version_hash() << ", "
                     << "first_missing_version=" << version.first << "-" << version.second;
@@ -1232,12 +1210,12 @@ const PDelta* OLAPTable::least_complete_version(
     return least_delta;
 }
 
-OLAPStatus OLAPTable::is_push_for_delete(
+OLAPStatus Tablet::is_push_for_delete(
     int64_t transaction_id, bool* is_push_for_delete) const {
 
     const PPendingDelta* pending_delta = _header->get_pending_delta(transaction_id);
     if (pending_delta == nullptr) {
-        LOG(WARNING) << "pending segment_group not found when check push for delete. [table=" << full_name()
+        LOG(WARNING) << "pending segment_group not found when check push for delete. [tablet=" << full_name()
                      << " transaction_id=" << transaction_id << "]";
         return OLAP_ERR_TRANSACTION_NOT_EXIST;
     }
@@ -1245,9 +1223,9 @@ OLAPStatus OLAPTable::is_push_for_delete(
     return OLAP_SUCCESS;
 }
 
-SegmentGroup* OLAPTable::_construct_segment_group_from_version(const PDelta* delta, int32_t segment_group_id) {
+SegmentGroup* Tablet::_construct_segment_group_from_version(const PDelta* delta, int32_t segment_group_id) {
     VLOG(3) << "begin to construct segment_group from version."
-            << "table=" << full_name() << ", "
+            << "tablet=" << full_name() << ", "
             << "version=" << delta->start_version() << "-" << delta->end_version() << ", "
             << "version_hash=" << delta->version_hash();
     Version version(delta->start_version(), delta->end_version());
@@ -1266,7 +1244,7 @@ SegmentGroup* OLAPTable::_construct_segment_group_from_version(const PDelta* del
         segment_group->set_empty(psegment_group->empty());
     }
     DCHECK(segment_group != nullptr) << "malloc error when construct segment_group."
-            << "table=" << full_name() << ", "
+            << "tablet=" << full_name() << ", "
             << "version=" << version.first << "-" << version.second << ", "
             << "version_hash=" << delta->version_hash();
     OLAPStatus res = segment_group->validate();
@@ -1277,7 +1255,7 @@ SegmentGroup* OLAPTable::_construct_segment_group_from_version(const PDelta* del
 
     if (psegment_group->column_pruning_size() != 0) {
         if (_num_key_fields != psegment_group->column_pruning_size()) {
-            LOG(WARNING) << "column pruning size error, " << "table=" << full_name() << ", "
+            LOG(WARNING) << "column pruning size error, " << "tablet=" << full_name() << ", "
                 << "version=" << version.first << "-" << version.second << ", "
                 << "version_hash=" << delta->version_hash() << ", "
                 << "column_pruning_size=" << psegment_group->column_pruning_size() << ", "
@@ -1308,7 +1286,7 @@ SegmentGroup* OLAPTable::_construct_segment_group_from_version(const PDelta* del
     res = segment_group->load();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to load segment_group. res=" << res << ", "
-                     << "table=" << full_name() << ", "
+                     << "tablet=" << full_name() << ", "
                      << "version=" << version.first << "-" << version.second << ", "
                      << "version_hash=" << delta->version_hash();
         SAFE_DELETE(segment_group);
@@ -1316,12 +1294,12 @@ SegmentGroup* OLAPTable::_construct_segment_group_from_version(const PDelta* del
     }
 
     VLOG(3) << "finish to construct segment_group from version."
-            << "table=" << full_name() << ", "
+            << "tablet=" << full_name() << ", "
             << "version=" << version.first << "-" << version.second;
     return segment_group;
 }
 
-OLAPStatus OLAPTable::_create_hard_link(const string& from, const string& to,
+OLAPStatus Tablet::_create_hard_link(const string& from, const string& to,
                                         vector<string>* linked_success_files) {
     if (link(from.c_str(), to.c_str()) != 0) {
         LOG(WARNING) << "fail to create hard link. from=" << from << ", "
@@ -1333,10 +1311,10 @@ OLAPStatus OLAPTable::_create_hard_link(const string& from, const string& to,
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPTable::clone_data(const OLAPHeader& clone_header,
+OLAPStatus Tablet::clone_data(const OLAPHeader& clone_header,
                                  const vector<const PDelta*>& clone_deltas,
                                  const vector<Version>& versions_to_delete) {
-    LOG(INFO) << "begin to clone data to tablet. table=" << full_name() << ", "
+    LOG(INFO) << "begin to clone data to tablet. tablet=" << full_name() << ", "
               << "clone_versions_size=" << clone_deltas.size() << ", "
               << "versions_to_delete_size=" << versions_to_delete.size();
     OLAPStatus res = OLAP_SUCCESS;
@@ -1351,14 +1329,11 @@ OLAPStatus OLAPTable::clone_data(const OLAPHeader& clone_header,
         for (const Version& version : versions_to_delete) {
             res = new_local_header.delete_version(version);
             if (res != OLAP_SUCCESS) {
-                LOG(WARNING) << "failed to delete version from new local header. [table=" << full_name()
+                LOG(WARNING) << "failed to delete version from new local header. [tablet=" << full_name()
                              << " version=" << version.first << "-" << version.second << "]";
                 break;
             }
-            if (new_local_header.is_delete_data_version(version)) {
-                new_local_header.delete_cond_by_version(version);
-            }
-            LOG(INFO) << "delete version from new local header when clone. [table='" << full_name()
+            LOG(INFO) << "delete version from new local header when clone. [tablet='" << full_name()
                       << "', version=" << version.first << "-" << version.second << "]";
         }
 
@@ -1374,7 +1349,7 @@ OLAPStatus OLAPTable::clone_data(const OLAPHeader& clone_header,
             for (const PSegmentGroup& psegment_group : clone_delta->segment_group()) {
                 SegmentGroup* tmp_segment_group = _construct_segment_group_from_version(clone_delta, psegment_group.segment_group_id());
                 if (tmp_segment_group == NULL) {
-                    LOG(WARNING) << "fail to construct segment_group when clone data. table=" << full_name() << ", "
+                    LOG(WARNING) << "fail to construct segment_group when clone data. tablet=" << full_name() << ", "
                         << "version=" << version.first << "-" << version.second << ", "
                         << "version_hash=" << clone_delta->version_hash();
                     res = OLAP_ERR_INDEX_LOAD_ERROR;
@@ -1399,7 +1374,7 @@ OLAPStatus OLAPTable::clone_data(const OLAPHeader& clone_header,
                 if (res != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to add version to new local header when clone."
                                  << "res=" << res << ", "
-                                 << "table=" << full_name() << ", "
+                                 << "tablet=" << full_name() << ", "
                                  << "version=" << version.first << "-" << version.second << ", "
                                  << "version_hash=" << clone_delta->version_hash();
                     break;
@@ -1416,7 +1391,7 @@ OLAPStatus OLAPTable::clone_data(const OLAPHeader& clone_header,
                     if (it->version() == version.first) {
                         // add it
                         new_local_header.add_delete_condition(*it, version.first);
-                        LOG(INFO) << "add delete condition when clone. [table=" << full_name()
+                        LOG(INFO) << "add delete condition when clone. [tablet=" << full_name()
                                   << " version=" << it->version() << "]";
                         break;
                     }
@@ -1427,7 +1402,7 @@ OLAPStatus OLAPTable::clone_data(const OLAPHeader& clone_header,
         if (res != OLAP_SUCCESS) {
             break;
         }
-        VLOG(3) << "load indices successfully when clone. table=" << full_name() << ", "
+        VLOG(3) << "load indices successfully when clone. tablet=" << full_name() << ", "
                 << "add_versions_size=" << clone_deltas.size() << ", " 
                 << "new_indices_size=" << tmp_data_sources.size();
         // save and reload header
@@ -1438,7 +1413,7 @@ OLAPStatus OLAPTable::clone_data(const OLAPHeader& clone_header,
         }
         res = OlapHeaderManager::get_header(_store, _tablet_id, _schema_hash, _header);
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to reload original header when clone. [table=" << full_name()
+            LOG(WARNING) << "failed to reload original header when clone. [tablet=" << full_name()
                          << " res=" << res << "]";
             break;
         }
@@ -1478,18 +1453,18 @@ OLAPStatus OLAPTable::clone_data(const OLAPHeader& clone_header,
     }
 
     LOG(INFO) << "finish to clone data to tablet. res=" << res << ", "
-              << "table=" << full_name() << ", "
+              << "tablet=" << full_name() << ", "
               << "clone_versions_size=" << clone_deltas.size();
     return res;
 }
 
-OLAPStatus OLAPTable::replace_data_sources(const vector<Version>* old_versions,
+OLAPStatus Tablet::replace_data_sources(const vector<Version>* old_versions,
                                        const vector<SegmentGroup*>* new_data_sources,
                                        vector<SegmentGroup*>* old_data_sources) {
     OLAPStatus res = OLAP_SUCCESS;
 
     if (old_versions == NULL || new_data_sources == NULL) {
-        LOG(WARNING) << "parameter old_versions or new_data_sources is null. table=" << full_name();
+        LOG(WARNING) << "parameter old_versions or new_data_sources is null. tablet=" << full_name();
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -1501,7 +1476,7 @@ OLAPStatus OLAPTable::replace_data_sources(const vector<Version>* old_versions,
         version_olap_index_map_t::iterator data_source_it = _data_sources.find(*it);
         if (data_source_it == _data_sources.end()) {
             LOG(WARNING) << "olap segment_group for version does not exists. [version='" << it->first
-                         << "-" << it->second << "' table='" << full_name() << "']";
+                         << "-" << it->second << "' tablet='" << full_name() << "']";
             return OLAP_ERR_VERSION_NOT_EXIST;
         }
     }
@@ -1523,7 +1498,7 @@ OLAPStatus OLAPTable::replace_data_sources(const vector<Version>* old_versions,
 
             if (!to_be_deleted) {
                 LOG(WARNING) << "olap segment_group for version exists. [version='" << (*it)->version().first
-                             << "-" << (*it)->version().second << "' table='" << full_name() << "']";
+                             << "-" << (*it)->version().second << "' tablet='" << full_name() << "']";
                 return OLAP_ERR_TABLE_VERSION_DUPLICATE_ERROR;
             }
         }
@@ -1543,11 +1518,11 @@ OLAPStatus OLAPTable::replace_data_sources(const vector<Version>* old_versions,
         // 删除失败会导致脏数据
         if ((res = _header->delete_version(*it)) != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to delete version from olap header.[version='" << it->first
-                         << "-" << it->second << "' table='" << full_name() << "']";
+                         << "-" << it->second << "' tablet='" << full_name() << "']";
             return res;
         }
 
-        VLOG(3) << "delete version from olap header. table=" << full_name() << ", "
+        VLOG(3) << "delete version from olap header. tablet=" << full_name() << ", "
                 << "version=" << it->first << "-" << it->second;
     }
 
@@ -1567,18 +1542,18 @@ OLAPStatus OLAPTable::replace_data_sources(const vector<Version>* old_versions,
 
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to add version to olap header.[version='" << (*it)->version().first
-                         << "-" << (*it)->version().second << "' table='" << full_name() << "']";
+                         << "-" << (*it)->version().second << "' tablet='" << full_name() << "']";
             return res;
         }
 
-        VLOG(3) << "add version to olap header. table=" << full_name() << ", "
+        VLOG(3) << "add version to olap header. tablet=" << full_name() << ", "
                 << "version=" << (*it)->version().first << "-" << (*it)->version().second;
     }
 
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPTable::compute_all_versions_hash(const vector<Version>& versions,
+OLAPStatus Tablet::compute_all_versions_hash(const vector<Version>& versions,
                                                 VersionHash* version_hash) const {
     if (version_hash == NULL) {
         OLAP_LOG_WARNING("invalid parameter: 'new_version_hash' is null.");
@@ -1603,9 +1578,9 @@ OLAPStatus OLAPTable::compute_all_versions_hash(const vector<Version>& versions,
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPTable::merge_header(const OLAPHeader& hdr, int to_version) {
+OLAPStatus Tablet::merge_header(const OLAPHeader& hdr, int to_version) {
     obtain_header_wrlock();
-    DeferOp release_lock(std::bind<void>(&OLAPTable::release_header_lock, this));
+    DeferOp release_lock(std::bind<void>(&Tablet::release_header_lock, this));
 
     const PDelta* base_version = _header->get_base_version();
     if (base_version->end_version() != to_version) {
@@ -1656,7 +1631,7 @@ OLAPStatus OLAPTable::merge_header(const OLAPHeader& hdr, int to_version) {
     return OLAP_SUCCESS;
 }
 
-SegmentGroup* OLAPTable::_get_largest_index() {
+SegmentGroup* Tablet::_get_largest_index() {
     SegmentGroup* largest_index = NULL;
     size_t largest_index_sizes = 0;
 
@@ -1677,7 +1652,7 @@ SegmentGroup* OLAPTable::_get_largest_index() {
     return largest_index;
 }
 
-OLAPStatus OLAPTable::split_range(
+OLAPStatus Tablet::split_range(
         const OlapTuple& start_key_strings,
         const OlapTuple& end_key_strings,
         uint64_t request_block_row_count,
@@ -1749,7 +1724,7 @@ OLAPStatus OLAPTable::split_range(
     // 如果找不到合适的segment_group，就直接返回startkey，endkey
     if (base_index == NULL) {
         VLOG(3) << "there is no base file now, may be tablet is empty.";
-        // it may be right if the table is empty, so we return success.
+        // it may be right if the tablet is empty, so we return success.
         ranges->emplace_back(start_key.to_tuple());
         ranges->emplace_back(end_key.to_tuple());
         return OLAP_SUCCESS;
@@ -1833,17 +1808,17 @@ OLAPStatus OLAPTable::split_range(
     return OLAP_SUCCESS;
 }
 
-void OLAPTable::list_data_files(set<string>* file_names) const {
+void Tablet::list_data_files(set<string>* file_names) const {
     _list_files_with_suffix("dat", file_names);
 }
 
-void OLAPTable::list_index_files(set<string>* file_names) const {
+void Tablet::list_index_files(set<string>* file_names) const {
     _list_files_with_suffix("idx", file_names);
 }
 
-void OLAPTable::_list_files_with_suffix(const string& file_suffix, set<string>* file_names) const {
+void Tablet::_list_files_with_suffix(const string& file_suffix, set<string>* file_names) const {
     if (file_names == NULL) {
-        LOG(WARNING) << "parameter filenames is null. [table='" << full_name() << "']";
+        LOG(WARNING) << "parameter filenames is null. [tablet='" << full_name() << "']";
         return;
     }
 
@@ -1867,11 +1842,11 @@ void OLAPTable::_list_files_with_suffix(const string& file_suffix, set<string>* 
     }
 }
 
-bool OLAPTable::has_version(const Version& version) const {
+bool Tablet::has_version(const Version& version) const {
     return (_data_sources.find(version) != _data_sources.end());
 }
 
-void OLAPTable::list_versions(vector<Version>* versions) const {
+void Tablet::list_versions(vector<Version>* versions) const {
     if (versions == NULL) {
         OLAP_LOG_WARNING("parameter versions is null.");
         return;
@@ -1886,7 +1861,7 @@ void OLAPTable::list_versions(vector<Version>* versions) const {
     }
 }
 
-void OLAPTable::list_version_entities(vector<VersionEntity>* version_entities) const {
+void Tablet::list_version_entities(vector<VersionEntity>* version_entities) const {
     if (version_entities == NULL) {
         OLAP_LOG_WARNING("parameter versions is null.");
         return;
@@ -1913,7 +1888,7 @@ void OLAPTable::list_version_entities(vector<VersionEntity>* version_entities) c
     }
 }
 
-void OLAPTable::delete_all_files() {
+void Tablet::delete_all_files() {
     // Release resources like memory and disk space.
     // we have to call list_versions first, or else error occurs when
     // removing hash_map item and iterating hash_map concurrently.
@@ -1935,13 +1910,13 @@ void OLAPTable::delete_all_files() {
         }
     }
 
-    // remove olap header file, _header object will be delete in OLAPTable.destructor
+    // remove olap header file, _header object will be delete in Tablet.destructor
     if (remove_parent_dir(_tablet_path) != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to delete header file and directory. header_path=" << _tablet_path;
     }
 }
 
-string OLAPTable::construct_index_file_path(const Version& version,
+string Tablet::construct_index_file_path(const Version& version,
                                             VersionHash version_hash,
                                             int32_t segment_group_id,
                                             int32_t segment) const {
@@ -1950,7 +1925,7 @@ string OLAPTable::construct_index_file_path(const Version& version,
     string tablet_path_prefix = prefix_stream.str();
     return construct_file_path(tablet_path_prefix, version, version_hash, segment_group_id, segment, "idx");
 }
-string OLAPTable::construct_data_file_path(const Version& version,
+string Tablet::construct_data_file_path(const Version& version,
                                            VersionHash version_hash,
                                            int32_t segment_group_id,
                                            int32_t segment) const {
@@ -1959,7 +1934,7 @@ string OLAPTable::construct_data_file_path(const Version& version,
     string tablet_path_prefix = prefix_stream.str();
     return construct_file_path(tablet_path_prefix, version, version_hash, segment_group_id, segment, "dat");
 }
-string OLAPTable::construct_file_path(const string& tablet_path_prefix,
+string Tablet::construct_file_path(const string& tablet_path_prefix,
                                       const Version& version,
                                       VersionHash version_hash,
                                       int32_t segment_group_id, int32_t segment,
@@ -1990,13 +1965,13 @@ string OLAPTable::construct_file_path(const string& tablet_path_prefix,
     return file_path;
 }
 
-string OLAPTable::construct_incremental_delta_dir_path() const {
+string Tablet::construct_incremental_delta_dir_path() const {
     stringstream segment_group_dir_path;
     segment_group_dir_path << _tablet_path << INCREMENTAL_DELTA_PREFIX;
 
     return segment_group_dir_path.str();
 }
-string OLAPTable::construct_incremental_index_file_path(Version version, VersionHash version_hash,
+string Tablet::construct_incremental_index_file_path(Version version, VersionHash version_hash,
                                                   int32_t segment_group_id, int32_t segment) const {
     string segment_group_dir_path = construct_incremental_delta_dir_path();
     stringstream segment_group_file_path;
@@ -2004,7 +1979,7 @@ string OLAPTable::construct_incremental_index_file_path(Version version, Version
                     << construct_file_name(version, version_hash, segment_group_id, segment, "idx");
     return segment_group_file_path.str();
 }
-string OLAPTable::construct_incremental_data_file_path(Version version, VersionHash version_hash,
+string Tablet::construct_incremental_data_file_path(Version version, VersionHash version_hash,
                                                   int32_t segment_group_id, int32_t segment) const {
     string segment_group_dir_path = construct_incremental_delta_dir_path();
     stringstream segment_group_file_path;
@@ -2012,10 +1987,10 @@ string OLAPTable::construct_incremental_data_file_path(Version version, VersionH
                     << construct_file_name(version, version_hash, segment_group_id, segment, "dat");
     return segment_group_file_path.str();
 }
-string OLAPTable::construct_pending_data_dir_path() const {
+string Tablet::construct_pending_data_dir_path() const {
     return _tablet_path + PENDING_DELTA_PREFIX;
 }
-string OLAPTable::construct_pending_index_file_path(TTransactionId transaction_id,
+string Tablet::construct_pending_index_file_path(TTransactionId transaction_id,
                                                     int32_t segment_group_id, int32_t segment) const {
     string dir_path = construct_pending_data_dir_path();
     stringstream file_path;
@@ -2025,7 +2000,7 @@ string OLAPTable::construct_pending_index_file_path(TTransactionId transaction_i
 
     return file_path.str();
 }
-string OLAPTable::construct_pending_data_file_path(TTransactionId transaction_id,
+string Tablet::construct_pending_data_file_path(TTransactionId transaction_id,
                                                    int32_t segment_group_id, int32_t segment) const {
     string dir_path = construct_pending_data_dir_path();
     stringstream file_path;
@@ -2036,7 +2011,7 @@ string OLAPTable::construct_pending_data_file_path(TTransactionId transaction_id
     return file_path.str();
 }
 
-string OLAPTable::construct_file_name(const Version& version,
+string Tablet::construct_file_name(const Version& version,
                                       VersionHash version_hash,
                                       int32_t segment_group_id, int32_t segment,
                                       const string& suffix) const {
@@ -2054,11 +2029,11 @@ string OLAPTable::construct_file_name(const Version& version,
     return file_name;
 }
 
-string OLAPTable::construct_dir_path() const {
+string Tablet::construct_dir_path() const {
     return _tablet_path;
 }
 
-int32_t OLAPTable::get_field_index(const string& field_name) const {
+int32_t Tablet::get_field_index(const string& field_name) const {
     field_index_map_t::const_iterator res_iterator = _field_index_map.find(field_name);
     if (res_iterator == _field_index_map.end()) {
         LOG(WARNING) << "invalid field name. [name='" << field_name << "']";
@@ -2068,7 +2043,7 @@ int32_t OLAPTable::get_field_index(const string& field_name) const {
     return res_iterator->second;
 }
 
-size_t OLAPTable::get_field_size(const string& field_name) const {
+size_t Tablet::get_field_size(const string& field_name) const {
     field_index_map_t::const_iterator res_iterator = _field_index_map.find(field_name);
     if (res_iterator == _field_index_map.end()) {
         LOG(WARNING) << "invalid field name. [name='" << field_name << "']";
@@ -2083,7 +2058,7 @@ size_t OLAPTable::get_field_size(const string& field_name) const {
     return _field_sizes[res_iterator->second];
 }
 
-size_t OLAPTable::get_return_column_size(const string& field_name) const {
+size_t Tablet::get_return_column_size(const string& field_name) const {
     field_index_map_t::const_iterator res_iterator = _field_index_map.find(field_name);
     if (res_iterator == _field_index_map.end()) {
         LOG(WARNING) << "invalid field name. [name='" << field_name << "']";
@@ -2104,7 +2079,7 @@ size_t OLAPTable::get_return_column_size(const string& field_name) const {
 }
 
 
-size_t OLAPTable::get_row_size() const {
+size_t Tablet::get_row_size() const {
     size_t size = 0u;
     vector<int32_t>::const_iterator it;
     for (it = _field_sizes.begin(); it != _field_sizes.end(); ++it) {
@@ -2115,7 +2090,7 @@ size_t OLAPTable::get_row_size() const {
     return size;
 }
 
-int64_t OLAPTable::get_data_size() const {
+int64_t Tablet::get_data_size() const {
     int64_t total_size = 0;
     for (const PDelta& delta : _header->delta()) {
         for (const PSegmentGroup& psegment_group : delta.segment_group()) {
@@ -2126,7 +2101,7 @@ int64_t OLAPTable::get_data_size() const {
     return total_size;
 }
 
-int64_t OLAPTable::get_num_rows() const {
+int64_t Tablet::get_num_rows() const {
     int64_t num_rows = 0;
     for (const PDelta& delta : _header->delta()) {
         for (const PSegmentGroup& psegment_group : delta.segment_group()) {
@@ -2137,12 +2112,12 @@ int64_t OLAPTable::get_num_rows() const {
     return num_rows;
 }
 
-bool OLAPTable::is_load_delete_version(Version version) {
+bool Tablet::is_load_delete_version(Version version) {
     version_olap_index_map_t::iterator it = _data_sources.find(version);
     return it->second[0]->delete_flag();
 }
 
-bool OLAPTable::is_schema_changing() {
+bool Tablet::is_schema_changing() {
     bool is_schema_changing = false;
 
     obtain_header_rdlock();
@@ -2154,10 +2129,10 @@ bool OLAPTable::is_schema_changing() {
     return is_schema_changing;
 }
 
-bool OLAPTable::get_schema_change_request(TTabletId* tablet_id,
+bool Tablet::get_schema_change_request(TTabletId* tablet_id,
                                           SchemaHash* schema_hash,
                                           vector<Version>* versions_to_changed,
-                                          AlterTabletType* alter_table_type) const {
+                                          AlterTabletType* alter_tablet_type) const {
     if (!_header->has_schema_change_status()) {
         return false;
     }
@@ -2166,7 +2141,7 @@ bool OLAPTable::get_schema_change_request(TTabletId* tablet_id,
 
     (tablet_id == NULL || (*tablet_id = schema_change_status.related_tablet_id()));
     (schema_hash == NULL || (*schema_hash = schema_change_status.related_schema_hash()));
-    (alter_table_type == NULL || (*alter_table_type =
+    (alter_tablet_type == NULL || (*alter_tablet_type =
             static_cast<AlterTabletType>(schema_change_status.schema_change_type())));
 
     if (versions_to_changed != NULL) {
@@ -2181,10 +2156,10 @@ bool OLAPTable::get_schema_change_request(TTabletId* tablet_id,
     return true;
 }
 
-void OLAPTable::set_schema_change_request(TTabletId tablet_id,
+void Tablet::set_schema_change_request(TTabletId tablet_id,
                                           TSchemaHash schema_hash,
                                           const vector<Version>& versions_to_changed,
-                                          const AlterTabletType alter_table_type) {
+                                          const AlterTabletType alter_tablet_type) {
     clear_schema_change_request();
 
     SchemaChangeStatusMessage* schema_change_status = _header->mutable_schema_change_status();
@@ -2203,10 +2178,10 @@ void OLAPTable::set_schema_change_request(TTabletId tablet_id,
         //version->set_num_segments(0);
     }
 
-    schema_change_status->set_schema_change_type(alter_table_type);
+    schema_change_status->set_schema_change_type(alter_tablet_type);
 }
 
-bool OLAPTable::remove_last_schema_change_version(TabletSharedPtr new_olap_table) {
+bool Tablet::remove_last_schema_change_version(TabletSharedPtr new_tablet) {
     if (!_header->has_schema_change_status()) {
         return false;
     }
@@ -2224,12 +2199,12 @@ bool OLAPTable::remove_last_schema_change_version(TabletSharedPtr new_olap_table
     return true;
 }
 
-void OLAPTable::clear_schema_change_request() {
+void Tablet::clear_schema_change_request() {
     LOG(INFO) << "clear schema change status. [tablet='" << _full_name << "']";
     _header->clear_schema_change_status();
 }
 
-void OLAPTable::set_io_error() {
+void Tablet::set_io_error() {
     OLAP_LOG_WARNING("io error occur.[tablet_full_name='%s', root_path_name='%s']",
                      _full_name.c_str(),
                      _storage_root_path.c_str());
@@ -2240,7 +2215,7 @@ bool OLAPTable::is_used() {
     return !_is_bad && _store->is_used();
 }
 
-VersionEntity OLAPTable::get_version_entity_by_version(const Version& version) {
+VersionEntity Tablet::get_version_entity_by_version(const Version& version) {
     std::vector<SegmentGroup*>& index_vec = _data_sources[version];
     VersionEntity version_entity(version, index_vec[0]->version_hash());
     for (SegmentGroup* segment_group : index_vec) {
@@ -2256,7 +2231,7 @@ VersionEntity OLAPTable::get_version_entity_by_version(const Version& version) {
     return version_entity;
 }
 
-size_t OLAPTable::get_version_index_size(const Version& version) {
+size_t Tablet::get_version_index_size(const Version& version) {
     std::vector<SegmentGroup*>& index_vec = _data_sources[version];
     size_t index_size = 0;
     for (SegmentGroup* segment_group : index_vec) {
@@ -2265,7 +2240,7 @@ size_t OLAPTable::get_version_index_size(const Version& version) {
     return index_size;
 }
 
-size_t OLAPTable::get_version_data_size(const Version& version) {
+size_t Tablet::get_version_data_size(const Version& version) {
     std::vector<SegmentGroup*>& index_vec = _data_sources[version];
     size_t data_size = 0;
     for (SegmentGroup* segment_group : index_vec) {
@@ -2274,7 +2249,7 @@ size_t OLAPTable::get_version_data_size(const Version& version) {
     return data_size;
 }
 
-OLAPStatus OLAPTable::recover_tablet_until_specfic_version(
+OLAPStatus Tablet::recover_tablet_until_specfic_version(
             const int64_t& until_version, const int64_t& version_hash) {
     std::vector<Version> missing_versions;
     {
@@ -2287,7 +2262,7 @@ OLAPStatus OLAPTable::recover_tablet_until_specfic_version(
     for (Version& missing_version : missing_versions) {
         SegmentGroup* segment_group = new SegmentGroup(this, missing_version, version_hash, false, 0, 0);
         segment_group->set_empty(true);
-        ColumnDataWriter* writer = ColumnDataWriter::create(std::shared_ptr<OLAPTable>(this), segment_group, true);
+        ColumnDataWriter* writer = ColumnDataWriter::create(std::shared_ptr<Tablet>(this), segment_group, true);
         if (res != OLAP_SUCCESS) { break; }
 
         res = writer->finalize();
@@ -2314,7 +2289,7 @@ OLAPStatus OLAPTable::recover_tablet_until_specfic_version(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPTable::test_version(const Version& version) {
+OLAPStatus Tablet::test_version(const Version& version) {
     vector<Version> span_versions;
     obtain_header_rdlock();
     OLAPStatus res = _header->select_versions_to_span(version, &span_versions);

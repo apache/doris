@@ -28,7 +28,7 @@
 #include "olap/bloom_filter.hpp"
 #include "olap/stream_index_common.h"
 #include "olap/field.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 #include "olap/row_cursor.h"
 
 namespace doris {
@@ -89,9 +89,9 @@ public:
 // 所有归属于同一列上的条件二元组，聚合在一个CondColumn上
 class CondColumn {
 public:
-    CondColumn(TabletSharedPtr table, int32_t index) : _col_index(index), _table(table) {
+    CondColumn(TabletSharedPtr tablet, int32_t index) : _col_index(index), _tablet(tablet) {
         _conds.clear();
-        _is_key = _table->tablet_schema()[_col_index].is_key;
+        _is_key = _tablet->tablet_schema()[_col_index].is_key;
     }
     ~CondColumn();
 
@@ -120,7 +120,7 @@ private:
     bool                _is_key;
     int32_t             _col_index;
     std::vector<Cond*>   _conds;
-    TabletSharedPtr      _table;
+    TabletSharedPtr      _tablet;
 };
 
 // 一次请求所关联的条件
@@ -139,11 +139,11 @@ public:
         _columns.clear();
     }
 
-    void set_table(TabletSharedPtr table) {
-        long do_not_remove_me_until_you_want_a_heart_attacking = table.use_count();
+    void set_tablet(TabletSharedPtr tablet) {
+        long do_not_remove_me_until_you_want_a_heart_attacking = tablet.use_count();
         OLAP_UNUSED_ARG(do_not_remove_me_until_you_want_a_heart_attacking);
 
-        _table = table;
+        _tablet = tablet;
     }
 
     // 如果成功，则_columns中增加一项，如果失败则无视此condition，同时输出日志
@@ -164,7 +164,7 @@ public:
     }
 
 private:
-    TabletSharedPtr _table;     // ref to OLAPTable to access schema
+    TabletSharedPtr _tablet;     // ref to Tablet to access schema
     CondColumns _columns;   // list of condition column
 };
 

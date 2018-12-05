@@ -18,7 +18,7 @@
 #include "olap/reader.h"
 
 #include "olap/column_data.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
 #include "util/date_func.h"
@@ -73,7 +73,7 @@ private:
         }
 
         OLAPStatus init() {
-            auto res = _row_cursor.init(_data->segment_group()->table()->tablet_schema());
+            auto res = _row_cursor.init(_data->segment_group()->tablet()->tablet_schema());
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to init row cursor, res=" << res;
                 return res;
@@ -181,7 +181,7 @@ OLAPStatus CollectIterator::init(Reader* reader) {
     // multiple data to aggregate for performance in user fetch
     if (_reader->_reader_type == READER_QUERY &&
             (_reader->_aggregation ||
-             _reader->_olap_table->keys_type() == KeysType::DUP_KEYS)) {
+             _reader->_tablet->keys_type() == KeysType::DUP_KEYS)) {
         _merge = false;
     }
     return OLAP_SUCCESS;
@@ -324,7 +324,7 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
         return res;
     }
 
-    switch (_olap_table->keys_type()) {
+    switch (_tablet->keys_type()) {
     case KeysType::DUP_KEYS:
         _next_row_func = &Reader::_dup_key_next_row;
         break;
@@ -338,7 +338,7 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
         break;
     }
     DCHECK(_next_row_func != nullptr) << "No next row function for type:"
-        << _olap_table->keys_type();
+        << _tablet->keys_type();
 
     return OLAP_SUCCESS;
 }
@@ -436,7 +436,7 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, bool* eof) {
             // we will not do aggregation in two case:
             //   1. DUP_KEYS keys type has no semantic to aggregate,
             //   2. to make cost of  each scan round reasonable, we will control merged_count.
-            if (_olap_table->keys_type() == KeysType::DUP_KEYS
+            if (_tablet->keys_type() == KeysType::DUP_KEYS
                 || (_aggregation && merged_count > config::doris_scanner_row_num)) {
                 row_cursor->finalize_one_merge(_value_cids);
                 break;
@@ -468,7 +468,7 @@ void Reader::close() {
     VLOG(3) << "merged rows:" << _merged_rows;
     _conditions.finalize();
     _delete_handler.finalize();
-    _olap_table->release_data_sources(&_own_data_sources);
+    _tablet->release_data_sources(&_own_data_sources);
 
     for (auto pred : _col_predicates) {
         delete pred;
@@ -484,12 +484,12 @@ OLAPStatus Reader::_acquire_data_sources(const ReaderParams& read_params) {
             || read_params.reader_type == READER_CUMULATIVE_COMPACTION) {
         data_sources = &read_params.olap_data_arr;
     } else {
-        _olap_table->obtain_header_rdlock();
-        _olap_table->acquire_data_sources(_version, &_own_data_sources);
-        _olap_table->release_header_lock();
+        _tablet->obtain_header_rdlock();
+        _tablet->acquire_data_sources(_version, &_own_data_sources);
+        _tablet->release_header_lock();
 
         if (_own_data_sources.size() < 1) {
-            LOG(WARNING) << "fail to acquire data sources. [table_name='" << _olap_table->full_name()
+            LOG(WARNING) << "fail to acquire data sources. [table_name='" << _tablet->full_name()
                          << "' version=" << _version.first << "-" << _version.second << "]";
             return OLAP_ERR_VERSION_NOT_EXIST;
         }
@@ -548,7 +548,7 @@ OLAPStatus Reader::_init_params(const ReaderParams& read_params) {
     OLAPStatus res = OLAP_SUCCESS;
     _aggregation = read_params.aggregation;
     _reader_type = read_params.reader_type;
-    _olap_table = read_params.olap_table;
+    _tablet = read_params.tablet;
     _version = read_params.version;
     
     res = _init_conditions_param(read_params);
@@ -603,16 +603,16 @@ OLAPStatus Reader::_init_return_columns(const ReaderParams& read_params) {
             }
         }
         for (auto id : read_params.return_columns) {
-            if (_olap_table->tablet_schema()[id].is_key) {
+            if (_tablet->tablet_schema()[id].is_key) {
                 _key_cids.push_back(id);
             } else {
                 _value_cids.push_back(id);
             }
         }
     } else if (read_params.return_columns.size() == 0) {
-        for (size_t i = 0; i < _olap_table->tablet_schema().size(); ++i) {
+        for (size_t i = 0; i < _tablet->tablet_schema().size(); ++i) {
             _return_columns.push_back(i);
-            if (_olap_table->tablet_schema()[i].is_key) {
+            if (_tablet->tablet_schema()[i].is_key) {
                 _key_cids.push_back(i);
             } else {
                 _value_cids.push_back(i);
@@ -622,7 +622,7 @@ OLAPStatus Reader::_init_return_columns(const ReaderParams& read_params) {
     } else if (read_params.reader_type == READER_CHECKSUM) {
         _return_columns = read_params.return_columns;
         for (auto id : read_params.return_columns) {
-            if (_olap_table->tablet_schema()[id].is_key) {
+            if (_tablet->tablet_schema()[id].is_key) {
                 _key_cids.push_back(id);
             } else {
                 _value_cids.push_back(id);
@@ -761,7 +761,7 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
             return OLAP_ERR_MALLOC_ERROR;
         }
         
-        res = _keys_param.start_keys[i]->init_scan_key(_olap_table->tablet_schema(),
+        res = _keys_param.start_keys[i]->init_scan_key(_tablet->tablet_schema(),
                                                        read_params.start_key[i].values());
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init row cursor. [res=%d]", res);
@@ -783,7 +783,7 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
             return OLAP_ERR_MALLOC_ERROR;
         }
         
-        res = _keys_param.end_keys[i]->init_scan_key(_olap_table->tablet_schema(),
+        res = _keys_param.end_keys[i]->init_scan_key(_tablet->tablet_schema(),
                                                      read_params.end_key[i].values());
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init row cursor. [res=%d]", res);
@@ -805,7 +805,7 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
 OLAPStatus Reader::_init_conditions_param(const ReaderParams& read_params) {
     OLAPStatus res = OLAP_SUCCESS;
 
-    _conditions.set_table(_olap_table);
+    _conditions.set_tablet(_tablet);
     for (int i = 0; i < read_params.conditions.size(); ++i) {
         _conditions.append_condition(read_params.conditions[i]);
         ColumnPredicate* predicate = _parse_to_predicate(read_params.conditions[i]);
@@ -908,8 +908,8 @@ COMPARISON_PREDICATE_CONDITION_VALUE(ge, GreaterEqualPredicate)
 
 ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
     // TODO: not equal and not in predicate is not pushed down
-    int index = _olap_table->get_field_index(condition.column_name);
-    FieldInfo fi = _olap_table->tablet_schema()[index];
+    int index = _tablet->get_field_index(condition.column_name);
+    FieldInfo fi = _tablet->tablet_schema()[index];
     if (fi.aggregation != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
         return nullptr;
     }
@@ -1068,14 +1068,14 @@ OLAPStatus Reader::_init_load_bf_columns(const ReaderParams& read_params) {
     }
 
     // remove columns which have no bf stream
-    for (int i = 0; i < _olap_table->tablet_schema().size(); ++i) {
-        if (!_olap_table->tablet_schema()[i].is_bf_column) {
+    for (int i = 0; i < _tablet->tablet_schema().size(); ++i) {
+        if (!_tablet->tablet_schema()[i].is_bf_column) {
             _load_bf_columns.erase(i);
         }
     }
 
     // remove columns which have same value between start_key and end_key
-    int min_scan_key_len = _olap_table->tablet_schema().size();
+    int min_scan_key_len = _tablet->tablet_schema().size();
     for (int i = 0; i < read_params.start_key.size(); ++i) {
         if (read_params.start_key[i].size() < min_scan_key_len) {
             min_scan_key_len = read_params.start_key[i].size();
@@ -1108,9 +1108,9 @@ OLAPStatus Reader::_init_load_bf_columns(const ReaderParams& read_params) {
 
     // remove the max_equal_index column when it's not varchar
     // or longer than number of short key fields
-    FieldType type = _olap_table->get_field_type_by_index(max_equal_index);
+    FieldType type = _tablet->get_field_type_by_index(max_equal_index);
     if ((type != OLAP_FIELD_TYPE_VARCHAR && type != OLAP_FIELD_TYPE_HLL)
-            || max_equal_index + 1 > _olap_table->num_short_key_fields()) {
+            || max_equal_index + 1 > _tablet->num_short_key_fields()) {
         _load_bf_columns.erase(max_equal_index);
     }
 
@@ -1119,9 +1119,9 @@ OLAPStatus Reader::_init_load_bf_columns(const ReaderParams& read_params) {
 
 OLAPStatus Reader::_init_delete_condition(const ReaderParams& read_params) {
     if (read_params.reader_type != READER_CUMULATIVE_COMPACTION) {
-        _olap_table->obtain_header_rdlock();
-        OLAPStatus ret = _delete_handler.init(_olap_table, read_params.version.second);
-        _olap_table->release_header_lock();
+        _tablet->obtain_header_rdlock();
+        OLAPStatus ret = _delete_handler.init(_tablet, read_params.version.second);
+        _tablet->release_header_lock();
 
         return ret;
     } else {

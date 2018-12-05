@@ -39,7 +39,7 @@
 #include "http/http_client.h"
 #include "olap/olap_common.h"
 #include "olap/olap_engine.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 #include "olap/store.h"
 #include "olap/utils.h"
 #include "common/resource_tls.h"
@@ -118,12 +118,12 @@ void TaskWorkerPool::start() {
     // Init task pool and task workers
     switch (_task_worker_type) {
     case TaskWorkerType::CREATE_TABLE:
-        _worker_count = config::create_table_worker_count;
-        _callback_function = _create_table_worker_thread_callback;
+        _worker_count = config::create_tablet_worker_count;
+        _callback_function = _create_tablet_worker_thread_callback;
         break;
     case TaskWorkerType::DROP_TABLE:
-        _worker_count = config::drop_table_worker_count;
-        _callback_function = _drop_table_worker_thread_callback;
+        _worker_count = config::drop_tablet_worker_count;
+        _callback_function = _drop_tablet_worker_thread_callback;
         break;
     case TaskWorkerType::PUSH:
     case TaskWorkerType::REALTIME_PUSH:
@@ -148,8 +148,8 @@ void TaskWorkerPool::start() {
         _callback_function = _push_worker_thread_callback;
         break;
     case TaskWorkerType::ALTER_TABLE:
-        _worker_count = config::alter_table_worker_count;
-        _callback_function = _alter_table_worker_thread_callback;
+        _worker_count = config::alter_tablet_worker_count;
+        _callback_function = _alter_tablet_worker_thread_callback;
         break;
     case TaskWorkerType::CLONE:
         _worker_count = config::clone_worker_count;
@@ -177,7 +177,7 @@ void TaskWorkerPool::start() {
         break;
     case TaskWorkerType::REPORT_OLAP_TABLE:
         _worker_count = REPORT_OLAP_TABLE_WORKER_COUNT;
-        _callback_function = _report_olap_table_worker_thread_callback;
+        _callback_function = _report_tablet_worker_thread_callback;
         break;
     case TaskWorkerType::UPLOAD:
         _worker_count = config::upload_worker_count;
@@ -412,7 +412,7 @@ uint32_t TaskWorkerPool::_get_next_task_index(
     return index;
 }
 
-void* TaskWorkerPool::_create_table_worker_thread_callback(void* arg_this) {
+void* TaskWorkerPool::_create_tablet_worker_thread_callback(void* arg_this) {
     TaskWorkerPool* worker_pool_this = (TaskWorkerPool*)arg_this;
 
 #ifndef BE_TEST
@@ -436,7 +436,7 @@ void* TaskWorkerPool::_create_table_worker_thread_callback(void* arg_this) {
         TStatus task_status;
 
         OLAPStatus create_status =
-            worker_pool_this->_env->olap_engine()->create_table(create_tablet_req);
+            worker_pool_this->_env->olap_engine()->create_tablet(create_tablet_req);
         if (create_status != OLAPStatus::OLAP_SUCCESS) {
             OLAP_LOG_WARNING("create table failed. status: %d, signature: %ld",
                              create_status, agent_task_req.signature);
@@ -464,7 +464,7 @@ void* TaskWorkerPool::_create_table_worker_thread_callback(void* arg_this) {
     return (void*)0;
 }
 
-void* TaskWorkerPool::_drop_table_worker_thread_callback(void* arg_this) {
+void* TaskWorkerPool::_drop_tablet_worker_thread_callback(void* arg_this) {
     TaskWorkerPool* worker_pool_this = (TaskWorkerPool*)arg_this;
 
 #ifndef BE_TEST
@@ -487,7 +487,7 @@ void* TaskWorkerPool::_drop_table_worker_thread_callback(void* arg_this) {
         vector<string> error_msgs;
         TStatus task_status;
 
-        AgentStatus status = worker_pool_this->_drop_table(drop_tablet_req);
+        AgentStatus status = worker_pool_this->_drop_tablet(drop_tablet_req);
         if (status != DORIS_SUCCESS) {
             OLAP_LOG_WARNING(
                 "drop table failed! signature: %ld", agent_task_req.signature);
@@ -511,7 +511,7 @@ void* TaskWorkerPool::_drop_table_worker_thread_callback(void* arg_this) {
     return (void*)0;
 }
 
-void* TaskWorkerPool::_alter_table_worker_thread_callback(void* arg_this) {
+void* TaskWorkerPool::_alter_tablet_worker_thread_callback(void* arg_this) {
     TaskWorkerPool* worker_pool_this = (TaskWorkerPool*)arg_this;
 
 #ifndef BE_TEST
@@ -539,7 +539,7 @@ void* TaskWorkerPool::_alter_table_worker_thread_callback(void* arg_this) {
         switch (task_type) {
         case TTaskType::SCHEMA_CHANGE:
         case TTaskType::ROLLUP:
-            worker_pool_this->_alter_table(alter_tablet_request,
+            worker_pool_this->_alter_tablet(alter_tablet_request,
                                            signatrue,
                                            task_type,
                                            &finish_task_request);
@@ -557,7 +557,7 @@ void* TaskWorkerPool::_alter_table_worker_thread_callback(void* arg_this) {
     return (void*)0;
 }
 
-void TaskWorkerPool::_alter_table(
+void TaskWorkerPool::_alter_tablet(
         const TAlterTabletReq& alter_tablet_request,
         int64_t signature,
         const TTaskType::type task_type,
@@ -591,18 +591,18 @@ void TaskWorkerPool::_alter_table(
     // Because if delete failed create rollup will failed
     if (status == DORIS_SUCCESS) {
         // Check lastest schema change status
-        AlterTableStatus alter_table_status = _show_alter_table_status(
+        AlterTableStatus alter_tablet_status = _show_alter_tablet_status(
                 base_tablet_id,
                 base_schema_hash);
-        LOG(INFO) << "get alter table status:" << alter_table_status
+        LOG(INFO) << "get alter table status:" << alter_tablet_status
                   << ", signature:" << signature;
 
         // Delete failed alter table tablet file
-        if (alter_table_status == ALTER_TABLE_FAILED) {
+        if (alter_tablet_status == ALTER_TABLE_FAILED) {
             TDropTabletReq drop_tablet_req;
             drop_tablet_req.__set_tablet_id(alter_tablet_request.new_tablet_req.tablet_id);
             drop_tablet_req.__set_schema_hash(alter_tablet_request.new_tablet_req.tablet_schema.schema_hash);
-            status = _drop_table(drop_tablet_req);
+            status = _drop_tablet(drop_tablet_req);
 
             if (status != DORIS_SUCCESS) {
                 OLAP_LOG_WARNING("delete failed rollup file failed, status: %d, "
@@ -614,14 +614,14 @@ void TaskWorkerPool::_alter_table(
         }
 
         if (status == DORIS_SUCCESS) {
-            if (alter_table_status == ALTER_TABLE_FINISHED
-                    || alter_table_status == ALTER_TABLE_FAILED
-                    || alter_table_status == ALTER_TABLE_WAITING) {
+            if (alter_tablet_status == ALTER_TABLE_FINISHED
+                    || alter_tablet_status == ALTER_TABLE_FAILED
+                    || alter_tablet_status == ALTER_TABLE_WAITING) {
                 // Create rollup table
                 OLAPStatus ret = OLAPStatus::OLAP_SUCCESS;
                 switch (task_type) {
                 case TTaskType::ROLLUP:
-                    ret = _env->olap_engine()->create_rollup_table(alter_tablet_request);
+                    ret = _env->olap_engine()->create_rollup_tablet(alter_tablet_request);
                     break;
                 case TTaskType::SCHEMA_CHANGE:
                     ret = _env->olap_engine()->schema_change(alter_tablet_request);
@@ -1051,7 +1051,7 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
         TBackend src_host;
         // Check local tablet exist or not
         TabletSharedPtr tablet =
-                worker_pool_this->_env->olap_engine()->get_table(
+                worker_pool_this->_env->olap_engine()->get_tablet(
                 clone_req.tablet_id, clone_req.schema_hash);
 
         int64_t copy_size = 0;
@@ -1236,7 +1236,7 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                 TDropTabletReq drop_req;
                 drop_req.tablet_id = clone_req.tablet_id;
                 drop_req.schema_hash = clone_req.schema_hash;
-                AgentStatus drop_status = worker_pool_this->_drop_table(drop_req);
+                AgentStatus drop_status = worker_pool_this->_drop_tablet(drop_req);
                 if (drop_status != DORIS_SUCCESS) {
                     // just log
                     OLAP_LOG_WARNING(
@@ -1819,7 +1819,7 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
     return (void*)0;
 }
 
-void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) {
+void* TaskWorkerPool::_report_tablet_worker_thread_callback(void* arg_this) {
     TaskWorkerPool* worker_pool_this = (TaskWorkerPool*)arg_this;
 
     TReportRequest request;
@@ -1849,7 +1849,7 @@ void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) 
 #ifndef BE_TEST
             // wait for notifying until timeout
             OLAPEngine::get_instance()->wait_for_report_notify(
-                    config::report_olap_table_interval_seconds, true);
+                    config::report_tablet_interval_seconds, true);
             continue;
 #else
             return (void*)0;
@@ -1869,7 +1869,7 @@ void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) 
 #ifndef BE_TEST
         // wait for notifying until timeout
         OLAPEngine::get_instance()->wait_for_report_notify(
-                config::report_olap_table_interval_seconds, true);
+                config::report_tablet_interval_seconds, true);
     }
 #endif
 
@@ -2145,17 +2145,17 @@ void* TaskWorkerPool::_release_snapshot_thread_callback(void* arg_this) {
     return (void*)0;
 }
 
-AlterTableStatus TaskWorkerPool::_show_alter_table_status(
+AlterTableStatus TaskWorkerPool::_show_alter_tablet_status(
         TTabletId tablet_id,
         TSchemaHash schema_hash) {
-    AlterTableStatus alter_table_status =
-            _env->olap_engine()->show_alter_table_status(tablet_id, schema_hash);
-    return alter_table_status;
+    AlterTableStatus alter_tablet_status =
+            _env->olap_engine()->show_alter_tablet_status(tablet_id, schema_hash);
+    return alter_tablet_status;
 }
 
-AgentStatus TaskWorkerPool::_drop_table(const TDropTabletReq& req) {
+AgentStatus TaskWorkerPool::_drop_tablet(const TDropTabletReq& req) {
     AgentStatus status = DORIS_SUCCESS;
-    OLAPStatus drop_status = _env->olap_engine()->drop_table(req.tablet_id, req.schema_hash);
+    OLAPStatus drop_status = _env->olap_engine()->drop_tablet(req.tablet_id, req.schema_hash);
     if (drop_status != OLAP_SUCCESS && drop_status != OLAP_ERR_TABLE_NOT_FOUND) {
         status = DORIS_ERROR;
     }
@@ -2254,7 +2254,7 @@ AgentStatus TaskWorkerPool::_move_dir(
      bool overwrite,
      std::vector<std::string>* error_msgs) {
 
-    TabletSharedPtr tablet = _env->olap_engine()->get_table(
+    TabletSharedPtr tablet = _env->olap_engine()->get_tablet(
                 tablet_id, schema_hash);
     if (tablet.get() == NULL) {
         LOG(INFO) << "failed to get tablet. tablet_id:" << tablet_id

@@ -23,7 +23,7 @@
 #include <fstream>
 
 #include "olap/column_data.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
 #include "olap/utils.h"
@@ -38,9 +38,9 @@ namespace doris {
 #define TABLE_PARAM_VALIDATE() \
     do { \
         if (!_index_loaded) { \
-            OLAP_LOG_WARNING("fail to find, index is not loaded. [table=%ld schema_hash=%d]", \
-                    _table->tablet_id(), \
-                    _table->schema_hash()); \
+            OLAP_LOG_WARNING("fail to find, index is not loaded. [tablet=%ld schema_hash=%d]", \
+                    _tablet->tablet_id(), \
+                    _tablet->schema_hash()); \
             return OLAP_ERR_NOT_INITED; \
         } \
     } while (0);
@@ -61,9 +61,9 @@ namespace doris {
         } \
     } while (0);
 
-SegmentGroup::SegmentGroup(OLAPTable* table, Version version, VersionHash version_hash,
+SegmentGroup::SegmentGroup(Tablet* tablet, Version version, VersionHash version_hash,
                      bool delete_flag, int32_t segment_group_id, int32_t num_segments)
-      : _table(table),
+      : _tablet(tablet),
         _version(version),
         _version_hash(version_hash),
         _delete_flag(delete_flag),
@@ -81,8 +81,8 @@ SegmentGroup::SegmentGroup(OLAPTable* table, Version version, VersionHash versio
     _new_segment_created = false;
     _empty = false;
 
-    const RowFields& tablet_schema = _table->tablet_schema();
-    for (size_t i = 0; i < _table->num_short_key_fields(); ++i) {
+    const RowFields& tablet_schema = _tablet->tablet_schema();
+    for (size_t i = 0; i < _tablet->num_short_key_fields(); ++i) {
         _short_key_info_list.push_back(tablet_schema[i]);
         _short_key_length += tablet_schema[i].index_length + 1;// 1 for null byte
         if (tablet_schema[i].type == OLAP_FIELD_TYPE_CHAR ||
@@ -94,10 +94,10 @@ SegmentGroup::SegmentGroup(OLAPTable* table, Version version, VersionHash versio
     }
 }
 
-SegmentGroup::SegmentGroup(OLAPTable* table, bool delete_flag,
+SegmentGroup::SegmentGroup(Tablet* tablet, bool delete_flag,
                      int32_t segment_group_id, int32_t num_segments, bool is_pending,
                      TPartitionId partition_id, TTransactionId transaction_id)
-    : _table(table), _delete_flag(delete_flag),
+    : _tablet(tablet), _delete_flag(delete_flag),
       _segment_group_id(segment_group_id), _num_segments(num_segments),
       _is_pending(is_pending), _partition_id(partition_id),
       _transaction_id(transaction_id)
@@ -115,8 +115,8 @@ SegmentGroup::SegmentGroup(OLAPTable* table, bool delete_flag,
     _new_segment_created = false;
     _empty = false;
 
-    const RowFields& tablet_schema = _table->tablet_schema();
-    for (size_t i = 0; i < _table->num_short_key_fields(); ++i) {
+    const RowFields& tablet_schema = _tablet->tablet_schema();
+    for (size_t i = 0; i < _tablet->num_short_key_fields(); ++i) {
         _short_key_info_list.push_back(tablet_schema[i]);
         _short_key_length += tablet_schema[i].index_length + 1;// 1 for null byte
         if (tablet_schema[i].type == OLAP_FIELD_TYPE_CHAR ||
@@ -141,17 +141,17 @@ SegmentGroup::~SegmentGroup() {
 
 string SegmentGroup::construct_index_file_path(int32_t segment_group_id, int32_t segment) const {
     if (_is_pending) {
-        return _table->construct_pending_index_file_path(_transaction_id, _segment_group_id, segment);
+        return _tablet->construct_pending_index_file_path(_transaction_id, _segment_group_id, segment);
     } else {
-        return _table->construct_index_file_path(_version, _version_hash, _segment_group_id, segment);
+        return _tablet->construct_index_file_path(_version, _version_hash, _segment_group_id, segment);
     }
 }
 
 string SegmentGroup::construct_data_file_path(int32_t segment_group_id, int32_t segment) const {
     if (_is_pending) {
-        return _table->construct_pending_data_file_path(_transaction_id, segment_group_id, segment);
+        return _tablet->construct_pending_data_file_path(_transaction_id, segment_group_id, segment);
     } else {
-        return _table->construct_data_file_path(_version, _version_hash, segment_group_id, segment);
+        return _tablet->construct_data_file_path(_version, _version_hash, segment_group_id, segment);
     }
 }
 
@@ -200,24 +200,20 @@ void SegmentGroup::delete_all_files() {
 
 
 OLAPStatus SegmentGroup::add_column_statistics_for_linked_schema_change(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields,
-        const SchemaMapping& schema_mapping) {
-    //When add rollup table, the base table index maybe empty
+        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields) {
+    //When add rollup tablet, the base tablet index maybe empty
     if (column_statistic_fields.size() == 0) {
         return OLAP_SUCCESS;
     }
 
-    //1 for LinkedSchemaChange, the rollup table keys order is the same as base table
-    //2 when user add a new key column to base table, _table->num_key_fields() size will
-    // greater than _column_statistics size
-    int num_new_keys = 0;
-    for (size_t i = 0; i < _table->num_key_fields(); ++i) {
-        const FieldInfo& column_schema = _table->tablet_schema()[i];
-
-        WrapperField* first = WrapperField::create(column_schema);
+    //Should use _tablet->num_key_fields(), not column_statistic_fields.size()
+    //as rollup tablet num_key_fields will less than base tablet column_statistic_fields.size().
+    //For LinkedSchemaChange, the rollup tablet keys order is the same as base tablet
+    for (size_t i = 0; i < _tablet->num_key_fields(); ++i) {
+        WrapperField* first = WrapperField::create(_tablet->tablet_schema()[i]);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
 
-        WrapperField* second = WrapperField::create(column_schema);
+        WrapperField* second = WrapperField::create(_tablet->tablet_schema()[i]);
         DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
 
         //for new key column, use default value to fill into column_statistics
@@ -238,13 +234,13 @@ OLAPStatus SegmentGroup::add_column_statistics_for_linked_schema_change(
 
 OLAPStatus SegmentGroup::add_column_statistics(
         const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields) {
-    DCHECK(column_statistic_fields.size() == _table->num_key_fields());
+    DCHECK(column_statistic_fields.size() == _tablet->num_key_fields());
     for (size_t i = 0; i < column_statistic_fields.size(); ++i) {
-        WrapperField* first = WrapperField::create(_table->tablet_schema()[i]);
+        WrapperField* first = WrapperField::create(_tablet->tablet_schema()[i]);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
         first->copy(column_statistic_fields[i].first);
 
-        WrapperField* second = WrapperField::create(_table->tablet_schema()[i]);
+        WrapperField* second = WrapperField::create(_tablet->tablet_schema()[i]);
         DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
         second->copy(column_statistic_fields[i].second);
 
@@ -256,16 +252,16 @@ OLAPStatus SegmentGroup::add_column_statistics(
 OLAPStatus SegmentGroup::add_column_statistics(
         std::vector<std::pair<std::string, std::string> > &column_statistic_strings,
         std::vector<bool> &null_vec) {
-    DCHECK(column_statistic_strings.size() == _table->num_key_fields());
+    DCHECK(column_statistic_strings.size() == _tablet->num_key_fields());
     for (size_t i = 0; i < column_statistic_strings.size(); ++i) {
-        WrapperField* first = WrapperField::create(_table->tablet_schema()[i]);
+        WrapperField* first = WrapperField::create(_tablet->tablet_schema()[i]);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i ;
         RETURN_NOT_OK(first->from_string(column_statistic_strings[i].first));
         if (null_vec[i]) {
             //[min, max] -> [NULL, max]
             first->set_null();
         }
-        WrapperField* second = WrapperField::create(_table->tablet_schema()[i]);
+        WrapperField* second = WrapperField::create(_tablet->tablet_schema()[i]);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i ;
         RETURN_NOT_OK(second->from_string(column_statistic_strings[i].second));
         _column_statistics.push_back(std::make_pair(first, second));
@@ -290,14 +286,14 @@ OLAPStatus SegmentGroup::load() {
     }
 
     if (_index.init(_short_key_length, _new_short_key_length,
-                    _table->num_short_key_fields(), &_short_key_info_list) != OLAP_SUCCESS) {
+                    _tablet->num_short_key_fields(), &_short_key_info_list) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to create MemIndex. [num_segment=%d]", _num_segments);
         return res;
     }
 
     // for each segment
     for (uint32_t seg_id = 0; seg_id < _num_segments; ++seg_id) {
-        if (COLUMN_ORIENTED_FILE == _table->data_file_type()) {
+        if (COLUMN_ORIENTED_FILE == _tablet->data_file_type()) {
             string seg_path = construct_data_file_path(_segment_group_id, seg_id);
             if (OLAP_SUCCESS != (res = load_pb(seg_path.c_str(), seg_id))) {
                 LOG(WARNING) << "failed to load pb structures. [seg_path='" << seg_path << "']";
@@ -526,7 +522,7 @@ OLAPStatus SegmentGroup::add_segment() {
     index_header->set_end_version(_version.second);
     index_header->set_cumulative_version_hash(_version_hash);
     index_header->set_segment(_num_segments - 1);
-    index_header->set_num_rows_per_block(_table->num_rows_per_row_block());
+    index_header->set_num_rows_per_block(_tablet->num_rows_per_row_block());
     index_header->set_delete_flag(_delete_flag);
     index_header->set_null_supported(true);
 
@@ -538,7 +534,7 @@ OLAPStatus SegmentGroup::add_segment() {
             return OLAP_ERR_MALLOC_ERROR;
         }
 
-        if (_current_index_row.init(_table->tablet_schema()) != OLAP_SUCCESS) {
+        if (_current_index_row.init(_tablet->tablet_schema()) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("init _current_index_row fail.");
             return OLAP_ERR_INIT_FAILED;
         }
@@ -657,13 +653,13 @@ OLAPStatus SegmentGroup::finalize_segment(uint32_t data_segment_size, int64_t nu
 void SegmentGroup::sync() {
     if (_current_file_handler.sync() == -1) {
         OLAP_LOG_WARNING("fail to sync file.[err=%m]");
-        _table->set_io_error();
+        _tablet->set_io_error();
     }
 }
 
 void SegmentGroup::_check_io_error(OLAPStatus res) {
     if (is_io_error(res)) {
-        _table->set_io_error();
+        _tablet->set_io_error();
     }
 }
 

@@ -173,6 +173,8 @@ ${DORIS_TEST_BINARY_DIR}/exec/es_scan_reader_test
 ${DORIS_TEST_BINARY_DIR}/exec/es_query_builder_test
 ${DORIS_TEST_BINARY_DIR}/exec/olap_table_info_test
 ${DORIS_TEST_BINARY_DIR}/exec/olap_table_sink_test
+${DORIS_TEST_BINARY_DIR}/exec/tablet_info_test
+${DORIS_TEST_BINARY_DIR}/exec/tablet_sink_test
 
 ## Running runtime Unittest
 ${DORIS_TEST_BINARY_DIR}/runtime/fragment_mgr_test
@@ -209,7 +211,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/in_list_predicate_test
 ${DORIS_TEST_BINARY_DIR}/olap/null_predicate_test
 ${DORIS_TEST_BINARY_DIR}/olap/file_helper_test
 ${DORIS_TEST_BINARY_DIR}/olap/file_utils_test
-${DORIS_TEST_BINARY_DIR}/olap/delete_handler_test
+#${DORIS_TEST_BINARY_DIR}/olap/delete_handler_test
 ${DORIS_TEST_BINARY_DIR}/olap/column_reader_test
 ${DORIS_TEST_BINARY_DIR}/olap/row_cursor_test
 ${DORIS_TEST_BINARY_DIR}/olap/skiplist_test

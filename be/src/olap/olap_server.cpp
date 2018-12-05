@@ -46,7 +46,7 @@ OLAPStatus OLAPEngine::_start_bg_worker() {
             _garbage_sweeper_thread_callback(nullptr);
         });
 
-    // start thread for monitoring the table with io error
+    // start thread for monitoring the tablet with io error
     _disk_stat_monitor_thread = std::thread(
         [this] {
             _disk_stat_monitor_thread_callback(nullptr);
