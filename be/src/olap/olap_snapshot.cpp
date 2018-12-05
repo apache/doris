@@ -396,6 +396,14 @@ OLAPStatus OLAPEngine::_create_snapshot_files(
             for (const VersionEntity& entity : shortest_versions) {
                 if (entity.version.second == request.version) {
                     if (entity.version.first != request.version) {
+                        // visible version in fe is 900
+                        // A need to clone 900 from B, but B's last version is 901, and 901 is not a visible version
+                        // and 901 will be reverted
+                        // since 900 is not the last version in B, 900 maybe compacted with other versions
+                        // if A only get 900, then A's last version will be a comulative delta
+                        // many codes in be assumes that the last version is a single delta
+                        // both clone and backup restore depend on this logic
+                        // TODO (yiguolei) fix it in the future
                         res = _append_single_delta(request, store);
                         if (res != OLAP_SUCCESS) {
                             OLAP_LOG_WARNING("fail to append single delta. [res=%d]", res);
@@ -586,7 +594,11 @@ OLAPStatus OLAPEngine::_append_single_delta(
         empty_push.version_hash = 0;
         
         PushHandler handler;
-        res = handler.process(tablet, empty_push, PUSH_NORMAL, NULL);
+        // res = handler.process(tablet, empty_push, PUSH_NORMAL, NULL);
+        // TODO (yiguolei) should create a empty version, call create new rowset meta and set version
+        // just return success to skip push a empty rowset into the snapshot since has alreay removed
+        // batch process code from push handler
+        res = OLAP_SUCCESS;
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to push empty version. [res=%d version=%d]",
                              res, empty_push.version);
