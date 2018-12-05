@@ -2216,7 +2216,7 @@ TEST_F(TestColumn, SeekDecimalColumnWithPresent) {
 }
 
 TEST_F(TestColumn, VectorizedLargeIntColumnWithoutPresent) {
-    // init table schema
+    // init tablet schema
     std::vector<FieldInfo> tablet_schema;
     FieldInfo field_info;
     SetFieldInfo(field_info,
@@ -2280,7 +2280,7 @@ TEST_F(TestColumn, VectorizedLargeIntColumnWithoutPresent) {
 }
 
 TEST_F(TestColumn, VectorizedLargeIntColumnWithPresent) {
-    // init table schema
+    // init tablet schema
     std::vector<FieldInfo> tablet_schema;
     FieldInfo field_info;
     SetFieldInfo(field_info,
@@ -2359,7 +2359,7 @@ TEST_F(TestColumn, VectorizedLargeIntColumnWithPresent) {
 }
 
 TEST_F(TestColumn, SkipLargeIntColumnWithPresent) {
-    // init table schema
+    // init tablet schema
     std::vector<FieldInfo> tablet_schema;
     FieldInfo field_info;
     SetFieldInfo(field_info,

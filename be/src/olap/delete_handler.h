@@ -26,7 +26,7 @@
 #include "olap/field.h"
 #include "olap/olap_cond.h"
 #include "olap/olap_define.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 #include "olap/row_cursor.h"
 
 namespace doris {
@@ -35,16 +35,16 @@ namespace doris {
 // *  存储删除条件：
 //    OLAPStatus res;
 //    DeleteConditionHandler cond_handler;
-//    res = cond_handler.store_cond(olap_table, condition_version, delete_condition);
+//    res = cond_handler.store_cond(tablet, condition_version, delete_condition);
 // *  移除删除条件
-//    res = cond_handler.delete_cond(olap_table, condition_version, true);
+//    res = cond_handler.delete_cond(tablet, condition_version, true);
 //    或者
-//    res = cond_handler.delete_cond(olap_table, condition_version, false);
+//    res = cond_handler.delete_cond(tablet, condition_version, false);
 // *  将一个table上现存有的所有删除条件打印到log中
-//    res = cond_handler.log_conds(olap_table);
+//    res = cond_handler.log_conds(tablet);
 // 注:
 //    *  在调用这个类存储和移除删除条件时，需要先对Header文件加写锁；
-//       并在调用完成之后调用olap_table->save_header()，然后再释放Header文件的锁
+//       并在调用完成之后调用tablet->save_header()，然后再释放Header文件的锁
 //    *  在调用log_conds()的时候，只需要加读锁
 class DeleteConditionHandler {
 public:
@@ -55,7 +55,7 @@ public:
 
     // 检查cond表示的删除条件是否符合要求；
     // 如果不符合要求，返回OLAP_ERR_DELETE_INVALID_CONDITION；符合要求返回OLAP_SUCCESS
-    OLAPStatus check_condition_valid(TabletSharedPtr table, const TCondition& cond);
+    OLAPStatus check_condition_valid(TabletSharedPtr tablet, const TCondition& cond);
 
     // 存储指定版本号的删除条件到Header文件中。因此，调用之前需要对Header文件加写锁
     //
@@ -68,7 +68,7 @@ public:
     //     * OLAP_ERR_DELETE_INVALID_PARAMETERS：函数参数不符合要求
     //     * OLAP_ERR_DELETE_INVALID_CONDITION：del_condition不符合要求
     OLAPStatus store_cond(
-            TabletSharedPtr table,
+            TabletSharedPtr tablet,
             const int32_t version,
             const std::vector<TCondition>& conditions);
 
@@ -90,20 +90,20 @@ public:
     //         * 这个表没有指定版本号的删除条件
     //     * OLAP_ERR_DELETE_INVALID_PARAMETERS：函数参数不符合要求
     OLAPStatus delete_cond(
-            TabletSharedPtr table, const int32_t version, bool delete_smaller_version_conditions);
+            TabletSharedPtr tablet, const int32_t version, bool delete_smaller_version_conditions);
 
     // 将一个olap engine的表上存有的所有删除条件打印到log中。调用前只需要给Header文件加读锁
     //
     // 输入参数：
-    //     table: 要打印删除条件的olap engine表
+    //     tablet: 要打印删除条件的olap engine表
     // 返回值：
     //     OLAP_SUCCESS：调用成功
-    OLAPStatus log_conds(TabletSharedPtr table);
+    OLAPStatus log_conds(TabletSharedPtr tablet);
 private:
 
     // 检查指定的删除条件版本是否符合要求；
     // 如果不符合要求，返回OLAP_ERR_DELETE_INVALID_VERSION；符合要求返回OLAP_SUCCESS
-    OLAPStatus _check_version_valid(TabletSharedPtr table, const int32_t filter_version);
+    OLAPStatus _check_version_valid(TabletSharedPtr tablet, const int32_t filter_version);
 
     // 检查指定版本的删除条件是否已经存在。如果存在，返回指定版本删除条件的数组下标；不存在返回-1
     int _check_whether_condition_exist(TabletSharedPtr, int cond_version);
@@ -122,7 +122,7 @@ struct DeleteConditions {
 // 1. 使用一个版本号来初始化handler
 //    OLAPStatus res;
 //    DeleteHandler delete_handler;
-//    res = delete_handler.init(olap_table, condition_version);
+//    res = delete_handler.init(tablet, condition_version);
 // 2. 使用这个handler来判定一条数据是否符合删除条件
 //    bool filter_data;
 //    filter_data = delete_handler.is_filter_data(data_version, row_cursor);
@@ -148,13 +148,13 @@ public:
     // 调用前需要先对Header文件加读锁
     //
     // 输入参数：
-    //     * olap_table: 删除条件和数据所在的table
+    //     * tablet: 删除条件和数据所在的tablet
     //     * version: 要取出的删除条件版本号
     // 返回值：
     //     * OLAP_SUCCESS: 调用成功
     //     * OLAP_ERR_DELETE_INVALID_PARAMETERS: 参数不符合要求
     //     * OLAP_ERR_MALLOC_ERROR: 在填充_del_conds时，分配内存失败
-    OLAPStatus init(TabletSharedPtr olap_table, int32_t version);
+    OLAPStatus init(TabletSharedPtr tablet, int32_t version);
 
     // 判定一条数据是否符合删除条件
     //

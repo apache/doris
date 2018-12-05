@@ -25,9 +25,9 @@ namespace doris {
 
 class MockCommandExecutor : public OLAPEngine {
 public:
-    MOCK_METHOD1(create_table, OLAPStatus(const TCreateTabletReq& request));
-    MOCK_METHOD2(get_table, TabletSharedPtr(TTabletId tablet_id, TSchemaHash schema_hash));
-    MOCK_METHOD1(drop_table, OLAPStatus(const TDropTabletReq& request));
+    MOCK_METHOD1(create_tablet, OLAPStatus(const TCreateTabletReq& request));
+    MOCK_METHOD2(get_tablet, TabletSharedPtr(TTabletId tablet_id, TSchemaHash schema_hash));
+    MOCK_METHOD1(drop_tablet, OLAPStatus(const TDropTabletReq& request));
     MOCK_METHOD2(
             push,
             OLAPStatus(const TPushReq& request, std::vector<TTabletInfo>* tablet_info_vec));
@@ -35,10 +35,10 @@ public:
     MOCK_METHOD1(
             report_all_tablets_info,
             OLAPStatus(std::map<TTabletId, TTablet>* tablets_info));
-    MOCK_METHOD1(create_rollup_table, OLAPStatus(const TAlterTabletReq& request));
+    MOCK_METHOD1(create_rollup_tablet, OLAPStatus(const TAlterTabletReq& request));
     MOCK_METHOD1(schema_change, OLAPStatus(const TAlterTabletReq& request));
     MOCK_METHOD2(
-            show_alter_table_status,
+            show_alter_tablet_status,
             AlterTableStatus(TTabletId tablet_id, TSchemaHash schema_hash));
     MOCK_METHOD3(
             make_snapshot,
@@ -84,7 +84,7 @@ public:
                     TVersionHash version_hash,
                     uint32_t* checksum));
     MOCK_METHOD1(reload_root_path, OLAPStatus(const std::string& root_paths));
-    MOCK_METHOD2(check_table_exist, bool(TTabletId tablet_id, TSchemaHash schema_hash));
+    MOCK_METHOD2(check_tablet_exist, bool(TTabletId tablet_id, TSchemaHash schema_hash));
     MOCK_METHOD1(
             get_all_root_path_info,
             OLAPStatus(std::vector<RootPathInfo>* root_paths_info));

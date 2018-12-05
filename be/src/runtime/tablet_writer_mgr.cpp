@@ -22,7 +22,7 @@
 #include <utility>
 
 #include "common/object_pool.h"
-#include "exec/olap_table_info.h"
+#include "exec/tablet_info.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/row_batch.h"

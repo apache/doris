@@ -34,7 +34,7 @@ static const uint32_t MIN_FILTER_BLOCK_NUM = 10;
 
 SegmentReader::SegmentReader(
         const std::string file,
-        OLAPTable* table,
+        Tablet* tablet,
         SegmentGroup* segment_group,
         uint32_t segment_id,
         const std::vector<uint32_t>& used_columns,
@@ -46,7 +46,7 @@ SegmentReader::SegmentReader(
         RuntimeState* runtime_state,
         OlapReaderStatistics* stats) :
         _file_name(file),
-        _table(table),
+        _tablet(tablet),
         _segment_group(segment_group),
         _segment_id(segment_id),
         _conditions(conditions),
@@ -187,7 +187,7 @@ OLAPStatus SegmentReader::_set_decompressor() {
 OLAPStatus SegmentReader::_set_segment_info() {
     _num_rows_in_block = _header_message().num_rows_per_block();
     if (_num_rows_in_block == 0) {
-        _num_rows_in_block = _table->num_rows_per_row_block();
+        _num_rows_in_block = _tablet->num_rows_per_row_block();
     }
 
     _set_column_map();
@@ -332,20 +332,20 @@ OLAPStatus SegmentReader::get_block(
 
 void SegmentReader::_set_column_map() {
     _encodings_map.clear();
-    _table_id_to_unique_id_map.clear();
-    _unique_id_to_table_id_map.clear();
+    _tablet_id_to_unique_id_map.clear();
+    _unique_id_to_tablet_id_map.clear();
     _unique_id_to_segment_id_map.clear();
 
     for (ColumnId table_column_id : _used_columns) {
         ColumnId unique_column_id = tablet_schema()[table_column_id].unique_id;
-        _table_id_to_unique_id_map[table_column_id] = unique_column_id;
-        _unique_id_to_table_id_map[unique_column_id] = table_column_id;
+        _tablet_id_to_unique_id_map[table_column_id] = unique_column_id;
+        _unique_id_to_tablet_id_map[unique_column_id] = table_column_id;
     }
 
     for (ColumnId table_column_id : _load_bf_columns) {
         ColumnId unique_column_id = tablet_schema()[table_column_id].unique_id;
-        _table_id_to_unique_id_map[table_column_id] = unique_column_id;
-        _unique_id_to_table_id_map[unique_column_id] = table_column_id;
+        _tablet_id_to_unique_id_map[table_column_id] = unique_column_id;
+        _unique_id_to_tablet_id_map[unique_column_id] = table_column_id;
     }
 
     size_t segment_column_size = _header_message().column_size();
@@ -353,7 +353,7 @@ void SegmentReader::_set_column_map() {
             ++segment_column_id) {
         // 如果找得到，建立映射表
         ColumnId unique_column_id = _header_message().column(segment_column_id).unique_id();
-        if (_unique_id_to_table_id_map.find(unique_column_id) != _unique_id_to_table_id_map.end()) {
+        if (_unique_id_to_tablet_id_map.find(unique_column_id) != _unique_id_to_tablet_id_map.end()) {
             _unique_id_to_segment_id_map[unique_column_id] = segment_column_id;
             // encoding 应该和segment schema序一致。
             _encodings_map[unique_column_id] =
@@ -364,12 +364,12 @@ void SegmentReader::_set_column_map() {
 
 OLAPStatus SegmentReader::_pick_columns() {
     for (uint32_t i : _used_columns) {
-        ColumnId unique_column_id = _table_id_to_unique_id_map[i];
+        ColumnId unique_column_id = _tablet_id_to_unique_id_map[i];
         _include_columns.insert(unique_column_id);
     }
 
     for (uint32_t i : _load_bf_columns) {
-        ColumnId unique_column_id = _table_id_to_unique_id_map[i];
+        ColumnId unique_column_id = _tablet_id_to_unique_id_map[i];
         _include_bf_columns.insert(unique_column_id);
     }
 
@@ -403,7 +403,7 @@ OLAPStatus SegmentReader::_pick_delete_row_groups(uint32_t first_block, uint32_t
             bool del_not_satisfied = false;
             for (auto& i : delete_condition.del_cond->columns()) {
                 ColumnId table_column_id = i.first;
-                ColumnId unique_column_id = _table_id_to_unique_id_map[table_column_id];
+                ColumnId unique_column_id = _tablet_id_to_unique_id_map[table_column_id];
                 if (0 == _unique_id_to_segment_id_map.count(unique_column_id)) {
                     continue;
                 }
@@ -489,7 +489,7 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
     timer.reset();
 
     for (auto& i : _conditions->columns()) {
-        FieldAggregationMethod aggregation = _table->get_aggregation_by_index(i.first);
+        FieldAggregationMethod aggregation = _tablet->get_aggregation_by_index(i.first);
         bool is_continue = (aggregation == OLAP_FIELD_AGGREGATION_NONE
                 || (aggregation == OLAP_FIELD_AGGREGATION_REPLACE
                 && _segment_group->version().first == 0));
@@ -498,7 +498,7 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
         }
 
         ColumnId table_column_id = i.first;
-        ColumnId unique_column_id = _table_id_to_unique_id_map[table_column_id];
+        ColumnId unique_column_id = _tablet_id_to_unique_id_map[table_column_id];
         if (0 == _unique_id_to_segment_id_map.count(unique_column_id)) {
             continue;
         }
@@ -530,7 +530,7 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
     }
 
     for (uint32_t i : _load_bf_columns) {
-        FieldAggregationMethod aggregation = _table->get_aggregation_by_index(i);
+        FieldAggregationMethod aggregation = _tablet->get_aggregation_by_index(i);
         bool is_continue = (aggregation == OLAP_FIELD_AGGREGATION_NONE
                 || (aggregation == OLAP_FIELD_AGGREGATION_REPLACE
                 && _segment_group->version().first == 0));
@@ -539,7 +539,7 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
         }
 
         ColumnId table_column_id = i;
-        ColumnId unique_column_id = _table_id_to_unique_id_map[table_column_id];
+        ColumnId unique_column_id = _tablet_id_to_unique_id_map[table_column_id];
         if (0 == _unique_id_to_segment_id_map.count(unique_column_id)) {
             continue;
         }
@@ -630,8 +630,8 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
             continue;
         }
 
-        ColumnId table_column_id = _unique_id_to_table_id_map[unique_column_id];
-        FieldType type = _table->get_field_type_by_index(table_column_id);
+        ColumnId table_column_id = _unique_id_to_tablet_id_map[unique_column_id];
+        FieldType type = _tablet->get_field_type_by_index(table_column_id);
 
         char* stream_buffer = NULL;
         char key_buf[OLAP_LRU_CACHE_MAX_KEY_LENTH];
@@ -719,9 +719,9 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
             OLAP_LOG_WARNING("something wrong while reading index, expected=%lu, actual=%lu",
                     expected_blocks, _block_count);
             OLAP_LOG_WARNING("_header_message().number_of_rows()=%d,"
-                             "_header_message().num_rows_per_block()=%d, table='%s', version='%d-%d'",
+                             "_header_message().num_rows_per_block()=%d, tablet='%s', version='%d-%d'",
                              _header_message().number_of_rows(), _header_message().num_rows_per_block(),
-                             _segment_group->table()->full_name().c_str(),
+                             _segment_group->tablet()->full_name().c_str(),
                              _segment_group->version().first, _segment_group->version().second);
             LOG(WARNING) << "version:" << _segment_group->version().first << "-" << _segment_group->version().second;
             return OLAP_ERR_FILE_FORMAT_ERROR;
@@ -809,14 +809,14 @@ OLAPStatus SegmentReader::_read_all_data_streams(size_t* buffer_size) {
 }
 
 OLAPStatus SegmentReader::_create_reader(size_t* buffer_size) {
-    _column_readers.resize(_table->tablet_schema().size(), nullptr);
-    _column_indices.resize(_table->tablet_schema().size(), nullptr);
+    _column_readers.resize(_tablet->tablet_schema().size(), nullptr);
+    _column_indices.resize(_tablet->tablet_schema().size(), nullptr);
     for (auto table_column_id : _used_columns) {
-        ColumnId unique_column_id = _table_id_to_unique_id_map[table_column_id];
+        ColumnId unique_column_id = _tablet_id_to_unique_id_map[table_column_id];
         // 当前是不会出现table和segment的schema不一致的情况的
         std::unique_ptr<ColumnReader> reader(ColumnReader::create(table_column_id,
-                               _table->tablet_schema(),
-                               _unique_id_to_table_id_map,
+                               _tablet->tablet_schema(),
+                               _unique_id_to_tablet_id_map,
                                _unique_id_to_segment_id_map,
                                _encodings_map));
         if (reader == nullptr) {
@@ -858,14 +858,14 @@ OLAPStatus SegmentReader::_seek_to_block_directly(
         PositionProvider position(&_column_indices[cid]->entry(block_id));
         if (OLAP_SUCCESS != (res = _column_readers[cid]->seek(&position))) {
             if (OLAP_ERR_COLUMN_STREAM_EOF == res) {
-                VLOG(3) << "Stream EOF. tablet_id=" << _table->tablet_id()
+                VLOG(3) << "Stream EOF. tablet_id=" << _tablet->tablet_id()
                         << ", column_id=" << _column_readers[cid]->column_unique_id()
                         << ", block_id=" << block_id;
                 return OLAP_ERR_DATA_EOF;
             } else {
                 OLAP_LOG_WARNING("fail to seek to block. "
                         "[tablet_id=%ld column_id=%u block_id=%lu]",
-                        _table->tablet_id(), _column_readers[cid]->column_unique_id(), block_id);
+                        _tablet->tablet_id(), _column_readers[cid]->column_unique_id(), block_id);
                 return OLAP_ERR_COLUMN_SEEK_ERROR;
             }
         }

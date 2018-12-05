@@ -37,7 +37,7 @@
 #include "olap/olap_cond.h"
 #include "olap/olap_define.h"
 #include "olap/olap_engine.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 #include "olap/row_cursor.h"
 #include "runtime/runtime_state.h"
 #include "runtime/mem_pool.h"
@@ -55,7 +55,7 @@ class ColumnReader;
 class SegmentReader {
 public:
     explicit SegmentReader(const std::string file,
-            OLAPTable* table,
+            Tablet* tablet,
             SegmentGroup* segment_group,
             uint32_t segment_id,
             const std::vector<uint32_t>& return_columns,
@@ -232,7 +232,7 @@ private:
 
     // 获取当前的table级schema。
     inline const std::vector<FieldInfo>& tablet_schema() {
-        return _table->tablet_schema();
+        return _tablet->tablet_schema();
     }
 
     inline const ColumnDataHeaderMessage& _header_message() {
@@ -277,7 +277,7 @@ private:
     std::string _file_name;                // 文件名
     doris::FileHandler _file_handler;             // 文件handler
 
-    OLAPTable* _table;
+    Tablet* _tablet;
     SegmentGroup* _segment_group;
     uint32_t _segment_id;
 
@@ -317,8 +317,8 @@ private:
     UniqueIdSet _include_columns;           // 用于判断该列是不是被包含
     UniqueIdSet _load_bf_columns;
     UniqueIdSet _include_bf_columns;
-    UniqueIdToColumnIdMap _table_id_to_unique_id_map; // table id到unique id的映射
-    UniqueIdToColumnIdMap _unique_id_to_table_id_map; // unique id到table id的映射
+    UniqueIdToColumnIdMap _tablet_id_to_unique_id_map; // tablet id到unique id的映射
+    UniqueIdToColumnIdMap _unique_id_to_tablet_id_map; // unique id到tablet id的映射
     UniqueIdToColumnIdMap _unique_id_to_segment_id_map; // uniqid到segment id的映射
 
     std::map<ColumnId, StreamIndexReader*> _indices;

@@ -22,7 +22,7 @@
 #include <memory>
 
 #include "exec/exec_node.h"
-#include "exec/olap_table_sink.h"
+#include "exec/tablet_sink.h"
 #include "exprs/expr.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/data_stream_sender.h"

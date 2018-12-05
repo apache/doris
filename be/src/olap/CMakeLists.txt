@@ -59,7 +59,7 @@ add_library(Olap STATIC
     olap_meta.cpp
     olap_server.cpp
     olap_snapshot.cpp
-    olap_table.cpp
+    tablet.cpp
     options.cpp
     out_stream.cpp
     push_handler.cpp

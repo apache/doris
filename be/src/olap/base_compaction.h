@@ -23,7 +23,7 @@
 
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/olap_table.h"
+#include "olap/tablet.h"
 
 namespace doris {
 
@@ -47,7 +47,7 @@ public:
     // 2. 如果满足，计算需要合并哪些版本
     //
     // 输入参数：
-    // - table: 待执行BE的OLAPTable的智能指针
+    // - tablet: 待执行BE的Tablet的智能指针
     // - is_manual_trigger
     //   - 如果为true，则是手动执行START_BASE_COMPACTION命令
     //   - 如果为false，则是根据BE策略来执行
@@ -55,7 +55,7 @@ public:
     // 返回值：
     // - 如果init执行成功，即可以执行BE，则返回OLAP_SUCCESS；
     // - 其它情况下，返回相应的错误码
-    OLAPStatus init(TabletSharedPtr table, bool is_manual_trigger = false);
+    OLAPStatus init(TabletSharedPtr tablet, bool is_manual_trigger = false);
 
     // 执行BaseCompaction, 可能会持续很长时间
     //
@@ -133,7 +133,7 @@ private:
         unused_versions->clear();
 
         std::vector<Version> all_versions;
-        _table->list_versions(&all_versions);
+        _tablet->list_versions(&all_versions);
         for (std::vector<Version>::const_iterator iter = all_versions.begin();
                 iter != all_versions.end(); ++iter) {
             if (iter->first <= _new_base_version.second) {
@@ -148,7 +148,7 @@ private:
     }
 
     bool _try_base_compaction_lock() {
-        if (_table->try_base_compaction_lock()) {
+        if (_tablet->try_base_compaction_lock()) {
             _base_compaction_locked = true;
             return true;
         }
@@ -158,13 +158,13 @@ private:
 
     void _release_base_compaction_lock() {
         if (_base_compaction_locked) {
-            _table->release_base_compaction_lock();
+            _tablet->release_base_compaction_lock();
             _base_compaction_locked = false;
         }
     }
 
     // 需要进行操作的Table指针
-    TabletSharedPtr _table;
+    TabletSharedPtr _tablet;
     // 新base的version
     Version _new_base_version;
     // 现有base的version

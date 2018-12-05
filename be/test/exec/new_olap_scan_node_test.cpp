@@ -78,12 +78,12 @@ public:
         _olap_header = new
         OLAPHeader("./testrun/case3/clickuserid_online_userid_type_planid_unitid_winfoid.hdr");
         _olap_header->load();
-        _olap_table = new OLAPTable(_olap_header);
-        _olap_table->load_indices();
-        _olap_table->_root_path_name = "./testrun/case3";
+        tablet = new Tablet(_olap_header);
+        tablet->load_indices();
+        tablet->_root_path_name = "./testrun/case3";
 
         TableDescription description("fc", "clickuserid_online", "userid_type_planid_unitid_winfoid");
-        OLAPEngine::get_instance()->add_table(description, _olap_table);
+        OLAPEngine::get_instance()->add_table(description, tablet);
 
         // init session manager
         SessionManager::get_instance()->init();
@@ -273,7 +273,7 @@ public:
 
 private:
     OLAPHeader* _olap_header;
-    OLAPTable* _olap_table;
+    Tablet* tablet;
 
     TPlanNode _tnode;
     ObjectPool _obj_pool;
