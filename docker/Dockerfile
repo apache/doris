@@ -22,13 +22,13 @@ MAINTAINER tangxiaoqing214445
 ENV DEFAULT_DIR /var/local
 
 # change .bashrc
-RUN echo -e "if [ ! -d "/var/local/incubator-doris/thirdparty/installed" ]; then\n\tmkdir /var/local/incubator-doris/thirdparty/installed\n\tcp -rf /var/local/thirdparty/installed/*  /var/local/incubator-doris/thirdparty/installed/\nfi" >> /root/.bashrc
+RUN echo -e "if [ ! -d "/var/local/incubator-doris/thirdparty/installed" ]; then\n\tmkdir /var/local/incubator-doris/thirdparty/installed\n\tcp -rf /var/local/thirdparty/installed/*  /var/local/incubator-doris/thirdparty/installed/\n\texport JAVA_HOME=/var/local/incubator-doris/thirdparty/installed/jdk1.8.0_131\n\tln -s /var/local/incubator-doris/thirdparty/installed/bin/thrift /usr/bin/thrift\n\tln -s /var/local/incubator-doris/thirdparty/installed/jdk1.8.0_131/bin/java /usr/bin/java \nfi" >> /root/.bashrc
 
 ARG GCC_VERSION=7.3.0
 ARG GCC_URL=https://mirrors.ustc.edu.cn/gnu/gcc/gcc-${GCC_VERSION}
 
 # install dependencies and build gcc 
-RUN yum install -y bzip2 wget gcc-c++ libstdc++-static cmake byacc flex automake libtool binutils-devel bison ncurses-devel make mlocate unzip patch which vim-common redhat-lsb-core zip \
+RUN yum install -y bzip2 wget gcc-c++ libstdc++-static byacc flex automake libtool binutils-devel bison ncurses-devel make mlocate unzip patch which vim-common redhat-lsb-core zip \
   && updatedb \
   && mkdir -p  /var/local/gcc \
   && curl -fsSL -o /tmp/gcc.tar.gz  ${GCC_URL}/gcc-${GCC_VERSION}.tar.gz \
@@ -37,9 +37,21 @@ RUN yum install -y bzip2 wget gcc-c++ libstdc++-static cmake byacc flex automake
   && sed -i 's/ftp:\/\/gcc.gnu.org\/pub\/gcc\/infrastructure\//http:\/\/mirror.linux-ia64.org\/gnu\/gcc\/infrastructure\//g' contrib/download_prerequisites \
   && ./contrib/download_prerequisites \
   && ./configure --disable-multilib --enable-languages=c,c++ --prefix=/usr \
-  && make -j 4 && make install \
+  && make -j$[$(nproc)/4+1] && make install \
   && rm -rf /var/local/gcc \ 
   && rm -f /tmp/gcc.tar.gz
+ 
+# build cmake
+ARG CMAKE_VERSION=3.12.3
+ARG CMAKE_DOWNLOAD_URL=https://cmake.org/files/v3.12/cmake-${CMAKE_VERSION}.tar.gz
+RUN mkdir -p /tmp/cmake && curl -fsSL -o /tmp/cmake.tar.gz ${CMAKE_DOWNLOAD_URL} \
+    && tar -zxf /tmp/cmake.tar.gz -C /tmp/cmake --strip-components=1 \
+    && cd /tmp/cmake \
+    && ./bootstrap --prefix=/usr/local \
+    && make -j$[$(nproc)/4+1] \
+    && make install \
+    && rm -rf /tmp/cmake.tar.gz \
+    && rm -rf /tmp/cmake
 
 # install maven 3.6.0
 ARG MAVEN_VERSION=3.6.0
@@ -64,19 +76,16 @@ ARG DORIS_THRIDPARTY_URL=http://doris-opensource.bj.bcebos.com/doris-thirdparty-
 # clone source code and build third party
 RUN yum install -y git \
     && git clone https://github.com/apache/incubator-doris.git \
-    && mkdir -p ${DEFAULT_DIR}/thirdparty/src ${DEFAULT_DIR}/doris-thirdparty \
-    && cp -rf ${DEFAULT_DIR}/incubator-doris/thirdparty/* ${DEFAULT_DIR}/thirdparty/ \
+    && mkdir -p ${DEFAULT_DIR}/incubator-doris/thirdparty/src ${DEFAULT_DIR}/doris-thirdparty \
     && curl -fsSL -o ${DEFAULT_DIR}/doris-thirdparty.tar.gz ${DORIS_THRIDPARTY_URL} \
     && tar -zxf ${DEFAULT_DIR}/doris-thirdparty.tar.gz -C ${DEFAULT_DIR}/doris-thirdparty --strip-components=1 \
-    && mv ${DEFAULT_DIR}/doris-thirdparty/*  ${DEFAULT_DIR}/thirdparty/src/ \
-    && /bin/bash thirdparty/build-thirdparty.sh \
-    && ln -s ${DEFAULT_DIR}/thirdparty/installed/bin/thrift /usr/bin/thrift  \
-    && ln -s ${DEFAULT_DIR}/thirdparty/installed/jdk1.8.0_131/bin/java /usr/bin/java \
-    && rm -rf ${DEFAULT_DIR}/thirdparty/src \
+    && mv ${DEFAULT_DIR}/doris-thirdparty/*  ${DEFAULT_DIR}/incubator-doris/thirdparty/src/ \
+    && cd ${DEFAULT_DIR}/incubator-doris && /bin/bash thirdparty/build-thirdparty.sh \
+    && rm -rf ${DEFAULT_DIR}/incubator-doris/thirdparty/src \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty.tar.gz \
-    && rm -rf ${DEFAULT_DIR}/doris-thirdparty
-
-ENV JAVA_HOME ${DEFAULT_DIR}/thirdparty/installed/jdk1.8.0_131
+    && rm -rf ${DEFAULT_DIR}/doris-thirdparty \
+    && mkdir -p ${DEFAULT_DIR}/thirdparty \
+    && mv ${DEFAULT_DIR}/incubator-doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/
 
 WORKDIR ${DEFAULT_DIR}/incubator-doris
 
