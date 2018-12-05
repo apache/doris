@@ -27,7 +27,7 @@
 #include "http/http_status.h"
 
 #include "olap/olap_header_manager.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "olap/olap_define.h"
 #include "olap/olap_header.h"
 #include "olap/tablet.h"
@@ -49,7 +49,7 @@ Status MetaAction::_handle_header(HttpRequest *req, std::string* json_header) {
     }
     uint64_t tablet_id = std::stoull(req_tablet_id);
     uint32_t schema_hash = std::stoul(req_schema_hash);
-    TabletSharedPtr tablet = OLAPEngine::get_instance()->get_tablet(tablet_id, schema_hash);
+    TabletSharedPtr tablet = StorageEngine::get_instance()->get_tablet(tablet_id, schema_hash);
     if (tablet == nullptr) {
         LOG(WARNING) << "no tablet for tablet_id:" << tablet_id << " schema hash:" << schema_hash;
         return Status("no tablet exist");

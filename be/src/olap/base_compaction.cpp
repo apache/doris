@@ -26,7 +26,7 @@
 #include "olap/delete_handler.h"
 #include "olap/merger.h"
 #include "olap/column_data.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "olap/olap_header.h"
 #include "olap/segment_group.h"
 #include "olap/tablet.h"
@@ -448,7 +448,7 @@ OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<SegmentGrou
 
 void BaseCompaction::_delete_old_files(vector<SegmentGroup*>* unused_indices) {
     if (!unused_indices->empty()) {
-        OLAPEngine* unused_index = OLAPEngine::get_instance();
+        StorageEngine* unused_index = StorageEngine::get_instance();
 
         for (vector<SegmentGroup*>::iterator it = unused_indices->begin();
                 it != unused_indices->end(); ++it) {

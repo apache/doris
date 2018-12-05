@@ -30,11 +30,11 @@ namespace doris {
 
 const uint32_t MAX_RETRY = 3;
 const uint32_t DEFAULT_DOWNLOAD_TIMEOUT = 3600;
-class OLAPEngine;
+class StorageEngine;
 
 class Pusher {
 public:
-    explicit Pusher(OLAPEngine* engine, const TPushReq& push_req);
+    explicit Pusher(StorageEngine* engine, const TPushReq& push_req);
     virtual ~Pusher();
     
     // The initial function of pusher
@@ -51,9 +51,10 @@ private:
     void _get_file_name_from_path(const std::string& file_path, std::string* file_name);
     
     TPushReq _push_req;
-    OLAPEngine* _engine;
-    std::string _remote_file_path;
-    std::string _local_file_path;
+    FileDownloader::FileDownloaderParam _downloader_param;
+    StorageEngine* _engine;
+    FileDownloader* _file_downloader;
+    AgentStatus _download_status;
 
     DISALLOW_COPY_AND_ASSIGN(Pusher);
 };  // class Pusher

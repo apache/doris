@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -56,7 +56,7 @@ using std::list;
 
 namespace doris {
 
-OLAPStatus OLAPEngine::make_snapshot(
+OLAPStatus StorageEngine::make_snapshot(
         const TSnapshotRequest& request,
         string* snapshot_path) {
     OLAPStatus res = OLAP_SUCCESS;
@@ -90,7 +90,7 @@ OLAPStatus OLAPEngine::make_snapshot(
     return res;
 }
 
-OLAPStatus OLAPEngine::release_snapshot(const string& snapshot_path) {
+OLAPStatus StorageEngine::release_snapshot(const string& snapshot_path) {
     // 如果请求的snapshot_path位于root/snapshot文件夹下，则认为是合法的，可以删除
     // 否则认为是非法请求，返回错误结果
     auto stores = get_stores();
@@ -112,7 +112,7 @@ OLAPStatus OLAPEngine::release_snapshot(const string& snapshot_path) {
     return OLAP_ERR_CE_CMD_PARAMS_ERROR;
 }
 
-OLAPStatus OLAPEngine::_calc_snapshot_id_path(
+OLAPStatus StorageEngine::_calc_snapshot_id_path(
         const TabletSharedPtr& tablet,
         string* out_path) {
     OLAPStatus res = OLAP_SUCCESS;
@@ -137,7 +137,7 @@ OLAPStatus OLAPEngine::_calc_snapshot_id_path(
     return res;
 }
 
-string OLAPEngine::_get_schema_hash_full_path(
+string StorageEngine::_get_schema_hash_full_path(
         const TabletSharedPtr& ref_tablet,
         const string& location) const {
     stringstream schema_full_path_stream;
@@ -149,7 +149,7 @@ string OLAPEngine::_get_schema_hash_full_path(
     return schema_full_path;
 }
 
-string OLAPEngine::_get_header_full_path(
+string StorageEngine::_get_header_full_path(
         const TabletSharedPtr& ref_tablet,
         const std::string& schema_hash_path) const {
     stringstream header_name_stream;
@@ -157,7 +157,7 @@ string OLAPEngine::_get_header_full_path(
     return header_name_stream.str();
 }
 
-void OLAPEngine::_update_header_file_info(
+void StorageEngine::_update_header_file_info(
         const vector<VersionEntity>& shortest_versions,
         OLAPHeader* header) {
     // clear schema_change_status
@@ -181,7 +181,7 @@ void OLAPEngine::_update_header_file_info(
     }
 }
 
-OLAPStatus OLAPEngine::_link_index_and_data_files(
+OLAPStatus StorageEngine::_link_index_and_data_files(
         const string& schema_hash_path,
         const TabletSharedPtr& ref_tablet,
         const vector<VersionEntity>& version_entity_vec) {
@@ -227,7 +227,7 @@ OLAPStatus OLAPEngine::_link_index_and_data_files(
     return res;
 }
 
-OLAPStatus OLAPEngine::_copy_index_and_data_files(
+OLAPStatus StorageEngine::_copy_index_and_data_files(
         const string& schema_hash_path,
         const TabletSharedPtr& ref_tablet,
         vector<VersionEntity>& version_entity_vec) {
@@ -270,7 +270,7 @@ OLAPStatus OLAPEngine::_copy_index_and_data_files(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OLAPEngine::_create_snapshot_files(
+OLAPStatus StorageEngine::_create_snapshot_files(
         const TabletSharedPtr& ref_tablet,
         const TSnapshotRequest& request,
         string* snapshot_path) {
@@ -442,7 +442,7 @@ OLAPStatus OLAPEngine::_create_snapshot_files(
     return res;
 }
 
-OLAPStatus OLAPEngine::_create_incremental_snapshot_files(
+OLAPStatus StorageEngine::_create_incremental_snapshot_files(
         const TabletSharedPtr& ref_tablet,
         const TSnapshotRequest& request,
         string* snapshot_path) {
@@ -556,7 +556,7 @@ OLAPStatus OLAPEngine::_create_incremental_snapshot_files(
     return res;
 }
 
-OLAPStatus OLAPEngine::_append_single_delta(
+OLAPStatus StorageEngine::_append_single_delta(
         const TSnapshotRequest& request, OlapStore* store) {
     OLAPStatus res = OLAP_SUCCESS;
     string root_path = store->path();
@@ -609,7 +609,7 @@ OLAPStatus OLAPEngine::_append_single_delta(
     return res;
 }
 
-string OLAPEngine::_construct_index_file_path(
+string StorageEngine::_construct_index_file_path(
         const string& tablet_path_prefix,
         const Version& version,
         VersionHash version_hash,
@@ -617,7 +617,7 @@ string OLAPEngine::_construct_index_file_path(
     return Tablet::construct_file_path(tablet_path_prefix, version, version_hash, segment_group_id, segment, "idx");
 }
 
-string OLAPEngine::_construct_data_file_path(
+string StorageEngine::_construct_data_file_path(
         const string& tablet_path_prefix,
         const Version& version,
         VersionHash version_hash,
@@ -625,7 +625,7 @@ string OLAPEngine::_construct_data_file_path(
     return Tablet::construct_file_path(tablet_path_prefix, version, version_hash, segment_group_id, segment, "dat");
 }
 
-OLAPStatus OLAPEngine::_create_hard_link(const string& from_path, const string& to_path) {
+OLAPStatus StorageEngine::_create_hard_link(const string& from_path, const string& to_path) {
     if (link(from_path.c_str(), to_path.c_str()) == 0) {
         VLOG(10) << "success to create hard link from_path=" << from_path
                  << ", to_path=" << to_path;
@@ -637,7 +637,7 @@ OLAPStatus OLAPEngine::_create_hard_link(const string& from_path, const string& 
     }
 }
 
-OLAPStatus OLAPEngine::storage_medium_migrate(
+OLAPStatus StorageEngine::storage_medium_migrate(
         TTabletId tablet_id, TSchemaHash schema_hash,
         TStorageMedium::type storage_medium) {
     LOG(INFO) << "begin to process storage media migrate. "
@@ -752,7 +752,7 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
             break;
         }
 
-        // load the new tablet into OLAPEngine
+        // load the new tablet into StorageEngine
         auto tablet = Tablet::create_from_header(new_olap_header, stores[0]);
         if (tablet == NULL) {
             OLAP_LOG_WARNING("failed to create from header");
@@ -761,7 +761,7 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
         }
         res = add_tablet(tablet_id, schema_hash, tablet);
         if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to add tablet to OLAPEngine. [res=%d]", res);
+            OLAP_LOG_WARNING("fail to add tablet to StorageEngine. [res=%d]", res);
             break;
         }
 
@@ -792,7 +792,7 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
     return res;
 }
 
-OLAPStatus OLAPEngine::_generate_new_header(
+OLAPStatus StorageEngine::_generate_new_header(
         OlapStore* store,
         const uint64_t new_shard,
         const TabletSharedPtr& tablet,
@@ -804,7 +804,7 @@ OLAPStatus OLAPEngine::_generate_new_header(
     OLAPStatus res = OLAP_SUCCESS;
 
     OlapStore* ref_store =
-            OLAPEngine::get_instance()->get_store(tablet->storage_root_path_name());
+            StorageEngine::get_instance()->get_store(tablet->storage_root_path_name());
     OlapHeaderManager::get_header(ref_store, tablet->tablet_id(), tablet->schema_hash(), new_olap_header);
     _update_header_file_info(version_entity_vec, new_olap_header);
     new_olap_header->set_shard(new_shard);

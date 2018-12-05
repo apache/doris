@@ -34,7 +34,7 @@
 #include "olap/olap_header.h"
 #include "util/json_util.h"
 #include "olap/olap_define.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "olap/store.h"
 #include "runtime/exec_env.h"
 
@@ -85,7 +85,7 @@ Status RestoreTabletAction::_handle(HttpRequest *req) {
     LOG(INFO) << "get restore tablet action request: " << tablet_id << "-" << schema_hash;
 
     TabletSharedPtr tablet =
-            OLAPEngine::get_instance()->get_tablet(tablet_id, schema_hash);
+            StorageEngine::get_instance()->get_tablet(tablet_id, schema_hash);
     if (tablet.get() != nullptr) {
         LOG(WARNING) << "find tablet. tablet_id=" << tablet_id << " schema_hash=" << schema_hash;
         return Status("tablet already exists, can not restore.");
@@ -177,7 +177,7 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
     }
 
     std::string root_path = OlapStore::get_root_path_from_schema_hash_path_in_trash(latest_tablet_path);
-    OlapStore* store = OLAPEngine::get_instance()->get_store(root_path);
+    OlapStore* store = StorageEngine::get_instance()->get_store(root_path);
     std::string restore_schema_hash_path = store->get_tablet_schema_hash_path_from_header(&header);
     Status s = FileUtils::create_dir(restore_schema_hash_path);
     if (!s.ok()) {
@@ -215,7 +215,7 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
 bool RestoreTabletAction::_get_latest_tablet_path_from_trash(
         int64_t tablet_id, int32_t schema_hash, std::string* path) {
     std::vector<std::string> tablet_paths;
-    std::vector<OlapStore*> stores = OLAPEngine::get_instance()->get_stores();
+    std::vector<OlapStore*> stores = StorageEngine::get_instance()->get_stores();
     for (auto& store : stores) {
         store->find_tablet_in_trash(tablet_id, &tablet_paths);
     }
