@@ -234,6 +234,8 @@ enum OLAPStatus {
     OLAP_ERR_PUSH_TABLE_NOT_EXIST = -909,
     OLAP_ERR_PUSH_INPUT_DATA_ERROR = -910,
     OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST = -911,
+    // only support realtime push api, batch process is deprecated and is removed
+    OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED = -912, 
 
     // SegmentGroup
     // [-1000, -1100)

@@ -2598,7 +2598,7 @@ OLAPStatus OLAPEngine::delete_data(
     if (request.__isset.transaction_id) {
         res = push_handler.process_realtime_push(table, request, PUSH_FOR_DELETE, tablet_info_vec);
     } else {
-        res = push_handler.process(table, request, PUSH_FOR_DELETE, tablet_info_vec);
+        res = OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED;
     }
 
     if (res != OLAP_SUCCESS) {
@@ -2953,7 +2953,7 @@ OLAPStatus OLAPEngine::push(
     } else {
         {
             SCOPED_RAW_TIMER(&duration_ns);
-            res = push_handler.process(olap_table, request, type, tablet_info_vec);
+            res = OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED;
         }
     }
 
