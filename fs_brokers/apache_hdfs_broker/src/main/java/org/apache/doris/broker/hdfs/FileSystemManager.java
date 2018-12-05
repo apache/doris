@@ -298,7 +298,7 @@ public class FileSystemManager {
         }
     }
     
-    public List<TBrokerFileStatus> listPath(String path, Map<String, String> properties) {
+    public List<TBrokerFileStatus> listPath(String path, boolean fileNameOnly, Map<String, String> properties) {
         List<TBrokerFileStatus> resultFileStatus = null;
         URI pathUri = getUriFromPath(path);
         BrokerFileSystem fileSystem = getFileSystem(path, properties);
@@ -320,7 +320,13 @@ public class FileSystemManager {
                     brokerFileStatus.setSize(fileStatus.getLen());
                     brokerFileStatus.setIsSplitable(true);
                 }
-                brokerFileStatus.setPath(fileStatus.getPath().toString());
+                if (fileNameOnly) {
+                    // return like this: file.txt
+                    brokerFileStatus.setPath(fileStatus.getPath().getName());
+                } else {
+                    // return like this: //path/to/your/file.txt
+                    brokerFileStatus.setPath(fileStatus.getPath().toString());
+                }
                 resultFileStatus.add(brokerFileStatus);
             }
         } catch (Exception e) {
