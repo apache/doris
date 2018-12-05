@@ -41,8 +41,8 @@ class BinaryReader;
 class ColumnMapping;
 class RowCursor;
 
-struct TableVars {
-    TabletSharedPtr olap_table;
+struct TabletVars {
+    TabletSharedPtr tablet;
     Versions unused_versions;
     Indices unused_indices;
     Indices added_indices;
@@ -52,7 +52,7 @@ class PushHandler {
 public:
     typedef std::vector<ColumnMapping> SchemaMapping;
 
-    PushHandler() : _header_locked(false) {}
+    PushHandler() {}
     ~PushHandler() {}
 
     // Load local data file into specified tablet.
@@ -65,22 +65,6 @@ public:
     int64_t write_bytes() const { return _write_bytes; }
     int64_t write_rows() const { return _write_rows; }
 private:
-    // Validate request, mainly data version check.
-    OLAPStatus _validate_request(
-            TabletSharedPtr olap_table_for_raw,
-            TabletSharedPtr olap_table_for_schema_change,
-            bool is_rollup_new_table,
-            PushType push_type);
-
-    // The latest version can be reverted for following scene:
-    // user submit a push job and cancel it soon, but some 
-    // tablets already push success.
-    OLAPStatus _get_versions_reverted(
-            TabletSharedPtr olap_table,
-            bool is_schema_change_tablet,
-            PushType push_type,
-            Versions* unused_versions);
-
     // Convert local data file to internal formatted delta,
     // return new delta's SegmentGroup
     OLAPStatus _convert(
@@ -90,72 +74,15 @@ private:
             Indices* new_olap_indices,
             AlterTabletType alter_table_type);
 
-    // Update header info when new version add or dirty version removed.
-    OLAPStatus _update_header(
-            TabletSharedPtr olap_table,
-            Versions* unused_versions,
-            Indices* new_indices,
-            Indices* unused_indices);
-
-    // remove all old file of cumulatives versions
-    void _delete_old_indices(Indices* indices);
-
-    // Clear schema change information.
-    OLAPStatus _clear_alter_table_info(
-            TabletSharedPtr olap_table,
-            TabletSharedPtr related_olap_table);
-
     // Only for debug
     std::string _debug_version_list(const Versions& versions) const;
 
-    // Lock tablet header before read header info.
-    void _obtain_header_rdlock() {
-        for (std::list<TabletSharedPtr>::iterator it = _olap_table_arr.begin();
-                it != _olap_table_arr.end(); ++it) {
-            VLOG(3) << "obtain all header locks rd. tablet=" << (*it)->full_name();
-            (*it)->obtain_header_rdlock();
-        }
-
-        _header_locked = true;
-    }
-
-    // Locak tablet header before write header info.
-    void _obtain_header_wrlock() {
-        for (std::list<TabletSharedPtr>::iterator it = _olap_table_arr.begin();
-                it != _olap_table_arr.end(); ++it) {
-            VLOG(3) << "obtain all header locks wr. tablet=" << (*it)->full_name();
-            (*it)->obtain_header_wrlock();
-        }
-
-        _header_locked = true;
-    }
-
-    // Release tablet header lock.
-    void _release_header_lock() {
-        if (_header_locked) {
-            for (std::list<TabletSharedPtr>::reverse_iterator it = _olap_table_arr.rbegin();
-                    it != _olap_table_arr.rend(); ++it) {
-                VLOG(3) << "release all header locks. tablet=" << (*it)->full_name();
-                (*it)->release_header_lock();
-            }
-
-            _header_locked = false;
-        }
-    }
-
     void _get_tablet_infos(
-            const std::vector<TableVars>& table_infoes,
+            const std::vector<TabletVars>& tablet_infos,
             std::vector<TTabletInfo>* tablet_info_vec);
 
     // mainly tablet_id, version and delta file path
     TPushReq _request;
-
-    // maily contains specified tablet object
-    // contains related tables also if in schema change, tablet split or rollup
-    std::list<TabletSharedPtr> _olap_table_arr;
-
-    // lock tablet header before modify tabelt header
-    bool _header_locked;
 
     int64_t _write_bytes = 0;
     int64_t _write_rows = 0;
