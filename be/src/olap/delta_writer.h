@@ -19,7 +19,7 @@
 #define DORIS_BE_SRC_DELTA_WRITER_H
 
 #include "olap/memtable.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/schema_change.h"
 #include "olap/data_writer.h"

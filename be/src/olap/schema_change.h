@@ -325,7 +325,7 @@ private:
         mutable std::string group;
     };
 
-    // 根据给定的table_desc，创建Tablet，并挂接到OLAPEngine中
+    // 根据给定的table_desc，创建Tablet，并挂接到StorageEngine中
     OLAPStatus _create_new_tablet(const TabletSharedPtr ref_tablet,
                                       const TCreateTabletReq& create_tablet_req,
                                       const std::string* ref_root_path,

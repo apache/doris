@@ -30,7 +30,7 @@
 #include "gen_cpp/AgentService_types.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet.h"
 
 using std::list;
@@ -40,7 +40,7 @@ using std::vector;
 namespace doris {
 
     
-Pusher::Pusher(OLAPEngine* engine, const TPushReq& push_req) :
+Pusher::Pusher(StorageEngine* engine, const TPushReq& push_req) :
         _push_req(push_req), _engine(engine) {
     _download_status = DORIS_SUCCESS;
 }

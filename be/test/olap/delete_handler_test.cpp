@@ -28,7 +28,7 @@
 
 #include "olap/delete_handler.h"
 #include "olap/olap_define.h"
-#include "olap/olap_engine.h"
+#include "olap/storage_engine.h"
 #include "olap/push_handler.h"
 #include "olap/utils.h"
 #include "olap/options.h"
@@ -42,7 +42,7 @@ using google::protobuf::RepeatedPtrField;
 namespace doris {
 
 static const uint32_t MAX_PATH_LEN = 1024;
-static OLAPEngine* k_engine = nullptr;
+static StorageEngine* k_engine = nullptr;
 
 void set_up() {
     char buffer[MAX_PATH_LEN];
@@ -56,7 +56,7 @@ void set_up() {
 
     doris::EngineOptions options;
     options.store_paths = paths;
-    doris::OLAPEngine::open(options, &k_engine);
+    doris::StorageEngine::open(options, &k_engine);
 }
 
 void tear_down() {
@@ -160,7 +160,7 @@ void set_default_push_request(TPushReq* request) {
 class TestDeleteConditionHandler : public testing::Test {
 protected:
     void SetUp() {
-        // Create local data dir for OLAPEngine.
+        // Create local data dir for StorageEngine.
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
@@ -195,7 +195,7 @@ protected:
     void TearDown() {
         // Remove all dir.
         tablet.reset();
-        OLAPEngine::get_instance()->drop_tablet(
+        StorageEngine::get_instance()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
@@ -471,7 +471,7 @@ TEST_F(TestDeleteConditionHandler, DeleteCondRemovBelowCondition) {
 class TestDeleteConditionHandler2 : public testing::Test {
 protected:
     void SetUp() {
-        // Create local data dir for OLAPEngine.
+        // Create local data dir for StorageEngine.
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
@@ -496,7 +496,7 @@ protected:
     void TearDown() {
         // Remove all dir.
         tablet.reset();
-        OLAPEngine::get_instance()->drop_tablet(
+        StorageEngine::get_instance()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
@@ -780,7 +780,7 @@ TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
 class TestDeleteHandler : public testing::Test {
 protected:
     void SetUp() {
-        // Create local data dir for OLAPEngine.
+        // Create local data dir for StorageEngine.
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
@@ -819,7 +819,7 @@ protected:
         // Remove all dir.
         tablet.reset();
         _delete_handler.finalize();
-        OLAPEngine::get_instance()->drop_tablet(
+        StorageEngine::get_instance()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);

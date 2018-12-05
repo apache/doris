@@ -46,7 +46,7 @@ TEST(PusherTest, TestInit) {
     push_req.schema_hash = 12345;
     Pusher pusher(nullptr, push_req);
 
-    OLAPEngine* tmp = NULL;
+    StorageEngine* tmp = NULL;
     MockCommandExecutor mock_command_executor;
     tmp = pusher._engine;
     pusher._engine = &mock_command_executor;
@@ -158,7 +158,7 @@ TEST(PusherTest, TestProcess) {
     pusher._is_init = true;
     pusher._downloader_param.local_file_path = "./test_data/download_file";
     MockCommandExecutor mock_command_executor;
-    OLAPEngine* tmp;
+    StorageEngine* tmp;
     tmp = pusher._engine;
     pusher._engine = &mock_command_executor;
     EXPECT_CALL(mock_command_executor, push(push_req, &tablet_infos))
