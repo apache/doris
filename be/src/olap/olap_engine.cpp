@@ -1207,7 +1207,7 @@ OLAPStatus OLAPEngine::clone_incremental_data(TabletSharedPtr tablet, OLAPHeader
     }
 
     VLOG(3) << "get missing versions again when incremental clone. "
-            << "tablet=" << tablet->full_name() 
+            << "tablet=" << tablet->full_name()
             << ", committed_version=" << committed_version
             << ", missing_versions_size=" << missing_versions.size();
 
@@ -2727,7 +2727,7 @@ OLAPStatus OLAPEngine::delete_data(
     if (request.__isset.transaction_id) {
         res = push_handler.process_realtime_push(table, request, PUSH_FOR_DELETE, tablet_info_vec);
     } else {
-        res = push_handler.process(table, request, PUSH_FOR_DELETE, tablet_info_vec);
+        res = OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED;
     }
 
     if (res != OLAP_SUCCESS) {
@@ -3129,16 +3129,9 @@ OLAPStatus OLAPEngine::push(
     if (lock_status != OLAP_SUCCESS) {
         res = lock_status;
     } else {
-        if (request.__isset.transaction_id) {
-            {
-                SCOPED_RAW_TIMER(&duration_ns);
-                res = push_handler.process_realtime_push(olap_table, request, type, tablet_info_vec);
-            }
-        } else {
-            {
-                SCOPED_RAW_TIMER(&duration_ns);
-                res = push_handler.process(olap_table, request, type, tablet_info_vec);
-            }
+        {
+            SCOPED_RAW_TIMER(&duration_ns);
+            res = OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED;
         }
         olap_table->release_migration_lock();
     }
