@@ -487,16 +487,16 @@ bool CsvScanNode::check_and_write_text_slot(
         return false;
     }
 
-    if (slot->is_nullable() && is_null(value, value_length)) {
-        _tuple->set_null(slot->null_indicator_offset());
-        return true;
-    }
-
-    if (!slot->is_nullable() && is_null(value, value_length)) {
-        (*error_msg) << "value cannot be null. column name: " << column_name
+    if (is_null(value, value_length)) {
+        if (slot->is_nullable()) {
+            _tuple->set_null(slot->null_indicator_offset());
+            return true;
+        } else {
+            (*error_msg) << "value cannot be null. column name: " << column_name
                 << "; type: " << slot->type() << "; input_str: ["
                 << std::string(value, value_length) << "].";
-        return false;
+            return false;
+        }
     }
 
     char* value_to_convert = const_cast<char*>(value);
