@@ -141,12 +141,12 @@ public:
         *new_column_statistics = column_statistics;
     }
 
-    virtual DeleteConditionMessage get_delete_condition() {
-        return _rowset_meta->delete_condition();
+    virtual DeleteConditionMessage get_delete_predicate() {
+        return _rowset_meta->delete_predicate();
     }
 
-    virtual void set_delete_condition(DeleteConditionMessage delete_condition) {
-        _rowset_meta->set_delete_condition(delete_condition);
+    virtual void set_delete_condition(DeleteConditionMessage delete_predicate) {
+        _rowset_meta->set_delete_predicate(delete_predicate);
     }
 
 private:
