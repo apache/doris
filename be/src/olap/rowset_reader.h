@@ -45,11 +45,11 @@ public:
     // check whether rowset has more data
     bool has_next() = 0;
 
-	// read next block data
+    // read next block data
     NewStatus next_block(RowBlock* row_block) = 0;
 
-   // close reader
-	void close() = 0;
+    // close reader
+    void close() = 0;
 };
 
 }

@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_ROWSET_ROWSET_WRITER_H
-#define DORIS_BE_SRC_ROWSET_ROWSET_WRITER_H
+#ifndef DORIS_BE_SRC_ROWSET_ROWSET_BUILDER_H
+#define DORIS_BE_SRC_ROWSET_ROWSET_BUILDER_H
 
 #include "rowset/rowset.h"
 #include "olap/new_status.h"
@@ -27,19 +27,19 @@ namespace doris {
 
 class RowsetBuilder {
 public:
-	NewStatus init(std::string rowset_id, const std::string& rowset_path_prefix, Schema* schema) = 0;
+    NewStatus init(std::string rowset_id, const std::string& rowset_path_prefix, Schema* schema) = 0;
 
     // add a row block to rowset
-	NewStatus add_row_block(RowBlock* row_block) = 0;
+    NewStatus add_row_block(RowBlock* row_block) = 0;
 
     // this is a temp api
     // it is used to get rewritten path for writing rowset data
-	NewStatus generate_written_path(const std::string& src_path, std::string* dest_path) = 0;
+    NewStatus generate_written_path(const std::string& src_path, std::string* dest_path) = 0;
 
     // get a rowset
-	NewStatus build(Rowset* rowset) = 0;
+    NewStatus build(Rowset* rowset) = 0;
 };
 
 }
 
-#endif // DORIS_BE_SRC_ROWSET_ROWSET_WRITER_H
+#endif // DORIS_BE_SRC_ROWSET_ROWSET_BUILDER_H

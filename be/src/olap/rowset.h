@@ -20,7 +20,7 @@
 
 #include "olap/new_status.h"
 #include "rowset/rowset_reader.h"
-#include "rowset/rowset_writer.h"
+#include "rowset/rowset_builder.h"
 
 #include <memory>
 
@@ -32,13 +32,13 @@ public:
 
     std::unique_ptr<RowsetReader> create_reader() = 0;
 
-    NewStatus copy(RowsetWriter* dest_rowset_writer) = 0;
+    NewStatus copy(RowsetBuilder* dest_rowset_builder) = 0;
 
     NewStatus delete() = 0;
 
 private:
-    DataDir* _dir;	
-	RowsetMeta _rowset_meta;
+    DataDir* _dir;
+    RowsetMeta _rowset_meta;
 };
 
 }
