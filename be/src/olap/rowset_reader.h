@@ -18,39 +18,37 @@
 #ifndef DORIS_BE_SRC_ROWSET_ROWSET_READER_H
 #define DORIS_BE_SRC_ROWSET_ROWSET_READER_H
 
-#include "olap/olap_define.h"
+#include "olap/new_status.h"
 #include "olap/schema.h"
 #include "olap/column_predicate.h"
 #include "olap/row_cursor.h"
 #include "olap/row_block.h"
 
 #include <memory>
+#include <unordered_map>
 
 namespace doris {
 
 struct ReadContext {
-	const Schema* projection; // 投影列信息
-    std::unordered_map<std::string, ColumnPredicate> predicates; //过滤条件
-    const RowCursor* lower_bound_key; // key下界
-    const RowCursor* exclusive_upper_bound_key; // key上界
+	const Schema* projection;
+    std::unordered_map<std::string, ColumnPredicate> predicates; // column name -> column predicate
+    const RowCursor* lower_bound_key;
+    const RowCursor* exclusive_upper_bound_key;
 };
 
 class RowsetReader {
 public:
-    // reader初始化函数
-    // init逻辑中需要判断rowset是否可以直接被统计信息过滤删除、是否被删除条件删除
-    // 如果被删除，则has_next直接返回false
-    OLAPStatus init(ReadContext* read_context) = 0;
+    // reader init
+    // check whether this rowset can be filtered
+    NewStatus init(ReadContext* read_context) = 0;
 
-    // 判断是否还有数据
+    // check whether rowset has more data
     bool has_next() = 0;
 
-	// 读取下一个Block的数据
-    OLAPStatus next_block(RowBlock* row_block) = 0;
+	// read next block data
+    NewStatus next_block(RowBlock* row_block) = 0;
 
-   // 关闭reader
-   // 会触发下层数据读取逻辑的close操作，进行类似关闭文件，
-   // 更新统计信息等操作
+   // close reader
 	void close() = 0;
 };
 

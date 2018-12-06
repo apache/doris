@@ -18,9 +18,6 @@
 #ifndef DORIS_BE_SRC_ROWSET_ROWSET_META_H
 #define DORIS_BE_SRC_ROWSET_ROWSET_META_H
 
-#include "olap/olap_define.h"
-#include "rowset/rowset_reader.h"
-#include "rowset/rowset_writer.h"
 #include "gen_cpp/olap_file.pb.h"
 
 #include <memory>
@@ -28,7 +25,7 @@
 
 namespace doris {
 
-class Rowset {
+class RowsetMeta {
 public:
     virtual void init(const RowsetMetaPb& rowset_meta) {
         _rowset_meta = rowset_meta;
