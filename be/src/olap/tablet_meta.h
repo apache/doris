@@ -30,17 +30,17 @@
 
 namespace doris {
 // Class for managing tablet header.
-class OLAPHeader : public OLAPHeaderMessage {
+class TabletMeta : public OLAPHeaderMessage {
 public:
-    explicit OLAPHeader() :
+    explicit TabletMeta() :
             _support_reverse_version(false) {}
 
     // for compatible header file
-    explicit OLAPHeader(const std::string& file_name) :
+    explicit TabletMeta(const std::string& file_name) :
             _file_name(file_name),
             _support_reverse_version(false) {}
 
-    virtual ~OLAPHeader();
+    virtual ~TabletMeta();
 
     // Loads the header from disk and init, returning true on success.
     // In load_and_init(), we will validate olap header file, which mainly include
@@ -79,8 +79,6 @@ public:
                                        bool empty, const std::vector<KeyRange>* column_statistics);
 
     void add_delete_condition(const DeleteConditionMessage& delete_condition, int64_t version);
-    void delete_cond_by_version(const Version& version);
-    bool is_delete_data_version(Version version);
 
     const PPendingDelta* get_pending_delta(int64_t transaction_id) const;
     const PPendingSegmentGroup* get_pending_segment_group(int64_t transaction_id, int32_t pending_segment_group_id) const;
@@ -151,7 +149,7 @@ private:
     // It is easy to find vertex index according to vertex value.
     std::unordered_map<int, int> _vertex_helper_map;
     
-    DISALLOW_COPY_AND_ASSIGN(OLAPHeader);
+    DISALLOW_COPY_AND_ASSIGN(TabletMeta);
 };
 
 }  // namespace doris

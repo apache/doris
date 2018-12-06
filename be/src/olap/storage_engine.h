@@ -131,10 +131,10 @@ public:
     void clear_transaction_task(const TTransactionId transaction_id,
                                 const std::vector<TPartitionId> partition_ids);
 
-    OLAPStatus clone_incremental_data(TabletSharedPtr tablet, OLAPHeader& clone_header,
+    OLAPStatus clone_incremental_data(TabletSharedPtr tablet, TabletMeta& clone_header,
                                      int64_t committed_version);
 
-    OLAPStatus clone_full_data(TabletSharedPtr tablet, OLAPHeader& clone_header);
+    OLAPStatus clone_full_data(TabletSharedPtr tablet, TabletMeta& clone_header);
 
     // Add empty data for Tablet
     //
@@ -414,7 +414,7 @@ private:
 
     void _update_header_file_info(
             const std::vector<VersionEntity>& shortest_version_entity,
-            OLAPHeader* header);
+            TabletMeta* header);
 
     OLAPStatus _link_index_and_data_files(
             const std::string& header_path,
@@ -459,7 +459,7 @@ private:
             OlapStore* store,
             const uint64_t new_shard,
             const TabletSharedPtr& tablet,
-            const std::vector<VersionEntity>& version_entity_vec, OLAPHeader* new_olap_header);
+            const std::vector<VersionEntity>& version_entity_vec, TabletMeta* new_tablet_meta);
 
     OLAPStatus _create_hard_link(const std::string& from_path, const std::string& to_path);
 
@@ -523,7 +523,7 @@ private:
                                              OlapStore* store,
                                              const bool is_schema_change_tablet,
                                              const TabletSharedPtr ref_tablet,
-                                             OLAPHeader* header);
+                                             TabletMeta* header);
 
     OLAPStatus _check_existed_or_else_create_dir(const std::string& path);
 

@@ -20,21 +20,21 @@
 
 #include <string>
 
-#include "olap/olap_header.h"
+#include "olap/tablet_meta.h"
 #include "olap/olap_define.h"
 #include "olap/store.h"
 
 namespace doris {
 
 // Helper Class for managing tablet headers of one root path.
-class OlapHeaderManager {
+class TabletMetaManager {
 public:
-    static OLAPStatus get_header(OlapStore* store, TTabletId tablet_id, TSchemaHash schema_hash, OLAPHeader* header);
+    static OLAPStatus get_header(OlapStore* store, TTabletId tablet_id, TSchemaHash schema_hash, TabletMeta* header);
 
     static OLAPStatus get_json_header(OlapStore* store, TTabletId tablet_id,
             TSchemaHash schema_hash, std::string* json_header);
 
-    static OLAPStatus save(OlapStore* store, TTabletId tablet_id, TSchemaHash schema_hash, const OLAPHeader* header);
+    static OLAPStatus save(OlapStore* store, TTabletId tablet_id, TSchemaHash schema_hash, const TabletMeta* header);
 
     static OLAPStatus remove(OlapStore* store, TTabletId tablet_id, TSchemaHash schema_hash);
 

@@ -21,7 +21,7 @@
 #include "olap/olap_cond.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
-#include "olap/olap_header.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet.h"
 #include "olap/olap_common.h"
 #include "olap/row_cursor.h"
