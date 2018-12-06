@@ -478,6 +478,7 @@ bool CsvScanNode::check_and_write_text_slot(
         const char* value, int value_length,
         const SlotDescriptor* slot, RuntimeState* state,
         std::stringstream* error_msg) {
+
     if (value_length == 0 && !slot->type().is_string_type()) {
         (*error_msg) << "the length of input should not be 0. "
                 << "column_name: " << column_name << "; "
@@ -489,6 +490,13 @@ bool CsvScanNode::check_and_write_text_slot(
     if (slot->is_nullable() && is_null(value, value_length)) {
         _tuple->set_null(slot->null_indicator_offset());
         return true;
+    }
+
+    if (!slot->is_nullable() && is_null(value, value_length)) {
+        (*error_msg) << "value cannot be null. column name: " << column_name
+                << "; type: " << slot->type() << "; input_str: ["
+                << std::string(value, value_length) << "].";
+        return false;
     }
 
     char* value_to_convert = const_cast<char*>(value);
