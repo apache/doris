@@ -37,8 +37,7 @@
 #include "olap/store.h"
 #include "olap/row_cursor.h"
 #include "util/defer_op.h"
-#include "olap/olap_header_manager.h"
-#include "olap/storage_engine.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
 #include "olap/data_writer.h"
 
@@ -57,59 +56,59 @@ namespace doris {
 TabletSharedPtr Tablet::create_from_header_file(
         TTabletId tablet_id, TSchemaHash schema_hash,
         const string& header_file, OlapStore* store) {
-    OLAPHeader* olap_header = NULL;
-    olap_header = new(nothrow) OLAPHeader(header_file);
-    if (olap_header == NULL) {
-        LOG(WARNING) << "fail to malloc OLAPHeader.";
+    TabletMeta* tablet_meta = NULL;
+    tablet_meta = new(nothrow) TabletMeta(header_file);
+    if (tablet_meta == NULL) {
+        LOG(WARNING) << "fail to malloc TabletMeta.";
         return NULL;
     }
 
-    if (olap_header->load_and_init() != OLAP_SUCCESS) {
+    if (tablet_meta->load_and_init() != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to load header. header_file=" << header_file;
-        delete olap_header;
+        delete tablet_meta;
         return NULL;
     }
 
     // add new fields
-    olap_header->set_tablet_id(tablet_id);
-    olap_header->set_schema_hash(schema_hash);
+    tablet_meta->set_tablet_id(tablet_id);
+    tablet_meta->set_schema_hash(schema_hash);
     path header_file_path(header_file);
     std::string shard_path = header_file_path.parent_path().parent_path().parent_path().string();
     std::string shard_str = shard_path.substr(shard_path.find_last_of('/') + 1);
     uint64_t shard = stol(shard_str);
-    olap_header->set_shard(shard);
+    tablet_meta->set_shard(shard);
 
     // save header info to kv db
     // header key format: tablet_id + "_" + schema_hash
-    OLAPStatus s = OlapHeaderManager::save(store, tablet_id, schema_hash, olap_header);
+    OLAPStatus s = TabletMetaManager::save(store, tablet_id, schema_hash, tablet_meta);
     if (s != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to save header to db. [header_file=%s]", header_file.c_str());
-        delete olap_header;
+        delete tablet_meta;
         return NULL;
     }
-    return create_from_header(olap_header, store);
+    return create_from_header(tablet_meta, store);
 }
 
 TabletSharedPtr Tablet::create_from_header_file_for_check(
         TTabletId tablet_id, TSchemaHash schema_hash, const string& header_file) {
-    OLAPHeader* olap_header = NULL;
+    TabletMeta* tablet_meta = NULL;
 
-    olap_header = new(nothrow) OLAPHeader(header_file);
-    if (olap_header == NULL) {
-        OLAP_LOG_WARNING("fail to malloc OLAPHeader.");
+    tablet_meta = new(nothrow) TabletMeta(header_file);
+    if (tablet_meta == NULL) {
+        OLAP_LOG_WARNING("fail to malloc TabletMeta.");
         return NULL;
     }
 
-    if (olap_header->load_for_check() != OLAP_SUCCESS) {
+    if (tablet_meta->load_for_check() != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to load header. [header_file=%s]", header_file.c_str());
-        delete olap_header;
+        delete tablet_meta;
         return NULL;
     }
 
-    TabletSharedPtr tablet = std::make_shared<Tablet>(olap_header);
+    TabletSharedPtr tablet = std::make_shared<Tablet>(tablet_meta);
     if (tablet == NULL) {
         OLAP_LOG_WARNING("fail to validate tablet. [header_file=%s]", header_file.c_str());
-        delete olap_header;
+        delete tablet_meta;
         return NULL;
     }
     tablet->_tablet_id = tablet_id;
@@ -118,7 +117,7 @@ TabletSharedPtr Tablet::create_from_header_file_for_check(
     return tablet;
 }
 
-Tablet::Tablet(OLAPHeader* header)
+Tablet::Tablet(TabletMeta* header)
         : _header(header) {
     if (header->has_tablet_id()) {
         _tablet_id =  header->tablet_id();
@@ -129,7 +128,7 @@ Tablet::Tablet(OLAPHeader* header)
 }
 
 TabletSharedPtr Tablet::create_from_header(
-        OLAPHeader* header,
+        TabletMeta* header,
         OlapStore* store) {
     auto tablet = std::make_shared<Tablet>(header, store);
     if (tablet == NULL) {
@@ -140,7 +139,7 @@ TabletSharedPtr Tablet::create_from_header(
     return tablet;
 }
 
-Tablet::Tablet(OLAPHeader* header, OlapStore* store) :
+Tablet::Tablet(TabletMeta* header, OlapStore* store) :
         _header(header),
         _is_dropped(false),
         _num_fields(0),
@@ -275,10 +274,10 @@ Tablet::~Tablet() {
         LOG(INFO) << "drop tablet:" << full_name() << ", tablet path:" << _tablet_path;
         path table_path(_tablet_path);
         std::string header_path = _tablet_path + "/" + std::to_string(_tablet_id) + ".hdr";
-        OLAPStatus s = OlapHeaderManager::dump_header(_store, _tablet_id, _schema_hash, header_path);
+        OLAPStatus s = TabletMetaManager::dump_header(_store, _tablet_id, _schema_hash, header_path);
         LOG(INFO) << "dump header to path:" << header_path << ", status:" << s;
         LOG(INFO) << "start to remove tablet header:" << full_name();
-        s = OlapHeaderManager::remove(_store, _tablet_id, _schema_hash);
+        s = TabletMetaManager::remove(_store, _tablet_id, _schema_hash);
         LOG(INFO) << "finish remove tablet header:" << full_name() << ", res:" << s;
         if (move_to_trash(table_path, table_path) != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to delete tablet. [table_path=" << _tablet_path << "]";
@@ -346,7 +345,7 @@ EXIT:
 OLAPStatus Tablet::load_indices() {
     OLAPStatus res = OLAP_SUCCESS;
     ReadLock rdlock(&_header_lock);
-    OLAPHeader* header = _header;
+    TabletMeta* header = _header;
     VLOG(3) << "begin to load indices. tablet=" << full_name() << ", "
         << "version_size=" << header->file_delta_size();
 
@@ -429,7 +428,7 @@ OLAPStatus Tablet::load_indices() {
 }
 
 OLAPStatus Tablet::save_header() {
-    OLAPStatus res = OlapHeaderManager::save(_store, _tablet_id, _schema_hash, _header);
+    OLAPStatus res = TabletMetaManager::save(_store, _tablet_id, _schema_hash, _header);
     if (res != OLAP_SUCCESS) {
        LOG(WARNING) << "fail to save header. [res=" << res << " root=" << _storage_root_path << "]";
     }
@@ -1293,7 +1292,7 @@ OLAPStatus Tablet::_create_hard_link(const string& from, const string& to,
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Tablet::clone_data(const OLAPHeader& clone_header,
+OLAPStatus Tablet::clone_data(const TabletMeta& clone_header,
                                  const vector<const PDelta*>& clone_deltas,
                                  const vector<Version>& versions_to_delete) {
     LOG(INFO) << "begin to clone data to tablet. tablet=" << full_name() << ", "
@@ -1304,8 +1303,8 @@ OLAPStatus Tablet::clone_data(const OLAPHeader& clone_header,
 
     do {
         // load new local header to operate on
-        OLAPHeader new_local_header;
-        OlapHeaderManager::get_header(_store, _tablet_id, _schema_hash, &new_local_header);
+        TabletMeta new_local_header;
+        TabletMetaManager::get_header(_store, _tablet_id, _schema_hash, &new_local_header);
 
         // delete versions from new local header
         for (const Version& version : versions_to_delete) {
@@ -1388,12 +1387,12 @@ OLAPStatus Tablet::clone_data(const OLAPHeader& clone_header,
                 << "add_versions_size=" << clone_deltas.size() << ", " 
                 << "new_indices_size=" << tmp_data_sources.size();
         // save and reload header
-        res = OlapHeaderManager::save(_store, _tablet_id, _schema_hash, &new_local_header);
+        res = TabletMetaManager::save(_store, _tablet_id, _schema_hash, &new_local_header);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to save new local header when clone. res:" << res;
             break;
         }
-        res = OlapHeaderManager::get_header(_store, _tablet_id, _schema_hash, _header);
+        res = TabletMetaManager::get_header(_store, _tablet_id, _schema_hash, _header);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to reload original header when clone. [tablet=" << full_name()
                          << " res=" << res << "]";
@@ -1560,7 +1559,7 @@ OLAPStatus Tablet::compute_all_versions_hash(const vector<Version>& versions,
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Tablet::merge_header(const OLAPHeader& hdr, int to_version) {
+OLAPStatus Tablet::merge_header(const TabletMeta& hdr, int to_version) {
     obtain_header_wrlock();
     DeferOp release_lock(std::bind<void>(&Tablet::release_header_lock, this));
 

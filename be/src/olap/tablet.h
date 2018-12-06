@@ -29,7 +29,7 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/field.h"
 #include "olap/olap_define.h"
-#include "olap/olap_header.h"
+#include "olap/tablet_meta.h"
 #include "olap/tuple.h"
 #include "olap/row_cursor.h"
 #include "olap/utils.h"
@@ -37,7 +37,7 @@
 namespace doris {
 class FieldInfo;
 class ColumnData;
-class OLAPHeader;
+class TabletMeta;
 class SegmentGroup;
 class Tablet;
 class RowBlockPosition;
@@ -105,11 +105,11 @@ public:
             const std::string& header_file);
 
     static TabletSharedPtr create_from_header(
-            OLAPHeader* header,
+            TabletMeta* header,
             OlapStore* store = nullptr);
 
-    explicit Tablet(OLAPHeader* header, OlapStore* store);
-    explicit Tablet(OLAPHeader* header);
+    explicit Tablet(TabletMeta* header, OlapStore* store);
+    explicit Tablet(TabletMeta* header);
 
     virtual ~Tablet();
 
@@ -125,7 +125,7 @@ public:
 
     OLAPStatus save_header();
 
-    OLAPHeader* get_header() {
+    TabletMeta* get_header() {
         return _header;
     }
 
@@ -146,7 +146,7 @@ public:
 
     // Acquire data sources whose versions are specified by version_list.
     // If you want specified OLAPDatas instead of calling
-    // OLAPHeader->select_versions_to_span(), call this function. In the
+    // TabletMeta->select_versions_to_span(), call this function. In the
     // scenarios like Cumulative Delta and Base generating, different
     // strategies can be applied.
     // @param [in] version_list
@@ -205,7 +205,7 @@ public:
     OLAPStatus is_push_for_delete(int64_t transaction_id, bool* is_push_for_delete) const;
 
     // need to obtain header wrlock outside
-    OLAPStatus clone_data(const OLAPHeader& clone_header,
+    OLAPStatus clone_data(const TabletMeta& clone_header,
                           const std::vector<const PDelta*>& clone_deltas,
                           const std::vector<Version>& versions_to_delete);
 
@@ -227,7 +227,7 @@ public:
                                          VersionHash* version_hash) const;
 
     // used for restore, merge the (0, to_version) in 'hdr'
-    OLAPStatus merge_header(const OLAPHeader& hdr, int to_version);
+    OLAPStatus merge_header(const TabletMeta& hdr, int to_version);
 
     // Used by monitoring Tablet
     void list_data_files(std::set<std::string>* filenames) const;
@@ -714,7 +714,7 @@ private:
 
     TTabletId _tablet_id;
     TSchemaHash _schema_hash;
-    OLAPHeader* _header;
+    TabletMeta* _header;
     size_t _num_rows_per_row_block;
     CompressKind _compress_kind;
     // Set it true when tablet is dropped, tablet files and data structures

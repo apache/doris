@@ -26,10 +26,10 @@
 #include "http/http_headers.h"
 #include "http/http_status.h"
 
-#include "olap/olap_header_manager.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/olap_define.h"
-#include "olap/olap_header.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet.h"
 #include "common/logging.h"
 #include "util/json_util.h"
@@ -54,7 +54,7 @@ Status MetaAction::_handle_header(HttpRequest *req, std::string* json_header) {
         LOG(WARNING) << "no tablet for tablet_id:" << tablet_id << " schema hash:" << schema_hash;
         return Status("no tablet exist");
     }
-    OLAPStatus s = OlapHeaderManager::get_json_header(tablet->store(), tablet_id, schema_hash, json_header);
+    OLAPStatus s = TabletMetaManager::get_json_header(tablet->store(), tablet_id, schema_hash, json_header);
     if (s == OLAP_ERR_META_KEY_NOT_FOUND) {
         return Status("no header exist");
     } else if (s != OLAP_SUCCESS) {

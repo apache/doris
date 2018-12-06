@@ -32,7 +32,7 @@
 #include "util/descriptor_helper.h"
 #include "util/logging.h"
 #include "olap/options.h"
-#include "olap/olap_header_manager.h"
+#include "olap/tablet_meta_manager.h"
 
 namespace doris {
 

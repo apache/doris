@@ -22,7 +22,7 @@
 #include "gtest/gtest.h"
 #include "gmock/gmock.h"
 #include "olap/store.h"
-#include "olap/olap_header_manager.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/olap_define.h"
 #include "boost/filesystem.hpp"
 #include "json2pb/json_to_pb.h"
@@ -40,7 +40,7 @@ namespace doris {
 
 const std::string header_path = "./be/test/olap/test_data/header.txt";
 
-class OlapHeaderManagerTest : public testing::Test {
+class TabletMetaManagerTest : public testing::Test {
 public:
     virtual void SetUp() {
         std::string root_path = "./store";
@@ -72,42 +72,42 @@ private:
     std::string _json_header;
 };
 
-TEST_F(OlapHeaderManagerTest, TestConvertedFlag) {
+TEST_F(TabletMetaManagerTest, TestConvertedFlag) {
     bool converted_flag;
-    OLAPStatus s = OlapHeaderManager::get_header_converted(_store, converted_flag);
+    OLAPStatus s = TabletMetaManager::get_header_converted(_store, converted_flag);
     ASSERT_EQ(false, converted_flag);
-    s = OlapHeaderManager::set_converted_flag(_store);
+    s = TabletMetaManager::set_converted_flag(_store);
     ASSERT_EQ(OLAP_SUCCESS, s);
-    s = OlapHeaderManager::get_header_converted(_store, converted_flag);
+    s = TabletMetaManager::get_header_converted(_store, converted_flag);
     ASSERT_EQ(true, converted_flag);
 }
 
-TEST_F(OlapHeaderManagerTest, TestSaveAndGetAndRemove) {
+TEST_F(TabletMetaManagerTest, TestSaveAndGetAndRemove) {
     const TTabletId tablet_id = 20487;
     const TSchemaHash schema_hash = 1520686811;
-    OLAPHeader header;
+    TabletMeta header;
     bool ret = json2pb::JsonToProtoMessage(_json_header, &header);
     ASSERT_TRUE(ret);
-    OLAPStatus s = OlapHeaderManager::save(_store, tablet_id, schema_hash, &header);
+    OLAPStatus s = TabletMetaManager::save(_store, tablet_id, schema_hash, &header);
     ASSERT_EQ(OLAP_SUCCESS, s);
     std::string json_header_read;
-    s = OlapHeaderManager::get_json_header(_store, tablet_id, schema_hash, &json_header_read);
+    s = TabletMetaManager::get_json_header(_store, tablet_id, schema_hash, &json_header_read);
     ASSERT_EQ(OLAP_SUCCESS, s);
     ASSERT_EQ(_json_header, json_header_read);
-    s = OlapHeaderManager::remove(_store, tablet_id, schema_hash);
+    s = TabletMetaManager::remove(_store, tablet_id, schema_hash);
     ASSERT_EQ(OLAP_SUCCESS, s);
-    OLAPHeader header_read;
-    s = OlapHeaderManager::get_header(_store, tablet_id, schema_hash, &header_read);
+    TabletMeta header_read;
+    s = TabletMetaManager::get_header(_store, tablet_id, schema_hash, &header_read);
     ASSERT_EQ(OLAP_ERR_META_KEY_NOT_FOUND, s);
 }
 
-TEST_F(OlapHeaderManagerTest, TestLoad) {
+TEST_F(TabletMetaManagerTest, TestLoad) {
     const TTabletId tablet_id = 20487;
     const TSchemaHash schema_hash = 1520686811;
-    OLAPStatus s = OlapHeaderManager::load_json_header(_store, header_path);
+    OLAPStatus s = TabletMetaManager::load_json_header(_store, header_path);
     ASSERT_EQ(OLAP_SUCCESS, s);
     std::string json_header_read;
-    s = OlapHeaderManager::get_json_header(_store, tablet_id, schema_hash, &json_header_read);
+    s = TabletMetaManager::get_json_header(_store, tablet_id, schema_hash, &json_header_read);
     ASSERT_EQ(OLAP_SUCCESS, s);
     ASSERT_EQ(_json_header, json_header_read);
 }

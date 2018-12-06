@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/olap_header_manager.h"
+#include "olap/tablet_meta_manager.h"
 
 #include <vector>
 #include <sstream>
@@ -46,8 +46,8 @@ namespace doris {
 
 const std::string HEADER_PREFIX = "hdr_";
 
-OLAPStatus OlapHeaderManager::get_header(OlapStore* store,
-        TTabletId tablet_id, TSchemaHash schema_hash, OLAPHeader* header) {
+OLAPStatus TabletMetaManager::get_header(OlapStore* store,
+        TTabletId tablet_id, TSchemaHash schema_hash, TabletMeta* header) {
     OlapMeta* meta = store->get_meta();
     std::stringstream key_stream;
     key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
@@ -65,9 +65,9 @@ OLAPStatus OlapHeaderManager::get_header(OlapStore* store,
     return header->init();
 }
 
-OLAPStatus OlapHeaderManager::get_json_header(OlapStore* store,
+OLAPStatus TabletMetaManager::get_json_header(OlapStore* store,
         TTabletId tablet_id, TSchemaHash schema_hash, std::string* json_header) {
-    OLAPHeader header;
+    TabletMeta header;
     OLAPStatus s = get_header(store, tablet_id, schema_hash, &header);
     if (s != OLAP_SUCCESS) {
         return s;
@@ -79,8 +79,8 @@ OLAPStatus OlapHeaderManager::get_json_header(OlapStore* store,
 }
 
 
-OLAPStatus OlapHeaderManager::save(OlapStore* store,
-        TTabletId tablet_id, TSchemaHash schema_hash, const OLAPHeader* header) {
+OLAPStatus TabletMetaManager::save(OlapStore* store,
+        TTabletId tablet_id, TSchemaHash schema_hash, const TabletMeta* header) {
     std::stringstream key_stream;
     key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
@@ -91,7 +91,7 @@ OLAPStatus OlapHeaderManager::save(OlapStore* store,
     return s;
 }
 
-OLAPStatus OlapHeaderManager::remove(OlapStore* store, TTabletId tablet_id, TSchemaHash schema_hash) {
+OLAPStatus TabletMetaManager::remove(OlapStore* store, TTabletId tablet_id, TSchemaHash schema_hash) {
     std::stringstream key_stream;
     key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
@@ -102,7 +102,7 @@ OLAPStatus OlapHeaderManager::remove(OlapStore* store, TTabletId tablet_id, TSch
     return res;
 }
 
-OLAPStatus OlapHeaderManager::get_header_converted(OlapStore* store, bool& flag) {
+OLAPStatus TabletMetaManager::get_header_converted(OlapStore* store, bool& flag) {
     // get is_header_converted flag
     std::string value;
     std::string key = IS_HEADER_CONVERTED;
@@ -119,13 +119,13 @@ OLAPStatus OlapHeaderManager::get_header_converted(OlapStore* store, bool& flag)
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OlapHeaderManager::set_converted_flag(OlapStore* store) {
+OLAPStatus TabletMetaManager::set_converted_flag(OlapStore* store) {
     OlapMeta* meta = store->get_meta();
     OLAPStatus s = meta->put(DEFAULT_COLUMN_FAMILY_INDEX, IS_HEADER_CONVERTED, CONVERTED_FLAG);
     return s;
 }
 
-OLAPStatus OlapHeaderManager::traverse_headers(OlapMeta* meta,
+OLAPStatus TabletMetaManager::traverse_headers(OlapMeta* meta,
         std::function<bool(long, long, const std::string&)> const& func) {
     auto traverse_header_func = [&func](const std::string& key, const std::string& value) -> bool {
         std::vector<std::string> parts;
@@ -143,7 +143,7 @@ OLAPStatus OlapHeaderManager::traverse_headers(OlapMeta* meta,
     return status;
 }
 
-OLAPStatus OlapHeaderManager::load_json_header(OlapStore* store, const std::string& header_path) {
+OLAPStatus TabletMetaManager::load_json_header(OlapStore* store, const std::string& header_path) {
     std::ifstream infile(header_path);
     char buffer[1024];
     std::string json_header;
@@ -152,7 +152,7 @@ OLAPStatus OlapHeaderManager::load_json_header(OlapStore* store, const std::stri
         json_header = json_header + buffer;
     }
     boost::algorithm::trim(json_header);
-    OLAPHeader header;
+    TabletMeta header;
     bool ret = json2pb::JsonToProtoMessage(json_header, &header);
     if (!ret) {
         return OLAP_ERR_HEADER_LOAD_JSON_HEADER;
@@ -163,10 +163,10 @@ OLAPStatus OlapHeaderManager::load_json_header(OlapStore* store, const std::stri
     return s;
 }
 
-OLAPStatus OlapHeaderManager::dump_header(OlapStore* store, TTabletId tablet_id,
+OLAPStatus TabletMetaManager::dump_header(OlapStore* store, TTabletId tablet_id,
         TSchemaHash schema_hash, const std::string& dump_path) {
-    OLAPHeader header;
-    OLAPStatus res = OlapHeaderManager::get_header(store, tablet_id, schema_hash, &header);
+    TabletMeta header;
+    OLAPStatus res = TabletMetaManager::get_header(store, tablet_id, schema_hash, &header);
     if (res != OLAP_SUCCESS) {
         return res;
     }

@@ -27,7 +27,7 @@
 #include "olap/merger.h"
 #include "olap/column_data.h"
 #include "olap/storage_engine.h"
-#include "olap/olap_header.h"
+#include "olap/tablet_meta.h"
 #include "olap/segment_group.h"
 #include "olap/tablet.h"
 #include "olap/utils.h"

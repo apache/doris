@@ -42,7 +42,7 @@
 #include "service/backend_options.h"
 #include "util/file_utils.h"
 #include "util/string_util.h"
-#include "olap/olap_header_manager.h"
+#include "olap/tablet_meta_manager.h"
 
 namespace doris {
 
@@ -441,12 +441,12 @@ std::string OlapStore::get_shard_path_from_header(const std::string& shard_strin
     return _path + DATA_PREFIX + "/" + shard_string;
 }
 
-std::string OlapStore::get_tablet_schema_hash_path_from_header(OLAPHeader* header) {
+std::string OlapStore::get_tablet_schema_hash_path_from_header(TabletMeta* header) {
     return _path + DATA_PREFIX + "/" + std::to_string(header->shard())
             + "/" + std::to_string(header->tablet_id()) + "/" + std::to_string(header->schema_hash());
 }
 
-std::string OlapStore::get_tablet_path_from_header(OLAPHeader* header) {
+std::string OlapStore::get_tablet_path_from_header(TabletMeta* header) {
     return _path + DATA_PREFIX + "/" + std::to_string(header->shard())
             + "/" + std::to_string(header->tablet_id());
 }
@@ -478,44 +478,33 @@ std::string OlapStore::get_root_path_from_schema_hash_path_in_trash(
 
 OLAPStatus OlapStore::_load_tablet_from_header(StorageEngine* engine, TTabletId tablet_id,
         TSchemaHash schema_hash, const std::string& header) {
-    std::unique_ptr<OLAPHeader> olap_header(new OLAPHeader());
-    OLAPStatus res = OLAP_SUCCESS;
-    bool parsed = olap_header->ParseFromString(header);
+    std::unique_ptr<TabletMeta> tablet_meta(new TabletMeta());
+    bool parsed = tablet_meta->ParseFromString(header);
     if (!parsed) {
-        // here we can not get shard id
-        // so just remove invalid header from meta
-        // the related tablet path should be removed by gc 
         LOG(WARNING) << "parse header string failed for tablet_id:" << tablet_id
                      << " schema_hash:" << schema_hash;
-        res = OlapHeaderManager::remove(this, tablet_id, schema_hash);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "remove header failed. tablet_id:" << tablet_id
-                << " schema_hash:" << schema_hash
-                << " store path:" << path();
-        } else {
-            LOG(INFO) << "remove tablet header successfully. tablet:" << tablet_id << "_" << schema_hash;
-        }
         return OLAP_ERR_HEADER_PB_PARSE_FAILED;
     }
-    if (olap_header->file_version_size() != 0) {
-        olap_header->change_file_version_to_delta();
-        res = OlapHeaderManager::save(this, tablet_id, schema_hash, olap_header.get());
-        if (res != OLAP_SUCCESS) {
-            LOG(FATAL) << "fail to save header, tablet_id:" << tablet_id
-                << ", schema_hash:" << schema_hash << " to path:" << path();
-            return OLAP_ERR_HEADER_PUT;
-        }
+    OLAPStatus res = OLAP_SUCCESS;
+    if (tablet_meta->file_version_size() != 0) {
+        tablet_meta->change_file_version_to_delta();
+        res = TabletMetaManager::save(this, tablet_id, schema_hash, tablet_meta.get());
     }
     
     // init must be called
-    res = olap_header->init();
+    res = tablet_meta->init();
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to init header, tablet_id:" << tablet_id
-                     << ", schema_hash:" << schema_hash;
+        LOG(WARNING) << "fail to init header, tablet_id:" << tablet_id << ", schema_hash:" << schema_hash;
+        res = TabletMetaManager::remove(this, tablet_id, schema_hash);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "remove header failed. tablet_id:" << tablet_id
+                << "schema_hash:" << schema_hash
+                << "store path:" << path();
+        }
         return OLAP_ERR_HEADER_INIT_FAILED;
     }
     TabletSharedPtr tablet =
-        Tablet::create_from_header(olap_header.release(), this);
+        Tablet::create_from_header(tablet_meta.release(), this);
     if (tablet == nullptr) {
         LOG(WARNING) << "fail to new tablet. tablet_id=" << tablet_id << ", schema_hash:" << schema_hash;
         return OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
@@ -566,7 +555,7 @@ OLAPStatus OlapStore::load_tables(StorageEngine* engine) {
         };
         return true;
     };
-    OLAPStatus status = OlapHeaderManager::traverse_headers(_meta, load_tablet_func);
+    OLAPStatus status = TabletMetaManager::traverse_headers(_meta, load_tablet_func);
     return status;
 }
 
@@ -580,23 +569,23 @@ OLAPStatus OlapStore::check_none_row_oriented_tablet_in_store(StorageEngine* eng
         };
         return true;
     };
-    OLAPStatus status = OlapHeaderManager::traverse_headers(_meta, load_tablet_func);
+    OLAPStatus status = TabletMetaManager::traverse_headers(_meta, load_tablet_func);
     return status;
 }
 
 OLAPStatus OlapStore::_check_none_row_oriented_tablet_in_store(
                         StorageEngine* engine, TTabletId tablet_id,
                         TSchemaHash schema_hash, const std::string& header) {
-    std::unique_ptr<OLAPHeader> olap_header(new OLAPHeader());
-    bool parsed = olap_header->ParseFromString(header);
+    std::unique_ptr<TabletMeta> tablet_meta(new TabletMeta());
+    bool parsed = tablet_meta->ParseFromString(header);
     if (!parsed) {
         LOG(WARNING) << "parse header string failed for tablet_id:" << tablet_id << " schema_hash:" << schema_hash;
         return OLAP_ERR_HEADER_PB_PARSE_FAILED;
     }
     // init must be called
-    RETURN_NOT_OK(olap_header->init());
-    LOG(INFO) << "data_file_type:" << olap_header->data_file_type();
-    if (olap_header->data_file_type() == OLAP_DATA_FILE) {
+    RETURN_NOT_OK(tablet_meta->init());
+    LOG(INFO) << "data_file_type:" << tablet_meta->data_file_type();
+    if (tablet_meta->data_file_type() == OLAP_DATA_FILE) {
         LOG(FATAL) << "Not support row-oriented tablet any more. Please convert it to column-oriented tablet."
                    << "tablet=" << tablet_id << "." << schema_hash;
     }

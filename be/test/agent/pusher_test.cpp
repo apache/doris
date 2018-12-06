@@ -60,7 +60,7 @@ TEST(PusherTest, TestInit) {
     EXPECT_EQ(DORIS_PUSH_INVALID_TABLE, ret);
 
     // not init, can get tablet, and empty remote path
-    tablet = new Tablet(new OLAPHeader("./test_data/header"), nullptr);
+    tablet = new Tablet(new TabletMeta("./test_data/header"), nullptr);
     EXPECT_CALL(mock_command_executor, get_tablet(1, 12345))
             .Times(1)
             .WillOnce(Return(std::shared_ptr<Tablet>(tablet)));
@@ -76,7 +76,7 @@ TEST(PusherTest, TestInit) {
     // not inited, remote path not empty
     string http_file_path = "http://xx";
     string root_path_name = "./test_data/data";
-    tablet = new Tablet(new OLAPHeader("./test_data/header"), nullptr);
+    tablet = new Tablet(new TabletMeta("./test_data/header"), nullptr);
     push_req.__set_http_file_path(http_file_path);
     Pusher pusher2(nullptr, push_req);
     tmp = pusher2._engine;
