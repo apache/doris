@@ -36,7 +36,7 @@
 #include "olap/column_data.h"
 #include "olap/olap_define.h"
 #include "olap/tablet.h"
-#include "olap/olap_header_manager.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/push_handler.h"
 #include "olap/store.h"
 #include "util/file_utils.h"
@@ -159,7 +159,7 @@ string StorageEngine::_get_header_full_path(
 
 void StorageEngine::_update_header_file_info(
         const vector<VersionEntity>& shortest_versions,
-        OLAPHeader* header) {
+        TabletMeta* header) {
     // clear schema_change_status
     header->clear_schema_change_status();
     // remove all old version and add new version
@@ -305,7 +305,7 @@ OLAPStatus StorageEngine::_create_snapshot_files(
     header_locked = true;
 
     vector<ColumnData*> olap_data_sources;
-    OLAPHeader* new_olap_header = nullptr;
+    TabletMeta* new_tablet_meta = nullptr;
     do {
         // get latest version
         const PDelta* lastest_version = NULL;
@@ -359,14 +359,14 @@ OLAPStatus StorageEngine::_create_snapshot_files(
 
         // load tablet header, in order to remove versions that not in shortest version path
         OlapStore* store = ref_tablet->store();
-        new_olap_header = new(nothrow) OLAPHeader();
-        if (new_olap_header == NULL) {
-            OLAP_LOG_WARNING("fail to malloc OLAPHeader.");
+        new_tablet_meta = new(nothrow) TabletMeta();
+        if (new_tablet_meta == NULL) {
+            OLAP_LOG_WARNING("fail to malloc TabletMeta.");
             res = OLAP_ERR_MALLOC_ERROR;
             break;
         }
 
-        res = OlapHeaderManager::get_header(store, ref_tablet->tablet_id(), ref_tablet->schema_hash(), new_olap_header);
+        res = TabletMetaManager::get_header(store, ref_tablet->tablet_id(), ref_tablet->schema_hash(), new_tablet_meta);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load header. res=" << res
                     << "tablet_id=" << ref_tablet->tablet_id() << ", schema_hash=" << ref_tablet->schema_hash();
@@ -375,10 +375,10 @@ OLAPStatus StorageEngine::_create_snapshot_files(
 
         ref_tablet->release_header_lock();
         header_locked = false;
-        _update_header_file_info(shortest_versions, new_olap_header);
+        _update_header_file_info(shortest_versions, new_tablet_meta);
 
         // save new header to snapshot header path
-        res = new_olap_header->save(header_path);
+        res = new_tablet_meta->save(header_path);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to save header. [res=%d tablet_id=%ld, schema_hash=%d, headerpath=%s]",
                     res, ref_tablet->tablet_id(), ref_tablet->schema_hash(), header_path.c_str());
@@ -415,7 +415,7 @@ OLAPStatus StorageEngine::_create_snapshot_files(
         }
     } while (0);
 
-    SAFE_DELETE(new_olap_header);
+    SAFE_DELETE(new_tablet_meta);
 
     if (header_locked) {
         VLOG(10) << "release header lock.";
@@ -478,16 +478,16 @@ OLAPStatus StorageEngine::_create_incremental_snapshot_files(
 
     do {
         // save header to snapshot path
-        OLAPHeader olap_header;
-        res = OlapHeaderManager::get_header(ref_tablet->store(),
-                ref_tablet->tablet_id(), ref_tablet->schema_hash(), &olap_header);
+        TabletMeta tablet_meta;
+        res = TabletMetaManager::get_header(ref_tablet->store(),
+                ref_tablet->tablet_id(), ref_tablet->schema_hash(), &tablet_meta);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load header. res=" << res << "tablet_id="
                     << ref_tablet->tablet_id() << ", schema_hash=" << ref_tablet->schema_hash();
             break;
         }
         string header_path = _get_header_full_path(ref_tablet, schema_full_path);
-        res = olap_header.save(header_path);
+        res = tablet_meta.save(header_path);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to save header to path:" << header_path;
             remove_dir(header_path);
@@ -560,19 +560,19 @@ OLAPStatus StorageEngine::_append_single_delta(
         const TSnapshotRequest& request, OlapStore* store) {
     OLAPStatus res = OLAP_SUCCESS;
     string root_path = store->path();
-    OLAPHeader* new_olap_header = new(nothrow) OLAPHeader();
-    if (new_olap_header == NULL) {
-        OLAP_LOG_WARNING("fail to malloc OLAPHeader.");
+    TabletMeta* new_tablet_meta = new(nothrow) TabletMeta();
+    if (new_tablet_meta == NULL) {
+        OLAP_LOG_WARNING("fail to malloc TabletMeta.");
         return OLAP_ERR_MALLOC_ERROR;
     }
 
-    res = OlapHeaderManager::get_header(store, request.tablet_id, request.schema_hash, new_olap_header);
+    res = TabletMetaManager::get_header(store, request.tablet_id, request.schema_hash, new_tablet_meta);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to create tablet from header file. [tablet_id=%ld, schema_hash=%d]",
                          request.tablet_id, request.schema_hash);
         return res;
     }
-    auto tablet = Tablet::create_from_header(new_olap_header, store);
+    auto tablet = Tablet::create_from_header(new_tablet_meta, store);
     if (tablet == NULL) {
         OLAP_LOG_WARNING("fail to load tablet. [res=%d tablet_id='%ld, schema_hash=%d']",
                          res, request.tablet_id, request.schema_hash);
@@ -740,20 +740,20 @@ OLAPStatus StorageEngine::storage_medium_migrate(
         }
 
         // generate new header file from the old
-        OLAPHeader* new_olap_header = new(std::nothrow) OLAPHeader();
-        if (new_olap_header == NULL) {
+        TabletMeta* new_tablet_meta = new(std::nothrow) TabletMeta();
+        if (new_tablet_meta == NULL) {
             OLAP_LOG_WARNING("new olap header failed");
             res = OLAP_ERR_BUFFER_OVERFLOW;
             break;
         }
-        res = _generate_new_header(stores[0], shard, tablet, version_entity_vec, new_olap_header);
+        res = _generate_new_header(stores[0], shard, tablet, version_entity_vec, new_tablet_meta);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to generate new header file from the old. [res=%d]", res);
             break;
         }
 
-        // load the new tablet into StorageEngine
-        auto tablet = Tablet::create_from_header(new_olap_header, stores[0]);
+        // load the new tablet into OLAPEngine
+        auto tablet = Tablet::create_from_header(new_tablet_meta, stores[0]);
         if (tablet == NULL) {
             OLAP_LOG_WARNING("failed to create from header");
             res = OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
@@ -796,7 +796,7 @@ OLAPStatus StorageEngine::_generate_new_header(
         OlapStore* store,
         const uint64_t new_shard,
         const TabletSharedPtr& tablet,
-        const vector<VersionEntity>& version_entity_vec, OLAPHeader* new_olap_header) {
+        const vector<VersionEntity>& version_entity_vec, TabletMeta* new_tablet_meta) {
     if (store == nullptr) {
         LOG(WARNING) << "fail to generate new header for store is null";
         return OLAP_ERR_HEADER_INIT_FAILED;
@@ -805,11 +805,11 @@ OLAPStatus StorageEngine::_generate_new_header(
 
     OlapStore* ref_store =
             StorageEngine::get_instance()->get_store(tablet->storage_root_path_name());
-    OlapHeaderManager::get_header(ref_store, tablet->tablet_id(), tablet->schema_hash(), new_olap_header);
-    _update_header_file_info(version_entity_vec, new_olap_header);
-    new_olap_header->set_shard(new_shard);
+    TabletMetaManager::get_header(ref_store, tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
+    _update_header_file_info(version_entity_vec, new_tablet_meta);
+    new_tablet_meta->set_shard(new_shard);
 
-    res = OlapHeaderManager::save(store, tablet->tablet_id(), tablet->schema_hash(), new_olap_header);
+    res = TabletMetaManager::save(store, tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to save olap header to new db. [res=%d]", res);
         return res;
@@ -817,7 +817,7 @@ OLAPStatus StorageEngine::_generate_new_header(
 
     // delete old header
     // TODO: make sure atomic update
-    OlapHeaderManager::remove(ref_store, tablet->tablet_id(), tablet->schema_hash());
+    TabletMetaManager::remove(ref_store, tablet->tablet_id(), tablet->schema_hash());
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to delete olap header to old db. res=" << res;
     }

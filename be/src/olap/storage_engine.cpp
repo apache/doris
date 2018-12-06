@@ -36,8 +36,8 @@
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/lru_cache.h"
-#include "olap/olap_header.h"
-#include "olap/olap_header_manager.h"
+#include "olap/tablet_meta.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/push_handler.h"
 #include "olap/reader.h"
 #include "olap/schema_change.h"
@@ -131,7 +131,7 @@ OLAPStatus StorageEngine::_load_store(OlapStore* store) {
     LOG(INFO) <<"start to load tablets from store_path:" << store_path;
 
     bool is_header_converted = false;
-    OLAPStatus res = OlapHeaderManager::get_header_converted(store, is_header_converted);
+    OLAPStatus res = TabletMetaManager::get_header_converted(store, is_header_converted);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "get convert flag from meta failed";
         return res;
@@ -194,7 +194,7 @@ OLAPStatus StorageEngine::_load_store(OlapStore* store) {
             }
         }
     }
-    res = OlapHeaderManager::set_converted_flag(store);
+    res = TabletMetaManager::set_converted_flag(store);
     LOG(INFO) << "load header from header files finished";
     return res;
 }
@@ -279,7 +279,7 @@ OLAPStatus StorageEngine::_check_none_row_oriented_tablet_in_store(OlapStore* st
     LOG(INFO) <<"start to load tablets from store_path:" << store_path;
 
     bool is_header_converted = false;
-    OLAPStatus res = OlapHeaderManager::get_header_converted(store, is_header_converted);
+    OLAPStatus res = TabletMetaManager::get_header_converted(store, is_header_converted);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "get convert flag from meta failed";
         return res;
@@ -1147,7 +1147,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
 }
 
-OLAPStatus StorageEngine::clone_incremental_data(TabletSharedPtr tablet, OLAPHeader& clone_header,
+OLAPStatus StorageEngine::clone_incremental_data(TabletSharedPtr tablet, TabletMeta& clone_header,
                                               int64_t committed_version) {
     LOG(INFO) << "begin to incremental clone. tablet=" << tablet->full_name()
               << ", committed_version=" << committed_version;
@@ -1218,7 +1218,7 @@ OLAPStatus StorageEngine::clone_incremental_data(TabletSharedPtr tablet, OLAPHea
     return clone_res;
 }
 
-OLAPStatus StorageEngine::clone_full_data(TabletSharedPtr tablet, OLAPHeader& clone_header) {
+OLAPStatus StorageEngine::clone_full_data(TabletSharedPtr tablet, TabletMeta& clone_header) {
     Version clone_latest_version = clone_header.get_latest_version();
     LOG(INFO) << "begin to full clone. tablet=" << tablet->full_name() << ","
         << "clone_latest_version=" << clone_latest_version.first << "-" << clone_latest_version.second;
@@ -1487,7 +1487,7 @@ TabletSharedPtr StorageEngine::create_tablet(
     TabletSharedPtr tablet;
     // Try to create tablet on each of all_available_root_path, util success
     for (auto& store : stores) {
-        OLAPHeader* header = new OLAPHeader();
+        TabletMeta* header = new TabletMeta();
         OLAPStatus res = _create_new_tablet_header(request, store, is_schema_change_tablet, ref_tablet, header);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to create tablet header. [res=" << res << " root=" << store->path();
@@ -1501,7 +1501,7 @@ TabletSharedPtr StorageEngine::create_tablet(
         }
 
         // commit header finally
-        res = OlapHeaderManager::save(store, request.tablet_id, request.tablet_schema.schema_hash, header);
+        res = TabletMetaManager::save(store, request.tablet_id, request.tablet_schema.schema_hash, header);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to save header. [res=" << res << " root=" << store->path();
             break;
@@ -2053,7 +2053,7 @@ OLAPStatus StorageEngine::_create_new_tablet_header(
         OlapStore* store,
         const bool is_schema_change_tablet,
         const TabletSharedPtr ref_tablet,
-        OLAPHeader* header) {
+        TabletMeta* header) {
     uint64_t shard = 0;
     OLAPStatus res = store->get_shard(&shard);
     if (res != OLAP_SUCCESS) {
@@ -2779,7 +2779,7 @@ OLAPStatus StorageEngine::finish_clone(TabletSharedPtr tablet, const string& clo
 
         // load src header
         string clone_header_file = clone_dir + "/" + std::to_string(tablet->tablet_id()) + ".hdr";
-        OLAPHeader clone_header(clone_header_file);
+        TabletMeta clone_header(clone_header_file);
         if ((res = clone_header.load_and_init()) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to load src header when clone. [clone_header_file=%s]",
                              clone_header_file.c_str());

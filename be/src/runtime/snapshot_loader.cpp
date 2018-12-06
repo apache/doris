@@ -623,7 +623,7 @@ Status SnapshotLoader::move(
         hdr << snapshot_path << "/" << tablet_id << ".hdr";
         std::string snapshot_header_file = hdr.str();
     
-        OLAPHeader snapshot_header(snapshot_header_file);
+        TabletMeta snapshot_header(snapshot_header_file);
         OLAPStatus ost = snapshot_header.load_and_init();
         if (ost != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to load snapshot header: " << snapshot_header_file;

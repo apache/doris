@@ -75,10 +75,10 @@ public:
 
         StorageEngine::get_instance()->_lru_cache = newLRU_cache(10000);
 
-        _olap_header = new
-        OLAPHeader("./testrun/case3/clickuserid_online_userid_type_planid_unitid_winfoid.hdr");
-        _olap_header->load();
-        tablet = new Tablet(_olap_header);
+        _tablet_meta = new
+        TabletMeta("./testrun/case3/clickuserid_online_userid_type_planid_unitid_winfoid.hdr");
+        _tablet_meta->load();
+        tablet = new Tablet(_tablet_meta);
         tablet->load_indices();
         tablet->_root_path_name = "./testrun/case3";
 
@@ -272,7 +272,7 @@ public:
     }
 
 private:
-    OLAPHeader* _olap_header;
+    TabletMeta* _tablet_meta;
     Tablet* tablet;
 
     TPlanNode _tnode;
