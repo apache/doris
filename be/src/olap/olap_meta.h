@@ -22,7 +22,7 @@
 #include <map>
 #include <functional>
 
-#include "olap/olap_header.h"
+#include "olap/tablet_meta.h"
 #include "olap/olap_define.h"
 #include "rocksdb/db.h"
 

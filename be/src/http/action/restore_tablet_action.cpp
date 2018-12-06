@@ -31,7 +31,7 @@
 #include "http/http_status.h"
 #include "util/file_utils.h"
 #include "olap/utils.h"
-#include "olap/olap_header.h"
+#include "olap/tablet_meta.h"
 #include "util/json_util.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
@@ -163,7 +163,7 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
     }
     LOG(INFO) << "tablet path in trash:" << latest_tablet_path;
     std::string original_header_path = latest_tablet_path + "/" + std::to_string(tablet_id) +".hdr";
-    OLAPHeader header(original_header_path);
+    TabletMeta header(original_header_path);
     OLAPStatus load_status = header.load_and_init();
     if (load_status != OLAP_SUCCESS) {
         LOG(WARNING) << "header load and init error, header path:" << original_header_path;
