@@ -58,6 +58,7 @@ public class HashJoinNode extends PlanNode {
     private  List<Expr> otherJoinConjuncts;
     private boolean isPushDown;
     private DistributionMode distrMode;
+    private boolean isColocate = false; //the flag for colocate join
 
     public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef,
                         List<Pair<Expr, Expr>> eqJoinConjuncts, List<Expr> otherJoinConjuncts) {
@@ -109,6 +110,14 @@ public class HashJoinNode extends PlanNode {
 
     public void setDistributionMode(DistributionMode distrMode) {
         this.distrMode = distrMode;
+    }
+
+    public boolean isColocate() {
+        return isColocate;
+    }
+
+    public void setColocate(boolean colocate) {
+        isColocate = colocate;
     }
 
     @Override

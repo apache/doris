@@ -43,6 +43,7 @@ import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.CloneInfo;
 import org.apache.doris.persist.ClusterInfo;
+import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DatabaseInfo;
@@ -57,6 +58,7 @@ import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TruncateTableInfo;
+import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -367,9 +369,23 @@ public class JournalEntity implements Writable {
                 data = new Text();
                 break;
             }
+
             case OperationType.OP_TRUNCATE_TABLE: {
                 data = TruncateTableInfo.read(in);
                 needRead = false;
+                break;
+            }
+
+            case OperationType.OP_COLOCATE_ADD_TABLE:
+            case OperationType.OP_COLOCATE_REMOVE_TABLE:
+            case OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ:
+            case OperationType.OP_COLOCATE_MARK_BALANCING:
+            case OperationType.OP_COLOCATE_MARK_STABLE: {
+                data = new ColocatePersistInfo();
+                break;
+            }
+            case OperationType.OP_MODIFY_TABLE_COLOCATE: {
+                data = new TablePropertyInfo();
                 break;
             }
             default: {

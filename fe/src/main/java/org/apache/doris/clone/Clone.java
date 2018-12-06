@@ -120,8 +120,8 @@ public class Clone {
             }
 
             // check job num
-            // TODO(cmy): for now we limit clone job num in all priority level.
-            if (jobNum >= Config.clone_max_job_num) {
+            // TODO(cmy): for now we limit clone job num for NORMAL and LOW Priority clone job
+            if (priority != JobPriority.HIGH && jobNum >= Config.clone_max_job_num) {
                 LOG.debug("too many clone jobs. job num: {}", jobNum);
                 return false;
             }

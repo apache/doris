@@ -65,6 +65,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_COLUMN_SEPARATOR = "column_separator";
     public static final String PROPERTIES_LINE_DELIMITER = "line_delimiter";
+
+    public static final String PROPERTIES_COLOCATE_WITH = "colocate_with";
     
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
@@ -340,5 +342,14 @@ public class PropertyAnalyzer {
         }
 
         return returnAddr;
+    }
+
+    public static String analyzeColocate(Map<String, String> properties) throws AnalysisException {
+        String colocateTable = null;
+        if (properties != null && properties.containsKey(PROPERTIES_COLOCATE_WITH)) {
+            colocateTable = properties.get(PROPERTIES_COLOCATE_WITH);
+            properties.remove(PROPERTIES_COLOCATE_WITH);
+        }
+        return colocateTable;
     }
 }

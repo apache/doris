@@ -1257,6 +1257,12 @@ public class SchemaChangeHandler extends AlterHandler {
                 } else {
                     throw new DdlException("reduplicated PROPERTIES");
                 }
+
+                if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
+                    String colocateTable = properties.get(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH);
+                    Catalog.getInstance().modifyTableColocate(db, olapTable, colocateTable);
+                    return;
+                }
             }
 
             if (alterClause instanceof AddColumnClause) {

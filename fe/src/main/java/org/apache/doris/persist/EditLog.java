@@ -601,11 +601,43 @@ public class EditLog {
                     catalog.getBackupHandler().getRepoMgr().removeRepo(repoName, true);
                     break;
                 }
+
                 case OperationType.OP_TRUNCATE_TABLE: {
                     TruncateTableInfo info = (TruncateTableInfo) journal.getData();
                     catalog.replayTruncateTable(info);
                     break;
                 }
+
+                case OperationType.OP_COLOCATE_ADD_TABLE: {
+                    final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
+                    catalog.getColocateTableIndex().replayAddTableToGroup(info);
+                    break;
+                }
+                case OperationType.OP_COLOCATE_REMOVE_TABLE: {
+                    final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
+                    catalog.getColocateTableIndex().replayRemoveTable(info);
+                    break;
+                }
+                case OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ: {
+                    final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
+                    catalog.getColocateTableIndex().replayAddBackendsPerBucketSeq(info);
+                    break;
+                }
+                case OperationType.OP_COLOCATE_MARK_BALANCING: {
+                    final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
+                    catalog.getColocateTableIndex().replayMarkGroupBalancing(info);
+                    break;
+                }
+                case OperationType.OP_COLOCATE_MARK_STABLE: {
+                    final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
+                    catalog.getColocateTableIndex().replayMarkGroupStable(info);
+                    break;
+                }
+                case OperationType.OP_MODIFY_TABLE_COLOCATE: {
+                    final TablePropertyInfo info = (TablePropertyInfo) journal.getData();
+                    catalog.replayModifyTableColocate(info);
+                }
+
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1063,5 +1095,29 @@ public class EditLog {
 
     public void logTruncateTable(TruncateTableInfo info) {
         logEdit(OperationType.OP_TRUNCATE_TABLE, info);
+    }
+
+    public void logColocateAddTable(ColocatePersistInfo info) {
+        logEdit(OperationType.OP_COLOCATE_ADD_TABLE, info);
+    }
+
+    public void logColocateRemoveTable(ColocatePersistInfo info) {
+        logEdit(OperationType.OP_COLOCATE_REMOVE_TABLE, info);
+    }
+
+    public void logColocateBackendsPerBucketSeq(ColocatePersistInfo info) {
+        logEdit(OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ, info);
+    }
+
+    public void logColocateMarkBalancing(ColocatePersistInfo info) {
+        logEdit(OperationType.OP_COLOCATE_MARK_BALANCING, info);
+    }
+
+    public void logColocateMarkStable(ColocatePersistInfo info) {
+        logEdit(OperationType.OP_COLOCATE_MARK_STABLE, info);
+    }
+
+    public void logModifyTableColocate(TablePropertyInfo info) {
+        logEdit(OperationType.OP_MODIFY_TABLE_COLOCATE, info);
     }
 }

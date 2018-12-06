@@ -132,6 +132,14 @@ public class OperationType {
     public static final short OP_CREATE_REPOSITORY = 89;
     public static final short OP_DROP_REPOSITORY = 90;
 
+    //colocate table
+    public static final short OP_COLOCATE_ADD_TABLE = 94;
+    public static final short OP_COLOCATE_REMOVE_TABLE = 95;
+    public static final short OP_COLOCATE_BACKENDS_PER_BUCKETSEQ = 96;
+    public static final short OP_COLOCATE_MARK_BALANCING = 97;
+    public static final short OP_COLOCATE_MARK_STABLE = 98;
+    public static final short OP_MODIFY_TABLE_COLOCATE = 99;
+
     //real time load 100 -108
     public static final short OP_UPSERT_TRANSACTION_STATE = 100;
     public static final short OP_DELETE_TRANSACTION_STATE = 101;

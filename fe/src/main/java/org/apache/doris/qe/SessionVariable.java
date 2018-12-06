@@ -66,6 +66,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;   
     public static final String BATCH_SIZE = "batch_size";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
+    public static final String DISABLE_COLOCATE_JOIN = "disable_colocate_join";
     public static final String MT_DOP = "mt_dop";
 
     // max memory used on every backend.
@@ -172,7 +173,10 @@ public class SessionVariable implements Serializable, Writable {
     private int batchSize = 1024;
 
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS)
-    private boolean disableStreamPreaggregations = false; 
+    private boolean disableStreamPreaggregations = false;
+
+    @VariableMgr.VarAttr(name = DISABLE_COLOCATE_JOIN)
+    private boolean disableColocateJoin = false;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -404,6 +408,14 @@ public class SessionVariable implements Serializable, Writable {
     
     public void setMtDop(int mtDop) {
         this.mtDop = mtDop;
+    }
+
+    public boolean isDisableColocateJoin() {
+        return disableColocateJoin;
+    }
+
+    public void setDisableColocateJoin(boolean disableColocateJoin) {
+        this.disableColocateJoin = disableColocateJoin;
     }
     
    // Serialize to thrift object 
