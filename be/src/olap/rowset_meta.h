@@ -145,7 +145,7 @@ public:
         return _rowset_meta->delete_predicate();
     }
 
-    virtual void set_delete_condition(DeleteConditionMessage delete_predicate) {
+    virtual void set_delete_predicate(DeleteConditionMessage delete_predicate) {
         _rowset_meta->set_delete_predicate(delete_predicate);
     }
 
