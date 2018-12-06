@@ -105,6 +105,8 @@ public class OlapTable extends Table {
     private Set<String> bfColumns;
     private double bfFpp;
 
+    private String colocateTable;
+
     public OlapTable() {
         // for persist
         super(TableType.OLAP);
@@ -122,6 +124,8 @@ public class OlapTable extends Table {
 
         this.bfColumns = null;
         this.bfFpp = 0;
+
+        this.colocateTable = null;
     }
 
     public OlapTable(long id, String tableName, List<Column> baseSchema,
@@ -148,6 +152,8 @@ public class OlapTable extends Table {
 
         this.bfColumns = null;
         this.bfFpp = 0;
+
+        this.colocateTable = null;
     }
 
     public void setState(OlapTableState state) {
@@ -519,6 +525,14 @@ public class OlapTable extends Table {
         this.bfColumns = bfColumns;
         this.bfFpp = bfFpp;
     }
+
+    public String getColocateTable() {
+        return colocateTable;
+    }
+
+    public void setColocateTable(String colocateTable) {
+        this.colocateTable = colocateTable;
+    }
     
     // when the table is creating new rollup and enter finishing state, should tell be not auto load to new rollup
     // it is used for stream load
@@ -765,6 +779,14 @@ public class OlapTable extends Table {
             }
             out.writeDouble(bfFpp);
         }
+
+        //colocateTable
+        if (colocateTable == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            Text.writeString(out, colocateTable);
+        }
     }
 
     @Override
@@ -844,6 +866,12 @@ public class OlapTable extends Table {
                 }
 
                 bfFpp = in.readDouble();
+            }
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
+            if (in.readBoolean()) {
+                colocateTable = Text.readString(in);
             }
         }
     }

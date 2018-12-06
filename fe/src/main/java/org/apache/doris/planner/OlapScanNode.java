@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import com.google.common.collect.ArrayListMultimap;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.Expr;
@@ -99,6 +100,9 @@ public class OlapScanNode extends ScanNode {
 
     private HashSet<Long> scanBackendIds = new HashSet<>();
 
+    private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
+    public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations= ArrayListMultimap.create();
+
     /**
      * Constructs node to scan given data files of table 'tbl'.
      */
@@ -123,6 +127,10 @@ public class OlapScanNode extends ScanNode {
 
     public void setCanTurnOnPreAggr(boolean canChangePreAggr) {
         this.canTurnOnPreAggr = canChangePreAggr;
+    }
+
+    public OlapTable getOlapTable() {
+        return olapTable;
     }
 
     @Override
@@ -479,6 +487,9 @@ public class OlapScanNode extends ScanNode {
             TScanRange scanRange = new TScanRange();
             scanRange.setPalo_scan_range(paloRange);
             scanRangeLocations.setScan_range(scanRange);
+
+            bucketSeq2locations.put(tabletId2BucketSeq.get(tabletId), scanRangeLocations);
+
             result.add(scanRangeLocations);
         }
     }
@@ -565,6 +576,8 @@ public class OlapScanNode extends ScanNode {
             List<Tablet> tablets = new ArrayList<Tablet>();
             Collection<Long> tabletIds = distributionPrune(selectedTable, partition.getDistributionInfo());
             LOG.debug("distribution prune tablets: {}", tabletIds);
+
+            List<Long> allTabletIds = selectedTable.getTabletIdsInOrder();
             if (tabletIds != null) {
                 for (Long id : tabletIds) {
                     tablets.add(selectedTable.getTablet(id));
@@ -572,6 +585,11 @@ public class OlapScanNode extends ScanNode {
             } else {
                 tablets.addAll(selectedTable.getTablets());
             }
+
+            for (int i = 0; i < allTabletIds.size(); i++) {
+                tabletId2BucketSeq.put(allTabletIds.get(i), i);
+            }
+
             totalTabletsNum += selectedTable.getTablets().size();
             selectedTabletsNum += tablets.size();
             addScanRangeLocations(partition, selectedTable, tablets, localBeId);

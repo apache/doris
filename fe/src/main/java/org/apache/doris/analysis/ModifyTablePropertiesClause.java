@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.PrintableMap;
@@ -31,6 +32,7 @@ import java.util.Map;
 public class ModifyTablePropertiesClause extends AlterClause {
 
     private static final String KEY_STORAGE_TYPE = "storage_type";
+    private static final String KEY_COLOCATE_WITH = "colocate_with";
 
     private Map<String, String> properties;
 
@@ -44,9 +46,19 @@ public class ModifyTablePropertiesClause extends AlterClause {
             throw new AnalysisException("Properties is not set");
         }
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ALTER)) {
+        if (properties.size() == 1 && properties.containsKey(KEY_COLOCATE_WITH)) {
+            if (Config.disable_colocate_join) {
+                throw new AnalysisException("Colocate table is disabled by Admin");
+            }
+
+            if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(
+                    ConnectContext.get(), ConnectContext.get().getDatabase(), PrivPredicate.ALTER)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                        "ALTER");
+            }
+        } else if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                "ALTER");
+                    "ALTER");
         }
 
         if (properties.containsKey(KEY_STORAGE_TYPE)) {

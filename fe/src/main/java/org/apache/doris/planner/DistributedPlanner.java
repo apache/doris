@@ -22,10 +22,19 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.Preconditions;
@@ -188,7 +197,7 @@ public class DistributedPlanner {
         } else if (root instanceof HashJoinNode) {
             Preconditions.checkState(childFragments.size() == 2);
             result = createHashJoinFragment((HashJoinNode) root, childFragments.get(1),
-                    childFragments.get(0), perNodeMemLimit);
+                    childFragments.get(0), perNodeMemLimit, fragments);
         } else if (root instanceof CrossJoinNode) {
             result = createCrossJoinFragment((CrossJoinNode) root, childFragments.get(1),
                     childFragments.get(0));
@@ -274,7 +283,8 @@ public class DistributedPlanner {
      * don't create a broadcast join if we already anticipate that this will exceed the query's memory budget.
      */
     private PlanFragment createHashJoinFragment(HashJoinNode node, PlanFragment rightChildFragment,
-                                                PlanFragment leftChildFragment, long perNodeMemLimit)
+                                                PlanFragment leftChildFragment, long perNodeMemLimit,
+                                                ArrayList<PlanFragment> fragments)
             throws UserException {
         // broadcast: send the rightChildFragment's output to each node executing
         // the leftChildFragment; the cost across all nodes is proportional to the
@@ -329,6 +339,16 @@ public class DistributedPlanner {
             doBroadcast = true;
         } else {
             doBroadcast = false;
+        }
+
+        if (canColocateJoin(node, leftChildFragment, rightChildFragment)) {
+            node.setColocate(true);
+            //node.setDistributionMode(HashJoinNode.DistributionMode.PARTITIONED);
+            node.setChild(0, leftChildFragment.getPlanRoot());
+            node.setChild(1, rightChildFragment.getPlanRoot());
+            leftChildFragment.setPlanRoot(node);
+            fragments.remove(rightChildFragment);
+            return leftChildFragment;
         }
 
         if (doBroadcast) {
@@ -393,6 +413,86 @@ public class DistributedPlanner {
 
             return joinFragment;
         }
+    }
+
+    private boolean canColocateJoin(HashJoinNode node, PlanFragment leftChildFragment, PlanFragment rightChildFragment) {
+        if (Config.disable_colocate_join) {
+            return false;
+        }
+
+        if (ConnectContext.get().getSessionVariable().isDisableColocateJoin()) {
+            return false;
+        }
+
+        PlanNode leftRoot = leftChildFragment.getPlanRoot();
+        PlanNode rightRoot = rightChildFragment.getPlanRoot();
+
+        //leftRoot should be ScanNode or HashJoinNode, rightRoot should be ScanNode
+        if (leftRoot instanceof OlapScanNode && rightRoot instanceof OlapScanNode) {
+            return canColocateJoin(node, leftRoot, rightRoot);
+        }
+
+        if (leftRoot instanceof HashJoinNode && rightRoot instanceof OlapScanNode) {
+            while (leftRoot instanceof HashJoinNode) {
+                if (((HashJoinNode)leftRoot).isColocate()) {
+                    leftRoot = leftRoot.getChild(0);
+                } else {
+                    return false;
+                }
+            }
+            if (leftRoot instanceof OlapScanNode) {
+                return canColocateJoin(node, leftRoot, rightRoot);
+            }
+        }
+
+        return false;
+    }
+
+    //the table must be colocate
+    //the colocate group must be stable
+    //the eqJoinConjuncts must contain the distributionColumns
+    private boolean canColocateJoin(HashJoinNode node, PlanNode leftRoot, PlanNode rightRoot) {
+        OlapTable leftTable = ((OlapScanNode) leftRoot).getOlapTable();
+        OlapTable rightTable = ((OlapScanNode) rightRoot).getOlapTable();
+
+        //1 the table must be colocate
+        if (leftTable.getColocateTable() == null
+                || !leftTable.getColocateTable().equalsIgnoreCase(rightTable.getColocateTable())) {
+            return false;
+        }
+
+        //2 the colocate group must be stable
+        ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
+        long groupId = colocateIndex.getGroup(leftTable.getId());
+        if (colocateIndex.isGroupBalancing(groupId)) {
+            LOG.warn("colocate group {} is balancing", leftTable.getColocateTable());
+            return false;
+        }
+
+        DistributionInfo leftDistribution = leftTable.getDefaultDistributionInfo();
+        DistributionInfo rightDistribution = rightTable.getDefaultDistributionInfo();
+
+        if (leftDistribution instanceof HashDistributionInfo && rightDistribution instanceof HashDistributionInfo) {
+            List<Column> leftColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
+            List<Column> rightColumns = ((HashDistributionInfo) rightDistribution).getDistributionColumns();
+
+            List<Pair<Expr, Expr>> eqJoinConjuncts = node.getEqJoinConjuncts();
+            for (Pair<Expr, Expr> eqJoinPredicate : eqJoinConjuncts) {
+                if (eqJoinPredicate.first.unwrapSlotRef() == null || eqJoinPredicate.second.unwrapSlotRef() == null) {
+                    continue;
+                }
+
+                SlotDescriptor leftSlot = eqJoinPredicate.first.unwrapSlotRef().getDesc();
+                SlotDescriptor rightSlot = eqJoinPredicate.second.unwrapSlotRef().getDesc();
+
+                //3 the eqJoinConjuncts must contain the distributionColumns
+                if (leftColumns.contains(leftSlot.getColumn()) && rightColumns.contains(rightSlot.getColumn())) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /**
