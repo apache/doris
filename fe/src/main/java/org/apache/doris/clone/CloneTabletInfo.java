@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Database;
 
 import java.util.Set;
 
-public class TabletInfo {
+public class CloneTabletInfo {
     private long dbId;
     private long tableId;
     private long partitionId;
@@ -33,8 +33,8 @@ public class TabletInfo {
     private Set<Long> backendIds;
     private Database.DbState dbState;
 
-    public TabletInfo(long dbId, long tableId, long partitionId, long indexId, long tabletId, short replicationNum,
-                      short onlineReplicaNum, long tabletSizeB, Set<Long> backendIds) {
+    public CloneTabletInfo(long dbId, long tableId, long partitionId, long indexId, long tabletId, short replicationNum,
+                           short onlineReplicaNum, long tabletSizeB, Set<Long> backendIds) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;

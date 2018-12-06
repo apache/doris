@@ -197,6 +197,8 @@ public enum ErrorCode {
             "Incorrect %s name '%s'"),
     ERR_COMMON_ERROR(5064, new byte[] { '4', '2', '0', '0', '0' },
             "%s"),
+    ERR_COLOCATE_TABLE_DISABLED(5063, new byte[] { '4', '2', '0', '0', '0' },
+            "Colocate table is disabled by Admin"),
     ERR_COLOCATE_TABLE_NO_EXIT(5063, new byte[] { '4', '2', '0', '0', '0' },
             "Colocate table '%s' no exist"),
     ERR_COLOCATE_TABLE_MUST_OLAP_TABLE(5063, new byte[] { '4', '2', '0', '0', '0' },

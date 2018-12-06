@@ -879,6 +879,10 @@ public class Coordinator {
 
     //One fragment could only have one HashJoinNode
     private boolean isColocateJoin(PlanNode node) {
+        if (Config.disable_colocate_join) {
+            return false;
+        }
+
         if (ConnectContext.get().getSessionVariable().isDisableColocateJoin()) {
             return false;
         }

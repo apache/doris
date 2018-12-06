@@ -164,7 +164,7 @@ public class ColocateTableBalancer extends Daemon {
                         //for backend added;
                         if (clusterAliveBackendIds.containsAll(tabletBackends)) {
                             //we can ignore tabletSizeB parameter here
-                            TabletInfo tabletInfo = new TabletInfo(db.getId(), olapTable.getId(), partition.getId(),
+                            CloneTabletInfo tabletInfo = new CloneTabletInfo(db.getId(), olapTable.getId(), partition.getId(),
                                     index.getId(), tablet.getId(), replicateNum, replicateNum, 0, tabletBackends);
 
                             for (Long cloneBackend : groupBackends) {
@@ -172,7 +172,7 @@ public class ColocateTableBalancer extends Daemon {
                             }
                         } else { //for backend down or removed
                             short onlineReplicaNum = (short) (replicateNum - groupBackends.size());
-                            TabletInfo tabletInfo = new TabletInfo(db.getId(), olapTable.getId(), partition.getId(),
+                            CloneTabletInfo tabletInfo = new CloneTabletInfo(db.getId(), olapTable.getId(), partition.getId(),
                                     index.getId(), tablet.getId(), replicateNum, onlineReplicaNum, 0, tabletBackends);
 
                             for (Long cloneBackend : groupBackends) {
@@ -267,7 +267,7 @@ public class ColocateTableBalancer extends Daemon {
             if (!balancingGroups.contains(groupId)) {
                 Database db = catalog.getDb(colocateIndex.getDB(groupId));
                 List<Long> allTableIds = colocateIndex.getAllTableIds(groupId);
-                Set<TabletInfo> deleteTabletSet = Sets.newHashSet();//keep tablets which have redundant replicas.
+                Set<CloneTabletInfo> deleteTabletSet = Sets.newHashSet();//keep tablets which have redundant replicas.
                 int replicateNum = -1;
                 for (long tableId : allTableIds) {
                     db.readLock();
@@ -283,7 +283,7 @@ public class ColocateTableBalancer extends Daemon {
                                 for (Tablet tablet : index.getTablets()) {
                                     List<Replica> replicas = tablet.getReplicas();
                                     if (replicas.size() > replicateNum) {
-                                        TabletInfo tableInfo = new TabletInfo(db.getId(), tableId, partition.getId(), index.getId(), tablet.getId(), (short) replicateNum, (short) replicas.size(), 0, new HashSet<>());
+                                        CloneTabletInfo tableInfo = new CloneTabletInfo(db.getId(), tableId, partition.getId(), index.getId(), tablet.getId(), (short) replicateNum, (short) replicas.size(), 0, new HashSet<>());
                                         deleteTabletSet.add(tableInfo);
                                     }
                                 }
@@ -301,7 +301,7 @@ public class ColocateTableBalancer extends Daemon {
                     colocateIndex.markGroupBalancing(groupId);
                     ColocatePersistInfo info = ColocatePersistInfo.CreateForMarkBalancing(groupId);
                     Catalog.getInstance().getEditLog().logColocateMarkBalancing(info);
-                    for (TabletInfo tabletInfo : deleteTabletSet) {
+                    for (CloneTabletInfo tabletInfo : deleteTabletSet) {
                         deleteRedundantReplicas(db, tabletInfo);
                     }
                 }
@@ -310,7 +310,7 @@ public class ColocateTableBalancer extends Daemon {
         }
     }
 
-    private void deleteRedundantReplicas(Database db, TabletInfo tabletInfo) {
+    private void deleteRedundantReplicas(Database db, CloneTabletInfo tabletInfo) {
         long tableId = tabletInfo.getTableId();
         long partitionId = tabletInfo.getPartitionId();
         long indexId = tabletInfo.getIndexId();
@@ -417,7 +417,7 @@ public class ColocateTableBalancer extends Daemon {
                             }
 
                             long tabletSizeB = deleteReplica.getDataSize() * partition.getMaterializedIndices().size() * olapTable.getPartitions().size() * allTableIds.size();
-                            TabletInfo tabletInfo = new TabletInfo(db.getId(), tableId, partition.getId(),
+                            CloneTabletInfo tabletInfo = new CloneTabletInfo(db.getId(), tableId, partition.getId(),
                             index.getId(), tablet.getId(), (short) replicateNum, (short) (replicateNum - 1),
                             tabletSizeB, tablet.getBackendIds());
 
@@ -462,7 +462,7 @@ public class ColocateTableBalancer extends Daemon {
     }
 
     //this logic is like CloneChecker.checkTabletForSupplement and CloneChecker.addCloneJob
-    private Long selectCloneBackendIdForRemove(com.google.common.collect.Table<Long, Integer, Long> newGroup2BackendsPerBucketSeq, long group, int bucketSeq, String clusterName, TabletInfo tabletInfo) {
+    private Long selectCloneBackendIdForRemove(com.google.common.collect.Table<Long, Integer, Long> newGroup2BackendsPerBucketSeq, long group, int bucketSeq, String clusterName, CloneTabletInfo tabletInfo) {
         Long cloneReplicaBackendId = null;
         cloneReplicaBackendId = newGroup2BackendsPerBucketSeq.get(group, bucketSeq);
         if (cloneReplicaBackendId == null) {
@@ -564,7 +564,7 @@ public class ColocateTableBalancer extends Daemon {
 
                             long tabletSizeB = deleteReplica.getDataSize() * partition.getMaterializedIndices().size()
                              * olapTable.getPartitions().size() * allTableIds.size();
-                            TabletInfo tabletInfo = new TabletInfo(db.getId(), tableId, partition.getId(),
+                            CloneTabletInfo tabletInfo = new CloneTabletInfo(db.getId(), tableId, partition.getId(),
                             index.getId(), tablet.getId(), (short) replicateNum, (short) replicateNum,
                             tabletSizeB, tablet.getBackendIds());
 
@@ -603,13 +603,13 @@ public class ColocateTableBalancer extends Daemon {
     }
 
     //for backend down or removed
-    private void AddSupplementJob(TabletInfo tabletInfo, long cloneBackendId) {
+    private void AddSupplementJob(CloneTabletInfo tabletInfo, long cloneBackendId) {
         Clone clone = Catalog.getInstance().getCloneInstance();
         clone.addCloneJob(tabletInfo.getDbId(), tabletInfo.getTableId(), tabletInfo.getPartitionId(), tabletInfo.getIndexId(), tabletInfo.getTabletId(), cloneBackendId, CloneJob.JobType.SUPPLEMENT, CloneJob.JobPriority.HIGH, Config.clone_job_timeout_second * 1000L);
     }
 
     //for backend added
-    private void AddMigrationJob(TabletInfo tabletInfo, long cloneBackendId) {
+    private void AddMigrationJob(CloneTabletInfo tabletInfo, long cloneBackendId) {
         Clone clone = Catalog.getInstance().getCloneInstance();
         clone.addCloneJob(tabletInfo.getDbId(), tabletInfo.getTableId(), tabletInfo.getPartitionId(), tabletInfo.getIndexId(), tabletInfo.getTabletId(), cloneBackendId, CloneJob.JobType.MIGRATION, CloneJob.JobPriority.HIGH, Config.clone_job_timeout_second * 1000L);
     }

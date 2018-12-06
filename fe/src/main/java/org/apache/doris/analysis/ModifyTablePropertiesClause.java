@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.PrintableMap;
@@ -46,6 +47,10 @@ public class ModifyTablePropertiesClause extends AlterClause {
         }
 
         if (properties.size() == 1 && properties.containsKey(KEY_COLOCATE_WITH)) {
+            if (Config.disable_colocate_join) {
+                throw new AnalysisException("Colocate table is disabled by Admin");
+            }
+
             if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(
                     ConnectContext.get(), ConnectContext.get().getDatabase(), PrivPredicate.ALTER)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,

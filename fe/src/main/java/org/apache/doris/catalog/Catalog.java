@@ -1027,8 +1027,10 @@ public class Catalog {
         CloneChecker.getInstance().start();
 
         // Colocate tables balancer
-        ColocateTableBalancer.getInstance().setInterval(60 * 1000L);
-        ColocateTableBalancer.getInstance().start();
+        if (!Config.disable_colocate_join) {
+            ColocateTableBalancer.getInstance().setInterval(60 * 1000L);
+            ColocateTableBalancer.getInstance().start();
+        }
 
         // Publish Version Daemon
         publishVersionDaemon.start();
@@ -3313,6 +3315,10 @@ public class Catalog {
         try {
             String colocateTable = PropertyAnalyzer.analyzeColocate(properties);
             if (colocateTable != null) {
+                if (Config.disable_colocate_join) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_DISABLED);
+                }
+
                 Table parentTable = ColocateTableUtils.getColocateTable(db, colocateTable);
                 //for colocate child table
                 if (!colocateTable.equalsIgnoreCase(tableName)) {

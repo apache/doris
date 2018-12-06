@@ -487,6 +487,10 @@ public class Config extends ConfigBase {
     */
     @ConfField
     public static int query_colocate_join_memory_limit_penalty_factor = 8;
+
+    @ConfField
+    public static boolean disable_colocate_join = true;
+
     /*
      * The interval of user resource publishing.
      * User resource contains cgroup configurations of a user.

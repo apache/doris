@@ -31,6 +31,7 @@ import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.qe.ConnectContext;
@@ -415,6 +416,10 @@ public class DistributedPlanner {
     }
 
     private boolean canColocateJoin(HashJoinNode node, PlanFragment leftChildFragment, PlanFragment rightChildFragment) {
+        if (Config.disable_colocate_join) {
+            return false;
+        }
+
         if (ConnectContext.get().getSessionVariable().isDisableColocateJoin()) {
             return false;
         }
