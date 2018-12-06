@@ -482,6 +482,16 @@ public class Config extends ConfigBase {
      */
     @ConfField public static long qe_slow_log_ms = 5000;
     /*
+    * The memory_limit for coloctae join PlanFragment instance =
+    * exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)
+    */
+    @ConfField
+    public static int query_colocate_join_memory_limit_penalty_factor = 8;
+
+    @ConfField
+    public static boolean disable_colocate_join = true;
+
+    /*
      * The interval of user resource publishing.
      * User resource contains cgroup configurations of a user.
      */

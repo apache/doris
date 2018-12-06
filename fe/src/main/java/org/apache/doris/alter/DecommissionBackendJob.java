@@ -248,6 +248,11 @@ public class DecommissionBackendJob extends AlterJob {
                         }
                         OlapTable olapTable = (OlapTable) table;
 
+                        if (olapTable.getColocateTable() != null) {
+                            LOG.debug("{} is colocate table, skip", olapTable.getName());
+                            continue;
+                        }
+
                         long partitionId = tabletMeta.getPartitionId();
                         Partition partition = olapTable.getPartition(partitionId);
                         if (partition == null) {
@@ -428,6 +433,12 @@ public class DecommissionBackendJob extends AlterJob {
                         Tablet tablet = index.getTablet(tabletId);
                         if (tablet == null) {
                             LOG.warn("can this happends? tabletMeta {}: {}", tabletId, tabletMeta.toString());
+                            continue;
+                        }
+
+                        if (olapTable.getColocateTable() != null) {
+                            LOG.debug("{} is colocate table, ColocateTableBalancer will handle the tablet clone", olapTable.getName());
+                            finishedTabletIds.add(tabletId);
                             continue;
                         }
 
