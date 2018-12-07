@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_ROWSET_ROWSET_META_H
-#define DORIS_BE_SRC_ROWSET_ROWSET_META_H
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_META_H
+#define DORIS_BE_SRC_OLAP_ROWSET_META_H
 
 #include "gen_cpp/olap_file.pb.h"
 
@@ -155,4 +155,4 @@ private:
 
 }
 
-#endif // DORIS_BE_SRC_ROWSET_ROWSET_META_H
+#endif // DORIS_BE_SRC_OLAP_ROWSET_META_H

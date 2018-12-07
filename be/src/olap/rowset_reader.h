@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_ROWSET_ROWSET_READER_H
-#define DORIS_BE_SRC_ROWSET_ROWSET_READER_H
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_READER_H
+#define DORIS_BE_SRC_OLAP_ROWSET_READER_H
 
 #include "olap/new_status.h"
 #include "olap/schema.h"
@@ -54,4 +54,4 @@ public:
 
 }
 
-#endif // DORIS_BE_SRC_ROWSET_ROWSET_READER_H
+#endif // DORIS_BE_SRC_OLAP_ROWSET_READER_H

@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_ROWSET_ROWSET_H
-#define DORIS_BE_SRC_ROWSET_ROWSET_H
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_H
+#define DORIS_BE_SRC_OLAP_ROWSET_H
 
 #include "olap/new_status.h"
 #include "rowset/rowset_reader.h"
@@ -28,7 +28,7 @@ namespace doris {
 
 class Rowset {
 public:
-    NewStatus init(RowsetMeta rowset_meta, const DataDir* dir) = 0;
+    NewStatus init(const RowsetMeta& rowset_meta, const DataDir* dir) = 0;
 
     std::unique_ptr<RowsetReader> create_reader() = 0;
 
@@ -37,10 +37,9 @@ public:
     NewStatus delete() = 0;
 
 private:
-    DataDir* _dir;
     RowsetMeta _rowset_meta;
 };
 
 }
 
-#endif // DORIS_BE_SRC_ROWSET_ROWSET_H
+#endif // DORIS_BE_SRC_OLAP_ROWSET_H
