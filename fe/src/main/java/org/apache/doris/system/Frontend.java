@@ -22,6 +22,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.system.HeartbeatResponse.HbStatus;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -33,11 +34,16 @@ public class Frontend implements Writable {
     private String nodeName;
     private String host;
     private int editLogPort;
-
-    // We cannot add other ports (http, query, etc...) here,
-    // because we don't these ports when we process ADD FRONTEND stmt.
-    // And there is no such 'Heartbeat' thing between frontends than can sync these ports' info.
     
+    private int queryPort;
+    private int rpcPort;
+
+    private long replayedJournalId;
+    private long lastUpdateTime;
+    private String msg;
+
+    private boolean isAlive = false;
+
     public Frontend() {
         role = FrontendNodeType.UNKNOWN;
         host = "";
@@ -71,12 +77,62 @@ public class Frontend implements Writable {
         return nodeName;
     }
 
+    public int getQueryPort() {
+        return queryPort;
+    }
+
+    public int getRpcPort() {
+        return rpcPort;
+    }
+
+    public boolean isAlive() {
+        return isAlive;
+    }
+
     public void setEditLogPort(int editLogPort) {
         this.editLogPort = editLogPort;
     }
     
     public int getEditLogPort() {
         return this.editLogPort;
+    }
+
+    public long getReplayedJournalId() {
+        return replayedJournalId;
+    }
+
+    public String getMsg() {
+        return msg;
+    }
+
+    public long getLastUpdateTime() {
+        return lastUpdateTime;
+    }
+
+    /*
+     * handle Frontend's heartbeat response.
+     * Because the replayed journal id is very likely to be changed at each heartbeat response,
+     * so we simple return true if the heartbeat status is OK.
+     * But if heartbeat status is BAD, only return true if it is the first time to transfer from alive to dead.
+     */
+    public boolean heartbeat(FrontendHbResponse hbResponse) {
+        boolean isChanged = false;
+        if (hbResponse.getStatus() == HbStatus.OK) {
+            isAlive = true;
+            queryPort = hbResponse.getQueryPort();
+            rpcPort = hbResponse.getRpcPort();
+            replayedJournalId = hbResponse.getReplayedJournalId();
+            lastUpdateTime = hbResponse.getHbTime();
+            msg = "";
+            isChanged = true;
+        } else {
+            if (isAlive) {
+                isAlive = false;
+                isChanged = true;
+            }
+            msg = hbResponse.getMsg();
+        }
+        return isChanged;
     }
 
     @Override

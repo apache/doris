@@ -18,22 +18,31 @@
 package org.apache.doris.http.rest;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 
+import com.google.common.base.Strings;
+import com.google.gson.Gson;
+
 import io.netty.handler.codec.http.HttpMethod;
 
 /*
  * fe_host:fe_http_port/api/bootstrap
  * return:
- * {"status":"OK","msg":"Success"}
+ * {"status":"OK","msg":"Success","replayedJournal"=123456, "queryPort"=9000, "rpcPort"=9001}
  * {"status":"FAILED","msg":"err info..."}
  */
 public class BootstrapFinishAction extends RestBaseAction {
-    public static final String HOST_PORTS = "host_ports";
+    private static final String CLUSTER_ID = "cluster_id";
+    private static final String TOKEN = "token";
+
+    public static final String REPLAYED_JOURNAL_ID = "replayedJournalId";
+    public static final String QUERY_PORT = "queryPort";
+    public static final String RPC_PORT = "rpcPort";
 
     public BootstrapFinishAction(ActionController controller) {
         super(controller);
@@ -48,16 +57,94 @@ public class BootstrapFinishAction extends RestBaseAction {
         boolean canRead = Catalog.getInstance().canRead();
 
         // to json response
-        RestBaseResult result = null;
+        BootstrapResult result = null;
         if (canRead) {
-            result = RestBaseResult.getOk();
+            result = new BootstrapResult();
+            String clusterIdStr = request.getSingleParameter(CLUSTER_ID);
+            String token = request.getSingleParameter(TOKEN);
+            if (!Strings.isNullOrEmpty(clusterIdStr) && !Strings.isNullOrEmpty(token)) {
+                // cluster id or token is provided, return more info
+                int clusterId = 0;
+                try {
+                    clusterId = Integer.valueOf(clusterIdStr);
+                } catch (NumberFormatException e) {
+                    result.status = ActionStatus.FAILED;
+                    result.msg = "invalid cluster id format: " + clusterIdStr;
+                }
+
+                if (result.status == ActionStatus.OK) {
+                    if (clusterId != Catalog.getInstance().getClusterId()) {
+                        result.status = ActionStatus.FAILED;
+                        result.msg = "invalid cluster id: " + clusterId;
+                    }
+                }
+
+                if (result.status == ActionStatus.OK) {
+                    if (!token.equals(Catalog.getInstance().getToken())) {
+                        result.status = ActionStatus.FAILED;
+                        result.msg = "invalid cluster id: " + clusterId;
+                    }
+                }
+
+                if (result.status == ActionStatus.OK) {
+                    // cluster id and token are valid, return replayed journal id
+                    long replayedJournalId = Catalog.getInstance().getReplayedJournalId();
+                    result.setMaxReplayedJournal(replayedJournalId);
+                    result.setQueryPort(Config.query_port);
+                    result.setRpcPort(Config.rpc_port);
+                }
+            }
         } else {
-            result = new RestBaseResult("unfinished");
+            result = new BootstrapResult("unfinished");
         }
 
         // send result
         response.setContentType("application/json");
         response.getContent().append(result.toJson());
         sendResult(request, response);
+    }
+
+    public static class BootstrapResult extends RestBaseResult {
+        private long replayedJournalId = 0;
+        private int queryPort = 0;
+        private int rpcPort = 0;
+
+        public BootstrapResult() {
+            super();
+        }
+
+        public BootstrapResult(String msg) {
+            super(msg);
+        }
+
+        public void setMaxReplayedJournal(long replayedJournalId) {
+            this.replayedJournalId = replayedJournalId;
+        }
+
+        public long getMaxReplayedJournal() {
+            return replayedJournalId;
+        }
+
+        public void setQueryPort(int queryPort) {
+            this.queryPort = queryPort;
+        }
+
+        public int getQueryPort() {
+            return queryPort;
+        }
+
+        public void setRpcPort(int rpcPort) {
+            this.rpcPort = rpcPort;
+        }
+
+        public int getRpcPort() {
+            return rpcPort;
+        }
+
+        @Override
+        public String toJson() {
+            Gson gson = new Gson();
+            return gson.toJson(this);
+        }
     }
 }

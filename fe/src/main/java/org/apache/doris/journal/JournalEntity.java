@@ -50,6 +50,7 @@ import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
+import org.apache.doris.persist.HbPackage;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
@@ -57,8 +58,8 @@ import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.TableInfo;
-import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -386,6 +387,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_MODIFY_TABLE_COLOCATE: {
                 data = new TablePropertyInfo();
+                break;
+            }
+            case OperationType.OP_HEARTBEAT: {
+                data = HbPackage.read(in);
+                needRead = false;
                 break;
             }
             default: {

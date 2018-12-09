@@ -18,8 +18,8 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -66,9 +66,9 @@ public class ExportSink extends DataSink {
         TDataSink result = new TDataSink(TDataSinkType.EXPORT_SINK);
         TExportSink tExportSink = new TExportSink(TFileType.FILE_BROKER, exportPath, columnSeparator, lineDelimiter);
 
-        BrokerMgr.BrokerAddress brokerAddress = Catalog.getInstance().getBrokerMgr().getAnyBroker(brokerDesc.getName());
-        if (brokerAddress != null) {
-            tExportSink.addToBroker_addresses(new TNetworkAddress(brokerAddress.ip, brokerAddress.port));
+        FsBroker broker = Catalog.getInstance().getBrokerMgr().getAnyBroker(brokerDesc.getName());
+        if (broker != null) {
+            tExportSink.addToBroker_addresses(new TNetworkAddress(broker.ip, broker.port));
         }
         tExportSink.setProperties(brokerDesc.getProperties());
 

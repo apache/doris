@@ -17,10 +17,6 @@
 
 package org.apache.doris.system;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
-import com.google.common.eventbus.EventBus;
-
 import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
@@ -29,8 +25,12 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.system.BackendEvent.BackendEventType;
+import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;
+
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -153,12 +153,8 @@ public class Backend implements Writable {
         return heartbeatErrMsg;
     }
 
-    // back compatible with unit test
+    // for test only
     public void updateOnce(int bePort, int httpPort, int beRpcPort) {
-        updateOnce(bePort, httpPort, beRpcPort, -1);
-    }
-
-    public void updateOnce(int bePort, int httpPort, int beRpcPort, int brpcPort) {
         boolean isChanged = false;
         if (this.bePort.get() != bePort) {
             isChanged = true;
@@ -173,11 +169,6 @@ public class Backend implements Writable {
         if (this.beRpcPort.get() != beRpcPort) {
             isChanged = true;
             this.beRpcPort.set(beRpcPort);
-        }
-
-        if (this.brpcPort.get() != brpcPort) {
-            isChanged = true;
-            this.brpcPort.set(brpcPort);
         }
 
         long currentTime = System.currentTimeMillis();
@@ -202,20 +193,6 @@ public class Backend implements Writable {
             return true;
         }
         return false;
-    }
-
-    public void setBad(EventBus eventBus, String errMsg) {
-        if (isAlive.compareAndSet(true, false)) {
-            Catalog.getInstance().getEditLog().logBackendStateChange(this);
-            LOG.warn("{} is dead", this.toString());
-        }
-
-        eventBus.post(new BackendEvent(BackendEventType.BACKEND_DOWN, "missing heartbeat", Long.valueOf(id)));
-        // In some case, errMsg is null when catched Exception have no message, which can make
-        // `SHOW BACKENDS` return ERROR. We check errMsg here to avoid.
-        if (errMsg != null) {
-            heartbeatErrMsg = errMsg;
-        }
     }
 
     public void setBackendState(BackendState state) {
@@ -547,6 +524,49 @@ public class Backend implements Writable {
             return DecommissionType.ClusterDecommission;
         }
         return DecommissionType.SystemDecommission;
+    }
+
+    /*
+     * handle Backend's heartbeat response.
+     * return true if any port changed, or alive state is changed.
+     */
+    public boolean heartbeat(BackendHbResponse hbResponse) {
+        boolean isChanged = false;
+        if (hbResponse.getStatus() == HbStatus.OK) {
+            if (this.bePort.get() != hbResponse.getBePort()) {
+                isChanged = true;
+                this.bePort.set(hbResponse.getBePort());
+            }
+
+            if (this.httpPort.get() != hbResponse.getHttpPort()) {
+                isChanged = true;
+                this.httpPort.set(hbResponse.getHttpPort());
+            }
+
+            if (this.brpcPort.get() != hbResponse.getBrpcPort()) {
+                isChanged = true;
+                this.brpcPort.set(hbResponse.getBrpcPort());
+            }
+
+            this.lastUpdateMs.set(hbResponse.getHbTime());
+            if (!isAlive.get()) {
+                isChanged = true;
+                this.lastStartTime.set(hbResponse.getHbTime());
+                LOG.info("{} is alive,", this.toString());
+                this.isAlive.set(true);
+            }
+
+            heartbeatErrMsg = "";
+        } else {
+            if (isAlive.compareAndSet(true, false)) {
+                isChanged = true;
+                LOG.info("{} is dead,", this.toString());
+            }
+
+            heartbeatErrMsg = hbResponse.getMsg();
+        }
+
+        return isChanged;
     }
 
 }

@@ -20,6 +20,7 @@ package org.apache.doris.deploy.impl;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.system.SystemInfoService;
 
@@ -34,12 +35,6 @@ import org.apache.logging.log4j.Logger;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.net.URL;
-import java.net.URLConnection;
 import java.util.List;
 import java.util.Map;
 
@@ -191,7 +186,7 @@ public class AmbariDeployManager extends DeployManager {
         super.init();
 
         // get blueprint once.
-        blueprintJson = getResultForUrl(blueprintUrl);
+        blueprintJson = Util.getResultForUrl(blueprintUrl, encodedAuthInfo, 2000, 2000);
         if (blueprintJson == null) {
             return false;
         }
@@ -294,7 +289,7 @@ public class AmbariDeployManager extends DeployManager {
 
     private List<String> getHostnamesFromComponentsJson(String componentName) {
         String urlStr = String.format(URL_COMPONENTS, ambariUrl, clusterName, serviceName, componentName);
-        String componentsJson = getResultForUrl(urlStr);
+        String componentsJson = Util.getResultForUrl(urlStr, encodedAuthInfo, 2000, 2000);
         if (componentsJson == null) {
             return null;
         }
@@ -314,40 +309,6 @@ public class AmbariDeployManager extends DeployManager {
         }
 
         return hostnames;
-    }
-
-    private String getResultForUrl(String urlStr) {
-        StringBuilder sb = new StringBuilder();
-        InputStream stream = null;
-        try {
-            URL url = new URL(urlStr);
-            URLConnection conn = url.openConnection();
-            conn.setRequestProperty("Authorization", "Basic " + encodedAuthInfo);
-            conn.setConnectTimeout(2 * 1000);
-            conn.setReadTimeout(2 * 1000);
-
-            stream = (InputStream) conn.getContent();
-            BufferedReader br = new BufferedReader(new InputStreamReader(stream));
-
-            String line;
-            while ((line = br.readLine()) != null) {
-                sb.append(line);
-            }
-        } catch (Exception e) {
-            LOG.warn("failed to get result from url: {}", urlStr, e);
-            return null;
-        } finally {
-            if (stream != null) {
-                try {
-                    stream.close();
-                } catch (IOException e) {
-                    LOG.warn("failed to close stream when get result from url: {}", urlStr, e);
-                    return null;
-                }
-            }
-        }
-        LOG.debug("get result from url {}: {}", urlStr, sb.toString());
-        return sb.toString();
     }
 
     private String getPropertyFromBlueprint(String configNodeName, String propName) {
