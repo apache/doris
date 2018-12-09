@@ -89,4 +89,14 @@ public class BrokerHbResponse extends HeartbeatResponse implements Writable {
         port = in.readInt();
     }
 
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(super.toString());
+        sb.append(", name: ").append(name);
+        sb.append(", host: ").append(host);
+        sb.append(", port: ").append(port);
+        return sb.toString();
+    }
+
 }

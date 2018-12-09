@@ -105,4 +105,13 @@ public class HeartbeatResponse implements Writable {
 
         status = HbStatus.valueOf(Text.readString(in));
     }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("type: ").append(type.name());
+        sb.append(", status: ").append(status.name());
+        sb.append(", msg: ").append(msg);
+        return sb.toString();
+    }
 }

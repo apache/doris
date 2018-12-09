@@ -96,4 +96,15 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         replayedJournalId = in.readLong();
     }
 
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(super.toString());
+        sb.append(", name: ").append(name);
+        sb.append(", queryPort: ").append(queryPort);
+        sb.append(", rpcPort: ").append(rpcPort);
+        sb.append(", replayedJournalId: ").append(replayedJournalId);
+        return sb.toString();
+    }
+
 }

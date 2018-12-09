@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.system;
 
 import org.apache.doris.catalog.Catalog;
@@ -219,7 +236,7 @@ public class HeartbeatMgr extends Daemon {
     }
 
     // frontend heartbeat
-    private class FrontendHeartbeatHandler implements Callable<HeartbeatResponse> {
+    public static class FrontendHeartbeatHandler implements Callable<HeartbeatResponse> {
         private Frontend fe;
         private int clusterId;
         private String token;
@@ -238,20 +255,18 @@ public class HeartbeatMgr extends Daemon {
                 String result = Util.getResultForUrl(url, null, 2000, 2000);
                 /*
                  * return:
-                 * {"status":"OK","msg":"Success","replayedJournal"=123456}
-                 * {"status":"FAILED","msg":"err info..."}
+                 * {"replayedJournalId":191224,"queryPort":9131,"rpcPort":9121,"status":"OK","msg":"Success"}
+                 * {"replayedJournalId":0,"queryPort":0,"rpcPort":0,"status":"FAILED","msg":"unfinished"}
                  */
                 JSONObject root = new JSONObject(result);
                 String status = root.getString("status");
                 if (!status.equals("OK")) {
                     return new FrontendHbResponse(fe.getNodeName(), root.getString("msg"));
                 } else {
-                    String replayedJournalStr = root.getString(BootstrapFinishAction.REPLAYED_JOURNAL_ID);
-                    String queryPortStr = root.getString(BootstrapFinishAction.QUERY_PORT);
-                    String rcpPortStr = root.getString(BootstrapFinishAction.RPC_PORT);
-                    return new FrontendHbResponse(fe.getNodeName(), Integer.valueOf(queryPortStr),
-                            Integer.valueOf(rcpPortStr),
-                            Long.valueOf(replayedJournalStr),
+                    long replayedJournalId = root.getLong(BootstrapFinishAction.REPLAYED_JOURNAL_ID);
+                    int queryPort = root.getInt(BootstrapFinishAction.QUERY_PORT);
+                    int rpcPort = root.getInt(BootstrapFinishAction.RPC_PORT);
+                    return new FrontendHbResponse(fe.getNodeName(), queryPort, rpcPort, replayedJournalId,
                             System.currentTimeMillis());
                 }
             } catch (Exception e) {
@@ -262,7 +277,7 @@ public class HeartbeatMgr extends Daemon {
     }
 
     // broker heartbeat handler
-    private class BrokerHeartbeatHandler implements Callable<HeartbeatResponse> {
+    public static class BrokerHeartbeatHandler implements Callable<HeartbeatResponse> {
         private String brokerName;
         private FsBroker broker;
         private String clientId;
