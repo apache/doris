@@ -50,7 +50,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
     }
 
     public FrontendHbResponse(String name, String errMsg) {
-        super(HeartbeatResponse.Type.BACKEND);
+        super(HeartbeatResponse.Type.FRONTEND);
         this.status = HbStatus.BAD;
         this.name = name;
         this.msg = errMsg;
