@@ -76,11 +76,11 @@ public class HeartbeatResponse implements Writable {
         HeartbeatResponse result = null;
         Type type = Type.valueOf(Text.readString(in));
         if (type == Type.FRONTEND) {
-            // result = new BackupJob();
+            result = new FrontendHbResponse();
         } else if (type == Type.BACKEND) {
             result = new BackendHbResponse();
         } else if (type == Type.BROKER) {
-
+            result = new BrokerHbResponse();
         } else {
             throw new IOException("Unknown job type: " + type.name());
         }

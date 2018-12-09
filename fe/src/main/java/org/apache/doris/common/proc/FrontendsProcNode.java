@@ -74,6 +74,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
         List<Pair<String, Integer>> allFeHosts = convertToHostPortPair(allFe);
         
         for (Frontend fe : catalog.getFrontends(null /* all */)) {
+
             List<String> info = new ArrayList<String>();
             info.add(fe.getNodeName());
             info.add(fe.getHost());
@@ -87,8 +88,13 @@ public class FrontendsProcNode implements ProcNodeInterface {
             info.add(Integer.toString(catalog.getClusterId()));
             info.add(String.valueOf(isJoin(allFeHosts, fe)));
             
-            info.add(String.valueOf(fe.isAlive()));
-            info.add(Long.toString(fe.getReplayedJournalId()));
+            if (fe.getHost().equals(catalog.getMasterIp())) {
+                info.add("true");
+                info.add(Long.toString(catalog.getReplayedJournalId()));
+            } else {
+                info.add(String.valueOf(fe.isAlive()));
+                info.add(Long.toString(fe.getReplayedJournalId()));
+            }
             info.add(TimeUtils.longToTimeString(fe.getLastUpdateTime()));
             
             infos.add(info);
