@@ -98,10 +98,10 @@ public class HeartbeatMgr extends Daemon {
 
         // send frontend heartbeat
         List<Frontend> frontends = Catalog.getCurrentCatalog().getFrontends(null);
+        String masterFeNodeName = "";
         for (Frontend frontend : frontends) {
             if (frontend.getHost().equals(masterInfo.get().getNetwork_address().getHostname())) {
-                // skip it self
-                continue;
+                masterFeNodeName = frontend.getNodeName();
             }
             FrontendHeartbeatHandler handler = new FrontendHeartbeatHandler(frontend,
                     Catalog.getCurrentCatalog().getClusterId(),
@@ -127,7 +127,9 @@ public class HeartbeatMgr extends Daemon {
         for (Future<HeartbeatResponse> future : hbResponses) {
             boolean isChanged = false;
             try {
+                // the heartbeat rpc's timeout is 5 seconds, so we will not be blocked here very long.
                 HeartbeatResponse response = future.get();
+                LOG.info("get heartbeat response: {}", response);
                 isChanged = handleHbResponse(response, false);
 
                 if (isChanged) {
@@ -138,6 +140,11 @@ public class HeartbeatMgr extends Daemon {
                 continue;
             }
         } // end for all results
+
+        // we also add a 'mocked' master Frontends heartbeat response to synchronize master info to other Frontends.
+        hbPackage.addHbResponse(new FrontendHbResponse(masterFeNodeName,
+                Config.query_port, Config.rpc_port, Catalog.getCurrentCatalog().getEditLog().getMaxJournalId(),
+                System.currentTimeMillis()));
 
         // write edit log
         Catalog.getCurrentCatalog().getEditLog().logHeartbeat(hbPackage);
@@ -214,15 +221,10 @@ public class HeartbeatMgr extends Daemon {
                     // backend.updateOnce(bePort, httpPort, beRpcPort, brpcPort);
                     return new BackendHbResponse(backendId, bePort, httpPort, brpcPort, System.currentTimeMillis());
                 } else {
-                    LOG.warn("failed to heartbeat backend[" + backendId + "]: " + result.getStatus().toString());
-                    // backend.setBad(eventBus, result.getStatus().getError_msgs().isEmpty() ? "Unknown error"
-                    // : result.getStatus().getError_msgs().get(0));
                     return new BackendHbResponse(backendId, result.getStatus().getError_msgs().isEmpty() ? "Unknown error"
                             : result.getStatus().getError_msgs().get(0));
                 }
             } catch (Exception e) {
-                LOG.warn("backend[" + backendId + "] got Exception: ", e);
-                // backend.setBad(eventBus, e.getMessage());
                 return new BackendHbResponse(backendId,
                         Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
             } finally {
@@ -301,14 +303,12 @@ public class HeartbeatMgr extends Daemon {
                 ok = true;
 
                 if (status.getStatusCode() != TBrokerOperationStatusCode.OK) {
-                    LOG.warn("broker ping got error: {}", status.getMessage());
                     return new BrokerHbResponse(brokerName, broker.ip, broker.port, status.getMessage());
                 } else {
                     return new BrokerHbResponse(brokerName, broker.ip, broker.port, System.currentTimeMillis());
                 }
 
             } catch (Exception e) {
-                LOG.warn("broker ping got exception: ", e);
                 return new BrokerHbResponse(brokerName, broker.ip, broker.port,
                         Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
             } finally {

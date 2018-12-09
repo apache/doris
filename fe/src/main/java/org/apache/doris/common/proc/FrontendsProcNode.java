@@ -36,7 +36,7 @@ import java.util.List;
  */
 public class FrontendsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("name").add("Host").add("EditLogPort").add("QueryPort").add("HttpPort").add("RpcPort")
+            .add("name").add("Host").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
             .add("Role").add("IsMaster").add("ClusterId").add("Join").add("IsAlive")
             .add("ReplayedJournalId").add("LstUpdateTime")
             .build();
@@ -79,18 +79,25 @@ public class FrontendsProcNode implements ProcNodeInterface {
             info.add(fe.getNodeName());
             info.add(fe.getHost());
             info.add(Integer.toString(fe.getEditLogPort()));
-            info.add(Integer.toString(fe.getQueryPort()));
             info.add(Integer.toString(Config.http_port));
-            info.add(Integer.toString(fe.getRpcPort()));
+
+            if (fe.getHost().equals(catalog.getSelfNode().first)) {
+                info.add(Integer.toString(Config.query_port));
+                info.add(Integer.toString(Config.rpc_port));
+            } else {
+                info.add(Integer.toString(fe.getQueryPort()));
+                info.add(Integer.toString(fe.getRpcPort()));
+            }
+
             info.add(fe.getRole().name());
             info.add(String.valueOf(fe.getHost().equals(masterIp) && fe.getEditLogPort() == masterPort));
 
             info.add(Integer.toString(catalog.getClusterId()));
             info.add(String.valueOf(isJoin(allFeHosts, fe)));
             
-            if (fe.getHost().equals(catalog.getMasterIp())) {
+            if (fe.getHost().equals(catalog.getSelfNode().first)) {
                 info.add("true");
-                info.add(Long.toString(catalog.getReplayedJournalId()));
+                info.add(Long.toString(catalog.getEditLog().getMaxJournalId()));
             } else {
                 info.add(String.valueOf(fe.isAlive()));
                 info.add(Long.toString(fe.getReplayedJournalId()));
