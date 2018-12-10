@@ -26,7 +26,6 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend.BackendState;
-import org.apache.doris.system.BackendEvent.BackendEventType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -35,7 +34,6 @@ import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.common.eventbus.EventBus;
 
 import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
@@ -65,8 +63,6 @@ public class SystemInfoService {
     private volatile AtomicReference<ImmutableMap<Long, Backend>> idToBackendRef;
     private volatile AtomicReference<ImmutableMap<Long, AtomicLong>> idToReportVersionRef;
 
-    private final EventBus eventBus;
-
     // last backend id used by round robin for sequential choosing backends for
     // tablet creation
     private ConcurrentHashMap<String, Long> lastBackendIdForCreationMap;
@@ -94,14 +90,8 @@ public class SystemInfoService {
         idToReportVersionRef = new AtomicReference<ImmutableMap<Long, AtomicLong>>(
                 ImmutableMap.<Long, AtomicLong> of());
 
-        eventBus = new EventBus("backendEvent");
-
         lastBackendIdForCreationMap = new ConcurrentHashMap<String, Long>();
         lastBackendIdForOtherMap = new ConcurrentHashMap<String, Long>();
-    }
-
-    public EventBus getEventBus() {
-        return this.eventBus;
     }
 
     // for deploy manager
@@ -216,10 +206,6 @@ public class SystemInfoService {
         }
 
         Backend droppedBackend = getBackendWithHeartbeatPort(host, heartbeatPort);
-
-        // publish
-        eventBus.post(new BackendEvent(BackendEventType.BACKEND_DROPPED, "backend has been dropped",
-                Long.valueOf(droppedBackend.getId())));
 
         // update idToBackend
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef.get());
