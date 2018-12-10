@@ -17,8 +17,6 @@
 
 package org.apache.doris.common;
 
-import java.lang.reflect.Constructor;
-
 import org.apache.doris.thrift.TNetworkAddress;
 
 import org.apache.commons.pool2.BaseKeyedPooledObjectFactory;
@@ -26,13 +24,15 @@ import org.apache.commons.pool2.PooledObject;
 import org.apache.commons.pool2.impl.DefaultPooledObject;
 import org.apache.commons.pool2.impl.GenericKeyedObjectPool;
 import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.apache.thrift.protocol.TProtocol;
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransport;
 import org.apache.thrift.transport.TTransportException;
-import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.LogManager;
+
+import java.lang.reflect.Constructor;
 
 public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
     private static final Logger LOG = LogManager.getLogger(GenericPool.class);
@@ -71,6 +71,10 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
             ok = false;
         }
         return ok;
+    }
+
+    public void clearPool(TNetworkAddress addr) {
+        pool.clear(addr);
     }
 
     public boolean peak(VALUE object) {
