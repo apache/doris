@@ -1,14 +1,3 @@
-package org.apache.doris.persist;
-
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.system.HeartbeatResponse;
-
-import com.google.common.collect.Lists;
-
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.List;
 //Licensed to the Apache Software Foundation (ASF) under one
 //or more contributor license agreements.  See the NOTICE file
 //distributed with this work for additional information
@@ -25,6 +14,18 @@ import java.util.List;
 //KIND, either express or implied.  See the License for the
 //specific language governing permissions and limitations
 //under the License.
+
+package org.apache.doris.persist;
+
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.system.HeartbeatResponse;
+
+import com.google.common.collect.Lists;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.List;
 
 public class HbPackage implements Writable {
 

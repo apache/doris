@@ -115,7 +115,7 @@ public class Frontend implements Writable {
      * so we simple return true if the heartbeat status is OK.
      * But if heartbeat status is BAD, only return true if it is the first time to transfer from alive to dead.
      */
-    public boolean heartbeat(FrontendHbResponse hbResponse) {
+    public boolean handleHbResponse(FrontendHbResponse hbResponse) {
         boolean isChanged = false;
         if (hbResponse.getStatus() == HbStatus.OK) {
             isAlive = true;

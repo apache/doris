@@ -530,7 +530,7 @@ public class Backend implements Writable {
      * handle Backend's heartbeat response.
      * return true if any port changed, or alive state is changed.
      */
-    public boolean heartbeat(BackendHbResponse hbResponse) {
+    public boolean handleHbResponse(BackendHbResponse hbResponse) {
         boolean isChanged = false;
         if (hbResponse.getStatus() == HbStatus.OK) {
             if (this.bePort.get() != hbResponse.getBePort()) {

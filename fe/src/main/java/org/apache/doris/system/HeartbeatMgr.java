@@ -156,7 +156,7 @@ public class HeartbeatMgr extends Daemon {
                 FrontendHbResponse hbResponse = (FrontendHbResponse) response;
                 Frontend fe = Catalog.getCurrentCatalog().getFeByName(hbResponse.getName());
                 if (fe != null) {
-                    return fe.heartbeat(hbResponse);
+                    return fe.handleHbResponse(hbResponse);
                 }
                 break;
             }
@@ -164,7 +164,7 @@ public class HeartbeatMgr extends Daemon {
                 BackendHbResponse hbResponse = (BackendHbResponse) response;
                 Backend be = nodeMgr.getBackend(hbResponse.getBeId());
                 if (be != null) {
-                    boolean isChanged = be.heartbeat(hbResponse);
+                    boolean isChanged = be.handleHbResponse(hbResponse);
                     if (hbResponse.getStatus() != HbStatus.OK && !isReplay) {
                         nodeMgr.getEventBus().post(new BackendEvent(BackendEventType.BACKEND_DOWN,
                                 "missing heartbeat", Long.valueOf(hbResponse.getBeId())));
@@ -178,7 +178,7 @@ public class HeartbeatMgr extends Daemon {
                 FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(
                         hbResponse.getName(), hbResponse.getHost(), hbResponse.getPort());
                 if (broker != null) {
-                    return broker.heartbeat(hbResponse);
+                    return broker.handleHbResponse(hbResponse);
                 }
                 break;
             }
