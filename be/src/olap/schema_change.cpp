@@ -2098,6 +2098,7 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
 
                 sc_params->new_olap_table->release_header_lock();
                 sc_params->ref_olap_table->release_header_lock();
+                sc_params->new_olap_table->release_push_lock();
 
                 goto PROCESS_ALTER_EXIT;
             }
@@ -2127,6 +2128,7 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
 
             sc_params->new_olap_table->release_header_lock();
             sc_params->ref_olap_table->release_header_lock();
+            sc_params->new_olap_table->release_push_lock();
 
             res = OLAP_ERR_INPUT_PARAMETER_ERROR;
             goto PROCESS_ALTER_EXIT;
