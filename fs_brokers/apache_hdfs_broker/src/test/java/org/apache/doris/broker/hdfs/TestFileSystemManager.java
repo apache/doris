@@ -141,8 +141,8 @@ public class TestFileSystemManager extends TestCase {
         properties.put("username", "user");
         properties.put("password", "passwd");
         
-        List<TBrokerFileStatus> files2 = fileSystemManager.listPath(testHdfsHost + "/data/abc/logs/*.out", false,
-                properties);
+        List<TBrokerFileStatus> files2 = fileSystemManager.listPath(testHdfsHost + "/data/abc/logs/*.out",
+                false, properties);
         assertEquals(files2.size(), 2);
     }
     
