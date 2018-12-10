@@ -471,19 +471,6 @@ build_brpc() {
     fi
 }
 
-# java
-build_jdk() {
-    check_if_source_exist $JDK_SOURCE
-
-    if [ -d $TP_INSTALL_DIR/$JDK_SOURCE ];then
-        echo "$JDK_SOURCE already installed"
-    else
-        cp -rf $TP_SOURCE_DIR/$JDK_SOURCE $TP_INSTALL_DIR/
-    fi
-
-    export JAVA_HOME=$TP_INSTALL_DIR/$JDK_SOURCE
-}
-
 # rocksdb
 build_rocksdb() {
     check_if_source_exist $ROCKSDB_SOURCE
@@ -530,7 +517,6 @@ build_mysql
 build_thrift
 build_leveldb
 build_brpc
-build_jdk
 build_rocksdb
 build_librdkafka
 
