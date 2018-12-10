@@ -15,19 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.transaction;
+package org.apache.doris.load.routineload;
 
-import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.Writable;
 
-public class TransactionCommitFailedException extends TransactionException {
-    
-    private static final long serialVersionUID = -2528170792631761535L;
+public abstract class RoutineLoadProgress implements Writable {
 
-    public TransactionCommitFailedException(String msg) {
-        super(msg);
-    }
-
-    public TransactionCommitFailedException(String msg, Throwable e) {
-        super(msg, e);
-    }
+    abstract void update(RoutineLoadProgress progress);
 }

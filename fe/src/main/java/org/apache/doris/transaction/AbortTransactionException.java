@@ -17,17 +17,18 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.common.UserException;
 
-public class TransactionCommitFailedException extends TransactionException {
+public class AbortTransactionException extends TransactionException {
     
-    private static final long serialVersionUID = -2528170792631761535L;
-
-    public TransactionCommitFailedException(String msg) {
+    public AbortTransactionException(String msg) {
         super(msg);
     }
-
-    public TransactionCommitFailedException(String msg, Throwable e) {
+    
+    public AbortTransactionException(String msg, Throwable e) {
         super(msg, e);
+    }
+    
+    public AbortTransactionException(String msg, long transactionId) {
+        super(msg, transactionId);
     }
 }

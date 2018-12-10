@@ -21,6 +21,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -43,6 +44,8 @@ public class RoutineLoadManager {
     // stream load job meta
     private Map<String, RoutineLoadJob> idToRoutineLoadJob;
 
+    private Queue<RoutineLoadTaskInfo> needSchedulerTasksQueue;
+
     private ReentrantReadWriteLock lock;
 
     private void readLock() {
@@ -64,7 +67,12 @@ public class RoutineLoadManager {
     public RoutineLoadManager() {
         idToRoutineLoadJob = Maps.newConcurrentMap();
         beIdToConcurrentTasks = Maps.newHashMap();
+        needSchedulerTasksQueue = Queues.newLinkedBlockingQueue();
         lock = new ReentrantReadWriteLock(true);
+    }
+
+    public Queue<RoutineLoadTaskInfo> getNeedSchedulerTasksQueue() {
+        return needSchedulerTasksQueue;
     }
 
     public void initBeIdToMaxConcurrentTasks() {
@@ -179,16 +187,17 @@ public class RoutineLoadManager {
         }
     }
 
-    public List<RoutineLoadTaskInfo> getNeedSchedulerRoutineLoadTasks() {
-        List<RoutineLoadTaskInfo> routineLoadTaskInfoList = new ArrayList<>();
-        for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
-            routineLoadTaskInfoList.addAll(routineLoadJob.getNeedSchedulerTaskInfoList());
-        }
-        return routineLoadTaskInfoList;
-    }
-
     public RoutineLoadJob getJob(String jobId) {
         return idToRoutineLoadJob.get(jobId);
+    }
+
+    public RoutineLoadJob getJobByTaskId(String taskId) throws MetaNotFoundException {
+        for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
+            if (routineLoadJob.containsTask(taskId)) {
+                return routineLoadJob;
+            }
+        }
+        throw new MetaNotFoundException("could not found task by id " + taskId);
     }
 
     public List<RoutineLoadJob> getRoutineLoadJobByState(RoutineLoadJob.JobState jobState) throws LoadException {
@@ -204,10 +213,19 @@ public class RoutineLoadManager {
         return jobs;
     }
 
-    public void processTimeoutTasks() {
+    public List<RoutineLoadTaskInfo> processTimeoutTasks() {
+        List<RoutineLoadTaskInfo> routineLoadTaskInfoList = new ArrayList<>();
         for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
-            routineLoadJob.processTimeoutTasks();
+            routineLoadTaskInfoList.addAll(routineLoadJob.processTimeoutTasks());
         }
+        return routineLoadTaskInfoList;
+    }
+
+    // Remove old routine load jobs from idToRoutineLoadJob
+    // This function is called periodically.
+    // Cancelled and stopped job will be remove after Configure.label_keep_max_second seconds
+    public void removeOldRoutineLoadJobs() {
+        // TODO(ml): remove old routine load job
     }
 
 }
