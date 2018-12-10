@@ -17,9 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -145,8 +145,13 @@ public class ExportStmt extends StatementBase {
         if (brokerDesc == null) {
             throw new AnalysisException("broker is not provided");
         }
-        BrokerMgr.BrokerAddress address = analyzer.getCatalog().getBrokerMgr().getAnyBroker(brokerDesc.getName());
-        if (address == null) {
+
+        if (!analyzer.getCatalog().getBrokerMgr().contaisnBroker(brokerDesc.getName())) {
+            throw new AnalysisException("broker " + brokerDesc.getName() + " does not exist");
+        }
+
+        FsBroker broker = analyzer.getCatalog().getBrokerMgr().getAnyBroker(brokerDesc.getName());
+        if (broker == null) {
             throw new AnalysisException("broker is not exist");
         }
 

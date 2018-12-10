@@ -18,6 +18,7 @@
 package org.apache.doris.deploy;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 
 import org.junit.Before;
@@ -84,20 +85,15 @@ public class AmbariDeployManagerTest {
     }
 
     private String getBlueprint() throws NoSuchMethodException, IllegalAccessException, InvocationTargetException {
-        Method getResultForUrlM = manager.getClass().getDeclaredMethod("getResultForUrl", String.class);
-        getResultForUrlM.setAccessible(true);
-        String res = (String) getResultForUrlM.invoke(manager,
-                                                      "http://180.76.168.210:8080/api/v1/clusters/BDP?format=blueprint");
+        String res = Util.getResultForUrl("http://180.76.168.210:8080/api/v1/clusters/BDP?format=blueprint",
+                null, 2000, 2000);
         return res;
     }
 
     private String getComponent(String comp)
             throws NoSuchMethodException, IllegalAccessException, InvocationTargetException {
-        Method getResultForUrlM = manager.getClass().getDeclaredMethod("getResultForUrl", String.class);
-        getResultForUrlM.setAccessible(true);
-        String res = (String) getResultForUrlM.invoke(manager,
-                                                      "http://180.76.168.210:8080/api/v1/clusters/BDP/services/PALO/components/"
-                                                              + comp);
+        String res = Util.getResultForUrl("http://180.76.168.210:8080/api/v1/clusters/BDP/services/PALO/components/"
+                + comp, null, 2000, 2000);
 
         return res;
     }

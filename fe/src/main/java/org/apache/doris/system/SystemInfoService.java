@@ -21,21 +21,12 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.Daemon;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend.BackendState;
 import org.apache.doris.system.BackendEvent.BackendEventType;
-import org.apache.doris.thrift.HeartbeatService;
-import org.apache.doris.thrift.TBackendInfo;
-import org.apache.doris.thrift.THeartbeatResult;
-import org.apache.doris.thrift.TMasterInfo;
-import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -63,28 +54,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
-public class SystemInfoService extends Daemon {
+public class SystemInfoService {
     private static final Logger LOG = LogManager.getLogger(SystemInfoService.class);
 
     public static final String DEFAULT_CLUSTER = "default_cluster";
 
     private volatile AtomicReference<ImmutableMap<Long, Backend>> idToBackendRef;
-    private volatile AtomicReference<ImmutableMap<Long, HeartbeatHandler>> idToHeartbeatHandlerRef;
-    private volatile AtomicReference<ImmutableMap<Long, AtomicLong>> idToReportVersionRef; // no
-                                                                                           // need
-                                                                                           // to
-                                                                                           // persist
-
-    private final ExecutorService executor;
+    private volatile AtomicReference<ImmutableMap<Long, AtomicLong>> idToReportVersionRef;
 
     private final EventBus eventBus;
-
-    private static volatile AtomicReference<TMasterInfo> masterInfo = new AtomicReference<TMasterInfo>();
 
     // last backend id used by round robin for sequential choosing backends for
     // tablet creation
@@ -106,18 +87,12 @@ public class SystemInfoService extends Daemon {
                 return 1;
             }
         }
-
     };
 
     public SystemInfoService() {
-        super("cluster info service", FeConstants.heartbeat_interval_second * 1000);
         idToBackendRef = new AtomicReference<ImmutableMap<Long, Backend>>(ImmutableMap.<Long, Backend> of());
-        idToHeartbeatHandlerRef = new AtomicReference<ImmutableMap<Long, HeartbeatHandler>>(
-                ImmutableMap.<Long, HeartbeatHandler> of());
         idToReportVersionRef = new AtomicReference<ImmutableMap<Long, AtomicLong>>(
                 ImmutableMap.<Long, AtomicLong> of());
-
-        executor = Executors.newCachedThreadPool();
 
         eventBus = new EventBus("backendEvent");
 
@@ -127,12 +102,6 @@ public class SystemInfoService extends Daemon {
 
     public EventBus getEventBus() {
         return this.eventBus;
-    }
-
-    public void setMaster(String masterHost, int masterPort, int clusterId, String token, long epoch) {
-        TMasterInfo tMasterInfo = new TMasterInfo(new TNetworkAddress(masterHost, masterPort), clusterId, epoch);
-        tMasterInfo.setToken(token);
-        masterInfo.set(tMasterInfo);
     }
 
     // for deploy manager
@@ -190,14 +159,6 @@ public class SystemInfoService extends Daemon {
         copiedReportVerions.put(newBackend.getId(), new AtomicLong(0L));
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVerions);
         idToReportVersionRef.set(newIdToReportVersion);
-
-        // update idToHeartbeatHandler
-        Map<Long, HeartbeatHandler> copiedHeartbeatHandlersMap = Maps.newHashMap(idToHeartbeatHandlerRef.get());
-        TNetworkAddress tNetworkAddress = new TNetworkAddress(newBackend.getHost(), newBackend.getHeartbeatPort());
-        HeartbeatHandler heartbeatHandler = new HeartbeatHandler(newBackend, tNetworkAddress);
-        copiedHeartbeatHandlersMap.put(newBackend.getId(), heartbeatHandler);
-        ImmutableMap<Long, HeartbeatHandler> newIdToHeartbeatHandler = ImmutableMap.copyOf(copiedHeartbeatHandlersMap);
-        idToHeartbeatHandlerRef.set(newIdToHeartbeatHandler);
 
         if (!Strings.isNullOrEmpty(destCluster)) {
          // add backend to destCluster
@@ -272,12 +233,6 @@ public class SystemInfoService extends Daemon {
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVerions);
         idToReportVersionRef.set(newIdToReportVersion);
 
-        // update idToHeartbeatHandler
-        Map<Long, HeartbeatHandler> copiedHeartbeatHandlersMap = Maps.newHashMap(idToHeartbeatHandlerRef.get());
-        copiedHeartbeatHandlersMap.remove(droppedBackend.getId());
-        ImmutableMap<Long, HeartbeatHandler> newIdToHeartbeatHandler = ImmutableMap.copyOf(copiedHeartbeatHandlersMap);
-        idToHeartbeatHandlerRef.set(newIdToHeartbeatHandler);
-
         // update cluster
         final Cluster cluster = Catalog.getInstance().getCluster(droppedBackend.getOwnerClusterName());
         if (null != cluster) {
@@ -297,12 +252,8 @@ public class SystemInfoService extends Daemon {
     public void dropAllBackend() {
         // update idToBackend
         idToBackendRef.set(ImmutableMap.<Long, Backend> of());
-
         // update idToReportVersion
         idToReportVersionRef.set(ImmutableMap.<Long, AtomicLong> of());
-
-        // update idToHeartbeatHandler
-        idToHeartbeatHandlerRef.set(ImmutableMap.<Long, HeartbeatHandler> of());
     }
 
     public Backend getBackend(long backendId) {
@@ -974,17 +925,7 @@ public class SystemInfoService extends Daemon {
 
     public void clear() {
         this.idToBackendRef = null;
-        this.idToHeartbeatHandlerRef = null;
         this.idToReportVersionRef = null;
-    }
-
-    public void registerObserver(SystemInfoObserver observer) {
-        LOG.info("register observer {} {}: ", observer.getName(), observer.getClass());
-        this.eventBus.register(observer);
-    }
-
-    public void unregisterObserver(SystemInfoObserver observer) {
-        this.eventBus.unregister(observer);
     }
 
     public static Pair<String, Integer> validateHostAndPort(String hostPort) throws AnalysisException {
@@ -1047,14 +988,6 @@ public class SystemInfoService extends Daemon {
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVerions);
         idToReportVersionRef.set(newIdToReportVersion);
 
-        // update idToHeartbeatHandler
-        Map<Long, HeartbeatHandler> copiedHeartbeatHandlersMap = Maps.newHashMap(idToHeartbeatHandlerRef.get());
-        TNetworkAddress tNetworkAddress = new TNetworkAddress(newBackend.getHost(), newBackend.getHeartbeatPort());
-        HeartbeatHandler heartbeatHandler = new HeartbeatHandler(newBackend, tNetworkAddress);
-        copiedHeartbeatHandlersMap.put(newBackend.getId(), heartbeatHandler);
-        ImmutableMap<Long, HeartbeatHandler> newIdToHeartbeatHandler = ImmutableMap.copyOf(copiedHeartbeatHandlersMap);
-        idToHeartbeatHandlerRef.set(newIdToHeartbeatHandler);
-
         // to add be to DEFAULT_CLUSTER
         if (newBackend.getBackendState() == BackendState.using) {
             final Cluster cluster = Catalog.getInstance().getCluster(DEFAULT_CLUSTER);
@@ -1081,12 +1014,6 @@ public class SystemInfoService extends Daemon {
         copiedReportVerions.remove(backend.getId());
         ImmutableMap<Long, AtomicLong> newIdToReportVersion = ImmutableMap.copyOf(copiedReportVerions);
         idToReportVersionRef.set(newIdToReportVersion);
-
-        // update idToHeartbeatHandler
-        Map<Long, HeartbeatHandler> copiedHeartbeatHandlersMap = Maps.newHashMap(idToHeartbeatHandlerRef.get());
-        copiedHeartbeatHandlersMap.remove(backend.getId());
-        ImmutableMap<Long, HeartbeatHandler> newIdToHeartbeatHandler = ImmutableMap.copyOf(copiedHeartbeatHandlersMap);
-        idToHeartbeatHandlerRef.set(newIdToHeartbeatHandler);
 
         // update cluster
         final Cluster cluster = Catalog.getInstance().getCluster(backend.getOwnerClusterName());
@@ -1134,66 +1061,6 @@ public class SystemInfoService extends Daemon {
     public void checkClusterCapacity(String clusterName) throws DdlException {
         if (getClusterAvailableCapacityB(clusterName) <= 0L) {
             throw new DdlException("Cluster " + clusterName + " has no available capacity");
-        }
-    }
-
-    @Override
-    protected void runOneCycle() {
-        ImmutableMap<Long, HeartbeatHandler> idToHeartbeatHandler = idToHeartbeatHandlerRef.get();
-        Iterator<HeartbeatHandler> iterator = idToHeartbeatHandler.values().iterator();
-        while (iterator.hasNext()) {
-            HeartbeatHandler heartbeatHandler = iterator.next();
-            executor.submit(heartbeatHandler);
-        }
-    }
-
-    private class HeartbeatHandler implements Runnable {
-        private Backend backend;
-        private TNetworkAddress address;
-
-        public HeartbeatHandler(Backend backend, TNetworkAddress networkAddress) {
-            this.backend = backend;
-            this.address = networkAddress;
-        }
-
-        @Override
-        public void run() {
-            long backendId = backend.getId();
-            HeartbeatService.Client client = null;
-            boolean ok = false;
-            try {
-                client = ClientPool.heartbeatPool.borrowObject(address);
-                TMasterInfo copiedMasterInfo = new TMasterInfo(masterInfo.get());
-                copiedMasterInfo.setBackend_ip(backend.getHost());
-                THeartbeatResult result = client.heartbeat(copiedMasterInfo);
-
-                if (result.getStatus().getStatus_code() == TStatusCode.OK) {
-                    TBackendInfo tBackendInfo = result.getBackend_info();
-                    int bePort = tBackendInfo.getBe_port();
-                    int httpPort = tBackendInfo.getHttp_port();
-                    int beRpcPort = tBackendInfo.getBe_rpc_port();
-                    int brpcPort = -1;
-                    if (tBackendInfo.isSetBrpc_port()) {
-                        brpcPort = tBackendInfo.getBrpc_port();
-                    }
-                    backend.updateOnce(bePort, httpPort, beRpcPort, brpcPort);
-                } else {
-                    LOG.warn("failed to heartbeat backend[" + backendId + "]: " + result.getStatus().toString());
-                    backend.setBad(eventBus, result.getStatus().getError_msgs().isEmpty() ? "Unknown error"
-                            : result.getStatus().getError_msgs().get(0));
-                }
-                ok = true;
-                LOG.debug("backend[{}] host: {}, port: {}", backendId, backend.getHost(), backend.getHeartbeatPort());
-            } catch (Exception e) {
-                LOG.warn("backend[" + backendId + "] got Exception: ", e);
-                backend.setBad(eventBus, e.getMessage());
-            } finally {
-                if (ok) {
-                    ClientPool.heartbeatPool.returnObject(address, client);
-                } else {
-                    ClientPool.heartbeatPool.invalidateObject(address, client);
-                }
-            }
         }
     }
 

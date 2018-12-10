@@ -17,21 +17,11 @@
 
 package org.apache.doris.backup;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Predicates;
-import com.google.common.base.Strings;
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.Collections2;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.Status.ErrCode;
-import org.apache.doris.catalog.BrokerMgr.BrokerAddress;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -50,6 +40,17 @@ import org.apache.doris.task.UploadTask;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTaskType;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Predicates;
+import com.google.common.base.Strings;
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.Collections2;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -471,13 +472,13 @@ public class BackupJob extends AbstractJob {
             int taskNumPerBatch = Math.max(totalNum / batchNum, 1);
             LOG.debug("backend {} has {} batch, total {} tasks, {}", beId, batchNum, totalNum, this);
 
-            List<BrokerAddress> brokerAddrs = Lists.newArrayList();
-            Status st = repo.getBrokerAddress(beId, catalog, brokerAddrs);
+            List<FsBroker> brokers = Lists.newArrayList();
+            Status st = repo.getBrokerAddress(beId, catalog, brokers);
             if (!st.ok()) {
                 status = st;
                 return;
             }
-            Preconditions.checkState(brokerAddrs.size() == 1);
+            Preconditions.checkState(brokers.size() == 1);
             
             // allot tasks
             int index = 0;
@@ -492,7 +493,7 @@ public class BackupJob extends AbstractJob {
                 }
                 long signature = catalog.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
-                        brokerAddrs.get(0), repo.getStorage().getProperties());
+                        brokers.get(0), repo.getStorage().getProperties());
                 batchTask.addTask(task);
                 unfinishedTaskIds.add(signature);
             }

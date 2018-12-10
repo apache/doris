@@ -71,7 +71,6 @@ import org.apache.doris.backup.AbstractBackupJob_D;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.BackupJob_D;
 import org.apache.doris.backup.RestoreJob_D;
-import org.apache.doris.catalog.BrokerMgr.BrokerAddress;
 import org.apache.doris.catalog.Database.DbState;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.KuduPartition.KuduRange;
@@ -147,8 +146,8 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.TableInfo;
-import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.SessionVariable;
@@ -157,6 +156,7 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Backend.BackendState;
 import org.apache.doris.system.Frontend;
+import org.apache.doris.system.HeartbeatMgr;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -312,6 +312,7 @@ public class Catalog {
     private JournalObservable journalObservable;
 
     private SystemInfoService systemInfo;
+    private HeartbeatMgr heartbeatMgr;
     private TabletInvertedIndex tabletInvertedIndex;
     private ColocateTableIndex colocateTableIndex;
 
@@ -359,6 +360,10 @@ public class Catalog {
 
     private SystemInfoService getClusterInfo() {
         return this.systemInfo;
+    }
+
+    private HeartbeatMgr getHeartbeatMgr() {
+        return this.heartbeatMgr;
     }
 
     public TabletInvertedIndex getTabletInvertedIndex() {
@@ -415,6 +420,7 @@ public class Catalog {
         this.masterIp = "";
 
         this.systemInfo = new SystemInfoService();
+        this.heartbeatMgr = new HeartbeatMgr(systemInfo);
         this.tabletInvertedIndex = new TabletInvertedIndex();
         this.colocateTableIndex = new ColocateTableIndex();
         this.recycleBin = new CatalogRecycleBin();
@@ -490,6 +496,10 @@ public class Catalog {
     // use this to get correct ClusterInfoService instance
     public static SystemInfoService getCurrentSystemInfo() {
         return getCurrentCatalog().getClusterInfo();
+    }
+
+    public static HeartbeatMgr getCurrentHeartbeatMgr() {
+        return getCurrentCatalog().getHeartbeatMgr();
     }
 
     // use this to get correct TabletInvertedIndex instance
@@ -1007,10 +1017,10 @@ public class Catalog {
         checkpointThreadId = checkpointer.getId();
         LOG.info("checkpointer thread started. thread id is {}", checkpointThreadId);
 
-        // ClusterInfoService
-        Catalog.getCurrentSystemInfo().setMaster(
+        // heartbeat mgr
+        heartbeatMgr.setMaster(
                 FrontendOptions.getLocalHostAddress(), Config.rpc_port, clusterId, token, epoch);
-        Catalog.getCurrentSystemInfo().start();
+        heartbeatMgr.start();
 
         pullLoadJobMgr.start();
 
@@ -2261,6 +2271,15 @@ public class Catalog {
     public Frontend getFeByHost(String host) {
         for (Frontend fe : frontends.values()) {
             if (fe.getHost().equals(host)) {
+                return fe;
+            }
+        }
+        return null;
+    }
+
+    public Frontend getFeByName(String name) {
+        for (Frontend fe : frontends.values()) {
+            if (fe.getNodeName().equals(name)) {
                 return fe;
             }
         }
@@ -4230,6 +4249,10 @@ public class Catalog {
         return this.clusterId;
     }
 
+    public String getToken() {
+        return token;
+    }
+
     public Database getDb(String name) {
         if (fullNameToDb.containsKey(name)) {
             return fullNameToDb.get(name);
@@ -5599,18 +5622,18 @@ public class Catalog {
     }
 
     public long saveBrokers(DataOutputStream dos, long checksum) throws IOException {
-        Map<String, List<BrokerAddress>> addressListMap = brokerMgr.getAddressListMap();
+        Map<String, List<FsBroker>> addressListMap = brokerMgr.getBrokerListMap();
         int size = addressListMap.size();
         checksum ^= size;
         dos.writeInt(size);
 
-        for (Map.Entry<String, List<BrokerAddress>> entry : addressListMap.entrySet()) {
+        for (Map.Entry<String, List<FsBroker>> entry : addressListMap.entrySet()) {
             Text.writeString(dos, entry.getKey());
-            final List<BrokerAddress> addrs = entry.getValue();
+            final List<FsBroker> addrs = entry.getValue();
             size = addrs.size();
             checksum ^= size;
             dos.writeInt(size);
-            for (BrokerAddress addr : addrs) {
+            for (FsBroker addr : addrs) {
                 addr.write(dos);
             }
         }
@@ -5626,9 +5649,9 @@ public class Catalog {
                 String brokerName = Text.readString(dis);
                 int size = dis.readInt();
                 checksum ^= size;
-                List<BrokerAddress> addrs = Lists.newArrayList();
+                List<FsBroker> addrs = Lists.newArrayList();
                 for (int j = 0; j < size; j++) {
-                    BrokerAddress addr = BrokerAddress.readIn(dis);
+                    FsBroker addr = FsBroker.readIn(dis);
                     addrs.add(addr);
                 }
                 brokerMgr.replayAddBrokers(brokerName, addrs);

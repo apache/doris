@@ -17,7 +17,7 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.catalog.BrokerMgr.BrokerAddress;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TTaskType;
@@ -30,15 +30,15 @@ public class UploadTask extends AgentTask {
     private long jobId;
 
     private Map<String, String> srcToDestPath;
-    private BrokerAddress brokerAddress;
+    private FsBroker broker;
     private Map<String, String> brokerProperties;
 
     public UploadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, Long dbId,
-            Map<String, String> srcToDestPath, BrokerAddress brokerAddr, Map<String, String> brokerProperties) {
+            Map<String, String> srcToDestPath, FsBroker broker, Map<String, String> brokerProperties) {
         super(resourceInfo, backendId, TTaskType.UPLOAD, dbId, -1, -1, -1, -1, signature);
         this.jobId = jobId;
         this.srcToDestPath = srcToDestPath;
-        this.brokerAddress = brokerAddr;
+        this.broker = broker;
         this.brokerProperties = brokerProperties;
     }
 
@@ -50,8 +50,8 @@ public class UploadTask extends AgentTask {
         return srcToDestPath;
     }
 
-    public BrokerAddress getBrokerAddress() {
-        return brokerAddress;
+    public FsBroker getBrokerAddress() {
+        return broker;
     }
 
     public Map<String, String> getBrokerProperties() {
@@ -59,7 +59,7 @@ public class UploadTask extends AgentTask {
     }
 
     public TUploadReq toThrift() {
-        TNetworkAddress address = new TNetworkAddress(brokerAddress.ip, brokerAddress.port);
+        TNetworkAddress address = new TNetworkAddress(broker.ip, broker.port);
         TUploadReq request = new TUploadReq(jobId, srcToDestPath, address);
         request.setBroker_prop(brokerProperties);
         return request;
