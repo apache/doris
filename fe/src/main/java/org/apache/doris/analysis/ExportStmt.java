@@ -146,6 +146,10 @@ public class ExportStmt extends StatementBase {
             throw new AnalysisException("broker is not provided");
         }
 
+        if (!analyzer.getCatalog().getBrokerMgr().contaisnBroker(brokerDesc.getName())) {
+            throw new AnalysisException("broker " + brokerDesc.getName() + " does not exist");
+        }
+
         FsBroker broker = analyzer.getCatalog().getBrokerMgr().getAnyBroker(brokerDesc.getName());
         if (broker == null) {
             throw new AnalysisException("broker is not exist");

@@ -37,6 +37,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -84,16 +85,6 @@ public class BrokerMgr {
         }
     }
 
-    // Get all brokers' name
-    public Collection<String> getBrokerNames() {
-        lock.lock();
-        try {
-            return brokersMap.keySet();
-        } finally {
-            lock.unlock();
-        }
-    }
-
     public boolean contaisnBroker(String brokerName) {
         lock.lock();
         try {
@@ -103,37 +94,52 @@ public class BrokerMgr {
         }
     }
 
-    public FsBroker getAnyBroker(String name) {
+    public FsBroker getAnyBroker(String brokerName) {
         lock.lock();
         try {
-            List<FsBroker> brokerList = brokerListMap.get(name);
+            List<FsBroker> brokerList = brokerListMap.get(brokerName);
             if (brokerList == null || brokerList.isEmpty()) {
                 return null;
             }
-            return brokerList.get(random.nextInt(brokerList.size()));
+
+            Collections.shuffle(brokerList);
+            for (FsBroker fsBroker : brokerList) {
+                if (fsBroker.isAlive) {
+                    return fsBroker;
+                }
+            }
+            return null;
         } finally {
             lock.unlock();
         }
     }
 
-    public FsBroker getBroker(String name, String host) throws AnalysisException {
+    public FsBroker getBroker(String brokerName, String host) throws AnalysisException {
         lock.lock();
         try {
-            ArrayListMultimap<String, FsBroker> brokerAddsMap = brokersMap.get(name);
+            ArrayListMultimap<String, FsBroker> brokerAddsMap = brokersMap.get(brokerName);
             if (brokerAddsMap == null || brokerAddsMap.size() == 0) {
-                throw new AnalysisException("Unknown broker name(" + name + ")");
+                throw new AnalysisException("Unknown broker name(" + brokerName + ")");
             }
-            List<FsBroker> addressList = brokerAddsMap.get(host);
-            if (addressList.isEmpty()) {
-                addressList = brokerListMap.get(name);
+            List<FsBroker> brokers = brokerAddsMap.get(host);
+            if (brokers.isEmpty()) {
+                brokers = brokerListMap.get(brokerName);
             }
-            return addressList.get(random.nextInt(addressList.size()));
+
+            Collections.shuffle(brokers);
+            for (FsBroker fsBroker : brokers) {
+                if (fsBroker.isAlive) {
+                    return fsBroker;
+                }
+            }
+
+            throw new AnalysisException("failed to find alive broker");
         } finally {
             lock.unlock();
         }
     }
 
-    // find broker exactly matching name, host and port. return null if not found
+    // find broker which is exactly matching name, host and port. return null if not found
     public FsBroker getBroker(String name, String host, int port) {
         lock.lock();
         try {
@@ -154,27 +160,6 @@ public class BrokerMgr {
             }
             return null;
 
-        } finally {
-            lock.unlock();
-        }
-    }
-
-    public List<FsBroker> getBrokers(String name, List<String> hosts) throws AnalysisException {
-        lock.lock();
-        try {
-            ArrayListMultimap<String, FsBroker> brokerAddsMap = brokersMap.get(name);
-            if (brokerAddsMap == null || brokerAddsMap.size() == 0) {
-                throw new AnalysisException("Unknown broker name(" + name + ")");
-            }
-            List<FsBroker> brokerList = Lists.newArrayList();
-            for (String host : hosts) {
-                List<FsBroker> addressList = brokerAddsMap.get(host);
-                if (addressList.isEmpty()) {
-                    addressList = brokerListMap.get(name);
-                }
-                brokerList.add(addressList.get(random.nextInt(addressList.size())));
-            }
-            return brokerList;
         } finally {
             lock.unlock();
         }
