@@ -26,6 +26,7 @@ import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.http.rest.BootstrapFinishAction;
 import org.apache.doris.persist.HbPackage;
+import org.apache.doris.system.BackendEvent.BackendEventType;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.HeartbeatService;
 import org.apache.doris.thrift.TBackendInfo;
@@ -164,9 +165,15 @@ public class HeartbeatMgr extends Daemon {
                 Backend be = nodeMgr.getBackend(hbResponse.getBeId());
                 if (be != null) {
                     boolean isChanged = be.handleHbResponse(hbResponse);
+<<<<<<< HEAD
                     if (hbResponse.getStatus() != HbStatus.OK) {
                         // invalid all connections cached in ClientPool
                         ClientPool.backendPool.clearPool(new TNetworkAddress(be.getHost(), be.getBePort()));
+=======
+                    if (hbResponse.getStatus() != HbStatus.OK && !isReplay) {
+                        nodeMgr.getEventBus().post(new BackendEvent(BackendEventType.BACKEND_DOWN,
+                                "missing heartbeat", Long.valueOf(hbResponse.getBeId())));
+>>>>>>> Refactor heartbeat logic (#409)
                     }
                     return isChanged;
                 }
@@ -177,12 +184,16 @@ public class HeartbeatMgr extends Daemon {
                 FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(
                         hbResponse.getName(), hbResponse.getHost(), hbResponse.getPort());
                 if (broker != null) {
+<<<<<<< HEAD
                     boolean isChanged =  broker.handleHbResponse(hbResponse);
                     if (hbResponse.getStatus() != HbStatus.OK) {
                         // invalid all connections cached in ClientPool
                         ClientPool.brokerPool.clearPool(new TNetworkAddress(broker.ip, broker.port));
                     }
                     return isChanged;
+=======
+                    return broker.handleHbResponse(hbResponse);
+>>>>>>> Refactor heartbeat logic (#409)
                 }
                 break;
             }
