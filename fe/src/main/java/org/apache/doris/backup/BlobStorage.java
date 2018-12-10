@@ -18,8 +18,8 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.backup.Status.ErrCode;
-import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
@@ -583,14 +583,14 @@ public class BlobStorage implements Writable {
     }
 
     private Status getBroker(Pair<TPaloBrokerService.Client, TNetworkAddress> result) {
-        BrokerMgr.BrokerAddress brokerAddress = null;
+        FsBroker broker = null;
         try {
             String localIP = FrontendOptions.getLocalHostAddress();
-            brokerAddress = Catalog.getInstance().getBrokerMgr().getBroker(brokerName, localIP);
+            broker = Catalog.getInstance().getBrokerMgr().getBroker(brokerName, localIP);
         } catch (AnalysisException e) {
             return new Status(ErrCode.COMMON_ERROR, "failed to get a broker address: " + e.getMessage());
         }
-        TNetworkAddress address = new TNetworkAddress(brokerAddress.ip, brokerAddress.port);
+        TNetworkAddress address = new TNetworkAddress(broker.ip, broker.port);
         TPaloBrokerService.Client client = null;
         try {
             client = ClientPool.brokerPool.borrowObject(address);

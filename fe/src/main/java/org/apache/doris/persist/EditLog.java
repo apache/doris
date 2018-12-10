@@ -601,13 +601,11 @@ public class EditLog {
                     catalog.getBackupHandler().getRepoMgr().removeRepo(repoName, true);
                     break;
                 }
-
                 case OperationType.OP_TRUNCATE_TABLE: {
                     TruncateTableInfo info = (TruncateTableInfo) journal.getData();
                     catalog.replayTruncateTable(info);
                     break;
                 }
-
                 case OperationType.OP_COLOCATE_ADD_TABLE: {
                     final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
                     catalog.getColocateTableIndex().replayAddTableToGroup(info);
@@ -636,8 +634,13 @@ public class EditLog {
                 case OperationType.OP_MODIFY_TABLE_COLOCATE: {
                     final TablePropertyInfo info = (TablePropertyInfo) journal.getData();
                     catalog.replayModifyTableColocate(info);
+                    break;
                 }
-
+                case OperationType.OP_HEARTBEAT: {
+                    final HbPackage hbPackage = (HbPackage) journal.getData();
+                    Catalog.getCurrentHeartbeatMgr().replayHearbeat(hbPackage);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1119,5 +1122,9 @@ public class EditLog {
 
     public void logModifyTableColocate(TablePropertyInfo info) {
         logEdit(OperationType.OP_MODIFY_TABLE_COLOCATE, info);
+    }
+
+    public void logHeartbeat(HbPackage hbPackage) {
+        logEdit(OperationType.OP_HEARTBEAT, hbPackage);
     }
 }
