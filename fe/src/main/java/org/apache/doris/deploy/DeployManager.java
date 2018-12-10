@@ -17,8 +17,8 @@
 
 package org.apache.doris.deploy;
 
-import org.apache.doris.catalog.BrokerMgr.BrokerAddress;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
@@ -408,17 +408,17 @@ public class DeployManager extends Daemon {
                     break BROKER_BLOCK;
                 }
 
-                Map<String, List<BrokerAddress>> localBrokers = catalog.getBrokerMgr().getAddressListMap();
+                Map<String, List<FsBroker>> localBrokers = catalog.getBrokerMgr().getBrokerListMap();
 
                 // 1. find missing brokers
-                for (Map.Entry<String, List<BrokerAddress>> entry : localBrokers.entrySet()) {
+                for (Map.Entry<String, List<FsBroker>> entry : localBrokers.entrySet()) {
                     String brokerName = entry.getKey();
                     if (remoteBrokerHosts.containsKey(brokerName)) {
-                        List<BrokerAddress> localList = entry.getValue();
+                        List<FsBroker> localList = entry.getValue();
                         List<Pair<String, Integer>> remoteList = remoteBrokerHosts.get(brokerName);
 
                         // 1.1 found missing broker host
-                        for (BrokerAddress addr : localList) {
+                        for (FsBroker addr : localList) {
                             Pair<String, Integer> foundHost = getHostFromPairList(remoteList, addr.ip, addr.port);
                             if (foundHost == null) {
                                 List<Pair<String, Integer>> list = Lists.newArrayList();
@@ -437,7 +437,7 @@ public class DeployManager extends Daemon {
 
                         // 1.2 add new broker host
                         for (Pair<String, Integer> pair : remoteList) {
-                            BrokerAddress foundAddr = getHostFromBrokerAddrs(localList, pair.first, pair.second);
+                            FsBroker foundAddr = getHostFromBrokerAddrs(localList, pair.first, pair.second);
                             if (foundAddr == null) {
                                 // add new broker
                                 List<Pair<String, Integer>> list = Lists.newArrayList();
@@ -484,9 +484,9 @@ public class DeployManager extends Daemon {
         }
     }
 
-    private BrokerAddress getHostFromBrokerAddrs(List<BrokerAddress> addrList,
+    private FsBroker getHostFromBrokerAddrs(List<FsBroker> addrList,
             String ip, Integer port) {
-        for (BrokerAddress brokerAddress : addrList) {
+        for (FsBroker brokerAddress : addrList) {
             if (brokerAddress.ip.equals(ip) && brokerAddress.port == port) {
                 return brokerAddress;
             }

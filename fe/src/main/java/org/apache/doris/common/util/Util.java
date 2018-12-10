@@ -17,18 +17,22 @@
 
 package org.apache.doris.common.util;
 
-import com.google.common.collect.Lists;
-
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+
+import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.UnsupportedEncodingException;
+import java.net.URL;
+import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -319,6 +323,43 @@ public class Util {
             sb.append("    ").append(element.toString()).append("\n");
             --count;
         }
+        return sb.toString();
+    }
+
+    public static String getResultForUrl(String urlStr, String encodedAuthInfo, int connectTimeoutMs,
+            int readTimeoutMs) {
+        StringBuilder sb = new StringBuilder();
+        InputStream stream = null;
+        try {
+            URL url = new URL(urlStr);
+            URLConnection conn = url.openConnection();
+            if (encodedAuthInfo != null) {
+                conn.setRequestProperty("Authorization", "Basic " + encodedAuthInfo);
+            }
+            conn.setConnectTimeout(connectTimeoutMs);
+            conn.setReadTimeout(readTimeoutMs);
+
+            stream = (InputStream) conn.getContent();
+            BufferedReader br = new BufferedReader(new InputStreamReader(stream));
+
+            String line;
+            while ((line = br.readLine()) != null) {
+                sb.append(line);
+            }
+        } catch (Exception e) {
+            LOG.warn("failed to get result from url: {}", urlStr, e);
+            return null;
+        } finally {
+            if (stream != null) {
+                try {
+                    stream.close();
+                } catch (IOException e) {
+                    LOG.warn("failed to close stream when get result from url: {}", urlStr, e);
+                    return null;
+                }
+            }
+        }
+        LOG.debug("get result from url {}: {}", urlStr, sb.toString());
         return sb.toString();
     }
 }

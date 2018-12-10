@@ -17,21 +17,22 @@
 
 package org.apache.doris.backup;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-
-import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.doris.backup.Status.ErrCode;
-import org.apache.doris.catalog.BrokerMgr.BrokerAddress;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.system.Backend;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
@@ -486,7 +487,7 @@ public class Repository implements Writable {
         return origPath.substring(0, origPath.lastIndexOf(PATH_DELIMITER) + 1) + fileNameWithChecksum;
     }
 
-    public Status getBrokerAddress(Long beId, Catalog catalog, List<BrokerAddress> brokerAddrs) {
+    public Status getBrokerAddress(Long beId, Catalog catalog, List<FsBroker> brokerAddrs) {
         // get backend
         Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
         if (be == null) {
@@ -495,7 +496,7 @@ public class Repository implements Writable {
         }
 
         // get proper broker for this backend
-        BrokerAddress brokerAddr = null;
+        FsBroker brokerAddr = null;
         try {
             brokerAddr = catalog.getBrokerMgr().getBroker(storage.getBrokerName(), be.getHost());
         } catch (AnalysisException e) {
