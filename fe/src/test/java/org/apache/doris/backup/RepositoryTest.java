@@ -19,7 +19,7 @@ package org.apache.doris.backup;
 
 import org.apache.doris.analysis.ShowRepositoriesStmt;
 import org.apache.doris.catalog.BrokerMgr;
-import org.apache.doris.catalog.BrokerMgr.BrokerAddress;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.service.FrontendOptions;
 
@@ -84,8 +84,8 @@ public class RepositoryTest {
 
         new MockUp<BrokerMgr>() {
             @Mock
-            public BrokerAddress getBroker(String name, String host) throws AnalysisException {
-                return new BrokerAddress("10.74.167.16", 8111);
+            public FsBroker getBroker(String name, String host) throws AnalysisException {
+                return new FsBroker("10.74.167.16", 8111);
             }
         };
 

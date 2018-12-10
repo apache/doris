@@ -17,7 +17,7 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.catalog.BrokerMgr.BrokerAddress;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.thrift.TDownloadReq;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResourceInfo;
@@ -29,11 +29,11 @@ public class DownloadTask extends AgentTask {
 
     private long jobId;
     private Map<String, String> srcToDestPath;
-    private BrokerAddress brokerAddr;
+    private FsBroker brokerAddr;
     private Map<String, String> brokerProperties;
 
     public DownloadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
-            Map<String, String> srcToDestPath, BrokerAddress brokerAddr, Map<String, String> brokerProperties) {
+            Map<String, String> srcToDestPath, FsBroker brokerAddr, Map<String, String> brokerProperties) {
         super(resourceInfo, backendId, TTaskType.DOWNLOAD, dbId, -1, -1, -1, -1, signature);
         this.jobId = jobId;
         this.srcToDestPath = srcToDestPath;
@@ -49,7 +49,7 @@ public class DownloadTask extends AgentTask {
         return srcToDestPath;
     }
 
-    public BrokerAddress getBrokerAddr() {
+    public FsBroker getBrokerAddr() {
         return brokerAddr;
     }
 

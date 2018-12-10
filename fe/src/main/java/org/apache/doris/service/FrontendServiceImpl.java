@@ -759,6 +759,5 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             db.readUnlock();
         }
     }
-
 }
 

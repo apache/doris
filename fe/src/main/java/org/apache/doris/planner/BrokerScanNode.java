@@ -20,7 +20,6 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -31,10 +30,10 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -430,14 +429,14 @@ public class BrokerScanNode extends ScanNode {
         // TODO(zc):
         int numBroker = Math.min(3, numBe);
         for (int i = 0; i < numBroker; ++i) {
-            BrokerMgr.BrokerAddress brokerAddress = null;
+            FsBroker broker = null;
             try {
-                brokerAddress = Catalog.getInstance().getBrokerMgr().getBroker(
+                broker = Catalog.getInstance().getBrokerMgr().getBroker(
                         brokerName, candidateBes.get(i).getHost());
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
-            brokerScanRange.addToBroker_addresses(new TNetworkAddress(brokerAddress.ip, brokerAddress.port));
+            brokerScanRange.addToBroker_addresses(new TNetworkAddress(broker.ip, broker.port));
         }
 
         // Scan range

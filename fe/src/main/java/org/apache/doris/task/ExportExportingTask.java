@@ -17,13 +17,13 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
@@ -267,16 +267,16 @@ public class ExportExportingTask extends MasterTask {
     }
 
     private Status moveTmpFiles() {
-        BrokerMgr.BrokerAddress brokerAddress = null;
+        FsBroker broker = null;
         try {
             String localIP = FrontendOptions.getLocalHostAddress();
-            brokerAddress = Catalog.getInstance().getBrokerMgr().getBroker(job.getBrokerDesc().getName(), localIP);
+            broker = Catalog.getInstance().getBrokerMgr().getBroker(job.getBrokerDesc().getName(), localIP);
         } catch (AnalysisException e) {
             String failMsg = "get broker failed. msg=" + e.getMessage();
             LOG.warn(failMsg);
             return new Status(TStatusCode.CANCELLED, failMsg);
         }
-        TNetworkAddress address = new TNetworkAddress(brokerAddress.ip, brokerAddress.port);
+        TNetworkAddress address = new TNetworkAddress(broker.ip, broker.port);
         TPaloBrokerService.Client client = null;
         try {
             client = ClientPool.brokerPool.borrowObject(address);

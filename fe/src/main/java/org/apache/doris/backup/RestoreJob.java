@@ -23,11 +23,11 @@ import org.apache.doris.backup.BackupJobInfo.BackupTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.backup.Status.ErrCode;
-import org.apache.doris.catalog.BrokerMgr.BrokerAddress;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -953,7 +953,7 @@ public class RestoreJob extends AbstractJob {
                     LOG.debug("backend {} has {} batch, total {} tasks, {}",
                               beId, batchNum, totalNum, this);
 
-                    List<BrokerAddress> brokerAddrs = Lists.newArrayList();
+                    List<FsBroker> brokerAddrs = Lists.newArrayList();
                     Status st = repo.getBrokerAddress(beId, catalog, brokerAddrs);
                     if (!st.ok()) {
                         status = st;

@@ -26,6 +26,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
+import org.apache.doris.common.util.TimeUtils;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
@@ -36,6 +37,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -46,92 +48,25 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class BrokerMgr {
     public static final ImmutableList<String> BROKER_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BrokerName").add("BrokerAddress").build();
+            .add("Name").add("IP").add("Port").add("IsAlive")
+            .add("LstStartTime").add("LstUpdateTime").add("ErrMsg")
+            .build();
 
     private final Random random = new Random(System.currentTimeMillis());
 
-    public static class BrokerAddress implements Writable, Comparable<BrokerAddress> {
-        public String ip;
-        public int port;
-
-        public BrokerAddress() {
-        }
-
-        public BrokerAddress(String ip, int port) {
-            this.ip = ip;
-            this.port = port;
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) {
-                return true;
-            }
-            if (!(o instanceof BrokerAddress)) {
-                return false;
-            }
-
-            BrokerAddress that = (BrokerAddress) o;
-
-            if (port != that.port) {
-                return false;
-            }
-            return ip.equals(that.ip);
-
-        }
-
-        @Override
-        public int hashCode() {
-            int result = ip.hashCode();
-            result = 31 * result + port;
-            return result;
-        }
-
-        @Override
-        public int compareTo(BrokerAddress o) {
-            int ret = ip.compareTo(o.ip);
-            if (ret != 0) {
-                return ret;
-            }
-            return port - o.port;
-        }
-
-        @Override
-        public void write(DataOutput out) throws IOException {
-            Text.writeString(out, ip);
-            out.writeInt(port);
-        }
-
-        @Override
-        public void readFields(DataInput in) throws IOException {
-            ip = Text.readString(in);
-            port = in.readInt();
-        }
-
-        @Override
-        public String toString() {
-            return ip + ":" + port;
-        }
-
-        public static BrokerAddress readIn(DataInput in) throws IOException {
-            BrokerAddress address = new BrokerAddress();
-            address.readFields(in);
-            return address;
-        }
-    }
-
     // we need IP to find the co-location broker.
-    // { BrokerName -> { IP -> [BrokerAddress] } }
-    private final Map<String, ArrayListMultimap<String, BrokerAddress>> brokersMap = Maps.newHashMap();
-    private final Map<String, List<BrokerAddress>> addressListMap = Maps.newHashMap();
+    // { BrokerName -> { IP -> [FsBroker] } }
+    private final Map<String, ArrayListMultimap<String, FsBroker>> brokersMap = Maps.newHashMap();
+    // { BrokerName -> { list of FsBroker }
+    private final Map<String, List<FsBroker>> brokerListMap = Maps.newHashMap();
     private final ReentrantLock lock = new ReentrantLock();
     private BrokerProcNode procNode = null;
 
     public BrokerMgr() {
     }
 
-    public Map<String, List<BrokerAddress>> getAddressListMap() {
-        return addressListMap;
+    public Map<String, List<FsBroker>> getBrokerListMap() {
+        return brokerListMap;
     }
 
     public void execute(ModifyBrokerClause clause) throws DdlException {
@@ -150,16 +85,6 @@ public class BrokerMgr {
         }
     }
 
-    // Get all brokers' name
-    public Collection<String> getBrokerNames() {
-        lock.lock();
-        try {
-            return brokersMap.keySet();
-        } finally {
-            lock.unlock();
-        }
-    }
-
     public boolean contaisnBroker(String brokerName) {
         lock.lock();
         try {
@@ -169,52 +94,72 @@ public class BrokerMgr {
         }
     }
 
-    public BrokerAddress getAnyBroker(String name) {
+    public FsBroker getAnyBroker(String brokerName) {
         lock.lock();
         try {
-            List<BrokerAddress> addressList = addressListMap.get(name);
-            if (addressList == null || addressList.isEmpty()) {
+            List<FsBroker> brokerList = brokerListMap.get(brokerName);
+            if (brokerList == null || brokerList.isEmpty()) {
                 return null;
             }
-            return addressList.get(random.nextInt(addressList.size()));
-        } finally {
-            lock.unlock();
-        }
-    }
 
-    public BrokerAddress getBroker(String name, String host) throws AnalysisException {
-        lock.lock();
-        try {
-            ArrayListMultimap<String, BrokerAddress> brokerAddsMap = brokersMap.get(name);
-            if (brokerAddsMap == null || brokerAddsMap.size() == 0) {
-                throw new AnalysisException("Unknown broker name(" + name + ")");
-            }
-            List<BrokerAddress> addressList = brokerAddsMap.get(host);
-            if (addressList.isEmpty()) {
-                addressList = addressListMap.get(name);
-            }
-            return addressList.get(random.nextInt(addressList.size()));
-        } finally {
-            lock.unlock();
-        }
-    }
-
-    public List<BrokerAddress> getBrokers(String name, List<String> hosts) throws AnalysisException {
-        lock.lock();
-        try {
-            ArrayListMultimap<String, BrokerAddress> brokerAddsMap = brokersMap.get(name);
-            if (brokerAddsMap == null || brokerAddsMap.size() == 0) {
-                throw new AnalysisException("Unknown broker name(" + name + ")");
-            }
-            List<BrokerAddress> brokerList = Lists.newArrayList();
-            for (String host : hosts) {
-                List<BrokerAddress> addressList = brokerAddsMap.get(host);
-                if (addressList.isEmpty()) {
-                    addressList = addressListMap.get(name);
+            Collections.shuffle(brokerList);
+            for (FsBroker fsBroker : brokerList) {
+                if (fsBroker.isAlive) {
+                    return fsBroker;
                 }
-                brokerList.add(addressList.get(random.nextInt(addressList.size())));
             }
-            return brokerList;
+            return null;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public FsBroker getBroker(String brokerName, String host) throws AnalysisException {
+        lock.lock();
+        try {
+            ArrayListMultimap<String, FsBroker> brokerAddsMap = brokersMap.get(brokerName);
+            if (brokerAddsMap == null || brokerAddsMap.size() == 0) {
+                throw new AnalysisException("Unknown broker name(" + brokerName + ")");
+            }
+            List<FsBroker> brokers = brokerAddsMap.get(host);
+            if (brokers.isEmpty()) {
+                brokers = brokerListMap.get(brokerName);
+            }
+
+            Collections.shuffle(brokers);
+            for (FsBroker fsBroker : brokers) {
+                if (fsBroker.isAlive) {
+                    return fsBroker;
+                }
+            }
+
+            throw new AnalysisException("failed to find alive broker");
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    // find broker which is exactly matching name, host and port. return null if not found
+    public FsBroker getBroker(String name, String host, int port) {
+        lock.lock();
+        try {
+            ArrayListMultimap<String, FsBroker> brokerAddsMap = brokersMap.get(name);
+            if (brokerAddsMap == null || brokerAddsMap.size() == 0) {
+                return null;
+            }
+
+            List<FsBroker> addressList = brokerAddsMap.get(host);
+            if (addressList.isEmpty()) {
+                return null;
+            }
+
+            for (FsBroker fsBroker : addressList) {
+                if (fsBroker.port == port) {
+                    return fsBroker;
+                }
+            }
+            return null;
+
         } finally {
             lock.unlock();
         }
@@ -223,46 +168,46 @@ public class BrokerMgr {
     public void addBrokers(String name, Collection<Pair<String, Integer>> addresses) throws DdlException {
         lock.lock();
         try {
-            ArrayListMultimap<String, BrokerAddress> brokerAddrsMap = brokersMap.get(name);
+            ArrayListMultimap<String, FsBroker> brokerAddrsMap = brokersMap.get(name);
             if (brokerAddrsMap == null) {
                 brokerAddrsMap = ArrayListMultimap.create();
             }
 
-            List<BrokerAddress> addedBrokerAddress = Lists.newArrayList();
+            List<FsBroker> addedBrokerAddress = Lists.newArrayList();
             for (Pair<String, Integer> pair : addresses) {
-                List<BrokerAddress> addressList = brokerAddrsMap.get(pair.first);
-                for (BrokerAddress addr : addressList) {
+                List<FsBroker> addressList = brokerAddrsMap.get(pair.first);
+                for (FsBroker addr : addressList) {
                     if (addr.port == pair.second) {
                         throw new DdlException("Broker(" + pair.first + ":" + pair.second
                                 + ") has already in brokers.");
                     }
                 }
-                addedBrokerAddress.add(new BrokerAddress(pair.first, pair.second));
+                addedBrokerAddress.add(new FsBroker(pair.first, pair.second));
             }
             Catalog.getInstance().getEditLog().logAddBroker(new ModifyBrokerInfo(name, addedBrokerAddress));
-            for (BrokerAddress address : addedBrokerAddress) {
+            for (FsBroker address : addedBrokerAddress) {
                 brokerAddrsMap.put(address.ip, address);
             }
             brokersMap.put(name, brokerAddrsMap);
-            addressListMap.put(name, Lists.newArrayList(brokerAddrsMap.values()));
+            brokerListMap.put(name, Lists.newArrayList(brokerAddrsMap.values()));
         } finally {
             lock.unlock();
         }
     }
 
-    public void replayAddBrokers(String name, List<BrokerAddress> addresses) {
+    public void replayAddBrokers(String name, List<FsBroker> addresses) {
         lock.lock();
         try {
-            ArrayListMultimap<String, BrokerAddress> brokerAddrsMap = brokersMap.get(name);
+            ArrayListMultimap<String, FsBroker> brokerAddrsMap = brokersMap.get(name);
             if (brokerAddrsMap == null) {
                 brokerAddrsMap = ArrayListMultimap.create();
                 brokersMap.put(name, brokerAddrsMap);
             }
-            for (BrokerAddress address : addresses) {
+            for (FsBroker address : addresses) {
                 brokerAddrsMap.put(address.ip, address);
             }
 
-            addressListMap.put(name, Lists.newArrayList(brokerAddrsMap.values()));
+            brokerListMap.put(name, Lists.newArrayList(brokerAddrsMap.values()));
         } finally {
             lock.unlock();
         }
@@ -271,16 +216,16 @@ public class BrokerMgr {
     public void dropBrokers(String name, Collection<Pair<String, Integer>> addresses) throws DdlException {
         lock.lock();
         try {
-            ArrayListMultimap<String, BrokerAddress> brokerAddrsMap = brokersMap.get(name);
+            ArrayListMultimap<String, FsBroker> brokerAddrsMap = brokersMap.get(name);
             if (brokerAddrsMap == null) {
                 throw new DdlException("Unknown broker name(" + name + ")");
             }
 
-            List<BrokerAddress> dropedAddressList = Lists.newArrayList();
+            List<FsBroker> dropedAddressList = Lists.newArrayList();
             for (Pair<String, Integer> pair : addresses) {
-                List<BrokerAddress> addressList = brokerAddrsMap.get(pair.first);
+                List<FsBroker> addressList = brokerAddrsMap.get(pair.first);
                 boolean found = false;
-                for (BrokerAddress addr : addressList) {
+                for (FsBroker addr : addressList) {
                     if (addr.port == pair.second) {
                         dropedAddressList.add(addr);
                         found = true;
@@ -292,25 +237,25 @@ public class BrokerMgr {
                 }
             }
             Catalog.getInstance().getEditLog().logDropBroker(new ModifyBrokerInfo(name, dropedAddressList));
-            for (BrokerAddress address : dropedAddressList) {
+            for (FsBroker address : dropedAddressList) {
                 brokerAddrsMap.remove(address.ip, address);
             }
 
-            addressListMap.put(name, Lists.newArrayList(brokerAddrsMap.values()));
+            brokerListMap.put(name, Lists.newArrayList(brokerAddrsMap.values()));
         } finally {
             lock.unlock();
         }
     }
 
-    public void replayDropBrokers(String name, List<BrokerAddress> addresses) {
+    public void replayDropBrokers(String name, List<FsBroker> addresses) {
         lock.lock();
         try {
-            ArrayListMultimap<String, BrokerAddress> brokerAddrsMap = brokersMap.get(name);
-            for (BrokerAddress addr : addresses) {
+            ArrayListMultimap<String, FsBroker> brokerAddrsMap = brokersMap.get(name);
+            for (FsBroker addr : addresses) {
                 brokerAddrsMap.remove(addr.ip, addr);
             }
 
-            addressListMap.put(name, Lists.newArrayList(brokerAddrsMap.values()));
+            brokerListMap.put(name, Lists.newArrayList(brokerAddrsMap.values()));
         } finally {
             lock.unlock();
         }
@@ -324,7 +269,7 @@ public class BrokerMgr {
             }
             Catalog.getInstance().getEditLog().logDropAllBroker(name);
             brokersMap.remove(name);
-            addressListMap.remove(name);
+            brokerListMap.remove(name);
         } finally {
             lock.unlock();
         }
@@ -334,7 +279,7 @@ public class BrokerMgr {
         lock.lock();
         try {
             brokersMap.remove(name);
-            addressListMap.remove(name);
+            brokerListMap.remove(name);
         } finally {
             lock.unlock();
         }
@@ -372,12 +317,17 @@ public class BrokerMgr {
 
             lock.lock();
             try {
-                for (Map.Entry<String, ArrayListMultimap<String, BrokerAddress>> entry : brokersMap.entrySet()) {
+                for (Map.Entry<String, ArrayListMultimap<String, FsBroker>> entry : brokersMap.entrySet()) {
                     String brokerName = entry.getKey();
-                    for (BrokerAddress address : entry.getValue().values()) {
+                    for (FsBroker broker : entry.getValue().values()) {
                         List<String> row = Lists.newArrayList();
                         row.add(brokerName);
-                        row.add(address.toString());
+                        row.add(broker.ip);
+                        row.add(String.valueOf(broker.port));
+                        row.add(String.valueOf(broker.isAlive));
+                        row.add(TimeUtils.longToTimeString(broker.lastStartTime));
+                        row.add(TimeUtils.longToTimeString(broker.lastUpdateTime));
+                        row.add(broker.msg);
                         result.addRow(row);
                     }
                 }
@@ -390,12 +340,12 @@ public class BrokerMgr {
 
     public static class ModifyBrokerInfo implements Writable {
         public String brokerName;
-        public List<BrokerAddress> brokerAddresses;
+        public List<FsBroker> brokerAddresses;
 
         public ModifyBrokerInfo() {
         }
 
-        public ModifyBrokerInfo(String brokerName, List<BrokerAddress> brokerAddresses) {
+        public ModifyBrokerInfo(String brokerName, List<FsBroker> brokerAddresses) {
             this.brokerName = brokerName;
             this.brokerAddresses = brokerAddresses;
         }
@@ -404,7 +354,7 @@ public class BrokerMgr {
         public void write(DataOutput out) throws IOException {
             Text.writeString(out, brokerName);
             out.writeInt(brokerAddresses.size());
-            for (BrokerAddress address : brokerAddresses) {
+            for (FsBroker address : brokerAddresses) {
                 address.write(out);
             }
         }
@@ -415,7 +365,7 @@ public class BrokerMgr {
             int size = in.readInt();
             brokerAddresses = Lists.newArrayList();
             for (int i = 0; i < size; ++i) {
-                brokerAddresses.add(BrokerAddress.readIn(in));
+                brokerAddresses.add(FsBroker.readIn(in));
             }
         }
 
