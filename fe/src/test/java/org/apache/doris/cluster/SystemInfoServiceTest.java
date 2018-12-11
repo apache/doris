@@ -51,7 +51,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 
 @RunWith(PowerMockRunner.class)
-@PowerMockIgnore("org.apache.log4j.*")
+@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
 @PrepareForTest(Catalog.class)
 public class SystemInfoServiceTest {
 
