@@ -126,7 +126,7 @@ public class GlobalTransactionMgrTest {
     // all replica committed success
     @Test
     public void testCommitTransaction1() throws MetaNotFoundException,
-            TransactionCommitFailedException,
+            TransactionException,
             IllegalTransactionParameterException, LabelAlreadyExistsException,
             AnalysisException, BeginTransactionException {
         FakeCatalog.setCatalog(masterCatalog);
@@ -169,7 +169,7 @@ public class GlobalTransactionMgrTest {
     // commit with only two replicas
     @Test
     public void testCommitTransactionWithOneFailed() throws MetaNotFoundException,
-            TransactionCommitFailedException,
+            TransactionException,
             IllegalTransactionParameterException, LabelAlreadyExistsException,
             AnalysisException, BeginTransactionException {
         TransactionState transactionState = null;
@@ -271,7 +271,7 @@ public class GlobalTransactionMgrTest {
         assertTrue(CatalogTestUtil.compareCatalog(masterCatalog, slaveCatalog));
     }
 
-    public void testFinishTransaction() throws MetaNotFoundException, TransactionCommitFailedException,
+    public void testFinishTransaction() throws MetaNotFoundException, TransactionException,
             IllegalTransactionParameterException, LabelAlreadyExistsException,
             AnalysisException, BeginTransactionException {
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
@@ -315,7 +315,7 @@ public class GlobalTransactionMgrTest {
 
     @Test
     public void testFinishTransactionWithOneFailed() throws MetaNotFoundException,
-            TransactionCommitFailedException,
+            TransactionException,
             IllegalTransactionParameterException, LabelAlreadyExistsException,
             AnalysisException, BeginTransactionException {
         TransactionState transactionState = null;
