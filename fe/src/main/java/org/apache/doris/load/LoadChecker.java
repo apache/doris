@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionCommitFailedException;
+import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
@@ -329,7 +330,7 @@ public class LoadChecker extends Daemon {
                 tabletCommitInfos.add(new TabletCommitInfo(tabletId, replica.getBackendId()));
             }
             globalTransactionMgr.commitTransaction(job.getDbId(), job.getTransactionId(), tabletCommitInfos);
-        } catch (MetaNotFoundException | TransactionCommitFailedException e) {
+        } catch (MetaNotFoundException | TransactionException e) {
             LOG.warn("errors while commit transaction [{}], cancel the job {}, reason is {}", 
                     transactionState.getTransactionId(), job, e);
             load.cancelLoadJob(job, CancelType.UNKNOWN, transactionState.getReason());
