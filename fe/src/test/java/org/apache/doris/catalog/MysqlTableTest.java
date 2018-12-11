@@ -45,7 +45,7 @@ import java.util.List;
 import java.util.Map;
 
 @RunWith(PowerMockRunner.class)
-@PowerMockIgnore("org.apache.log4j.*")
+@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
 @PrepareForTest(Catalog.class)
 public class MysqlTableTest {
     private List<Column> columns;
