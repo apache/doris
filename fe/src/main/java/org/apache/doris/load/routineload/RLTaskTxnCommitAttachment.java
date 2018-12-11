@@ -19,7 +19,6 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TRLTaskTxnCommitAttachment;
-import org.apache.doris.thrift.TRoutineLoadTaskTxnExtra;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
 import java.io.DataInput;
