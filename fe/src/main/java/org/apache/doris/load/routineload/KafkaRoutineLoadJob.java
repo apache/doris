@@ -18,13 +18,17 @@
 package org.apache.doris.load.routineload;
 
 import com.google.common.base.Strings;
-import com.google.gson.Gson;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.SystemIdGenerator;
+import org.apache.doris.common.UserException;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
+import org.apache.doris.transaction.BeginTransactionException;
+import org.apache.doris.transaction.LabelAlreadyExistsException;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.logging.log4j.LogManager;
@@ -36,6 +40,10 @@ import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
 
+/**
+ * KafkaRoutineLoadJob is a kind of RoutineLoadJob which fetch data from kafka.
+ * The progress which is super class property is seems like "{"partition1": offset1, "partition2": offset2}"
+ */
 public class KafkaRoutineLoadJob extends RoutineLoadJob {
     private static final Logger LOG = LogManager.getLogger(KafkaRoutineLoadJob.class);
 
@@ -53,41 +61,51 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     public KafkaRoutineLoadJob(String id, String name, String userName, long dbId, long tableId,
                                String partitions, String columns, String where, String columnSeparator,
                                int desireTaskConcurrentNum, JobState state, DataSourceType dataSourceType,
-                               int maxErrorNum, TResourceInfo resourceInfo, String serverAddress, String topic) {
+                               int maxErrorNum, TResourceInfo resourceInfo, String serverAddress, String topic,
+                               KafkaProgress kafkaProgress) {
         super(id, name, userName, dbId, tableId, partitions, columns, where,
                 columnSeparator, desireTaskConcurrentNum, state, dataSourceType, maxErrorNum, resourceInfo);
         this.serverAddress = serverAddress;
         this.topic = topic;
-    }
-
-    public KafkaProgress getProgress() {
-        Gson gson = new Gson();
-        return gson.fromJson(this.progress, KafkaProgress.class);
+        this.progress = kafkaProgress;
     }
 
     @Override
-    public void divideRoutineLoadJob(int currentConcurrentTaskNum) {
+    public List<RoutineLoadTaskInfo> divideRoutineLoadJob(int currentConcurrentTaskNum) {
+        List<RoutineLoadTaskInfo> result = new ArrayList<>();
         writeLock();
         try {
             if (state == JobState.NEED_SCHEDULER) {
                 // divide kafkaPartitions into tasks
                 for (int i = 0; i < currentConcurrentTaskNum; i++) {
-                    KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID().toString(), id);
-                    routineLoadTaskInfoList.add(kafkaTaskInfo);
-                    needSchedulerTaskInfoList.add(kafkaTaskInfo);
+                    try {
+                        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID().toString(), id);
+                        routineLoadTaskInfoList.add(kafkaTaskInfo);
+                        needSchedulerTaskInfoList.add(kafkaTaskInfo);
+                        result.add(kafkaTaskInfo);
+                    } catch (UserException e) {
+                        LOG.error("failed to begin txn for kafka routine load task, change job state to failed");
+                        state = JobState.CANCELLED;
+                        // TODO(ml): edit log
+                        break;
+                    }
                 }
-                for (int i = 0; i < kafkaPartitions.size(); i++) {
-                    ((KafkaTaskInfo) routineLoadTaskInfoList.get(i % currentConcurrentTaskNum))
-                            .addKafkaPartition(kafkaPartitions.get(i));
+                if (result.size() != 0) {
+                    for (int i = 0; i < kafkaPartitions.size(); i++) {
+                        ((KafkaTaskInfo) routineLoadTaskInfoList.get(i % currentConcurrentTaskNum))
+                                .addKafkaPartition(kafkaPartitions.get(i));
+                    }
+                    // change job state to running
+                    // TODO(ml): edit log
+                    state = JobState.RUNNING;
                 }
-                // change job state to running
-                state = JobState.RUNNING;
             } else {
                 LOG.debug("Ignore to divide routine load job while job state {}", state);
             }
         } finally {
             writeUnlock();
         }
+        return result;
     }
 
     @Override
@@ -113,13 +131,22 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return Math.min(partitionNum, Math.min(desireTaskConcurrentNum, aliveBeNum));
     }
 
+
     @Override
-    public RoutineLoadTask createTask(RoutineLoadTaskInfo routineLoadTaskInfo, long beId) {
-        return new KafkaRoutineLoadTask(getResourceInfo(),
-                beId, getDbId(), getTableId(),
-                0L, 0L, 0L, getColumns(), getWhere(), getColumnSeparator(),
-                (KafkaTaskInfo) routineLoadTaskInfo,
-                getProgress());
+    protected void updateProgress(RoutineLoadProgress progress) {
+        this.progress.update(progress);
+    }
+
+    @Override
+    protected RoutineLoadTaskInfo reNewTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws AnalysisException,
+            LabelAlreadyExistsException, BeginTransactionException {
+        // remove old task
+        routineLoadTaskInfoList.remove(routineLoadTaskInfo);
+        // add new task
+        KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo((KafkaTaskInfo) routineLoadTaskInfo);
+        routineLoadTaskInfoList.add(kafkaTaskInfo);
+        needSchedulerTaskInfoList.add(kafkaTaskInfo);
+        return kafkaTaskInfo;
     }
 
     private void updatePartitions() {

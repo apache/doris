@@ -17,6 +17,13 @@
 
 package org.apache.doris.load.routineload;
 
+import com.google.common.collect.Lists;
+import mockit.Deencapsulation;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.LoadException;
@@ -45,7 +52,6 @@ public class RoutineLoadSchedulerTest {
                                       @Injectable SystemInfoService systemInfoService,
                                       @Injectable Database database)
             throws LoadException, MetaNotFoundException {
-
         String clusterName = "cluster1";
         List<Long> beIds = Lists.newArrayList();
         beIds.add(1L);
@@ -58,7 +64,7 @@ public class RoutineLoadSchedulerTest {
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob("1", "kafka_routine_load_job", "miaoling", 1L,
                 1L, "1L", "v1", "", "", 3,
                 RoutineLoadJob.JobState.NEED_SCHEDULER, RoutineLoadJob.DataSourceType.KAFKA, 0, new TResourceInfo(),
-                "", "");
+                "", "", null);
         routineLoadJob.setState(RoutineLoadJob.JobState.NEED_SCHEDULER);
         List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
         routineLoadJobList.add(routineLoadJob);

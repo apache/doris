@@ -17,7 +17,12 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.common.SystemIdGenerator;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.task.KafkaRoutineLoadTask;
+import org.apache.doris.task.RoutineLoadTask;
+import org.apache.doris.transaction.BeginTransactionException;
+import org.apache.doris.transaction.LabelAlreadyExistsException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,14 +30,18 @@ import java.util.UUID;
 
 public class KafkaTaskInfo extends RoutineLoadTaskInfo {
 
+    private RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadInstance();
+
     private List<Integer> partitions;
 
-    public KafkaTaskInfo(String id, String jobId) {
+    public KafkaTaskInfo(String id, String jobId) throws LabelAlreadyExistsException,
+            BeginTransactionException, AnalysisException {
         super(id, jobId);
         this.partitions = new ArrayList<>();
     }
 
-    public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo) {
+    public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo) throws LabelAlreadyExistsException,
+            BeginTransactionException, AnalysisException {
         super(UUID.randomUUID().toString(), kafkaTaskInfo.getJobId());
         this.partitions = kafkaTaskInfo.getPartitions();
     }
@@ -45,5 +54,13 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         return partitions;
     }
 
-
+    @Override
+    public RoutineLoadTask createStreamLoadTask(long beId) {
+        RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
+        return new KafkaRoutineLoadTask(routineLoadJob.getResourceInfo(),
+                beId, routineLoadJob.getDbId(), routineLoadJob.getTableId(),
+                0L, 0L, 0L, routineLoadJob.getColumns(), routineLoadJob.getWhere(),
+                routineLoadJob.getColumnSeparator(), this, (KafkaProgress) routineLoadJob.getProgress(),
+                txnId);
+    }
 }

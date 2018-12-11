@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.routineload;
+package org.apache.doris.task;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogIdGenerator;
 import org.apache.doris.common.SystemIdGenerator;
+import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TTaskType;
@@ -27,6 +28,7 @@ import org.apache.doris.thrift.TTaskType;
 public class RoutineLoadTask extends AgentTask {
 
     private String id;
+    private long txnId;
     private String columns;
     private String where;
     private String columnSeparator;
@@ -36,10 +38,11 @@ public class RoutineLoadTask extends AgentTask {
     public RoutineLoadTask(TResourceInfo resourceInfo, long backendId, TTaskType taskType,
                            long dbId, long tableId, long partitionId, long indexId, long tabletId, String id,
                            String columns, String where, String columnSeparator,
-                           RoutineLoadJob.DataSourceType dataSourceType) {
+                           RoutineLoadJob.DataSourceType dataSourceType, long txnId) {
         super(resourceInfo, backendId, taskType, dbId, tableId, partitionId, indexId, tabletId,
                 Catalog.getCurrentCatalog().getNextId());
         this.id = id;
+        this.txnId = txnId;
         this.columns = columns;
         this.where = where;
         this.columnSeparator = columnSeparator;

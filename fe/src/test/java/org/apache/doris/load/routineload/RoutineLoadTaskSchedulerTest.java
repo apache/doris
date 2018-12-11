@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import mockit.Deencapsulation;
@@ -26,16 +25,19 @@ import mockit.Injectable;
 import mockit.Mocked;
 import mockit.Verifications;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.KafkaRoutineLoadTask;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.transaction.BeginTransactionException;
+import org.apache.doris.transaction.LabelAlreadyExistsException;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 
@@ -50,14 +52,15 @@ public class RoutineLoadTaskSchedulerTest {
 
     @Test
     public void testRunOneCycle(@Injectable KafkaRoutineLoadJob kafkaRoutineLoadJob1,
-                                @Injectable KafkaRoutineLoadJob routineLoadJob) throws LoadException {
+                                @Injectable KafkaRoutineLoadJob routineLoadJob) throws LoadException,
+            MetaNotFoundException, AnalysisException, LabelAlreadyExistsException, BeginTransactionException {
         long beId = 100L;
 
-        List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
+        Queue<RoutineLoadTaskInfo> routineLoadTaskInfoQueue = Queues.newLinkedBlockingQueue();
         KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo("1", "1");
         routineLoadTaskInfo1.addKafkaPartition(1);
         routineLoadTaskInfo1.addKafkaPartition(2);
-        routineLoadTaskInfoList.add(routineLoadTaskInfo1);
+        routineLoadTaskInfoQueue.add(routineLoadTaskInfo1);
 
 
         Map<Long, RoutineLoadTaskInfo> idToRoutineLoadTask = Maps.newHashMap();
@@ -87,8 +90,6 @@ public class RoutineLoadTaskSchedulerTest {
 
                 routineLoadManager.getClusterIdleSlotNum();
                 result = 3;
-                routineLoadManager.getNeedSchedulerRoutineLoadTasks();
-                result = routineLoadTaskInfoList;
 
                 kafkaRoutineLoadJob1.getDbId();
                 result = 1L;
@@ -101,9 +102,12 @@ public class RoutineLoadTaskSchedulerTest {
                 kafkaRoutineLoadJob1.getProgress();
                 result = kafkaProgress;
 
-
+                routineLoadManager.getNeedSchedulerTasksQueue();
+                result = routineLoadTaskInfoQueue;
                 routineLoadManager.getMinTaskBeId();
                 result = beId;
+                routineLoadManager.getJobByTaskId(anyString);
+                result = kafkaRoutineLoadJob1;
                 routineLoadManager.getJob(anyString);
                 result = kafkaRoutineLoadJob1;
             }
@@ -114,14 +118,14 @@ public class RoutineLoadTaskSchedulerTest {
                 0L, 0L, 0L, kafkaRoutineLoadJob1.getColumns(), kafkaRoutineLoadJob1.getWhere(),
                 kafkaRoutineLoadJob1.getColumnSeparator(),
                 (KafkaTaskInfo) routineLoadTaskInfo1,
-                kafkaRoutineLoadJob1.getProgress());
-
-        new Expectations() {
-            {
-                kafkaRoutineLoadJob1.createTask((RoutineLoadTaskInfo) any, anyLong);
-                result = kafkaRoutineLoadTask;
-            }
-        };
+                (KafkaProgress) kafkaRoutineLoadJob1.getProgress(), 0L);
+//
+//        new Expectations() {
+//            {
+//                routineLoadTaskInfo1.createStreamLoadTask(anyLong);
+//                result = kafkaRoutineLoadTask;
+//            }
+//        };
 
         RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler();
         routineLoadTaskScheduler.runOneCycle();

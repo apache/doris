@@ -27,10 +27,15 @@ import mockit.Mocked;
 import mockit.Verifications;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.SystemIdGenerator;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
+import org.apache.doris.transaction.BeginTransactionException;
+import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.LabelAlreadyExistsException;
+import org.apache.doris.transaction.TransactionState;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.PartitionInfo;
 import org.junit.Assert;
@@ -81,18 +86,31 @@ public class KafkaRoutineLoadJobTest {
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob("1", "kafka_routine_load_job", "miaoling", 1L,
                 1L, "1L", "v1", "", "", 3,
                 RoutineLoadJob.JobState.NEED_SCHEDULER, RoutineLoadJob.DataSourceType.KAFKA, 0, new TResourceInfo(),
-                "", "");
+                "", "", null);
         Assert.assertEquals(1, kafkaRoutineLoadJob.calculateCurrentConcurrentTaskNum());
     }
 
 
     @Test
-    public void testDivideRoutineLoadJob() {
+    public void testDivideRoutineLoadJob(@Injectable GlobalTransactionMgr globalTransactionMgr,
+                                         @Mocked Catalog catalog,
+                                         @Injectable RoutineLoadManager routineLoadManager)
+            throws BeginTransactionException, LabelAlreadyExistsException, AnalysisException {
 
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob("1", "kafka_routine_load_job", "miaoling", 1L,
                 1L, "1L", "v1", "", "", 3,
                 RoutineLoadJob.JobState.NEED_SCHEDULER, RoutineLoadJob.DataSourceType.KAFKA, 0, new TResourceInfo(),
-                "", "");
+                "", "", null);
+
+        new Expectations() {
+            {
+                globalTransactionMgr.beginTransaction(anyLong, anyString, anyString,
+                        TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, (KafkaRoutineLoadJob) any);
+                result = 0L;
+                catalog.getRoutineLoadInstance();
+                result = routineLoadManager;
+            }
+        };
 
         Deencapsulation.setField(kafkaRoutineLoadJob, "kafkaPartitions", Arrays.asList(1, 4, 6));
 
@@ -114,23 +132,45 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
-    public void testProcessTimeOutTasks() {
+    public void testProcessTimeOutTasks(@Injectable GlobalTransactionMgr globalTransactionMgr,
+                                        @Mocked Catalog catalog,
+                                        @Injectable RoutineLoadManager routineLoadManager)
+            throws AnalysisException, LabelAlreadyExistsException,
+            BeginTransactionException {
+
+        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob("1", "kafka_routine_load_job", "miaoling", 1L,
+                1L, "1L", "v1", "", "", 3,
+                RoutineLoadJob.JobState.NEED_SCHEDULER, RoutineLoadJob.DataSourceType.KAFKA, 0, new TResourceInfo(),
+                "", "", null);
+        new Expectations() {
+            {
+                globalTransactionMgr.beginTransaction(anyLong, anyString, anyString,
+                        TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob);
+                result = 0L;
+                catalog.getRoutineLoadInstance();
+                result = routineLoadManager;
+            }
+        };
+
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = new ArrayList<>();
         KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo("1", "1");
         kafkaTaskInfo.addKafkaPartition(100);
         kafkaTaskInfo.setLoadStartTimeMs(System.currentTimeMillis() - DEFAULT_TASK_TIMEOUT_SECONDS * 60 * 1000);
         routineLoadTaskInfoList.add(kafkaTaskInfo);
 
-        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob("1", "kafka_routine_load_job", "miaoling", 1L,
-                1L, "1L", "v1", "", "", 3,
-                RoutineLoadJob.JobState.NEED_SCHEDULER, RoutineLoadJob.DataSourceType.KAFKA, 0, new TResourceInfo(),
-                "", "");
         Deencapsulation.setField(routineLoadJob, "routineLoadTaskInfoList", routineLoadTaskInfoList);
 
         new MockUp<SystemIdGenerator>() {
             @Mock
             public long getNextId() {
                 return 2L;
+            }
+        };
+
+        new Expectations() {
+            {
+                routineLoadManager.getJob("1");
+                result = routineLoadJob;
             }
         };
 

@@ -67,11 +67,19 @@ public class RoutineLoadScheduler extends Daemon {
                     break;
                 }
                 // divide job into tasks
-                routineLoadJob.divideRoutineLoadJob(currentConcurrentTaskNum);
+                List<RoutineLoadTaskInfo> needSchedulerTasksList =
+                        routineLoadJob.divideRoutineLoadJob(currentConcurrentTaskNum);
+                // save task into queue of needSchedulerTasks
+                routineLoadManager.getNeedSchedulerTasksQueue().addAll(needSchedulerTasksList);
             } catch (MetaNotFoundException e) {
                 routineLoadJob.updateState(RoutineLoadJob.JobState.CANCELLED);
             }
         }
+
+        LOG.debug("begin to check timeout tasks");
+        // check timeout tasks
+        List<RoutineLoadTaskInfo> reSchedulerTasksList = routineLoadManager.processTimeoutTasks();
+        routineLoadManager.getNeedSchedulerTasksQueue().addAll(reSchedulerTasksList);
     }
 
     private List<RoutineLoadJob> getNeedSchedulerRoutineJobs() throws LoadException {
