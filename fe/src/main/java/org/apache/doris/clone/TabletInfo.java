@@ -211,6 +211,10 @@ public class TabletInfo implements Comparable<TabletInfo> {
         this.state = State.PENDING;
     }
     
+    public void setType(Type type) {
+        this.type = type;
+    }
+
     public Type getType() {
         return type;
     }

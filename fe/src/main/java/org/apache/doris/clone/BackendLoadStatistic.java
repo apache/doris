@@ -269,10 +269,10 @@ public class BackendLoadStatistic implements Comparable<BackendLoadStatistic> {
         info.add(String.valueOf(totalCapacityB));
         info.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalUsedCapacityB * 100
                 / (double) totalCapacityB)));
-        info.add(String.valueOf(loadScore.replicaNumCoefficient));
+        info.add(String.valueOf(totalReplicaNum));
         info.add(String.valueOf(loadScore.capacityCoefficient));
         info.add(String.valueOf(loadScore.replicaNumCoefficient));
-        info.add(String.valueOf(loadScore));
+        info.add(String.valueOf(loadScore.score));
         info.add(clazz.name());
         return info;
     }

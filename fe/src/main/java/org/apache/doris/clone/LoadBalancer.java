@@ -248,8 +248,9 @@ public class LoadBalancer {
                 }
             }
         }
+
         if (!setDest) {
-            throw new SchedException(Status.UNRECOVERABLE, "unable to find low backend");
+            throw new SchedException(Status.SCHEDULE_FAILED, "unable to find low backend");
         }
 
         // create clone task

@@ -423,8 +423,10 @@ public class TabletScheduler extends Daemon {
                 throw new SchedException(Status.UNRECOVERABLE, "tablet is healthy");
             } else if (statusPair.first != TabletStatus.HEALTHY
                     && tabletInfo.getType() == TabletInfo.Type.BALANCE) {
-                // we do not use an unhealthy tablet to do balance
-                throw new SchedException(Status.UNRECOVERABLE, "tablet is not suitable for balance");
+                // we select an unhealthy tablet to do balance, which is not right.
+                // so here we change it to a REPAIR task, and also reset its priority
+                tabletInfo.setType(TabletInfo.Type.REPAIR);
+                tabletInfo.setOrigPriority(statusPair.second);
             }
 
             // we do not concern priority here.
@@ -693,6 +695,12 @@ public class TabletScheduler extends Daemon {
         }
     }
 
+    /*
+     * Try to create a balance task for a tablet.
+     * if failed, we MUST throw the UNRECOVERABLE SchedException to discard this tablet.
+     * Because if we reschedule this tablet, the type may become REPAIR, but the tablet may already took
+     * some balance slots. and not release them after becoming REPAIR.
+     */
     private void doBalance(TabletInfo tabletInfo, AgentBatchTask batchTask) throws SchedException {
         stat.counterBalanceSchedule.incrementAndGet();
         LoadBalancer loadBalancer = new LoadBalancer(statisticMap);
@@ -1082,6 +1090,7 @@ public class TabletScheduler extends Daemon {
                 result.add(String.valueOf(t.getKey()));
                 result.add(String.valueOf(t.getValue().available));
                 result.add(String.valueOf(t.getValue().total));
+                result.add(String.valueOf(t.getValue().balanceSlot));
                 result.add(String.valueOf(t.getValue().getAvgRate()));
             });
             return result;
