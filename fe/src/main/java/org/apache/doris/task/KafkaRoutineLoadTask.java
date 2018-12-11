@@ -15,8 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.routineload;
+package org.apache.doris.task;
 
+import org.apache.doris.load.routineload.KafkaProgress;
+import org.apache.doris.load.routineload.KafkaTaskInfo;
+import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TTaskType;
 
@@ -31,9 +34,9 @@ public class KafkaRoutineLoadTask extends RoutineLoadTask {
     public KafkaRoutineLoadTask(TResourceInfo resourceInfo, long backendId,
                                 long dbId, long tableId, long partitionId, long indexId, long tabletId,
                                 String columns, String where, String columnSeparator,
-                                KafkaTaskInfo kafkaTaskInfo, KafkaProgress kafkaProgress) {
+                                KafkaTaskInfo kafkaTaskInfo, KafkaProgress kafkaProgress, long txnId) {
         super(resourceInfo, backendId, TTaskType.STREAM_LOAD, dbId, tableId, partitionId, indexId, tabletId,
-                kafkaTaskInfo.getId(), columns, where, columnSeparator, RoutineLoadJob.DataSourceType.KAFKA);
+                kafkaTaskInfo.getId(), columns, where, columnSeparator, RoutineLoadJob.DataSourceType.KAFKA, txnId);
         this.partitionIdToOffset = new HashMap<>();
         kafkaTaskInfo.getPartitions().parallelStream().forEach(entity ->
                 partitionIdToOffset.put(entity, kafkaProgress.getPartitionIdToOffset().get(entity)));

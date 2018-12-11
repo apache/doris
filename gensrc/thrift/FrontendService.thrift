@@ -500,6 +500,34 @@ struct TStreamLoadPutResult {
     2: optional PaloInternalService.TExecPlanFragmentParams params
 }
 
+enum TRoutineLoadType {
+    KAFKA = 1
+}
+
+struct TKafkaRLTaskProgress {
+    1: required map<i32,i64> partitionIdToOffset
+}
+
+enum TTxnSourceType {
+    ROUTINE_LOAD_TASK = 1
+}
+
+struct TRLTaskTxnCommitAttachment {
+    1: required TRoutineLoadType routineLoadType
+    2: required i64 backendId
+    3: required i64 taskSignature
+    4: required i32 numOfErrorData
+    5: required i32 numOfTotalData
+    6: required string taskId
+    7: required string jobId
+    8: optional TKafkaRLTaskProgress kafkaRLTaskProgress
+}
+
+struct TTxnCommitAttachment {
+    1: required TTxnSourceType txnSourceType
+    2: optional TRLTaskTxnCommitAttachment rlTaskTxnCommitAttachment
+}
+
 struct TLoadTxnCommitRequest {
     1: optional string cluster
     2: required string user
@@ -510,6 +538,7 @@ struct TLoadTxnCommitRequest {
     7: required i64 txnId
     8: required bool sync
     9: optional list<Types.TTabletCommitInfo> commitInfos
+    10: optional TTxnCommitAttachment txnCommitAttachment
 }
 
 struct TLoadTxnCommitResult {
@@ -530,6 +559,7 @@ struct TLoadTxnRollbackRequest {
 struct TLoadTxnRollbackResult {
     1: required Status.TStatus status
 }
+
 
 service FrontendService {
     TGetDbsResult getDbNames(1:TGetDbsParams params)

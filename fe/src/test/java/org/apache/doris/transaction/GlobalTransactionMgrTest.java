@@ -55,7 +55,7 @@ public class GlobalTransactionMgrTest {
     private static Catalog slaveCatalog;
 
     private String transactionSource = "localfe";
-    
+
 
     @Before
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
@@ -75,8 +75,8 @@ public class GlobalTransactionMgrTest {
     }
 
     @Test
-    public void testBeginTransaction() throws LabelAlreadyExistsException, AnalysisException, 
-        BeginTransactionException {
+    public void testBeginTransaction() throws LabelAlreadyExistsException, AnalysisException,
+            BeginTransactionException {
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
@@ -89,16 +89,16 @@ public class GlobalTransactionMgrTest {
         assertEquals(CatalogTestUtil.testDbId1, transactionState.getDbId());
         assertEquals(transactionSource, transactionState.getCoordinator());
     }
-    
+
     @Test
-    public void testBeginTransactionWithSameLabel() throws LabelAlreadyExistsException, AnalysisException, 
-        BeginTransactionException {
+    public void testBeginTransactionWithSameLabel() throws LabelAlreadyExistsException, AnalysisException,
+            BeginTransactionException {
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId = 0;
         Throwable throwable = null;
         try {
-            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, 
-                    CatalogTestUtil.testTxnLable1, 
+            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    CatalogTestUtil.testTxnLable1,
                     transactionSource,
                     LoadJobSourceType.FRONTEND);
         } catch (AnalysisException e) {
@@ -114,10 +114,10 @@ public class GlobalTransactionMgrTest {
         assertEquals(transactionSource, transactionState.getCoordinator());
 
         try {
-        transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
-                CatalogTestUtil.testTxnLable1,
-                transactionSource,
-                LoadJobSourceType.FRONTEND);
+            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                    CatalogTestUtil.testTxnLable1,
+                    transactionSource,
+                    LoadJobSourceType.FRONTEND);
         } catch (Exception e) {
             // TODO: handle exception
         }
@@ -127,7 +127,7 @@ public class GlobalTransactionMgrTest {
     @Test
     public void testCommitTransaction1() throws MetaNotFoundException,
             TransactionCommitFailedException,
-            IllegalTransactionParameterException, LabelAlreadyExistsException, 
+            IllegalTransactionParameterException, LabelAlreadyExistsException,
             AnalysisException, BeginTransactionException {
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
@@ -170,7 +170,7 @@ public class GlobalTransactionMgrTest {
     @Test
     public void testCommitTransactionWithOneFailed() throws MetaNotFoundException,
             TransactionCommitFailedException,
-            IllegalTransactionParameterException, LabelAlreadyExistsException, 
+            IllegalTransactionParameterException, LabelAlreadyExistsException,
             AnalysisException, BeginTransactionException {
         TransactionState transactionState = null;
         FakeCatalog.setCatalog(masterCatalog);
@@ -272,7 +272,7 @@ public class GlobalTransactionMgrTest {
     }
 
     public void testFinishTransaction() throws MetaNotFoundException, TransactionCommitFailedException,
-            IllegalTransactionParameterException, LabelAlreadyExistsException, 
+            IllegalTransactionParameterException, LabelAlreadyExistsException,
             AnalysisException, BeginTransactionException {
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
@@ -316,7 +316,7 @@ public class GlobalTransactionMgrTest {
     @Test
     public void testFinishTransactionWithOneFailed() throws MetaNotFoundException,
             TransactionCommitFailedException,
-            IllegalTransactionParameterException, LabelAlreadyExistsException, 
+            IllegalTransactionParameterException, LabelAlreadyExistsException,
             AnalysisException, BeginTransactionException {
         TransactionState transactionState = null;
         Partition testPartition = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1)
@@ -442,8 +442,8 @@ public class GlobalTransactionMgrTest {
     }
 
     @Test
-    public void testDeleteTransaction() throws LabelAlreadyExistsException, 
-        AnalysisException, BeginTransactionException {
+    public void testDeleteTransaction() throws LabelAlreadyExistsException,
+            AnalysisException, BeginTransactionException {
 
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,

@@ -96,6 +96,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.apache.doris.transaction.TxnCommitAttachment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -299,7 +300,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
         List<List<String>> rows = VariableMgr.dump(SetType.fromThrift(params.getVarType()), ctx.getSessionVariable(),
-                null);
+                                                   null);
         for (List<String> row : rows) {
             map.put(row.get(0), row.get(1));
         }
@@ -360,26 +361,26 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 // method.
                 // But the default timeout is set to 3 seconds, so in common case, it will not be a problem.
                 if (request.isSetSubLabel()) {
-                    if (ExecuteEnv.getInstance().getMultiLoadMgr().isLabelUsed(fullDbName, 
+                    if (ExecuteEnv.getInstance().getMultiLoadMgr().isLabelUsed(fullDbName,
                                                                                request.getLabel(),
                                                                                request.getSubLabel(),
                                                                                request.getTimestamp())) {
                         LOG.info("multi mini load job has already been submitted. label: {}, sub label: {}, "
-                                + "timestamp: {}",
+                                         + "timestamp: {}",
                                  request.getLabel(), request.getSubLabel(), request.getTimestamp());
                         return result;
                     }
                 } else {
-                    if (Catalog.getCurrentCatalog().getLoadInstance().isLabelUsed(fullDbName, 
+                    if (Catalog.getCurrentCatalog().getLoadInstance().isLabelUsed(fullDbName,
                                                                                   request.getLabel(),
-                                                                                  request.getTimestamp())) {    
+                                                                                  request.getTimestamp())) {
                         LOG.info("mini load job has already been submitted. label: {}, timestamp: {}",
                                  request.getLabel(), request.getTimestamp());
                         return result;
                     }
                 }
             }
-            
+
             if (request.isSetSubLabel()) {
                 ExecuteEnv.getInstance().getMultiLoadMgr().load(request);
             } else {
@@ -518,7 +519,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, String tbl,
-            String clientIp, PrivPredicate predicate) throws AuthenticationException {
+                                       String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
         final String fullUserName = ClusterNamespace.getFullName(cluster, user);
         final String fullDbName = ClusterNamespace.getFullName(cluster, db);
@@ -527,7 +528,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                                                       clientIp,
                                                                       passwd)) {
             throw new AuthenticationException("Access denied for "
-                    + fullUserName + "@" + clientIp);
+                                                      + fullUserName + "@" + clientIp);
         }
 
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(clientIp, fullDbName,
@@ -669,7 +670,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                 db, request.getTxnId(),
                 TabletCommitInfo.fromThrift(request.getCommitInfos()),
-                5000);
+                5000, TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
     }
 
     @Override
@@ -704,7 +705,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                               request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
 
         Catalog.getCurrentGlobalTransactionMgr().abortTransaction(request.getTxnId(),
-                request.isSetReason() ? request.getReason() : "system cancel");
+                                                                  request.isSetReason() ? request.getReason() : "system cancel");
     }
 
     @Override

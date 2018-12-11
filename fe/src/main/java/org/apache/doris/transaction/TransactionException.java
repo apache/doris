@@ -19,15 +19,24 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.common.UserException;
 
-public class TransactionCommitFailedException extends TransactionException {
+public class TransactionException extends UserException {
     
-    private static final long serialVersionUID = -2528170792631761535L;
-
-    public TransactionCommitFailedException(String msg) {
+    private long transactionId;
+    
+    public TransactionException(String msg) {
         super(msg);
     }
-
-    public TransactionCommitFailedException(String msg, Throwable e) {
+    
+    public TransactionException(String msg, Throwable e) {
         super(msg, e);
+    }
+    
+    public TransactionException(String msg, long transactionId) {
+        super(msg);
+        this.transactionId = transactionId;
+    }
+    
+    public long getTransactionId() {
+        return transactionId;
     }
 }
