@@ -86,7 +86,15 @@ public class LoadBalancer {
         clusterStat.getBackendStatisticByClass(lowBe, midBe, highBe);
         
         if (lowBe.isEmpty() && highBe.isEmpty()) {
-            LOG.info("cluster is balance: {}", clusterName);
+            LOG.info("cluster is balance: {}. skip", clusterName);
+            return alternativeTablets;
+        }
+
+        // first we should check if low backends is available.
+        // if all low backends is not available, we should not start balance
+        if (lowBe.stream().allMatch(b -> !b.isAvailable())) {
+            LOG.info("all low load backends is dead: {}. skip",
+                    lowBe.stream().mapToLong(b -> b.getBeId()).toArray());
             return alternativeTablets;
         }
 
@@ -184,6 +192,11 @@ public class LoadBalancer {
             throw new SchedException(Status.UNRECOVERABLE, "cluster is balance");
         }
 
+        // if all low backends is not available, return
+        if (lowBe.stream().allMatch(b -> !b.isAvailable())) {
+            throw new SchedException(Status.UNRECOVERABLE, "all low load backends is unavailable");
+        }
+
         List<Replica> replicas = tabletInfo.getReplicas();
 
         // Check if this tablet has replica on high load backend.
@@ -211,7 +224,7 @@ public class LoadBalancer {
         // Select a low load backend as destination.
         boolean setDest = false;
         for (BackendLoadStatistic beStat : lowBe) {
-            if (!replicas.stream().anyMatch(r -> r.getBackendId() == beStat.getBeId())) {
+            if (beStat.isAvailable() && !replicas.stream().anyMatch(r -> r.getBackendId() == beStat.getBeId())) {
                 // no replica on this low load backend
                 // 1. check if this clone task can make the cluster more balance.
                 List<RootPathLoadStatistic> availPaths = Lists.newArrayList();
