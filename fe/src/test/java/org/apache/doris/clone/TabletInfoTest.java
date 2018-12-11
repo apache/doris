@@ -14,17 +14,17 @@ public class TabletInfoTest {
     public void testPriorityCompare() {
         // equal priority, but info3's last visit time is earlier than info2 and info1, so info1 should ranks ahead
         PriorityQueue<TabletInfo> pendingTablets = new PriorityQueue<>();
-        TabletInfo info1 = new TabletInfo(Type.NEED_REPAIR, "default_cluster",
+        TabletInfo info1 = new TabletInfo(Type.REPAIR, "default_cluster",
                 1, 2, 3, 4, 1000, System.currentTimeMillis());
         info1.setOrigPriority(Priority.NORMAL);
         info1.setLastVisitedTime(2);
 
-        TabletInfo info2 = new TabletInfo(Type.NEED_REPAIR, "default_cluster",
+        TabletInfo info2 = new TabletInfo(Type.REPAIR, "default_cluster",
                 1, 2, 3, 4, 1001, System.currentTimeMillis());
         info2.setOrigPriority(Priority.NORMAL);
         info2.setLastVisitedTime(3);
 
-        TabletInfo info3 = new TabletInfo(Type.NEED_REPAIR, "default_cluster",
+        TabletInfo info3 = new TabletInfo(Type.REPAIR, "default_cluster",
                 1, 2, 3, 4, 1001, System.currentTimeMillis());
         info3.setOrigPriority(Priority.NORMAL);
         info3.setLastVisitedTime(1);

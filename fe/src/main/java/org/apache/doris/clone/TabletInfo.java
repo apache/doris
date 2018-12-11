@@ -29,7 +29,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.system.Backend;
@@ -96,7 +95,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
     private static final int RUNNING_FAILED_COUNTER_THRESHOLD = 3;
     
     public enum Type {
-        NEED_BALANCE, NEED_REPAIR
+        BALANCE, REPAIR
     }
 
     public enum Priority {
@@ -524,7 +523,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
             Preconditions.checkState(srcPathHash != -1);
             PathSlot slot = tabletScheduler.getBackendsWorkingSlots().get(srcReplica.getBackendId());
             if (slot != null) {
-                if (type == Type.NEED_REPAIR) {
+                if (type == Type.REPAIR) {
                     slot.freeSlot(srcPathHash);
                 } else {
                     slot.freeBalanceSlot(srcPathHash);
@@ -535,7 +534,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
         if (destPathHash != -1) {
             PathSlot slot = tabletScheduler.getBackendsWorkingSlots().get(destBackendId);
             if (slot != null) {
-                if (type == Type.NEED_REPAIR) {
+                if (type == Type.REPAIR) {
                     slot.freeSlot(destPathHash);
                 } else {
                     slot.freeBalanceSlot(destPathHash);
@@ -664,16 +663,6 @@ public class TabletInfo implements Comparable<TabletInfo> {
             Tablet tablet = index.getTablet(tabletId);
             if (tablet == null) {
                 throw new SchedException(Status.UNRECOVERABLE, "tablet does not exist");
-            }
-            
-            Pair<TabletStatus, Priority> statusPair = tablet.getHealthStatusWithPriority(infoService,
-                    cluster, visibleVersion, visibleVersionHash,
-                    olapTable.getPartitionInfo().getReplicationNum(partition.getId()));
-            
-            if (statusPair.first == TabletStatus.HEALTHY || statusPair.first == TabletStatus.REDUNDANT) {
-                // tablet is healthy or redundant, ignore the clone task report
-                // just remove this tablet info. the REDUNDANT replica will be handled in tablet checker.
-                throw new SchedException(Status.UNRECOVERABLE, "tablet status is " + statusPair.first.name());
             }
             
             // tablet is unhealthy, go on to check task report.
@@ -854,7 +843,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
         List<String> result = Lists.newArrayList();
         result.add(String.valueOf(tabletId));
         result.add(type.name());
-        result.add(tabletStatus.name());
+        result.add(tabletStatus == null ? "N/A" : tabletStatus.name());
         result.add(state.name());
         result.add(origPriority.name());
         result.add(dynamicPriority.name());

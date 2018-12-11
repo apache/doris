@@ -135,7 +135,7 @@ public class LoadBalancer {
                         continue;
                     }
                     
-                    TabletInfo tabletInfo = new TabletInfo(TabletInfo.Type.NEED_BALANCE, clusterName,
+                    TabletInfo tabletInfo = new TabletInfo(TabletInfo.Type.BALANCE, clusterName,
                             tabletMeta.getDbId(), tabletMeta.getTableId(), tabletMeta.getPartitionId(),
                             tabletMeta.getIndexId(), tabletId, System.currentTimeMillis());
                     // balance task's priority is always LOW
@@ -155,7 +155,8 @@ public class LoadBalancer {
         } // end for high backends
 
         LOG.info("select alternative tablets for cluster: {}, num: {}, detail: {}",
-                clusterName, alternativeTablets.size(), alternativeTablets);
+                clusterName, alternativeTablets.size(),
+                alternativeTablets.stream().mapToLong(t -> t.getTabletId()).toArray());
         return alternativeTablets;
     }
 

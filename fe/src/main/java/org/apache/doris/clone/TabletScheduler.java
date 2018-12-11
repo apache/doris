@@ -418,17 +418,17 @@ public class TabletScheduler extends Daemon {
                     partition.getVisibleVersionHash(),
                     tbl.getPartitionInfo().getReplicationNum(partition.getId()));
 
-            if (statusPair.first == TabletStatus.HEALTHY && tabletInfo.getType() == TabletInfo.Type.NEED_REPAIR) {
+            tabletInfo.setTabletStatus(statusPair.first);
+            if (statusPair.first == TabletStatus.HEALTHY && tabletInfo.getType() == TabletInfo.Type.REPAIR) {
                 throw new SchedException(Status.UNRECOVERABLE, "tablet is healthy");
             } else if (statusPair.first != TabletStatus.HEALTHY
-                    && tabletInfo.getType() == TabletInfo.Type.NEED_BALANCE) {
+                    && tabletInfo.getType() == TabletInfo.Type.BALANCE) {
                 // we do not use an unhealthy tablet to do balance
                 throw new SchedException(Status.UNRECOVERABLE, "tablet is not suitable for balance");
             }
 
             // we do not concern priority here.
             // once we take the tablet out of priority queue, priority is meaningless.
-            tabletInfo.setTabletStatus(statusPair.first);
             tabletInfo.setTablet(tablet);
             tabletInfo.setVersionInfo(partition.getVisibleVersion(), partition.getVisibleVersionHash(),
                     partition.getCommittedVersion(), partition.getCommittedVersionHash());
@@ -444,7 +444,7 @@ public class TabletScheduler extends Daemon {
 
     private void handleTabletByTypeAndStatus(TabletStatus status, TabletInfo tabletInfo, AgentBatchTask batchTask)
             throws SchedException {
-        if (tabletInfo.getType() == Type.NEED_REPAIR) {
+        if (tabletInfo.getType() == Type.REPAIR) {
             switch (status) {
                 case REPLICA_MISSING:
                     handleReplicaMissing(tabletInfo, batchTask);
