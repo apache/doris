@@ -36,7 +36,7 @@ import org.powermock.modules.junit4.PowerMockRunner;
 import java.util.List;
 
 @RunWith(PowerMockRunner.class)
-@PowerMockIgnore("org.apache.log4j.*")
+@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
 @PrepareForTest(Catalog.class)
 public class MultiLoadMgrTest {
     private Catalog catalog;

@@ -42,7 +42,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 
 @RunWith(PowerMockRunner.class)
-@PowerMockIgnore("org.apache.log4j.*")
+@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
 @PrepareForTest({Catalog.class, ConnectContext.class, MysqlPassword.class, UserPropertyMgr.class})
 public class MysqlProtoTest {
     private static final Logger LOG = org.slf4j.LoggerFactory.getLogger(MysqlProtoTest.class);
