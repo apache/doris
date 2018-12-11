@@ -43,6 +43,7 @@
 #include "olap/tablet.h"
 #include "olap/olap_meta.h"
 #include "olap/options.h"
+#include "olap/txn_manager.h"
 
 namespace doris {
 
@@ -540,9 +541,6 @@ private:
 
     RWMutex _tablet_map_lock;
     tablet_map_t _tablet_map;
-    RWMutex _transaction_tablet_map_lock;
-    using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
-    std::map<TxnKey, std::map<TabletInfo, std::vector<PUniqueId>>> _transaction_tablet_map;
     size_t _global_tablet_id;
     Cache* _file_descriptor_lru_cache;
     Cache* _index_stream_lru_cache;
@@ -612,6 +610,7 @@ private:
     std::condition_variable _report_cv;
     std::atomic_bool _is_report_disk_state_already;
     std::atomic_bool _is_report_tablet_already;
+    TxnManager _txn_mgr;
 };
 
 }  // namespace doris
