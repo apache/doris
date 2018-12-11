@@ -79,14 +79,14 @@ GCC 5.3.1+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.4.3+
 * For Ubuntu: 
 
 ```
-sudo apt-get install g++ ant cmake zip byacc flex automake libtool binutils-dev libiberty-dev bison python2.7 libncurses5-dev
+sudo apt-get install g++ cmake zip byacc flex automake libtool binutils-dev libiberty-dev bison python2.7 libncurses5-dev
 sudo updatedb
 ```
 
 * For CentOS:
 
 ```
-sudo yum install gcc-c++ libstdc++-static ant cmake byacc flex automake libtool binutils-devel bison ncurses-devel
+sudo yum install gcc-c++ libstdc++-static cmake byacc flex automake libtool binutils-devel bison ncurses-devel
 sudo updatedb
 ```
 
@@ -96,7 +96,7 @@ If your GCC version is less than 5.3.1, you can run:
 sudo yum install devtoolset-4-toolchain -y
 ```
 
-and then, set the path of gcc (e.g /opt/rh/devtoolset-4/root/usr/bin) to the environment variabl PATH.
+and then, set the path of GCC (e.g /opt/rh/devtoolset-4/root/usr/bin) to the environment variable PATH.
 
 
 #### Compile and install

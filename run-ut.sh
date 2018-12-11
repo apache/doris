@@ -25,7 +25,7 @@ export DORIS_HOME=${ROOT}
 
 . ${DORIS_HOME}/env.sh
 
-PARALLEL=8
+PARALLEL=$[$(nproc)/4+1]
 
 # Check args
 usage() {
@@ -90,7 +90,7 @@ fi
 cd ${DORIS_HOME}/be/build/
 
 cmake ../ -DMAKE_TEST=ON
-make -j8
+make -j${PARALLEL}
 
 if [ ${RUN} -ne 1 ]; then
     echo "Finished"
