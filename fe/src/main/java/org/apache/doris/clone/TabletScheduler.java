@@ -445,7 +445,6 @@ public class TabletScheduler extends Daemon {
         } finally {
             db.writeUnlock();
         }
-
     }
 
     private void handleTabletByTypeAndStatus(TabletStatus status, TabletInfo tabletInfo, AgentBatchTask batchTask)

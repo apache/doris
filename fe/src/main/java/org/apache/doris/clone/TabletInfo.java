@@ -555,11 +555,18 @@ public class TabletInfo implements Comparable<TabletInfo> {
     
     // reset to save memory after state is done
     private void reset() {
-        Preconditions.checkState(state == State.FINISHED || state == State.CANCELLED);
-        this.tablet = null;
-        this.srcReplica = null;
-        this.infoService = null;
-        this.cloneTask = null;
+        /*
+         * If state is PENDING, these fields will be reset when being rescheduled.
+         * if state is FINISHED/CANCELLED/TIMEOUT, leave these fields for show.
+         */
+        if (state == State.PENDING) {
+            this.tablet = null;
+            this.srcReplica = null;
+            this.srcPathHash = -1;
+            this.destBackendId = -1;
+            this.destPathHash = -1;
+            this.cloneTask = null;
+        }
     }
     
     public void deleteReplica(Replica replica) {
