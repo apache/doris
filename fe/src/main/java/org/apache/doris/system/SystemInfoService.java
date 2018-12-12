@@ -26,7 +26,6 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend.BackendState;
-import org.apache.doris.system.BackendEvent.BackendEventType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -64,11 +63,6 @@ public class SystemInfoService {
     private volatile AtomicReference<ImmutableMap<Long, Backend>> idToBackendRef;
     private volatile AtomicReference<ImmutableMap<Long, AtomicLong>> idToReportVersionRef;
 
-<<<<<<< HEAD
-=======
-    private final EventBus eventBus;
-
->>>>>>> Refactor heartbeat logic (#409)
     // last backend id used by round robin for sequential choosing backends for
     // tablet creation
     private ConcurrentHashMap<String, Long> lastBackendIdForCreationMap;
@@ -96,22 +90,10 @@ public class SystemInfoService {
         idToReportVersionRef = new AtomicReference<ImmutableMap<Long, AtomicLong>>(
                 ImmutableMap.<Long, AtomicLong> of());
 
-<<<<<<< HEAD
-=======
-        eventBus = new EventBus("backendEvent");
-
->>>>>>> Refactor heartbeat logic (#409)
         lastBackendIdForCreationMap = new ConcurrentHashMap<String, Long>();
         lastBackendIdForOtherMap = new ConcurrentHashMap<String, Long>();
     }
 
-<<<<<<< HEAD
-=======
-    public EventBus getEventBus() {
-        return this.eventBus;
-    }
-
->>>>>>> Refactor heartbeat logic (#409)
     // for deploy manager
     public void addBackends(List<Pair<String, Integer>> hostPortPairs, boolean isFree) throws DdlException {
         addBackends(hostPortPairs, isFree, "");
