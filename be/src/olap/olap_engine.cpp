@@ -1771,10 +1771,16 @@ bool OLAPEngine::_can_do_compaction(OLAPTablePtr table) {
     // 如果table正在做schema change，则通过选路判断数据是否转换完成
     // 如果选路成功，则转换完成，可以进行BE
     // 如果选路失败，则转换未完成，不能进行BE
-    table->obtain_header_rdlock();
+    ReadLock rdlock(table->get_header_lock_ptr());
     const PDelta* lastest_version = table->lastest_version();
     if (lastest_version == NULL) {
-        table->release_header_lock();
+        return false;
+    }
+
+    Version test_version = Version(0, lastest_version->end_version());
+    std::vector<Version> path_versions;
+    if (OLAP_SUCCESS != table->select_versions_to_span(test_version, &path_versions)) {
+        LOG(WARNING) << "tablet has missed version. tablet=" << table->full_name();
         return false;
     }
 
@@ -1782,11 +1788,9 @@ bool OLAPEngine::_can_do_compaction(OLAPTablePtr table) {
         Version test_version = Version(0, lastest_version->end_version());
         vector<Version> path_versions;
         if (OLAP_SUCCESS != table->select_versions_to_span(test_version, &path_versions)) {
-            table->release_header_lock();
             return false;
         }
     }
-    table->release_header_lock();
 
     return true;
 }
