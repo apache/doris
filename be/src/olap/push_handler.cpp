@@ -664,6 +664,11 @@ OLAPStatus PushHandler::_convert(
             }
         }
 
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "ingest data failed. res" << res;
+            break;
+        }
+
         if (OLAP_SUCCESS != (res = writer->finalize())) {
             OLAP_LOG_WARNING("fail to finalize writer. [res=%d]", res);
             break;
