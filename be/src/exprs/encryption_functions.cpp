@@ -17,8 +17,8 @@
 
 #include "exprs/encryption_functions.h"
 
-#include <openssl/md5.h>
 #include "util/aes_util.h"
+#include "util/md5.h"
 #include "exprs/anyval_util.h"
 #include "exprs/expr.h"
 #include "util/debug_util.h"
@@ -102,49 +102,26 @@ StringVal EncryptionFunctions::to_base64(FunctionContext* ctx, const StringVal &
 
 StringVal EncryptionFunctions::md5sum(
         FunctionContext* ctx, int num_args, const StringVal* args) {
-    MD5_CTX md5_ctx;
-    MD5_Init(&md5_ctx);
+    Md5Digest digest;
     for (int i = 0; i < num_args; ++i) {
         const StringVal& arg = args[i];
         if (arg.is_null) {
             continue;
         }
-        MD5_Update(&md5_ctx, arg.ptr, arg.len);
+        digest.update(arg.ptr, arg.len);
     }
-    unsigned char buf[MD5_DIGEST_LENGTH];
-    MD5_Final(buf, &md5_ctx);
-    unsigned char hex_buf[2 * MD5_DIGEST_LENGTH];
-
-    static char dig_vec_lower[] = "0123456789abcdef";
-    unsigned char* to = hex_buf;
-    for (int i = 0; i < MD5_DIGEST_LENGTH; ++i) {
-        *to++= dig_vec_lower[buf[i] >> 4];
-        *to++= dig_vec_lower[buf[i] & 0x0F];
-    }
-
-    return AnyValUtil::from_buffer_temp(ctx, (char*)hex_buf, 2 * MD5_DIGEST_LENGTH);
+    digest.digest();
+    return AnyValUtil::from_buffer_temp(ctx, digest.hex().c_str(), digest.hex().size());
 }
 
 StringVal EncryptionFunctions::md5(FunctionContext* ctx, const StringVal& src) {
     if (src.is_null) {
         return StringVal::null();
     }
-    MD5_CTX md5_ctx;
-    MD5_Init(&md5_ctx);
-    MD5_Update(&md5_ctx, src.ptr, src.len);
-
-    unsigned char buf[MD5_DIGEST_LENGTH];
-    MD5_Final(buf, &md5_ctx);
-    unsigned char hex_buf[2 * MD5_DIGEST_LENGTH];
-
-    static char dig_vec_lower[] = "0123456789abcdef";
-    unsigned char* to = hex_buf;
-    for (int i = 0; i < MD5_DIGEST_LENGTH; ++i) {
-        *to++= dig_vec_lower[buf[i] >> 4];
-        *to++= dig_vec_lower[buf[i] & 0x0F];
-    }
-
-    return AnyValUtil::from_buffer_temp(ctx, (char*)hex_buf, 2 * MD5_DIGEST_LENGTH);
+    Md5Digest digest;
+    digest.update(src.ptr, src.len);
+    digest.digest();
+    return AnyValUtil::from_buffer_temp(ctx, digest.hex().c_str(), digest.hex().size());
 }
 
 }
