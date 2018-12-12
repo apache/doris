@@ -80,6 +80,7 @@ add_library(Olap STATIC
     tablet.cpp
     tablet_meta.cpp
     tablet_meta_manager.cpp
+    txn_manager.cpp
     types.cpp 
     utils.cpp
     wrapper_field.cpp
