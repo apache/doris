@@ -90,8 +90,13 @@ public class DiskInfo implements Writable {
         return state;
     }
 
-    public void setState(DiskState state) {
-        this.state = state;
+    // return true if changed
+    public boolean setState(DiskState state) {
+        if (this.state != state) {
+            this.state = state;
+            return true;
+        }
+        return false;
     }
 
     public long getPathHash() {
