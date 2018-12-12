@@ -48,6 +48,10 @@ public class TabletChecker extends Daemon {
 
     private static final long CHECK_INTERVAL_MS = 20 * 1000L; // 20 second
 
+    // if the number of scheduled tablets in TabletScheduler exceed this threshold
+    // skip checking.
+    private static final int MAX_SCHEDULING_TABLETS = 5000;
+
     private Catalog catalog;
     private SystemInfoService infoService;
     private TabletScheduler tabletScheduler;
@@ -87,6 +91,13 @@ public class TabletChecker extends Daemon {
      */
     @Override
     protected void runOneCycle() {
+        if (tabletScheduler.getPendingNum() > MAX_SCHEDULING_TABLETS
+                || tabletScheduler.getRunningNum() > MAX_SCHEDULING_TABLETS) {
+            LOG.info("too many tablets are being scheduled. pending: {}, running: {}, limit: {}. skip check",
+                    tabletScheduler.getPendingNum(), tabletScheduler.getRunningNum(), MAX_SCHEDULING_TABLETS);
+            return;
+        }
+        
         checkTablets();
         stat.counterTabletCheckRound.incrementAndGet();
         LOG.info(stat.incrementalBrief());

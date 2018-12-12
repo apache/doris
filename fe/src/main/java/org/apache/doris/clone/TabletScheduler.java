@@ -325,7 +325,10 @@ public class TabletScheduler extends Daemon {
             } catch (SchedException e) {
                 tabletInfo.increaseFailedSchedCounter();
                 tabletInfo.setErrMsg(e.getMessage());
+
                 if (e.getStatus() == Status.SCHEDULE_FAILED) {
+                    // we must release resource it current hold, and be scheduled again
+                    tabletInfo.releaseResource(this);
                     // adjust priority to avoid some higher priority always be the first in pendingTablets
                     stat.counterTabletScheduledFailed.incrementAndGet();
                     dynamicAdjustPrioAndAddBackToPendingTablets(tabletInfo, e.getMessage());
@@ -423,6 +426,7 @@ public class TabletScheduler extends Daemon {
                 throw new SchedException(Status.UNRECOVERABLE, "tablet is healthy");
             } else if (statusPair.first != TabletStatus.HEALTHY
                     && tabletInfo.getType() == TabletInfo.Type.BALANCE) {
+                tabletInfo.releaseResource(this);
                 // we select an unhealthy tablet to do balance, which is not right.
                 // so here we change it to a REPAIR task, and also reset its priority
                 tabletInfo.setType(TabletInfo.Type.REPAIR);
@@ -697,9 +701,6 @@ public class TabletScheduler extends Daemon {
 
     /*
      * Try to create a balance task for a tablet.
-     * if failed, we MUST throw the UNRECOVERABLE SchedException to discard this tablet.
-     * Because if we reschedule this tablet, the type may become REPAIR, but the tablet may already took
-     * some balance slots. and not release them after becoming REPAIR.
      */
     private void doBalance(TabletInfo tabletInfo, AgentBatchTask batchTask) throws SchedException {
         stat.counterBalanceSchedule.incrementAndGet();
