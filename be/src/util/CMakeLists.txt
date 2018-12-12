@@ -72,6 +72,7 @@ add_library(Util STATIC
   uid_util.cpp
   aes_util.cpp
   string_util.cpp
+  md5.cpp
 )
 
 #ADD_BE_TEST(integer-array-test)
