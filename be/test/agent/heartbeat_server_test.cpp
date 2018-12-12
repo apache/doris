@@ -21,7 +21,6 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "agent/heartbeat_server.h"
-#include "olap/mock_olap_rootpath.h"
 #include "util/logging.h"
 
 using ::testing::_;
@@ -42,27 +41,6 @@ TEST(HeartbeatTest, TestHeartbeat){
     ori_master_info.network_address.port = 0;
     HeartbeatServer heartbeat_server(&ori_master_info);
 
-    MockOLAPRootPath mock_olap_rootpath;
-    OLAPRootPath* ori_olap_rootpath;
-    ori_olap_rootpath = heartbeat_server._olap_rootpath_instance;
-    heartbeat_server._olap_rootpath_instance = &mock_olap_rootpath;
-    
-    // No cluster id yet
-    EXPECT_CALL(mock_olap_rootpath, set_cluster_id(_))
-            .Times(1)
-            .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
-    TMasterInfo master_info;
-    master_info.cluster_id = 1;
-    master_info.epoch = 10;
-    master_info.network_address.hostname = "host";
-    master_info.network_address.port = 12345;
-    heartbeat_server.heartbeat(heartbeat_result, master_info);
-    EXPECT_EQ(TStatusCode::RUNTIME_ERROR, heartbeat_result.status.status_code); 
-
-    // New cluster heartbeat
-    EXPECT_CALL(mock_olap_rootpath, set_cluster_id(_))
-            .Times(1)
-            .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     heartbeat_server.heartbeat(heartbeat_result, master_info);
     EXPECT_EQ(TStatusCode::OK, heartbeat_result.status.status_code);
     EXPECT_EQ(master_info.epoch, heartbeat_server._epoch);

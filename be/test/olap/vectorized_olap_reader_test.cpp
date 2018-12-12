@@ -162,9 +162,6 @@ public:
         remove_all_dir(config::storage_root_path);
         ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
 
-        // Initialize all singleton object.
-        OLAPRootPath::get_instance()->reload_root_paths(config::storage_root_path.c_str());
-
         // 1. Prepare for query split key.
         // create base tablet
         OLAPStatus res = OLAP_SUCCESS;
@@ -190,9 +187,6 @@ public:
         config::storage_root_path = "./test_run/column_tablet";
         remove_all_dir(config::storage_root_path);
         ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
-
-        // Initialize all singleton object.
-        OLAPRootPath::get_instance()->reload_root_paths(config::storage_root_path.c_str());
 
         // 1. Prepare for query split key.
         // create base tablet
