@@ -116,7 +116,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         _tablet_stat_cache_update_time_ms(0),
         _snapshot_base_id(0),
         _is_report_disk_state_already(false),
-        _is_report_tablet_already(false) {
+        _is_report_tablet_already(false),
+        _txn_mgr() {
     if (_s_instance == nullptr) {
         _s_instance = this;
     }
@@ -749,7 +750,6 @@ OLAPStatus StorageEngine::clear() {
     SAFE_DELETE(_index_stream_lru_cache);
 
     _tablet_map.clear();
-    _transaction_tablet_map.clear();
     _global_tablet_id = 0;
 
     return OLAP_SUCCESS;
@@ -929,95 +929,36 @@ OLAPStatus StorageEngine::add_tablet(TTabletId tablet_id, SchemaHash schema_hash
 OLAPStatus StorageEngine::add_transaction(
     TPartitionId partition_id, TTransactionId transaction_id,
     TTabletId tablet_id, SchemaHash schema_hash, const PUniqueId& load_id) {
-
-    pair<int64_t, int64_t> key(partition_id, transaction_id);
-    TabletInfo tablet_info(tablet_id, schema_hash);
-    WriteLock wrlock(&_transaction_tablet_map_lock);
-    auto it = _transaction_tablet_map.find(key);
-    if (it != _transaction_tablet_map.end()) {
-        auto load_info = it->second.find(tablet_info);
-        if (load_info != it->second.end()) {
-            for (PUniqueId& pid : load_info->second) {
-                if (pid.hi() == load_id.hi() && pid.lo() == load_id.lo()) {
-                    LOG(WARNING) << "find transaction exists when add to engine."
-                        << "partition_id: " << key.first
-                        << ", transaction_id: " << key.second
-                        << ", tablet: " << tablet_info.to_string();
-                    return OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST;
-                }
-            }
-        }
-    }
-
-    _transaction_tablet_map[key][tablet_info].push_back(load_id);
-    VLOG(3) << "add transaction to engine successfully."
-            << "partition_id: " << key.first
-            << ", transaction_id: " << key.second
-            << ", tablet: " << tablet_info.to_string();
-    return OLAP_SUCCESS;
+    
+    OLAPStatus status = _txn_mgr.add_txn(partition_id, transaction_id, 
+        tablet_id, schema_hash, load_id);
+    return status;
 }
 
 void StorageEngine::delete_transaction(
     TPartitionId partition_id, TTransactionId transaction_id,
     TTabletId tablet_id, SchemaHash schema_hash, bool delete_from_tablet) {
 
-    pair<int64_t, int64_t> key(partition_id, transaction_id);
-    TabletInfo tablet_info(tablet_id, schema_hash);
-    WriteLock wrlock(&_transaction_tablet_map_lock);
-
-    auto it = _transaction_tablet_map.find(key);
-    if (it != _transaction_tablet_map.end()) {
-        VLOG(3) << "delete transaction to engine successfully."
-                << ",partition_id: " << key.first
-                << ", transaction_id: " << key.second
-                << ", tablet: " << tablet_info.to_string();
-        it->second.erase(tablet_info);
-        if (it->second.empty()) {
-            _transaction_tablet_map.erase(it);
-        }
-
-        // delete transaction from tablet
-        if (delete_from_tablet) {
-            TabletSharedPtr tablet = get_tablet(tablet_info.tablet_id, tablet_info.schema_hash);
-            if (tablet.get() != nullptr) {
-                tablet->delete_pending_data(transaction_id);
-            }
+    // call txn manager to delete txn from memory
+    OLAPStatus res = _txn_mgr.delete_txn(partition_id, transaction_id, 
+        tablet_id, schema_hash);
+    // delete transaction from tablet
+    if (res == OLAP_SUCCESS && delete_from_tablet) {
+        TabletSharedPtr tablet = get_tablet(tablet_id, schema_hash);
+        if (tablet.get() != nullptr) {
+            tablet->delete_pending_data(transaction_id);
         }
     }
 }
 
 void StorageEngine::get_transactions_by_tablet(TabletSharedPtr tablet, int64_t* partition_id,
                                             set<int64_t>* transaction_ids) {
-    if (tablet.get() == nullptr || partition_id == nullptr || transaction_ids == nullptr) {
-        OLAP_LOG_WARNING("parameter is null when get transactions by tablet");
-        return;
-    }
-
-    TabletInfo tablet_info(tablet->tablet_id(), tablet->schema_hash());
-    ReadLock rdlock(&_transaction_tablet_map_lock);
-    for (auto& it : _transaction_tablet_map) {
-        if (it.second.find(tablet_info) != it.second.end()) {
-            *partition_id = it.first.first;
-            transaction_ids->insert(it.first.second);
-            VLOG(3) << "find transaction on tablet."
-                    << "partition_id: " << it.first.first
-                    << ", transaction_id: " << it.first.second
-                    << ", tablet: " << tablet_info.to_string();
-        }
-    }
+    _txn_mgr.get_tablet_related_txns(tablet, partition_id, transaction_ids);
 }
 
 bool StorageEngine::has_transaction(TPartitionId partition_id, TTransactionId transaction_id,
                                  TTabletId tablet_id, SchemaHash schema_hash) {
-    pair<int64_t, int64_t> key(partition_id, transaction_id);
-    TabletInfo tablet_info(tablet_id, schema_hash);
-
-    _transaction_tablet_map_lock.rdlock();
-    auto it = _transaction_tablet_map.find(key);
-    bool found = it != _transaction_tablet_map.end()
-                 && it->second.find(tablet_info) != it->second.end();
-    _transaction_tablet_map_lock.unlock();
-
+    bool found = _txn_mgr.has_txn(partition_id, transaction_id, tablet_id, schema_hash);
     return found;
 }
 
@@ -1034,25 +975,14 @@ OLAPStatus StorageEngine::publish_version(const TPublishVersionRequest& publish_
          : publish_version_req.partition_version_infos) {
 
         int64_t partition_id = partitionVersionInfo.partition_id;
-        pair<int64_t, int64_t> key(partition_id, transaction_id);
-
-        _transaction_tablet_map_lock.rdlock();
-        auto it = _transaction_tablet_map.find(key);
-        if (it == _transaction_tablet_map.end()) {
-            OLAP_LOG_WARNING("no tablet to publish version. [partition_id=%ld transaction_id=%ld]",
-                             partition_id, transaction_id);
-            _transaction_tablet_map_lock.unlock();
-            continue;
-        }
-        std::map<TabletInfo, std::vector<PUniqueId>> load_info_map = it->second;
-        _transaction_tablet_map_lock.unlock();
+        vector<TabletInfo> tablet_infos;
+        _txn_mgr.get_txn_related_tablets(transaction_id, partition_id, &tablet_infos);
 
         Version version(partitionVersionInfo.version, partitionVersionInfo.version);
         VersionHash version_hash = partitionVersionInfo.version_hash;
 
         // each tablet
-        for (auto& load_info : load_info_map) {
-            const TabletInfo& tablet_info = load_info.first;
+        for (auto& tablet_info : tablet_infos) {
             VLOG(3) << "begin to publish version on tablet. "
                     << "tablet_id=" << tablet_info.tablet_id
                     << ", schema_hash=" << tablet_info.schema_hash
@@ -1086,18 +1016,8 @@ OLAPStatus StorageEngine::publish_version(const TPublishVersionRequest& publish_
             } else if (publish_status == OLAP_SUCCESS) {
                 LOG(INFO) << "publish version successfully on tablet. tablet=" << tablet->full_name()
                           << ", transaction_id=" << transaction_id << ", version=" << version.first;
-                _transaction_tablet_map_lock.wrlock();
-                auto it2 = _transaction_tablet_map.find(key);
-                if (it2 != _transaction_tablet_map.end()) {
-                    VLOG(3) << "delete transaction from engine. tablet=" << tablet->full_name()
-                        << "transaction_id: " << transaction_id;
-                    it2->second.erase(tablet_info);
-                    if (it2->second.empty()) {
-                        _transaction_tablet_map.erase(it2);
-                    }
-                }
-                _transaction_tablet_map_lock.unlock();
-
+                _txn_mgr.delete_txn(partition_id, transaction_id, 
+                    tablet_info.tablet_id, tablet_info.schema_hash);
             } else {
                 OLAP_LOG_WARNING("fail to publish version on tablet. "
                                  "[tablet=%s transaction_id=%ld version=%d res=%d]",
@@ -1119,31 +1039,16 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
                                         const vector<TPartitionId> partition_ids) {
     LOG(INFO) << "begin to clear transaction task. transaction_id=" <<  transaction_id;
 
-    // each partition
     for (const TPartitionId& partition_id : partition_ids) {
-
-        // get tablets in this transaction
-        pair<int64_t, int64_t> key(partition_id, transaction_id);
-
-        _transaction_tablet_map_lock.rdlock();
-        auto it = _transaction_tablet_map.find(key);
-        if (it == _transaction_tablet_map.end()) {
-            OLAP_LOG_WARNING("no tablet to clear transaction. [partition_id=%ld transaction_id=%ld]",
-                             partition_id, transaction_id);
-            _transaction_tablet_map_lock.unlock();
-            continue;
-        }
-        std::map<TabletInfo, std::vector<PUniqueId>> load_info_map = it->second;
-        _transaction_tablet_map_lock.unlock();
+        vector<TabletInfo> tablet_infos;
+        _txn_mgr.get_txn_related_tablets(transaction_id, partition_id, &tablet_infos);
 
         // each tablet
-        for (auto& load_info : load_info_map) {
-            const TabletInfo& tablet_info = load_info.first;
+        for (auto& tablet_info : tablet_infos) {
             delete_transaction(partition_id, transaction_id,
-                               tablet_info.tablet_id, tablet_info.schema_hash);
+                                tablet_info.tablet_id, tablet_info.schema_hash);
         }
     }
-
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
 }
 
