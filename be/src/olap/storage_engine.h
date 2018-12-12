@@ -477,6 +477,13 @@ private:
 
     // 错误磁盘所在百分比，超过设定的值，则engine需要退出运行
     uint32_t _min_percentage_of_error_disk;
+<<<<<<< HEAD
+=======
+
+    RWMutex _tablet_map_lock;
+    tablet_map_t _tablet_map;
+    size_t _global_tablet_id;
+>>>>>>> move txn related task to txn manager (#416)
     Cache* _file_descriptor_lru_cache;
     Cache* _index_stream_lru_cache;
     uint32_t _max_base_compaction_task_per_disk;
@@ -520,7 +527,10 @@ private:
     std::atomic_bool _is_report_disk_state_already;
     std::atomic_bool _is_report_tablet_already;
     TxnManager _txn_mgr;
+<<<<<<< HEAD
     TabletManager _tablet_mgr;
+=======
+>>>>>>> move txn related task to txn manager (#416)
 };
 
 }  // namespace doris
