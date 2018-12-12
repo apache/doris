@@ -29,7 +29,6 @@
 
 namespace doris {
 
-class OLAPRootPath;
 class StorageEngine;
 
 // A OlapStore used to manange data in same path.
@@ -103,7 +102,6 @@ private:
                 TSchemaHash schema_hash, const std::string& header);
 
 private:
-    friend class OLAPRootPath;
     friend class StorageEngine;
     
     std::string _path;
