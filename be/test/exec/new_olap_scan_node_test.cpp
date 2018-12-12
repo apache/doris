@@ -71,8 +71,6 @@ public:
                unused_flag_path.c_str(),
                unused_flag_path.size());
 
-        OLAPRootPath::get_instance()->init();
-
         StorageEngine::get_instance()->_lru_cache = newLRU_cache(10000);
 
         _tablet_meta = new
