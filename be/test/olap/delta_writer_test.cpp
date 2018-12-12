@@ -273,9 +273,6 @@ public:
         config::storage_root_path = std::string(buffer) + "/data_push";
         remove_all_dir(config::storage_root_path);
         ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
-
-        // Initialize all singleton object.
-        // OLAPRootPath::get_instance()->reload_root_paths(config::storage_root_path.c_str());
     }
 
     void TearDown(){
@@ -492,9 +489,6 @@ public:
         config::storage_root_path = std::string(buffer) + "/data_schema_change";
         remove_all_dir(config::storage_root_path);
         ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
-
-        // Initialize all singleton object.
-        // OLAPRootPath::get_instance()->reload_root_paths(config::storage_root_path.c_str());
     }
 
     void TearDown(){

@@ -1697,7 +1697,7 @@ OLAPStatus SchemaChangeHandler::_create_new_tablet(
         }
         is_tablet_added = true;
 
-        // 4. Register tablet into OLAPRootPath, so that we can manage tablet from
+        // 4. Register tablet into store, so that we can manage tablet from
         // the perspective of root path.
         // Example: unregister all tables when a bad disk found.
         res = StorageEngine::get_instance()->register_tablet_into_root_path(
