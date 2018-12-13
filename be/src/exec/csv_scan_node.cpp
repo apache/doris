@@ -355,7 +355,7 @@ Status CsvScanNode::close(RuntimeState* state) {
     if (state->get_normal_row_number() == 0) {
         std::stringstream error_msg;
         error_msg << "Read zero normal line file. ";
-        state->append_error_msg_to_file("", error_msg.str());
+        state->append_error_msg_to_file("", error_msg.str(), true);
 
         return Status(error_msg.str());
     }
@@ -364,7 +364,7 @@ Status CsvScanNode::close(RuntimeState* state) {
     std::stringstream summary_msg;
     summary_msg << "error line: " << _error_row_number
             << "; normal line: " << _normal_row_number;
-    state->append_error_msg_to_file("", summary_msg.str());
+    state->append_error_msg_to_file("", summary_msg.str(), true);
 
     return Status::OK;
 }
