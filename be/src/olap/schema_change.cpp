@@ -1309,7 +1309,7 @@ OLAPStatus SchemaChangeHandler::_check_and_clear_schema_change_info(
             return res;
         }
 
-        res = tablet->save_header();
+        res = tablet->save_tablet_meta();
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to save tablet header. [res=%d, full_name='%s']",
                              res, tablet->full_name().c_str());
@@ -1336,7 +1336,7 @@ OLAPStatus SchemaChangeHandler::_check_and_clear_schema_change_info(
             return res;
         }
 
-        res = related_tablet->save_header();
+        res = related_tablet->save_tablet_meta();
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to save related_tablet header. [res=%d, full_name='%s']",
                              res, related_tablet->full_name().c_str());
@@ -1509,7 +1509,7 @@ OLAPStatus SchemaChangeHandler::_do_alter_tablet(
         }
         // save header
         if (res == OLAP_SUCCESS) {
-            res = new_tablet->save_header();
+            res = new_tablet->save_tablet_meta();
             if (res != OLAP_SUCCESS) {
                 OLAP_LOG_WARNING("fail to save header after unregister data source "
                                  "when schema change. [new_tablet=%s res=%d]",
@@ -1930,14 +1930,14 @@ OLAPStatus SchemaChangeHandler::_save_schema_change_info(
                                               alter_tablet_type);
 
     // save new tablet header :只有一个父ref tablet
-    res = new_tablet->save_header();
+    res = new_tablet->save_tablet_meta();
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to save new tablet header. res=" << res
                    << ", tablet=" << new_tablet->full_name();
         return res;
     }
 
-    res = ref_tablet->save_header();
+    res = ref_tablet->save_tablet_meta();
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to save ref tablet header. res=" << res
                    << ", tablet=" << ref_tablet->full_name().c_str();
@@ -2115,7 +2115,7 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
         }
 
         // 保存header
-        if (OLAP_SUCCESS != sc_params->new_tablet->save_header()) {
+        if (OLAP_SUCCESS != sc_params->new_tablet->save_tablet_meta()) {
             LOG(FATAL) << "fail to save header. res=" << res
                        << ", tablet=" << sc_params->new_tablet->full_name();
         }
@@ -2134,7 +2134,7 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
         }
 
         // 保存header
-        if (OLAP_SUCCESS != sc_params->ref_tablet->save_header()) {
+        if (OLAP_SUCCESS != sc_params->ref_tablet->save_tablet_meta()) {
             LOG(FATAL) << "failed to save header. tablet=" << sc_params->new_tablet->full_name();
         }
 
