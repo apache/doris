@@ -79,18 +79,6 @@ TabletMeta::~TabletMeta() {
     Clear();
 }
 
-void TabletMeta::change_file_version_to_delta() {
-    // convert FileVersionMessage to PDelta and PSegmentGroup in initialization.
-    // FileVersionMessage is used in previous code, and PDelta and PSegmentGroup
-    // is used in streaming load branch.
-    for (int i = 0; i < file_version_size(); ++i) {
-        PDelta* delta = add_delta();
-        _convert_file_version_to_delta(file_version(i), delta);
-    }
-
-    clear_file_version();
-}
-
 OLAPStatus TabletMeta::init() {
     clear_version_graph(&_version_graph, &_vertex_helper_map);
     if (construct_version_graph(delta(),
@@ -135,45 +123,7 @@ OLAPStatus TabletMeta::load_and_init() {
         return OLAP_ERR_PARSE_PROTOBUF_ERROR;
     }
 
-    if (file_version_size() != 0) {
-        // convert FileVersionMessage to PDelta and PSegmentGroup in initialization.
-        for (int i = 0; i < file_version_size(); ++i) {
-            PDelta* delta = add_delta();
-            _convert_file_version_to_delta(file_version(i), delta);
-        }
-
-        clear_file_version();
-        OLAPStatus res = save();
-        if (res != OLAP_SUCCESS) {
-            LOG(FATAL) << "failed to remove file version in initialization";
-        }
-    }
     return init();
-}
-
-OLAPStatus TabletMeta::load_for_check() {
-    FileHeader<OLAPHeaderMessage> file_header;
-    FileHandler file_handler;
-
-    if (file_handler.open(_file_name.c_str(), O_RDONLY) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to open index file. [file='%s']", _file_name.c_str());
-        return OLAP_ERR_IO_ERROR;
-    }
-
-    // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
-    if (file_header.unserialize(&file_handler) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to unserialize header. [path='%s']", _file_name.c_str());
-        return OLAP_ERR_PARSE_PROTOBUF_ERROR;
-    }
-
-    try {
-        CopyFrom(file_header.message());
-    } catch (...) {
-        OLAP_LOG_WARNING("fail to copy protocol buffer object. [path='%s']", _file_name.c_str());
-        return OLAP_ERR_PARSE_PROTOBUF_ERROR;
-    }
-
-    return OLAP_SUCCESS;
 }
 
 OLAPStatus TabletMeta::save() {
@@ -613,18 +563,6 @@ OLAPStatus TabletMeta::select_versions_to_span(const Version& target_version,
     int start_vertex_index = -1;
     // -1 is valid vertex index.
     int end_vertex_index = -1;
-    // Sometimes, the version path can not have reverse version even you set
-    // _support_reverse_version to be true.
-    bool can_support_reverse = _support_reverse_version;
-
-    // Check schema to see if we can support reverse version in the version
-    // path. If the aggregation type of any value column is SUM, then we can
-    // not support reverse version.
-    for (int i = 0; can_support_reverse && i < column_size(); ++i) {
-        if (column(i).is_key() == false && column(i).aggregation().compare("SUM") != 0) {
-            can_support_reverse = false;
-        }
-    }
 
     for (size_t i = 0; i < _version_graph.size(); ++i) {
         if (_version_graph[i].value == start_vertex_value) {
@@ -663,8 +601,7 @@ OLAPStatus TabletMeta::select_versions_to_span(const Version& target_version,
             if (visited[*it] == false) {
                 // If we don't support reverse version in the path, and start vertex
                 // value is larger than the end vertex value, we skip this edge.
-                if (can_support_reverse == false
-                        && _version_graph[top_vertex_index].value > _version_graph[*it].value) {
+                if (_version_graph[top_vertex_index].value > _version_graph[*it].value) {
                     continue;
                 }
 
@@ -771,27 +708,6 @@ const PDelta* TabletMeta::get_delta(int index) const {
     return &delta(index);
 }
 
-void TabletMeta::_convert_file_version_to_delta(const FileVersionMessage& version,
-                                                PDelta* delta) {
-    delta->set_start_version(version.start_version());
-    delta->set_end_version(version.end_version());
-    delta->set_version_hash(version.version_hash());
-    delta->set_creation_time(version.creation_time());
-
-    PSegmentGroup* segment_group = delta->add_segment_group();
-    segment_group->set_segment_group_id(-1);
-    segment_group->set_num_segments(version.num_segments());
-    segment_group->set_index_size(version.index_size());
-    segment_group->set_data_size(version.data_size());
-    segment_group->set_num_rows(version.num_rows());
-    if (version.has_delta_pruning()) {
-        for (int i = 0; i < version.delta_pruning().column_pruning_size(); ++i) {
-            ColumnPruning* column_pruning = segment_group->add_column_pruning();
-            *column_pruning = version.delta_pruning().column_pruning(i);
-        }
-    }
-}
-
 const uint32_t TabletMeta::get_cumulative_compaction_score() const{
     uint32_t score = 0;
     bool base_version_exists = false;
@@ -826,23 +742,6 @@ const uint32_t TabletMeta::get_base_compaction_score() const{
 
     // base不存在可能是tablet正在做alter table，先不选它，设score=0
     return base_version_exists ? score : 0;
-}
-
-const OLAPStatus TabletMeta::version_creation_time(const Version& version,
-                                                   int64_t* creation_time) const {
-    if (delta_size() == 0) {
-        return OLAP_ERR_VERSION_NOT_EXIST;
-    }
-
-    for (int i = delta_size() - 1; i >= 0; --i) {
-        const PDelta& temp = delta(i);
-        if (temp.start_version() == version.first && temp.end_version() == version.second) {
-            *creation_time = temp.creation_time();
-            return OLAP_SUCCESS;
-        }
-    }
-
-    return OLAP_ERR_VERSION_NOT_EXIST;
 }
 
 // Related static functions about version graph.
@@ -962,8 +861,7 @@ static OLAPStatus add_version_to_graph(const Version& version,
     list<int>* edges = (*version_graph)[start_vertex_index].edges;
     edges->insert(edges->begin(), end_vertex_index);
 
-    // We add reverse edge(from end_version to start_version) to graph in spite
-    // that _support_reverse_version is false.
+    // We add reverse edge(from end_version to start_version) to graph
     list<int>* r_edges = (*version_graph)[end_vertex_index].edges;
     r_edges->insert(r_edges->begin(), start_vertex_index);
 

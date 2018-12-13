@@ -89,44 +89,6 @@ TabletSharedPtr Tablet::create_from_header_file(
     return create_from_header(tablet_meta, store);
 }
 
-TabletSharedPtr Tablet::create_from_header_file_for_check(
-        TTabletId tablet_id, TSchemaHash schema_hash, const string& header_file) {
-    TabletMeta* tablet_meta = NULL;
-
-    tablet_meta = new(nothrow) TabletMeta(header_file);
-    if (tablet_meta == NULL) {
-        OLAP_LOG_WARNING("fail to malloc TabletMeta.");
-        return NULL;
-    }
-
-    if (tablet_meta->load_for_check() != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to load tablet_meta. [header_file=%s]", header_file.c_str());
-        delete tablet_meta;
-        return NULL;
-    }
-
-    TabletSharedPtr tablet = std::make_shared<Tablet>(tablet_meta);
-    if (tablet == NULL) {
-        OLAP_LOG_WARNING("fail to validate tablet. [header_file=%s]", header_file.c_str());
-        delete tablet_meta;
-        return NULL;
-    }
-    tablet->_tablet_id = tablet_id;
-    tablet->_schema_hash = schema_hash;
-    tablet->_full_name = std::to_string(tablet_id) + "." + std::to_string(schema_hash);
-    return tablet;
-}
-
-Tablet::Tablet(TabletMeta* tablet_meta)
-        : _tablet_meta(tablet_meta) {
-    if (tablet_meta->has_tablet_id()) {
-        _tablet_id =  tablet_meta->tablet_id();
-        _schema_hash = tablet_meta->schema_hash();
-        _full_name = std::to_string(tablet_meta->tablet_id()) + "." + std::to_string(tablet_meta->schema_hash());
-    }
-    _tablet_for_check = true;
-}
-
 TabletSharedPtr Tablet::create_from_header(
         TabletMeta* tablet_meta,
         OlapStore* store) {
@@ -145,7 +107,6 @@ Tablet::Tablet(TabletMeta* tablet_meta, OlapStore* store) :
         _num_fields(0),
         _num_null_fields(0),
         _num_key_fields(0),
-        _id(0),
         _store(store),
         _is_loaded(false) {
     if (tablet_meta == NULL) {
@@ -233,14 +194,9 @@ Tablet::Tablet(TabletMeta* tablet_meta, OlapStore* store) :
     _tablet_path = tablet_path_stream.str();
     _storage_root_path = store->path();
     _full_name = std::to_string(tablet_meta->tablet_id()) + "." + std::to_string(tablet_meta->schema_hash());
-    _tablet_for_check = false;
 }
 
 Tablet::~Tablet() {
-    if (_tablet_for_check) {
-        return;
-    }
-
     if (_tablet_meta == NULL) {
         return;  // for convenience of mock test.
     }
@@ -2025,42 +1981,6 @@ int32_t Tablet::get_field_index(const string& field_name) const {
     return res_iterator->second;
 }
 
-size_t Tablet::get_field_size(const string& field_name) const {
-    field_index_map_t::const_iterator res_iterator = _field_index_map.find(field_name);
-    if (res_iterator == _field_index_map.end()) {
-        LOG(WARNING) << "invalid field name. [name='" << field_name << "']";
-        return 0;
-    }
-
-    if (static_cast<size_t>(res_iterator->second) >= _field_sizes.size()) {
-        LOG(WARNING) << "invalid field segment_group. [name='" << field_name << "']";
-        return 0;
-    }
-
-    return _field_sizes[res_iterator->second];
-}
-
-size_t Tablet::get_return_column_size(const string& field_name) const {
-    field_index_map_t::const_iterator res_iterator = _field_index_map.find(field_name);
-    if (res_iterator == _field_index_map.end()) {
-        LOG(WARNING) << "invalid field name. [name='" << field_name << "']";
-        return 0;
-    }
-
-    if (static_cast<size_t>(res_iterator->second) >= _field_sizes.size()) {
-        LOG(WARNING) << "invalid field segment_group. [name='" << field_name << "']";
-        return 0;
-    }
-
-    if (_tablet_schema[res_iterator->second].type == OLAP_FIELD_TYPE_VARCHAR ||
-            _tablet_schema[res_iterator->second].type == OLAP_FIELD_TYPE_HLL) {
-        return 0;
-    }
-
-    return _field_sizes[res_iterator->second];
-}
-
-
 size_t Tablet::get_row_size() const {
     size_t size = 0u;
     vector<int32_t>::const_iterator it;
@@ -2211,15 +2131,6 @@ VersionEntity Tablet::get_version_entity_by_version(const Version& version) {
         version_entity.add_segment_group_entity(segment_group_entity);
     }
     return version_entity;
-}
-
-size_t Tablet::get_version_index_size(const Version& version) {
-    std::vector<SegmentGroup*>& index_vec = _data_sources[version];
-    size_t index_size = 0;
-    for (SegmentGroup* segment_group : index_vec) {
-        index_size += segment_group->index_size();
-    }
-    return index_size;
 }
 
 size_t Tablet::get_version_data_size(const Version& version) {

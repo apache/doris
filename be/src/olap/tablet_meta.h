@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_OLAP_HEADER_H
-#define DORIS_BE_SRC_OLAP_OLAP_HEADER_H
+#ifndef DORIS_BE_SRC_OLAP_TABLET_META_H
+#define DORIS_BE_SRC_OLAP_TABLET_META_H
 
 #include <list>
 #include <string>
@@ -32,13 +32,11 @@ namespace doris {
 // Class for managing tablet header.
 class TabletMeta : public OLAPHeaderMessage {
 public:
-    explicit TabletMeta() :
-            _support_reverse_version(false) {}
+    explicit TabletMeta() {}
 
     // for compatible header file
     explicit TabletMeta(const std::string& file_name) :
-            _file_name(file_name),
-            _support_reverse_version(false) {}
+            _file_name(file_name) {}
 
     virtual ~TabletMeta();
 
@@ -46,7 +44,6 @@ public:
     // In load_and_init(), we will validate olap header file, which mainly include
     // tablet schema, delta version and so on.
     OLAPStatus load_and_init();
-    OLAPStatus load_for_check();
 
     // Saves the header to disk, returning true on success.
     OLAPStatus save();
@@ -96,13 +93,6 @@ public:
         return std::string(basename(_file_name.c_str()));
     }
 
-    // In order to prevent reverse version to appear in the shortest version
-    // path, you can call set_reverse_version(false) although schema can
-    // support reverse version in the path.
-    void set_reverse_version(bool support_reverse_version) {
-        _support_reverse_version = support_reverse_version;
-    }
-
     // Try to select the least number of data files that can span the
     // target_version and append these data versions to the span_versions.
     // Return false if the target_version cannot be spanned.
@@ -116,27 +106,12 @@ public:
     const PDelta* get_base_version() const;
     const uint32_t get_cumulative_compaction_score() const;
     const uint32_t get_base_compaction_score() const;
-    const OLAPStatus version_creation_time(const Version& version, int64_t* creation_time) const;
-
     int file_delta_size() const {
         return delta_size();
     }
-    void change_file_version_to_delta();
 private:
-    // Compute schema hash(all fields name and type, index name and its field
-    // names) using lzo_adler32 function.
-    OLAPStatus _compute_schema_hash(SchemaHash* schema_hash);
-    void _convert_file_version_to_delta(const FileVersionMessage& version, PDelta* delta);
-
     // full path of olap header file
     std::string _file_name;
-
-    // If the aggregation types of all value columns in the schema are SUM,
-    // select_versions_to_span can return reverse version in the shortest
-    // version path. one can set _support_reverse_version to be false in
-    // order to prevent reverse version to appear in the shortest version path.
-    // Its default value is false.
-    bool _support_reverse_version;
 
     // OLAP version contains two parts, [start_version, end_version]. In order
     // to construct graph, the OLAP version has two corresponding vertex, one
@@ -148,10 +123,10 @@ private:
     // vertex value --> vertex_index of _version_graph
     // It is easy to find vertex index according to vertex value.
     std::unordered_map<int, int> _vertex_helper_map;
-    
+
     DISALLOW_COPY_AND_ASSIGN(TabletMeta);
 };
 
 }  // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_OLAP_HEADER_H
+#endif // DORIS_BE_SRC_OLAP_OLAP_TABLET_META_H

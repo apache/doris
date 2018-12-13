@@ -265,116 +265,6 @@ OLAPStatus StorageEngine::load_one_tablet(
     return OLAP_SUCCESS;
 }
 
-void StorageEngine::check_none_row_oriented_tablet(const std::vector<OlapStore*>& stores) {
-    for (auto store : stores) {
-        auto res = _check_none_row_oriented_tablet_in_store(store);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "io error when init load tables. res=" << res
-                << ", store=" << store->path();
-        }
-    }
-}
-
-OLAPStatus StorageEngine::_check_none_row_oriented_tablet_in_store(OlapStore* store) {
-    std::string store_path = store->path();
-    LOG(INFO) <<"start to load tablets from store_path:" << store_path;
-
-    bool is_header_converted = false;
-    OLAPStatus res = TabletMetaManager::get_header_converted(store, is_header_converted);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "get convert flag from meta failed";
-        return res;
-    }
-    if (is_header_converted) {
-        OLAPStatus s = store->check_none_row_oriented_tablet_in_store(this);
-        if (s != OLAP_SUCCESS) {
-            LOG(WARNING) << "there is failure when loading tablet headers, path:" << store_path;
-            return s;
-        } else {
-            return OLAP_SUCCESS;
-        }
-    }
-
-    // compatible for old header load method
-    // walk all directory to load header file
-    LOG(INFO) << "check has none row-oriented tablet from header files";
-
-    // get all shards
-    set<string> shards;
-    if (dir_walk(store_path + DATA_PREFIX, &shards, NULL) != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to walk dir. [root=" << store_path << "]";
-        return OLAP_ERR_INIT_FAILED;
-    }
-
-    for (const auto& shard : shards) {
-        // get all tablets
-        set<string> tablets;
-        string one_shard_path = store_path + DATA_PREFIX +  '/' + shard;
-        if (dir_walk(one_shard_path, &tablets, NULL) != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to walk dir. [root=" << one_shard_path << "]";
-            continue;
-        }
-
-        for (const auto& tablet : tablets) {
-            // 遍历table目录寻找此table的所有indexedRollupTable，注意不是SegmentGroup，而是Tablet
-            set<string> schema_hashes;
-            string one_tablet_path = one_shard_path + '/' + tablet;
-            if (dir_walk(one_tablet_path, &schema_hashes, NULL) != OLAP_SUCCESS) {
-                LOG(WARNING) << "fail to walk dir. [root=" << one_tablet_path << "]";
-                continue;
-            }
-
-            for (const auto& schema_hash : schema_hashes) {
-                TTabletId tablet_id = strtoul(tablet.c_str(), NULL, 10);
-                TSchemaHash tablet_schema_hash = strtoul(schema_hash.c_str(), NULL, 10);
-
-                // 遍历schema_hash目录寻找此index的所有schema
-                // 加载失败依然加载下一个Table
-                if (check_none_row_oriented_tablet_in_path(
-                        store,
-                        tablet_id,
-                        tablet_schema_hash,
-                        one_tablet_path + '/' + schema_hash) != OLAP_SUCCESS) {
-                    OLAP_LOG_WARNING("fail to load one tablet, but continue. [path='%s']",
-                                     (one_tablet_path + '/' + schema_hash).c_str());
-                }
-            }
-        }
-    }
-    return res;
-}
-
-OLAPStatus StorageEngine::check_none_row_oriented_tablet_in_path(
-        OlapStore* store, TTabletId tablet_id,
-        SchemaHash schema_hash, const string& schema_hash_path) {
-    stringstream header_name_stream;
-    header_name_stream << schema_hash_path << "/" << tablet_id << ".hdr";
-    string header_path = header_name_stream.str();
-    path boost_schema_hash_path(schema_hash_path);
-
-    if (access(header_path.c_str(), F_OK) != 0) {
-        LOG(WARNING) << "fail to find header file. [header_path=" << header_path << "]";
-        move_to_trash(boost_schema_hash_path, boost_schema_hash_path);
-        return OLAP_ERR_FILE_NOT_EXIST;
-    }
-
-    auto tablet = Tablet::create_from_header_file_for_check(
-            tablet_id, schema_hash, header_path);
-    if (tablet == NULL) {
-        LOG(WARNING) << "fail to load tablet. [header_path=" << header_path << "]";
-        move_to_trash(boost_schema_hash_path, boost_schema_hash_path);
-        return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
-    }
-
-    LOG(INFO) << "data_file_type:" << tablet->data_file_type();
-    if (tablet->data_file_type() == OLAP_DATA_FILE) {
-        LOG(FATAL) << "Not support row-oriented tablet any more. Please convert it to column-oriented tablet."
-                   << "tablet=" << tablet->full_name();
-    }
-
-    return OLAP_SUCCESS;
-}
-
 void StorageEngine::load_stores(const std::vector<OlapStore*>& stores) {
     std::vector<std::thread> threads;
     for (auto store : stores) {
@@ -436,7 +326,6 @@ OLAPStatus StorageEngine::open() {
     _max_base_compaction_task_per_disk = (base_compaction_num_threads + file_system_num - 1) / file_system_num;
 
     auto stores = get_stores();
-    check_none_row_oriented_tablet(stores);
     load_stores(stores);
     // 取消未完成的SchemaChange任务
     _cancel_unfinished_schema_change();

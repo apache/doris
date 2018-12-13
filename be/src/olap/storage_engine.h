@@ -185,12 +185,6 @@ public:
     // 获取cache的使用情况信息
     void get_cache_status(rapidjson::Document* document) const;
 
-    void check_none_row_oriented_tablet(const std::vector<OlapStore*>& stores);
-    OLAPStatus check_none_row_oriented_tablet_in_path(
-                    OlapStore* store, TTabletId tablet_id,
-                    SchemaHash schema_hash, const std::string& schema_hash_path);
-    OLAPStatus _check_none_row_oriented_tablet_in_store(OlapStore* store);
-
     // Note: 这里只能reload原先已经存在的root path，即re-load启动时就登记的root path
     // 是允许的，但re-load全新的path是不允许的，因为此处没有彻底更新ce调度器信息
     void load_stores(const std::vector<OlapStore*>& stores);
