@@ -63,7 +63,7 @@ public class Config extends ConfigBase {
      * Labels of finished or cancelled load jobs will be removed after *label_keep_max_second*
      * The removed labels can be reused.
      * Set a short time will lower the FE memory usage.
-     * (Because all load jobs' info is kept in memoery before being removed)
+     * (Because all load jobs' info is kept in memory before being removed)
      */
     @ConfField public static int label_keep_max_second = 7 * 24 * 3600; // 7 days
     /*

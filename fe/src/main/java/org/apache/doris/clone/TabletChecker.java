@@ -17,20 +17,24 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
@@ -38,6 +42,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /*
  * This checker is responsible for checking all unhealthy tablets.
@@ -218,5 +223,44 @@ public class TabletChecker extends Daemon {
             }
             return false;
         }
+    }
+
+    public void repairTable(AdminRepairTableStmt stmt) throws DdlException {
+        Catalog catalog = Catalog.getCurrentCatalog();
+        Database db = catalog.getDb(stmt.getDbName());
+        if (db == null) {
+            throw new DdlException("Database " + stmt.getDbName() + " does not exist");
+        }
+
+        long dbId = db.getId();
+        long tblId = -1;
+        List<Long> partIds = Lists.newArrayList();
+        db.readLock();
+        try {
+            Table tbl = db.getTable(stmt.getTblName());
+            if (tbl == null || tbl.getType() != TableType.OLAP) {
+                throw new DdlException("Table does not exist or is not OLAP table: " + stmt.getTblName());
+            }
+
+            tblId = tbl.getId();
+            OlapTable olapTable = (OlapTable) tbl;
+            if (stmt.getPartitions().isEmpty()) {
+                partIds = olapTable.getPartitions().stream().map(p -> p.getId()).collect(Collectors.toList());
+            } else {
+                for (String partName : stmt.getPartitions()) {
+                    Partition partition = olapTable.getPartition(partName);
+                    if (partition == null) {
+                        throw new DdlException("Partition does not exist: " + partName);
+                    }
+                    partIds.add(partition.getId());
+                }
+            }
+        } finally {
+            db.readUnlock();
+        }
+
+        Preconditions.checkState(tblId != -1);
+        addPrios(dbId, tblId, partIds);
+        LOG.info("repair database: {}, table: {}, partition: {}", dbId, tblId, partIds);
     }
 }

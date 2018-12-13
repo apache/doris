@@ -242,6 +242,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("recover", new Integer(SqlParserSymbols.KW_RECOVER));
         keywordMap.put("regexp", new Integer(SqlParserSymbols.KW_REGEXP));
         keywordMap.put("rename", new Integer(SqlParserSymbols.KW_RENAME));
+        keywordMap.put("repair", new Integer(SqlParserSymbols.KW_REPAIR));
         keywordMap.put("repeatable", new Integer(SqlParserSymbols.KW_REPEATABLE));
         keywordMap.put("replace", new Integer(SqlParserSymbols.KW_REPLACE));
         keywordMap.put("replica", new Integer(SqlParserSymbols.KW_REPLICA));
