@@ -390,7 +390,8 @@ Status RuntimeState::create_error_log_file() {
 
 void RuntimeState::append_error_msg_to_file(
         const std::string& line,
-        const std::string& error_msg) {
+        const std::string& error_msg,
+        bool is_summary) {
     if (_query_options.query_type != TQueryType::LOAD) {
         return;
     }
@@ -411,12 +412,12 @@ void RuntimeState::append_error_msg_to_file(
     // if num of printed error row exceeds the limit, and this is not a summary message,
     // return
     if (_num_print_error_rows.fetch_add(1, std::memory_order_relaxed) > MAX_ERROR_NUM
-            && !line.empty()) {
+            && !is_summary) {
         return;
     }
 
     std::stringstream out;
-    if (line.empty()) {
+    if (is_summary) {
         out << "Summary: ";
         out << error_msg;
     } else {
