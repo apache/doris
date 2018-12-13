@@ -444,9 +444,9 @@ OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<SegmentGrou
 
     // 如果保存Header失败, 所有新增的信息会在下次启动时丢失, 属于严重错误
     // 暂时没办法做很好的处理,报FATAL
-    res = _tablet->save_header();
+    res = _tablet->save_tablet_meta();
     if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to save header. res=" << res
+        LOG(FATAL) << "fail to save tablet meta. res=" << res
                    << ", tablet=" << _tablet->full_name()
                    << ", new_base_version=" << _new_base_version.second
                    << ", old_base_version=" << _old_base_version.second;

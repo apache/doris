@@ -649,7 +649,7 @@ Status SnapshotLoader::move(
         }
 
         // merge 2 headers
-        ost = tablet->merge_header(snapshot_header, end_version);
+        ost = tablet->merge_tablet_meta(snapshot_header, end_version);
         if (ost != OLAP_SUCCESS) {
             std::stringstream ss;
             ss << "failed to move tablet path: " << tablet_path;
