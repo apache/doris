@@ -1265,7 +1265,7 @@ OLAPStatus StorageEngine::drop_tablet(
     _tablet_map_lock.wrlock();
     related_tablet->obtain_header_wrlock();
     related_tablet->clear_schema_change_request();
-    res = related_tablet->save_header();
+    res = related_tablet->save_tablet_meta();
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to save tablet header. res=" << res
                    << ", tablet=" << related_tablet->full_name();
@@ -1471,7 +1471,7 @@ OLAPStatus StorageEngine::create_init_version(TTabletId tablet_id, SchemaHash sc
             break;
         }
 
-        res = tablet->save_header();
+        res = tablet->save_tablet_meta();
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to save header. [tablet=" << tablet->full_name() << "]";
             break;
@@ -2200,7 +2200,7 @@ OLAPStatus StorageEngine::_create_init_version(
 
     tablet->obtain_header_wrlock();
     tablet->set_cumulative_layer_point(request.version + 1);
-    res = tablet->save_header();
+    res = tablet->save_tablet_meta();
     tablet->release_header_lock();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to save header. [tablet=" << tablet->full_name() << "]";
@@ -2496,7 +2496,7 @@ OLAPStatus StorageEngine::cancel_delete(const TCancelDeleteDataReq& request) {
             break;
         }
 
-        res = temp_tablet->save_header();
+        res = temp_tablet->save_tablet_meta();
         if (res != OLAP_SUCCESS) {
             temp_tablet->release_header_lock();
             LOG(WARNING) << "fail to save header."
@@ -2870,7 +2870,7 @@ OLAPStatus StorageEngine::clear_alter_task(const TTabletId tablet_id,
     // clear schema change info
     tablet->obtain_header_wrlock();
     tablet->clear_schema_change_request();
-    OLAPStatus res = tablet->save_header();
+    OLAPStatus res = tablet->save_tablet_meta();
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to save header. [res=" << res << " tablet='" << tablet->full_name() << "']";
     } else {
@@ -2888,7 +2888,7 @@ OLAPStatus StorageEngine::clear_alter_task(const TTabletId tablet_id,
     } else {
         related_tablet->obtain_header_wrlock();
         related_tablet->clear_schema_change_request();
-        res = related_tablet->save_header();
+        res = related_tablet->save_tablet_meta();
         if (res != OLAP_SUCCESS) {
             LOG(FATAL) << "fail to save header. [res=" << res << " tablet='"
                        << related_tablet->full_name() << "']";

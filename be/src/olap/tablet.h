@@ -123,10 +123,10 @@ public:
 
     OLAPStatus load_indices();
 
-    OLAPStatus save_header();
+    OLAPStatus save_tablet_meta();
 
     TabletMeta* get_header() {
-        return _header;
+        return _tablet_meta;
     }
 
     OLAPStatus select_versions_to_span(const Version& version,
@@ -192,7 +192,7 @@ public:
     OLAPStatus publish_version(int64_t transaction_id, Version version, VersionHash version_hash);
 
     const PDelta* get_incremental_delta(Version version) const {
-        return _header->get_incremental_version(version);
+        return _tablet_meta->get_incremental_version(version);
     }
 
     // calculate holes of version
@@ -226,8 +226,8 @@ public:
     OLAPStatus compute_all_versions_hash(const std::vector<Version>& versions,
                                          VersionHash* version_hash) const;
 
-    // used for restore, merge the (0, to_version) in 'hdr'
-    OLAPStatus merge_header(const TabletMeta& hdr, int to_version);
+    // used for restore, merge the (0, to_version) in 'tablet_meta'
+    OLAPStatus merge_tablet_meta(const TabletMeta& tablet_meta, int to_version);
 
     // Used by monitoring Tablet
     void list_data_files(std::set<std::string>* filenames) const;
@@ -415,7 +415,7 @@ public:
 
     // Expose some header attributes
     const std::string header_file_name() const {
-        return _header->file_name();
+        return _tablet_meta->file_name();
     }
 
     TTabletId tablet_id() const {
@@ -427,11 +427,11 @@ public:
     }
 
     size_t num_short_key_fields() const {
-        return _header->num_short_key_fields();
+        return _tablet_meta->num_short_key_fields();
     }
 
     uint32_t next_unique_id() const {
-        return _header->next_column_unique_id();
+        return _tablet_meta->next_column_unique_id();
     }
 
     TSchemaHash schema_hash() const {
@@ -447,23 +447,23 @@ public:
     }
 
     int file_delta_size() const {
-        return _header->file_delta_size();
+        return _tablet_meta->file_delta_size();
     }
 
     const PDelta& delta(int index) const {
-        return _header->delta(index);
+        return _tablet_meta->delta(index);
     }
 
     const PDelta* get_delta(int index) const {
-        return _header->get_delta(index);
+        return _tablet_meta->get_delta(index);
     }
 
     const PDelta* lastest_delta() const {
-        return _header->get_lastest_delta_version();
+        return _tablet_meta->get_lastest_delta_version();
     }
 
     const PDelta* lastest_version() const {
-        return _header->get_lastest_version();
+        return _tablet_meta->get_lastest_version();
     }
 
     // need to obtain header rdlock outside
@@ -471,28 +471,28 @@ public:
         const std::vector<Version>& missing_versions) const;
 
     const PDelta* base_version() const {
-        return _header->get_base_version();
+        return _tablet_meta->get_base_version();
     }
 
     // 在使用之前对header加锁
     const uint32_t get_cumulative_compaction_score() const {
-        return _header->get_cumulative_compaction_score();
+        return _tablet_meta->get_cumulative_compaction_score();
     }
 
     const uint32_t get_base_compaction_score() const {
-        return _header->get_base_compaction_score();
+        return _tablet_meta->get_base_compaction_score();
     }
 
     const OLAPStatus delete_version(const Version& version) {
-        return _header->delete_version(version);
+        return _tablet_meta->delete_version(version);
     }
 
     const OLAPStatus version_creation_time(const Version& version, int64_t* creation_time) {
-        return _header->version_creation_time(version, creation_time);
+        return _tablet_meta->version_creation_time(version, creation_time);
     }
 
     DataFileType data_file_type() const {
-        return _header->data_file_type();
+        return _tablet_meta->data_file_type();
     }
 
     // num rows per rowBlock, typically it is 256 or 512.
@@ -505,68 +505,79 @@ public:
     }
 
     int delete_data_conditions_size() const {
-        return _header->delete_data_conditions_size();
+        return _tablet_meta->delete_data_conditions_size();
     }
 
     DeleteConditionMessage* add_delete_data_conditions() {
-        return _header->add_delete_data_conditions();
+        return _tablet_meta->add_delete_data_conditions();
     }
 
     const google::protobuf::RepeatedPtrField<DeleteConditionMessage>&
     delete_data_conditions() {
-        return _header->delete_data_conditions();
+        return _tablet_meta->delete_data_conditions();
     }
 
     google::protobuf::RepeatedPtrField<DeleteConditionMessage>*
     mutable_delete_data_conditions() {
-        return _header->mutable_delete_data_conditions();
+        return _tablet_meta->mutable_delete_data_conditions();
     }
 
     DeleteConditionMessage* mutable_delete_data_conditions(int index) {
-        return _header->mutable_delete_data_conditions(index);
+        return _tablet_meta->mutable_delete_data_conditions(index);
     }
 
     double bloom_filter_fpp() const {
-        if (_header->has_bf_fpp()) {
-            return _header->bf_fpp();
+        if (_tablet_meta->has_bf_fpp()) {
+            return _tablet_meta->bf_fpp();
         }
 
         return BLOOM_FILTER_DEFAULT_FPP;
     }
 
     KeysType keys_type() const {
-        if (_header->has_keys_type()) {
-            return _header->keys_type();
+        if (_tablet_meta->has_keys_type()) {
+            return _tablet_meta->keys_type();
         }
 
         return KeysType::AGG_KEYS;
     }
 
     bool is_delete_data_version(Version version) {
-        return _header->is_delete_data_version(version);
+        if (version.first != version.second) {
+            return false;
+        }
+
+        google::protobuf::RepeatedPtrField<DeleteConditionMessage>::const_iterator it;
+        it = _tablet_meta->delete_data_conditions().begin();
+        for (; it != _tablet_meta->delete_data_conditions().end(); ++it) {
+            if (it->version() == version.first) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     bool is_load_delete_version(Version version);
 
     const int64_t creation_time() const {
-        return _header->creation_time();
+        return _tablet_meta->creation_time();
     }
 
     void set_creation_time(int64_t time_seconds) {
-        _header->set_creation_time(time_seconds);
+        _tablet_meta->set_creation_time(time_seconds);
     }
 
     // versions in [0, m_cumulative_layer_point) is base and cumulative versions;
     // versions in [m_cumulative_layer_point, newest_delta_version] is delta versons;
     // 在使用之前对header加锁
     const int32_t cumulative_layer_point() const {
-        return _header->cumulative_layer_point();
+        return _tablet_meta->cumulative_layer_point();
     }
 
     // 在使用之前对header加锁
     void set_cumulative_layer_point(const int32_t new_point) {
-        LOG(INFO) << "cumulative_layer_point: " << new_point;
-        _header->set_cumulative_layer_point(new_point);
+        _tablet_meta->set_cumulative_layer_point(new_point);
     }
 
     // Judge whether tablet in schema change state
@@ -619,7 +630,7 @@ public:
             std::vector<OlapTuple>* ranges);
 
     uint32_t segment_size() const {
-        return _header->segment_size();
+        return _tablet_meta->segment_size();
     }
 
     void set_io_error();
@@ -714,7 +725,7 @@ private:
 
     TTabletId _tablet_id;
     TSchemaHash _schema_hash;
-    TabletMeta* _header;
+    TabletMeta* _tablet_meta;
     size_t _num_rows_per_row_block;
     CompressKind _compress_kind;
     // Set it true when tablet is dropped, tablet files and data structures
