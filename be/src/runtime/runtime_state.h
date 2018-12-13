@@ -65,9 +65,6 @@ class RowDescriptor;
 // query and shared across all execution nodes of that query.
 class RuntimeState {
 public:
-    RuntimeState(const TUniqueId& fragment_instance_id,
-                 const TQueryOptions& query_options,
-                 const std::string& now, ExecEnv* exec_env);
 
     RuntimeState(
         const TExecPlanFragmentParams& fragment_params,
