@@ -66,6 +66,10 @@ public:
     virtual ~RowBlockChanger();
 
     ColumnMapping* get_mutable_column_mapping(size_t column_index);
+
+    SchemaMapping get__schema_mapping() const {
+        return _schema_mapping;
+    }
     
     bool change_row_block(
             const DataFileType df_type,
@@ -192,13 +196,15 @@ class LinkedSchemaChange : public SchemaChange {
 public:
     explicit LinkedSchemaChange(
                 OLAPTablePtr base_olap_table, 
-                OLAPTablePtr new_olap_table);
+                OLAPTablePtr new_olap_table,
+                const RowBlockChanger& row_block_changer);
     ~LinkedSchemaChange() {}
 
     bool process(ColumnData* olap_data, SegmentGroup* new_segment_group);
 private:
     OLAPTablePtr _base_olap_table;
     OLAPTablePtr _new_olap_table;
+    const RowBlockChanger& _row_block_changer;
     DISALLOW_COPY_AND_ASSIGN(LinkedSchemaChange);
 };
 

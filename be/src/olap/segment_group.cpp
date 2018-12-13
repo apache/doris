@@ -28,6 +28,7 @@
 #include "olap/row_cursor.h"
 #include "olap/utils.h"
 #include "olap/wrapper_field.h"
+#include "olap/schema_change.h"
 
 using std::ifstream;
 using std::string;
@@ -198,24 +199,43 @@ void SegmentGroup::delete_all_files() {
     }
 }
 
+
 OLAPStatus SegmentGroup::add_column_statistics_for_linked_schema_change(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields) {
+        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields,
+        const SchemaMapping& schema_mapping) {
     //When add rollup table, the base table index maybe empty
     if (column_statistic_fields.size() == 0) {
         return OLAP_SUCCESS;
     }
 
-    //Should use _table->num_key_fields(), not column_statistic_fields.size()
-    //as rollup table num_key_fields will less than base table column_statistic_fields.size().
-    //For LinkedSchemaChange, the rollup table keys order is the same as base table
+    //1 for LinkedSchemaChange, the rollup table keys order is the same as base table
+    //2 when user add a new key column to base table, _table->num_key_fields() size will
+    // greater than _column_statistics size
+    int num_new_keys = 0;
     for (size_t i = 0; i < _table->num_key_fields(); ++i) {
-        WrapperField* first = WrapperField::create(_table->tablet_schema()[i]);
-        DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
-        first->copy(column_statistic_fields[i].first);
+        const FieldInfo& column_schema = _table->tablet_schema()[i];
 
-        WrapperField* second = WrapperField::create(_table->tablet_schema()[i]);
+        WrapperField* first = WrapperField::create(column_schema);
+        DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
+
+        WrapperField* second = WrapperField::create(column_schema);
         DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
-        second->copy(column_statistic_fields[i].second);
+
+        //for new key column, use default value to fill into column_statistics
+        if (schema_mapping[i].ref_column == -1) {
+            num_new_keys++;
+
+            if (true == column_schema.is_allow_null && column_schema.default_value.length() == 0) {
+                first->set_null();
+                second->set_null();
+            } else {
+                first->from_string(column_schema.default_value);
+                second->from_string(column_schema.default_value);
+            }
+        } else {
+            first->copy(column_statistic_fields[i - num_new_keys].first);
+            second->copy(column_statistic_fields[i - num_new_keys].second);
+        }
 
         _column_statistics.push_back(std::make_pair(first, second));
     }
