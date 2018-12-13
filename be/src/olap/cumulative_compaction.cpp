@@ -278,7 +278,7 @@ OLAPStatus CumulativeCompaction::_calculate_need_merged_versions() {
     // 扫描的文件相同，依然找不到可以合并的delta文件, 无法执行合并过程。
     // 依此类推，就进入了死循环状态，永远不会进行cumulative compaction
     _tablet->set_cumulative_layer_point(delta_versions[index].first);
-    _tablet->save_header();
+    _tablet->save_tablet_meta();
     return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
 }
 
@@ -450,7 +450,7 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     }
     // 5. 如果合并成功，设置新的cumulative_layer_point
     _tablet->set_cumulative_layer_point(_new_cumulative_layer_point);
-    _tablet->save_header();
+    _tablet->save_tablet_meta();
     _release_header_lock();
 
     // 6. delete delta files which have been merged into new cumulative file
@@ -474,7 +474,7 @@ OLAPStatus CumulativeCompaction::_update_header(vector<SegmentGroup*>* unused_in
         return res;
     }
 
-    res = _tablet->save_header();
+    res = _tablet->save_tablet_meta();
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "failed to save header. res=" << res
                    << ", tablet=" << _tablet->full_name();
@@ -542,7 +542,7 @@ OLAPStatus CumulativeCompaction::_roll_back(const vector<SegmentGroup*>& old_ola
         return res;
     }
 
-    res = _tablet->save_header();
+    res = _tablet->save_tablet_meta();
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "failed to save header. [tablet=" << _tablet->full_name() << "]";
         return res;
