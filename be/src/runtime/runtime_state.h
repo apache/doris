@@ -403,8 +403,9 @@ public:
         return _error_log_file_path;
     }
 
-    // TODO(lingbin): remove this file error method after mysql error exporter is stable.
-    void append_error_msg_to_file(const std::string& line, const std::string& error_msg);
+    // is_summary is true, means we are going to write the summary line
+    void append_error_msg_to_file(const std::string& line, const std::string& error_msg,
+        bool is_summary = false);
 
     int64_t num_rows_load_success() {
         return _num_rows_load_success.load();
