@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_OLAP_HEADER_MANAGER_H
-#define DORIS_BE_SRC_OLAP_OLAP_HEADER_MANAGER_H
+#ifndef DORIS_BE_SRC_OLAP_TABLET_META_MANAGER_H
+#define DORIS_BE_SRC_OLAP_TABLET_META_MANAGER_H
 
 #include <string>
 
@@ -53,4 +53,4 @@ public:
 
 }
 
-#endif // DORIS_BE_SRC_OLAP_OLAP_HEADER_MANAGER_H
+#endif // DORIS_BE_SRC_OLAP_TABLET_META_MANAGER_H
