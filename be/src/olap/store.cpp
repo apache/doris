@@ -485,14 +485,8 @@ OLAPStatus OlapStore::_load_tablet_from_header(StorageEngine* engine, TTabletId 
                      << " schema_hash:" << schema_hash;
         return OLAP_ERR_HEADER_PB_PARSE_FAILED;
     }
-    OLAPStatus res = OLAP_SUCCESS;
-    if (tablet_meta->file_version_size() != 0) {
-        tablet_meta->change_file_version_to_delta();
-        res = TabletMetaManager::save(this, tablet_id, schema_hash, tablet_meta.get());
-    }
-    
     // init must be called
-    res = tablet_meta->init();
+    OLAPStatus res = tablet_meta->init();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to init header, tablet_id:" << tablet_id << ", schema_hash:" << schema_hash;
         res = TabletMetaManager::remove(this, tablet_id, schema_hash);
@@ -557,40 +551,6 @@ OLAPStatus OlapStore::load_tables(StorageEngine* engine) {
     };
     OLAPStatus status = TabletMetaManager::traverse_headers(_meta, load_tablet_func);
     return status;
-}
-
-OLAPStatus OlapStore::check_none_row_oriented_tablet_in_store(StorageEngine* engine) {
-    auto load_tablet_func = [this, engine](long tablet_id,
-            long schema_hash, const std::string& value) -> bool {
-        OLAPStatus status = _check_none_row_oriented_tablet_in_store(engine, tablet_id, schema_hash, value);
-        if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "load tablet from header failed. status:" << status
-                << "tablet=" << tablet_id << "." << schema_hash;
-        };
-        return true;
-    };
-    OLAPStatus status = TabletMetaManager::traverse_headers(_meta, load_tablet_func);
-    return status;
-}
-
-OLAPStatus OlapStore::_check_none_row_oriented_tablet_in_store(
-                        StorageEngine* engine, TTabletId tablet_id,
-                        TSchemaHash schema_hash, const std::string& header) {
-    std::unique_ptr<TabletMeta> tablet_meta(new TabletMeta());
-    bool parsed = tablet_meta->ParseFromString(header);
-    if (!parsed) {
-        LOG(WARNING) << "parse header string failed for tablet_id:" << tablet_id << " schema_hash:" << schema_hash;
-        return OLAP_ERR_HEADER_PB_PARSE_FAILED;
-    }
-    // init must be called
-    RETURN_NOT_OK(tablet_meta->init());
-    LOG(INFO) << "data_file_type:" << tablet_meta->data_file_type();
-    if (tablet_meta->data_file_type() == OLAP_DATA_FILE) {
-        LOG(FATAL) << "Not support row-oriented tablet any more. Please convert it to column-oriented tablet."
-                   << "tablet=" << tablet_id << "." << schema_hash;
-    }
-
-    return OLAP_SUCCESS;
 }
 
 } // namespace doris

@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_OLAP_TABLE_H
-#define DORIS_BE_SRC_OLAP_OLAP_TABLE_H
+#ifndef DORIS_BE_SRC_OLAP_TABLET_H
+#define DORIS_BE_SRC_OLAP_TABLET_H
 
 #include <functional>
 #include <memory>
@@ -46,44 +46,6 @@ class OlapStore;
 // Define Tablet's shared_ptr. It is used for
 typedef std::shared_ptr<Tablet> TabletSharedPtr;
 
-enum BaseCompactionStage {
-    BASE_COMPACTION_WAITING = 0,
-    BASE_COMPACTION_RUNNING = 1,
-};
-
-struct BaseCompactionStatus {
-    BaseCompactionStatus() : status(BASE_COMPACTION_WAITING), version(-1) {}
-
-    BaseCompactionStage status;
-    int32_t version;
-};
-
-enum PushStage {
-    PUSH_WAITING = 0,
-    PUSH_RUNNING = 1,
-};
-
-struct PushStatus {
-    PushStatus() : status(PUSH_WAITING), version(-1) {}
-
-    PushStage status;
-    int32_t version;
-};
-
-enum SyncStage {
-    SYNC_WAITING = 0,
-    SYNC_RUNNING = 1,
-    SYNC_DONE = 2,
-    SYNC_FAILED = 3,
-};
-
-struct SyncStatus {
-    SyncStatus() : status(SYNC_WAITING), version(-1) {}
-
-    SyncStage status;
-    int32_t version;
-};
-
 struct SchemaChangeStatus {
     SchemaChangeStatus() : status(ALTER_TABLE_WAITING), schema_hash(0), version(-1) {}
 
@@ -99,17 +61,11 @@ public:
             TSchemaHash schema_hash,
             const std::string& header_file,
             OlapStore* store = nullptr);
-    static TabletSharedPtr create_from_header_file_for_check(
-            TTabletId tablet_id,
-            TSchemaHash schema_hash,
-            const std::string& header_file);
-
     static TabletSharedPtr create_from_header(
             TabletMeta* header,
             OlapStore* store = nullptr);
 
     explicit Tablet(TabletMeta* header, OlapStore* store);
-    explicit Tablet(TabletMeta* header);
 
     virtual ~Tablet();
 
@@ -363,18 +319,11 @@ public:
     // Return -1 if field name is invalid, else return field index in schema.
     int32_t get_field_index(const std::string& field_name) const;
 
-    // Return 0 if file_name is invalid, else return field size in schema.
-    size_t get_field_size(const std::string& field_name) const;
-
-    size_t get_return_column_size(const std::string& field_name) const;
-
     // One row in a specified Tablet comprises of fixed number of columns
     // with fixed length.
     size_t get_row_size() const;
 
     // Get tablet statistics for SHOW STATUS
-    size_t get_index_size() const;
-
     int64_t get_data_size() const;
 
     int64_t get_num_rows() const;
@@ -383,10 +332,6 @@ public:
     // eg. db4.DailyUnitStats.PRIMARY
     const std::string& full_name() const {
         return _full_name;
-    }
-
-    void set_full_name(std::string full_name) {
-        _full_name = full_name;
     }
 
     std::vector<FieldInfo>& tablet_schema() {
@@ -420,10 +365,6 @@ public:
 
     TTabletId tablet_id() const {
         return _tablet_id;
-    }
-
-    void set_tablet_id(TTabletId tablet_id)      {
-        _tablet_id = tablet_id;
     }
 
     size_t num_short_key_fields() const {
@@ -485,10 +426,6 @@ public:
 
     const OLAPStatus delete_version(const Version& version) {
         return _tablet_meta->delete_version(version);
-    }
-
-    const OLAPStatus version_creation_time(const Version& version, int64_t* creation_time) {
-        return _tablet_meta->version_creation_time(version, creation_time);
     }
 
     DataFileType data_file_type() const {
@@ -673,12 +610,7 @@ public:
     OLAPStatus test_version(const Version& version);
 
     VersionEntity get_version_entity_by_version(const Version& version);
-    size_t get_version_index_size(const Version& version);
     size_t get_version_data_size(const Version& version);
-
-    bool is_dropped() {
-        return _is_dropped;
-    }
 
     OLAPStatus recover_tablet_until_specfic_version(const int64_t& until_version,
                                                     const int64_t& version_hash);
@@ -763,11 +695,10 @@ private:
     Mutex _load_lock;
     std::string _tablet_path;
 
-    bool _tablet_for_check;
-
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 };
 
+
 }  // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_OLAP_TABLE_H
+#endif // DORIS_BE_SRC_OLAP_TABLET_H
