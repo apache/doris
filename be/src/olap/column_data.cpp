@@ -64,7 +64,7 @@ OLAPStatus ColumnData::init() {
 
     auto res = _short_key_cursor.init(_segment_group->short_key_fields());
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "key cursor init failed, tablet:" << _tablet->id()
+        LOG(WARNING) << "key cursor init failed, tablet:" << _tablet->tablet_id()
             << ", res:" << res;
         return res;
     }

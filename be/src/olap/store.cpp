@@ -485,14 +485,8 @@ OLAPStatus OlapStore::_load_tablet_from_header(StorageEngine* engine, TTabletId 
                      << " schema_hash:" << schema_hash;
         return OLAP_ERR_HEADER_PB_PARSE_FAILED;
     }
-    OLAPStatus res = OLAP_SUCCESS;
-    if (tablet_meta->file_version_size() != 0) {
-        tablet_meta->change_file_version_to_delta();
-        res = TabletMetaManager::save(this, tablet_id, schema_hash, tablet_meta.get());
-    }
-    
     // init must be called
-    res = tablet_meta->init();
+    OLAPStatus res = tablet_meta->init();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to init header, tablet_id:" << tablet_id << ", schema_hash:" << schema_hash;
         res = TabletMetaManager::remove(this, tablet_id, schema_hash);
