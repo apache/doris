@@ -64,7 +64,7 @@ TabletSharedPtr Tablet::create_from_header_file(
     }
 
     if (tablet_meta->load_and_init() != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to load header. header_file=" << header_file;
+        LOG(WARNING) << "fail to load tablet_meta. header_file=" << header_file;
         delete tablet_meta;
         return NULL;
     }
@@ -78,11 +78,11 @@ TabletSharedPtr Tablet::create_from_header_file(
     uint64_t shard = stol(shard_str);
     tablet_meta->set_shard(shard);
 
-    // save header info to kv db
-    // header key format: tablet_id + "_" + schema_hash
+    // save tablet_meta info to kv db
+    // tablet_meta key format: tablet_id + "_" + schema_hash
     OLAPStatus s = TabletMetaManager::save(store, tablet_id, schema_hash, tablet_meta);
     if (s != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to save header to db. [header_file=%s]", header_file.c_str());
+        OLAP_LOG_WARNING("fail to save tablet_meta to db. [header_file=%s]", header_file.c_str());
         delete tablet_meta;
         return NULL;
     }
@@ -100,7 +100,7 @@ TabletSharedPtr Tablet::create_from_header_file_for_check(
     }
 
     if (tablet_meta->load_for_check() != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to load header. [header_file=%s]", header_file.c_str());
+        OLAP_LOG_WARNING("fail to load tablet_meta. [header_file=%s]", header_file.c_str());
         delete tablet_meta;
         return NULL;
     }
@@ -117,20 +117,20 @@ TabletSharedPtr Tablet::create_from_header_file_for_check(
     return tablet;
 }
 
-Tablet::Tablet(TabletMeta* header)
-        : _header(header) {
-    if (header->has_tablet_id()) {
-        _tablet_id =  header->tablet_id();
-        _schema_hash = header->schema_hash();
-        _full_name = std::to_string(header->tablet_id()) + "." + std::to_string(header->schema_hash());
+Tablet::Tablet(TabletMeta* tablet_meta)
+        : _tablet_meta(tablet_meta) {
+    if (tablet_meta->has_tablet_id()) {
+        _tablet_id =  tablet_meta->tablet_id();
+        _schema_hash = tablet_meta->schema_hash();
+        _full_name = std::to_string(tablet_meta->tablet_id()) + "." + std::to_string(tablet_meta->schema_hash());
     }
     _tablet_for_check = true;
 }
 
 TabletSharedPtr Tablet::create_from_header(
-        TabletMeta* header,
+        TabletMeta* tablet_meta,
         OlapStore* store) {
-    auto tablet = std::make_shared<Tablet>(header, store);
+    auto tablet = std::make_shared<Tablet>(tablet_meta, store);
     if (tablet == NULL) {
         LOG(WARNING) << "fail to malloc a tablet.";
         return nullptr;
@@ -139,8 +139,8 @@ TabletSharedPtr Tablet::create_from_header(
     return tablet;
 }
 
-Tablet::Tablet(TabletMeta* header, OlapStore* store) :
-        _header(header),
+Tablet::Tablet(TabletMeta* tablet_meta, OlapStore* store) :
+        _tablet_meta(tablet_meta),
         _is_dropped(false),
         _num_fields(0),
         _num_null_fields(0),
@@ -148,66 +148,66 @@ Tablet::Tablet(TabletMeta* header, OlapStore* store) :
         _id(0),
         _store(store),
         _is_loaded(false) {
-    if (header == NULL) {
+    if (tablet_meta == NULL) {
         return;  // for convenience of mock test.
     }
 
-    for (int i = 0; i < header->column_size(); i++) {
+    for (int i = 0; i < tablet_meta->column_size(); i++) {
         FieldInfo field_info;
-        field_info.name = header->column(i).name();
-        field_info.type = FieldInfo::get_field_type_by_string(header->column(i).type());
+        field_info.name = tablet_meta->column(i).name();
+        field_info.type = FieldInfo::get_field_type_by_string(tablet_meta->column(i).type());
         field_info.aggregation = FieldInfo::get_aggregation_type_by_string(
-                                     header->column(i).aggregation());
-        field_info.length = header->column(i).length();
-        field_info.is_key = header->column(i).is_key();
+                                     tablet_meta->column(i).aggregation());
+        field_info.length = tablet_meta->column(i).length();
+        field_info.is_key = tablet_meta->column(i).is_key();
 
-        if (header->column(i).has_default_value()) {
+        if (tablet_meta->column(i).has_default_value()) {
             field_info.has_default_value = true;
-            field_info.set_default_value(header->column(i).default_value().c_str());
+            field_info.set_default_value(tablet_meta->column(i).default_value().c_str());
         } else {
             field_info.has_default_value = false;
         }
 
-        if (header->column(i).has_referenced_column()) {
+        if (tablet_meta->column(i).has_referenced_column()) {
             field_info.has_referenced_column = true;
-            field_info.referenced_column = header->column(i).referenced_column();
+            field_info.referenced_column = tablet_meta->column(i).referenced_column();
         } else {
             field_info.has_referenced_column = false;
         }
 
-        if (header->column(i).has_index_length() || header->column(i).index_length() != 0) {
-            field_info.index_length = header->column(i).index_length();
+        if (tablet_meta->column(i).has_index_length() || tablet_meta->column(i).index_length() != 0) {
+            field_info.index_length = tablet_meta->column(i).index_length();
         } else {
             field_info.index_length = field_info.length;
         }
 
-        if (header->column(i).has_precision()) {
-            field_info.precision = header->column(i).precision();
+        if (tablet_meta->column(i).has_precision()) {
+            field_info.precision = tablet_meta->column(i).precision();
         }
 
-        if (header->column(i).has_frac()) {
-            field_info.frac = header->column(i).frac();
+        if (tablet_meta->column(i).has_frac()) {
+            field_info.frac = tablet_meta->column(i).frac();
         }
 
-        if (header->column(i).has_unique_id()) {
-            field_info.unique_id = header->column(i).unique_id();
+        if (tablet_meta->column(i).has_unique_id()) {
+            field_info.unique_id = tablet_meta->column(i).unique_id();
         } else {
             // 该表不支持unique id, 分配一个unique id
             field_info.unique_id = static_cast<uint32_t>(i);
         }
 
-        for (int j = 0; i < header->column(i).sub_column_size(); j++) {
-            field_info.sub_columns.push_back(header->column(i).sub_column(j));
+        for (int j = 0; i < tablet_meta->column(i).sub_column_size(); j++) {
+            field_info.sub_columns.push_back(tablet_meta->column(i).sub_column(j));
         }
 
-        field_info.is_root_column = header->column(i).is_root_column();
-        if (header->column(i).has_is_allow_null()) {
-            field_info.is_allow_null = header->column(i).is_allow_null();
+        field_info.is_root_column = tablet_meta->column(i).is_root_column();
+        if (tablet_meta->column(i).has_is_allow_null()) {
+            field_info.is_allow_null = tablet_meta->column(i).is_allow_null();
         } else {
             field_info.is_allow_null = false;
         }
 
-        field_info.is_bf_column = header->column(i).is_bf_column();
+        field_info.is_bf_column = tablet_meta->column(i).is_bf_column();
 
         _tablet_schema.push_back(field_info);
         // field name --> field position in full row.
@@ -223,16 +223,16 @@ Tablet::Tablet(TabletMeta* header, OlapStore* store) :
         }
     }
 
-    _num_rows_per_row_block = header->num_rows_per_data_block();
-    _compress_kind = header->compress_kind();
+    _num_rows_per_row_block = tablet_meta->num_rows_per_data_block();
+    _compress_kind = tablet_meta->compress_kind();
     std::stringstream tablet_path_stream;
-    _tablet_id =  header->tablet_id();
-    _schema_hash = header->schema_hash();
-    tablet_path_stream << store->path() << DATA_PREFIX << "/" << header->shard();
+    _tablet_id =  tablet_meta->tablet_id();
+    _schema_hash = tablet_meta->schema_hash();
+    tablet_path_stream << store->path() << DATA_PREFIX << "/" << tablet_meta->shard();
     tablet_path_stream << "/" << _tablet_id << "/" << _schema_hash;
     _tablet_path = tablet_path_stream.str();
     _storage_root_path = store->path();
-    _full_name = std::to_string(header->tablet_id()) + "." + std::to_string(header->schema_hash());
+    _full_name = std::to_string(tablet_meta->tablet_id()) + "." + std::to_string(tablet_meta->schema_hash());
     _tablet_for_check = false;
 }
 
@@ -241,7 +241,7 @@ Tablet::~Tablet() {
         return;
     }
 
-    if (_header == NULL) {
+    if (_tablet_meta == NULL) {
         return;  // for convenience of mock test.
     }
 
@@ -256,7 +256,7 @@ Tablet::~Tablet() {
 
     // clear the transactions in memory
     for (auto& it : _pending_data_sources) {
-        // false means can't remove the transaction from header, also prevent the loading of tablet
+        // false means can't remove the transaction from tablet_meta, also prevent the loading of tablet
         for (SegmentGroup* segment_group : it.second) {
             StorageEngine::get_instance()->delete_transaction(
                     segment_group->partition_id(), segment_group->transaction_id(),
@@ -267,18 +267,18 @@ Tablet::~Tablet() {
     _pending_data_sources.clear();
     release_header_lock();
 
-    SAFE_DELETE(_header);
+    SAFE_DELETE(_tablet_meta);
 
     // 移动数据目录
     if (_is_dropped) {
         LOG(INFO) << "drop tablet:" << full_name() << ", tablet path:" << _tablet_path;
         path table_path(_tablet_path);
-        std::string header_path = _tablet_path + "/" + std::to_string(_tablet_id) + ".hdr";
-        OLAPStatus s = TabletMetaManager::dump_header(_store, _tablet_id, _schema_hash, header_path);
-        LOG(INFO) << "dump header to path:" << header_path << ", status:" << s;
-        LOG(INFO) << "start to remove tablet header:" << full_name();
+        std::string tablet_meta_path = _tablet_path + "/" + std::to_string(_tablet_id) + ".hdr";
+        OLAPStatus s = TabletMetaManager::dump_header(_store, _tablet_id, _schema_hash, tablet_meta_path);
+        LOG(INFO) << "dump tablet_meta to path:" << tablet_meta_path << ", status:" << s;
+        LOG(INFO) << "start to remove tablet tablet_meta:" << full_name();
         s = TabletMetaManager::remove(_store, _tablet_id, _schema_hash);
-        LOG(INFO) << "finish remove tablet header:" << full_name() << ", res:" << s;
+        LOG(INFO) << "finish remove tablet tablet_meta:" << full_name() << ", res:" << s;
         if (move_to_trash(table_path, table_path) != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to delete tablet. [table_path=" << _tablet_path << "]";
         }
@@ -345,12 +345,12 @@ EXIT:
 OLAPStatus Tablet::load_indices() {
     OLAPStatus res = OLAP_SUCCESS;
     ReadLock rdlock(&_header_lock);
-    TabletMeta* header = _header;
+    TabletMeta* tablet_meta = _tablet_meta;
     VLOG(3) << "begin to load indices. tablet=" << full_name() << ", "
-        << "version_size=" << header->file_delta_size();
+        << "version_size=" << tablet_meta->file_delta_size();
 
-    for (int delta_id = 0; delta_id < header->delta_size(); ++delta_id) {
-        const PDelta& delta = header->delta(delta_id);
+    for (int delta_id = 0; delta_id < tablet_meta->delta_size(); ++delta_id) {
+        const PDelta& delta = tablet_meta->delta(delta_id);
         Version version;
         version.first = delta.start_version();
         version.second = delta.end_version();
@@ -375,7 +375,7 @@ OLAPStatus Tablet::load_indices() {
                 OLAP_LOG_WARNING("fail to validate segment_group. [version='%d-%d' version_hash=%ld]",
                                  version.first,
                                  version.second,
-                                 header->delta(delta_id).version_hash());
+                                 tablet_meta->delta(delta_id).version_hash());
                 // 现在只要一个segment_group没有被正确加载,整个table加载失败
                 return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
             }
@@ -427,10 +427,10 @@ OLAPStatus Tablet::load_indices() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Tablet::save_header() {
-    OLAPStatus res = TabletMetaManager::save(_store, _tablet_id, _schema_hash, _header);
+OLAPStatus Tablet::save_tablet_meta() {
+    OLAPStatus res = TabletMetaManager::save(_store, _tablet_id, _schema_hash, _tablet_meta);
     if (res != OLAP_SUCCESS) {
-       LOG(WARNING) << "fail to save header. [res=" << res << " root=" << _storage_root_path << "]";
+       LOG(WARNING) << "fail to save tablet_meta. [res=" << res << " root=" << _storage_root_path << "]";
     }
 
     return res;
@@ -438,7 +438,7 @@ OLAPStatus Tablet::save_header() {
 
 OLAPStatus Tablet::select_versions_to_span( const Version& version,
                                            vector<Version>* span_versions) const {
-    OLAPStatus res = _header->select_versions_to_span(version, span_versions);
+    OLAPStatus res = _tablet_meta->select_versions_to_span(version, span_versions);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to generate shortest version path. [version='" << version.first
                      << "-" << version.second << "' tablet='" << full_name() << "']";
@@ -449,7 +449,7 @@ OLAPStatus Tablet::select_versions_to_span( const Version& version,
 void Tablet::acquire_data_sources(const Version& version, vector<ColumnData*>* sources) const {
     vector<Version> span_versions;
 
-    if (_header->select_versions_to_span(version, &span_versions) != OLAP_SUCCESS) {
+    if (_tablet_meta->select_versions_to_span(version, &span_versions) != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to generate shortest version path. [version='" << version.first
                      << "-" << version.second << "' tablet='" << full_name() << "']";
         return;
@@ -531,17 +531,17 @@ OLAPStatus Tablet::register_data_source(const std::vector<SegmentGroup*>& index_
         if (segment_group->has_column_statistics()) {
             column_statistics = &segment_group->get_column_statistics();
         }
-        res = _header->add_version(version, segment_group->version_hash(), segment_group->segment_group_id(),
+        res = _tablet_meta->add_version(version, segment_group->version_hash(), segment_group->segment_group_id(),
                                    segment_group->num_segments(), segment_group->index_size(), segment_group->data_size(),
                                    segment_group->num_rows(), segment_group->empty(), column_statistics);
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to add version to olap header. tablet=" << full_name() << ", "
+            LOG(WARNING) << "fail to add version to olap tablet_meta. tablet=" << full_name() << ", "
                          << "version=" << version.first << "-" << version.second;
             return res;
         }
 
         // put the new segment_group into _data_sources.
-        // 由于对header的操作可能失败，因此对_data_sources要放在这里
+        // 由于对tablet_meta的操作可能失败，因此对_data_sources要放在这里
         _data_sources[version].push_back(segment_group);
         VLOG(3) << "succeed to register data source. tablet=" << full_name() << ", "
                 << "version=" << version.first << "-" << version.second << ", "
@@ -562,9 +562,9 @@ OLAPStatus Tablet::unregister_data_source(const Version& version, std::vector<Se
         return OLAP_ERR_VERSION_NOT_EXIST;
     }
 
-    // delete a reference to the data source in the header file
-    if ((res = _header->delete_version(version)) != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to delete version from olap header. [version='" << version.first
+    // delete a reference to the data source in the tablet_meta file
+    if ((res = _tablet_meta->delete_version(version)) != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to delete version from olap tablet_meta. [version='" << version.first
                      << "-" << version.second << "' tablet='" << full_name() << "']";
         return res;
     }
@@ -577,17 +577,17 @@ OLAPStatus Tablet::unregister_data_source(const Version& version, std::vector<Se
 OLAPStatus Tablet::add_pending_version(int64_t partition_id, int64_t transaction_id,
                                         const std::vector<string>* delete_conditions) {
    WriteLock wrlock(&_header_lock);
-   OLAPStatus res = _header->add_pending_version(partition_id, transaction_id, delete_conditions);
+   OLAPStatus res = _tablet_meta->add_pending_version(partition_id, transaction_id, delete_conditions);
    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to add pending delta to header."
+        LOG(WARNING) << "fail to add pending delta to tablet_meta."
                      << "tablet=" << full_name() << ", "
                      << "transaction_id=" << transaction_id;
         return res;
    }
-   res = save_header();
+   res = save_tablet_meta();
    if (res != OLAP_SUCCESS) {
-       _header->delete_pending_delta(transaction_id);
-       LOG(FATAL) << "fail to save header when add pending segment_group. [tablet=" << full_name()
+       _tablet_meta->delete_pending_delta(transaction_id);
+       LOG(FATAL) << "fail to save tablet_meta when add pending segment_group. [tablet=" << full_name()
            << " transaction_id=" << transaction_id << "]";
        return res;
    }
@@ -604,26 +604,26 @@ OLAPStatus Tablet::add_pending_segment_group(SegmentGroup* segment_group) {
     obtain_header_wrlock();
     OLAPStatus res = OLAP_SUCCESS;
 
-    // add to header
+    // add to tablet_meta
     const std::vector<KeyRange>* column_statistics = nullptr;
     if (segment_group->has_column_statistics()) {
         column_statistics = &(segment_group->get_column_statistics());
     }
-    res = _header->add_pending_segment_group(transaction_id, segment_group->num_segments(),
+    res = _tablet_meta->add_pending_segment_group(transaction_id, segment_group->num_segments(),
                                       segment_group->segment_group_id(), segment_group->load_id(),
                                       segment_group->empty(), column_statistics);
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to add pending segment_group to header. [tablet=" << full_name()
+        LOG(WARNING) << "fail to add pending segment_group to tablet_meta. [tablet=" << full_name()
                      << " transaction_id=" << transaction_id << "]";
         release_header_lock();
         return res;
     }
 
-    // save header
-    res = save_header();
+    // save tablet_meta
+    res = save_tablet_meta();
     if (res != OLAP_SUCCESS) {
-        _header->delete_pending_delta(transaction_id);
-        LOG(FATAL) << "fail to save header when add pending segment_group. [tablet=" << full_name()
+        _tablet_meta->delete_pending_delta(transaction_id);
+        LOG(FATAL) << "fail to save tablet_meta when add pending segment_group. [tablet=" << full_name()
                    << " transaction_id=" << transaction_id << "]";
         release_header_lock();
         return res;
@@ -677,38 +677,38 @@ OLAPStatus Tablet::add_pending_data(SegmentGroup* segment_group, const std::vect
     }
 
     if (!condition_strs.empty()) {
-        res = _header->add_pending_version(segment_group->partition_id(), transaction_id, &condition_strs);
+        res = _tablet_meta->add_pending_version(segment_group->partition_id(), transaction_id, &condition_strs);
     } else {
-        res = _header->add_pending_version(segment_group->partition_id(), transaction_id, nullptr);
+        res = _tablet_meta->add_pending_version(segment_group->partition_id(), transaction_id, nullptr);
     }
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to add pending delta to header."
+        LOG(WARNING) << "fail to add pending delta to tablet_meta."
                      << "tablet=" << full_name() << ", "
                      << "transaction_id=" << transaction_id;
         release_header_lock();
         return res;
     }
 
-    // add to header
+    // add to tablet_meta
     const std::vector<KeyRange>* column_statistics = nullptr;
     if (segment_group->has_column_statistics()) {
         column_statistics = &(segment_group->get_column_statistics());
     }
-    res = _header->add_pending_segment_group(transaction_id, segment_group->num_segments(),
+    res = _tablet_meta->add_pending_segment_group(transaction_id, segment_group->num_segments(),
                                       segment_group->segment_group_id(), segment_group->load_id(),
                                       segment_group->empty(), column_statistics);
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to add pending segment_group to header. [tablet=" << full_name()
+        LOG(WARNING) << "fail to add pending segment_group to tablet_meta. [tablet=" << full_name()
                      << " transaction_id=" << transaction_id << "]";
         release_header_lock();
         return res;
     }
 
-    // save header
-    res = save_header();
+    // save tablet_meta
+    res = save_tablet_meta();
     if (res != OLAP_SUCCESS) {
-        _header->delete_pending_delta(transaction_id);
-        LOG(FATAL) << "fail to save header when add pending segment_group. [tablet=" << full_name()
+        _tablet_meta->delete_pending_delta(transaction_id);
+        LOG(FATAL) << "fail to save tablet_meta when add pending segment_group. [tablet=" << full_name()
                    << " transaction_id=" << transaction_id << "]";
         release_header_lock();
         return res;
@@ -744,12 +744,12 @@ void Tablet::delete_pending_data(int64_t transaction_id) {
     }
     _pending_data_sources.erase(it);
 
-    // delete from header
-    _header->delete_pending_delta(transaction_id);
+    // delete from tablet_meta
+    _tablet_meta->delete_pending_delta(transaction_id);
 
-    // save header
-    if (save_header() != OLAP_SUCCESS) {
-        LOG(FATAL) << "failed to save header when delete pending data. [tablet=" << full_name()
+    // save tablet_meta
+    if (save_tablet_meta() != OLAP_SUCCESS) {
+        LOG(FATAL) << "failed to save tablet_meta when delete pending data. [tablet=" << full_name()
                    << " transaction_id=" << transaction_id << "]";
     }
 
@@ -763,7 +763,7 @@ void Tablet::get_expire_pending_data(vector<int64_t>* transaction_ids) {
     time_t now = time(NULL);
     ReadLock rdlock(&_header_lock);
 
-    for (auto& it : _header->pending_delta()) {
+    for (auto& it : _tablet_meta->pending_delta()) {
         double diff = difftime(now, it.creation_time());
         if (diff >= config::pending_data_expire_time_sec) {
             transaction_ids->push_back(it.transaction_id());
@@ -775,13 +775,13 @@ void Tablet::get_expire_pending_data(vector<int64_t>* transaction_ids) {
 
 void Tablet::load_pending_data() {
     LOG(INFO) << "begin to load pending_data. tablet=" << full_name() << ", "
-              << "pending_delta size=" << _header->pending_delta_size();
+              << "pending_delta size=" << _tablet_meta->pending_delta_size();
     MutexLock load_lock(&_load_lock);
 
-    // if a olap segment_group loads failed, delete it from header
+    // if a olap segment_group loads failed, delete it from tablet_meta
     std::set<int64_t> error_pending_data;
 
-    for (const PPendingDelta& pending_delta : _header->pending_delta()) {
+    for (const PPendingDelta& pending_delta : _tablet_meta->pending_delta()) {
         for (const PPendingSegmentGroup& pending_segment_group : pending_delta.pending_segment_group()) {
             SegmentGroup* segment_group = new SegmentGroup(this, false, 
                     pending_segment_group.pending_segment_group_id(),
@@ -903,10 +903,10 @@ OLAPStatus Tablet::publish_version(int64_t transaction_id, Version version,
     res = register_data_source(index_vec);
     if (res != OLAP_SUCCESS) { remove_files(linked_files); return res; }
 
-    const PPendingDelta* pending_delta = _header->get_pending_delta(transaction_id);
+    const PPendingDelta* pending_delta = _tablet_meta->get_pending_delta(transaction_id);
     if (pending_delta->has_delete_condition()) {
         const DeleteConditionMessage& delete_condition = pending_delta->delete_condition();
-        _header->add_delete_condition(delete_condition, version.first);
+        _tablet_meta->add_delete_condition(delete_condition, version.first);
     }
 
     // add incremental version, if failed, ignore it
@@ -916,10 +916,10 @@ OLAPStatus Tablet::publish_version(int64_t transaction_id, Version version,
             << "transaction_id=" << transaction_id << ", "
             << "version=" << version.first << "-" << version.second;
 
-    // save header
-    res = save_header();
+    // save tablet_meta
+    res = save_tablet_meta();
     if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to save header when publish version. res=" << res << ", "
+        LOG(FATAL) << "fail to save tablet_meta when publish version. res=" << res << ", "
                    << "tablet=" << full_name() << ", "
                    << "transaction_id=" << transaction_id;
         std::vector<SegmentGroup*> delete_index_vec;
@@ -930,11 +930,11 @@ OLAPStatus Tablet::publish_version(int64_t transaction_id, Version version,
         return res;
     }
 
-    _header->delete_pending_delta(transaction_id);
-    res = save_header();
+    _tablet_meta->delete_pending_delta(transaction_id);
+    res = save_tablet_meta();
     if (res != OLAP_SUCCESS) {
         remove_files(linked_files);
-        LOG(FATAL) << "fail to save header when publish version. res=" << res << ", "
+        LOG(FATAL) << "fail to save tablet_meta when publish version. res=" << res << ", "
                    << "tablet=" << full_name() << ", "
                    << "transaction_id=" << transaction_id;
         return res;
@@ -948,13 +948,13 @@ OLAPStatus Tablet::publish_version(int64_t transaction_id, Version version,
     return res;
 }
 
-// 1. if version is same and version_hash different, delete local data, save header
-// 2. if version_hash is same or version is merged, publish success, delete transaction, save header
+// 1. if version is same and version_hash different, delete local data, save tablet_meta
+// 2. if version_hash is same or version is merged, publish success, delete transaction, save tablet_meta
 OLAPStatus Tablet::_handle_existed_version(int64_t transaction_id, const Version& version,
                                               const VersionHash& version_hash) {
     const PDelta* existed_delta = nullptr;
     for (int i = 0; i < file_delta_size(); ++i) {
-        const PDelta* delta = _header->get_delta(i);
+        const PDelta* delta = _tablet_meta->get_delta(i);
         if (version.first >= delta->start_version()
             && version.second <= delta->end_version()) {
             existed_delta = delta;
@@ -997,10 +997,10 @@ OLAPStatus Tablet::_handle_existed_version(int64_t transaction_id, const Version
                          << " version=" << version.first << "-" << version.second << " res=" << res << "]";
             return res;
         }
-        // save header
-        res = save_header();
+        // save tablet_meta
+        res = save_tablet_meta();
         if (res != OLAP_SUCCESS) {
-            LOG(FATAL) << "fail to save header when unregister data. [tablet=" << full_name()
+            LOG(FATAL) << "fail to save tablet_meta when unregister data. [tablet=" << full_name()
                        << " transaction_id=" << transaction_id << "]";
         }
         // use StorageEngine to delete this segment_group
@@ -1058,7 +1058,7 @@ OLAPStatus Tablet::_add_incremental_data(std::vector<SegmentGroup*>& index_vec, 
         if (segment_group->has_column_statistics()) {
             column_statistics = &(segment_group->get_column_statistics());
         }
-        res = _header->add_incremental_version(
+        res = _tablet_meta->add_incremental_version(
                 segment_group->version(), segment_group->version_hash(),
                 segment_group->segment_group_id(), segment_group->num_segments(),
                 segment_group->index_size(), segment_group->data_size(),
@@ -1080,7 +1080,7 @@ void Tablet::delete_expire_incremental_data() {
     time_t now = time(NULL);
     std::vector<std::pair<Version, VersionHash>> expire_versions;
     WriteLock wrlock(&_header_lock);
-    for (auto& it : _header->incremental_delta()) {
+    for (auto& it : _tablet_meta->incremental_delta()) {
         double diff = difftime(now, it.creation_time());
         if (diff >= config::incremental_delta_expire_time_sec) {
             Version version(it.start_version(), it.end_version());
@@ -1096,8 +1096,8 @@ void Tablet::delete_expire_incremental_data() {
                 << "version=" << it.first.first << "-" << it.first.second;
     }
 
-    if (save_header() != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to save header when delete expire incremental data."
+    if (save_tablet_meta() != OLAP_SUCCESS) {
+        LOG(FATAL) << "fail to save tablet_meta when delete expire incremental data."
                    << "tablet=" << full_name();
     }
 }
@@ -1121,7 +1121,7 @@ void Tablet::_delete_incremental_data(const Version& version, const VersionHash&
     }
 
     remove_files(files_to_delete);
-    _header->delete_incremental_delta(version);
+    _tablet_meta->delete_incremental_delta(version);
     VLOG(3) << "delete incremental data. tablet=" << full_name() << ", "
             << "version=" << version.first << "-" << version.second;
 }
@@ -1130,8 +1130,8 @@ void Tablet::get_missing_versions_with_header_locked(
         int64_t until_version, std::vector<Version>* missing_versions) const {
     DCHECK(until_version > 0) << "invalid until_version: " << until_version;
     std::list<Version> existing_versions;
-    for (int i = 0; i < _header->file_delta_size(); ++i) {
-        const PDelta* delta = _header->get_delta(i);
+    for (int i = 0; i < _tablet_meta->file_delta_size(); ++i) {
+        const PDelta* delta = _tablet_meta->get_delta(i);
         existing_versions.emplace_back(delta->start_version(), delta->end_version());
     }
 
@@ -1165,8 +1165,8 @@ const PDelta* Tablet::least_complete_version(
     const PDelta* least_delta = nullptr;
     if (!missing_versions.empty()) {
         Version version = missing_versions.front();
-        for (int i = 0; i < _header->file_delta_size(); ++i) {
-            const PDelta* delta = _header->get_delta(i);
+        for (int i = 0; i < _tablet_meta->file_delta_size(); ++i) {
+            const PDelta* delta = _tablet_meta->get_delta(i);
             if (delta->end_version() == version.first - 1) {
                 LOG(INFO) << "find least complete version. tablet=" << full_name() << ", "
                     << "version=" << delta->start_version() << "-" << delta->end_version() << ", "
@@ -1186,7 +1186,7 @@ const PDelta* Tablet::least_complete_version(
 OLAPStatus Tablet::is_push_for_delete(
     int64_t transaction_id, bool* is_push_for_delete) const {
 
-    const PPendingDelta* pending_delta = _header->get_pending_delta(transaction_id);
+    const PPendingDelta* pending_delta = _tablet_meta->get_pending_delta(transaction_id);
     if (pending_delta == nullptr) {
         LOG(WARNING) << "pending segment_group not found when check push for delete. [tablet=" << full_name()
                      << " transaction_id=" << transaction_id << "]";
@@ -1284,7 +1284,7 @@ OLAPStatus Tablet::_create_hard_link(const string& from, const string& to,
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Tablet::clone_data(const TabletMeta& clone_header,
+OLAPStatus Tablet::clone_data(const TabletMeta& clone_tablet_meta,
                                  const vector<const PDelta*>& clone_deltas,
                                  const vector<Version>& versions_to_delete) {
     LOG(INFO) << "begin to clone data to tablet. tablet=" << full_name() << ", "
@@ -1294,19 +1294,19 @@ OLAPStatus Tablet::clone_data(const TabletMeta& clone_header,
     version_olap_index_map_t tmp_data_sources;
 
     do {
-        // load new local header to operate on
-        TabletMeta new_local_header;
-        TabletMetaManager::get_header(_store, _tablet_id, _schema_hash, &new_local_header);
+        // load new local tablet_meta to operate on
+        TabletMeta new_local_tablet_meta;
+        TabletMetaManager::get_header(_store, _tablet_id, _schema_hash, &new_local_tablet_meta);
 
-        // delete versions from new local header
+        // delete versions from new local tablet_meta
         for (const Version& version : versions_to_delete) {
-            res = new_local_header.delete_version(version);
+            res = new_local_tablet_meta.delete_version(version);
             if (res != OLAP_SUCCESS) {
-                LOG(WARNING) << "failed to delete version from new local header. [tablet=" << full_name()
+                LOG(WARNING) << "failed to delete version from new local tablet_meta. [tablet=" << full_name()
                              << " version=" << version.first << "-" << version.second << "]";
                 break;
             }
-            LOG(INFO) << "delete version from new local header when clone. [tablet='" << full_name()
+            LOG(INFO) << "delete version from new local tablet_meta when clone. [tablet='" << full_name()
                       << "', version=" << version.first << "-" << version.second << "]";
         }
 
@@ -1331,12 +1331,12 @@ OLAPStatus Tablet::clone_data(const TabletMeta& clone_header,
 
                 tmp_data_sources[version].push_back(tmp_segment_group);
 
-                // add version to new local header
+                // add version to new local tablet_meta
                 const std::vector<KeyRange>* column_statistics = nullptr;
                 if (tmp_segment_group->has_column_statistics()) {
                     column_statistics = &(tmp_segment_group->get_column_statistics());
                 }
-                res = new_local_header.add_version(version, tmp_segment_group->version_hash(),
+                res = new_local_tablet_meta.add_version(version, tmp_segment_group->version_hash(),
                                                    tmp_segment_group->segment_group_id(),
                                                    tmp_segment_group->num_segments(),
                                                    tmp_segment_group->index_size(),
@@ -1345,7 +1345,7 @@ OLAPStatus Tablet::clone_data(const TabletMeta& clone_header,
                                                    tmp_segment_group->empty(),
                                                    column_statistics);
                 if (res != OLAP_SUCCESS) {
-                    LOG(WARNING) << "fail to add version to new local header when clone."
+                    LOG(WARNING) << "fail to add version to new local tablet_meta when clone."
                                  << "res=" << res << ", "
                                  << "tablet=" << full_name() << ", "
                                  << "version=" << version.first << "-" << version.second << ", "
@@ -1356,14 +1356,14 @@ OLAPStatus Tablet::clone_data(const TabletMeta& clone_header,
 
             if (res != OLAP_SUCCESS) { break; }
 
-            // add delete conditions to new local header, if it exists in clone_header
+            // add delete conditions to new local tablet_meta, if it exists in clone_tablet_meta
             if (version.first == version.second) {
                 for (google::protobuf::RepeatedPtrField<DeleteConditionMessage>::const_iterator it
-                     = clone_header.delete_data_conditions().begin();
-                     it != clone_header.delete_data_conditions().end(); ++it) {
+                     = clone_tablet_meta.delete_data_conditions().begin();
+                     it != clone_tablet_meta.delete_data_conditions().end(); ++it) {
                     if (it->version() == version.first) {
                         // add it
-                        new_local_header.add_delete_condition(*it, version.first);
+                        new_local_tablet_meta.add_delete_condition(*it, version.first);
                         LOG(INFO) << "add delete condition when clone. [tablet=" << full_name()
                                   << " version=" << it->version() << "]";
                         break;
@@ -1378,15 +1378,15 @@ OLAPStatus Tablet::clone_data(const TabletMeta& clone_header,
         VLOG(3) << "load indices successfully when clone. tablet=" << full_name() << ", "
                 << "add_versions_size=" << clone_deltas.size() << ", " 
                 << "new_indices_size=" << tmp_data_sources.size();
-        // save and reload header
-        res = TabletMetaManager::save(_store, _tablet_id, _schema_hash, &new_local_header);
+        // save and reload tablet_meta
+        res = TabletMetaManager::save(_store, _tablet_id, _schema_hash, &new_local_tablet_meta);
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to save new local header when clone. res:" << res;
+            LOG(WARNING) << "failed to save new local tablet_meta when clone. res:" << res;
             break;
         }
-        res = TabletMetaManager::get_header(_store, _tablet_id, _schema_hash, _header);
+        res = TabletMetaManager::get_header(_store, _tablet_id, _schema_hash, _tablet_meta);
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to reload original header when clone. [tablet=" << full_name()
+            LOG(WARNING) << "failed to reload original tablet_meta when clone. [tablet=" << full_name()
                          << " res=" << res << "]";
             break;
         }
@@ -1489,13 +1489,13 @@ OLAPStatus Tablet::replace_data_sources(const vector<Version>* old_versions,
         }
 
         // 删除失败会导致脏数据
-        if ((res = _header->delete_version(*it)) != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to delete version from olap header.[version='" << it->first
+        if ((res = _tablet_meta->delete_version(*it)) != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to delete version from olap tablet_meta.[version='" << it->first
                          << "-" << it->second << "' tablet='" << full_name() << "']";
             return res;
         }
 
-        VLOG(3) << "delete version from olap header. tablet=" << full_name() << ", "
+        VLOG(3) << "delete version from olap tablet_meta. tablet=" << full_name() << ", "
                 << "version=" << it->first << "-" << it->second;
     }
 
@@ -1508,18 +1508,18 @@ OLAPStatus Tablet::replace_data_sources(const vector<Version>* old_versions,
         if ((*it)->has_column_statistics()) {
             column_statistics = &((*it)->get_column_statistics());
         }
-        res = _header->add_version((*it)->version(), (*it)->version_hash(),
+        res = _tablet_meta->add_version((*it)->version(), (*it)->version_hash(),
                                    (*it)->segment_group_id(), (*it)->num_segments(),
                                    (*it)->index_size(), (*it)->data_size(),
                                    (*it)->num_rows(), (*it)->empty(), column_statistics);
 
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to add version to olap header.[version='" << (*it)->version().first
+            LOG(WARNING) << "fail to add version to olap tablet_meta.[version='" << (*it)->version().first
                          << "-" << (*it)->version().second << "' tablet='" << full_name() << "']";
             return res;
         }
 
-        VLOG(3) << "add version to olap header. tablet=" << full_name() << ", "
+        VLOG(3) << "add version to olap tablet_meta. tablet=" << full_name() << ", "
                 << "version=" << (*it)->version().first << "-" << (*it)->version().second;
     }
 
@@ -1551,32 +1551,32 @@ OLAPStatus Tablet::compute_all_versions_hash(const vector<Version>& versions,
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Tablet::merge_header(const TabletMeta& hdr, int to_version) {
+OLAPStatus Tablet::merge_tablet_meta(const TabletMeta& tablet_meta, int to_version) {
     obtain_header_wrlock();
     DeferOp release_lock(std::bind<void>(&Tablet::release_header_lock, this));
 
-    const PDelta* base_version = _header->get_base_version();
+    const PDelta* base_version = _tablet_meta->get_base_version();
     if (base_version->end_version() != to_version) {
         return OLAP_ERR_VERSION_NOT_EXIST;
     }
 
     // delete old base version
     Version base = { base_version->start_version(), base_version->end_version() };
-    OLAPStatus st = _header->delete_version(base);
+    OLAPStatus st = _tablet_meta->delete_version(base);
     if (st != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to delete version from header" << ", "
+        LOG(WARNING) << "failed to delete version from tablet_meta" << ", "
             << "version=" << base_version->start_version() << ", "
             << base_version->end_version();
         return st;
     }
-    VLOG(3) << "finished to delete version from header"
+    VLOG(3) << "finished to delete version from tablet_meta"
             << "version=" << base_version->start_version() << "-"
             << base_version->end_version();
 
 
     // add new versions
-    for (int i = 0; i < hdr.file_delta_size(); ++i) {
-        const PDelta* delta = hdr.get_delta(i);
+    for (int i = 0; i < tablet_meta.file_delta_size(); ++i) {
+        const PDelta* delta = tablet_meta.get_delta(i);
         if (delta->end_version() > to_version) {
             break;
         }
@@ -1584,23 +1584,23 @@ OLAPStatus Tablet::merge_header(const TabletMeta& hdr, int to_version) {
         VersionHash v_hash = delta->version_hash();
         for (int j = 0; j < delta->segment_group_size(); ++j) {
             const PSegmentGroup& psegment_group = delta->segment_group(j);
-            st = _header->add_version(version, v_hash, psegment_group.segment_group_id(),
+            st = _tablet_meta->add_version(version, v_hash, psegment_group.segment_group_id(),
                                        psegment_group.num_segments(), psegment_group.index_size(), psegment_group.data_size(),
                                        psegment_group.num_rows(), psegment_group.empty(), nullptr);
             if (st != OLAP_SUCCESS) {
-                LOG(WARNING) << "failed to add version to header" << ", "
+                LOG(WARNING) << "failed to add version to tablet_meta" << ", "
                     << "version=" << version.first << "-" << version.second;
                 return st;
             }
         }
     }
-    st = _header->save();
+    st = _tablet_meta->save();
     if (st != OLAP_SUCCESS) {
-       LOG(FATAL) << "failed to save header when merging. tablet:" <<  _tablet_id;
+       LOG(FATAL) << "failed to save tablet_meta when merging. tablet:" <<  _tablet_id;
        return st;
     }
 
-    VLOG(3) << "finished to merge header to version:" << to_version << "-" << to_version;
+    VLOG(3) << "finished to merge tablet_meta to version:" << to_version << "-" << to_version;
     return OLAP_SUCCESS;
 }
 
@@ -1883,9 +1883,9 @@ void Tablet::delete_all_files() {
         }
     }
 
-    // remove olap header file, _header object will be delete in Tablet.destructor
+    // remove olap tablet_meta file, _tablet_meta object will be delete in Tablet.destructor
     if (remove_parent_dir(_tablet_path) != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to delete header file and directory. header_path=" << _tablet_path;
+        LOG(WARNING) << "fail to delete tablet_path=" << _tablet_path;
     }
 }
 
@@ -2065,7 +2065,7 @@ size_t Tablet::get_row_size() const {
 
 int64_t Tablet::get_data_size() const {
     int64_t total_size = 0;
-    for (const PDelta& delta : _header->delta()) {
+    for (const PDelta& delta : _tablet_meta->delta()) {
         for (const PSegmentGroup& psegment_group : delta.segment_group()) {
             total_size += psegment_group.data_size();
         }
@@ -2076,7 +2076,7 @@ int64_t Tablet::get_data_size() const {
 
 int64_t Tablet::get_num_rows() const {
     int64_t num_rows = 0;
-    for (const PDelta& delta : _header->delta()) {
+    for (const PDelta& delta : _tablet_meta->delta()) {
         for (const PSegmentGroup& psegment_group : delta.segment_group()) {
             num_rows += psegment_group.num_rows();
         }
@@ -2094,7 +2094,7 @@ bool Tablet::is_schema_changing() {
     bool is_schema_changing = false;
 
     obtain_header_rdlock();
-    if (_header->has_schema_change_status()) {
+    if (_tablet_meta->has_schema_change_status()) {
         is_schema_changing = true;
     }
     release_header_lock();
@@ -2106,11 +2106,11 @@ bool Tablet::get_schema_change_request(TTabletId* tablet_id,
                                           SchemaHash* schema_hash,
                                           vector<Version>* versions_to_changed,
                                           AlterTabletType* alter_tablet_type) const {
-    if (!_header->has_schema_change_status()) {
+    if (!_tablet_meta->has_schema_change_status()) {
         return false;
     }
 
-    const SchemaChangeStatusMessage& schema_change_status = _header->schema_change_status();
+    const SchemaChangeStatusMessage& schema_change_status = _tablet_meta->schema_change_status();
 
     (tablet_id == NULL || (*tablet_id = schema_change_status.related_tablet_id()));
     (schema_hash == NULL || (*schema_hash = schema_change_status.related_schema_hash()));
@@ -2135,7 +2135,7 @@ void Tablet::set_schema_change_request(TTabletId tablet_id,
                                           const AlterTabletType alter_tablet_type) {
     clear_schema_change_request();
 
-    SchemaChangeStatusMessage* schema_change_status = _header->mutable_schema_change_status();
+    SchemaChangeStatusMessage* schema_change_status = _tablet_meta->mutable_schema_change_status();
     schema_change_status->set_related_tablet_id(tablet_id);
     schema_change_status->set_related_schema_hash(schema_hash);
 
@@ -2155,12 +2155,12 @@ void Tablet::set_schema_change_request(TTabletId tablet_id,
 }
 
 bool Tablet::remove_last_schema_change_version(TabletSharedPtr new_tablet) {
-    if (!_header->has_schema_change_status()) {
+    if (!_tablet_meta->has_schema_change_status()) {
         return false;
     }
 
-    if (_header->has_schema_change_status()) {
-        SchemaChangeStatusMessage* schema_change_status = _header->mutable_schema_change_status();
+    if (_tablet_meta->has_schema_change_status()) {
+        SchemaChangeStatusMessage* schema_change_status = _tablet_meta->mutable_schema_change_status();
         ::google::protobuf::RepeatedPtrField<PDelta>* versions_to_changed
             = schema_change_status->mutable_versions_to_changed();
 
@@ -2174,7 +2174,7 @@ bool Tablet::remove_last_schema_change_version(TabletSharedPtr new_tablet) {
 
 void Tablet::clear_schema_change_request() {
     LOG(INFO) << "clear schema change status. [tablet='" << _full_name << "']";
-    _header->clear_schema_change_status();
+    _tablet_meta->clear_schema_change_status();
 }
 
 void Tablet::set_io_error() {
@@ -2257,7 +2257,7 @@ OLAPStatus Tablet::recover_tablet_until_specfic_version(
     {
         WriteLock wrlock(&_header_lock);
         RETURN_NOT_OK(register_data_source(segment_group_vec));
-        RETURN_NOT_OK(save_header());
+        RETURN_NOT_OK(save_tablet_meta());
     }
     return OLAP_SUCCESS;
 }
@@ -2265,7 +2265,7 @@ OLAPStatus Tablet::recover_tablet_until_specfic_version(
 OLAPStatus Tablet::test_version(const Version& version) {
     vector<Version> span_versions;
     obtain_header_rdlock();
-    OLAPStatus res = _header->select_versions_to_span(version, &span_versions);
+    OLAPStatus res = _tablet_meta->select_versions_to_span(version, &span_versions);
     release_header_lock();
 
     return res;
