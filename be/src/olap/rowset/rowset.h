@@ -28,13 +28,15 @@ namespace doris {
 
 class Rowset {
 public:
-    NewStatus init(const RowsetMeta& rowset_meta) = 0;
+    virtual ~Rowset() { }
 
-    std::unique_ptr<RowsetReader> create_reader() = 0;
+    virtual NewStatus init(const RowsetMeta& rowset_meta) = 0;
 
-    NewStatus copy(RowsetBuilder* dest_rowset_builder) = 0;
+    virtual std::unique_ptr<RowsetReader> create_reader() = 0;
 
-    NewStatus delete() = 0;
+    virtual NewStatus copy(RowsetBuilder* dest_rowset_builder) = 0;
+
+    virtual NewStatus delete() = 0;
 
 private:
     RowsetMeta _rowset_meta;

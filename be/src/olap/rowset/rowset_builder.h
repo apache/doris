@@ -27,17 +27,19 @@ namespace doris {
 
 class RowsetBuilder {
 public:
-    NewStatus init(std::string rowset_id, const std::string& rowset_path_prefix, Schema* schema) = 0;
+    virtual ~RowsetBuilder() { }
+    
+    virtual NewStatus init(std::string rowset_id, const std::string& rowset_path_prefix, Schema* schema) = 0;
 
     // add a row block to rowset
-    NewStatus add_row_block(RowBlock* row_block) = 0;
+    virtual NewStatus add_row_block(RowBlock* row_block) = 0;
 
     // this is a temp api
     // it is used to get rewritten path for writing rowset data
-    NewStatus generate_written_path(const std::string& src_path, std::string* dest_path) = 0;
+    virtual NewStatus generate_written_path(const std::string& src_path, std::string* dest_path) = 0;
 
     // get a rowset
-    NewStatus build(Rowset* rowset) = 0;
+    virtual NewStatus build(Rowset* rowset) = 0;
 };
 
 }

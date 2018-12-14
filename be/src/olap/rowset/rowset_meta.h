@@ -24,21 +24,38 @@
 #include <vector>
 
 #include "olap/new_status.h"
+#include "olap/olap_common.h"
+#include "json2pb/json_to_pb.h"
+#include "json2pb/pb_to_json.h"
 
 namespace doris {
 
 class RowsetMeta {
 public:
-    virtual void init(const RowsetMetaPb& rowset_meta_pb) {
-        _rowset_meta_pb = rowset_meta_pb;
+    virtual ~RowsetMeta() { }
+
+    virtual bool init(const std::string& pb_rowset_meta) {
+        return _deserialize_from_pb(pb_rowset_meta);
+    }
+
+    virtual bool init_from_json(const std::string& json_rowset_meta) {
+        bool ret = json2pb::JsonToProtoMessage(json_rowset_meta, &_rowset_meta_pb);
+        return ret;
     }
 
     virtual bool deserialize_extra_properties() {
         return true;
     }
 
-    virtual void get_rowset_meta_pb(RowsetMetaPb* rowset_meta_pb) {
-        *rowset_meta_pb = _rowset_meta_pb;
+    virtual bool serialize(std::string* value) {
+        return _serialize_to_pb(value);
+    }
+
+    virtual bool get_json_rowset_meta(std::string* json_rowset_meta) {
+        json2pb::Pb2JsonOptions json_options;
+        json_options.pretty_json = true;
+        bool ret = json2pb::ProtoMessageToJson(_rowset_meta_pb, json_rowset_meta, json_options);
+        return ret;
     }
 
     virtual int64_t get_rowset_id() {
@@ -79,6 +96,18 @@ public:
 
     virtual void set_rowset_state(RowsetState rowset_state) {
         _rowset_meta_pb.set_rowset_state(rowset_state);
+    }
+
+    virtual Version get_version() {
+        Version version;
+        version.first = _rowset_meta_pb.start_version();
+        version.second = _rowset_meta_pb.end_version();
+        return version;
+    }
+
+    virtual void set_version(Version version) {
+        _rowset_meta_pb.set_start_version(version.first);
+        _rowset_meta_pb.set_end_version(version.second);
     }
 
     virtual int get_start_version() {
@@ -156,12 +185,24 @@ public:
         *new_delete_condition = delete_predicate;
     }
 
-    virtual int64_t get_transaction_id() {
-        return _rowset_meta_pb.transaction_id();
+    virtual int64_t get_txn_id() {
+        return _rowset_meta_pb.txn_id();
     }
 
-    virtual void set_transaction_id(int64_t transaction_id) {
-        _rowset_meta_pb.set_transaction_id(transaction_id);
+    virtual void set_txn_id(int64_t txn_id) {
+        _rowset_meta_pb.set_txn_id(txn_id);
+    }
+
+private:
+    bool _deserialize_from_pb(const std::string& value) {
+        return _rowset_meta_pb.ParseFromString(value); 
+    }
+
+    bool _serialize_to_pb(std::string* value) {
+        if (value == nullptr) {
+           return false;
+        }
+        return _rowset_meta_pb.SerializeToString(value);
     }
 
 private:

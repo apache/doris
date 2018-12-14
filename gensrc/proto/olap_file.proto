@@ -86,7 +86,7 @@ message RowsetMetaPb {
     // column min/max/null flag statistic info
     repeated ColumnPruning column_statistics = 12;
     optional DeleteConditionMessage delete_predicate = 13;
-    optional int64 transaction_id = 14;
+    optional int64 txn_id = 14;
     // spare field id 15-49 for future use
     optional bytes extra_properties = 50;
 }

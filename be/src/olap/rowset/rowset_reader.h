@@ -38,18 +38,20 @@ struct ReadContext {
 
 class RowsetReader {
 public:
+    virtual ~RowsetReader() { }
+    
     // reader init
     // check whether this rowset can be filtered
-    NewStatus init(ReadContext* read_context) = 0;
+    virtual NewStatus init(ReadContext* read_context) = 0;
 
     // check whether rowset has more data
-    bool has_next() = 0;
+    virtual bool has_next() = 0;
 
     // read next block data
-    NewStatus next_block(RowBlock* row_block) = 0;
+    virtual NewStatus next_block(RowBlock* row_block) = 0;
 
     // close reader
-    void close() = 0;
+    virtual void close() = 0;
 };
 
 }

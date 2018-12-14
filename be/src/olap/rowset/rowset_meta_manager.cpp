@@ -56,14 +56,11 @@ NewStatus RowsetMetaManager::get_rowset_meta(OlapMeta* meta, int64_t rowset_id, 
         LOG(WARNING) << error_msg;
         return NewStatus::IOError(error_msg);
     }
-    RowsetMetaPb rowset_meta_pb;
-    bool parsed = rowset_meta_pb.ParseFromString(value);
-    if (!parsed) {
-        std::string error_msg = "parser rowset pb failed. rowset id:" + std::to_string(rowset_id);
-        LOG(WARNING) << error_msg;
+    bool ret = rowset_meta->init(value);
+    if (!ret) {
+        std::string error_msg = "parse rowset meta failed. rowset id:" + std::to_string(rowset_id);
         return NewStatus::Corruption(error_msg);
     }
-    rowset_meta->init(rowset_meta_pb);
     return NewStatus::OK();
 }
 
@@ -73,20 +70,18 @@ NewStatus RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, int64_t rowset
     if (!s.ok()) {
         return s;
     }
-    json2pb::Pb2JsonOptions json_options;
-    json_options.pretty_json = true;
-    RowsetMetaPb rowset_meta_pb;
-    rowset_meta.get_rowset_meta_pb(&rowset_meta_pb);
-    json2pb::ProtoMessageToJson(rowset_meta_pb, json_rowset_meta, json_options);
+    bool ret = rowset_meta.get_json_rowset_meta(json_rowset_meta);
+    if (!ret) {
+        std::string error_msg = "get json rowset meta failed. rowset id:" + std::to_string(rowset_id);
+        return NewStatus::Corruption(error_msg);
+    }
     return NewStatus::OK();
 }
 
 NewStatus RowsetMetaManager::save(OlapMeta* meta, int64_t rowset_id, RowsetMeta* rowset_meta) {
     std::string key = ROWSET_PREFIX + std::to_string(rowset_id);
-    RowsetMetaPb rowset_meta_pb;
-    rowset_meta->get_rowset_meta_pb(&rowset_meta_pb);
     std::string value;
-    bool ret = rowset_meta_pb.SerializeToString(&value);
+    bool ret = rowset_meta->serialize(&value);
     if (!ret) {
         std::string error_msg = "serialize rowset pb failed. rowset id:" + std::to_string(rowset_id);
         LOG(WARNING) << error_msg;
@@ -130,15 +125,13 @@ NewStatus RowsetMetaManager::load_json_rowset_meta(OlapMeta* meta, const std::st
         json_rowset_meta = json_rowset_meta + buffer;
     }
     boost::algorithm::trim(json_rowset_meta);
-    RowsetMetaPb rowset_meta_pb;
-    bool ret = json2pb::JsonToProtoMessage(json_rowset_meta, &rowset_meta_pb);
-    if (!ret) {
-        std::string error_msg = "parse json to RowsetMetaPb failed.";
-        LOG(WARNING) << error_msg;
-        return NewStatus::InvalidArgument(error_msg);
-    }
     RowsetMeta rowset_meta;
-    rowset_meta.init(rowset_meta_pb);
+    bool ret = rowset_meta.init_from_json(json_rowset_meta);
+    if (!ret) {
+        std::string error_msg = "parse json rowset meta failed.";
+        LOG(WARNING) << error_msg;
+        return NewStatus::Corruption(error_msg);
+    }
     uint64_t rowset_id = rowset_meta.get_rowset_id();
     NewStatus status = save(meta, rowset_id, &rowset_meta);
     return status;

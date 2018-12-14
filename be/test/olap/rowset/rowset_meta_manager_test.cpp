@@ -73,11 +73,8 @@ private:
 
 TEST_F(RowsetMetaManagerTest, TestSaveAndGetAndRemove) {
     uint64_t rowset_id = 10000;
-    RowsetMetaPb rowset_meta_pb;
-    bool ret = json2pb::JsonToProtoMessage(_json_rowset_meta, &rowset_meta_pb);
-    ASSERT_TRUE(ret);
     RowsetMeta rowset_meta;
-    rowset_meta.init(rowset_meta_pb);
+    rowset_meta.init_from_json(_json_rowset_meta);
     ASSERT_EQ(rowset_meta.get_rowset_id(), rowset_id);
     NewStatus status = RowsetMetaManager::save(_meta, rowset_id, &rowset_meta);
     ASSERT_TRUE(status.ok());
