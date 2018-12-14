@@ -27,8 +27,7 @@
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
 #include "olap/utils.h"
-#include "olap/wrapper_field.h"
-#include "olap/schema_change.h"
+#include "olap/column_mapping.h"
 
 using std::ifstream;
 using std::string;
@@ -225,13 +224,8 @@ OLAPStatus SegmentGroup::add_column_statistics_for_linked_schema_change(
         if (schema_mapping[i].ref_column == -1) {
             num_new_keys++;
 
-            if (true == column_schema.is_allow_null && column_schema.default_value.length() == 0) {
-                first->set_null();
-                second->set_null();
-            } else {
-                first->from_string(column_schema.default_value);
-                second->from_string(column_schema.default_value);
-            }
+            first->copy(schema_mapping[i].default_value);
+            second->copy(schema_mapping[i].default_value);
         } else {
             first->copy(column_statistic_fields[i - num_new_keys].first);
             second->copy(column_statistic_fields[i - num_new_keys].second);

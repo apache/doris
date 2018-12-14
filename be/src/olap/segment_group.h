@@ -36,9 +36,9 @@
 #include "olap/row_cursor.h"
 #include "olap/olap_index.h"
 #include "olap/utils.h"
+#include "olap/column_mapping.h"
 
 namespace doris {
-class ColumnMapping;
 
 // Class for segments management
 // For fast key lookup, we maintain a sparse index for every data file. The
