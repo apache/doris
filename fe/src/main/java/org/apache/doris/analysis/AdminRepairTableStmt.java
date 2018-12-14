@@ -84,6 +84,8 @@ public class AdminRepairTableStmt extends DdlStmt {
                     throw new AnalysisException("Unknown property: " + entry.getKey());
                 }
             }
+        } else {
+            timeoutS = 4 * 3600; // default 4 hours
         }
     }
 

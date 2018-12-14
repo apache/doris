@@ -57,11 +57,11 @@ public class TabletSchedulerDetailProcDir implements ProcDirInterface {
         
         // get at most 1000 tablet infos
         List<List<String>> tabletInfos = Lists.newArrayList();
-        if (type.equals(TabletSchedulerProcDir.PENDING_TABLETS)) {
+        if (type.equals(ClusterBalanceProcDir.PENDING_TABLETS)) {
             tabletInfos = tabletScheduler.getPendingTabletsInfo(1000);
-        } else if (type.equals(TabletSchedulerProcDir.RUNNING_TABLETS)) {
+        } else if (type.equals(ClusterBalanceProcDir.RUNNING_TABLETS)) {
             tabletInfos = tabletScheduler.getRunningTabletsInfo(1000);
-        } else if (type.equals(TabletSchedulerProcDir.HISTORY_TABLETS)) {
+        } else if (type.equals(ClusterBalanceProcDir.HISTORY_TABLETS)) {
             tabletInfos = tabletScheduler.getHistoryTabletsInfo(1000);
         } else {
             throw new AnalysisException("invalid type: " + type);

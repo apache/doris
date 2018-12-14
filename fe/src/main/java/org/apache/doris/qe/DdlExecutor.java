@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.AdminCancelRepairTableStmt;
 import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
@@ -175,6 +176,8 @@ public class DdlExecutor {
             catalog.truncateTable((TruncateTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminRepairTableStmt) {
             catalog.getTabletChecker().repairTable((AdminRepairTableStmt) ddlStmt);
+        } else if (ddlStmt instanceof AdminCancelRepairTableStmt) {
+            catalog.getTabletChecker().cancelRepairTable((AdminCancelRepairTableStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

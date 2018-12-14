@@ -3648,7 +3648,7 @@ admin_stmt ::=
     :} 
     | KW_ADMIN KW_CANCEL KW_REPAIR KW_TABLE base_table_ref:table_ref
     {:
-        RESULT = new AdminCancellRepairTableStmt(table_ref);
+        RESULT = new AdminCancelRepairTableStmt(table_ref);
     :}
     ;
 

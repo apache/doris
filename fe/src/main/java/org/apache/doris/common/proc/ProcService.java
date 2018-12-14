@@ -25,7 +25,7 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-// proc服务提供接口
+// proc service entry
 public final class ProcService {
     private static final Logger LOG = LogManager.getLogger(ProcService.class);
     private static ProcService INSTANCE;
@@ -47,7 +47,7 @@ public final class ProcService {
         root.register("monitor", new MonitorProcDir());
         root.register("current_queries", new CurrentQueryStatisticsProcDir());
         root.register("current_backend_instances", new CurrentQueryBackendInstanceProcDir());
-        root.register("tablet_scheduler", new TabletSchedulerProcDir());
+        root.register("cluster_balance", new ClusterBalanceProcDir());
     }
 
     // 通过指定的路径获得对应的PROC Node
