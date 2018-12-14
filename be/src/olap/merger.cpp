@@ -107,7 +107,7 @@ OLAPStatus Merger::merge(const vector<ColumnData*>& olap_data_arr,
     }
 
     if (has_error) {
-        LOG(WARNING) << "base compaction failed.";
+        LOG(WARNING) << "compaction failed.";
         return OLAP_ERR_OTHER_ERROR;
     }
 

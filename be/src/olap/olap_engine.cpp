@@ -1809,12 +1809,14 @@ void OLAPEngine::perform_cumulative_compaction() {
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to init cumulative compaction."
                      << "table=" << best_table->full_name();
+        return;
     }
 
     res = cumulative_compaction.run();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to do cumulative compaction."
                      << "table=" << best_table->full_name();
+        return;
     }
 }
 
@@ -1834,6 +1836,7 @@ void OLAPEngine::perform_base_compaction() {
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to init base compaction."
                      << "table=" << best_table->full_name();
+        return;
     }
 }
 
