@@ -36,6 +36,7 @@
 #include "olap/row_cursor.h"
 #include "olap/olap_index.h"
 #include "olap/utils.h"
+#include "olap/column_mapping.h"
 
 namespace doris {
 
@@ -47,6 +48,8 @@ namespace doris {
 class SegmentGroup {
     friend class MemIndex;
 public:
+    typedef std::vector<ColumnMapping> SchemaMapping;
+
     SegmentGroup(OLAPTable* table, Version version, VersionHash version_hash,
               bool delete_flag, int segment_group_id, int32_t num_segments);
 
@@ -66,7 +69,8 @@ public:
     }
 
     OLAPStatus add_column_statistics_for_linked_schema_change(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields);
+        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields,
+        const SchemaMapping& schema_mapping);
 
     OLAPStatus add_column_statistics(
         const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields);

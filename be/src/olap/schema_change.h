@@ -41,17 +41,6 @@ class RowCursor;
 // defined in 'writer.h'
 class ColumnDataWriter;
 
-struct ColumnMapping {
-    ColumnMapping() : ref_column(-1), default_value(NULL) {}
-    virtual ~ColumnMapping() {}
-
-    // <0: use default value
-    // >=0: use origin column
-    int32_t ref_column;
-    // normally for default value. stores values for filters
-    WrapperField* default_value;
-};
-
 class RowBlockChanger {
 public:
     typedef std::vector<ColumnMapping> SchemaMapping;
@@ -66,6 +55,10 @@ public:
     virtual ~RowBlockChanger();
 
     ColumnMapping* get_mutable_column_mapping(size_t column_index);
+
+    SchemaMapping get__schema_mapping() const {
+        return _schema_mapping;
+    }
     
     bool change_row_block(
             const DataFileType df_type,
@@ -192,13 +185,15 @@ class LinkedSchemaChange : public SchemaChange {
 public:
     explicit LinkedSchemaChange(
                 OLAPTablePtr base_olap_table, 
-                OLAPTablePtr new_olap_table);
+                OLAPTablePtr new_olap_table,
+                const RowBlockChanger& row_block_changer);
     ~LinkedSchemaChange() {}
 
     bool process(ColumnData* olap_data, SegmentGroup* new_segment_group);
 private:
     OLAPTablePtr _base_olap_table;
     OLAPTablePtr _new_olap_table;
+    const RowBlockChanger& _row_block_changer;
     DISALLOW_COPY_AND_ASSIGN(LinkedSchemaChange);
 };
 
