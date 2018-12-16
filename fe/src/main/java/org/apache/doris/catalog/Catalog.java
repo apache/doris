@@ -1109,6 +1109,7 @@ public class Catalog {
 
         if (replayer == null) {
             createReplayer();
+            replayer.setNeedMetaContext(true);
             replayer.setName("replayer");
             replayer.setInterval(REPLAY_INTERVAL_MS);
             replayer.start();
