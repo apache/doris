@@ -19,6 +19,7 @@ package org.apache.doris.journal.bdbje;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.journal.JournalEntity;
+import org.apache.doris.meta.MetaContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -121,7 +122,9 @@ public class BDBTool {
                     }
                     
                     // meta version
-                    Catalog.getInstance().setJournalVersion(options.getMetaVersion());
+                    MetaContext metaContext = new MetaContext();
+                    metaContext.setJournalVersion(options.getMetaVersion());
+                    metaContext.setThreadLocalInfo();
 
                     for (Long key = fromKey; key <= endKey; key++) {
                         getValueByKey(db, key);

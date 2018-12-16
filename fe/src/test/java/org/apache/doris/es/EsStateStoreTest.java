@@ -22,20 +22,6 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.lang.reflect.InvocationTargetException;
-import java.net.URISyntaxException;
-import java.util.Map;
-
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.EsTable;
@@ -48,8 +34,24 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.external.EsIndexState;
 import org.apache.doris.external.EsStateStore;
 import org.apache.doris.external.EsTableState;
+import org.apache.doris.meta.MetaContext;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
+
+import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.Test;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.lang.reflect.InvocationTargetException;
+import java.net.URISyntaxException;
+import java.util.Map;
 
 public class EsStateStoreTest {
 
@@ -68,7 +70,10 @@ public class EsStateStoreTest {
         fakeEditLog = new FakeEditLog();
         fakeCatalog = new FakeCatalog();
         masterCatalog = CatalogTestUtil.createTestCatalog();
-        masterCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
+        MetaContext metaContext = new MetaContext();
+        metaContext.setJournalVersion(FeMetaVersion.VERSION_40);
+        metaContext.setThreadLocalInfo();
+        // masterCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
         FakeCatalog.setCatalog(masterCatalog);
         clusterStateStr1 = loadJsonFromFile("data/es/clusterstate1.json");
         clusterStateStr2 = loadJsonFromFile("data/es/clusterstate2.json");

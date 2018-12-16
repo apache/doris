@@ -50,6 +50,7 @@ import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
@@ -504,13 +505,13 @@ public class EditLog {
                 case OperationType.OP_META_VERSION: {
                     String versionString = ((Text) journal.getData()).toString();
                     int version = Integer.parseInt(versionString);
-                    if (catalog.getJournalVersion() > FeConstants.meta_version) {
+                    if (MetaContext.get().getJournalVersion() > FeConstants.meta_version) {
                         LOG.error("meta data version is out of date, image: {}. meta: {}."
                                         + "please update FeConstants.meta_version and restart.",
-                                catalog.getJournalVersion(), FeConstants.meta_version);
+                                MetaContext.get().getJournalVersion(), FeConstants.meta_version);
                         System.exit(-1);
                     }
-                    catalog.setJournalVersion(version);
+                    MetaContext.get().setJournalVersion(version);
                     break;
                 }
                 case OperationType.OP_GLOBAL_VARIABLE: {

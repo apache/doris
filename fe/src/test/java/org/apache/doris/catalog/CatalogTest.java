@@ -25,6 +25,7 @@ import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadJob;
+import org.apache.doris.meta.MetaContext;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -133,7 +134,7 @@ public class CatalogTest {
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
         Catalog catalog = Catalog.getInstance();
-        catalog.setJournalVersion(FeConstants.meta_version);
+        MetaContext.get().setJournalVersion(FeConstants.meta_version);
         Field field = catalog.getClass().getDeclaredField("load");
         field.setAccessible(true);
         field.set(catalog, new Load());
@@ -161,7 +162,7 @@ public class CatalogTest {
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
         Catalog catalog = Catalog.getInstance();
-        catalog.setJournalVersion(FeConstants.meta_version);
+        MetaContext.get().setJournalVersion(FeConstants.meta_version);
         Field field = catalog.getClass().getDeclaredField("load");
         field.setAccessible(true);
         field.set(catalog, new Load());
@@ -196,7 +197,7 @@ public class CatalogTest {
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
         Catalog catalog = Catalog.getInstance();
-        catalog.setJournalVersion(FeConstants.meta_version);
+        MetaContext.get().setJournalVersion(FeConstants.meta_version);
         Field field = catalog.getClass().getDeclaredField("load");
         field.setAccessible(true);
         field.set(catalog, new Load());
