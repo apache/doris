@@ -134,7 +134,7 @@ public class CatalogTest {
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
         Catalog catalog = Catalog.getInstance();
-        MetaContext.get().setJournalVersion(FeConstants.meta_version);
+        MetaContext.get().setMetaVersion(FeConstants.meta_version);
         Field field = catalog.getClass().getDeclaredField("load");
         field.setAccessible(true);
         field.set(catalog, new Load());
@@ -162,7 +162,7 @@ public class CatalogTest {
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
         Catalog catalog = Catalog.getInstance();
-        MetaContext.get().setJournalVersion(FeConstants.meta_version);
+        MetaContext.get().setMetaVersion(FeConstants.meta_version);
         Field field = catalog.getClass().getDeclaredField("load");
         field.setAccessible(true);
         field.set(catalog, new Load());
@@ -197,7 +197,7 @@ public class CatalogTest {
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
         Catalog catalog = Catalog.getInstance();
-        MetaContext.get().setJournalVersion(FeConstants.meta_version);
+        MetaContext.get().setMetaVersion(FeConstants.meta_version);
         Field field = catalog.getClass().getDeclaredField("load");
         field.setAccessible(true);
         field.set(catalog, new Load());

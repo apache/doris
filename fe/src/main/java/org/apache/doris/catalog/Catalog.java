@@ -521,7 +521,7 @@ public class Catalog {
 
     // use this to get correct Catalog's journal version
     public static int getCurrentCatalogJournalVersion() {
-        return MetaContext.get().getJournalVersion();
+        return MetaContext.get().getMetaVersion();
     }
 
     public static final boolean isCheckpointThread() {
@@ -982,10 +982,10 @@ public class Catalog {
         editLog.rollEditLog();
 
         // Log meta_version
-        long journalVersion = MetaContext.get().getJournalVersion();
+        long journalVersion = MetaContext.get().getMetaVersion();
         if (journalVersion < FeConstants.meta_version) {
             editLog.logMetaVersion(FeConstants.meta_version);
-            MetaContext.get().setJournalVersion(FeConstants.meta_version);
+            MetaContext.get().setMetaVersion(FeConstants.meta_version);
         }
 
         // Log the first frontend
@@ -1320,7 +1320,7 @@ public class Catalog {
     public long loadHeader(DataInputStream dis, long checksum) throws IOException {
         int journalVersion = dis.readInt();
         long newChecksum = checksum ^ journalVersion;
-        MetaContext.get().setJournalVersion(journalVersion);
+        MetaContext.get().setMetaVersion(journalVersion);
 
         long replayedJournalId = dis.readLong();
         newChecksum ^= replayedJournalId;
@@ -5637,7 +5637,7 @@ public class Catalog {
     }
 
     public long loadBrokers(DataInputStream dis, long checksum) throws IOException, DdlException {
-        if (MetaContext.get().getJournalVersion() >= FeMetaVersion.VERSION_31) {
+        if (MetaContext.get().getMetaVersion() >= FeMetaVersion.VERSION_31) {
             int count = dis.readInt();
             checksum ^= count;
             for (long i = 0; i < count; ++i) {

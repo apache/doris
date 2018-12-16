@@ -71,7 +71,7 @@ public class EsStateStoreTest {
         fakeCatalog = new FakeCatalog();
         masterCatalog = CatalogTestUtil.createTestCatalog();
         MetaContext metaContext = new MetaContext();
-        metaContext.setJournalVersion(FeMetaVersion.VERSION_40);
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_40);
         metaContext.setThreadLocalInfo();
         // masterCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
         FakeCatalog.setCatalog(masterCatalog);

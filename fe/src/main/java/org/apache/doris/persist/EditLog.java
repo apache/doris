@@ -505,13 +505,13 @@ public class EditLog {
                 case OperationType.OP_META_VERSION: {
                     String versionString = ((Text) journal.getData()).toString();
                     int version = Integer.parseInt(versionString);
-                    if (MetaContext.get().getJournalVersion() > FeConstants.meta_version) {
+                    if (MetaContext.get().getMetaVersion() > FeConstants.meta_version) {
                         LOG.error("meta data version is out of date, image: {}. meta: {}."
                                         + "please update FeConstants.meta_version and restart.",
-                                MetaContext.get().getJournalVersion(), FeConstants.meta_version);
+                                MetaContext.get().getMetaVersion(), FeConstants.meta_version);
                         System.exit(-1);
                     }
-                    MetaContext.get().setJournalVersion(version);
+                    MetaContext.get().setMetaVersion(version);
                     break;
                 }
                 case OperationType.OP_GLOBAL_VARIABLE: {

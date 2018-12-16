@@ -123,7 +123,7 @@ public class BDBTool {
                     
                     // meta version
                     MetaContext metaContext = new MetaContext();
-                    metaContext.setJournalVersion(options.getMetaVersion());
+                    metaContext.setMetaVersion(options.getMetaVersion());
                     metaContext.setThreadLocalInfo();
 
                     for (Long key = fromKey; key <= endKey; key++) {

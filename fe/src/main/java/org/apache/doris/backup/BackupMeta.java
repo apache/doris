@@ -71,7 +71,7 @@ public class BackupMeta implements Writable {
     public static BackupMeta fromFile(String filePath, int metaVersion) throws IOException {
         File file = new File(filePath);
         MetaContext metaContext = new MetaContext();
-        metaContext.setJournalVersion(metaVersion);
+        metaContext.setMetaVersion(metaVersion);
         metaContext.setThreadLocalInfo();
         try (DataInputStream dis = new DataInputStream(new FileInputStream(file))) {
             BackupMeta backupMeta = BackupMeta.read(dis);
