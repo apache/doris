@@ -331,7 +331,7 @@ public class Repository implements Writable {
         return Status.OK;
     }
 
-    public Status getSnapshotMetaFile(String label, List<BackupMeta> backupMetas) {
+    public Status getSnapshotMetaFile(String label, List<BackupMeta> backupMetas, int metaVersion) {
         String remoteMetaFilePath = assembleMetaInfoFilePath(label);
         File localMetaFile = new File(BackupHandler.BACKUP_ROOT_DIR + PATH_DELIMITER
                 + "meta_" + System.currentTimeMillis());
@@ -343,7 +343,7 @@ public class Repository implements Writable {
             }
 
             // read file to backupMeta
-            BackupMeta backupMeta = BackupMeta.fromFile(localMetaFile.getAbsolutePath());
+            BackupMeta backupMeta = BackupMeta.fromFile(localMetaFile.getAbsolutePath(), metaVersion);
             backupMetas.add(backupMeta);
         } catch (IOException e) {
             return new Status(ErrCode.COMMON_ERROR, "Failed create backup meta from file: "

@@ -67,8 +67,6 @@ public class TabletTest {
         tablet.addReplica(replica1);
         tablet.addReplica(replica2);
         tablet.addReplica(replica3);
-
-
     }
 
     @Test

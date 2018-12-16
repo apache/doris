@@ -19,6 +19,7 @@ package org.apache.doris.backup;
 
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.meta.MetaContext;
 
 import com.google.common.collect.Maps;
 
@@ -67,11 +68,16 @@ public class BackupMeta implements Writable {
         return tblIdMap.get(tblId);
     }
 
-    public static BackupMeta fromFile(String filePath) throws IOException {
+    public static BackupMeta fromFile(String filePath, int metaVersion) throws IOException {
         File file = new File(filePath);
+        MetaContext metaContext = new MetaContext();
+        metaContext.setJournalVersion(metaVersion);
+        metaContext.setThreadLocalInfo();
         try (DataInputStream dis = new DataInputStream(new FileInputStream(file))) {
             BackupMeta backupMeta = BackupMeta.read(dis);
             return backupMeta;
+        } finally {
+            MetaContext.remove();
         }
     }
 
