@@ -231,7 +231,6 @@ public class Catalog {
 
     // Current journal meta data version. Use this version to load journals
     // private int journalVersion = 0;
-    private MetaContext metaContext;
     private long epoch = 0;
 
     // Lock to perform atomic modification on map like 'idToDb' and 'fullNameToDb'.
@@ -444,9 +443,6 @@ public class Catalog {
         this.domainResolver = new DomainResolver(auth);
 
         this.esStateStore = new EsStateStore();
-
-        this.metaContext = new MetaContext();
-        metaContext.setThreadLocalInfo();
     }
 
     public static void destroyCheckpoint() {
@@ -611,6 +607,7 @@ public class Catalog {
 
         // 6. start state listener thread
         createStateListener();
+        listener.setNeedMetaContext(true);
         listener.setName("stateListener");
         listener.setInterval(STATE_CHANGE_CHECK_INTERVAL_MS);
         listener.start();
@@ -1014,6 +1011,7 @@ public class Catalog {
 
         // start checkpoint thread
         checkpointer = new Checkpoint(editLog);
+        checkpointer.setNeedMetaContext(true);
         checkpointer.setName("leaderCheckpointer");
         checkpointer.setInterval(FeConstants.checkpoint_interval_second * 1000L);
 
