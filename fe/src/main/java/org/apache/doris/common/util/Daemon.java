@@ -32,7 +32,7 @@ public class Daemon extends Thread {
     private AtomicBoolean isStop;
     private Runnable runnable;
     
-    private boolean needMetaContext = false;
+    private MetaContext metaContext = null;
 
     {
         setDaemon(true);
@@ -74,8 +74,8 @@ public class Daemon extends Thread {
         return runnable;
     }
     
-    public void setNeedMetaContext(boolean needMetaContext) {
-        this.needMetaContext = needMetaContext;
+    public void setMetaContext(MetaContext metaContext) {
+        this.metaContext = metaContext;
     }
 
     public void exit() {
@@ -99,8 +99,7 @@ public class Daemon extends Thread {
 
     @Override
     public void run() {
-        if (needMetaContext) {
-            MetaContext metaContext = new MetaContext();
+        if (metaContext != null) {
             metaContext.setThreadLocalInfo();
         }
 
@@ -118,7 +117,7 @@ public class Daemon extends Thread {
             }
         }
 
-        if (needMetaContext) {
+        if (metaContext != null) {
             MetaContext.remove();
         }
         LOG.error("daemon thread exits. name=" + this.getName());
