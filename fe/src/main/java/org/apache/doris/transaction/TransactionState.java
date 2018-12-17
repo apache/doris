@@ -381,16 +381,21 @@ public class TransactionState implements Writable {
     
     @Override
     public String toString() {
-        return "TransactionState [transactionId=" + transactionId
-                + ", label=" + label
-                + ", dbId=" + dbId
-                + ", coordinator=" + coordinator
-                + ", loadjobsource=" + sourceType
-                + ", transactionStatus=" + transactionStatus
-                + ", errorReplicas=" + errorReplicas
-                + ", prepareTime="
-                + prepareTime + ", commitTime=" + commitTime + ", finishTime="
-                + finishTime + ", reason=" + reason + ", txnCommitAttachment=" + txnCommitAttachment.toString() + "]";
+        StringBuilder sb = new StringBuilder("TransactionState. ");
+        sb.append("transaction id: ").append(transactionId);
+        sb.append(", label: ").append(label);
+        sb.append(", db id: ").append(dbId);
+        sb.append(", coordinator: ").append(coordinator);
+        sb.append(", transaction status: ").append(transactionStatus);
+        sb.append(", error replicas num: ").append(errorReplicas.size());
+        sb.append(", prepare time: ").append(prepareTime);
+        sb.append(", commit time: ").append(commitTime);
+        sb.append(", finish time: ").append(finishTime);
+        sb.append(", reason: ").append(reason);
+        if (txnCommitAttachment != null) {
+            sb.append(" attactment: ").append(txnCommitAttachment);
+        }
+        return sb.toString();
     }
     
     public LoadJobSourceType getSourceType() {
