@@ -71,7 +71,7 @@ OlapStore::~OlapStore() {
     }
 }
 
-Status OlapStore::load() {
+Status OlapStore::init() {
     _rand_seed = static_cast<uint32_t>(time(NULL));
     if (posix_memalign((void**)&_test_file_write_buf,
                        DIRECT_IO_ALIGNMENT,
@@ -437,18 +437,19 @@ OLAPStatus OlapStore::deregister_tablet(Tablet* tablet) {
     return OLAP_SUCCESS;
 }
 
-std::string OlapStore::get_shard_path_from_header(const std::string& shard_string) {
+std::string OlapStore::get_absolute_shard_path(const std::string& shard_string) {
     return _path + DATA_PREFIX + "/" + shard_string;
 }
 
-std::string OlapStore::get_tablet_schema_hash_path_from_header(TabletMeta* header) {
-    return _path + DATA_PREFIX + "/" + std::to_string(header->shard())
+std::string OlapStore::get_tablet_path_from_header(TabletMeta* header, bool with_schema_hash) {
+    if (with_schema_hash) {
+        return _path + DATA_PREFIX + "/" + std::to_string(header->shard())
             + "/" + std::to_string(header->tablet_id()) + "/" + std::to_string(header->schema_hash());
-}
 
-std::string OlapStore::get_tablet_path_from_header(TabletMeta* header) {
-    return _path + DATA_PREFIX + "/" + std::to_string(header->shard())
+    } else {
+        return _path + DATA_PREFIX + "/" + std::to_string(header->shard())
             + "/" + std::to_string(header->tablet_id());
+    }
 }
 
 void OlapStore::find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* paths) {
@@ -522,7 +523,7 @@ OLAPStatus OlapStore::_load_tablet_from_header(StorageEngine* engine, TTabletId 
         LOG(WARNING) << "failed to add tablet. tablet=" << tablet->full_name();
         return res;
     }
-    res = engine->register_tablet_into_root_path(tablet.get());
+    res = tablet->register_tablet_into_dir();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to register tablet into root path. root_path=" << tablet->storage_root_path_name();
 
@@ -539,7 +540,7 @@ OLAPStatus OlapStore::_load_tablet_from_header(StorageEngine* engine, TTabletId 
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OlapStore::load_tables(StorageEngine* engine) {
+OLAPStatus OlapStore::load_tablets(StorageEngine* engine) {
     auto load_tablet_func = [this, engine](long tablet_id,
             long schema_hash, const std::string& value) -> bool {
         OLAPStatus status = _load_tablet_from_header(engine, tablet_id, schema_hash, value);

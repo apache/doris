@@ -39,6 +39,27 @@ typedef int64_t VersionHash;
 typedef __int128 int128_t;
 typedef unsigned __int128 uint128_t;
 
+enum CompactionType {
+    BASE_COMPACTION = 1,
+    CUMULATIVE_COMPACTION = 2
+};
+
+struct RootPathInfo {
+    RootPathInfo():
+            capacity(1),
+            available(0),
+            data_used_capacity(0),
+            is_used(false) { }
+
+    std::string path;
+    int64_t path_hash;
+    int64_t capacity;                  // 总空间，单位字节
+    int64_t available;                 // 可用空间，单位字节
+    int64_t data_used_capacity;
+    bool is_used;                       // 是否可用标识
+    TStorageMedium::type storage_medium;  // 存储介质类型：SSD|HDD
+};
+
 struct TabletInfo {
     TabletInfo(
             TTabletId in_tablet_id,

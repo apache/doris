@@ -38,7 +38,7 @@ public:
     OlapStore(const std::string& path, int64_t capacity_bytes = -1);
     ~OlapStore();
 
-    Status load();
+    Status init();
 
     const std::string& path() const { return _path; }
     const int64_t path_hash() const { return _path_hash; }
@@ -54,6 +54,9 @@ public:
         return info;
     }
 
+    // save a cluster_id file under data path to prevent
+    // invalid be config for example two be use the same 
+    // data path
     Status set_cluster_id(int32_t cluster_id);
     void health_check();
 
@@ -64,22 +67,22 @@ public:
     bool is_ssd_disk() const {
         return _storage_medium == TStorageMedium::SSD;
     }
+
     TStorageMedium::type storage_medium() const { return _storage_medium; }
 
     OLAPStatus register_tablet(Tablet* tablet);
     OLAPStatus deregister_tablet(Tablet* tablet);
 
-    std::string get_tablet_schema_hash_path_from_header(TabletMeta* header);
+    std::string get_tablet_path_from_header(TabletMeta* header, bool with_schema_hash);
 
-    std::string get_tablet_path_from_header(TabletMeta* header);
-
-    std::string get_shard_path_from_header(const std::string& shard_string);
+    std::string get_absolute_shard_path(const std::string& shard_string);
 
     void find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* paths);
 
     static std::string get_root_path_from_schema_hash_path_in_trash(const std::string& schema_hash_dir_in_trash);
 
-    OLAPStatus load_tables(StorageEngine* engine);
+    OLAPStatus load_tablets(StorageEngine* engine);
+
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
     Status _init_cluster_id();

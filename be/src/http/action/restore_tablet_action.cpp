@@ -178,7 +178,7 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
 
     std::string root_path = OlapStore::get_root_path_from_schema_hash_path_in_trash(latest_tablet_path);
     OlapStore* store = StorageEngine::get_instance()->get_store(root_path);
-    std::string restore_schema_hash_path = store->get_tablet_schema_hash_path_from_header(&header);
+    std::string restore_schema_hash_path = store->get_tablet_path_from_header(&header, true);
     Status s = FileUtils::create_dir(restore_schema_hash_path);
     if (!s.ok()) {
         LOG(WARNING) << "create tablet path failed:" << restore_schema_hash_path;
@@ -198,7 +198,7 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
         if (link_ret != 0) {
             LOG(WARNING) << "link from:" << from
                     << " to:" << to  << " failed, link ret:" << link_ret;
-            std::string restore_tablet_path = store->get_tablet_path_from_header(&header);
+            std::string restore_tablet_path = store->get_tablet_path_from_header(&header, false);
             LOG(WARNING) << "remove tablet_path:" << restore_tablet_path;
             Status s = FileUtils::remove_all(restore_tablet_path);
             if (!s.ok()) {
@@ -207,7 +207,7 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
             return Status("create link path failed");
         }
     }
-    std::string restore_shard_path = store->get_shard_path_from_header(std::to_string(header.shard()));
+    std::string restore_shard_path = store->get_absolute_shard_path(std::to_string(header.shard()));
     Status status = _reload_tablet(key, restore_shard_path, tablet_id, schema_hash);
     return status;
 }
