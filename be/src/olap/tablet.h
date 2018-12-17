@@ -69,6 +69,8 @@ public:
 
     virtual ~Tablet();
 
+
+    bool can_do_compaction();
     // Initializes tablet and loads indices for all versions.
     // Returns OLAP_SUCCESS on success.
     OLAPStatus load();
@@ -599,6 +601,8 @@ public:
 
     OLAPStatus recover_tablet_until_specfic_version(const int64_t& until_version,
                                                     const int64_t& version_hash);
+    
+    OLAPStatus register_tablet_into_dir();
 private:
     // used for hash-struct of hash_map<Version, SegmentGroup*>.
     struct HashOfVersion {
