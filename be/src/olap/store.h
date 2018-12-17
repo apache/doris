@@ -73,7 +73,7 @@ public:
     OLAPStatus register_tablet(Tablet* tablet);
     OLAPStatus deregister_tablet(Tablet* tablet);
 
-    std::string get_tablet_path_from_header(TabletMeta* header, bool with_schema_hash);
+    std::string get_absolute_tablet_path(TabletMeta* header, bool with_schema_hash);
 
     std::string get_absolute_shard_path(const std::string& shard_string);
 

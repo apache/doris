@@ -441,7 +441,7 @@ std::string OlapStore::get_absolute_shard_path(const std::string& shard_string) 
     return _path + DATA_PREFIX + "/" + shard_string;
 }
 
-std::string OlapStore::get_tablet_path_from_header(TabletMeta* header, bool with_schema_hash) {
+std::string OlapStore::get_absolute_tablet_path(TabletMeta* header, bool with_schema_hash) {
     if (with_schema_hash) {
         return _path + DATA_PREFIX + "/" + std::to_string(header->shard())
             + "/" + std::to_string(header->tablet_id()) + "/" + std::to_string(header->schema_hash());
