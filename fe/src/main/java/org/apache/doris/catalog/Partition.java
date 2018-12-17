@@ -22,6 +22,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.meta.MetaContext;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -113,17 +114,20 @@ public class Partition extends MetaObject implements Writable {
     public void updateVisibleVersionAndVersionHash(long visibleVersion, long visibleVersionHash) {
         this.visibleVersion = visibleVersion;
         this.visibleVersionHash = visibleVersionHash;
-        // if it is upgrade from old palo cluster, then should update next version info
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_45) {
-            // the partition is created and not import any data
-            if (visibleVersion == PARTITION_INIT_VERSION + 1 && visibleVersionHash == PARTITION_INIT_VERSION_HASH) {
-                this.nextVersion = PARTITION_INIT_VERSION + 1;
-                this.nextVersionHash = Util.generateVersionHash();
-                this.committedVersionHash = PARTITION_INIT_VERSION_HASH;
-            } else {
-                this.nextVersion = visibleVersion + 1;
-                this.nextVersionHash = Util.generateVersionHash();
-                this.committedVersionHash = visibleVersionHash;
+        if (MetaContext.get() != null) {
+            // MetaContext is not null means we are in a edit log replay thread.
+            // if it is upgrade from old palo cluster, then should update next version info
+            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_45) {
+                // the partition is created and not import any data
+                if (visibleVersion == PARTITION_INIT_VERSION + 1 && visibleVersionHash == PARTITION_INIT_VERSION_HASH) {
+                    this.nextVersion = PARTITION_INIT_VERSION + 1;
+                    this.nextVersionHash = Util.generateVersionHash();
+                    this.committedVersionHash = PARTITION_INIT_VERSION_HASH;
+                } else {
+                    this.nextVersion = visibleVersion + 1;
+                    this.nextVersionHash = Util.generateVersionHash();
+                    this.committedVersionHash = visibleVersionHash;
+                }
             }
         }
     }
