@@ -39,6 +39,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TTabletInfo;
@@ -90,8 +91,11 @@ public class RollupJobTest {
         fakeTransactionIDGenerator = new FakeTransactionIDGenerator();
         masterCatalog = CatalogTestUtil.createTestCatalog();
         slaveCatalog = CatalogTestUtil.createTestCatalog();
-        masterCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
-        slaveCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_40);
+        metaContext.setThreadLocalInfo();
+        // masterCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
+        // slaveCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
         masterTransMgr = masterCatalog.getGlobalTransactionMgr();
         masterTransMgr.setEditLog(masterCatalog.getEditLog());
 

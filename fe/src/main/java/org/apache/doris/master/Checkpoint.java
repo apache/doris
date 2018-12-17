@@ -67,10 +67,6 @@ public class Checkpoint extends Daemon {
         this.imageDir = Catalog.IMAGE_DIR;
         this.editLog = editLog;
     }
-    
-    public Checkpoint() {
-        
-    }
 
     public static class NullOutputStream extends OutputStream {
         public void write(byte[] b, int off, int len) throws IOException {
