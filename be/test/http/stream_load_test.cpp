@@ -81,6 +81,8 @@ public:
         _env._master_info = new TMasterInfo();
         _env._load_stream_mgr = new LoadStreamMgr();
         _env._brpc_stub_cache = new BrpcStubCache();
+
+        _evhttp_req = evhttp_request_new(nullptr, nullptr);
     }
     void TearDown() override {
         delete _env._brpc_stub_cache;
@@ -91,16 +93,21 @@ public:
         _env._master_info = nullptr;
         delete _env._thread_mgr;
         _env._thread_mgr = nullptr;
+
+        if (_evhttp_req != nullptr) {
+            evhttp_request_free(_evhttp_req);
+        }
     }
 private:
     ExecEnv _env;
+    evhttp_request* _evhttp_req = nullptr;
 };
 
 TEST_F(StreamLoadActionTest, no_auth) {
     DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
-    HttpRequest request;
+    HttpRequest request(_evhttp_req);
     action.on_header(&request);
     action.handle(&request);
 
@@ -114,7 +121,7 @@ TEST_F(StreamLoadActionTest, no_content_length) {
     DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&__env);
 
-    HttpRequest request;
+    HttpRequest request(_evhttp_req);
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     action.on_header(&request);
     action.handle(&request);
@@ -128,7 +135,7 @@ TEST_F(StreamLoadActionTest, unknown_encoding) {
     DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
-    HttpRequest request;
+    HttpRequest request(_evhttp_req);
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::TRANSFER_ENCODING, "chunked111");
     action.on_header(&request);
@@ -144,7 +151,7 @@ TEST_F(StreamLoadActionTest, normal) {
     DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
-    HttpRequest request;
+    HttpRequest request(_evhttp_req);
 
     struct evhttp_request ev_req;
     ev_req.remote_host = nullptr;
@@ -164,7 +171,7 @@ TEST_F(StreamLoadActionTest, put_fail) {
     DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
-    HttpRequest request;
+    HttpRequest request(_evhttp_req);
 
     struct evhttp_request ev_req;
     ev_req.remote_host = nullptr;
@@ -186,7 +193,7 @@ TEST_F(StreamLoadActionTest, commit_fail) {
     DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
-    HttpRequest request;
+    HttpRequest request(_evhttp_req);
     struct evhttp_request ev_req;
     ev_req.remote_host = nullptr;
     request._ev_req = &ev_req;
@@ -206,7 +213,7 @@ TEST_F(StreamLoadActionTest, begin_fail) {
     DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
-    HttpRequest request;
+    HttpRequest request(_evhttp_req);
     struct evhttp_request ev_req;
     ev_req.remote_host = nullptr;
     request._ev_req = &ev_req;
@@ -227,7 +234,7 @@ TEST_F(StreamLoadActionTest, receive_failed) {
     DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
-    HttpRequest request;
+    HttpRequest request(_evhttp_req);
     request._headers.emplace(HttpHeaders::AUTHORIZATION, "Basic cm9vdDo=");
     request._headers.emplace(HttpHeaders::TRANSFER_ENCODING, "chunked");
     action.on_header(&request);
@@ -243,7 +250,7 @@ TEST_F(StreamLoadActionTest, plan_fail) {
     DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
-    HttpRequest request;
+    HttpRequest request(_evhttp_req);
     struct evhttp_request ev_req;
     ev_req.remote_host = nullptr;
     request._ev_req = &ev_req;

@@ -1,0 +1,122 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "http/http_client.h"
+
+#include <gtest/gtest.h>
+
+#include "common/logging.h"
+#include "http/ev_http_server.h"
+#include "http/http_channel.h"
+#include "http/http_handler.h"
+#include "http/http_request.h"
+
+namespace doris {
+
+class HttpClientTestSimpleGetHandler : public HttpHandler {
+public:
+    void handle(HttpRequest* req) override {
+        std::string user;
+        std::string passwd;
+        if (!parse_basic_auth(*req, &user, &passwd) || user != "test1") {
+            HttpChannel::send_basic_challenge(req, "abc");
+            return;
+        }
+        req->add_output_header(HttpHeaders::CONTENT_TYPE, "text/plain; version=0.0.4");
+        if (req->method() == HttpMethod::HEAD) {
+            req->add_output_header(HttpHeaders::CONTENT_LENGTH, std::to_string(5).c_str());
+            HttpChannel::send_reply(req);
+        } else {
+            std::string response = "test1";
+            HttpChannel::send_reply(req, response);
+        }
+    }
+};
+
+static HttpClientTestSimpleGetHandler s_simple_get_handler = HttpClientTestSimpleGetHandler();
+static EvHttpServer* s_server = nullptr;
+
+class HttpClientTest : public testing::Test {
+public:
+    HttpClientTest() { }
+    ~HttpClientTest() override { }
+
+    static void SetUpTestCase() {
+        s_server = new EvHttpServer(29386);
+        s_server->register_handler(GET, "/simple_get", &s_simple_get_handler);
+        s_server->register_handler(HEAD, "/simple_get", &s_simple_get_handler);
+        s_server->start();
+    }
+
+    static void TearDownTestCase() {
+        delete s_server;
+    }
+};
+
+TEST_F(HttpClientTest, get_normal) {
+    HttpClient client;
+    auto st = client.init("http://127.0.0.1:29386/simple_get");
+    ASSERT_TRUE(st.ok());
+    client.set_method(GET);
+    client.set_basic_auth("test1", "");
+    std::string response;
+    st = client.execute(&response);
+    ASSERT_TRUE(st.ok());
+    ASSERT_STREQ("test1", response.c_str());
+
+    // for head
+    st = client.init("http://127.0.0.1:29386/simple_get");
+    ASSERT_TRUE(st.ok());
+    client.set_method(HEAD);
+    client.set_basic_auth("test1", "");
+    st = client.execute();
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ(5, client.get_content_length());
+}
+
+TEST_F(HttpClientTest, download) {
+    HttpClient client;
+    auto st = client.init("http://127.0.0.1:29386/simple_get");
+    ASSERT_TRUE(st.ok());
+    client.set_basic_auth("test1", "");
+    std::string local_file = ".http_client_test.dat";
+    st = client.download(local_file);
+    ASSERT_TRUE(st.ok());
+    char buf[50];
+    auto fp = fopen(local_file.c_str(), "r");
+    auto size = fread(buf, 1, 50, fp);
+    buf[size] = 0;
+    ASSERT_STREQ("test1", buf);
+    unlink(local_file.c_str());
+}
+
+TEST_F(HttpClientTest, get_failed) {
+    HttpClient client;
+    auto st = client.init("http://127.0.0.1:29386/simple_get");
+    ASSERT_TRUE(st.ok());
+    client.set_method(GET);
+    std::string response;
+    st = client.execute(&response);
+    ASSERT_FALSE(st.ok());
+}
+
+}
+
+int main(int argc, char* argv[]) {
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
+}
