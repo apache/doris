@@ -23,6 +23,7 @@
 #include <boost/thread/condition_variable.hpp>
 #include <boost/thread/mutex.hpp>
 
+#include "common/config.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
@@ -51,7 +52,7 @@ public:
             if (!_queue.empty()) {
                 // 定期提高队列中残留的任务优先级
                 // 保证优先级较低的大查询不至于完全饿死
-                if (_upgrade_counter > 128) {
+                if (_upgrade_counter > config::priority_queue_remaining_tasks_increased_frequency) {
                     std::priority_queue<T> tmp_queue;
                     while (!_queue.empty()) {
                         T v = _queue.top();

@@ -379,6 +379,9 @@ namespace config {
 
     // can perform recovering tablet
     CONF_Bool(force_recovery, "false");
+
+    // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
+    CONF_Int32(priority_queue_remaining_tasks_increased_frequency, "512");
 } // namespace config
 
 } // namespace doris
