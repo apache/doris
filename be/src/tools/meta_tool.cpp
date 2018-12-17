@@ -88,7 +88,7 @@ int main(int argc, char** argv) {
         std::cout << "new store failed" << std::endl;
         return -1;
     }
-    Status st = store->load();
+    Status st = store->init();
     if (!st.ok()) {
         std::cout << "store load failed" << std::endl;
         return -1;

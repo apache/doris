@@ -73,7 +73,7 @@ public:
                          TTabletId tablet_id, SchemaHash schema_hash);
 
 private:
-    RWMutex _transaction_tablet_map_lock;
+    RWMutex _txn_map_lock;
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
     std::map<TxnKey, std::map<TabletInfo, std::vector<PUniqueId>>> _transaction_tablet_map;
 };  // TxnManager

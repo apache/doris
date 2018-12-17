@@ -51,10 +51,9 @@ private:
     void _get_file_name_from_path(const std::string& file_path, std::string* file_name);
     
     TPushReq _push_req;
-    FileDownloader::FileDownloaderParam _downloader_param;
     StorageEngine* _engine;
-    FileDownloader* _file_downloader;
-    AgentStatus _download_status;
+    std::string _remote_file_path;
+    std::string _local_file_path;
 
     DISALLOW_COPY_AND_ASSIGN(Pusher);
 };  // class Pusher

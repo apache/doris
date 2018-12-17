@@ -212,20 +212,11 @@ OLAPStatus SegmentGroup::add_column_statistics_for_linked_schema_change(
     for (size_t i = 0; i < _tablet->num_key_fields(); ++i) {
         WrapperField* first = WrapperField::create(_tablet->tablet_schema()[i]);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
+        first->copy(column_statistic_fields[i].first);
 
         WrapperField* second = WrapperField::create(_tablet->tablet_schema()[i]);
         DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
-
-        //for new key column, use default value to fill into column_statistics
-        if (schema_mapping[i].ref_column == -1) {
-            num_new_keys++;
-
-            first->copy(schema_mapping[i].default_value);
-            second->copy(schema_mapping[i].default_value);
-        } else {
-            first->copy(column_statistic_fields[i - num_new_keys].first);
-            second->copy(column_statistic_fields[i - num_new_keys].second);
-        }
+        second->copy(column_statistic_fields[i].second);
 
         _column_statistics.push_back(std::make_pair(first, second));
     }

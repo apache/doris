@@ -709,8 +709,7 @@ bool LinkedSchemaChange::process(ColumnData* olap_data, SegmentGroup* new_segmen
 
     new_segment_group->set_empty(olap_data->empty());
     new_segment_group->set_num_segments(olap_data->segment_group()->num_segments());
-    new_segment_group->add_column_statistics_for_linked_schema_change(olap_data->segment_group()->get_column_statistics(),
-                                                                      _row_block_changer.get__schema_mapping() );
+    new_segment_group->add_column_statistics_for_linked_schema_change(olap_data->segment_group()->get_column_statistics());
 
     if (OLAP_SUCCESS != new_segment_group->load()) {
         OLAP_LOG_WARNING("fail to reload index. [tablet='%s' version='%d-%d']",
@@ -1688,8 +1687,7 @@ OLAPStatus SchemaChangeHandler::_create_new_tablet(
         // 4. Register tablet into store, so that we can manage tablet from
         // the perspective of root path.
         // Example: unregister all tables when a bad disk found.
-        res = StorageEngine::get_instance()->register_tablet_into_root_path(
-                new_tablet.get());
+        res = new_tablet->register_tablet_into_dir();
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to register tablet into root path. "
                              "[root_path='%s' tablet='%s']",
