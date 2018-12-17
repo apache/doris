@@ -1,0 +1,12 @@
+{
+    "rowset_id": 10000,
+    "tablet_id": 20487,
+    "tablet_schema_hash": 1520686811,
+    "rowset_type": "ALPHA_ROWSET",
+    "rowset_state": "VISIBLE",
+    "start_version": 0,
+    "end_version": 1,
+    "row_number": 123456,
+    "total_disk_size": 100000,
+    "data_disk_size": 95000
+}
