@@ -449,7 +449,6 @@ private:
         bool is_used;
     };
 
-
     typedef std::map<std::string, uint32_t> file_system_task_count_t;
 
     // 扫描目录, 加载表
@@ -459,8 +458,6 @@ private:
 
     OLAPStatus _do_sweep(
             const std::string& scan_root, const time_t& local_tm_now, const uint32_t expire);
-
-    
 
     EngineOptions _options;
     std::mutex _store_lock;
