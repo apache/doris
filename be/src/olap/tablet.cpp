@@ -308,6 +308,30 @@ EXIT:
     return res;
 }
 
+bool Tablet::can_do_compaction() {
+    // 如果table正在做schema change，则通过选路判断数据是否转换完成
+    // 如果选路成功，则转换完成，可以进行BE
+    // 如果选路失败，则转换未完成，不能进行BE
+    this->obtain_header_rdlock();
+    const PDelta* lastest_version = this->lastest_version();
+    if (lastest_version == NULL) {
+        this->release_header_lock();
+        return false;
+    }
+
+    if (this->is_schema_changing()) {
+        Version test_version = Version(0, lastest_version->end_version());
+        vector<Version> path_versions;
+        if (OLAP_SUCCESS != this->select_versions_to_span(test_version, &path_versions)) {
+            this->release_header_lock();
+            return false;
+        }
+    }
+    this->release_header_lock();
+
+    return true;
+}
+
 OLAPStatus Tablet::load_indices() {
     OLAPStatus res = OLAP_SUCCESS;
     ReadLock rdlock(&_header_lock);
@@ -743,18 +767,6 @@ void Tablet::get_expire_pending_data(vector<int64_t>* transaction_ids) {
 // 2. move pending data to version data
 // 3. move pending data to incremental data, it won't be merged, so we can do incremental clone
 OLAPStatus Tablet::publish_version(int64_t transaction_id, Version version,
-                                      VersionHash version_hash) {
-    OLAPStatus lock_status = _migration_lock.tryrdlock();
-    if (lock_status != OLAP_SUCCESS) {
-        return lock_status;
-    } else {
-        OLAPStatus publish_status = _publish_version(transaction_id, version, version_hash);
-        _migration_lock.unlock();
-        return publish_status;
-    }
-}
-
-OLAPStatus OLAPTable::_publish_version(int64_t transaction_id, Version version,
                                       VersionHash version_hash) {
     WriteLock wrlock(&_header_lock);
     if (_pending_data_sources.find(transaction_id) == _pending_data_sources.end()) {
@@ -2106,6 +2118,10 @@ OLAPStatus Tablet::test_version(const Version& version) {
     release_header_lock();
 
     return res;
+}
+
+OLAPStatus Tablet::register_tablet_into_dir() {
+    return _store->register_tablet(this);
 }
 
 }  // namespace doris

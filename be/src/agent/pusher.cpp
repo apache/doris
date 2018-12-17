@@ -32,6 +32,7 @@
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "util/stopwatch.hpp"
 
 using std::list;
 using std::string;
@@ -67,6 +68,9 @@ AgentStatus Pusher::init() {
 
     // Check remote path
     _remote_file_path = _push_req.http_file_path;
+
+    // Get local download path
+    LOG(INFO) << "start get file. remote_file_path: " << _remote_file_path;
 
     // Set download param
     string tmp_file_dir;

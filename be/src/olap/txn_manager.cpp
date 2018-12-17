@@ -76,7 +76,7 @@ OLAPStatus TxnManager::add_txn(
 
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash);
-    WriteLock wrlock(&_transaction_tablet_map_lock);
+    WriteLock wrlock(&_txn_map_lock);
     auto it = _transaction_tablet_map.find(key);
     if (it != _transaction_tablet_map.end()) {
         auto load_info = it->second.find(tablet_info);
@@ -107,7 +107,7 @@ OLAPStatus TxnManager::delete_txn(
 
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash);
-    WriteLock wrlock(&_transaction_tablet_map_lock);
+    WriteLock wrlock(&_txn_map_lock);
 
     auto it = _transaction_tablet_map.find(key);
     if (it != _transaction_tablet_map.end()) {
@@ -144,7 +144,7 @@ void TxnManager::get_tablet_related_txns(TabletSharedPtr tablet, int64_t* partit
     }
 
     TabletInfo tablet_info(tablet->tablet_id(), tablet->schema_hash());
-    ReadLock rdlock(&_transaction_tablet_map_lock);
+    ReadLock rdlock(&_txn_map_lock);
     for (auto& it : _transaction_tablet_map) {
         if (it.second.find(tablet_info) != it.second.end()) {
             *partition_id = it.first.first;
@@ -163,16 +163,16 @@ void TxnManager::get_txn_related_tablets(const TTransactionId transaction_id,
     // get tablets in this transaction
     pair<int64_t, int64_t> key(partition_id, transaction_id);
 
-    _transaction_tablet_map_lock.rdlock();
+    _txn_map_lock.rdlock();
     auto it = _transaction_tablet_map.find(key);
     if (it == _transaction_tablet_map.end()) {
         OLAP_LOG_WARNING("could not find tablet for [partition_id=%ld transaction_id=%ld]",
                             partition_id, transaction_id);
-        _transaction_tablet_map_lock.unlock();
+        _txn_map_lock.unlock();
         return;
     }
     std::map<TabletInfo, std::vector<PUniqueId>> load_info_map = it->second;
-    _transaction_tablet_map_lock.unlock();
+    _txn_map_lock.unlock();
 
     // each tablet
     for (auto& load_info : load_info_map) {
@@ -188,11 +188,11 @@ bool TxnManager::has_txn(TPartitionId partition_id, TTransactionId transaction_i
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash);
 
-    _transaction_tablet_map_lock.rdlock();
+    _txn_map_lock.rdlock();
     auto it = _transaction_tablet_map.find(key);
     bool found = it != _transaction_tablet_map.end()
                  && it->second.find(tablet_info) != it->second.end();
-    _transaction_tablet_map_lock.unlock();
+    _txn_map_lock.unlock();
 
     return found;
 }

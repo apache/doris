@@ -43,6 +43,7 @@
 #include "olap/tablet.h"
 #include "olap/olap_meta.h"
 #include "olap/options.h"
+#include "olap/tablet_manager.h"
 #include "olap/txn_manager.h"
 
 namespace doris {
@@ -50,21 +51,6 @@ namespace doris {
 class Tablet;
 class OlapStore;
 
-struct RootPathInfo {
-    RootPathInfo():
-            capacity(1),
-            available(0),
-            data_used_capacity(0),
-            is_used(false) { }
-
-    std::string path;
-    int64_t path_hash;
-    int64_t capacity;                  // 总空间，单位字节
-    int64_t available;                 // 可用空间，单位字节
-    int64_t data_used_capacity;
-    bool is_used;                       // 是否可用标识
-    TStorageMedium::type storage_medium;  // 存储介质类型：SSD|HDD
-};
 
 // StorageEngine singleton to manage all Table pointers.
 // Providing add/drop/get operations.
@@ -141,13 +127,6 @@ public:
 
     OLAPStatus clone_full_data(TabletSharedPtr tablet, TabletMeta& clone_header);
 
-    // Add empty data for Tablet
-    //
-    // Return OLAP_SUCCESS, if run ok
-    OLAPStatus create_init_version(
-            TTabletId tablet_id, SchemaHash schema_hash,
-            Version version, VersionHash version_hash);
-
     // Drop a tablet by description
     // If set keep_files == true, files will NOT be deleted when deconstruction.
     // Return OLAP_SUCCESS, if run ok
@@ -155,12 +134,6 @@ public:
     //        OLAP_ERR_NOT_INITED, if not inited
     OLAPStatus drop_tablet(
             TTabletId tablet_id, SchemaHash schema_hash, bool keep_files = false);
-
-    // Drop tablet directly with check schema change info.
-    OLAPStatus _drop_tablet_directly(TTabletId tablet_id, TSchemaHash schema_hash, bool keep_files = false);
-    OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id, TSchemaHash schema_hash, bool keep_files = false);
-
-    OLAPStatus drop_tables_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
 
     // Prevent schema change executed concurrently.
     bool try_schema_change_lock(TTabletId tablet_id);
@@ -217,8 +190,6 @@ public:
     OLAPStatus get_all_root_path_info(std::vector<RootPathInfo>* root_paths_info);
 
     void get_all_available_root_path(std::vector<std::string>* available_paths);
-
-    OLAPStatus register_tablet_into_root_path(Tablet* tablet);
 
     // 磁盘状态监测。监测unused_flag路劲新的对应root_path unused标识位，
     // 当检测到有unused标识时，从内存中删除对应表信息，磁盘数据不动。
@@ -464,18 +435,7 @@ private:
 
     OLAPStatus _start_bg_worker();
 
-    OLAPStatus _create_init_version(TabletSharedPtr tablet, const TCreateTabletReq& request);
-
 private:
-    struct TableInstances {
-        Mutex schema_change_lock;
-        std::list<TabletSharedPtr> table_arr;
-    };
-
-    enum CompactionType {
-        BASE_COMPACTION = 1,
-        CUMULATIVE_COMPACTION = 2
-    };
 
     struct CompactionCandidate {
         CompactionCandidate(uint32_t nicumulative_compaction_, int64_t tablet_id_, uint32_t index_) :
@@ -505,15 +465,7 @@ private:
         bool is_used;
     };
 
-    typedef std::map<int64_t, TableInstances> tablet_map_t;
     typedef std::map<std::string, uint32_t> file_system_task_count_t;
-
-    TabletSharedPtr _get_tablet_with_no_lock(TTabletId tablet_id, SchemaHash schema_hash);
-
-    // 遍历root所指定目录, 通过dirs返回此目录下所有有文件夹的名字, files返回所有文件的名字
-    OLAPStatus _dir_walk(const std::string& root,
-                     std::set<std::string>* dirs,
-                     std::set<std::string>* files);
 
     // 扫描目录, 加载表
     OLAPStatus _load_store(OlapStore* store);
@@ -526,15 +478,9 @@ private:
 
     OLAPStatus _check_existed_or_else_create_dir(const std::string& path);
     TabletSharedPtr _find_best_tablet_to_compaction(CompactionType compaction_type);
-    bool _can_do_compaction(TabletSharedPtr tablet);
-
-    void _cancel_unfinished_schema_change();
 
     OLAPStatus _do_sweep(
             const std::string& scan_root, const time_t& local_tm_now, const uint32_t expire);
-
-    void _build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tablet_info);
-    void _build_tablet_stat();
 
     EngineOptions _options;
     std::mutex _store_lock;
@@ -547,10 +493,6 @@ private:
 
     // 错误磁盘所在百分比，超过设定的值，则engine需要退出运行
     uint32_t _min_percentage_of_error_disk;
-
-    RWMutex _tablet_map_lock;
-    tablet_map_t _tablet_map;
-    size_t _global_tablet_id;
     Cache* _file_descriptor_lru_cache;
     Cache* _index_stream_lru_cache;
     uint32_t _max_base_compaction_task_per_disk;
@@ -559,13 +501,6 @@ private:
     Mutex _fs_task_mutex;
     file_system_task_count_t _fs_base_compaction_task_num_map;
     std::vector<CompactionCandidate> _cumulative_compaction_candidate;
-
-    // cache to save tablets' statistics, such as data size and row
-    // TODO(cmy): for now, this is a naive implementation
-    std::map<int64_t, TTabletStat> _tablet_stat_cache;
-    std::mutex _tablet_stat_mutex;
-    // last update time of tablet stat cache
-    int64_t _tablet_stat_cache_update_time_ms;
 
     static StorageEngine* _s_instance;
 
@@ -621,6 +556,7 @@ private:
     std::atomic_bool _is_report_disk_state_already;
     std::atomic_bool _is_report_tablet_already;
     TxnManager _txn_mgr;
+    TabletManager _tablet_mgr;
 };
 
 }  // namespace doris
