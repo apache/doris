@@ -195,12 +195,13 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_LARGE
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_CHAR> {
     static void aggregate(char* left, const char* right, Arena* arena) {
+        bool l_null = *reinterpret_cast<bool*>(left);
         bool r_null = *reinterpret_cast<const bool*>(right);
         *reinterpret_cast<bool*>(left) = r_null;
         if (!r_null) {
             Slice* l_slice = reinterpret_cast<Slice*>(left + 1);
             const Slice* r_slice = reinterpret_cast<const Slice*>(right + 1);
-            if (arena == nullptr || l_slice->size >= r_slice->size) {
+            if (arena == nullptr || (!l_null && l_slice->size >= r_slice->size)) {
                 memory_copy(l_slice->data, r_slice->data, r_slice->size);
                 l_slice->size = r_slice->size;
             } else {
