@@ -326,7 +326,7 @@ public class BackupHandler extends Daemon implements Writable {
                 // as base snapshot.
                 // But first we need to check if the existing snapshot has same meta.
                 List<BackupMeta> backupMetas = Lists.newArrayList();
-                st = repository.getSnapshotMetaFile(stmt.getLabel(), backupMetas);
+                st = repository.getSnapshotMetaFile(stmt.getLabel(), backupMetas, -1);
                 if (!st.ok()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                                                    "Failed to get existing meta info for repository: "
@@ -373,7 +373,7 @@ public class BackupHandler extends Daemon implements Writable {
         // Create a restore job
         RestoreJob restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
                 db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicationNum(),
-                stmt.getTimeoutMs(), catalog, repository.getId());
+                stmt.getTimeoutMs(), stmt.getMetaVersion(), catalog, repository.getId());
         dbIdToBackupOrRestoreJob.put(db.getId(), restoreJob);
 
         catalog.getEditLog().logRestoreJob(restoreJob);

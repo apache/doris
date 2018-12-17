@@ -282,7 +282,7 @@ public class BackupJobTest {
         BackupMeta restoreMetaInfo = null;
         BackupJobInfo restoreJobInfo = null;
         try {
-            restoreMetaInfo = BackupMeta.fromFile(job.getLocalMetaInfoFilePath());
+            restoreMetaInfo = BackupMeta.fromFile(job.getLocalMetaInfoFilePath(), -1);
             Assert.assertEquals(1, restoreMetaInfo.getTables().size());
             OlapTable olapTable = (OlapTable) restoreMetaInfo.getTable(tblId);
             Assert.assertNotNull(olapTable);

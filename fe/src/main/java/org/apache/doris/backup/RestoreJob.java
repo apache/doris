@@ -131,12 +131,21 @@ public class RestoreJob extends AbstractJob {
 
     private Map<Long, Long> unfinishedSignatureToId = Maps.newConcurrentMap();
 
+    // the meta version is used when reading backup meta from file.
+    // we do not persist this field, because this is just a temporary solution.
+    // the true meta version should be get from backup job info, which is saved when doing backup job.
+    // But the earlier version of Doris do not save the meta version in backup job info, so we allow user to
+    // set this 'metaVersion' in restore stmt.
+    // NOTICE: because we do not persist it, this info may be lost if Frontend restart,
+    // and if you don't want to losing it, backup your data again by using latest Doris version.
+    private int metaVersion = -1;
+
     public RestoreJob() {
         super(JobType.RESTORE);
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo,
-            boolean allowLoad, int restoreReplicationNum, long timeoutMs,
+            boolean allowLoad, int restoreReplicationNum, long timeoutMs, int metaVersion,
             Catalog catalog, long repoId) {
         super(JobType.RESTORE, label, dbId, dbName, timeoutMs, catalog, repoId);
         this.backupTimestamp = backupTs;
@@ -144,6 +153,7 @@ public class RestoreJob extends AbstractJob {
         this.allowLoad = allowLoad;
         this.restoreReplicationNum = restoreReplicationNum;
         this.state = RestoreJobState.PENDING;
+        this.metaVersion = metaVersion;
     }
 
     public RestoreJobState getState() {
@@ -152,6 +162,10 @@ public class RestoreJob extends AbstractJob {
 
     public RestoreFileMapping getFileMapping() {
         return fileMapping;
+    }
+    
+    public int getMetaVersion() {
+        return metaVersion;
     }
 
     public synchronized boolean finishTabletSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
@@ -822,7 +836,8 @@ public class RestoreJob extends AbstractJob {
 
     private boolean downloadAndDeserializeMetaInfo() {
         List<BackupMeta> backupMetas = Lists.newArrayList();
-        Status st = repo.getSnapshotMetaFile(jobInfo.name, backupMetas);
+        Status st = repo.getSnapshotMetaFile(jobInfo.name, backupMetas,
+                this.metaVersion == -1 ? jobInfo.metaVersion : this.metaVersion);
         if (!st.ok()) {
             status = st;
             return false;

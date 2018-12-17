@@ -23,6 +23,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -34,6 +35,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.DataInput;
@@ -66,6 +68,8 @@ public class BackupJobInfo implements Writable {
     public long backupTime;
     public Map<String, BackupTableInfo> tables = Maps.newHashMap();
     public boolean success;
+
+    public int metaVersion;
 
     // This map is used to save the table alias mapping info when processing a restore job.
     // origin -> alias
@@ -229,6 +233,7 @@ public class BackupJobInfo implements Writable {
         jobInfo.dbName = dbName;
         jobInfo.dbId = dbId;
         jobInfo.success = true;
+        jobInfo.metaVersion = FeConstants.meta_version;
 
         // tbls
         for (Table tbl : tbls) {
@@ -282,6 +287,7 @@ public class BackupJobInfo implements Writable {
          *   "database": "db1"
          *   "id": 10000
          *   "backup_result": "succeed",
+         *   "meta_version" : 40 // this is optional
          *   "backup_objects": {
          *       "table1": {
          *           "partitions": {
@@ -321,6 +327,14 @@ public class BackupJobInfo implements Writable {
         jobInfo.dbName = (String) root.get("database");
         jobInfo.dbId = root.getLong("id");
         jobInfo.backupTime = root.getLong("backup_time");
+        
+        try {
+            jobInfo.metaVersion = root.getInt("meta_version");
+        } catch (JSONException e) {
+            // meta_version does not exist
+            jobInfo.metaVersion = FeConstants.meta_version;
+        }
+        
         JSONObject backupObjs = root.getJSONObject("backup_objects");
         String[] tblNames = JSONObject.getNames(backupObjs);
         for (String tblName : tblNames) {
@@ -409,6 +423,7 @@ public class BackupJobInfo implements Writable {
         root.put("backup_time", backupTime);
         JSONObject backupObj = new JSONObject();
         root.put("backup_objects", backupObj);
+        root.put("meta_version", FeConstants.meta_version);
         
         for (BackupTableInfo tblInfo : tables.values()) {
             JSONObject tbl = new JSONObject();

@@ -177,7 +177,7 @@ public class RestoreJobTest {
                 minTimes = 0;
 
                 List<BackupMeta> backupMetas = Lists.newArrayList();
-                repo.getSnapshotMetaFile(label, backupMetas);
+                repo.getSnapshotMetaFile(label, backupMetas, -1);
                 result = new Delegate() {
                     public Status getSnapshotMetaFile(String label, List<BackupMeta> backupMetas) {
                         backupMetas.add(backupMeta);
@@ -236,7 +236,7 @@ public class RestoreJobTest {
         db.dropTable(expectedRestoreTbl.getName());
         
         job = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
-                jobInfo, false, 3, 100000, catalog, repo.getId());
+                jobInfo, false, 3, 100000, -1, catalog, repo.getId());
         
         List<Table> tbls = Lists.newArrayList();
         tbls.add(expectedRestoreTbl);
