@@ -127,6 +127,7 @@ import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.master.MetaHelper;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -228,10 +229,9 @@ public class Catalog {
     public static final String BDB_DIR = Config.meta_dir + "/bdb";
     public static final String IMAGE_DIR = Config.meta_dir + "/image";
 
-    // Image file meta data version. Use this version to load image file
-    private int imageVersion = 0;
     // Current journal meta data version. Use this version to load journals
-    private int journalVersion = 0;
+    // private int journalVersion = 0;
+    private MetaContext metaContext;
     private long epoch = 0;
 
     // Lock to perform atomic modification on map like 'idToDb' and 'fullNameToDb'.
@@ -444,6 +444,9 @@ public class Catalog {
         this.domainResolver = new DomainResolver(auth);
 
         this.esStateStore = new EsStateStore();
+
+        this.metaContext = new MetaContext();
+        this.metaContext.setThreadLocalInfo();
     }
 
     public static void destroyCheckpoint() {
@@ -518,7 +521,7 @@ public class Catalog {
 
     // use this to get correct Catalog's journal version
     public static int getCurrentCatalogJournalVersion() {
-        return getCurrentCatalog().getJournalVersion();
+        return MetaContext.get().getMetaVersion();
     }
 
     public static final boolean isCheckpointThread() {
@@ -608,6 +611,7 @@ public class Catalog {
 
         // 6. start state listener thread
         createStateListener();
+        listener.setMetaContext(metaContext);
         listener.setName("stateListener");
         listener.setInterval(STATE_CHANGE_CHECK_INTERVAL_MS);
         listener.start();
@@ -978,9 +982,10 @@ public class Catalog {
         editLog.rollEditLog();
 
         // Log meta_version
+        long journalVersion = MetaContext.get().getMetaVersion();
         if (journalVersion < FeConstants.meta_version) {
             editLog.logMetaVersion(FeConstants.meta_version);
-            this.setJournalVersion(FeConstants.meta_version);
+            MetaContext.get().setMetaVersion(FeConstants.meta_version);
         }
 
         // Log the first frontend
@@ -1010,6 +1015,7 @@ public class Catalog {
 
         // start checkpoint thread
         checkpointer = new Checkpoint(editLog);
+        checkpointer.setMetaContext(metaContext);
         checkpointer.setName("leaderCheckpointer");
         checkpointer.setInterval(FeConstants.checkpoint_interval_second * 1000L);
 
@@ -1107,6 +1113,7 @@ public class Catalog {
 
         if (replayer == null) {
             createReplayer();
+            replayer.setMetaContext(metaContext);
             replayer.setName("replayer");
             replayer.setInterval(REPLAY_INTERVAL_MS);
             replayer.start();
@@ -1311,16 +1318,18 @@ public class Catalog {
     }
 
     public long loadHeader(DataInputStream dis, long checksum) throws IOException {
-        imageVersion = dis.readInt();
-        long newChecksum = checksum ^ imageVersion;
-        journalVersion = imageVersion;
+        int journalVersion = dis.readInt();
+        long newChecksum = checksum ^ journalVersion;
+        MetaContext.get().setMetaVersion(journalVersion);
+
         long replayedJournalId = dis.readLong();
         newChecksum ^= replayedJournalId;
-        long id = dis.readLong();
-        newChecksum ^= id;
-        idGenerator.setId(id);
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_32) {
+        long catalogId = dis.readLong();
+        newChecksum ^= catalogId;
+        idGenerator.setId(catalogId);
+
+        if (journalVersion >= FeMetaVersion.VERSION_32) {
             isDefaultClusterCreated = dis.readBoolean();
         }
 
@@ -4564,20 +4573,6 @@ public class Catalog {
         this.haProtocol = protocol;
     }
 
-    public void setJournalVersion(int version) {
-        this.journalVersion = version;
-    }
-
-    // Get current journal meta data version
-    public int getJournalVersion() {
-        return this.journalVersion;
-    }
-
-    // Get current journal meta data version
-    public int getImageVersion() {
-        return this.imageVersion;
-    }
-
     public static short calcShortKeyColumnCount(List<Column> columns, Map<String, String> properties)
             throws DdlException {
         List<Column> indexColumns = new ArrayList<Column>();
@@ -5642,7 +5637,7 @@ public class Catalog {
     }
 
     public long loadBrokers(DataInputStream dis, long checksum) throws IOException, DdlException {
-        if (getJournalVersion() >= FeMetaVersion.VERSION_31) {
+        if (MetaContext.get().getMetaVersion() >= FeMetaVersion.VERSION_31) {
             int count = dis.readInt();
             checksum ^= count;
             for (long i = 0; i < count; ++i) {

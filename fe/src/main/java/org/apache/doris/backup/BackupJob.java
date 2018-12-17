@@ -470,7 +470,7 @@ public class BackupJob extends AbstractJob {
             int batchNum = Math.min(totalNum, 3);
             // each task contains several upload sub tasks
             int taskNumPerBatch = Math.max(totalNum / batchNum, 1);
-            LOG.debug("backend {} has {} batch, total {} tasks, {}", beId, batchNum, totalNum, this);
+            LOG.info("backend {} has {} batch, total {} tasks, {}", beId, batchNum, totalNum, this);
 
             List<FsBroker> brokers = Lists.newArrayList();
             Status st = repo.getBrokerAddress(beId, catalog, brokers);
@@ -628,7 +628,7 @@ public class BackupJob extends AbstractJob {
      * Choose a replica order by replica id.
      * This is to expect to choose the same replica at each backup job.
      */
-    private Replica chooseReplica(Tablet tablet, long committedVersion, long committedVersionHash) {
+    private Replica chooseReplica(Tablet tablet, long visibleVersion, long visibleVersionHash) {
         List<Long> replicaIds = Lists.newArrayList();
         for (Replica replica : tablet.getReplicas()) {
             replicaIds.add(replica.getId());
@@ -637,8 +637,8 @@ public class BackupJob extends AbstractJob {
         Collections.sort(replicaIds);
         for (Long replicaId : replicaIds) {
             Replica replica = tablet.getReplicaById(replicaId);
-            if (replica.getVersion() > committedVersion 
-                    || (replica.getVersion() == committedVersion && replica.getVersionHash()==committedVersionHash)) {
+            if (replica.getLastFailedVersion() <= 0 && (replica.getVersion() > visibleVersion
+                    || (replica.getVersion() == visibleVersion && replica.getVersionHash() == visibleVersionHash))) {
                 return replica;
             }
         }
