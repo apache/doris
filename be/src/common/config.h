@@ -214,8 +214,8 @@ namespace config {
     CONF_Int32(max_tablet_num_per_shard, "1024");
     // pending data policy
     CONF_Int32(pending_data_expire_time_sec, "1800");
-    // incremental delta policy
-    CONF_Int32(incremental_delta_expire_time_sec, "1800");
+    // inc_rowset expired interval
+    CONF_Int32(inc_rowset_expired_sec, "1800");
     // garbage sweep policy
     CONF_Int32(max_garbage_sweep_interval, "86400");
     CONF_Int32(min_garbage_sweep_interval, "200");
