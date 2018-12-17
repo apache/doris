@@ -380,6 +380,7 @@
                             NOTE: 需要进行url编码，譬如
                             需要指定'\t'为分隔符，那么应该传入'column_separator=%09'
                             需要指定'\x01'为分隔符，那么应该传入'column_separator=%01'
+                            需要指定','为分隔符，那么应该传入'column_separator=%2c'
 
 
         max_filter_ratio:   用于指定允许过滤不规范数据的最大比例，默认是0，不允许过滤
