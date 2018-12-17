@@ -47,7 +47,7 @@ public:
         ASSERT_TRUE(boost::filesystem::create_directory(root_path));
         _store = new(std::nothrow) OlapStore(root_path);
         ASSERT_NE(nullptr, _store);
-        Status st = _store->load();
+        Status st = _store->init();
         ASSERT_TRUE(st.ok());
         ASSERT_TRUE(boost::filesystem::exists("./store/meta"));
 

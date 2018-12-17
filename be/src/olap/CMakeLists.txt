@@ -78,6 +78,7 @@ add_library(Olap STATIC
     stream_index_writer.cpp
     stream_name.cpp
     tablet.cpp
+    tablet_manager.cpp
     tablet_meta.cpp
     tablet_meta_manager.cpp
     txn_manager.cpp

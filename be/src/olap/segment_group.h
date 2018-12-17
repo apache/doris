@@ -67,8 +67,7 @@ public:
     }
 
     OLAPStatus add_column_statistics_for_linked_schema_change(
-        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields,
-        const SchemaMapping& schema_mapping);
+        const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields);
 
     OLAPStatus add_column_statistics(
         const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields);

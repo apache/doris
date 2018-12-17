@@ -28,6 +28,7 @@
 // #include <gutil/strings/join.h>
 
 #include "olap/storage_engine.h"
+#include "util/uid_util.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/filesystem_util.h"
