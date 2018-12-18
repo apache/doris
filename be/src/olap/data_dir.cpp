@@ -71,11 +71,7 @@ DataDir::~DataDir() {
     }
 }
 
-<<<<<<< HEAD:be/src/olap/data_dir.cpp
 Status DataDir::init() {
-=======
-Status OlapStore::init() {
->>>>>>> Move tablet management code from StorageEngine to TabletManager (#437):be/src/olap/store.cpp
     _rand_seed = static_cast<uint32_t>(time(NULL));
     if (posix_memalign((void**)&_test_file_write_buf,
                        DIRECT_IO_ALIGNMENT,
@@ -441,7 +437,6 @@ OLAPStatus DataDir::deregister_tablet(Tablet* tablet) {
     return OLAP_SUCCESS;
 }
 
-<<<<<<< HEAD:be/src/olap/data_dir.cpp
 void DataDir::clear_tablets(std::vector<TabletInfo>* tablet_infos) {
      for (auto& tablet : _tablet_set) {
         tablet_infos->push_back(tablet);
@@ -454,13 +449,6 @@ std::string DataDir::get_absolute_shard_path(const std::string& shard_string) {
 }
 
 std::string DataDir::get_absolute_tablet_path(TabletMeta* header, bool with_schema_hash) {
-=======
-std::string OlapStore::get_absolute_shard_path(const std::string& shard_string) {
-    return _path + DATA_PREFIX + "/" + shard_string;
-}
-
-std::string OlapStore::get_absolute_tablet_path(TabletMeta* header, bool with_schema_hash) {
->>>>>>> Move tablet management code from StorageEngine to TabletManager (#437):be/src/olap/store.cpp
     if (with_schema_hash) {
         return _path + DATA_PREFIX + "/" + std::to_string(header->shard())
             + "/" + std::to_string(header->tablet_id()) + "/" + std::to_string(header->schema_hash());
