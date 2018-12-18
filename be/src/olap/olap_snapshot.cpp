@@ -38,7 +38,7 @@
 #include "olap/tablet.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/push_handler.h"
-#include "olap/store.h"
+#include "olap/data_dir.h"
 #include "util/file_utils.h"
 #include "util/doris_metrics.h"
 
@@ -358,7 +358,7 @@ OLAPStatus StorageEngine::_create_snapshot_files(
         }
 
         // load tablet header, in order to remove versions that not in shortest version path
-        OlapStore* store = ref_tablet->store();
+        DataDir* store = ref_tablet->store();
         new_tablet_meta = new(nothrow) TabletMeta();
         if (new_tablet_meta == NULL) {
             OLAP_LOG_WARNING("fail to malloc TabletMeta.");
@@ -557,7 +557,7 @@ OLAPStatus StorageEngine::_create_incremental_snapshot_files(
 }
 
 OLAPStatus StorageEngine::_append_single_delta(
-        const TSnapshotRequest& request, OlapStore* store) {
+        const TSnapshotRequest& request, DataDir* store) {
     OLAPStatus res = OLAP_SUCCESS;
     string root_path = store->path();
     TabletMeta* new_tablet_meta = new(nothrow) TabletMeta();
@@ -780,7 +780,7 @@ OLAPStatus StorageEngine::storage_medium_migrate(
 }
 
 OLAPStatus StorageEngine::_generate_new_header(
-        OlapStore* store,
+        DataDir* store,
         const uint64_t new_shard,
         const TabletSharedPtr& tablet,
         const vector<VersionEntity>& version_entity_vec, TabletMeta* new_tablet_meta) {
@@ -790,7 +790,7 @@ OLAPStatus StorageEngine::_generate_new_header(
     }
     OLAPStatus res = OLAP_SUCCESS;
 
-    OlapStore* ref_store =
+    DataDir* ref_store =
             StorageEngine::get_instance()->get_store(tablet->storage_root_path_name());
     TabletMetaManager::get_header(ref_store, tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
     _update_header_file_info(version_entity_vec, new_tablet_meta);

@@ -49,7 +49,7 @@
 namespace doris {
 
 class Tablet;
-class OlapStore;
+class DataDir;
 
 
 // StorageEngine singleton to manage all Table pointers.
@@ -160,9 +160,9 @@ public:
 
     // Note: 这里只能reload原先已经存在的root path，即re-load启动时就登记的root path
     // 是允许的，但re-load全新的path是不允许的，因为此处没有彻底更新ce调度器信息
-    void load_stores(const std::vector<OlapStore*>& stores);
+    void load_stores(const std::vector<DataDir*>& stores);
 
-    OLAPStatus load_one_tablet(OlapStore* store,
+    OLAPStatus load_one_tablet(DataDir* store,
                                TTabletId tablet_id,
                                SchemaHash schema_hash,
                                const std::string& schema_hash_path,
@@ -176,7 +176,7 @@ public:
     OLAPStatus start_trash_sweep(double *usage);
 
     template<bool include_unused = false>
-    std::vector<OlapStore*> get_stores();
+    std::vector<DataDir*> get_stores();
     Status set_cluster_id(int32_t cluster_id);
 
     // @brief 设置root_path是否可用
@@ -195,9 +195,9 @@ public:
 
     // get root path for creating tablet. The returned vector of root path should be random, 
     // for avoiding that all the tablet would be deployed one disk.
-    std::vector<OlapStore*> get_stores_for_create_tablet(
+    std::vector<DataDir*> get_stores_for_create_tablet(
         TStorageMedium::type storage_medium);
-    OlapStore* get_store(const std::string& path);
+    DataDir* get_store(const std::string& path);
 
     uint32_t available_storage_medium_type_count() {
         return _available_storage_medium_type_count;
@@ -299,7 +299,7 @@ public:
     virtual OLAPStatus obtain_shard_path(
             TStorageMedium::type storage_medium,
             std::string* shared_path,
-            OlapStore** store);
+            DataDir** store);
 
     // Load new tablet to make it effective.
     //
@@ -309,7 +309,7 @@ public:
     virtual OLAPStatus load_header(
         const std::string& shard_path, const TCloneReq& request);
     virtual OLAPStatus load_header(
-        OlapStore* store,
+        DataDir* store,
             const std::string& shard_path,
             TTabletId tablet_id,
             TSchemaHash schema_hash);
@@ -395,7 +395,7 @@ private:
 
     OLAPStatus _append_single_delta(
             const TSnapshotRequest& request,
-            OlapStore* store);
+            DataDir* store);
 
     std::string _construct_index_file_path(
             const std::string& tablet_path_prefix,
@@ -410,7 +410,7 @@ private:
             int32_t segment_group_id, int32_t segment) const;
 
     OLAPStatus _generate_new_header(
-            OlapStore* store,
+            DataDir* store,
             const uint64_t new_shard,
             const TabletSharedPtr& tablet,
             const std::vector<VersionEntity>& version_entity_vec, TabletMeta* new_tablet_meta);
@@ -452,7 +452,7 @@ private:
     typedef std::map<std::string, uint32_t> file_system_task_count_t;
 
     // 扫描目录, 加载表
-    OLAPStatus _load_store(OlapStore* store);
+    OLAPStatus _load_store(DataDir* store);
 
     TabletSharedPtr _find_best_tablet_to_compaction(CompactionType compaction_type);
 
@@ -461,7 +461,7 @@ private:
 
     EngineOptions _options;
     std::mutex _store_lock;
-    std::map<std::string, OlapStore*> _store_map;
+    std::map<std::string, DataDir*> _store_map;
     uint32_t _available_storage_medium_type_count;
 
     int32_t _effective_cluster_id;
