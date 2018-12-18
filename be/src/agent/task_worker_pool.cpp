@@ -39,7 +39,7 @@
 #include "olap/olap_common.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
-#include "olap/store.h"
+#include "olap/data_dir.h"
 #include "olap/utils.h"
 #include "common/resource_tls.h"
 #include "common/status.h"
@@ -1105,7 +1105,7 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
 
             // Get local disk from olap
             string local_shard_root_path;
-            OlapStore* store = nullptr;
+            DataDir* store = nullptr;
             OLAPStatus olap_status = worker_pool_this->_env->olap_engine()->obtain_shard_path(
                 clone_req.storage_medium, &local_shard_root_path, &store);
             if (olap_status != OLAP_SUCCESS) {

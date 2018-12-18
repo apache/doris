@@ -27,7 +27,7 @@
 #include <sys/vfs.h>
 #include "boost/filesystem.hpp"
 #include "common/logging.h"
-#include "olap/store.h"
+#include "olap/data_dir.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_path_mgr.h"

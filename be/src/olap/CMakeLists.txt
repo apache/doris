@@ -72,7 +72,7 @@ add_library(Olap STATIC
     segment_writer.cpp
     serialize.cpp
     storage_engine.cpp
-    store.cpp
+    data_dir.cpp
     stream_index_common.cpp
     stream_index_reader.cpp
     stream_index_writer.cpp

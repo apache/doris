@@ -31,12 +31,12 @@ namespace doris {
 
 class StorageEngine;
 
-// A OlapStore used to manange data in same path.
-// Now, After OlapStore was created, it will never be deleted for easy implementation.
-class OlapStore {
+// A DataDir used to manange data in same path.
+// Now, After DataDir was created, it will never be deleted for easy implementation.
+class DataDir {
 public:
-    OlapStore(const std::string& path, int64_t capacity_bytes = -1);
-    ~OlapStore();
+    DataDir(const std::string& path, int64_t capacity_bytes = -1);
+    ~DataDir();
 
     Status init();
 
