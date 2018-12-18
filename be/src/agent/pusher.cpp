@@ -117,6 +117,7 @@ void Pusher::_get_file_name_from_path(const string& file_path, string* file_name
 
 AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
     AgentStatus status = DORIS_SUCCESS;
+
     // Remote file not empty, need to download
     if (_push_req.__isset.http_file_path) {
         // Get file length and timeout
