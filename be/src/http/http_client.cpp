@@ -141,7 +141,7 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
     return Status::OK;
 }
 
-Status HttpClient::download(const std::string local_path) {
+Status HttpClient::download(const std::string& local_path) {
     // set method to GET
     set_method(GET);
 

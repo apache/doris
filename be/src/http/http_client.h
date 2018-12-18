@@ -93,7 +93,7 @@ public:
 
     // helper function to download a file, you can call this function to downlaod
     // a file to local_path 
-    Status download(const std::string local_path);
+    Status download(const std::string& local_path);
 
     // execute a simple method, and its response is saved in response argument
     Status execute(std::string* response);
