@@ -31,15 +31,22 @@ public:
     HttpUtilsTest() { }
     virtual ~HttpUtilsTest() {
     }
+    void SetUp() override {
+        _evhttp_req = evhttp_request_new(nullptr, nullptr);
+    }
+    void TearDown() override {
+        if (_evhttp_req != nullptr) {
+            evhttp_request_free(_evhttp_req);
+        }
+    }
+private:
+    evhttp_request* _evhttp_req = nullptr;
 };
 
 TEST_F(HttpUtilsTest, parse_basic_auth) {
     {
-        HttpRequest req;
-        std::string auth = "Basic ";
-        std::string encoded_str;
-        base64_encode("doris:passwd", &encoded_str);
-        auth += encoded_str;
+        HttpRequest req(_evhttp_req);
+        auto auth = encode_basic_auth("doris", "passwd");
         req._headers.emplace(HttpHeaders::AUTHORIZATION, auth);
         std::string user;
         std::string passwd;
@@ -49,7 +56,7 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
         ASSERT_STREQ("passwd", passwd.data());
     }
     {
-        HttpRequest req;
+        HttpRequest req(_evhttp_req);
         std::string auth = "Basic ";
         std::string encoded_str = "doris:passwd";
         auth += encoded_str;
@@ -60,7 +67,7 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
         ASSERT_FALSE(res);
     }
     {
-        HttpRequest req;
+        HttpRequest req(_evhttp_req);
         std::string auth = "Basic ";
         std::string encoded_str;
         base64_encode("dorispasswd", &encoded_str);
@@ -72,7 +79,7 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
         ASSERT_FALSE(res);
     }
     {
-        HttpRequest req;
+        HttpRequest req(_evhttp_req);
         std::string auth = "Basic";
         std::string encoded_str;
         base64_encode("doris:passwd", &encoded_str);
