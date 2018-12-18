@@ -42,7 +42,7 @@
 #include "olap/push_handler.h"
 #include "olap/reader.h"
 #include "olap/schema_change.h"
-#include "olap/store.h"
+#include "olap/data_dir.h"
 #include "olap/utils.h"
 #include "olap/data_writer.h"
 #include "util/time.h"

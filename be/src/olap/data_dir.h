@@ -31,12 +31,12 @@ namespace doris {
 
 class StorageEngine;
 
-// A OlapStore used to manange data in same path.
-// Now, After OlapStore was created, it will never be deleted for easy implementation.
-class OlapStore {
+// A DataDir used to manange data in same path.
+// Now, After DataDir was created, it will never be deleted for easy implementation.
+class DataDir {
 public:
-    OlapStore(const std::string& path, int64_t capacity_bytes = -1);
-    ~OlapStore();
+    DataDir(const std::string& path, int64_t capacity_bytes = -1);
+    ~DataDir();
 
     Status init();
 
@@ -55,7 +55,7 @@ public:
     }
 
     // save a cluster_id file under data path to prevent
-    // invalid be config for example two be use the same 
+    // invalid be config for example two be use the same
     // data path
     Status set_cluster_id(int32_t cluster_id);
     void health_check();
@@ -94,7 +94,7 @@ private:
     Status _check_disk();
     OLAPStatus _read_and_write_test_file();
     Status _read_cluster_id(const std::string& path, int32_t* cluster_id);
-    Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id); 
+    Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id);
 
     OLAPStatus _load_tablet_from_header(StorageEngine* engine, TTabletId tablet_id,
                 TSchemaHash schema_hash, const std::string& header);

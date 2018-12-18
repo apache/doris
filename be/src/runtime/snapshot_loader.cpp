@@ -700,7 +700,7 @@ Status SnapshotLoader::move(
 
     // fixme: there is no header now and can not call load_one_tablet here
     // reload header
-    OlapStore* store = StorageEngine::get_instance()->get_store(store_path);
+    DataDir* store = StorageEngine::get_instance()->get_store(store_path);
     if (store == nullptr) {
         std::stringstream ss;
         ss << "failed to get store by path: " << store_path;
