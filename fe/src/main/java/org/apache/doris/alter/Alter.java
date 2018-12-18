@@ -102,7 +102,7 @@ public class Alter {
         // check conflict alter ops first
         List<AlterClause> alterClauses = stmt.getOps();
         // check conflict alter ops first                 
-        // if all alterclause is DropPartitionClause, no call checkQuota.
+        // if all alter clauses are DropPartitionClause, no need to call checkQuota.
         boolean allDropPartitionClause = true;
         
         for (AlterClause alterClause : alterClauses) {
@@ -116,6 +116,7 @@ public class Alter {
             // check db quota
             db.checkQuota();
         }
+
         for (AlterClause alterClause : alterClauses) {
             if ((alterClause instanceof AddColumnClause
                     || alterClause instanceof AddColumnsClause
@@ -173,7 +174,6 @@ public class Alter {
             }
 
             if (olapTable.getState() == OlapTableState.SCHEMA_CHANGE
-                    || olapTable.getState() == OlapTableState.BACKUP
                     || olapTable.getState() == OlapTableState.RESTORE) {
                 throw new DdlException("Table[" + table.getName() + "]'s state[" + olapTable.getState()
                         + "] does not allow doing ALTER ops");

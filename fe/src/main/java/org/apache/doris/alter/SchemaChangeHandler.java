@@ -491,21 +491,20 @@ public class SchemaChangeHandler extends AlterHandler {
                                    Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
         
         if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
-            if (newColumn.isKey() && null != newColumn.getAggregationType()) {
-                throw new DdlException("key column of aggregate key table cannot use aggregation method");
+            if (newColumn.isKey() && newColumn.getAggregationType() != null) {
+                throw new DdlException("key column of aggregate table cannot use aggregation method");
             } else if (null == newColumn.getAggregationType()) {
-                // in aggregate key table, no aggreation method indicate key column
                 newColumn.setIsKey(true);
             }
         } else if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
-            if (null != newColumn.getAggregationType()) {
-                throw new DdlException("column of unique key table cannot use aggregation method");
+            if (newColumn.getAggregationType() != null) {
+                throw new DdlException("column of unique table cannot use aggregation method");
             }
             if (!newColumn.isKey()) {
                 newColumn.setAggregationType(AggregateType.REPLACE, true);
             }
         } else {
-            if (null != newColumn.getAggregationType()) {
+            if (newColumn.getAggregationType() != null) {
                 throw new DdlException("column of duplicate table cannot use aggregation method");
             }
             if (!newColumn.isKey()) {
