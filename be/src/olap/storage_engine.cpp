@@ -41,7 +41,7 @@
 #include "olap/push_handler.h"
 #include "olap/reader.h"
 #include "olap/schema_change.h"
-#include "olap/store.h"
+#include "olap/data_dir.h"
 #include "olap/utils.h"
 #include "olap/data_writer.h"
 #include "util/time.h"
@@ -122,7 +122,7 @@ StorageEngine::~StorageEngine() {
     clear();
 }
 
-OLAPStatus StorageEngine::_load_store(OlapStore* store) {
+OLAPStatus StorageEngine::_load_store(DataDir* store) {
     std::string store_path = store->path();
     LOG(INFO) <<"start to load tablets from store_path:" << store_path;
 
@@ -196,13 +196,13 @@ OLAPStatus StorageEngine::_load_store(OlapStore* store) {
 }
 
 OLAPStatus StorageEngine::load_one_tablet(
-        OlapStore* store, TTabletId tablet_id, SchemaHash schema_hash,
+        DataDir* store, TTabletId tablet_id, SchemaHash schema_hash,
         const string& schema_hash_path, bool force) {
     return _tablet_mgr.load_one_tablet(store, tablet_id, schema_hash,
         schema_hash_path, force);
 }
 
-void StorageEngine::load_stores(const std::vector<OlapStore*>& stores) {
+void StorageEngine::load_stores(const std::vector<DataDir*>& stores) {
     std::vector<std::thread> threads;
     for (auto store : stores) {
         threads.emplace_back([this, store] {
@@ -221,7 +221,7 @@ void StorageEngine::load_stores(const std::vector<OlapStore*>& stores) {
 OLAPStatus StorageEngine::open() {
     // init store_map
     for (auto& path : _options.store_paths) {
-        OlapStore* store = new OlapStore(path.path, path.capacity_bytes);
+        DataDir* store = new DataDir(path.path, path.capacity_bytes);
         auto st = store->init();
         if (!st.ok()) {
             LOG(WARNING) << "Store load failed, path=" << path.path;
@@ -329,8 +329,8 @@ void StorageEngine::get_all_available_root_path(std::vector<std::string>* availa
 }
 
 template<bool include_unused>
-std::vector<OlapStore*> StorageEngine::get_stores() {
-    std::vector<OlapStore*> stores;
+std::vector<DataDir*> StorageEngine::get_stores() {
+    std::vector<DataDir*> stores;
     stores.reserve(_store_map.size());
 
     std::lock_guard<std::mutex> l(_store_lock);
@@ -348,8 +348,8 @@ std::vector<OlapStore*> StorageEngine::get_stores() {
     return stores;
 }
 
-template std::vector<OlapStore*> StorageEngine::get_stores<false>();
-template std::vector<OlapStore*> StorageEngine::get_stores<true>();
+template std::vector<DataDir*> StorageEngine::get_stores<false>();
+template std::vector<DataDir*> StorageEngine::get_stores<true>();
 
 OLAPStatus StorageEngine::get_all_root_path_info(vector<RootPathInfo>* root_paths_info) {
     OLAPStatus res = OLAP_SUCCESS;
@@ -472,9 +472,9 @@ Status StorageEngine::set_cluster_id(int32_t cluster_id) {
     return Status::OK;
 }
 
-std::vector<OlapStore*> StorageEngine::get_stores_for_create_tablet(
+std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         TStorageMedium::type storage_medium) {
-    std::vector<OlapStore*> stores;
+    std::vector<DataDir*> stores;
     {
         std::lock_guard<std::mutex> l(_store_lock);
         for (auto& it : _store_map) {
@@ -492,7 +492,7 @@ std::vector<OlapStore*> StorageEngine::get_stores_for_create_tablet(
     return stores;
 }
 
-OlapStore* StorageEngine::get_store(const std::string& path) {
+DataDir* StorageEngine::get_store(const std::string& path) {
     std::lock_guard<std::mutex> l(_store_lock);
     auto it = _store_map.find(path);
     if (it == std::end(_store_map)) {
@@ -875,7 +875,7 @@ TabletSharedPtr StorageEngine::create_tablet(
         const bool is_schema_change_tablet, const TabletSharedPtr ref_tablet) {
 
     // Get all available stores, use ref_root_path if the caller specified
-    std::vector<OlapStore*> stores;
+    std::vector<DataDir*> stores;
     if (ref_root_path == nullptr) {
         stores = get_stores_for_create_tablet(request.storage_medium);
         if (stores.empty()) {
@@ -1098,7 +1098,7 @@ void StorageEngine::add_unused_index(SegmentGroup* segment_group) {
 OLAPStatus StorageEngine::create_tablet(const TCreateTabletReq& request) {
     
     // Get all available stores, use ref_root_path if the caller specified
-    std::vector<OlapStore*> stores;
+    std::vector<DataDir*> stores;
     stores = get_stores_for_create_tablet(request.storage_medium);
     if (stores.empty()) {
         LOG(WARNING) << "there is no available disk that can be used to create tablet.";
@@ -1508,7 +1508,7 @@ OLAPStatus StorageEngine::obtain_shard_path_by_hash(
 }
 
 OLAPStatus StorageEngine::obtain_shard_path(
-        TStorageMedium::type storage_medium, std::string* shard_path, OlapStore** store) {
+        TStorageMedium::type storage_medium, std::string* shard_path, DataDir** store) {
     LOG(INFO) << "begin to process obtain root path. storage_medium=" << storage_medium;
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -1547,7 +1547,7 @@ OLAPStatus StorageEngine::load_header(
               << ", schema_hash=" << request.schema_hash;
     OLAPStatus res = OLAP_SUCCESS;
 
-    OlapStore* store = nullptr;
+    DataDir* store = nullptr;
     {
         // TODO(zc)
         try {
@@ -1582,7 +1582,7 @@ OLAPStatus StorageEngine::load_header(
 }
 
 OLAPStatus StorageEngine::load_header(
-        OlapStore* store,
+        DataDir* store,
         const string& shard_path,
         TTabletId tablet_id,
         TSchemaHash schema_hash) {

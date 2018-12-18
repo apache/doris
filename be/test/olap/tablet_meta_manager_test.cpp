@@ -21,7 +21,7 @@
 
 #include "gtest/gtest.h"
 #include "gmock/gmock.h"
-#include "olap/store.h"
+#include "olap/data_dir.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/olap_define.h"
 #include "boost/filesystem.hpp"
@@ -45,7 +45,7 @@ public:
     virtual void SetUp() {
         std::string root_path = "./store";
         ASSERT_TRUE(boost::filesystem::create_directory(root_path));
-        _store = new(std::nothrow) OlapStore(root_path);
+        _store = new(std::nothrow) DataDir(root_path);
         ASSERT_NE(nullptr, _store);
         Status st = _store->init();
         ASSERT_TRUE(st.ok());
@@ -68,7 +68,7 @@ public:
     }
 
 private:
-    OlapStore* _store;
+    DataDir* _store;
     std::string _json_header;
 };
 

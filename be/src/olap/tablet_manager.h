@@ -47,7 +47,7 @@
 namespace doris {
 
 class Tablet;
-class OlapStore;
+class DataDir;
 
 // TabletManager provides get,add, delete tablet method for storage engine
 class TabletManager {
@@ -81,7 +81,7 @@ public:
             Version version, VersionHash version_hash);
 
     OLAPStatus create_tablet(const TCreateTabletReq& request, 
-                             std::vector<OlapStore*> stores);
+                             std::vector<DataDir*> stores);
 
     // Create new tablet for StorageEngine
     //
@@ -90,7 +90,7 @@ public:
                               const std::string* ref_root_path, 
                               const bool is_schema_change_tablet,
                               const TabletSharedPtr ref_tablet, 
-                              std::vector<OlapStore*> stores);
+                              std::vector<DataDir*> stores);
 
     // ######################### ALTER TABLE BEGIN #########################
     // The following interfaces are all about alter tablet operation, 
@@ -129,7 +129,7 @@ public:
 
     void get_tablet_stat(TTabletStatResult& result);
 
-    OLAPStatus load_one_tablet(OlapStore* store,
+    OLAPStatus load_one_tablet(DataDir* store,
                                TTabletId tablet_id,
                                SchemaHash schema_hash,
                                const std::string& schema_hash_path,
@@ -162,7 +162,7 @@ private:
     
 
     OLAPStatus _create_new_tablet_header(const TCreateTabletReq& request,
-                                             OlapStore* store,
+                                             DataDir* store,
                                              const bool is_schema_change_tablet,
                                              const TabletSharedPtr ref_tablet,
                                              TabletMeta* header);
@@ -183,7 +183,7 @@ private:
     RWMutex _tablet_map_lock;
     tablet_map_t _tablet_map;
     size_t _global_tablet_id;
-    std::map<std::string, OlapStore*> _store_map;
+    std::map<std::string, DataDir*> _store_map;
 
     // cache to save tablets' statistics, such as data size and row
     // TODO(cmy): for now, this is a naive implementation

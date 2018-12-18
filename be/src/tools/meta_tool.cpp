@@ -24,7 +24,7 @@
 #include <gflags/gflags.h>
 
 #include "common/status.h"
-#include "olap/store.h"
+#include "olap/data_dir.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_meta.h"
@@ -32,7 +32,7 @@
 #include "olap/utils.h"
 #include "json2pb/pb_to_json.h"
 
-using doris::OlapStore;
+using doris::DataDir;
 using doris::OlapMeta;
 using doris::TabletMetaManager;
 using doris::TabletMeta;
@@ -83,7 +83,7 @@ int main(int argc, char** argv) {
 
         root_path = path_prefix + root_path_postfix;
     }
-    std::unique_ptr<OlapStore> store(new(std::nothrow) OlapStore(root_path));
+    std::unique_ptr<DataDir> store(new(std::nothrow) DataDir(root_path));
     if (store.get() == NULL) {
         std::cout << "new store failed" << std::endl;
         return -1;

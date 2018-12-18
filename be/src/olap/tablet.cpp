@@ -34,7 +34,7 @@
 #include "olap/storage_engine.h"
 #include "olap/olap_index.h"
 #include "olap/reader.h"
-#include "olap/store.h"
+#include "olap/data_dir.h"
 #include "olap/row_cursor.h"
 #include "util/defer_op.h"
 #include "olap/tablet_meta_manager.h"
@@ -55,7 +55,7 @@ namespace doris {
 
 TabletSharedPtr Tablet::create_from_header_file(
         TTabletId tablet_id, TSchemaHash schema_hash,
-        const string& header_file, OlapStore* store) {
+        const string& header_file, DataDir* store) {
     TabletMeta* tablet_meta = NULL;
     tablet_meta = new(nothrow) TabletMeta(header_file);
     if (tablet_meta == NULL) {
@@ -91,7 +91,7 @@ TabletSharedPtr Tablet::create_from_header_file(
 
 TabletSharedPtr Tablet::create_from_header(
         TabletMeta* tablet_meta,
-        OlapStore* store) {
+        DataDir* store) {
     auto tablet = std::make_shared<Tablet>(tablet_meta, store);
     if (tablet == NULL) {
         LOG(WARNING) << "fail to malloc a tablet.";
@@ -101,7 +101,7 @@ TabletSharedPtr Tablet::create_from_header(
     return tablet;
 }
 
-Tablet::Tablet(TabletMeta* tablet_meta, OlapStore* store) :
+Tablet::Tablet(TabletMeta* tablet_meta, DataDir* store) :
         _tablet_meta(tablet_meta),
         _is_dropped(false),
         _num_fields(0),

@@ -46,7 +46,7 @@ namespace doris {
 
 const std::string HEADER_PREFIX = "hdr_";
 
-OLAPStatus TabletMetaManager::get_header(OlapStore* store,
+OLAPStatus TabletMetaManager::get_header(DataDir* store,
         TTabletId tablet_id, TSchemaHash schema_hash, TabletMeta* header) {
     OlapMeta* meta = store->get_meta();
     std::stringstream key_stream;
@@ -65,7 +65,7 @@ OLAPStatus TabletMetaManager::get_header(OlapStore* store,
     return header->init();
 }
 
-OLAPStatus TabletMetaManager::get_json_header(OlapStore* store,
+OLAPStatus TabletMetaManager::get_json_header(DataDir* store,
         TTabletId tablet_id, TSchemaHash schema_hash, std::string* json_header) {
     TabletMeta header;
     OLAPStatus s = get_header(store, tablet_id, schema_hash, &header);
@@ -79,7 +79,7 @@ OLAPStatus TabletMetaManager::get_json_header(OlapStore* store,
 }
 
 
-OLAPStatus TabletMetaManager::save(OlapStore* store,
+OLAPStatus TabletMetaManager::save(DataDir* store,
         TTabletId tablet_id, TSchemaHash schema_hash, const TabletMeta* header) {
     std::stringstream key_stream;
     key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
@@ -91,7 +91,7 @@ OLAPStatus TabletMetaManager::save(OlapStore* store,
     return s;
 }
 
-OLAPStatus TabletMetaManager::remove(OlapStore* store, TTabletId tablet_id, TSchemaHash schema_hash) {
+OLAPStatus TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash) {
     std::stringstream key_stream;
     key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
@@ -102,7 +102,7 @@ OLAPStatus TabletMetaManager::remove(OlapStore* store, TTabletId tablet_id, TSch
     return res;
 }
 
-OLAPStatus TabletMetaManager::get_header_converted(OlapStore* store, bool& flag) {
+OLAPStatus TabletMetaManager::get_header_converted(DataDir* store, bool& flag) {
     // get is_header_converted flag
     std::string value;
     std::string key = IS_HEADER_CONVERTED;
@@ -119,7 +119,7 @@ OLAPStatus TabletMetaManager::get_header_converted(OlapStore* store, bool& flag)
     return OLAP_SUCCESS;
 }
 
-OLAPStatus TabletMetaManager::set_converted_flag(OlapStore* store) {
+OLAPStatus TabletMetaManager::set_converted_flag(DataDir* store) {
     OlapMeta* meta = store->get_meta();
     OLAPStatus s = meta->put(DEFAULT_COLUMN_FAMILY_INDEX, IS_HEADER_CONVERTED, CONVERTED_FLAG);
     return s;
@@ -143,7 +143,7 @@ OLAPStatus TabletMetaManager::traverse_headers(OlapMeta* meta,
     return status;
 }
 
-OLAPStatus TabletMetaManager::load_json_header(OlapStore* store, const std::string& header_path) {
+OLAPStatus TabletMetaManager::load_json_header(DataDir* store, const std::string& header_path) {
     std::ifstream infile(header_path);
     char buffer[1024];
     std::string json_header;
@@ -163,7 +163,7 @@ OLAPStatus TabletMetaManager::load_json_header(OlapStore* store, const std::stri
     return s;
 }
 
-OLAPStatus TabletMetaManager::dump_header(OlapStore* store, TTabletId tablet_id,
+OLAPStatus TabletMetaManager::dump_header(DataDir* store, TTabletId tablet_id,
         TSchemaHash schema_hash, const std::string& dump_path) {
     TabletMeta header;
     OLAPStatus res = TabletMetaManager::get_header(store, tablet_id, schema_hash, &header);

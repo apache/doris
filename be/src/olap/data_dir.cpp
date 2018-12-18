@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/store.h"
+#include "olap/data_dir.h"
 
 #include <ctype.h>
 #include <mntent.h>
@@ -49,7 +49,7 @@ namespace doris {
 static const char* const kMtabPath = "/etc/mtab";
 static const char* const kTestFilePath = "/.testfile";
 
-OlapStore::OlapStore(const std::string& path, int64_t capacity_bytes)
+DataDir::DataDir(const std::string& path, int64_t capacity_bytes)
         : _path(path),
         _cluster_id(-1),
         _capacity_bytes(capacity_bytes),
@@ -63,7 +63,7 @@ OlapStore::OlapStore(const std::string& path, int64_t capacity_bytes)
         _meta((nullptr)) {
 }
 
-OlapStore::~OlapStore() {
+DataDir::~DataDir() {
     free(_test_file_read_buf);
     free(_test_file_write_buf);
     if (_meta != nullptr) {
@@ -71,7 +71,7 @@ OlapStore::~OlapStore() {
     }
 }
 
-Status OlapStore::init() {
+Status DataDir::init() {
     _rand_seed = static_cast<uint32_t>(time(NULL));
     if (posix_memalign((void**)&_test_file_write_buf,
                        DIRECT_IO_ALIGNMENT,
@@ -101,7 +101,7 @@ Status OlapStore::init() {
     return Status::OK;
 }
 
-Status OlapStore::_check_path_exist() {
+Status DataDir::_check_path_exist() {
     DIR* dirp = opendir(_path.c_str());
     if (dirp == nullptr) {
         char buf[64];
@@ -121,7 +121,7 @@ Status OlapStore::_check_path_exist() {
     return Status::OK;
 }
 
-Status OlapStore::_init_cluster_id() {
+Status DataDir::_init_cluster_id() {
     std::string cluster_id_path = _path + CLUSTER_ID_PREFIX;
     if (access(cluster_id_path.c_str(), F_OK) != 0) {
         int fd = open(cluster_id_path.c_str(), O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
@@ -155,7 +155,7 @@ Status OlapStore::_init_cluster_id() {
     return st;
 }
 
-Status OlapStore::_read_cluster_id(const std::string& path, int32_t* cluster_id) {
+Status DataDir::_read_cluster_id(const std::string& path, int32_t* cluster_id) {
     int32_t tmp_cluster_id = -1;
 
     std::fstream fs(path.c_str(), std::fstream::in);
@@ -183,7 +183,7 @@ Status OlapStore::_read_cluster_id(const std::string& path, int32_t* cluster_id)
     return Status::OK;
 }
 
-Status OlapStore::_init_extension_and_capacity() {
+Status DataDir::_init_extension_and_capacity() {
     boost::filesystem::path boost_path = _path;
     std::string extension = boost::filesystem::canonical(boost_path).extension().string();
     if (extension != "") {
@@ -219,7 +219,7 @@ Status OlapStore::_init_extension_and_capacity() {
     return Status::OK;
 }
 
-Status OlapStore::_init_file_system() {
+Status DataDir::_init_file_system() {
     struct stat s;
     if (stat(_path.c_str(), &s) != 0) {
         char errmsg[64];
@@ -275,7 +275,7 @@ Status OlapStore::_init_file_system() {
     return Status::OK;
 }
 
-Status OlapStore::_init_meta() {
+Status DataDir::_init_meta() {
     // init path hash
     _path_hash = hash_of_path(BackendOptions::get_localhost(), _path);
     LOG(INFO) << "get hash of path: " << _path
@@ -295,7 +295,7 @@ Status OlapStore::_init_meta() {
     return Status::OK;
 }
 
-Status OlapStore::set_cluster_id(int32_t cluster_id) {
+Status DataDir::set_cluster_id(int32_t cluster_id) {
     if (_cluster_id != -1) {
         if (_cluster_id == cluster_id) {
             return Status::OK;
@@ -307,7 +307,7 @@ Status OlapStore::set_cluster_id(int32_t cluster_id) {
     return _write_cluster_id_to_path(_cluster_id_path(), cluster_id);
 }
 
-Status OlapStore::_write_cluster_id_to_path(const std::string& path, int32_t cluster_id) {
+Status DataDir::_write_cluster_id_to_path(const std::string& path, int32_t cluster_id) {
     std::fstream fs(path.c_str(), std::fstream::out);
     if (!fs.is_open()) {
         LOG(WARNING) << "fail to open cluster id path. path=" << path;
@@ -318,7 +318,7 @@ Status OlapStore::_write_cluster_id_to_path(const std::string& path, int32_t clu
     return Status::OK;
 }
 
-void OlapStore::health_check() {
+void DataDir::health_check() {
     // check disk
     if (_is_used) {
         OLAPStatus res = OLAP_SUCCESS;
@@ -331,7 +331,7 @@ void OlapStore::health_check() {
     }
 }
 
-OLAPStatus OlapStore::_read_and_write_test_file() {
+OLAPStatus DataDir::_read_and_write_test_file() {
     std::string test_file = _path + kTestFilePath;
 
     if (access(test_file.c_str(), F_OK) == 0) {
@@ -396,7 +396,7 @@ OLAPStatus OlapStore::_read_and_write_test_file() {
     return res;
 }
 
-OLAPStatus OlapStore::get_shard(uint64_t* shard) {
+OLAPStatus DataDir::get_shard(uint64_t* shard) {
     OLAPStatus res = OLAP_SUCCESS;
     std::lock_guard<std::mutex> l(_mutex);
 
@@ -417,11 +417,11 @@ OLAPStatus OlapStore::get_shard(uint64_t* shard) {
     return OLAP_SUCCESS;
 }
 
-OlapMeta* OlapStore::get_meta() {
+OlapMeta* DataDir::get_meta() {
     return _meta;
 }
 
-OLAPStatus OlapStore::register_tablet(Tablet* tablet) {
+OLAPStatus DataDir::register_tablet(Tablet* tablet) {
     std::lock_guard<std::mutex> l(_mutex);
 
     TabletInfo tablet_info(tablet->tablet_id(), tablet->schema_hash());
@@ -429,7 +429,7 @@ OLAPStatus OlapStore::register_tablet(Tablet* tablet) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OlapStore::deregister_tablet(Tablet* tablet) {
+OLAPStatus DataDir::deregister_tablet(Tablet* tablet) {
     std::lock_guard<std::mutex> l(_mutex);
 
     TabletInfo tablet_info(tablet->tablet_id(), tablet->schema_hash());
@@ -437,11 +437,11 @@ OLAPStatus OlapStore::deregister_tablet(Tablet* tablet) {
     return OLAP_SUCCESS;
 }
 
-std::string OlapStore::get_absolute_shard_path(const std::string& shard_string) {
+std::string DataDir::get_absolute_shard_path(const std::string& shard_string) {
     return _path + DATA_PREFIX + "/" + shard_string;
 }
 
-std::string OlapStore::get_absolute_tablet_path(TabletMeta* header, bool with_schema_hash) {
+std::string DataDir::get_absolute_tablet_path(TabletMeta* header, bool with_schema_hash) {
     if (with_schema_hash) {
         return _path + DATA_PREFIX + "/" + std::to_string(header->shard())
             + "/" + std::to_string(header->tablet_id()) + "/" + std::to_string(header->schema_hash());
@@ -452,7 +452,7 @@ std::string OlapStore::get_absolute_tablet_path(TabletMeta* header, bool with_sc
     }
 }
 
-void OlapStore::find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* paths) {
+void DataDir::find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* paths) {
     // path: /root_path/trash/time_label/tablet_id/schema_hash
     std::string trash_path = _path + TRASH_PREFIX;
     std::vector<std::string> sub_dirs;
@@ -471,13 +471,13 @@ void OlapStore::find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>
     }
 }
 
-std::string OlapStore::get_root_path_from_schema_hash_path_in_trash(
+std::string DataDir::get_root_path_from_schema_hash_path_in_trash(
         const std::string& schema_hash_dir_in_trash) {
     boost::filesystem::path schema_hash_path_in_trash(schema_hash_dir_in_trash);
     return schema_hash_path_in_trash.parent_path().parent_path().parent_path().parent_path().string();
 }
 
-OLAPStatus OlapStore::_load_tablet_from_header(StorageEngine* engine, TTabletId tablet_id,
+OLAPStatus DataDir::_load_tablet_from_header(StorageEngine* engine, TTabletId tablet_id,
         TSchemaHash schema_hash, const std::string& header) {
     std::unique_ptr<TabletMeta> tablet_meta(new TabletMeta());
     bool parsed = tablet_meta->ParseFromString(header);
@@ -540,7 +540,7 @@ OLAPStatus OlapStore::_load_tablet_from_header(StorageEngine* engine, TTabletId 
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OlapStore::load_tablets(StorageEngine* engine) {
+OLAPStatus DataDir::load_tablets(StorageEngine* engine) {
     auto load_tablet_func = [this, engine](long tablet_id,
             long schema_hash, const std::string& value) -> bool {
         OLAPStatus status = _load_tablet_from_header(engine, tablet_id, schema_hash, value);
