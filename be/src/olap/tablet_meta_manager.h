@@ -22,32 +22,32 @@
 
 #include "olap/tablet_meta.h"
 #include "olap/olap_define.h"
-#include "olap/store.h"
+#include "olap/data_dir.h"
 
 namespace doris {
 
 // Helper Class for managing tablet headers of one root path.
 class TabletMetaManager {
 public:
-    static OLAPStatus get_header(OlapStore* store, TTabletId tablet_id, TSchemaHash schema_hash, TabletMeta* header);
+    static OLAPStatus get_header(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash, TabletMeta* header);
 
-    static OLAPStatus get_json_header(OlapStore* store, TTabletId tablet_id,
+    static OLAPStatus get_json_header(DataDir* store, TTabletId tablet_id,
             TSchemaHash schema_hash, std::string* json_header);
 
-    static OLAPStatus save(OlapStore* store, TTabletId tablet_id, TSchemaHash schema_hash, const TabletMeta* header);
+    static OLAPStatus save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash, const TabletMeta* header);
 
-    static OLAPStatus remove(OlapStore* store, TTabletId tablet_id, TSchemaHash schema_hash);
+    static OLAPStatus remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash);
 
     static OLAPStatus traverse_headers(OlapMeta* meta,
             std::function<bool(long, long, const std::string&)> const& func);
 
-    static OLAPStatus get_header_converted(OlapStore* store, bool& flag);
+    static OLAPStatus get_header_converted(DataDir* store, bool& flag);
 
-    static OLAPStatus set_converted_flag(OlapStore* store);
+    static OLAPStatus set_converted_flag(DataDir* store);
 
-    static OLAPStatus load_json_header(OlapStore* store, const std::string& header_path);
+    static OLAPStatus load_json_header(DataDir* store, const std::string& header_path);
 
-    static OLAPStatus dump_header(OlapStore* store, TTabletId tablet_id,
+    static OLAPStatus dump_header(DataDir* store, TTabletId tablet_id,
             TSchemaHash schema_hash, const std::string& path);
 };
 

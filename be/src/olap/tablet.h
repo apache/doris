@@ -41,7 +41,7 @@ class TabletMeta;
 class SegmentGroup;
 class Tablet;
 class RowBlockPosition;
-class OlapStore;
+class DataDir;
 
 // Define Tablet's shared_ptr. It is used for
 typedef std::shared_ptr<Tablet> TabletSharedPtr;
@@ -60,12 +60,12 @@ public:
             TTabletId tablet_id,
             TSchemaHash schema_hash,
             const std::string& header_file,
-            OlapStore* store = nullptr);
+            DataDir* store = nullptr);
     static TabletSharedPtr create_from_header(
             TabletMeta* header,
-            OlapStore* store = nullptr);
+            DataDir* store = nullptr);
 
-    explicit Tablet(TabletMeta* header, OlapStore* store);
+    explicit Tablet(TabletMeta* header, DataDir* store);
 
     virtual ~Tablet();
 
@@ -385,7 +385,7 @@ public:
         _schema_hash = schema_hash;
     }
 
-    OlapStore* store() const {
+    DataDir* store() const {
         return _store;
     }
 
@@ -694,7 +694,7 @@ private:
     Mutex _base_compaction_lock;
     size_t _id;                        // uniq id, used in cache
     std::string _storage_root_path;
-    OlapStore* _store;
+    DataDir* _store;
     std::atomic<bool> _is_loaded;
     Mutex _load_lock;
     std::string _tablet_path;

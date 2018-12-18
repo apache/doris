@@ -40,7 +40,7 @@
 #include "olap/olap_common.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
-#include "olap/store.h"
+#include "olap/data_dir.h"
 #include "olap/utils.h"
 #include "common/resource_tls.h"
 #include "common/status.h"
@@ -1116,7 +1116,7 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
         } else { // create a new tablet
             // Get local disk from olap
             string local_shard_root_path;
-            OlapStore* store = nullptr;
+            DataDir* store = nullptr;
             OLAPStatus olap_status = OLAP_ERR_OTHER_ERROR;
             if (clone_req.__isset.task_version && clone_req.task_version == 2) {
                 // use path specified in clone request

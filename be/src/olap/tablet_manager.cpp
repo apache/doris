@@ -42,7 +42,7 @@
 #include "olap/push_handler.h"
 #include "olap/reader.h"
 #include "olap/schema_change.h"
-#include "olap/store.h"
+#include "olap/data_dir.h"
 #include "olap/utils.h"
 #include "olap/data_writer.h"
 #include "util/time.h"
@@ -304,7 +304,7 @@ OLAPStatus TabletManager::create_init_version(TTabletId tablet_id, SchemaHash sc
 } // create_init_version
 
 OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request, 
-    std::vector<OlapStore*> stores) {
+    std::vector<DataDir*> stores) {
     OLAPStatus res = OLAP_SUCCESS;
     bool is_tablet_added = false;
 
@@ -400,7 +400,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
 TabletSharedPtr TabletManager::create_tablet(
         const TCreateTabletReq& request, const string* ref_root_path, 
         const bool is_schema_change_tablet, const TabletSharedPtr ref_tablet, 
-        std::vector<OlapStore*> stores) {
+        std::vector<DataDir*> stores) {
 
     TabletSharedPtr tablet;
     // Try to create tablet on each of all_available_root_path, util success
@@ -689,7 +689,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
 }
 
 OLAPStatus TabletManager::load_one_tablet(
-        OlapStore* store, TTabletId tablet_id, SchemaHash schema_hash,
+        DataDir* store, TTabletId tablet_id, SchemaHash schema_hash,
         const string& schema_hash_path, bool force) {
     stringstream header_name_stream;
     header_name_stream << schema_hash_path << "/" << tablet_id << ".hdr";
@@ -1013,7 +1013,7 @@ OLAPStatus TabletManager::_create_init_version(
 
 OLAPStatus TabletManager::_create_new_tablet_header(
         const TCreateTabletReq& request,
-        OlapStore* store,
+        DataDir* store,
         const bool is_schema_change_tablet,
         const TabletSharedPtr ref_tablet,
         TabletMeta* header) {
