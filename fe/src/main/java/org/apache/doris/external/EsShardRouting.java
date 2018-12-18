@@ -41,8 +41,9 @@ public class EsShardRouting {
         String nodeId = shardInfo.getString("node");
         JSONObject nodeInfo = nodesMap.getJSONObject(nodeId);
         String[] transportAddr = nodeInfo.getString("transport_address").split(":");
-        // TODO(ygl) should get thrift port from node info
-        TNetworkAddress addr = new TNetworkAddress(transportAddr[0], Integer.valueOf(transportAddr[1]));
+        // get thrift port from node info
+        String thriftPort = nodeInfo.getJSONObject("attributes").getString("thrift_port");
+        TNetworkAddress addr = new TNetworkAddress(transportAddr[0], Integer.valueOf(thriftPort));
         boolean isPrimary = shardInfo.getBoolean("primary");
         return new EsShardRouting(indexName, Integer.valueOf(shardKey), 
                 isPrimary, addr);
