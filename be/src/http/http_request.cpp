@@ -121,9 +121,9 @@ const std::string& HttpRequest::param(const std::string& key) const {
 }
 
 void HttpRequest::add_output_header(const char* key, const char* value) {
-#ifndef BE_TEST
+// #ifndef BE_TEST
     evhttp_add_header(evhttp_request_get_output_headers(_ev_req), key, value);
-#endif
+// #endif
 }
 
 std::string HttpRequest::get_request_body() {

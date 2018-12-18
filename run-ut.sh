@@ -182,6 +182,7 @@ ${DORIS_TEST_BINARY_DIR}/runtime/snapshot_loader_test
 ${DORIS_TEST_BINARY_DIR}/http/metrics_action_test
 ${DORIS_TEST_BINARY_DIR}/http/http_utils_test
 ${DORIS_TEST_BINARY_DIR}/http/stream_load_test
+${DORIS_TEST_BINARY_DIR}/http/http_client_test
 
 # Running OLAPEngine Unittest
 ${DORIS_TEST_BINARY_DIR}/olap/bit_field_test
@@ -215,7 +216,7 @@ fi
 cp -r ${DORIS_HOME}/be/test/agent/test_data ${DORIS_TEST_BINARY_DIR}/agent/
 cd ${DORIS_TEST_BINARY_DIR}/agent
 # ./agent_server_test
-./file_downloader_test
+# ./file_downloader_test
 #./heartbeat_server_test
 #./pusher_test
 ./utils_test
