@@ -74,7 +74,7 @@ public class EsTable extends Table {
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
             throw new DdlException("Please set properties of elasticsearch table, "
-                    + "they are: hosts, thrift_port, http_port, user, password, index");
+                    + "they are: hosts, user, password, index");
         }
 
         hosts = properties.get(HOSTS);
