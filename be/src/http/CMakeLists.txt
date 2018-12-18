@@ -35,6 +35,7 @@ add_library(Webserver STATIC
   default_path_handlers.cpp
   utils.cpp
   ev_http_server.cpp
+  http_client.cpp
   action/mini_load.cpp
   action/health_action.cpp
   action/checksum_action.cpp

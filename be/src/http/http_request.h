@@ -37,8 +37,6 @@ class HttpHandler;
 
 class HttpRequest {
 public:
-    // Only used for unit test
-    HttpRequest() { }
     
     HttpRequest(evhttp_request* ev_req);
 

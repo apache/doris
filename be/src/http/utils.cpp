@@ -25,6 +25,14 @@
 
 namespace doris {
 
+std::string encode_basic_auth(const std::string& user, const std::string& passwd) {
+    std::string auth = user + ":" + passwd;
+    std::string encoded_auth;
+    base64_encode(auth, &encoded_auth);
+    static std::string s_prefix = "Basic ";
+    return s_prefix + encoded_auth;
+}
+
 bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* passwd) {
     const char k_basic[] = "Basic ";
     auto& auth = req.header(HttpHeaders::AUTHORIZATION);

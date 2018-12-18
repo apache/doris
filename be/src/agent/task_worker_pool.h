@@ -158,7 +158,6 @@ private:
     ExecEnv* _env;
 #ifdef BE_TEST
     AgentServerClient* _agent_client;
-    FileDownloader* _file_downloader_ptr;
     Pusher * _pusher;
 #endif
 
