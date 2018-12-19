@@ -759,7 +759,7 @@ OLAPStatus StorageEngine::storage_medium_migrate(
             res = OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
             break;
         }
-        res = add_tablet(tablet_id, schema_hash, tablet);
+        res = _tablet_mgr.add_tablet(tablet_id, schema_hash, tablet, false);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to add tablet to StorageEngine. [res=%d]", res);
             break;

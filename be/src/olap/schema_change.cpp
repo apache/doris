@@ -1685,10 +1685,11 @@ OLAPStatus SchemaChangeHandler::_create_new_tablet(
         }
 
         // 3. Add tablet to StorageEngine will make it visiable to user
-        res = StorageEngine::get_instance()->add_tablet(
+        res = StorageEngine::get_instance()->get_tablet_mgr()->add_tablet(
                 request.tablet_id,
                 request.tablet_schema.schema_hash,
-                new_tablet);
+                new_tablet, 
+                false);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("failed to add tablet to StorageEngine. [res=%d tablet='%s']",
                              res, new_tablet->full_name().c_str());

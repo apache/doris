@@ -707,7 +707,7 @@ Status SnapshotLoader::move(
         LOG(WARNING) << ss.str();
         return Status(ss.str());
     }
-    OLAPStatus ost = StorageEngine::get_instance()->load_one_tablet(
+    OLAPStatus ost = StorageEngine::get_instance()->get_tablet_mgr()->load_one_tablet(
             store, tablet_id, schema_hash, tablet_path, true);
     if (ost != OLAP_SUCCESS) {
         std::stringstream ss;
