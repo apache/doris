@@ -750,45 +750,36 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
 
         LOG(INFO) << "get push task. signature: " << agent_task_req.signature
                   << " user: " << user << " priority: " << priority;
-
         vector<TTabletInfo> tablet_infos;
         if (push_req.push_type == TPushType::LOAD || push_req.push_type == TPushType::LOAD_DELETE) {
-            if (!push_req.__isset.http_file_path) {
-                LOG(WARNING) << "push request does not set load file for tablet: "
-                        << agent_task_req.signature;
-                status = DORIS_FILE_DOWNLOAD_NOT_EXIST;
-            }
+#ifndef BE_TEST
+            Pusher pusher(worker_pool_this->_env->olap_engine(), push_req);
+            status = pusher.init();
+#else
+            status = worker_pool_this->_pusher->init();
+#endif
 
             if (status == DORIS_SUCCESS) {
+                uint32_t retry_time = 0;
+                while (retry_time < PUSH_MAX_RETRY) {
 #ifndef BE_TEST
-                Pusher pusher(worker_pool_this->_env->olap_engine(), push_req);
-                status = pusher.init();
+                    status = pusher.process(&tablet_infos);
 #else
-                status = worker_pool_this->_pusher->init();
+                    status = worker_pool_this->_pusher->process(&tablet_infos);
 #endif
-
-                if (status == DORIS_SUCCESS) {
-                    uint32_t retry_time = 0;
-                    while (retry_time < PUSH_MAX_RETRY) {
-#ifndef BE_TEST
-                        status = pusher.process(&tablet_infos);
-#else
-                        status = worker_pool_this->_pusher->process(&tablet_infos);
-#endif
-                        if (status == DORIS_PUSH_HAD_LOADED) {
-                            OLAP_LOG_WARNING("transaction exists when realtime push, "
-                                    "but unfinished, do not report to fe, signature: %ld",
-                                    agent_task_req.signature);
-                            break;  // not retry any more
-                        }
-                        // Internal error, need retry
-                        if (status == DORIS_ERROR) {
-                            OLAP_LOG_WARNING("push internal error, need retry.signature: %ld",
-                                    agent_task_req.signature);
-                            retry_time += 1;
-                        } else {
-                            break;
-                        }
+                    if (status == DORIS_PUSH_HAD_LOADED) {
+                        OLAP_LOG_WARNING("transaction exists when realtime push, "
+                                         "but unfinished, do not report to fe, signature: %ld",
+                                         agent_task_req.signature);
+                        break;  // not retry any more
+                    }
+                    // Internal error, need retry
+                    if (status == DORIS_ERROR) {
+                        OLAP_LOG_WARNING("push internal error, need retry.signature: %ld",
+                                         agent_task_req.signature);
+                        retry_time += 1;
+                    } else {
+                        break;
                     }
                 }
             }
