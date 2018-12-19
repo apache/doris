@@ -344,7 +344,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
 
         // 4. Add tablet to StorageEngine will make it visiable to user
         res = add_tablet(
-                request.tablet_id, request.tablet_schema.schema_hash, tablet);
+                request.tablet_id, request.tablet_schema.schema_hash, tablet, false);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to add tablet to StorageEngine. [res=%d]", res);
             break;
@@ -688,6 +688,69 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
     return best_tablet;
 }
 
+OLAPStatus TabletManager::load_tablet_from_header(DataDir* data_dir, TTabletId tablet_id,
+        TSchemaHash schema_hash, const std::string& header) {
+    std::unique_ptr<TabletMeta> tablet_meta(new TabletMeta());
+    bool parsed = tablet_meta->ParseFromString(header);
+    if (!parsed) {
+        LOG(WARNING) << "parse header string failed for tablet_id:" << tablet_id << " schema_hash:" << schema_hash;
+        return OLAP_ERR_HEADER_PB_PARSE_FAILED;
+    }
+
+    // init must be called
+    OLAPStatus res = tablet_meta->init();
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to init header, tablet_id:" << tablet_id << ", schema_hash:" << schema_hash;
+        res = TabletMetaManager::remove(data_dir, tablet_id, schema_hash);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "remove header failed. tablet_id:" << tablet_id
+                << "schema_hash:" << schema_hash
+                << "store path:" << path();
+        }
+        return OLAP_ERR_HEADER_INIT_FAILED;
+    }
+    TabletSharedPtr tablet =
+        Tablet::create_from_header(tablet_meta.release(), data_dir);
+    if (tablet == nullptr) {
+        LOG(WARNING) << "fail to new tablet. tablet_id=" << tablet_id << ", schema_hash:" << schema_hash;
+        return OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
+    }
+
+    if (tablet->lastest_version() == nullptr && !tablet->is_schema_changing()) {
+        LOG(WARNING) << "tablet not in schema change state without delta is invalid."
+                     << "tablet=" << tablet->full_name();
+        // tablet state is invalid, drop tablet
+        tablet->mark_dropped();
+        return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
+    }
+
+    res = add_tablet(tablet_id, schema_hash, tablet, false);
+    if (res != OLAP_SUCCESS) {
+        // insert existed tablet return OLAP_SUCCESS
+        if (res == OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE) {
+            LOG(WARNING) << "add duplicate tablet. tablet=" << tablet->full_name();
+        }
+
+        LOG(WARNING) << "failed to add tablet. tablet=" << tablet->full_name();
+        return res;
+    }
+    res = tablet->register_tablet_into_dir();
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to register tablet into root path. root_path=" << tablet->storage_root_path_name();
+
+        if (drop_tablet(tablet_id, schema_hash, false) != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to drop tablet when create tablet failed. "
+                <<"tablet=" << tablet_id << " schema_hash=" << schema_hash;
+        }
+
+        return res;
+    }
+    // load pending data (for realtime push), will add transaction relationship into engine
+    tablet->load_pending_data();
+
+    return OLAP_SUCCESS;
+} // load_tablet_from_header
+
 OLAPStatus TabletManager::load_one_tablet(
         DataDir* store, TTabletId tablet_id, SchemaHash schema_hash,
         const string& schema_hash_path, bool force) {
@@ -889,7 +952,7 @@ bool TabletManager::try_schema_change_lock(TTabletId tablet_id) {
     return res;
 } // try_schema_change_lock
 
-void TabletManager::update_root_path_info(std::map<std::string, RootPathInfo>* path_map, 
+void TabletManager::update_root_path_info(std::map<std::string, DataDirInfo>* path_map, 
     int* tablet_counter) {
     _tablet_map_lock.rdlock();
     for (auto& entry : _tablet_map) {

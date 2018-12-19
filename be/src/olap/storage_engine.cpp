@@ -122,91 +122,49 @@ StorageEngine::~StorageEngine() {
     clear();
 }
 
-OLAPStatus StorageEngine::_load_store(DataDir* store) {
-    std::string store_path = store->path();
-    LOG(INFO) <<"start to load tablets from store_path:" << store_path;
+OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
+    std::string data_dir_path = data_dir->path();
+    LOG(INFO) <<"start to load tablets from data_dir_path:" << data_dir_path;
 
     bool is_header_converted = false;
-    OLAPStatus res = TabletMetaManager::get_header_converted(store, is_header_converted);
+    OLAPStatus res = TabletMetaManager::get_header_converted(data_dir, is_header_converted);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "get convert flag from meta failed";
         return res;
     }
     if (is_header_converted) {
         LOG(INFO) << "load header from meta";
-        OLAPStatus s = store->load_tablets(this);
+        auto load_tablet_func = [this, data_dir](long tablet_id,
+            long schema_hash, const std::string& value) -> bool {
+            OLAPStatus status = this->_tablet_mgr.load_tablet_from_header(data_dir, tablet_id, schema_hash, value);
+            if (status != OLAP_SUCCESS) {
+                LOG(WARNING) << "load tablet from header failed. status:" << status
+                    << "tablet=" << tablet_id << "." << schema_hash;
+            };
+            return true;
+        };
+        OLAPStatus s = TabletMetaManager::traverse_headers(data_dir->get_meta(), load_tablet_func);
         LOG(INFO) << "load header from meta finished";
         if (s != OLAP_SUCCESS) {
-            LOG(WARNING) << "there is failure when loading tablet headers, path:" << store_path;
+            LOG(WARNING) << "there is failure when loading tablet headers, path:" << data_dir_path;
             return s;
         } else {
             return OLAP_SUCCESS;
         }
-    }
-
-    // compatible for old header load method
-    // walk all directory to load header file
-    LOG(INFO) << "load headers from header files";
-
-    // get all shards
-    set<string> shards;
-    if (dir_walk(store_path + DATA_PREFIX, &shards, NULL) != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to walk dir. [root=" << store_path << "]";
+    } else {
+        // ygl: could not be compatable with old doris data. User has to use previous version to parse
+        // header file into meta env first.
+        LOG(WARNING) << "header is not converted to tablet meta yet, could not use this Doris version. " 
+                    << "[dir path =" << data_dir_path << "]";
         return OLAP_ERR_INIT_FAILED;
     }
-
-    for (const auto& shard : shards) {
-        // get all tablets
-        set<string> tablets;
-        string one_shard_path = store_path + DATA_PREFIX +  '/' + shard;
-        if (dir_walk(one_shard_path, &tablets, NULL) != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to walk dir. [root=" << one_shard_path << "]";
-            continue;
-        }
-
-        for (const auto& tablet : tablets) {
-            // 遍历table目录寻找此table的所有indexedRollupTable，注意不是SegmentGroup，而是Tablet
-            set<string> schema_hashes;
-            string one_tablet_path = one_shard_path + '/' + tablet;
-            if (dir_walk(one_tablet_path, &schema_hashes, NULL) != OLAP_SUCCESS) {
-                LOG(WARNING) << "fail to walk dir. [root=" << one_tablet_path << "]";
-                continue;
-            }
-
-            for (const auto& schema_hash : schema_hashes) {
-                TTabletId tablet_id = strtoul(tablet.c_str(), NULL, 10);
-                TSchemaHash tablet_schema_hash = strtoul(schema_hash.c_str(), NULL, 10);
-
-                // 遍历schema_hash目录寻找此index的所有schema
-                // 加载失败依然加载下一个Table
-                if (load_one_tablet(
-                        store,
-                        tablet_id,
-                        tablet_schema_hash,
-                        one_tablet_path + '/' + schema_hash) != OLAP_SUCCESS) {
-                    OLAP_LOG_WARNING("fail to load one tablet, but continue. [path='%s']",
-                                     (one_tablet_path + '/' + schema_hash).c_str());
-                }
-            }
-        }
-    }
-    res = TabletMetaManager::set_converted_flag(store);
-    LOG(INFO) << "load header from header files finished";
-    return res;
 }
 
-OLAPStatus StorageEngine::load_one_tablet(
-        DataDir* store, TTabletId tablet_id, SchemaHash schema_hash,
-        const string& schema_hash_path, bool force) {
-    return _tablet_mgr.load_one_tablet(store, tablet_id, schema_hash,
-        schema_hash_path, force);
-}
-
-void StorageEngine::load_stores(const std::vector<DataDir*>& stores) {
+void StorageEngine::load_data_dirs(const std::vector<DataDir*>& stores) {
     std::vector<std::thread> threads;
     for (auto store : stores) {
         threads.emplace_back([this, store] {
-            auto res = _load_store(store);
+            auto res = _load_data_dir(store);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "io error when init load tables. res=" << res
                     << ", store=" << store->path();
@@ -263,7 +221,7 @@ OLAPStatus StorageEngine::open() {
     _max_base_compaction_task_per_disk = (base_compaction_num_threads + file_system_num - 1) / file_system_num;
 
     auto stores = get_stores();
-    load_stores(stores);
+    load_data_dirs(stores);
     // 取消未完成的SchemaChange任务
     _tablet_mgr.cancel_unfinished_schema_change();
 
@@ -351,22 +309,22 @@ std::vector<DataDir*> StorageEngine::get_stores() {
 template std::vector<DataDir*> StorageEngine::get_stores<false>();
 template std::vector<DataDir*> StorageEngine::get_stores<true>();
 
-OLAPStatus StorageEngine::get_all_root_path_info(vector<RootPathInfo>* root_paths_info) {
+OLAPStatus StorageEngine::get_all_data_dir_info(vector<DataDirInfo>* data_dir_infos) {
     OLAPStatus res = OLAP_SUCCESS;
-    root_paths_info->clear();
+    data_dir_infos->clear();
 
     MonotonicStopWatch timer;
     timer.start();
     int tablet_counter = 0;
 
     // get all root path info and construct a path map.
-    // path -> RootPathInfo
-    std::map<std::string, RootPathInfo> path_map;
+    // path -> DataDirInfo
+    std::map<std::string, DataDirInfo> path_map;
     {
         std::lock_guard<std::mutex> l(_store_lock);
         for (auto& it : _store_map) {
             std::string path = it.first;
-            path_map.emplace(path, it.second->to_root_path_info());
+            path_map.emplace(path, it.second->get_dir_info());
             // if this path is not used, init it's info
             if (!path_map[path].is_used) {
                 path_map[path].capacity = 1;
@@ -383,13 +341,13 @@ OLAPStatus StorageEngine::get_all_root_path_info(vector<RootPathInfo>* root_path
     // which the tablet belongs to.
     _tablet_mgr.update_root_path_info(&path_map, &tablet_counter);
 
-    // add path info to root_paths_info
+    // add path info to data_dir_infos
     for (auto& entry : path_map) {
-        root_paths_info->emplace_back(entry.second);
+        data_dir_infos->emplace_back(entry.second);
     }
 
     // get available capacity of each path
-    for (auto& info: *root_paths_info) {
+    for (auto& info: *data_dir_infos) {
         if (info.is_used) {
             _get_path_available_capacity(info.path,  &info.available);
         }
@@ -513,10 +471,7 @@ void StorageEngine::_delete_tables_on_unused_root_path() {
         if (it.second->is_used()) {
             continue;
         }
-        for (auto& tablet : it.second->_tablet_set) {
-            tablet_info_vec.push_back(tablet);
-        }
-        it.second->_tablet_set.clear();
+        it.second->clear_tablets(&tablet_info_vec);
     }
 
     if (_used_disk_not_enough(unused_root_path_num, total_root_path_num)) {
@@ -573,12 +528,6 @@ OLAPStatus StorageEngine::get_tables_by_id(
 bool StorageEngine::check_tablet_id_exist(TTabletId tablet_id) {
 
     return _tablet_mgr.check_tablet_id_exist(tablet_id);
-}
-
-OLAPStatus StorageEngine::add_tablet(TTabletId tablet_id, SchemaHash schema_hash,
-                                 const TabletSharedPtr& tablet, bool force) {
-    
-    return _tablet_mgr.add_tablet(tablet_id, schema_hash, tablet, force);
 }
 
 OLAPStatus StorageEngine::add_transaction(
@@ -968,8 +917,8 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage) {
     const uint32_t snapshot_expire = config::snapshot_expire_time_sec;
     const uint32_t trash_expire = config::trash_file_expire_time_sec;
     const double guard_space = config::disk_capacity_insufficient_percentage / 100.0;
-    std::vector<RootPathInfo> root_paths_info;
-    res = get_all_root_path_info(&root_paths_info);
+    std::vector<DataDirInfo> data_dir_infos;
+    res = get_all_data_dir_info(&data_dir_infos);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("failed to get root path stat info when sweep trash.");
         return res;
@@ -983,7 +932,7 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage) {
     }
     const time_t local_now = mktime(&local_tm_now); //得到当地日历时间
 
-    for (RootPathInfo& info : root_paths_info) {
+    for (DataDirInfo& info : data_dir_infos) {
         if (!info.is_used) {
             continue;
         }
@@ -1448,10 +1397,10 @@ OLAPStatus StorageEngine::finish_clone(TabletSharedPtr tablet, const string& clo
         }
 
         if (is_incremental_clone) {
-            res = StorageEngine::get_instance()->clone_incremental_data(
+            res = clone_incremental_data(
                                               tablet, clone_header, committed_version);
         } else {
-            res = StorageEngine::get_instance()->clone_full_data(tablet, clone_header);
+            res = clone_full_data(tablet, clone_header);
         }
 
         // if full clone success, need to update cumulative layer point
@@ -1518,7 +1467,7 @@ OLAPStatus StorageEngine::obtain_shard_path(
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
 
-    auto stores = StorageEngine::get_instance()->get_stores_for_create_tablet(storage_medium);
+    auto stores = get_stores_for_create_tablet(storage_medium);
     if (stores.empty()) {
         OLAP_LOG_WARNING("no available disk can be used to create tablet.");
         return OLAP_ERR_NO_AVAILABLE_ROOT_PATH;
@@ -1554,7 +1503,7 @@ OLAPStatus StorageEngine::load_header(
         try {
             auto store_path =
                 boost::filesystem::path(shard_path).parent_path().parent_path().string();
-            store = StorageEngine::get_instance()->get_store(store_path);
+            store = get_store(store_path);
             if (store == nullptr) {
                 LOG(WARNING) << "invalid shard path, path=" << shard_path;
                 return OLAP_ERR_INVALID_ROOT_PATH;
@@ -1569,10 +1518,10 @@ OLAPStatus StorageEngine::load_header(
     schema_hash_path_stream << shard_path
                             << "/" << request.tablet_id
                             << "/" << request.schema_hash;
-    res =  StorageEngine::get_instance()->load_one_tablet(
+    res =  _tablet_mgr.load_one_tablet(
             store,
             request.tablet_id, request.schema_hash,
-            schema_hash_path_stream.str());
+            schema_hash_path_stream.str(), false);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to process load headers. [res=%d]", res);
         return res;
@@ -1595,10 +1544,11 @@ OLAPStatus StorageEngine::load_header(
     schema_hash_path_stream << shard_path
                             << "/" << tablet_id
                             << "/" << schema_hash;
-    res =  StorageEngine::get_instance()->load_one_tablet(
+    res =  _tablet_mgr.load_one_tablet(
             store,
             tablet_id, schema_hash,
-            schema_hash_path_stream.str());
+            schema_hash_path_stream.str(), 
+            false);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to process load headers. [res=%d]", res);
         return res;
@@ -1687,7 +1637,7 @@ OLAPStatus StorageEngine::push(
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
 
-    TabletSharedPtr tablet = StorageEngine::get_instance()->get_tablet(
+    TabletSharedPtr tablet = get_tablet(
             request.tablet_id, request.schema_hash);
     if (NULL == tablet.get()) {
         OLAP_LOG_WARNING("false to find tablet. [tablet=%ld schema_hash=%d]",

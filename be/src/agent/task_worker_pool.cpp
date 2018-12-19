@@ -1773,11 +1773,11 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
             continue;
         }
 #endif
-        vector<RootPathInfo> root_paths_info;
-        worker_pool_this->_env->olap_engine()->get_all_root_path_info(&root_paths_info);
+        vector<DataDirInfo> data_dir_infos;
+        worker_pool_this->_env->olap_engine()->get_all_data_dir_info(&data_dir_infos);
 
         map<string, TDisk> disks;
-        for (auto& root_path_info : root_paths_info) {
+        for (auto& root_path_info : data_dir_infos) {
             TDisk disk;
             disk.__set_root_path(root_path_info.path);
             disk.__set_path_hash(root_path_info.path_hash);
