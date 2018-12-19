@@ -44,8 +44,8 @@ enum CompactionType {
     CUMULATIVE_COMPACTION = 2
 };
 
-struct RootPathInfo {
-    RootPathInfo():
+struct DataDirInfo {
+    DataDirInfo():
             capacity(1),
             available(0),
             data_used_capacity(0),

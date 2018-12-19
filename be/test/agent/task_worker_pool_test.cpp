@@ -1629,7 +1629,7 @@ TEST(TaskWorkerPoolTest, TestReportDiskState) {
 
     // Get root path failed, report failed
 #if 0
-    EXPECT_CALL(mock_command_executor, get_all_root_path_info(_))
+    EXPECT_CALL(mock_command_executor, get_all_data_dir_info(_))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_ERR_OTHER_ERROR));
     EXPECT_CALL(mock_master_server_client, report(_, _))
@@ -1638,7 +1638,7 @@ TEST(TaskWorkerPoolTest, TestReportDiskState) {
 #endif
 
     // Get root path success, report failed
-    EXPECT_CALL(mock_command_executor, get_all_root_path_info(_))
+    EXPECT_CALL(mock_command_executor, get_all_data_dir_info(_))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_master_server_client, report(_, _))
@@ -1647,7 +1647,7 @@ TEST(TaskWorkerPoolTest, TestReportDiskState) {
     task_worker_pool._report_disk_state_worker_thread_callback(&task_worker_pool);
 
     // Get root path success, report success
-    EXPECT_CALL(mock_command_executor, get_all_root_path_info(_))
+    EXPECT_CALL(mock_command_executor, get_all_data_dir_info(_))
             .Times(1)
             .WillOnce(Return(OLAPStatus::OLAP_SUCCESS));
     EXPECT_CALL(mock_master_server_client, report(_, _))

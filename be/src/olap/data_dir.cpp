@@ -437,6 +437,13 @@ OLAPStatus DataDir::deregister_tablet(Tablet* tablet) {
     return OLAP_SUCCESS;
 }
 
+void DataDir::clear_tablets(std::vector<TabletInfo>* tablet_infos) {
+     for (auto& tablet : _tablet_set) {
+        tablet_infos->push_back(tablet);
+    }
+    _tablet_set.clear();
+}
+
 std::string DataDir::get_absolute_shard_path(const std::string& shard_string) {
     return _path + DATA_PREFIX + "/" + shard_string;
 }
@@ -475,83 +482,6 @@ std::string DataDir::get_root_path_from_schema_hash_path_in_trash(
         const std::string& schema_hash_dir_in_trash) {
     boost::filesystem::path schema_hash_path_in_trash(schema_hash_dir_in_trash);
     return schema_hash_path_in_trash.parent_path().parent_path().parent_path().parent_path().string();
-}
-
-OLAPStatus DataDir::_load_tablet_from_header(StorageEngine* engine, TTabletId tablet_id,
-        TSchemaHash schema_hash, const std::string& header) {
-    std::unique_ptr<TabletMeta> tablet_meta(new TabletMeta());
-    bool parsed = tablet_meta->ParseFromString(header);
-    if (!parsed) {
-        LOG(WARNING) << "parse header string failed for tablet_id:" << tablet_id
-                     << " schema_hash:" << schema_hash;
-        return OLAP_ERR_HEADER_PB_PARSE_FAILED;
-    }
-    // init must be called
-    OLAPStatus res = tablet_meta->init();
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to init header, tablet_id:" << tablet_id << ", schema_hash:" << schema_hash;
-        res = TabletMetaManager::remove(this, tablet_id, schema_hash);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "remove header failed. tablet_id:" << tablet_id
-                << "schema_hash:" << schema_hash
-                << "store path:" << path();
-        }
-        return OLAP_ERR_HEADER_INIT_FAILED;
-    }
-    TabletSharedPtr tablet =
-        Tablet::create_from_header(tablet_meta.release(), this);
-    if (tablet == nullptr) {
-        LOG(WARNING) << "fail to new tablet. tablet_id=" << tablet_id << ", schema_hash:" << schema_hash;
-        return OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
-    }
-
-    if (tablet->lastest_version() == nullptr && !tablet->is_schema_changing()) {
-        LOG(WARNING) << "tablet not in schema change state without delta is invalid."
-                     << "tablet=" << tablet->full_name();
-        // tablet state is invalid, drop tablet
-        tablet->mark_dropped();
-        return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
-    }
-
-    res = engine->add_tablet(tablet_id, schema_hash, tablet);
-    if (res != OLAP_SUCCESS) {
-        // insert existed tablet return OLAP_SUCCESS
-        if (res == OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE) {
-            LOG(WARNING) << "add duplicate tablet. tablet=" << tablet->full_name();
-        }
-
-        LOG(WARNING) << "failed to add tablet. tablet=" << tablet->full_name();
-        return res;
-    }
-    res = tablet->register_tablet_into_dir();
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to register tablet into root path. root_path=" << tablet->storage_root_path_name();
-
-        if (engine->drop_tablet(tablet_id, schema_hash) != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to drop tablet when create tablet failed. "
-                <<"tablet=" << tablet_id << " schema_hash=" << schema_hash;
-        }
-
-        return res;
-    }
-    // load pending data (for realtime push), will add transaction relationship into engine
-    tablet->load_pending_data();
-
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus DataDir::load_tablets(StorageEngine* engine) {
-    auto load_tablet_func = [this, engine](long tablet_id,
-            long schema_hash, const std::string& value) -> bool {
-        OLAPStatus status = _load_tablet_from_header(engine, tablet_id, schema_hash, value);
-        if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "load tablet from header failed. status:" << status
-                << "tablet=" << tablet_id << "." << schema_hash;
-        };
-        return true;
-    };
-    OLAPStatus status = TabletMetaManager::traverse_headers(_meta, load_tablet_func);
-    return status;
 }
 
 } // namespace doris
