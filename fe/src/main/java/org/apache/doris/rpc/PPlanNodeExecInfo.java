@@ -21,13 +21,14 @@ import com.baidu.bjf.remoting.protobuf.annotation.Protobuf;
 import com.baidu.bjf.remoting.protobuf.annotation.ProtobufClass;
 
 @ProtobufClass
-public class PFragmentExecInfo {
-    @Protobuf(order = 1, required = true)
-    public PUniqueId instanceId;
-    @Protobuf(order = 2, required = true)
-    public int execStatus;
+public class PPlanNodeExecInfo {
+    @Protobuf(order = 1, required = false)
+    public int id;
+    @Protobuf(order = 2, required = false)
+    public int type;
     @Protobuf(order = 3, required = false)
-    public int planNodeType;
+    public long ioByByte;
     @Protobuf(order = 4, required = false)
-    public long rowsCount;
+    public long cpuConsumpation;
 }
+

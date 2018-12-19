@@ -30,6 +30,7 @@
 #include "util/thread_pool.hpp"
 #include "util/hash_util.hpp"
 #include "http/rest_monitor_iface.h"
+#include "runtime/exec_node_exec_info.h"
 
 namespace doris {
 

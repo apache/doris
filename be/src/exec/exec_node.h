@@ -36,6 +36,7 @@ class Function;
 
 namespace doris {
 
+class ExecNodeExecInfo;
 class Expr;
 class ExprContext;
 class ObjectPool;
@@ -336,6 +337,8 @@ protected:
     /// least the minimum reservation so that it can be returned to the initial
     /// reservations pool in Close().
     BufferPool::ClientHandle _buffer_pool_client;
+
+    ExecNodeExecInfo* _exec_info;
 
     ExecNode* child(int i) {
         return _children[i];

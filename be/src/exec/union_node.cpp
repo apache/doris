@@ -172,6 +172,7 @@ Status UnionNode::get_next_pass_through(RuntimeState* state, RowBatch* row_batch
     if (_child_eos) RETURN_IF_ERROR(child(_child_idx)->open(state));
     DCHECK_EQ(row_batch->num_rows(), 0);
     RETURN_IF_ERROR(child(_child_idx)->get_next(state, row_batch, &_child_eos));
+    _exec_info->add_cpu_consumpation(row_batch->num_rows());
     if (_child_eos) {
         // Even though the child is at eos, it's not OK to close() it here. Once we close
         // the child, the row batches that it produced are invalid. Marking the batch as
@@ -210,6 +211,7 @@ Status UnionNode::get_next_materialized(RuntimeState* state, RowBatch* row_batch
             // The first batch from each child is always fetched here.
             RETURN_IF_ERROR(child(_child_idx)->get_next(
                     state, _child_batch.get(), &_child_eos));
+            _exec_info->add_cpu_consumpation(_child_batch->num_rows());
         }
 
         while (!row_batch->at_capacity()) {
@@ -224,6 +226,7 @@ Status UnionNode::get_next_materialized(RuntimeState* state, RowBatch* row_batch
                 // All batches except the first batch from each child are fetched here.
                 RETURN_IF_ERROR(child(_child_idx)->get_next(
                         state, _child_batch.get(), &_child_eos));
+                _exec_info->add_cpu_consumpation(_child_batch->num_rows());
                 // If we fetched an empty batch, go back to the beginning of this while loop, and
                 // try again.
                 if (_child_batch->num_rows() == 0) continue;

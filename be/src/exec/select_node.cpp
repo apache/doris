@@ -72,6 +72,7 @@ Status SelectNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
                 return Status::OK;
             }
             RETURN_IF_ERROR(child(0)->get_next(state, _child_row_batch.get(), &_child_eos));
+            _exec_info->add_cpu_consumpation(_child_row_batch->num_rows());  
         }
 
         if (copy_rows(row_batch)) {

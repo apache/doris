@@ -510,12 +510,13 @@ Status FragmentMgr::fetch_fragment_exec_infos(PFetchFragmentExecInfosResult* res
         TUniqueId id;
         id.__set_hi(p_fragment_id.hi());
         id.__set_lo(p_fragment_id.lo()); 
-        PFragmentExecInfo* info = result->add_fragment_exec_info();
+        PInstanceExecInfo* info = result->add_instance_exec_info();
         PUniqueId* finst_id = info->mutable_finst_id();
         finst_id->set_hi(p_fragment_id.hi());
         finst_id->set_lo(p_fragment_id.lo()); 
 
         bool is_running = false; 
+        std::map<int, ExecNodeExecInfo> exec_infos;
         std::lock_guard<std::mutex> lock(_lock);
         {
             auto iter = _fragment_map.find(id);
@@ -524,12 +525,23 @@ Status FragmentMgr::fetch_fragment_exec_infos(PFetchFragmentExecInfosResult* res
                 continue;
             }
             is_running = iter->second->executor()->runtime_state()->is_running();
+            iter->second->executor()->runtime_state()->get_current_exec_info(&exec_infos);
         }
 
         if (is_running) {
             info->set_exec_status(PFragmentExecStatus::RUNNING);
         } else {
             info->set_exec_status(PFragmentExecStatus::WAIT);
+        }
+
+        auto iter = exec_infos.begin();
+        for  (;iter != exec_infos.end(); iter++) {
+            ExecNodeExecInfo& exec_info = iter->second;
+            PPlanNodeExecInfo* p_plan_node_exec_info = info->add_plannode_exec_info();
+            p_plan_node_exec_info->set_id(exec_info.get_id());
+            p_plan_node_exec_info->set_type(exec_info.get_type());
+            p_plan_node_exec_info->set_io_by_byte(exec_info.get_io_by_byte());
+            p_plan_node_exec_info->set_cpu_consumpation(exec_info.get_cpu_consumpation());
         }
     }
 

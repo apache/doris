@@ -17,6 +17,7 @@
 
 package org.apache.doris.rpc;
 
+
 import com.baidu.bjf.remoting.protobuf.FieldType;
 import com.baidu.bjf.remoting.protobuf.annotation.Protobuf;
 import com.baidu.bjf.remoting.protobuf.annotation.ProtobufClass;
@@ -24,9 +25,11 @@ import com.baidu.bjf.remoting.protobuf.annotation.ProtobufClass;
 import java.util.List;
 
 @ProtobufClass
-public class PFetchFragmentExecInfosResult {
+public class PInstanceExecInfo {
     @Protobuf(order = 1, required = true)
-    public PStatus status;
-    @Protobuf(fieldType = FieldType.OBJECT, order = 2, required = false)
-    public List<PInstanceExecInfo> execInfos;
+    public PUniqueId instanceId;
+    @Protobuf(order = 2, required = true)
+    public int execStatus;
+    @Protobuf(fieldType = FieldType.OBJECT, order = 3, required = false)
+    public List<PPlanNodeExecInfo> execInfos;
 }

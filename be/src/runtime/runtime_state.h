@@ -33,6 +33,8 @@
 
 #include "common/global_types.h"
 #include "util/logging.h"
+#include "util/spinlock.h"
+#include "runtime/exec_node_exec_info.h"
 #include "runtime/mem_pool.h"
 #include "runtime/thread_resource_mgr.h"
 #include "gen_cpp/Types_types.h"  // for TUniqueId
@@ -488,6 +490,48 @@ public:
         return _is_running;
     }
 
+    // get all ExecNodes resource consumption in Fragment.
+    void get_current_exec_info(std::map<int, ExecNodeExecInfo>* info) {
+        _exec_infos_lock.lock();
+        std::map<int, ExecNodeExecInfo*>::iterator iterator
+                             = _exec_infos.begin();
+        while (iterator != _exec_infos.end()) {
+            (*info)[iterator->first] = *(iterator->second);
+            iterator++;
+        }
+        _exec_infos_lock.unlock(); 
+    }
+
+    // register a ExecNodeExecInfo, to record resource consumption by it.
+    ExecNodeExecInfo* register_current_exec_info(int plan_node_id, TPlanNodeType::type type) {
+        _exec_infos_lock.lock();
+        std::map<int, ExecNodeExecInfo*>::iterator iterator 
+                             = _exec_infos.find(plan_node_id);
+        ExecNodeExecInfo* info;
+        if  (iterator == _exec_infos.end()) {
+            info = new ExecNodeExecInfo(plan_node_id, type);
+            _exec_infos[plan_node_id] = info;
+        } else {
+            info = iterator->second;
+        }
+        _exec_infos_lock.unlock();
+        return info;
+    }
+
+    // unregister ExecNodeExecInfo in close().
+    void unregister_current_exec_info(int plan_node_id) {
+        _exec_infos_lock.lock();
+        std::map<int, ExecNodeExecInfo*>::iterator iterator
+                             = _exec_infos.find(plan_node_id);
+        if (iterator != _exec_infos.end()) {
+           delete iterator->second;
+           _exec_infos.erase(iterator); 
+        } else {
+           LOG(WARNING) << "Plan node id:" << plan_node_id << " is non-existent";
+           DCHECK(false);
+        }
+        _exec_infos_lock.unlock();
+    } 
 private:
     // Allow TestEnv to set block_mgr manually for testing.
     friend class TestEnv;
@@ -633,6 +677,10 @@ private:
     /// from 'initial_reservations_'.
     /// TODO: not needed if we call ReleaseResources() in a timely manner (IMPALA-1575).
     AtomicInt32 _initial_reservation_refcnt;
+
+    // collect infos for show proc "/current_queries"
+    SpinLock _exec_infos_lock;
+    std::map<int, ExecNodeExecInfo*> _exec_infos;
 
     // prohibit copies
     RuntimeState(const RuntimeState&);

@@ -228,6 +228,7 @@ Status ExchangeNode::get_next_merging(RuntimeState* state, RowBatch* output_batc
             break;
         }
         RETURN_IF_ERROR(_stream_recvr->get_next(output_batch, eos));
+        _exec_info->add_cpu_consumpation(output_batch->num_rows());
     }
 
     _num_rows_returned += output_batch->num_rows();

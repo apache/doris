@@ -144,6 +144,7 @@ Status SortNode::sort_input(RuntimeState* state) {
     do {
         batch.reset();
         RETURN_IF_ERROR(child(0)->get_next(state, &batch, &eos));
+        _exec_info->add_cpu_consumpation(batch.num_rows());
         RETURN_IF_ERROR(_sorter->add_batch(&batch));
         RETURN_IF_CANCELLED(state);
         RETURN_IF_LIMIT_EXCEEDED(state);

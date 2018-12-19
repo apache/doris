@@ -201,6 +201,8 @@ Status AggregationNode::open(RuntimeState* state) {
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR(state->check_query_state());
         RETURN_IF_ERROR(_children[0]->get_next(state, &batch, &eos));
+        
+        _exec_info->add_cpu_consumpation(batch.num_rows());
         // SCOPED_TIMER(_build_timer);
         if (VLOG_ROW_IS_ON) {
             for (int i = 0; i < batch.num_rows(); ++i) {

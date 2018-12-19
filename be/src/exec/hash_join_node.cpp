@@ -229,6 +229,7 @@ Status HashJoinNode::construct_hash_table(RuntimeState* state) {
         RETURN_IF_CANCELLED(state);
         bool eos = true;
         RETURN_IF_ERROR(child(1)->get_next(state, &build_batch, &eos));
+        _exec_info->add_cpu_consumpation(build_batch.num_rows());
         SCOPED_TIMER(_build_timer);
         // take ownership of tuple data of build_batch
         _build_pool->acquire_data(build_batch.tuple_data_pool(), false);
@@ -380,6 +381,7 @@ Status HashJoinNode::open(RuntimeState* state) {
     // seed probe batch and _current_probe_row, etc.
     while (true) {
         RETURN_IF_ERROR(child(0)->get_next(state, _probe_batch.get(), &_probe_eos));
+        _exec_info->add_cpu_consumpation(_probe_batch->num_rows());
         COUNTER_UPDATE(_probe_row_counter, _probe_batch->num_rows());
         _probe_batch_pos = 0;
 

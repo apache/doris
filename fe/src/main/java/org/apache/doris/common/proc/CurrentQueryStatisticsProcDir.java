@@ -17,26 +17,32 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.qe.QeProcessorImpl;
-import org.apache.doris.qe.QueryStatisticsItem;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.qe.QueryStatisticsItem;
+import org.apache.doris.thrift.TPlanNodeType;
 
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 /*
  * show proc "/current_queries"
  */
 public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
+    private static final Logger LOG = LogManager.getLogger(CurrentQueryStatisticsProcDir.class);
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("ConnectionId").add("QueryId").add("Database").add("User").add("ExecTime").build();
+            .add("ConnectionId").add("QueryId").add("Database").add("User")
+            .add("IO(Running PlanNode)").add("CPU(Running PlanNode)").add("ExecTime").build();
 
-    private static final int EXEC_TIME_INDEX = 3;
+    private static final int EXEC_TIME_INDEX = 6;
 
     @Override
     public boolean register(String name, ProcNodeInterface node) {
@@ -61,6 +67,7 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
         final BaseProcResult result = new BaseProcResult();
         final Map<String, QueryStatisticsItem> statistic = QeProcessorImpl.INSTANCE.getQueryStatistics();
         result.setNames(TITLE_NAMES.asList());
+        final Map<String, QueryExecStatistic> queryScanRowCountMap = getQueryExecInfo();
         final List<List<String>> sortedRowData = Lists.newArrayList();
         for (QueryStatisticsItem item : statistic.values()) {
             final List<String> values = Lists.newArrayList();
@@ -68,6 +75,9 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             values.add(item.getQueryId());
             values.add(item.getDb());
             values.add(item.getUser());
+            final QueryExecStatistic execStatistic = queryScanRowCountMap.get(item.getQueryId());
+            values.add(String.valueOf(execStatistic.getIoByByte()));
+            values.add(String.valueOf(execStatistic.getCpuConsumpation()));
             values.add(item.getQueryExecTime());
             sortedRowData.add(values);
         }
@@ -82,5 +92,44 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
         });
         result.setRows(sortedRowData);
         return result;
+    }
+
+    private Map<String, QueryExecStatistic> getQueryExecInfo() throws AnalysisException {
+        final CurrentQueryInfoProvider provider = new CurrentQueryInfoProvider();
+        final Collection<CurrentQueryInfoProvider.QueryExecInfo> execInfos =
+                provider.getQueryExecInfoFromRemote(QeProcessorImpl.INSTANCE.getQueryStatistics().values());
+        final Map<String, QueryExecStatistic> queryScanRowCountMap = Maps.newHashMap();
+        for (CurrentQueryInfoProvider.QueryExecInfo execInfo : execInfos) {
+            long ioByByte = 0;
+            long cpuConsumpation = 0;
+            for (CurrentQueryInfoProvider.FragmentExecInfo fragmentExecInfo : execInfo.getFragmentExecInfo()) {
+                for (CurrentQueryInfoProvider.InstanceExecInfo instanceExecInfo : fragmentExecInfo.getInstanceExecInfo()) {
+                    for (CurrentQueryInfoProvider.PlanNodeExecInfo planNodeExecInfo : instanceExecInfo.getPlanNodeExecInfo()) {
+                        ioByByte += planNodeExecInfo.getIoByByte();
+                        cpuConsumpation += planNodeExecInfo.getCpuConsumpation();
+                    }
+                }
+            }
+            queryScanRowCountMap.put(execInfo.getQueryId(), new QueryExecStatistic(ioByByte, cpuConsumpation));
+        }
+        return queryScanRowCountMap;
+    }
+
+    private static class QueryExecStatistic {
+        private final long ioByByte;
+        private final long cpuConsumpation;
+
+        public QueryExecStatistic(long ioByByte, long cpuConsumpation) {
+            this.ioByByte = ioByByte;
+            this.cpuConsumpation = cpuConsumpation;        
+        }
+
+        public long getIoByByte() {
+            return ioByByte;
+        }
+
+        public long getCpuConsumpation() {
+            return cpuConsumpation;
+        }
     }
 }

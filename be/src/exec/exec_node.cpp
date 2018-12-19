@@ -186,7 +186,7 @@ Status ExecNode::prepare(RuntimeState* state) {
     _mem_tracker.reset(new MemTracker(-1, _runtime_profile->name(), state->instance_mem_tracker()));
     _expr_mem_tracker.reset(new MemTracker(-1, "Exprs", _mem_tracker.get()));
     _expr_mem_pool.reset(new MemPool(_expr_mem_tracker.get()));
-
+    _exec_info = state->register_current_exec_info(_id, _type);
     // TODO chenhao
     RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, row_desc(), expr_mem_tracker()));
     // TODO(zc):
@@ -250,6 +250,7 @@ Status ExecNode::close(RuntimeState* state) {
         _mem_tracker->close();
     }
 
+    state->unregister_current_exec_info(_id);
     return result;
 }
 

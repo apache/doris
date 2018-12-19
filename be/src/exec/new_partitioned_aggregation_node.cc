@@ -308,7 +308,7 @@ Status NewPartitionedAggregationNode::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(QueryMaintenance(state));
     RETURN_IF_ERROR(_children[0]->get_next(state, &batch, &eos));
-
+    _exec_info->add_cpu_consumpation(batch.num_rows());
     if (UNLIKELY(VLOG_ROW_IS_ON)) {
       for (int i = 0; i < batch.num_rows(); ++i) {
         TupleRow* row = batch.get_row(i);
@@ -532,7 +532,7 @@ Status NewPartitionedAggregationNode::GetRowsStreaming(RuntimeState* state,
     RETURN_IF_ERROR(QueryMaintenance(state));
 
     RETURN_IF_ERROR(child(0)->get_next(state, child_batch_.get(), &child_eos_));
-
+    _exec_info->add_cpu_consumpation(child_batch_->num_rows());
     SCOPED_TIMER(streaming_timer_);
 
     int remaining_capacity[PARTITION_FANOUT];

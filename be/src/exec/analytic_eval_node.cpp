@@ -236,7 +236,7 @@ Status AnalyticEvalNode::open(RuntimeState* state) {
 
     while (!_input_eos && _prev_input_row == NULL) {
         RETURN_IF_ERROR(child(0)->get_next(state, _curr_child_batch.get(), &_input_eos));
-
+        _exec_info->add_cpu_consumpation(_curr_child_batch->num_rows());
         if (_curr_child_batch->num_rows() > 0) {
             _prev_input_row = _curr_child_batch->get_row(0);
             process_child_batches(state);
@@ -612,6 +612,7 @@ Status AnalyticEvalNode::process_child_batches(RuntimeState* state) {
         _prev_child_batch->reset();
         _prev_child_batch.swap(_curr_child_batch);
         RETURN_IF_ERROR(child(0)->get_next(state, _curr_child_batch.get(), &_input_eos));
+        _exec_info->add_cpu_consumpation(_curr_child_batch->num_rows());
     }
 
     return Status::OK;
