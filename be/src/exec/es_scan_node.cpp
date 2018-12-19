@@ -520,7 +520,6 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
     }
 }
 
-bool EsScanNode::is_match_func(Expr* conjunct) {
     if (TExprNodeType::FUNCTION_CALL == conjunct->node_type()
         && conjunct->fn().name.function_name == "esquery") {
             return true;
