@@ -448,11 +448,6 @@ public class LoadChecker extends Daemon {
                                 type = TPushType.LOAD_DELETE;
                             }
                             
-                            if (type == TPushType.LOAD && (filePath == null || fileSize < 0)) {
-                                LOG.warn("get empty load file for tablet {}", tabletId);
-                                continue;
-                            }
-
                             // add task to batchTask
                             Set<Long> allReplicas = new HashSet<Long>();
                             Set<Long> finishedReplicas = new HashSet<Long>();
