@@ -86,8 +86,8 @@ public:
     MOCK_METHOD1(reload_root_path, OLAPStatus(const std::string& root_paths));
     MOCK_METHOD2(check_tablet_exist, bool(TTabletId tablet_id, TSchemaHash schema_hash));
     MOCK_METHOD1(
-            get_all_root_path_info,
-            OLAPStatus(std::vector<RootPathInfo>* root_paths_info));
+            get_all_data_dir_info,
+            OLAPStatus(std::vector<DataDirInfo>* data_dir_infos));
     MOCK_METHOD2(
             publish_version,
             OLAPStatus(const TPublishVersionRequest& request,

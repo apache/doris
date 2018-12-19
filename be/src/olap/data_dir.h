@@ -29,8 +29,6 @@
 
 namespace doris {
 
-class StorageEngine;
-
 // A DataDir used to manange data in same path.
 // Now, After DataDir was created, it will never be deleted for easy implementation.
 class DataDir {
@@ -45,8 +43,8 @@ public:
     bool is_used() const { return _is_used; }
     void set_is_used(bool is_used) { _is_used = is_used; }
     int32_t cluster_id() const { return _cluster_id; }
-    RootPathInfo to_root_path_info() {
-        RootPathInfo info;
+    DataDirInfo get_dir_info() {
+        DataDirInfo info;
         info.path = _path;
         info.path_hash = _path_hash;
         info.is_used = _is_used;
@@ -72,6 +70,7 @@ public:
 
     OLAPStatus register_tablet(Tablet* tablet);
     OLAPStatus deregister_tablet(Tablet* tablet);
+    void clear_tablets(std::vector<TabletInfo>* tablet_infos);
 
     std::string get_absolute_tablet_path(TabletMeta* header, bool with_schema_hash);
 
@@ -80,8 +79,6 @@ public:
     void find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* paths);
 
     static std::string get_root_path_from_schema_hash_path_in_trash(const std::string& schema_hash_dir_in_trash);
-
-    OLAPStatus load_tablets(StorageEngine* engine);
 
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
@@ -96,12 +93,7 @@ private:
     Status _read_cluster_id(const std::string& path, int32_t* cluster_id);
     Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id); 
 
-    OLAPStatus _load_tablet_from_header(StorageEngine* engine, TTabletId tablet_id,
-                TSchemaHash schema_hash, const std::string& header);
-
 private:
-    friend class StorageEngine;
-    
     std::string _path;
     int64_t _path_hash;
     int32_t _cluster_id;
@@ -128,4 +120,4 @@ private:
     OlapMeta* _meta;
 };
 
-}
+} // namespace doris

@@ -65,7 +65,7 @@ public:
     //        OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR, if find duplication
     //        OLAP_ERR_NOT_INITED, if not inited
     OLAPStatus add_tablet(TTabletId tablet_id, SchemaHash schema_hash,
-                         const TabletSharedPtr& tablet, bool force = false);
+                         const TabletSharedPtr& tablet, bool force);
 
     void cancel_unfinished_schema_change();
 
@@ -129,7 +129,11 @@ public:
 
     void get_tablet_stat(TTabletStatResult& result);
 
-    OLAPStatus load_one_tablet(DataDir* store,
+    // parse tablet header msg to generate tablet object
+    OLAPStatus load_tablet_from_header(DataDir* data_dir, TTabletId tablet_id,
+                TSchemaHash schema_hash, const std::string& header);
+
+    OLAPStatus load_one_tablet(DataDir* data_dir,
                                TTabletId tablet_id,
                                SchemaHash schema_hash,
                                const std::string& schema_hash_path,
@@ -149,7 +153,7 @@ public:
     // Prevent schema change executed concurrently.
     bool try_schema_change_lock(TTabletId tablet_id);
 
-    void update_root_path_info(std::map<std::string, RootPathInfo>* path_map, int* tablet_counter);
+    void update_root_path_info(std::map<std::string, DataDirInfo>* path_map, int* tablet_counter);
 
     void update_storage_medium_type_count(uint32_t storage_medium_type_count);
 

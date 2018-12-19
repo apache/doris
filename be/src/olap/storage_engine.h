@@ -89,15 +89,6 @@ public:
                               const bool is_schema_change_tablet,
                               const TabletSharedPtr ref_tablet);
 
-    // Add a tablet pointer to StorageEngine
-    // If force, drop the existing tablet add this new one
-    //
-    // Return OLAP_SUCCESS, if run ok
-    //        OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR, if find duplication
-    //        OLAP_ERR_NOT_INITED, if not inited
-    OLAPStatus add_tablet(TTabletId tablet_id, SchemaHash schema_hash,
-                         const TabletSharedPtr& tablet, bool force = false);
-
     OLAPStatus add_transaction(TPartitionId partition_id, TTransactionId transaction_id,
                                TTabletId tablet_id, SchemaHash schema_hash,
                                const PUniqueId& load_id);
@@ -160,13 +151,7 @@ public:
 
     // Note: 这里只能reload原先已经存在的root path，即re-load启动时就登记的root path
     // 是允许的，但re-load全新的path是不允许的，因为此处没有彻底更新ce调度器信息
-    void load_stores(const std::vector<DataDir*>& stores);
-
-    OLAPStatus load_one_tablet(DataDir* store,
-                               TTabletId tablet_id,
-                               SchemaHash schema_hash,
-                               const std::string& schema_hash_path,
-                               bool force = false);
+    void load_data_dirs(const std::vector<DataDir*>& stores);
 
     Cache* index_stream_lru_cache() {
         return _index_stream_lru_cache;
@@ -183,7 +168,7 @@ public:
     void set_store_used_flag(const std::string& root_path, bool is_used);
 
     // @brief 获取所有root_path信息
-    OLAPStatus get_all_root_path_info(std::vector<RootPathInfo>* root_paths_info);
+    OLAPStatus get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos);
 
     void get_all_available_root_path(std::vector<std::string>* available_paths);
 
@@ -335,6 +320,8 @@ public:
         }
     }
 
+    TabletManager* get_tablet_mgr() { return &_tablet_mgr; }
+
 private:
     OLAPStatus check_all_root_path_cluster_id();
 
@@ -419,6 +406,34 @@ private:
 
     OLAPStatus _start_bg_worker();
 
+    // 扫描目录, 加载表
+    OLAPStatus _load_data_dir(DataDir* store);
+
+    TabletSharedPtr _find_best_tablet_to_compaction(CompactionType compaction_type);
+
+    OLAPStatus _do_sweep(
+            const std::string& scan_root, const time_t& local_tm_now, const uint32_t expire);
+
+    // Thread functions
+
+    // base compaction thread process function
+    void* _base_compaction_thread_callback(void* arg);
+
+    // garbage sweep thread process function. clear snapshot and trash folder
+    void* _garbage_sweeper_thread_callback(void* arg);
+
+    // delete tablet with io error process function
+    void* _disk_stat_monitor_thread_callback(void* arg);
+
+    // unused index process function
+    void* _unused_index_thread_callback(void* arg);
+
+    // cumulative process function
+    void* _cumulative_compaction_thread_callback(void* arg);
+
+    // clean file descriptors cache
+    void* _fd_cache_clean_callback(void* arg);
+
 private:
 
     struct CompactionCandidate {
@@ -451,14 +466,6 @@ private:
 
     typedef std::map<std::string, uint32_t> file_system_task_count_t;
 
-    // 扫描目录, 加载表
-    OLAPStatus _load_store(DataDir* store);
-
-    TabletSharedPtr _find_best_tablet_to_compaction(CompactionType compaction_type);
-
-    OLAPStatus _do_sweep(
-            const std::string& scan_root, const time_t& local_tm_now, const uint32_t expire);
-
     EngineOptions _options;
     std::mutex _store_lock;
     std::map<std::string, DataDir*> _store_map;
@@ -487,26 +494,6 @@ private:
 
     std::unordered_map<SegmentGroup*, std::vector<std::string>> _gc_files;
     Mutex _gc_mutex;
-
-    // Thread functions
-
-    // base compaction thread process function
-    void* _base_compaction_thread_callback(void* arg);
-
-    // garbage sweep thread process function. clear snapshot and trash folder
-    void* _garbage_sweeper_thread_callback(void* arg);
-
-    // delete tablet with io error process function
-    void* _disk_stat_monitor_thread_callback(void* arg);
-
-    // unused index process function
-    void* _unused_index_thread_callback(void* arg);
-
-    // cumulative process function
-    void* _cumulative_compaction_thread_callback(void* arg);
-
-    // clean file descriptors cache
-    void* _fd_cache_clean_callback(void* arg);
 
     // thread to monitor snapshot expiry
     std::thread _garbage_sweeper_thread;
