@@ -524,6 +524,7 @@ Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {
     result.__set_eos(true);
     TExtColumnData col_data;
     std::vector<bool> is_null;
+    is_null.push_back(false);
     col_data.__set_is_null(is_null);
     std::vector<int32_t> int_vals;
     int_vals.push_back(1);
