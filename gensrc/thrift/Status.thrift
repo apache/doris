@@ -36,6 +36,7 @@ enum TStatusCode {
     PUBLISH_TIMEOUT,
     LABEL_ALREADY_EXISTS,
     DATA_QUALITY_ERROR,
+    ES_SHARD_NOT_FOUND
 }
 
 struct TStatus {

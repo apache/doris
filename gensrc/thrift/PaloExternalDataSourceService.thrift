@@ -170,6 +170,7 @@ struct TExtOpenResult {
 
   // An opaque handle used in subsequent getNext()/close() calls. Required.
   2: optional string scan_handle
+  3: optional list<i32> accepted_conjuncts
 }
 
 // Parameters to getNext()

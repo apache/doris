@@ -32,6 +32,9 @@ set(SRC_FILES
     ${GEN_CPP_DIR}/HeartbeatService_types.cpp
     ${GEN_CPP_DIR}/PaloInternalService_constants.cpp
     ${GEN_CPP_DIR}/PaloInternalService_types.cpp
+    ${GEN_CPP_DIR}/PaloExternalDataSourceService_constants.cpp
+    ${GEN_CPP_DIR}/PaloExternalDataSourceService_types.cpp
+    ${GEN_CPP_DIR}/TExtDataSourceService.cpp
     ${GEN_CPP_DIR}/FrontendService.cpp
     ${GEN_CPP_DIR}/FrontendService_constants.cpp
     ${GEN_CPP_DIR}/FrontendService_types.cpp
