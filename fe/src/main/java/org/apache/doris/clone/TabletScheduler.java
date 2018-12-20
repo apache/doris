@@ -188,7 +188,7 @@ public class TabletScheduler extends Daemon {
      * if force is true, do not check if tablet is already added before.
      */
     public synchronized boolean addTablet(TabletInfo tablet, boolean force) {
-        if (!force && hasTablet(tablet.getTabletId())) {
+        if (!force && containsTablet(tablet.getTabletId())) {
             return false;
         }
         allTabletIds.add(tablet.getTabletId());
@@ -196,7 +196,7 @@ public class TabletScheduler extends Daemon {
         return true;
     }
 
-    public synchronized boolean hasTablet(long tabletId) {
+    public synchronized boolean containsTablet(long tabletId) {
         return allTabletIds.contains(tabletId);
     }
 

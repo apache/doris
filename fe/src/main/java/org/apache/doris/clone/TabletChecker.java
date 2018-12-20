@@ -185,7 +185,7 @@ public class TabletChecker extends Daemon {
             db.readLock();
             try {
                 for (Table table : db.getTables()) {
-                    if (!table.needCheck()) {
+                    if (!table.needSchedule()) {
                         continue;
                     }
 
@@ -197,7 +197,7 @@ public class TabletChecker extends Daemon {
                             for (Tablet tablet : idx.getTablets()) {
                                 totalTabletNum++;
                                 
-                                if (tabletScheduler.hasTablet(tablet.getId())) {
+                                if (tabletScheduler.containsTablet(tablet.getId())) {
                                     continue;
                                 }
                                 

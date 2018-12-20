@@ -31,11 +31,16 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.Tablet.TabletStatus;
+import org.apache.doris.clone.TabletInfo;
+import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TOlapTable;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -946,5 +951,27 @@ public class OlapTable extends Table {
             dataSize += partition.getDataSize();
         }
         return dataSize;
+    }
+
+    public boolean checkStable(SystemInfoService infoService, TabletScheduler tabletScheduler, String clusterName) {
+        for (Partition partition : idToPartition.values()) {
+            long visibleVersion = partition.getVisibleVersion();
+            long visibleVersionHash = partition.getVisibleVersionHash();
+            short replicationNum = partitionInfo.getReplicationNum(partition.getId());
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices()) {
+                for (Tablet tablet : mIndex.getTablets()) {
+                    if (tabletScheduler.containsTablet(tablet.getId())) {
+                        return false;
+                    }
+
+                    Pair<TabletStatus, TabletInfo.Priority> statusPair = tablet.getHealthStatusWithPriority(
+                            infoService, clusterName, visibleVersion, visibleVersionHash, replicationNum);
+                    if (statusPair.first != TabletStatus.HEALTHY) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
     }
 }

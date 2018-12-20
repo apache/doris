@@ -354,8 +354,8 @@ public class Tablet extends MetaObject implements Writable {
      * 2. all healthy replicas are in right cluster
      */
     public Pair<TabletStatus, TabletInfo.Priority> getHealthStatusWithPriority(
-            SystemInfoService systemInfoService,
-            String clusterName, long visibleVersion, long visibleVersionHash, int replicationNum) {
+            SystemInfoService systemInfoService, String clusterName,
+            long visibleVersion, long visibleVersionHash, int replicationNum) {
 
         int aliveReplicaNum = 0;
         int healthyReplicaNum = 0;

@@ -2064,7 +2064,7 @@ public class Catalog {
 
         long currentTimeMs = System.currentTimeMillis();
         if (currentTimeMs - synchronizedTimeMs > Config.meta_delay_toleration_second * 1000) {
-            // we stll need this log to observe this situation
+            // we still need this log to observe this situation
             // but service may be continued when there is no log being replayed.
             LOG.warn("meta out of date. current time: {}, synchronized time: {}, has log: {}, fe type: {}",
                     currentTimeMs, synchronizedTimeMs, hasLog, feType);

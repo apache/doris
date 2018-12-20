@@ -614,7 +614,7 @@ public class SchemaChangeJob extends AlterJob {
 
     /**
      * should consider following cases:
-     * 1. replica is removed from this tablet, for example user changes the replica num
+     * 1. replica is removed from this tablet.
      * 2. backend is dead or is dropped from system
      */
     @Override

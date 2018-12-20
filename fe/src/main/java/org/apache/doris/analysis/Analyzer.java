@@ -136,7 +136,7 @@ public class Analyzer {
     // On-clause of any such semi-join is not allowed to reference other semi-joined tuples
     // except its own. Therefore, only a single semi-joined tuple can be visible at a time.
     private TupleId visibleSemiJoinedTupleId_ = null;
-
+    
     public void setIsSubquery() {
         isSubquery = true;
         globalState.containsSubquery = true;

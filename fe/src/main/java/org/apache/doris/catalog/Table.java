@@ -17,15 +17,18 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
-
-import org.apache.commons.lang.NotImplementedException;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TTableDescriptor;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
+
+import org.apache.commons.lang.NotImplementedException;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -259,7 +262,26 @@ public class Table extends MetaObject implements Writable {
         return "Table [id=" + id + ", name=" + name + ", type=" + type + "]";
     }
 
-    public boolean needCheck() {
-        return getType() == TableType.OLAP;
+    /*
+     * 1. Only schedule OLAP table.
+     * 2. If table is colocate with other table, not schedule it.
+     * 3. if table's state is not NORMAL, not schedule it.
+     */
+    public boolean needSchedule() {
+        if (type != TableType.OLAP) {
+            return false;
+        }
+
+        OlapTable olapTable = (OlapTable) this;
+        
+        if (!Strings.isNullOrEmpty(olapTable.getColocateTable())) {
+            return false;
+        }
+
+        if (olapTable.getState() != OlapTableState.NORMAL) {
+            return false;
+        }
+        
+        return true;
     }
 }
