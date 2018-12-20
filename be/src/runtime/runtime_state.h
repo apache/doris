@@ -490,6 +490,10 @@ public:
         return _is_running;
     }
 
+    std::map<int, ExecNodeExecInfo*>* get_exec_node_exec_info() {
+        return &_exec_infos;
+    }
+
     // get all ExecNodes resource consumption in Fragment.
     void get_current_exec_info(std::map<int, ExecNodeExecInfo>* info) {
         _exec_infos_lock.lock();
@@ -502,7 +506,8 @@ public:
         _exec_infos_lock.unlock(); 
     }
 
-    // register a ExecNodeExecInfo, to record resource consumption by it.
+    // This is used by ExecNode to register a ExecNodeExecInfo to record resource consumption.
+    // RuntimeState is responsible for releasing ExecNodeExecInfo in release_current_exec_info.
     ExecNodeExecInfo* register_current_exec_info(int plan_node_id, TPlanNodeType::type type) {
         _exec_infos_lock.lock();
         std::map<int, ExecNodeExecInfo*>::iterator iterator 
@@ -518,20 +523,6 @@ public:
         return info;
     }
 
-    // unregister ExecNodeExecInfo in close().
-    void unregister_current_exec_info(int plan_node_id) {
-        _exec_infos_lock.lock();
-        std::map<int, ExecNodeExecInfo*>::iterator iterator
-                             = _exec_infos.find(plan_node_id);
-        if (iterator != _exec_infos.end()) {
-           delete iterator->second;
-           _exec_infos.erase(iterator); 
-        } else {
-           LOG(WARNING) << "Plan node id:" << plan_node_id << " is non-existent";
-           DCHECK(false);
-        }
-        _exec_infos_lock.unlock();
-    } 
 private:
     // Allow TestEnv to set block_mgr manually for testing.
     friend class TestEnv;
@@ -546,6 +537,15 @@ private:
     }
 
     Status create_error_log_file();
+
+    // clear ExecNodeExecInfo in destructor
+    void release_current_exec_info() {
+        std::map<int, ExecNodeExecInfo*>::iterator iterator = _exec_infos.begin();
+        for (;iterator != _exec_infos.end(); iterator++) {
+           delete iterator->second;
+           _exec_infos.erase(iterator);
+        } 
+    }
 
     static const int DEFAULT_BATCH_SIZE = 2048;
 

@@ -92,12 +92,16 @@ public class ConnectProcessor {
         ctx.getState().setOk();
     }
 
-    private void auditAfterExec(String origStmt, StatementBase parsedStmt) {
+    private void auditAfterExec(String origStmt, StatementBase parsedStmt, QeProcessorImpl.QueryInfo queryInfo) {
         // slow query
         long elapseMs = System.currentTimeMillis() - ctx.getStartTime();
         // query state log
         ctx.getAuditBuilder().put("state", ctx.getState());
         ctx.getAuditBuilder().put("time", elapseMs);
+        if (queryInfo != null) {
+            ctx.getAuditBuilder().put("IO", queryInfo.getIoByByte());
+            ctx.getAuditBuilder().put("CPU", queryInfo.getCpuConsumpation());
+        }
         ctx.getAuditBuilder().put("returnRows", ctx.getReturnRows());
         ctx.getAuditBuilder().put("stmt_id", ctx.getStmtId());
 
@@ -154,11 +158,12 @@ public class ConnectProcessor {
         ctx.getAuditBuilder().put("user", ctx.getQualifiedUser());
         ctx.getAuditBuilder().put("db", ctx.getDatabase());
 
+        QeProcessorImpl.QueryInfo queryInfo = null;
         // execute this query.
         try {
             executor = new StmtExecutor(ctx, stmt);
             ctx.setExecutor(executor);
-            executor.execute();
+            queryInfo = executor.execute();
             // set if this is a QueryStmt
             ctx.getState().setQuery(executor.isQueryStmt());
         } catch (DdlException e) {
@@ -177,7 +182,7 @@ public class ConnectProcessor {
 
         // audit after exec
         // replace '\n' to '\\n' to make string in one line
-        auditAfterExec(stmt.replace("\n", " \\n"), executor.getParsedStmt());
+        auditAfterExec(stmt.replace("\n", " \\n"), executor.getParsedStmt(), queryInfo);
     }
 
     // Get the column definitions of a table

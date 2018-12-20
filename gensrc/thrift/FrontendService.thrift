@@ -323,7 +323,8 @@ struct TReportExecStatusResult {
 
 // Service Protocol Details
 enum FrontendServiceVersion {
-  V1
+  V1,
+  V2
 }
 
 // The results of an INSERT query, sent to the coordinator as part of 
@@ -331,22 +332,22 @@ enum FrontendServiceVersion {
 struct TReportExecStatusParams {
   1: required FrontendServiceVersion protocol_version
 
-  // required in V1
+  // required in V1 V2
   2: optional Types.TUniqueId query_id
 
   // passed into ExecPlanFragment() as TExecPlanFragmentParams.backend_num
-  // required in V1
+  // required in V1 V2
   3: optional i32 backend_num
 
-  // required in V1
+  // required in V1 V2
   4: optional Types.TUniqueId fragment_instance_id
 
   // Status of fragment execution; any error status means it's done.
-  // required in V1
+  // required in V1 V2
   5: optional Status.TStatus status
 
   // If true, fragment finished executing.
-  // required in V1
+  // required in V1 V2
   6: optional bool done
 
   // cumulative profile
@@ -367,6 +368,10 @@ struct TReportExecStatusParams {
   13: optional list<string> export_files 
 
   14: optional list<Types.TTabletCommitInfo> commitInfos
+
+  // V2 required
+  15: optional i64 io_by_byte;
+  16: optional i64 cpu_consumpation;
 }
 
 struct TFeResult {
@@ -567,7 +572,7 @@ service FrontendService {
     TDescribeTableResult describeTable(1:TDescribeTableParams params)
     TShowVariableResult showVariables(1:TShowVariableRequest params)
     TReportExecStatusResult reportExecStatus(1:TReportExecStatusParams params)
-
+    
     MasterService.TMasterResult finishTask(1:MasterService.TFinishTaskRequest request)
     MasterService.TMasterResult report(1:MasterService.TReportRequest request)
     MasterService.TFetchResourceResult fetchResource()

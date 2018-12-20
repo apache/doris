@@ -32,7 +32,7 @@ public interface QeProcessor {
 
     void registerQuery(TUniqueId queryId, QeProcessorImpl.QueryInfo info) throws UserException;
 
-    void unregisterQuery(TUniqueId queryId);
+    QeProcessorImpl.QueryInfo unregisterQuery(TUniqueId queryId);
 
     Map<String, QueryStatisticsItem> getQueryStatistics();
 }

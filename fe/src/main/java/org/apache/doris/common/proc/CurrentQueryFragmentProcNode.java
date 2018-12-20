@@ -77,20 +77,20 @@ public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
                 execInfo.getFragmentExecInfo()) {
             for (CurrentQueryInfoProvider.InstanceExecInfo instanceExecInfo :
                     fragmentExecInfo.getInstanceExecInfo()) {
-                long rowNumRead = 0;
-                long rowNumProcesed = 0;
+                long ioByByte = 0;
+                long cpuConsumpation = 0;
                 for (CurrentQueryInfoProvider.PlanNodeExecInfo planNodeExecInfo :
                         instanceExecInfo.getPlanNodeExecInfo()) {
-                    rowNumRead += planNodeExecInfo.getIoByByte();
-                    rowNumProcesed += planNodeExecInfo.getCpuConsumpation();
+                    ioByByte += planNodeExecInfo.getIoByByte();
+                    cpuConsumpation += planNodeExecInfo.getCpuConsumpation();
                 }
                 final List<String> rowData = Lists.newArrayList();
                 rowData.add(fragmentExecInfo.getFragmentId());
                 rowData.add(instanceExecInfo.getInstanceId());
                 rowData.add(instanceExecInfo.getHost());
                 rowData.add(instanceExecInfo.getExecState());
-                rowData.add(String.valueOf(rowNumRead));
-                rowData.add(String.valueOf(rowNumProcesed));
+                rowData.add(String.valueOf(ioByByte));
+                rowData.add(String.valueOf(cpuConsumpation));
                 sortedRowDatas.add(rowData);
             }
         }

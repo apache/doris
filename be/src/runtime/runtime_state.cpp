@@ -83,6 +83,9 @@ RuntimeState::RuntimeState(const std::string& now)
 }
 
 RuntimeState::~RuntimeState() {
+
+    release_current_exec_info();
+
     _block_mgr.reset();
     _block_mgr2.reset();
     // close error log file

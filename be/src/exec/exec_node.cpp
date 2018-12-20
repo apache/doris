@@ -250,7 +250,6 @@ Status ExecNode::close(RuntimeState* state) {
         _mem_tracker->close();
     }
 
-    state->unregister_current_exec_info(_id);
     return result;
 }
 

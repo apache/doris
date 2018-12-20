@@ -247,55 +247,72 @@ void FragmentExecState::coordinator_callback(
     }
 
     TReportExecStatusParams params;
-    params.protocol_version = FrontendServiceVersion::V1;
     params.__set_query_id(_query_id);
     params.__set_backend_num(_backend_num);
     params.__set_fragment_instance_id(_fragment_instance_id);
     exec_status.set_t_status(&params);
     params.__set_done(done);
-    profile->to_thrift(&params.profile);
-    params.__isset.profile = true;
+    if (profile != nullptr) {
+        params.protocol_version = FrontendServiceVersion::V1;
+        profile->to_thrift(&params.profile);
+        params.__isset.profile = true;
 
-    RuntimeState* runtime_state = _executor.runtime_state();
-    if (!runtime_state->output_files().empty()) {
-        params.__isset.delta_urls = true;
-        for (auto& it : runtime_state->output_files()) {
-            params.delta_urls.push_back(to_http_path(it));
+        RuntimeState* runtime_state = _executor.runtime_state();
+        if (!runtime_state->output_files().empty()) {
+            params.__isset.delta_urls = true;
+            for (auto& it : runtime_state->output_files()) {
+                params.delta_urls.push_back(to_http_path(it));
+            }
         }
-    }
-    if (runtime_state->num_rows_load_success() > 0 ||
-            runtime_state->num_rows_load_filtered() > 0) {
-        params.__isset.load_counters = true;
-        // TODO(zc)
-        static std::string s_dpp_normal_all = "dpp.norm.ALL";
-        static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
+        if (runtime_state->num_rows_load_success() > 0 ||
+                runtime_state->num_rows_load_filtered() > 0) {
+            params.__isset.load_counters = true;
+            // TODO(zc)
+            static std::string s_dpp_normal_all = "dpp.norm.ALL";
+            static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
 
-        params.load_counters.emplace(
-            s_dpp_normal_all, std::to_string(runtime_state->num_rows_load_success()));
-        params.load_counters.emplace(
-            s_dpp_abnormal_all, std::to_string(runtime_state->num_rows_load_filtered()));
-    }
-    if (!runtime_state->get_error_log_file_path().empty()) {
-        params.__set_tracking_url(
-                to_load_error_http_path(runtime_state->get_error_log_file_path()));
-    }
-    if (!runtime_state->export_output_files().empty()) {
-        params.__isset.export_files = true;
-        params.export_files = runtime_state->export_output_files();
-    }
-    if (!runtime_state->tablet_commit_infos().empty()) {
-        params.__isset.commitInfos = true;
-        params.commitInfos.reserve(runtime_state->tablet_commit_infos().size());
-        for (auto& info : runtime_state->tablet_commit_infos()) {
-            params.commitInfos.push_back(info);
+            params.load_counters.emplace(
+                s_dpp_normal_all, std::to_string(runtime_state->num_rows_load_success()));
+            params.load_counters.emplace(
+                s_dpp_abnormal_all, std::to_string(runtime_state->num_rows_load_filtered()));
         }
+        if (!runtime_state->get_error_log_file_path().empty()) {
+            params.__set_tracking_url(
+                    to_load_error_http_path(runtime_state->get_error_log_file_path()));
+        }
+        if (!runtime_state->export_output_files().empty()) {
+            params.__isset.export_files = true;
+            params.export_files = runtime_state->export_output_files();
+        }
+        if (!runtime_state->tablet_commit_infos().empty()) {
+            params.__isset.commitInfos = true;
+            params.commitInfos.reserve(runtime_state->tablet_commit_infos().size());
+            for (auto& info : runtime_state->tablet_commit_infos()) {
+                params.commitInfos.push_back(info);
+            }
+        }
+        DCHECK(runtime_state != NULL);
+
+        // Send new errors to coordinator
+        runtime_state->get_unreported_errors(&(params.error_log));
+        params.__isset.error_log = (params.error_log.size() > 0);
+    } else {
+        // instance execution consumpation report
+        params.protocol_version = FrontendServiceVersion::V2;
+        std::map<int, ExecNodeExecInfo*>* exec_infos = _executor.runtime_state()->get_exec_node_exec_info(); 
+        std::map<int, ExecNodeExecInfo*>::iterator iterator = exec_infos->begin();
+        int64_t io_by_byte = 0;
+        int64_t cpu_consumpation = 0;
+        for (; iterator != exec_infos->end(); iterator++) {
+            ExecNodeExecInfo* exec_info = iterator->second;
+            io_by_byte += exec_info->get_io_by_byte();
+            cpu_consumpation += exec_info->get_cpu_consumpation();
+        }
+        params.io_by_byte = io_by_byte;
+        params.__isset.io_by_byte = true;
+        params.cpu_consumpation = cpu_consumpation;
+        params.__isset.cpu_consumpation = true;
     }
-    DCHECK(runtime_state != NULL);
-
-    // Send new errors to coordinator
-    runtime_state->get_unreported_errors(&(params.error_log));
-    params.__isset.error_log = (params.error_log.size() > 0);
-
     TReportExecStatusResult res;
     Status rpc_status;
 
@@ -314,7 +331,6 @@ void FragmentExecState::coordinator_callback(
                 _executor.cancel();
                 return;
             }
-
             coord->reportExecStatus(res, params);
         }
 

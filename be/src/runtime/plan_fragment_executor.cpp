@@ -409,6 +409,7 @@ void PlanFragmentExecutor::send_report(bool done) {
     }
 
     if (!_is_report_success && done && status.ok()) {
+        _report_status_cb(status, nullptr, done || !status.ok());
         return;
     }
 

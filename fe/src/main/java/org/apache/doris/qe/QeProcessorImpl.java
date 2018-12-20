@@ -18,6 +18,8 @@
 package org.apache.doris.qe;
 
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.*;
@@ -26,6 +28,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
+import java.util.Set;
 
 public final class QeProcessorImpl implements QeProcessor {
 
@@ -57,9 +60,9 @@ public final class QeProcessorImpl implements QeProcessor {
     }
 
     @Override
-    public void unregisterQuery(TUniqueId queryId) {
+    public QueryInfo unregisterQuery(TUniqueId queryId) {
         LOG.info("deregister query id = " + queryId.toString());
-        coordinatorMap.remove(queryId);
+        return coordinatorMap.remove(queryId);
     }
 
     @Override
@@ -89,7 +92,6 @@ public final class QeProcessorImpl implements QeProcessor {
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params) {
         LOG.info("ReportExecStatus(): instance_id=" + params.fragment_instance_id.toString()
                 + "queryID=" + params.query_id.toString() + " params=" + params);
-
         final TReportExecStatusResult result = new TReportExecStatusResult();
         final QueryInfo info = coordinatorMap.get(params.query_id);
         if (info == null) {
@@ -97,11 +99,22 @@ public final class QeProcessorImpl implements QeProcessor {
             LOG.info("ReportExecStatus() runtime error");
             return result;
         }
-        try {
-            info.getCoord().updateFragmentExecStatus(params);
-        } catch (Exception e) {
-            LOG.warn(e.getMessage());
-            return result;
+        if (params.protocol_version == FrontendServiceVersion.V1) {
+            try {
+                info.getCoord().updateFragmentExecStatus(params);
+            } catch (Exception e) {
+                LOG.warn(e.getMessage());
+                return result;
+            }
+        } else if (params.protocol_version == FrontendServiceVersion.V2){
+            if (params.getStatus().getStatus_code() == TStatusCode.OK
+                    && params.isDone() && params.isSetIo_by_byte() && params.isSetCpu_consumpation()) {
+                info.addResourceConsumpation(params.getFragment_instance_id(),
+                        params.getIo_by_byte(),
+                        params.getCpu_consumpation());
+            }
+        } else {
+            Preconditions.checkState(false);
         }
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
@@ -113,6 +126,9 @@ public final class QeProcessorImpl implements QeProcessor {
         private final Coordinator coord;
         private final String sql;
         private final long startExecTime;
+        private long ioByByte;
+        private long cpuConsumpation;
+        private Set<TUniqueId> reportInstances;
 
         // from Export, Pull load, Insert 
         public QueryInfo(Coordinator coord) {
@@ -125,6 +141,24 @@ public final class QeProcessorImpl implements QeProcessor {
             this.coord = coord;
             this.sql = sql;
             this.startExecTime = System.currentTimeMillis();
+            this.ioByByte = 0;
+            this.cpuConsumpation = 0;
+            this.reportInstances = Sets.newHashSet();
+        }
+
+        public void addResourceConsumpation(TUniqueId instanceId, long io, long cpu) {
+            if (!reportInstances.contains(instanceId)) {
+                ioByByte += io;
+                cpuConsumpation += cpu;
+            }
+        }
+
+        public long getIoByByte() {
+            return ioByByte;
+        }
+
+        public long getCpuConsumpation() {
+            return cpuConsumpation;
         }
 
         public ConnectContext getConnectContext() {
