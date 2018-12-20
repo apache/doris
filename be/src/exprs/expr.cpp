@@ -48,6 +48,7 @@
 #include "gen_cpp/Data_types.h"
 #include "runtime/runtime_state.h"
 #include "runtime/raw_value.h"
+#include "runtime/user_function_cache.h"
 #include "util/debug_util.h"
 
 #include "gen_cpp/Exprs_types.h"

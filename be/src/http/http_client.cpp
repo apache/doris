@@ -159,16 +159,19 @@ Status HttpClient::download(const std::string& local_path) {
         LOG(WARNING) << "open file failed, file=" << local_path;
         return Status("open file failed");
     }
-    auto callback = [&fp, &local_path] (const void* data, size_t length) {
+    Status status;
+    auto callback = [&status, &fp, &local_path] (const void* data, size_t length) {
         auto res = fwrite(data, length, 1, fp.get());
         if (res != 1) {
             LOG(WARNING) << "fail to write data to file, file=" << local_path
                 << ", error=" << ferror(fp.get());
+            status = Status("fail to write data when download");
             return false;
         }
         return true;
     };
-    return execute(callback);
+    RETURN_IF_ERROR(execute(callback));
+    return status;
 }
 
 Status HttpClient::execute(std::string* response) {

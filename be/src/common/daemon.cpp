@@ -32,7 +32,7 @@
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
-#include "runtime/lib_cache.h"
+#include "runtime/user_function_cache.h"
 #include "exprs/operators.h"
 #include "exprs/is_null_predicate.h"
 #include "exprs/like_predicate.h"
@@ -171,7 +171,7 @@ void init_daemon(int argc, char** argv, const std::vector<StorePath>& paths) {
     CpuInfo::init();
     DiskInfo::init();
     MemInfo::init();
-    LibCache::init();
+    UserFunctionCache::instance()->init(config::user_function_dir);
     Operators::init();
     IsNullPredicate::init();
     LikePredicate::init();
