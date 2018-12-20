@@ -18,7 +18,7 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_BUILDER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_BUILDER_H
 
-#include "rowset/rowset.h"
+#include "olap/rowset/rowset.h"
 #include "olap/new_status.h"
 #include "olap/schema.h"
 #include "olap/row_block.h"

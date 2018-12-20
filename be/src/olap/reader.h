@@ -119,7 +119,7 @@ public:
         return _merged_rows;
     }
 
-    uint64_t filted_rows() const {
+    uint64_t filtered_rows() const {
         return _stats.rows_del_filtered;
     }
 

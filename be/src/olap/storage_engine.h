@@ -357,11 +357,15 @@ private:
             const std::vector<VersionEntity>& shortest_version_entity,
             TabletMeta* header);
 
+    // TODO: hkp
+    // rewrite this function
     OLAPStatus _link_index_and_data_files(
             const std::string& header_path,
             const TabletSharedPtr& ref_tablet,
             const std::vector<VersionEntity>& version_entity_vec);
 
+    // TODO: hkp
+    // rewrite this function
     OLAPStatus _copy_index_and_data_files(
             const std::string& header_path,
             const TabletSharedPtr& ref_tablet,
@@ -384,12 +388,16 @@ private:
             const TSnapshotRequest& request,
             DataDir* store);
 
+    // TODO: hkp
+    // rewrite this function
     std::string _construct_index_file_path(
             const std::string& tablet_path_prefix,
             const Version& version,
             VersionHash version_hash,
             int32_t segment_group_id, int32_t segment) const;
 
+    // TODO: hkp
+    // rewrite this function
     std::string _construct_data_file_path(
             const std::string& tablet_path_prefix,
             const Version& version,

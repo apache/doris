@@ -114,7 +114,7 @@ OLAPStatus Merger::merge(const vector<ColumnData*>& olap_data_arr,
 
     if (!has_error) {
         *merged_rows = reader.merged_rows();
-        *filted_rows = reader.filted_rows();
+        *filted_rows = reader.filtered_rows();
     }
 
     return has_error ? OLAP_ERR_OTHER_ERROR : OLAP_SUCCESS;

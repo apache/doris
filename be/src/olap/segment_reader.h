@@ -37,7 +37,6 @@
 #include "olap/olap_cond.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
-#include "olap/tablet.h"
 #include "olap/row_cursor.h"
 #include "runtime/runtime_state.h"
 #include "runtime/mem_pool.h"
@@ -55,7 +54,6 @@ class ColumnReader;
 class SegmentReader {
 public:
     explicit SegmentReader(const std::string file,
-            Tablet* tablet,
             SegmentGroup* segment_group,
             uint32_t segment_id,
             const std::vector<uint32_t>& return_columns,
@@ -232,7 +230,7 @@ private:
 
     // 获取当前的table级schema。
     inline const std::vector<FieldInfo>& tablet_schema() {
-        return _tablet->tablet_schema();
+        return _segment_group->tablet_schema();
     }
 
     inline const ColumnDataHeaderMessage& _header_message() {
@@ -263,6 +261,24 @@ private:
     OLAPStatus _load_to_vectorized_row_batch(
         VectorizedRowBatch* batch, size_t size);
 
+    FieldAggregationMethod _get_aggregation_by_index(uint32_t index) {
+        const RowFields& tablet_schema = _segment_group->get_tablet_schema();
+        if (index < tablet_schema.size()) {
+            return tablet_schema[index].aggregation;
+        }
+
+        return OLAP_FIELD_AGGREGATION_UNKNOWN;
+    }
+
+    FieldType _get_field_type_by_index(uint32_t index) {
+        const RowFields& tablet_schema = _segment_group->get_tablet_schema();
+        if (index < tablet_schema.size()) {
+            return tablet_schema[index].type;
+        }
+    
+        return OLAP_FIELD_TYPE_NONE;
+    }
+
 private:
     static const int32_t BYTE_STREAM_POSITIONS = 1;
     static const int32_t RUN_LENGTH_BYTE_POSITIONS = BYTE_STREAM_POSITIONS + 1;
@@ -277,7 +293,6 @@ private:
     std::string _file_name;                // 文件名
     doris::FileHandler _file_handler;             // 文件handler
 
-    Tablet* _tablet;
     SegmentGroup* _segment_group;
     uint32_t _segment_id;
 

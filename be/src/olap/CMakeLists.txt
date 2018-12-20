@@ -86,4 +86,8 @@ add_library(Olap STATIC
     utils.cpp
     wrapper_field.cpp
     rowset/rowset_meta_manager.cpp
+    rowset/alpha_rowset.cpp
+    rowset/alpha_rowset_reader.cpp
+    rowset/alpha_rowset_builder.cpp
+    rowset/alpha_rowset_meta.cpp
 )
