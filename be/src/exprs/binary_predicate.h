@@ -20,7 +20,10 @@
 
 #include <string>
 #include <iostream>
+
 #include <llvm/IR/InstrTypes.h>
+
+#include "common/object_pool.h"
 #include "exprs/predicate.h"
 #include "gen_cpp/Exprs_types.h"
 

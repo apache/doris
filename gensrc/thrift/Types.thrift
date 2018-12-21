@@ -285,6 +285,7 @@ struct TFunction {
   10: optional TAggregateFunction aggregate_fn
 
   11: optional i64 id
+  12: optional string checksum
 }
 
 enum TLoadJobState {

@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_SLOT_REF_H
 #define DORIS_BE_SRC_QUERY_EXPRS_SLOT_REF_H
 
+#include "common/object_pool.h"
 #include "exprs/expr.h"
 
 namespace doris {

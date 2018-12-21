@@ -37,7 +37,7 @@ add_library(Runtime STATIC
   descriptors.cpp
   exec_env.cpp
   exec_env_init.cpp
-  lib_cache.cpp
+  user_function_cache.cpp
   mem_pool.cpp
   plan_fragment_executor.cpp
   primitive_type.cpp
