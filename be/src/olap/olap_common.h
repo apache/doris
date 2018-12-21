@@ -186,6 +186,15 @@ enum ReaderType {
 // <start_version_id, end_version_id>, such as <100, 110>
 //using Version = std::pair<TupleVersion, TupleVersion>;
 typedef std::pair<int64_t, int64_t> Version;
+
+// used for hash-struct of hash_map<Version, Rowset*>.
+struct HashOfVersion {
+    uint64_t operator()(const Version& version) const {
+        uint64_t value = version.first ^ version.second;
+        return std::hash<uint64_t>(value);
+    }
+};
+
 typedef std::vector<Version> Versions;
 
 // It is used to represent Graph vertex.
