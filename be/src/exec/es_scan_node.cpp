@@ -62,11 +62,11 @@ EsScanNode::~EsScanNode() {
 }
 
 Status EsScanNode::prepare(RuntimeState* state) {
-    LOG(INFO) << "EsScanNode::Prepare";
+    VLOG(1) << "EsScanNode::Prepare";
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
-    if (nullptr == _tuple_desc) {
+    if (_tuple_desc == nullptr) {
         std::stringstream ss;
         ss << "es tuple descriptor is null, _tuple_id=" << _tuple_id;
         LOG(WARNING) << ss.str();
@@ -78,7 +78,7 @@ Status EsScanNode::prepare(RuntimeState* state) {
 }
 
 Status EsScanNode::open(RuntimeState* state) {
-    LOG(INFO) << "EsScanNode::Open";
+    VLOG(1) << "EsScanNode::Open";
 
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     RETURN_IF_CANCELLED(state);
@@ -91,7 +91,7 @@ Status EsScanNode::open(RuntimeState* state) {
         TExtColumnDesc col;
         col.__set_name(slot->col_name());
         col.__set_type(slot->type().to_thrift());
-        cols.push_back(std::move(col));
+        cols.emplace_back(std::move(col));
     }
     TExtTableSchema row_schema;
     row_schema.cols = std::move(cols);
@@ -195,7 +195,7 @@ Status EsScanNode::open(RuntimeState* state) {
 }
 
 Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    LOG(INFO) << "EsScanNode::GetNext";
+    VLOG(1) << "EsScanNode::GetNext";
 
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
@@ -252,7 +252,7 @@ Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
 
 Status EsScanNode::close(RuntimeState* state) {
     if (is_closed()) return Status::OK;
-    LOG(INFO) << "EsScanNode::Close";
+    VLOG(1) << "EsScanNode::Close";
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
@@ -402,7 +402,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
         TExtBinaryPredicate binaryPredicate;
         binaryPredicate.__set_col(columnDesc);
         binaryPredicate.__set_op(op);
-        binaryPredicate.__set_value(get_literal(context, expr));
+        binaryPredicate.__set_value(to_exe_literal(context, expr));
         TExtPredicate predicate;
         predicate.__set_node_type(TExprNodeType::BINARY_PRED);
         predicate.__set_binary_predicate(binaryPredicate);
@@ -427,7 +427,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
     }
 }
 
-TExtLiteral EsScanNode::get_literal(ExprContext* context, Expr* expr) {
+TExtLiteral EsScanNode::to_exe_literal(ExprContext* context, Expr* expr) {
     void* value = context->get_value(expr, NULL);
     TExtLiteral literal;
     literal.__set_node_type(expr->node_type());
@@ -565,12 +565,19 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
 
   for (int i = 0; i < _tuple_desc->slots().size(); ++i) {
     const SlotDescriptor* slot_desc = _tuple_desc->slots()[i];
+
+    if (!slot_desc->is_materialized()) {
+        continue;
+    }
+
     void* slot = tuple->get_slot(slot_desc->tuple_offset());
     const TExtColumnData& col = cols[i];
 
     if (col.is_null[row_idx]) {
       tuple->set_null(slot_desc->null_indicator_offset());
       continue;
+    } else {
+      tuple->set_not_null(slot_desc->null_indicator_offset());
     }
 
     int val_idx = cols_next_val_idx[i]++;

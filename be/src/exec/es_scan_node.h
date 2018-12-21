@@ -50,6 +50,16 @@ protected:
     virtual void debug_string(int indentation_level, std::stringstream* out) const;
 
 private:
+    Status open_es(TNetworkAddress& address, TExtOpenResult& result, TExtOpenParams& params);
+    Status materialize_row(MemPool* tuple_pool, Tuple* tuple,
+                           const vector<TExtColumnData>& cols, int next_row_idx,
+                           vector<int>& cols_next_val_idx);
+    Status get_next_from_es(TExtGetNextResult& result);
+
+    bool get_disjuncts(ExprContext* context, Expr* conjunct, vector<TExtPredicate>& disjuncts);
+    TExtLiteral to_exe_literal(ExprContext* context, Expr* expr);
+
+private:
     TupleId _tuple_id;
     std::map<std::string, std::string> _properties;
     const TupleDescriptor* _tuple_desc;
@@ -63,14 +73,6 @@ private:
     std::vector<TNetworkAddress> _addresses;
     std::vector<std::string> _scan_handles;
     std::vector<int> _offsets;
-
-    Status open_es(TNetworkAddress& address, TExtOpenResult& result, TExtOpenParams& params);
-    Status materialize_row(MemPool* tuple_pool, Tuple* tuple,
-                           const vector<TExtColumnData>& cols, int next_row_idx,
-                           vector<int>& cols_next_val_idx);
-    Status get_next_from_es(TExtGetNextResult& result);
-    bool get_disjuncts(ExprContext* context, Expr* conjunct, vector<TExtPredicate>& disjuncts);
-    TExtLiteral get_literal(ExprContext* context, Expr* expr);
 };
 
 }
