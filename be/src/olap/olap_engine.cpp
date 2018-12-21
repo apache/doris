@@ -111,6 +111,7 @@ OLAPEngine::OLAPEngine(const EngineOptions& options)
         _effective_cluster_id(-1),
         _is_all_cluster_id_exist(true),
         _is_drop_tables(false),
+        _tablet_map_lock(RWMutex::Priority::PREFER_WRITING),
         _global_table_id(0),
         _index_stream_lru_cache(NULL),
         _tablet_stat_cache_update_time_ms(0),
