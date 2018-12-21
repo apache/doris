@@ -34,7 +34,6 @@
 #include "runtime/datetime_value.h"
 #include "runtime/decimal_value.h"
 #include "udf/udf.h"
-#include "runtime/lib_cache.h"
 #include "runtime/types.h"
 //#include <boost/scoped_ptr.hpp>
 //
@@ -65,6 +64,7 @@ class TupleIsNullPredicate;
 class VectorizedRowBatch;
 class Literal;
 class MemTracker;
+class UserFunctionCacheEntry;
 
 // This is the superclass of all expr evaluation nodes.
 class Expr {
@@ -396,7 +396,7 @@ protected:
         ExprContext* ctx, RuntimeState* state, int varargs_buffer_size);
 
     /// Cache entry for the library implementing this function.
-    LibCache::LibCacheEntry* _cache_entry;
+    UserFunctionCacheEntry* _cache_entry;
 
     // function opcode
 

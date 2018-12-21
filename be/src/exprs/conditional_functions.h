@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_QUERY_EXPRS_CONDITIONAL_FUNCTIONS_H
 
 #include <stdint.h>
+#include "common/object_pool.h"
 #include "exprs/expr.h"
 #include "udf/udf.h"
 
