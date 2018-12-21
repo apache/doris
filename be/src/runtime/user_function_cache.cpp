@@ -151,7 +151,7 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
 }
 
 Status UserFunctionCache::_load_cached_lib() {
-    // craete library directory if not exist
+    // create library directory if not exist
     RETURN_IF_ERROR(FileUtils::create_dir(_lib_dir));
 
     auto scan_cb = [this] (const std::string& dir, const std::string& file) {

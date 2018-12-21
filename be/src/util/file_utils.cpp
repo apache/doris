@@ -94,19 +94,10 @@ Status FileUtils::scan_dir(
     }
     DeferOp close_dir(std::bind<void>(&closedir, dir));
 
-    struct dirent entry;
-    struct dirent* result = nullptr;
     int64_t count = 0;
     while (true) {
-        int ret = readdir_r(dir, &entry, &result);
-        if (ret != 0) {
-            char buf[64];
-            std::stringstream ss;
-            ss << "readdir(" << dir_path << ") failed, because: " << strerror_r(errno, buf, 64);
-            return Status(ss.str());
-        }
+        auto result = readdir(dir.get());
         if (result == nullptr) {
-            // Over
             break;
         }
         std::string file_name = result->d_name;
@@ -138,16 +129,9 @@ Status FileUtils::scan_dir(
         return Status("fail to opendir");
     }
 
-    struct dirent entry;
     struct dirent* result = nullptr;
     while (true) {
-        int ret = readdir_r(dir.get(), &entry, &result);
-        if (ret != 0) {
-            char buf[64];
-            LOG(WARNING) << "fail to readdir, dir=" << dir_path
-                << ", errmsg=" << strerror_r(errno, buf, 64);
-            return Status("fail to readdir");
-        }
+        auto result = readdir(dir.get());
         if (result == nullptr) {
             break;
         }
