@@ -20,6 +20,7 @@
 
 #include <string>
 #include "expr.h"
+#include "common/object_pool.h"
 
 namespace llvm {
 class Function;

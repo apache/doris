@@ -28,7 +28,6 @@
 #include "exprs/agg_fn.h"
 #include "exprs/hybird_map.h"
 #include "runtime/descriptors.h"
-#include "runtime/lib_cache.h"
 #include "runtime/tuple_row.h"
 #include "runtime/types.h"
 #include "udf/udf.h"

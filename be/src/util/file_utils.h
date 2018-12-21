@@ -19,6 +19,7 @@
 #define DORIS_BE_UTIL_FILE_UTILS_H
 
 #include <string>
+#include <functional>
 
 #include "common/status.h"
 
@@ -44,6 +45,9 @@ public:
     static Status scan_dir(
             const std::string& dir_path, std::vector<std::string>* files,
             int64_t* file_count = nullptr);
+    static Status scan_dir(
+        const std::string& dir_path,
+        const std::function<bool(const std::string&, const std::string&)>& callback);
 
     // If the file_path is not exist, or is not a dir, return false.
     static bool is_dir(const std::string& file_path);

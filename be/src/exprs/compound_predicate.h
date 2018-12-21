@@ -19,6 +19,8 @@
 #define DORIS_BE_SRC_QUERY_EXPRS_COMPOUND_PREDICATE_H
 
 #include <string>
+
+#include "common/object_pool.h"
 #include "exprs/predicate.h"
 #include "gen_cpp/Exprs_types.h"
 

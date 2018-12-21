@@ -121,6 +121,7 @@ namespace config {
 
     // log dir
     CONF_String(sys_log_dir, "${DORIS_HOME}/log");
+    CONF_String(user_function_dir, "${DORIS_HOME}/lib/usr");
     // INFO, WARNING, ERROR, FATAL
     CONF_String(sys_log_level, "INFO");
     // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
