@@ -25,6 +25,7 @@ import org.apache.doris.system.HeartbeatMgr.BrokerHeartbeatHandler;
 import org.apache.doris.system.HeartbeatMgr.FrontendHeartbeatHandler;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TBrokerOperationStatus;
+import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import org.apache.doris.thrift.TBrokerPingBrokerRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
@@ -86,6 +87,7 @@ public class HeartbeatMgrTest {
     @Test
     public void testBrokerHbHandler(@Mocked TPaloBrokerService.Client client) throws Exception {
         TBrokerOperationStatus status = new TBrokerOperationStatus();
+        status.setStatusCode(TBrokerOperationStatusCode.OK);
 
         new MockUp<GenericPool<TPaloBrokerService.Client>>() {
             @Mock
