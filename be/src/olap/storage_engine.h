@@ -51,7 +51,6 @@ namespace doris {
 class Tablet;
 class DataDir;
 
-
 // StorageEngine singleton to manage all Table pointers.
 // Providing add/drop/get operations.
 // StorageEngine instance doesn't own the Table resources, just hold the pointer,
