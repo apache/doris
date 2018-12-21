@@ -45,7 +45,6 @@
 #include "runtime/load_path_mgr.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/pull_load_task_mgr.h"
-#include "runtime/snapshot_loader.h"
 #include "util/pretty_printer.h"
 #include "util/doris_metrics.h"
 #include "util/brpc_stub_cache.h"
@@ -93,7 +92,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _broker_mgr = new BrokerMgr(this);
     _tablet_writer_mgr = new TabletWriterMgr(this);
     _load_stream_mgr = new LoadStreamMgr();
-    _snapshot_loader = new SnapshotLoader(this);
     _brpc_stub_cache = new BrpcStubCache();
 
     _client_cache->init_metrics(DorisMetrics::metrics(), "backend");
@@ -182,7 +180,6 @@ void ExecEnv::_init_buffer_pool(int64_t min_page_size,
 
 void ExecEnv::_destory() {
     delete _brpc_stub_cache;
-    delete _snapshot_loader;
     delete _load_stream_mgr;
     delete _tablet_writer_mgr;
     delete _broker_mgr;

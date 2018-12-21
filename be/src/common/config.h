@@ -81,9 +81,9 @@ namespace config {
     // the count of thread to check consistency
     CONF_Int32(check_consistency_worker_count, "1");
     // the count of thread to upload
-    CONF_Int32(upload_worker_count, "3");
+    CONF_Int32(upload_worker_count, "1");
     // the count of thread to download
-    CONF_Int32(download_worker_count, "3");
+    CONF_Int32(download_worker_count, "1");
     // the count of thread to make snapshot
     CONF_Int32(make_snapshot_worker_count, "5");
     // the count of thread to release snapshot

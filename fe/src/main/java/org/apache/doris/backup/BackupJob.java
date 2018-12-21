@@ -161,6 +161,7 @@ public class BackupJob extends AbstractJob {
                 request.getSnapshot_files());
         
         snapshotInfos.put(task.getTabletId(), info);
+        taskProgress.remove(task.getTabletId());
         boolean res = unfinishedTaskIds.remove(task.getTabletId());
         taskErrMsg.remove(task.getTabletId());
         LOG.debug("get finished snapshot info: {}, unfinished tasks num: {}, remove result: {}. {}",
@@ -217,6 +218,7 @@ public class BackupJob extends AbstractJob {
             info.setFiles(tabletFileMap.get(tabletId));
         }
 
+        taskProgress.remove(task.getSignature());
         boolean res = unfinishedTaskIds.remove(task.getSignature());
         taskErrMsg.remove(task.getTabletId());
         LOG.debug("get finished upload snapshot task, unfinished tasks num: {}, remove result: {}. {}",
@@ -363,6 +365,7 @@ public class BackupJob extends AbstractJob {
             }
 
             unfinishedTaskIds.clear();
+            taskProgress.clear();
             taskErrMsg.clear();
             // create snapshot tasks
             for (TableRef tblRef : tableRefs) {
@@ -457,6 +460,7 @@ public class BackupJob extends AbstractJob {
     private void uploadSnapshot() {
         // reuse this set to save all unfinished tablets
         unfinishedTaskIds.clear();
+        taskProgress.clear();
         taskErrMsg.clear();
 
         // We classify the snapshot info by backend
@@ -701,9 +705,11 @@ public class BackupJob extends AbstractJob {
         info.add(TimeUtils.longToTimeString(snapshopUploadFinishedTime));
         info.add(TimeUtils.longToTimeString(finishedTime));
         info.add(Joiner.on(", ").join(unfinishedTaskIds));
-        List<String> msgs = taskErrMsg.entrySet().stream().map(n -> "[" + n.getKey() + ": " + n.getValue()
-                + "]").collect(Collectors.toList());
-        info.add(Joiner.on(", ").join(msgs));
+        info.add(Joiner.on(", ").join(taskProgress.entrySet().stream().map(
+                e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]").collect(
+                        Collectors.toList())));
+        info.add(Joiner.on(", ").join(taskErrMsg.entrySet().stream().map(n -> "[" + n.getKey() + ": " + n.getValue()
+                + "]").collect(Collectors.toList())));
         info.add(status.toString());
         info.add(String.valueOf(timeoutMs / 1000));
         return info;

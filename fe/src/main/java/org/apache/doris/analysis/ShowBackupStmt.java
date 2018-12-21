@@ -35,7 +35,7 @@ public class ShowBackupStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("JobId").add("SnapshotName").add("DbName").add("State").add("BackupObjs").add("CreateTime")
             .add("SnapshotFinishedTime").add("UploadFinishedTime").add("FinishedTime").add("UnfinishedTasks")
-            .add("TaskErrMsg").add("Status").add("Timeout")
+            .add("Progress").add("TaskErrMsg").add("Status").add("Timeout")
             .build();
 
     private String dbName;
@@ -89,5 +89,10 @@ public class ShowBackupStmt extends ShowStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
     }
 }

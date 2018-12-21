@@ -189,6 +189,7 @@ public class RestoreJob extends AbstractJob {
                 task.getSchemaHash(), request.getSnapshot_path(), Lists.newArrayList());
 
         snapshotInfos.put(task.getTabletId(), task.getBackendId(), info);
+        taskProgress.remove(task.getSignature());
         Long removedTabletId = unfinishedSignatureToId.remove(task.getSignature());
         if (removedTabletId != null) {
             taskErrMsg.remove(task.getSignature());
@@ -221,6 +222,7 @@ public class RestoreJob extends AbstractJob {
             }
         }
 
+        taskProgress.remove(task.getSignature());
         Long beId = unfinishedSignatureToId.remove(task.getSignature());
         if (beId == null || beId != task.getBackendId()) {
             LOG.error("invalid download task: {}. {}", task, this);
@@ -240,6 +242,7 @@ public class RestoreJob extends AbstractJob {
             return false;
         }
 
+        taskProgress.remove(task.getSignature());
         Long tabletId = unfinishedSignatureToId.remove(task.getSignature());
         if (tabletId == null || tabletId != task.getTabletId()) {
             LOG.error("invalid dir move task: {}. {}", task, this);
@@ -708,6 +711,7 @@ public class RestoreJob extends AbstractJob {
         // begin to make snapshots for all replicas
         // snapshot is for incremental download
         unfinishedSignatureToId.clear();
+        taskProgress.clear();
         taskErrMsg.clear();
         batchTask = new AgentBatchTask();
         db.readLock();
@@ -939,6 +943,7 @@ public class RestoreJob extends AbstractJob {
 
         // Send download tasks
         unfinishedSignatureToId.clear();
+        taskProgress.clear();
         taskErrMsg.clear();
         AgentBatchTask batchTask = new AgentBatchTask();
         for (long dbId : dbToSnapshotInfos.keySet()) {
@@ -1090,6 +1095,7 @@ public class RestoreJob extends AbstractJob {
     private void commit() {
         // Send task to move the download dir
         unfinishedSignatureToId.clear();
+        taskProgress.clear();
         taskErrMsg.clear();
         AgentBatchTask batchTask = new AgentBatchTask();
         // tablet id->(be id -> download info)
@@ -1214,9 +1220,11 @@ public class RestoreJob extends AbstractJob {
         info.add(TimeUtils.longToTimeString(downloadFinishedTime));
         info.add(TimeUtils.longToTimeString(finishedTime));
         info.add(Joiner.on(", ").join(unfinishedSignatureToId.keySet()));
-        List<String> msgs = taskErrMsg.entrySet().stream().map(n -> "[" + n.getKey() + ": " + n.getValue()
-                + "]").collect(Collectors.toList());
-        info.add(Joiner.on(", ").join(msgs));
+        info.add(Joiner.on(", ").join(taskProgress.entrySet().stream().map(
+                e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]").collect(
+                        Collectors.toList())));
+        info.add(Joiner.on(", ").join(taskErrMsg.entrySet().stream().map(n -> "[" + n.getKey() + ": " + n.getValue()
+                + "]").collect(Collectors.toList())));
         info.add(status.toString());
         info.add(String.valueOf(timeoutMs / 1000));
         return info;

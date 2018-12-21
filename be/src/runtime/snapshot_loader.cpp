@@ -21,10 +21,14 @@
 
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/TPaloBrokerService.h"
+#include "gen_cpp/FrontendService.h"
+#include "gen_cpp/FrontendService_types.h"
+#include "gen_cpp/HeartbeatService_types.h"
 
 #include "common/logging.h"
 #include "exec/broker_reader.h"
 #include "exec/broker_writer.h"
+#include "exec/schema_scanner/frontend_helper.h"
 #include "olap/file_helper.h"
 #include "olap/olap_engine.h"
 #include "olap/olap_table.h"
@@ -54,8 +58,13 @@ inline const std::string& client_id(ExecEnv* env, const TNetworkAddress& addr) {
 }
 #endif
 
-SnapshotLoader::SnapshotLoader(ExecEnv* env) :
-    _env(env) {
+SnapshotLoader::SnapshotLoader(
+        ExecEnv* env,
+        int64_t job_id,
+        int64_t task_id) :
+    _env(env),
+    _job_id(job_id),
+    _task_id(task_id) {
 
 }
 
@@ -67,12 +76,12 @@ Status SnapshotLoader::upload(
         const std::map<std::string, std::string>& src_to_dest_path,
         const TNetworkAddress& broker_addr,
         const std::map<std::string, std::string>& broker_prop,
-        int64_t job_id,
         std::map<int64_t, std::vector<std::string>>* tablet_files) {
 
     LOG(INFO) << "begin to upload snapshot files. num: "
               << src_to_dest_path.size() << ", broker addr: "
-              << broker_addr << ", job: " << job_id;
+              << broker_addr << ", job: " << _job_id
+              << ", task" << _task_id;
 
     Status status = Status::OK;
     // 1. validate local tablet snapshot paths
@@ -92,6 +101,11 @@ Status SnapshotLoader::upload(
     std::vector<TNetworkAddress> broker_addrs;
     broker_addrs.push_back(broker_addr);
     // 3. for each src path, upload it to remote storage
+    // we report to frontend for every 10 files, and we will cancel the job if
+    // the job has already been cancelled in frontend.
+    int report_counter = 0;
+    int total_num = src_to_dest_path.size();
+    int finished_num = 0;
     for (auto iter = src_to_dest_path.begin(); iter != src_to_dest_path.end();
             iter++) {
         const std::string& src_path = iter->first;
@@ -118,6 +132,10 @@ Status SnapshotLoader::upload(
 
         // 2.3 iterate local files
         for (auto it = local_files.begin(); it != local_files.end(); it++) {
+
+            RETURN_IF_ERROR(_report_every(10, &report_counter, finished_num, total_num,
+                TTaskType::type::UPLOAD));
+
             const std::string& local_file = *it;
             // calc md5sum of localfile
             std::string md5sum;
@@ -149,6 +167,7 @@ Status SnapshotLoader::upload(
 
             if (!need_upload) {
                 VLOG(2) << "file exist in remote path, no need to upload: " << local_file;
+                finished_num++;
                 continue;
             }
 
@@ -207,6 +226,7 @@ Status SnapshotLoader::upload(
                     full_remote_file + ".part",
                     full_remote_file + "." + md5sum,
                     broker_prop));
+            finished_num++;
         } // end for each tablet's local files
 
         tablet_files->emplace(tablet_id, local_files_with_checksum);
@@ -214,7 +234,8 @@ Status SnapshotLoader::upload(
                 << src_path << ", remote path: " << dest_path;
     } // end for each tablet path
 
-    LOG(INFO) << "finished to upload snapshots. job: " << job_id;
+    LOG(INFO) << "finished to upload snapshots. job: " << _job_id
+            << ", task id: " << _task_id;
     return status;
 }
 
@@ -227,12 +248,12 @@ Status SnapshotLoader::download(
         const std::map<std::string, std::string>& src_to_dest_path,
         const TNetworkAddress& broker_addr,
         const std::map<std::string, std::string>& broker_prop,
-        int64_t job_id,
         std::vector<int64_t>* downloaded_tablet_ids) {
 
     LOG(INFO) << "begin to download snapshot files. num: "
               << src_to_dest_path.size() << ", broker addr: "
-              << broker_addr << ", job: " << job_id;
+              << broker_addr << ", job: " << _job_id
+              << ", task id: " << _task_id;
 
     Status status = Status::OK;
     // 1. validate local tablet snapshot paths
@@ -252,6 +273,9 @@ Status SnapshotLoader::download(
     std::vector<TNetworkAddress> broker_addrs;
     broker_addrs.push_back(broker_addr);
     // 3. for each src path, download it to local storage
+    int report_counter = 0;
+    int total_num = src_to_dest_path.size();
+    int finished_num = 0;
     for (auto iter = src_to_dest_path.begin(); iter != src_to_dest_path.end();
             iter++) {
         const std::string& remote_path = iter->first;
@@ -285,6 +309,10 @@ Status SnapshotLoader::download(
         }
 
         for (auto& iter : remote_files) {
+
+            RETURN_IF_ERROR(_report_every(10, &report_counter, finished_num, total_num,
+                    TTaskType::type::DOWNLOAD));
+
             bool need_download = false;
             const std::string& remote_file = iter.first;
             const FileStat& file_stat = iter.second;
@@ -317,6 +345,7 @@ Status SnapshotLoader::download(
             if (!need_download) {
                 LOG(INFO) << "remote file already exist in local, no need to download."
                           << ", file: " << remote_file;
+                finished_num++;
                 continue;
             }
 
@@ -406,6 +435,7 @@ Status SnapshotLoader::download(
             local_files.push_back(local_file_name);
             LOG(INFO) << "finished to download file via broker. file: " <<
                 full_local_file << ", length: " << file_len;
+            finished_num++;
         } // end for all remote files
 
         // finally, delete local files which are not in remote
@@ -436,7 +466,8 @@ Status SnapshotLoader::download(
         }
     } // end for src_to_dest_path
 
-    LOG(INFO) << "finished to download snapshots. job: " << job_id;
+    LOG(INFO) << "finished to download snapshots. job: " << _job_id
+            << ", task id: " << _task_id;
     return status;
 }
 
@@ -449,12 +480,12 @@ Status SnapshotLoader::move(
     const std::string& snapshot_path,
     const std::string& tablet_path,
     const std::string& store_path,
-    int64_t job_id,
     bool overwrite) {
 
     LOG(INFO) << "begin to move snapshot files. from: "
               << snapshot_path << ", to: " << tablet_path
-              << ", store: " << store_path << ", job: " << job_id;
+              << ", store: " << store_path << ", job: " << _job_id
+              << ", task id: " << _task_id;
 
     Status status = Status::OK;
 
@@ -942,5 +973,55 @@ Status SnapshotLoader::_get_tablet_id_from_remote_path(
 
     return Status::OK;
 }
+
+// only return CANCELLED if FE return that job is cancelled.
+// otherwise, return OK
+Status SnapshotLoader::_report_every(
+        int report_threshold,
+        int* counter,
+        int32_t finished_num,
+        int32_t total_num,
+        TTaskType::type type) {
+
+    ++*counter;
+    if (*counter < report_threshold) {
+        return Status::OK;
+    }
+
+    LOG(INFO) << "report to frontend. job id: " << _job_id
+            << ", task id: " << _task_id
+            << ", finished num: " << finished_num
+            << ", total num:" << total_num;
+
+    TNetworkAddress master_addr = _env->master_info()->network_address;
+
+    TSnapshotLoaderReportRequest request;
+    request.job_id = _job_id;
+    request.task_id = _task_id;
+    request.task_type = type;
+    request.__set_finished_num(finished_num);
+    request.__set_total_num(total_num);
+    TStatus report_st;
+
+    Status rpcStatus = FrontendHelper::rpc(
+        master_addr.hostname, master_addr.port,
+        [&request, &report_st] (FrontendServiceConnection& client) {
+            client->snapshotLoaderReport(report_st, request);
+        }, 10000);
+
+    if (!rpcStatus.ok()) {
+        // rpc failed, ignore
+        return Status::OK;
+    }
+
+    // reset
+    *counter = 0;
+    if (report_st.status_code == TStatusCode::CANCELLED) {
+        return Status::CANCELLED;
+    }
+    return Status::OK;
+}
+
+
 
 } // end namespace doris

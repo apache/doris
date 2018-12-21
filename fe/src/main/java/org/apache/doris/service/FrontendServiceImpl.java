@@ -79,6 +79,7 @@ import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TReportRequest;
 import org.apache.doris.thrift.TShowVariableRequest;
 import org.apache.doris.thrift.TShowVariableResult;
+import org.apache.doris.thrift.TSnapshotLoaderReportRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
@@ -90,13 +91,13 @@ import org.apache.doris.thrift.TUpdateMiniEtlTaskStatusRequest;
 import org.apache.doris.transaction.LabelAlreadyExistsException;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import org.apache.doris.transaction.TxnCommitAttachment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -759,6 +760,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } finally {
             db.readUnlock();
         }
+    }
+
+    @Override
+    public TStatus snapshotLoaderReport(TSnapshotLoaderReportRequest request) throws TException {
+        if (Catalog.getCurrentCatalog().getBackupHandler().report(request.getTask_type(), request.getJob_id(),
+                request.getTask_id(), request.getFinished_num(), request.getTotal_num())) {
+            return new TStatus(TStatusCode.OK);
+        }
+        return new TStatus(TStatusCode.CANCELLED);
     }
 }
 
