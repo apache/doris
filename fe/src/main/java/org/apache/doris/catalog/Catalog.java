@@ -4448,7 +4448,7 @@ public class Catalog {
         return this.load;
     }
 
-    public RoutineLoadManager getRoutineLoadInstance() {
+    public RoutineLoadManager getRoutineLoadManager() {
         return routineLoadManager;
     }
 

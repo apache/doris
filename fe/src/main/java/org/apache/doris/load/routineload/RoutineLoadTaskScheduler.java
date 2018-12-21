@@ -41,7 +41,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
 
     private static final Logger LOG = LogManager.getLogger(RoutineLoadTaskScheduler.class);
 
-    private RoutineLoadManager routineLoadManager = Catalog.getInstance().getRoutineLoadInstance();
+    private RoutineLoadManager routineLoadManager = Catalog.getInstance().getRoutineLoadManager();
 
     @Override
     protected void runOneCycle() {

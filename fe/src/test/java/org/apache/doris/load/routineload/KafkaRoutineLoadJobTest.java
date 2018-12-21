@@ -25,11 +25,13 @@ import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
 import mockit.Verifications;
+import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.SystemIdGenerator;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -45,12 +47,15 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
-import java.util.Queue;
 
 public class KafkaRoutineLoadJobTest {
 
     private static final int DEFAULT_TASK_TIMEOUT_SECONDS = 10;
+
+    @Mocked
+    ConnectContext connectContext;
+    @Mocked
+    TResourceInfo tResourceInfo;
 
     @Test
     public void testBeNumMin(@Mocked KafkaConsumer kafkaConsumer,
@@ -58,7 +63,8 @@ public class KafkaRoutineLoadJobTest {
                              @Injectable PartitionInfo partitionInfo2,
                              @Mocked Catalog catalog,
                              @Mocked SystemInfoService systemInfoService,
-                             @Mocked Database database) throws MetaNotFoundException {
+                             @Mocked Database database,
+                             @Mocked RoutineLoadDesc routineLoadDesc) throws MetaNotFoundException {
         List<PartitionInfo> partitionInfoList = new ArrayList<>();
         partitionInfoList.add(partitionInfo1);
         partitionInfoList.add(partitionInfo2);
@@ -80,13 +86,15 @@ public class KafkaRoutineLoadJobTest {
                 result = clusterName;
                 systemInfoService.getClusterBackendIds(clusterName, true);
                 result = beIds;
+                connectContext.toResourceCtx();
+                result = tResourceInfo;
             }
         };
 
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob("1", "kafka_routine_load_job", "miaoling", 1L,
-                1L, "1L", "v1", "", "", 3,
-                RoutineLoadJob.JobState.NEED_SCHEDULER, RoutineLoadJob.DataSourceType.KAFKA, 0, new TResourceInfo(),
-                "", "", null);
+        KafkaRoutineLoadJob kafkaRoutineLoadJob =
+                new KafkaRoutineLoadJob("1", "kafka_routine_load_job", 1L,
+                                        1L, routineLoadDesc ,3, 0,
+                                        "", "", null);
         Assert.assertEquals(1, kafkaRoutineLoadJob.calculateCurrentConcurrentTaskNum());
     }
 
@@ -94,20 +102,28 @@ public class KafkaRoutineLoadJobTest {
     @Test
     public void testDivideRoutineLoadJob(@Injectable GlobalTransactionMgr globalTransactionMgr,
                                          @Mocked Catalog catalog,
-                                         @Injectable RoutineLoadManager routineLoadManager)
+                                         @Injectable RoutineLoadManager routineLoadManager,
+                                         @Mocked RoutineLoadDesc routineLoadDesc)
             throws BeginTransactionException, LabelAlreadyExistsException, AnalysisException {
 
-        KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob("1", "kafka_routine_load_job", "miaoling", 1L,
-                1L, "1L", "v1", "", "", 3,
-                RoutineLoadJob.JobState.NEED_SCHEDULER, RoutineLoadJob.DataSourceType.KAFKA, 0, new TResourceInfo(),
-                "", "", null);
+        new Expectations(){
+            {
+                connectContext.toResourceCtx();
+                result = tResourceInfo;
+            }
+        };
+
+        KafkaRoutineLoadJob kafkaRoutineLoadJob =
+                new KafkaRoutineLoadJob("1", "kafka_routine_load_job", 1L,
+                                        1L, routineLoadDesc , 3, 0,
+                                        "", "", null);
 
         new Expectations() {
             {
                 globalTransactionMgr.beginTransaction(anyLong, anyString, anyString,
-                        TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, (KafkaRoutineLoadJob) any);
+                                                      TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, (KafkaRoutineLoadJob) any);
                 result = 0L;
-                catalog.getRoutineLoadInstance();
+                catalog.getRoutineLoadManager();
                 result = routineLoadManager;
             }
         };
@@ -134,20 +150,28 @@ public class KafkaRoutineLoadJobTest {
     @Test
     public void testProcessTimeOutTasks(@Injectable GlobalTransactionMgr globalTransactionMgr,
                                         @Mocked Catalog catalog,
-                                        @Injectable RoutineLoadManager routineLoadManager)
+                                        @Injectable RoutineLoadManager routineLoadManager,
+                                        @Mocked RoutineLoadDesc routineLoadDesc)
             throws AnalysisException, LabelAlreadyExistsException,
             BeginTransactionException {
 
-        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob("1", "kafka_routine_load_job", "miaoling", 1L,
-                1L, "1L", "v1", "", "", 3,
-                RoutineLoadJob.JobState.NEED_SCHEDULER, RoutineLoadJob.DataSourceType.KAFKA, 0, new TResourceInfo(),
-                "", "", null);
+        new Expectations(){
+            {
+                connectContext.toResourceCtx();
+                result = tResourceInfo;
+            }
+        };
+
+        RoutineLoadJob routineLoadJob =
+                new KafkaRoutineLoadJob("1", "kafka_routine_load_job", 1L,
+                                        1L, routineLoadDesc ,3, 0,
+                                        "", "", null);
         new Expectations() {
             {
                 globalTransactionMgr.beginTransaction(anyLong, anyString, anyString,
-                        TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob);
+                                                      TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob);
                 result = 0L;
-                catalog.getRoutineLoadInstance();
+                catalog.getRoutineLoadManager();
                 result = routineLoadManager;
             }
         };
