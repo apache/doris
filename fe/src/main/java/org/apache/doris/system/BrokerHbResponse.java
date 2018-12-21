@@ -48,7 +48,7 @@ public class BrokerHbResponse extends HeartbeatResponse implements Writable {
 
     public BrokerHbResponse(String name, String host, int port, String errMsg) {
         super(HeartbeatResponse.Type.BROKER);
-        this.status = HbStatus.OK;
+        this.status = HbStatus.BAD;
         this.name = name;
         this.host = host;
         this.port = port;

@@ -38,7 +38,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("name").add("Host").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
             .add("Role").add("IsMaster").add("ClusterId").add("Join").add("IsAlive")
-            .add("ReplayedJournalId").add("LstUpdateTime")
+            .add("ReplayedJournalId").add("LstUpdateTime").add("IsHelper")
             .build();
     
     private Catalog catalog;
@@ -72,6 +72,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
         List<InetSocketAddress> allFe = catalog.getHaProtocol().getElectableNodes(true /* include leader */);
         allFe.addAll(catalog.getHaProtocol().getObserverNodes());
         List<Pair<String, Integer>> allFeHosts = convertToHostPortPair(allFe);
+        List<Pair<String, Integer>> helperNodes = catalog.getHelperNodes();
         
         for (Frontend fe : catalog.getFrontends(null /* all */)) {
 
@@ -104,10 +105,16 @@ public class FrontendsProcNode implements ProcNodeInterface {
             }
             info.add(TimeUtils.longToTimeString(fe.getLastUpdateTime()));
             
+            info.add(String.valueOf(isHelperNode(helperNodes, fe)));
+
             infos.add(info);
         }
     }
     
+    private static boolean isHelperNode(List<Pair<String, Integer>> helperNodes, Frontend fe) {
+        return helperNodes.stream().anyMatch(p -> p.first.equals(fe.getHost()) && p.second == fe.getEditLogPort());
+    }
+
     private static boolean isJoin(List<Pair<String, Integer>> allFeHosts, Frontend fe) {
         for (Pair<String, Integer> pair : allFeHosts) {
             if (fe.getHost().equals(pair.first) && fe.getEditLogPort() == pair.second) {

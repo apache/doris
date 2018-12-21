@@ -295,7 +295,10 @@ public class BackupJob extends AbstractJob {
                 break;
         }
 
-        if (!status.ok()) {
+        // we don't want to cancel the job if we already in state UPLOAD_INFO,
+        // which is the final step of backup job. just retry it.
+        // if it encounters some unrecoverable errors, just retry it until timeout.
+        if (!status.ok() && state != BackupJobState.UPLOAD_INFO) {
             cancelInternal();
         }
     }

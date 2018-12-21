@@ -4486,6 +4486,10 @@ public class Catalog {
         return this.helperNodes.get(0);
     }
 
+    public List<Pair<String, Integer>> getHelperNodes() {
+        return Lists.newArrayList(helperNodes);
+    }
+
     public Pair<String, Integer> getSelfNode() {
         return this.selfNode;
     }

@@ -644,9 +644,9 @@ public class RestoreJob extends AbstractJob {
             }
             AgentTaskExecutor.submit(batchTask);
 
-            // estimate timeout, at most 10 seconds
+            // estimate timeout, at most 10 min
             long timeout = Config.tablet_create_timeout_second * 1000L * batchTask.getTaskNum();
-            timeout = Math.min(10 * 1000, timeout);
+            timeout = Math.min(10 * 60 * 1000, timeout);
             boolean ok = false;
             try {
                 LOG.info("begin to send create replica tasks to BE for restore. total {} tasks. timeout: {}",
