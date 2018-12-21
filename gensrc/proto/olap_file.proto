@@ -175,6 +175,47 @@ message OLAPHeaderMessage {
     optional uint64 shard = 22;
 }
 
+enum AlterTabletStatePB {
+    RUNNING = 0;
+    FINISHED = 1;
+    FAILED = 2;
+}
+
+enum AlterTabletTypePB {
+    SCHEMA_CHANGE = 0;
+    ROLLUP = 1;
+}
+
+message AlterTabletPB {
+    required int64 related_tablet_id = 1;
+    optional int64 related_schema_hash = 2;
+    repeated RowsetMetaPB rowsets_to_alter = 3;
+    optional AlterTabletStatePB alter_state = 4;
+    optional AlterTabletTypePB alter_type = 5;
+}
+
+enum TabletStatePB {
+    NOTREADY = 0; // under alter table, rollup, clone
+    RUNNING = 1;
+    TOMBSTONED = 2;
+    STOPPED = 3;
+    SHUTDOWN = 4;
+}
+
+message TabletMetaPB {
+    optional int64 table_id = 1;
+    optional int64 partition_id = 2;
+    optional int64 tablet_id = 3;
+    optional int64 schema_hash = 4;
+    optional int16 shard_id = 5;
+
+    optional SchemaPB schema = 6;
+    repeated RowsetMetaPB rs_meta = 7;
+    repeated RowsetMetaPB inc_rs_meta = 8;
+    optional TabletStatePB tablet_state = 9;
+    optional AlterTabletPB alter_tablet_task = 10;
+}
+
 message OLAPIndexHeaderMessage {
     required int32 start_version = 1;
     required int32 end_version = 2;

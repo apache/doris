@@ -815,7 +815,6 @@ OLAPStatus StorageEngine::clone_full_data(TabletSharedPtr tablet, TabletMeta& cl
 //          drop specified tablet and clear schema change info.
 OLAPStatus StorageEngine::drop_tablet(
         TTabletId tablet_id, SchemaHash schema_hash, bool keep_files) {
-    
     return _tablet_mgr.drop_tablet(tablet_id, schema_hash, keep_files);
 }
 
