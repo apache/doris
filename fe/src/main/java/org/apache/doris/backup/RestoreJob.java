@@ -307,31 +307,74 @@ public class RestoreJob extends AbstractJob {
 
         LOG.info("run restore job: {}", this);
 
-        switch (state) {
-            case PENDING:
-                checkAndPrepareMeta();
-                break;
-            case SNAPSHOTING:
-                waitingAllSnapshotsFinished();
-                break;
-            case DOWNLOAD:
-                downloadSnapshots();
-                break;
-            case DOWNLOADING:
-                waitingAllDownloadFinished();
-                break;
-            case COMMIT:
-                commit();
-                break;
-            case COMMITTING:
-                waitingAllTabletsCommitted();
-                break;
-            default:
-                break;
+        checkIfNeedCancel();
+
+        if (status.ok()) {
+            switch (state) {
+                case PENDING:
+                    checkAndPrepareMeta();
+                    break;
+                case SNAPSHOTING:
+                    waitingAllSnapshotsFinished();
+                    break;
+                case DOWNLOAD:
+                    downloadSnapshots();
+                    break;
+                case DOWNLOADING:
+                    waitingAllDownloadFinished();
+                    break;
+                case COMMIT:
+                    commit();
+                    break;
+                case COMMITTING:
+                    waitingAllTabletsCommitted();
+                    break;
+                default:
+                    break;
+            }
         }
 
         if (!status.ok()) {
             cancelInternal(false);
+        }
+    }
+
+    /*
+     * return true if some restored objs have been dropped.
+     */
+    private void checkIfNeedCancel() {
+        if (state == RestoreJobState.PENDING) {
+            return;
+        }
+
+        Database db = catalog.getDb(dbId);
+        if (db == null) {
+            status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " has been dropped");
+        }
+
+        db.readLock();
+        try {
+            for (IdChain idChain : fileMapping.getMapping().keySet()) {
+                OlapTable tbl = (OlapTable) db.getTable(idChain.getTblId());
+                if (tbl == null) {
+                    status = new Status(ErrCode.NOT_FOUND, "table " + idChain.getTblId() + " has been dropped");
+                    return;
+                }
+
+                Partition part = tbl.getPartition(idChain.getPartId());
+                if (part == null) {
+                    status = new Status(ErrCode.NOT_FOUND, "partition " + idChain.getPartId() + " has been dropped");
+                    return;
+                }
+
+                MaterializedIndex index = part.getIndex(idChain.getIdxId());
+                if (index == null) {
+                    status = new Status(ErrCode.NOT_FOUND, "index " + idChain.getIdxId() + " has been dropped");
+                    return;
+                }
+            }
+        } finally {
+            db.readUnlock();
         }
     }
 
