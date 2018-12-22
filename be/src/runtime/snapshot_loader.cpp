@@ -167,7 +167,6 @@ Status SnapshotLoader::upload(
 
             if (!need_upload) {
                 VLOG(2) << "file exist in remote path, no need to upload: " << local_file;
-                finished_num++;
                 continue;
             }
 
@@ -226,10 +225,10 @@ Status SnapshotLoader::upload(
                     full_remote_file + ".part",
                     full_remote_file + "." + md5sum,
                     broker_prop));
-            finished_num++;
         } // end for each tablet's local files
 
         tablet_files->emplace(tablet_id, local_files_with_checksum);
+        finished_num++;
         LOG(INFO) << "finished to write tablet to remote. local path: "
                 << src_path << ", remote path: " << dest_path;
     } // end for each tablet path
@@ -345,7 +344,6 @@ Status SnapshotLoader::download(
             if (!need_download) {
                 LOG(INFO) << "remote file already exist in local, no need to download."
                           << ", file: " << remote_file;
-                finished_num++;
                 continue;
             }
 
@@ -435,7 +433,6 @@ Status SnapshotLoader::download(
             local_files.push_back(local_file_name);
             LOG(INFO) << "finished to download file via broker. file: " <<
                 full_local_file << ", length: " << file_len;
-            finished_num++;
         } // end for all remote files
 
         // finally, delete local files which are not in remote
@@ -464,6 +461,8 @@ Status SnapshotLoader::download(
                         << ", ignore it";
             }
         }
+
+        finished_num++;
     } // end for src_to_dest_path
 
     LOG(INFO) << "finished to download snapshots. job: " << _job_id
@@ -1017,6 +1016,8 @@ Status SnapshotLoader::_report_every(
     // reset
     *counter = 0;
     if (report_st.status_code == TStatusCode::CANCELLED) {
+        LOG(INFO) << "job is cancelled. job id: " << _job_id
+                << ", task id: " << _task_id;
         return Status::CANCELLED;
     }
     return Status::OK;
