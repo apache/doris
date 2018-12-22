@@ -531,12 +531,12 @@ public class BackupHandler extends Daemon implements Writable {
     public boolean report(TTaskType type, long jobId, long taskId, int finishedNum, int totalNum) {
         for (AbstractJob job : dbIdToBackupOrRestoreJob.values()) {
             if (job.getType() == JobType.BACKUP) {
-                if (job.getJobId() == jobId && type == TTaskType.UPLOAD) {
+                if (!job.isDone() && job.getJobId() == jobId && type == TTaskType.UPLOAD) {
                     job.taskProgress.put(taskId, Pair.create(finishedNum, totalNum));
                     return true;
                 }
             } else if (job.getType() == JobType.RESTORE) {
-                if (job.getJobId() == jobId && type == TTaskType.DOWNLOAD) {
+                if (!job.isDone() && job.getJobId() == jobId && type == TTaskType.DOWNLOAD) {
                     job.taskProgress.put(taskId, Pair.create(finishedNum, totalNum));
                     return true;
                 }

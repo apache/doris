@@ -984,7 +984,7 @@ Status SnapshotLoader::_report_every(
         TTaskType::type type) {
 
     ++*counter;
-    if (*counter < report_threshold) {
+    if (*counter <= report_threshold) {
         return Status::OK;
     }
 

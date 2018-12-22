@@ -604,7 +604,7 @@ public class Repository implements Writable {
                         info.add(snapshotName);
                         info.add(timestamp);
                         info.add(jobInfo.dbName);
-                        info.add(jobInfo.toString(1));
+                        info.add(jobInfo.getBrief());
                         info.add("OK");
                     } catch (IOException e) {
                         info.add(snapshotName);
