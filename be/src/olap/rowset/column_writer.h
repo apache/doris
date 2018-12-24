@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_COLUMN_WRITER_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_COLUMN_WRITER_H
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_COLUMN_WRITER_H
+#define DORIS_BE_SRC_OLAP_ROWSET_COLUMN_WRITER_H
 
 #include <gen_cpp/column_data_file.pb.h>
 
@@ -26,8 +26,8 @@
 #include "olap/bloom_filter_writer.h"
 #include "olap/out_stream.h"
 #include "olap/stream_index_writer.h"
-#include "olap/run_length_byte_writer.h"
-#include "olap/run_length_integer_writer.h"
+#include "olap/rowset/run_length_byte_writer.h"
+#include "olap/rowset/run_length_integer_writer.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -648,4 +648,4 @@ private:
 };
 
 }  // namespace doris
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_COLUMN_WRITER_H
+#endif // DORIS_BE_SRC_OLAP_ROWSET_COLUMN_WRITER_H

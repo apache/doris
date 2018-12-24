@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "column_data.h"
+#include "olap/rowset/column_data.h"
 
-#include "olap/segment_reader.h"
+#include "olap/rowset/segment_reader.h"
 #include "olap/olap_cond.h"
 #include "olap/tablet.h"
 #include "olap/row_block.h"

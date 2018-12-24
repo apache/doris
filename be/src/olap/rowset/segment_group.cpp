@@ -22,7 +22,7 @@
 #include <cmath>
 #include <fstream>
 
-#include "olap/column_data.h"
+#include "olap/rowset/column_data.h"
 #include "olap/tablet.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
@@ -35,12 +35,11 @@ using std::vector;
 
 namespace doris {
 
-#define TABLE_PARAM_VALIDATE() \
+#define SEGMENT_GROUP_PARAM_VALIDATE() \
     do { \
         if (!_index_loaded) { \
-            OLAP_LOG_WARNING("fail to find, index is not loaded. [tablet=%ld schema_hash=%d]", \
-                    _tablet->tablet_id(), \
-                    _tablet->schema_hash()); \
+            OLAP_LOG_WARNING("fail to find, index is not loaded. [segment_group_id=%d]", \
+                    _segment_group_id); \
             return OLAP_ERR_NOT_INITED; \
         } \
     } while (0);
@@ -61,9 +60,15 @@ namespace doris {
         } \
     } while (0);
 
-SegmentGroup::SegmentGroup(Tablet* tablet, Version version, VersionHash version_hash,
-                     bool delete_flag, int32_t segment_group_id, int32_t num_segments)
-      : _tablet(tablet),
+SegmentGroup::SegmentGroup(int64_t tablet_id, const RowFields& tablet_schema, int num_key_fields, int num_short_key_fields,
+            int num_rows_per_row_block, std::string rowset_path_prefix, Version version, VersionHash version_hash,
+            bool delete_flag, int32_t segment_group_id, int32_t num_segments)
+      : _tablet_id(tablet_id),
+        _tablet_schema(tablet_schema),
+        _num_key_fields(num_key_fields),
+        _num_short_key_fields(num_short_key_fields),
+        _num_rows_per_row_block(num_rows_per_row_block),
+        _rowset_path_prefix(rowset_path_prefix),
         _version(version),
         _version_hash(version_hash),
         _delete_flag(delete_flag),
@@ -81,27 +86,31 @@ SegmentGroup::SegmentGroup(Tablet* tablet, Version version, VersionHash version_
     _new_segment_created = false;
     _empty = false;
 
-    const RowFields& tablet_schema = _tablet->tablet_schema();
-    for (size_t i = 0; i < _tablet->num_short_key_fields(); ++i) {
-        _short_key_info_list.push_back(tablet_schema[i]);
-        _short_key_length += tablet_schema[i].index_length + 1;// 1 for null byte
-        if (tablet_schema[i].type == OLAP_FIELD_TYPE_CHAR ||
-            tablet_schema[i].type == OLAP_FIELD_TYPE_VARCHAR) {
+    for (size_t i = 0; i < _num_short_key_fields; ++i) {
+        _short_key_info_list.push_back(_tablet_schema[i]);
+        _short_key_length += _tablet_schema[i].index_length + 1;// 1 for null byte
+        if (_tablet_schema[i].type == OLAP_FIELD_TYPE_CHAR ||
+            _tablet_schema[i].type == OLAP_FIELD_TYPE_VARCHAR) {
             _new_short_key_length += sizeof(Slice) + 1;
         } else {
-            _new_short_key_length += tablet_schema[i].index_length + 1;
+            _new_short_key_length += _tablet_schema[i].index_length + 1;
         }
     }
 }
 
-SegmentGroup::SegmentGroup(Tablet* tablet, bool delete_flag,
-                     int32_t segment_group_id, int32_t num_segments, bool is_pending,
-                     TPartitionId partition_id, TTransactionId transaction_id)
-    : _tablet(tablet), _delete_flag(delete_flag),
-      _segment_group_id(segment_group_id), _num_segments(num_segments),
-      _is_pending(is_pending), _partition_id(partition_id),
-      _transaction_id(transaction_id)
-{
+SegmentGroup::SegmentGroup(int64_t tablet_id, const RowFields& tablet_schema, int num_key_fields, int num_short_key_fields,
+        int num_rows_per_row_block, std::string rowset_path_prefix, bool delete_flag,
+        int32_t segment_group_id, int32_t num_segments, bool is_pending,
+        TPartitionId partition_id, TTransactionId transaction_id) : _tablet_id(tablet_id),
+        _tablet_schema(tablet_schema),
+        _num_key_fields(num_key_fields),
+        _num_short_key_fields(num_short_key_fields),
+        _num_rows_per_row_block(num_rows_per_row_block),
+        _rowset_path_prefix(rowset_path_prefix),
+        _delete_flag(delete_flag),
+        _segment_group_id(segment_group_id), _num_segments(num_segments),
+        _is_pending(is_pending), _partition_id(partition_id),
+        _transaction_id(transaction_id) {
     _version = {-1, -1};
     _version_hash = 0;
     _load_id.set_hi(0);
@@ -115,15 +124,14 @@ SegmentGroup::SegmentGroup(Tablet* tablet, bool delete_flag,
     _new_segment_created = false;
     _empty = false;
 
-    const RowFields& tablet_schema = _tablet->tablet_schema();
-    for (size_t i = 0; i < _tablet->num_short_key_fields(); ++i) {
-        _short_key_info_list.push_back(tablet_schema[i]);
-        _short_key_length += tablet_schema[i].index_length + 1;// 1 for null byte
-        if (tablet_schema[i].type == OLAP_FIELD_TYPE_CHAR ||
-            tablet_schema[i].type == OLAP_FIELD_TYPE_VARCHAR) {
+    for (size_t i = 0; i < _num_key_fields; ++i) {
+        _short_key_info_list.push_back(_tablet_schema[i]);
+        _short_key_length += _tablet_schema[i].index_length + 1;// 1 for null byte
+        if (_tablet_schema[i].type == OLAP_FIELD_TYPE_CHAR ||
+            _tablet_schema[i].type == OLAP_FIELD_TYPE_VARCHAR) {
             _new_short_key_length += sizeof(Slice) + 1;
         } else {
-            _new_short_key_length += tablet_schema[i].index_length + 1;
+            _new_short_key_length += _tablet_schema[i].index_length + 1;
         }
     }
 }
@@ -139,19 +147,58 @@ SegmentGroup::~SegmentGroup() {
     _seg_pb_map.clear();
 }
 
-string SegmentGroup::construct_index_file_path(int32_t segment_group_id, int32_t segment) const {
-    if (_is_pending) {
-        return _tablet->construct_pending_index_file_path(_transaction_id, _segment_group_id, segment);
+std::string SegmentGroup::_construct_pending_file_path(int32_t segment_id, const std::string& suffix) {
+    std::string pending_dir_path = _rowset_path_prefix + PENDING_DELTA_PREFIX;
+    stringstream file_path;
+    file_path << pending_dir_path << "/"
+                          << _transaction_id << "_"
+                          << _segment_group_id << "_" << segment_id << suffix;
+    return file_path.str();
+}
+
+std::string SegmentGroup::_construct_file_path(int32_t segment_id, const string& suffix) {
+    stringstream prefix_stream;
+    prefix_stream << _rowset_path_prefix << "/" << _tablet_id;
+    string path_prefix = prefix_stream.str();
+    char file_path[OLAP_MAX_PATH_LEN];
+    if (_segment_group_id == -1) {
+        snprintf(file_path,
+                 sizeof(file_path),
+                 "%s_%ld_%ld_%ld_%d.%s",
+                 path_prefix.c_str(),
+                 _version.first,
+                 _version.second,
+                 _version_hash,
+                 segment_id,
+                 suffix.c_str());
     } else {
-        return _tablet->construct_index_file_path(_version, _version_hash, _segment_group_id, segment);
+        snprintf(file_path,
+                 sizeof(file_path),
+                 "%s_%ld_%ld_%ld_%d_%d.%s",
+                 path_prefix.c_str(),
+                 _version.first,
+                 _version.second,
+                 _version_hash,
+                 _segment_group_id, segment_id,
+                 suffix.c_str());
+    }
+
+    return file_path;
+}
+
+string SegmentGroup::construct_index_file_path(int32_t segment_group_id, int32_t segment_id) const {
+    if (_is_pending) {
+        return _construct_pending_file_path(segment_id, ".idx");
+    } else {
+        return _construct_file_path(segment_id, ".idx");
     }
 }
 
-string SegmentGroup::construct_data_file_path(int32_t segment_group_id, int32_t segment) const {
+string SegmentGroup::construct_data_file_path(int32_t segment_group_id, int32_t segment_id) const {
     if (_is_pending) {
-        return _tablet->construct_pending_data_file_path(_transaction_id, segment_group_id, segment);
+        return _construct_pending_file_path(segment_id, ".dat");
     } else {
-        return _tablet->construct_data_file_path(_version, _version_hash, segment_group_id, segment);
+        return _construct_file_path(segment_id, ".dat");
     }
 }
 
@@ -206,15 +253,15 @@ OLAPStatus SegmentGroup::add_column_statistics_for_linked_schema_change(
         return OLAP_SUCCESS;
     }
 
-    //Should use _tablet->num_key_fields(), not column_statistic_fields.size()
+    //Should use _num_key_fields, not column_statistic_fields.size()
     //as rollup tablet num_key_fields will less than base tablet column_statistic_fields.size().
     //For LinkedSchemaChange, the rollup tablet keys order is the same as base tablet
-    for (size_t i = 0; i < _tablet->num_key_fields(); ++i) {
-        WrapperField* first = WrapperField::create(_tablet->tablet_schema()[i]);
+    for (size_t i = 0; i < _num_key_fields; ++i) {
+        WrapperField* first = WrapperField::create(_tablet_schema()[i]);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
         first->copy(column_statistic_fields[i].first);
 
-        WrapperField* second = WrapperField::create(_tablet->tablet_schema()[i]);
+        WrapperField* second = WrapperField::create(_tablet_schema()[i]);
         DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
         second->copy(column_statistic_fields[i].second);
 
@@ -225,13 +272,13 @@ OLAPStatus SegmentGroup::add_column_statistics_for_linked_schema_change(
 
 OLAPStatus SegmentGroup::add_column_statistics(
         const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields) {
-    DCHECK(column_statistic_fields.size() == _tablet->num_key_fields());
+    DCHECK(column_statistic_fields.size() == _num_key_fields);
     for (size_t i = 0; i < column_statistic_fields.size(); ++i) {
-        WrapperField* first = WrapperField::create(_tablet->tablet_schema()[i]);
+        WrapperField* first = WrapperField::create(_tablet_schema()[i]);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
         first->copy(column_statistic_fields[i].first);
 
-        WrapperField* second = WrapperField::create(_tablet->tablet_schema()[i]);
+        WrapperField* second = WrapperField::create(_tablet_schema()[i]);
         DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
         second->copy(column_statistic_fields[i].second);
 
@@ -243,16 +290,16 @@ OLAPStatus SegmentGroup::add_column_statistics(
 OLAPStatus SegmentGroup::add_column_statistics(
         std::vector<std::pair<std::string, std::string> > &column_statistic_strings,
         std::vector<bool> &null_vec) {
-    DCHECK(column_statistic_strings.size() == _tablet->num_key_fields());
+    DCHECK(column_statistic_strings.size() == _num_key_fields;
     for (size_t i = 0; i < column_statistic_strings.size(); ++i) {
-        WrapperField* first = WrapperField::create(_tablet->tablet_schema()[i]);
+        WrapperField* first = WrapperField::create(_tablet_schema()[i]);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i ;
         RETURN_NOT_OK(first->from_string(column_statistic_strings[i].first));
         if (null_vec[i]) {
             //[min, max] -> [NULL, max]
             first->set_null();
         }
-        WrapperField* second = WrapperField::create(_tablet->tablet_schema()[i]);
+        WrapperField* second = WrapperField::create(_tablet_schema()[i]);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i ;
         RETURN_NOT_OK(second->from_string(column_statistic_strings[i].second));
         _column_statistics.push_back(std::make_pair(first, second));
@@ -277,28 +324,26 @@ OLAPStatus SegmentGroup::load() {
     }
 
     if (_index.init(_short_key_length, _new_short_key_length,
-                    _tablet->num_short_key_fields(), &_short_key_info_list) != OLAP_SUCCESS) {
+                    _num_short_key_fields, &_short_key_info_list) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to create MemIndex. [num_segment=%d]", _num_segments);
         return res;
     }
 
     // for each segment
     for (uint32_t seg_id = 0; seg_id < _num_segments; ++seg_id) {
-        if (COLUMN_ORIENTED_FILE == _tablet->data_file_type()) {
-            string seg_path = construct_data_file_path(_segment_group_id, seg_id);
-            if (OLAP_SUCCESS != (res = load_pb(seg_path.c_str(), seg_id))) {
-                LOG(WARNING) << "failed to load pb structures. [seg_path='" << seg_path << "']";
-                _check_io_error(res);
-                return res;
-            }
+        string seg_path = construct_data_file_path(_segment_group_id, seg_id);
+        if (OLAP_SUCCESS != (res = load_pb(seg_path.c_str(), seg_id))) {
+            LOG(WARNING) << "failed to load pb structures. [seg_path='" << seg_path << "']";
+            
+            return res;
         }
-
+        
         // get full path for one segment
         string path = construct_index_file_path(_segment_group_id, seg_id);
         if ((res = _index.load_segment(path.c_str(), &_current_num_rows_per_row_block))
                 != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load segment. [path='" << path << "']";
-            _check_io_error(res);
+            
             return res;
         }
     }
@@ -353,15 +398,13 @@ OLAPStatus SegmentGroup::validate() {
 
         // 检查index文件头
         if ((res = index_file_header.validate(index_path)) != OLAP_SUCCESS) {
-            LOG(WARNING) << "validate index file error. [file='" << index_path << "']";
-            _check_io_error(res);
+            LOG(WARNING) << "validate index file error. [file='" << index_path << "']"; 
             return res;
         }
 
         // 检查data文件头
         if ((res = data_file_header.validate(data_path)) != OLAP_SUCCESS) {
-            LOG(WARNING) << "validate data file error. [file='" << data_path << "']";
-            _check_io_error(res);
+            LOG(WARNING) << "validate data file error. [file='" << data_path << "']";  
             return res;
         }
     }
@@ -373,7 +416,7 @@ OLAPStatus SegmentGroup::find_row_block(const RowCursor& key,
                                  RowCursor* helper_cursor,
                                  bool find_last,
                                  RowBlockPosition* pos) const {
-    TABLE_PARAM_VALIDATE();
+    SEGMENT_GROUP_PARAM_VALIDATE();
     POS_PARAM_VALIDATE(pos);
 
     // 将这部分逻辑从memindex移出来，这样可以复用find。
@@ -398,7 +441,7 @@ OLAPStatus SegmentGroup::find_short_key(const RowCursor& key,
                                  RowCursor* helper_cursor,
                                  bool find_last,
                                  RowBlockPosition* pos) const {
-    TABLE_PARAM_VALIDATE();
+    SEGMENT_GROUP_PARAM_VALIDATE();
     POS_PARAM_VALIDATE(pos);
 
     // 由于find会从前一个segment找起，如果前一个segment中恰好没有该key，
@@ -418,28 +461,28 @@ OLAPStatus SegmentGroup::find_short_key(const RowCursor& key,
 }
 
 OLAPStatus SegmentGroup::get_row_block_entry(const RowBlockPosition& pos, EntrySlice* entry) const {
-    TABLE_PARAM_VALIDATE();
+    SEGMENT_GROUP_PARAM_VALIDATE();
     SLICE_PARAM_VALIDATE(entry);
     
     return _index.get_entry(_index.get_offset(pos), entry);
 }
 
 OLAPStatus SegmentGroup::find_first_row_block(RowBlockPosition* position) const {
-    TABLE_PARAM_VALIDATE();
+    SEGMENT_GROUP_PARAM_VALIDATE();
     POS_PARAM_VALIDATE(position);
     
     return _index.get_row_block_position(_index.find_first(), position);
 }
 
 OLAPStatus SegmentGroup::find_last_row_block(RowBlockPosition* position) const {
-    TABLE_PARAM_VALIDATE();
+    SEGMENT_GROUP_PARAM_VALIDATE();
     POS_PARAM_VALIDATE(position);
     
     return _index.get_row_block_position(_index.find_last(), position);
 }
 
 OLAPStatus SegmentGroup::find_next_row_block(RowBlockPosition* pos, bool* eof) const {
-    TABLE_PARAM_VALIDATE();
+    SEGMENT_GROUP_PARAM_VALIDATE();
     POS_PARAM_VALIDATE(pos);
     POS_PARAM_VALIDATE(eof);
 
@@ -481,7 +524,7 @@ OLAPStatus SegmentGroup::find_prev_point(
 }
 
 OLAPStatus SegmentGroup::advance_row_block(int64_t num_row_blocks, RowBlockPosition* position) const {
-    TABLE_PARAM_VALIDATE();
+    SEGMENT_GROUP_PARAM_VALIDATE();
     POS_PARAM_VALIDATE(position);
 
     OLAPIndexOffset off = _index.get_offset(*position);
@@ -513,7 +556,7 @@ OLAPStatus SegmentGroup::add_segment() {
     index_header->set_end_version(_version.second);
     index_header->set_cumulative_version_hash(_version_hash);
     index_header->set_segment(_num_segments - 1);
-    index_header->set_num_rows_per_block(_tablet->num_rows_per_row_block());
+    index_header->set_num_rows_per_block(_num_rows_per_row_block);
     index_header->set_delete_flag(_delete_flag);
     index_header->set_null_supported(true);
 
@@ -525,7 +568,7 @@ OLAPStatus SegmentGroup::add_segment() {
             return OLAP_ERR_MALLOC_ERROR;
         }
 
-        if (_current_index_row.init(_tablet->tablet_schema()) != OLAP_SUCCESS) {
+        if (_current_index_row.init(_tablet_schema()) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("init _current_index_row fail.");
             return OLAP_ERR_INIT_FAILED;
         }
@@ -552,7 +595,6 @@ OLAPStatus SegmentGroup::add_short_key(const RowCursor& short_key, const uint32_
             char errmsg[64];
             LOG(WARNING) << "can not create file. [file_path='" << file_path
                 << "' err='" << strerror_r(errno, errmsg, 64) << "']";
-            _check_io_error(res);
             return res;
         }
         _file_created = true;
@@ -561,7 +603,6 @@ OLAPStatus SegmentGroup::add_short_key(const RowCursor& short_key, const uint32_
         // 准备FileHeader
         if ((res = _file_header.prepare(&_current_file_handler)) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("write file header error. [err=%m]");
-            _check_io_error(res);
             return res;
         }
 
@@ -569,7 +610,6 @@ OLAPStatus SegmentGroup::add_short_key(const RowCursor& short_key, const uint32_
         if (_current_file_handler.seek(_file_header.size(), SEEK_SET) == -1) {
             OLAP_LOG_WARNING("lseek header file error. [err=%m]");
             res = OLAP_ERR_IO_ERROR;
-            _check_io_error(res);
             return res;
         }
     }
@@ -587,14 +627,13 @@ OLAPStatus SegmentGroup::add_short_key(const RowCursor& short_key, const uint32_
     // 写入Short Key对应的数据
     if ((res = _current_file_handler.write(_short_key_buf, _short_key_length)) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("write short key failed. [err=%m]");
-        _check_io_error(res);
+        
         return res;
     }
 
     // 写入对应的数据文件偏移量
     if ((res = _current_file_handler.write(&data_offset, sizeof(data_offset))) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("write data_offset failed. [err=%m]");
-        _check_io_error(res);
         return res;
     }
 
@@ -612,7 +651,7 @@ OLAPStatus SegmentGroup::finalize_segment(uint32_t data_segment_size, int64_t nu
     int file_length = _current_file_handler.tell();
     if (file_length == -1) {
         OLAP_LOG_WARNING("get file_length error. [err=%m]");
-        _check_io_error(res);
+        
         return OLAP_ERR_IO_ERROR;
     }
 
@@ -624,7 +663,7 @@ OLAPStatus SegmentGroup::finalize_segment(uint32_t data_segment_size, int64_t nu
     // 写入更新之后的FileHeader
     if ((res = _file_header.serialize(&_current_file_handler)) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("write file header error. [err=%m]");
-        _check_io_error(res);
+        
         return res;
     }
 
@@ -633,7 +672,7 @@ OLAPStatus SegmentGroup::finalize_segment(uint32_t data_segment_size, int64_t nu
 
     if ((res = _current_file_handler.close()) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("close file error. [err=%m]");
-        _check_io_error(res);
+        
         return res;
     }
 
@@ -641,21 +680,32 @@ OLAPStatus SegmentGroup::finalize_segment(uint32_t data_segment_size, int64_t nu
     return OLAP_SUCCESS;
 }
 
-void SegmentGroup::sync() {
-    if (_current_file_handler.sync() == -1) {
-        OLAP_LOG_WARNING("fail to sync file.[err=%m]");
-        _tablet->set_io_error();
-    }
-}
-
-void SegmentGroup::_check_io_error(OLAPStatus res) {
-    if (is_io_error(res)) {
-        _tablet->set_io_error();
-    }
-}
-
 uint64_t SegmentGroup::num_index_entries() const {
     return _index.count();
+}
+
+const RowFields& SegmentGroup::get_tablet_schema() {
+    return _tablet_schema;
+}
+
+int SegmentGroup::get_num_key_fields)() {
+    return _num_key_fields;
+}
+
+int SegmentGroup::get_num_short_key_fields() {
+    return _num_short_key_fields;
+}
+
+int SegmentGroup::get_num_rows_per_row_block() {
+    return _num_rows_per_row_block;
+}
+
+std::string SegmentGroup::get_rowset_path_prefix() {
+    return _rowset_path_prefix;
+}
+
+int64_t SegmentGroup::get_tablet_id() {
+    return _tablet_id;
 }
 
 }

@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_GROUP_H
+#define DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_GROUP_H
 
 #include <boost/thread/condition_variable.hpp>
 #include <boost/thread/mutex.hpp>
@@ -32,7 +33,6 @@
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/tablet.h"
 #include "olap/row_cursor.h"
 #include "olap/olap_index.h"
 #include "olap/utils.h"
@@ -48,12 +48,14 @@ namespace doris {
 class SegmentGroup {
     friend class MemIndex;
 public:
-    SegmentGroup(Tablet* tablet, Version version, VersionHash version_hash,
-              bool delete_flag, int segment_group_id, int32_t num_segments);
+    SegmentGroup(int64_t tablet_id, const RowFields& tablet_schema, int num_key_fields, int num_short_key_fields,
+            int num_rows_per_row_block, std::string tablet_path_prefix, Version version,
+            VersionHash version_hash, bool delete_flag, int segment_group_id, int32_t num_segments);
 
-    SegmentGroup(Tablet* tablet, bool delete_flag, int32_t segment_group_id,
-              int32_t num_segments, bool is_pending,
-              TPartitionId partition_id, TTransactionId transaction_id);
+    SegmentGroup(int64_t tablet_id, const RowFields& tablet_schema, int num_key_fields, int num_short_key_fields,
+            int num_rows_per_row_block, std::string tablet_path_prefix, bool delete_flag,
+            int32_t segment_group_id, int32_t num_segments, bool is_pending,
+            TPartitionId partition_id, TTransactionId transaction_id);
 
     virtual ~SegmentGroup();
 
@@ -141,7 +143,6 @@ public:
     OLAPStatus add_short_key(const RowCursor& short_key, const uint32_t data_offset);
     OLAPStatus add_row_block(const RowBlock& row_block, const uint32_t data_offset);
     OLAPStatus finalize_segment(uint32_t data_segment_size, int64_t num_rows);
-    void sync();
 
     // reference count
     void acquire();
@@ -151,11 +152,6 @@ public:
 
     // delete all files (*.idx; *.dat)
     void delete_all_files();
-
-    // getters and setters.
-    // get associated Tablet pointer
-    inline Tablet* tablet() const { return _tablet; }
-    inline void set_tablet(Tablet* tablet) { _tablet = tablet; }
 
     inline Version version() const { return _version; }
     inline VersionHash version_hash() const { return _version_hash; }
@@ -234,14 +230,34 @@ public:
         return _index.get_null_supported(seg_id);
     }
 
-    std::string construct_index_file_path(int32_t segment_group_id, int32_t segment) const;
-    std::string construct_data_file_path(int32_t segment_group_id, int32_t segment) const;
+    std::string construct_index_file_path(int32_t segment) const;
+    std::string construct_data_file_path(int32_t segment) const;
     void publish_version(Version version, VersionHash version_hash);
 
-private:
-    void _check_io_error(OLAPStatus res);
+    const RowFields& get_tablet_schema();
 
-    Tablet* _tablet;                 // tablet definition for this segmentgroup
+    int get_num_key_fields();
+
+    int get_num_short_key_fields();
+
+    int get_num_rows_per_row_block();
+
+    std::string get_rowset_path_prefix();
+
+    int64_t get_tablet_id();
+
+private:
+    std::string _construct_pending_file_path(int32_t segment, const std::string& suffix);
+    
+    std::string _construct_file_path(int32_t segment, const std::string& suffix);
+
+private:
+    int64_t _tablet_id;
+    const RowFields& _tablet_schema;    // tablet schema
+    int _num_key_fields;    // number of tablet keys
+    int _num_short_key_fields;  // number of tablet short keys
+    int _num_rows_per_row_block;    // row number of a row block
+    std::string _rowset_path_prefix;    // path of rowset
     Version _version;                  // version of associated data file
     VersionHash _version_hash;         // version hash for this segmentgroup
     bool _delete_flag;
@@ -289,3 +305,5 @@ private:
 };
 
 }
+
+#endif // DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_GROUP_H

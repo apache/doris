@@ -15,37 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_BIT_FIELD_WRITER_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_BIT_FIELD_WRITER_H
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_BIT_FIELD_READER_H
+#define DORIS_BE_SRC_OLAP_ROWSET_BIT_FIELD_READER_H
 
-#include "olap/stream_index_writer.h"
+#include "olap/stream_index_reader.h"
 #include "olap/olap_define.h"
 
 namespace doris {
 
-class OutStream;
-class RunLengthByteWriter;
+class ReadOnlyFileStream;
+class RunLengthByteReader;
 
-class BitFieldWriter {
+class BitFieldReader {
 public:
-    explicit BitFieldWriter(OutStream* output);
-    ~BitFieldWriter();
+    BitFieldReader(ReadOnlyFileStream* input);
+    ~BitFieldReader();
     OLAPStatus init();
-    // 写入一个bit, bit_value为true表示写入1, false表示写入0
-    OLAPStatus write(bool bit_value);
-    OLAPStatus flush();
-    void get_position(PositionEntryWriter* index_entry) const;
+    // 获取下一条数据, 如果没有更多的数据了, 返回OLAP_ERR_DATA_EOF
+    // 返回的value只可能是0或1
+    OLAPStatus next(char* value);
+    OLAPStatus seek(PositionProvider* position);
+    OLAPStatus skip(uint64_t num_values);
+
 private:
-    OLAPStatus _write_byte();
+    OLAPStatus _read_byte();
 
-    OutStream* _output;
-    RunLengthByteWriter* _byte_writer;
+    ReadOnlyFileStream* _input;
+    RunLengthByteReader* _byte_reader;
     char _current;
-    uint8_t _bits_left;
+    uint32_t _bits_left;
 
-    DISALLOW_COPY_AND_ASSIGN(BitFieldWriter);
+    DISALLOW_COPY_AND_ASSIGN(BitFieldReader);
 };
 
 }  // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_BIT_FIELD_WRITER_H
+#endif // DORIS_BE_SRC_OLAP_ROWSET_BIT_FIELD_READER_H

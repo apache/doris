@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/run_length_integer_writer.h"
+#include "olap/rowset/run_length_integer_writer.h"
 
 #include <cmath>
 

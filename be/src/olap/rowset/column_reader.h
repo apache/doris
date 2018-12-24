@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_COLUMN_READER_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_COLUMN_READER_H
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_COLUMN_READER_H
+#define DORIS_BE_SRC_OLAP_ROWSET_COLUMN_READER_H
 
 #include "olap/byte_buffer.h"
 #include "olap/file_stream.h"
-#include "olap/run_length_byte_reader.h"
-#include "olap/run_length_integer_reader.h"
+#include "olap/rowset/run_length_byte_reader.h"
+#include "olap/rowset/run_length_integer_reader.h"
 #include "olap/stream_name.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
@@ -921,4 +921,4 @@ typedef IntegerColumnReaderWrapper<uint64_t, false> DateTimeColumnReader;
 
 }  // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_COLUMN_READER_H
+#endif // DORIS_BE_SRC_OLAP_ROWSET_COLUMN_READER_H

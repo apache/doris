@@ -23,14 +23,13 @@
 #include <algorithm>
 #include <vector>
 
-#include "olap/column_data.h"
+#include "olap/rowset/column_data.h"
 #include "olap/merger.h"
-#include "olap/column_data.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
-#include "olap/data_writer.h"
+#include "olap/rowset/data_writer.h"
 #include "olap/wrapper_field.h"
 #include "common/resource_tls.h"
 #include "agent/cgroups_mgr.h"
