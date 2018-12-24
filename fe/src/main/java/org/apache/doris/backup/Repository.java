@@ -373,8 +373,14 @@ public class Repository implements Writable {
         String tmpRemotePath = assembleFileNameWithSuffix(remoteFilePath, SUFFIX_TMP_FILE);
         LOG.debug("get md5sum of file: {}. tmp remote path: {}", localFilePath, tmpRemotePath);
 
+        // this may be a retry, so we should first delete remote file
+        Status st = storage.delete(tmpRemotePath);
+        if (!st.ok()) {
+            return st;
+        }
+
         // upload tmp file
-        Status st = storage.upload(localFilePath, tmpRemotePath);
+        st = storage.upload(localFilePath, tmpRemotePath);
         if (!st.ok()) {
             return st;
         }
@@ -598,7 +604,7 @@ public class Repository implements Writable {
                         info.add(snapshotName);
                         info.add(timestamp);
                         info.add(jobInfo.dbName);
-                        info.add(jobInfo.toString(1));
+                        info.add(jobInfo.getBrief());
                         info.add("OK");
                     } catch (IOException e) {
                         info.add(snapshotName);

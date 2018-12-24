@@ -18,6 +18,7 @@
 package org.apache.doris.backup;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -67,6 +68,9 @@ public abstract class AbstractJob implements Writable {
     protected long createTime = -1;
     protected long finishedTime = -1;
     protected long timeoutMs;
+
+    // task signature -> <finished num / total num>
+    protected Map<Long, Pair<Integer, Integer>> taskProgress = Maps.newConcurrentMap();
 
     protected boolean isTypeRead = false;
 

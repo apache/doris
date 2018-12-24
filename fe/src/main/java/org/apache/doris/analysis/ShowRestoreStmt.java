@@ -36,8 +36,8 @@ public class ShowRestoreStmt extends ShowStmt {
             .add("JobId").add("Label").add("Timestamp").add("DbName").add("State")
             .add("AllowLoad").add("ReplicationNum")
             .add("RestoreObjs").add("CreateTime").add("MetaPreparedTime").add("SnapshotFinishedTime")
-            .add("DownloadFinishedTime").add("FinishedTime").add("UnfinishedTasks").add("TaskErrMsg")
-            .add("Status").add("Timeout")
+            .add("DownloadFinishedTime").add("FinishedTime").add("UnfinishedTasks").add("Progress")
+            .add("TaskErrMsg").add("Status").add("Timeout")
             .build();
 
     private String dbName;
@@ -99,6 +99,11 @@ public class ShowRestoreStmt extends ShowStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
     }
 }
 

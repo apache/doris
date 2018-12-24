@@ -18,8 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.MysqlServer;
 
 import org.apache.logging.log4j.LogManager;
@@ -48,20 +46,6 @@ public class QeService {
             LOG.error("Help module failed, because:", e);
         }
         this.port = port;
-        mysqlServer = new MysqlServer(port, scheduler);
-    }
-
-    @Deprecated
-    public void setup() throws IOException, UserException {
-        // Set up help module
-        try {
-            HelpModule.getInstance().setUpModule();
-        } catch (Exception e) {
-            LOG.error("Help module failed, because:", e);
-        }
-        // setup MySQL protocol service
-        // TODO(zhaochun): remove settings.
-        ConnectScheduler scheduler = new ConnectScheduler(Config.qe_max_connection);
         mysqlServer = new MysqlServer(port, scheduler);
     }
 

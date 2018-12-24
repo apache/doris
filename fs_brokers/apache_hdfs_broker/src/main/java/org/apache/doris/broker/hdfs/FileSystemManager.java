@@ -17,17 +17,25 @@
 
 package org.apache.doris.broker.hdfs;
 
-import com.google.common.base.Strings;
 import org.apache.doris.thrift.TBrokerFD;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
+
+import com.google.common.base.Strings;
+
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.*;
+import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.log4j.Logger;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
@@ -37,7 +45,12 @@ import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -329,6 +342,10 @@ public class FileSystemManager {
                 }
                 resultFileStatus.add(brokerFileStatus);
             }
+        } catch (FileNotFoundException e) {
+            logger.info("file not found: " + e.getMessage());
+            throw new BrokerException(TBrokerOperationStatusCode.FILE_NOT_FOUND,
+                    e, "file not found");
         } catch (Exception e) {
             logger.error("errors while get file status ", e);
             fileSystem.closeFileSystem();

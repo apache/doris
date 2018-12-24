@@ -560,6 +560,13 @@ struct TLoadTxnRollbackResult {
     1: required Status.TStatus status
 }
 
+struct TSnapshotLoaderReportRequest {
+    1: required i64 job_id
+    2: required i64 task_id
+    3: required Types.TTaskType task_type
+    4: optional i32 finished_num
+    5: optional i32 total_num
+}
 
 service FrontendService {
     TGetDbsResult getDbNames(1:TGetDbsParams params)
@@ -587,4 +594,5 @@ service FrontendService {
 
     TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
 
+    Status.TStatus snapshotLoaderReport(1: TSnapshotLoaderReportRequest request)
 }
