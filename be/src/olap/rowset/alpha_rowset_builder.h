@@ -24,10 +24,10 @@ namespace doris {
 
 class AlphaRowsetBuilder {
 public:
-    virtual NewStatus init(std::string rowset_id, const std::string& rowset_path_prefix, Schema* schema);
+    virtual NewStatus init(int64_t rowset_id, const std::string& rowset_path_prefix, Schema* schema);
 
     // add a row block to rowset
-    virtual NewStatus add_row_block(RowBlock* row_block);
+    virtual NewStatus add_row_block(const RowBlock& row_block);
 
     // this is a temp api
     // it is used to get rewritten path for writing rowset data

@@ -32,7 +32,7 @@ public:
 
     void get_segment_groups(std::vector<PSegmentGroup>* segment_groups)
 
-    void add_segment_group(PSegmentGroup& segment_group);
+    void add_segment_group(const PSegmentGroup& segment_group);
 
 private:
     void _serialize_extra_meta_pb();

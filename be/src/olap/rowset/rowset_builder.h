@@ -29,7 +29,7 @@ class RowsetBuilder {
 public:
     virtual ~RowsetBuilder() { }
     
-    virtual NewStatus init(std::string rowset_id, const std::string& rowset_path_prefix, Schema* schema) = 0;
+    virtual NewStatus init(int64_t rowset_id, const std::string& rowset_path_prefix, Schema* schema) = 0;
 
     // add a row block to rowset
     virtual NewStatus add_row_block(RowBlock* row_block) = 0;

@@ -19,11 +19,11 @@
 
 namespace doris {
 
-NewStatus AlphaRowsetBuilder::init(std::string rowset_id, const std::string& rowset_path_prefix, Schema* schema) {
+NewStatus AlphaRowsetBuilder::init(int64_t rowset_id, const std::string& rowset_path_prefix, Schema* schema) {
     return NewStatus.OK();
 }
 
-NewStatus AlphaRowsetBuilder::add_row_block(RowBlock* row_block) {
+NewStatus AlphaRowsetBuilder::add_row_block(const RowBlock& row_block) {
     return NewStatus.OK();
 }
 
