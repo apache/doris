@@ -15,39 +15,43 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_BIT_FIELD_READER_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_BIT_FIELD_READER_H
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_BYTE_READER_H
+#define DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_BYTE_READER_H
 
-#include "olap/stream_index_reader.h"
+#include "olap/file_stream.h"
+#include "olap/rowset/run_length_byte_writer.h"
 #include "olap/olap_define.h"
 
 namespace doris {
 
 class ReadOnlyFileStream;
-class RunLengthByteReader;
+class PositionProvider;
 
-class BitFieldReader {
+// A reader that reads a sequence of bytes. A control byte is read before
+// each run with positive values 0 to 127 meaning 3 to 130 repetitions. If the
+// byte is -1 to -128, 1 to 128 literal byte values follow.
+class RunLengthByteReader {
 public:
-    BitFieldReader(ReadOnlyFileStream* input);
-    ~BitFieldReader();
-    OLAPStatus init();
+    explicit RunLengthByteReader(ReadOnlyFileStream* input);
+    ~RunLengthByteReader() {}
+    bool has_next() const;
     // 获取下一条数据, 如果没有更多的数据了, 返回OLAP_ERR_DATA_EOF
-    // 返回的value只可能是0或1
     OLAPStatus next(char* value);
     OLAPStatus seek(PositionProvider* position);
     OLAPStatus skip(uint64_t num_values);
 
 private:
-    OLAPStatus _read_byte();
+    OLAPStatus _read_values();
 
     ReadOnlyFileStream* _input;
-    RunLengthByteReader* _byte_reader;
-    char _current;
-    uint32_t _bits_left;
+    char _literals[RunLengthByteWriter::MAX_LITERAL_SIZE];
+    int32_t _num_literals;
+    int32_t _used;
+    bool _repeat;
 
-    DISALLOW_COPY_AND_ASSIGN(BitFieldReader);
+    DISALLOW_COPY_AND_ASSIGN(RunLengthByteReader);
 };
 
 }  // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_BIT_FIELD_READER_H
+#endif // DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_BYTE_READER_H

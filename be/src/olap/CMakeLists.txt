@@ -24,19 +24,19 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 add_library(Olap STATIC
     aggregate_func.cpp
     base_compaction.cpp
-    bit_field_reader.cpp
-    bit_field_writer.cpp
+    rowset/bit_field_reader.cpp
+    rowset/bit_field_writer.cpp
     bloom_filter.hpp
     bloom_filter_reader.cpp
     bloom_filter_writer.cpp
     byte_buffer.cpp
-    column_data.cpp
-    column_reader.cpp
-    column_writer.cpp
+    rowset/column_data.cpp
+    rowset/column_reader.cpp
+    rowset/column_writer.cpp
     comparison_predicate.cpp
     compress.cpp
     cumulative_compaction.cpp
-    data_writer.cpp
+    rowset/data_writer.cpp
     delete_handler.cpp
     delta_writer.cpp
     field.cpp
@@ -62,14 +62,14 @@ add_library(Olap STATIC
     reader.cpp
     row_block.cpp
     row_cursor.cpp
-    segment_group.cpp
-    run_length_byte_reader.cpp
-    run_length_byte_writer.cpp
-    run_length_integer_reader.cpp
-    run_length_integer_writer.cpp
+    rowset/segment_group.cpp
+    rowset/run_length_byte_reader.cpp
+    rowset/run_length_byte_writer.cpp
+    rowset/run_length_integer_reader.cpp
+    rowset/run_length_integer_writer.cpp
     schema_change.cpp
-    segment_reader.cpp
-    segment_writer.cpp
+    rowset/segment_reader.cpp
+    rowset/segment_writer.cpp
     serialize.cpp
     storage_engine.cpp
     data_dir.cpp
@@ -86,4 +86,8 @@ add_library(Olap STATIC
     utils.cpp
     wrapper_field.cpp
     rowset/rowset_meta_manager.cpp
+    rowset/alpha_rowset.cpp
+    rowset/alpha_rowset_reader.cpp
+    rowset/alpha_rowset_builder.cpp
+    rowset/alpha_rowset_meta.cpp
 )

@@ -23,32 +23,47 @@
 #include "olap/column_predicate.h"
 #include "olap/row_cursor.h"
 #include "olap/row_block.h"
+#include "runtime/runtime_state.h"
 
 #include <memory>
 #include <unordered_map>
 
 namespace doris {
 
-struct ReadContext {
-	const Schema* projection;
-    std::unordered_map<std::string, ColumnPredicate> predicates; // column name -> column predicate
-    const RowCursor* lower_bound_key;
-    const RowCursor* exclusive_upper_bound_key;
+struct ReaderContext {
+	const RowFields& tablet_schema;
+    // projection columns
+    const std::vector<uint32_t>& return_columns;
+    // columns to load bloom filter index
+    // including columns in "=" or "in" conditions
+    const std::set<uint32_t>& load_bf_columns;
+    // column filter conditions by delete sql
+    const Conditions& conditions;
+    // column name -> column predicate
+    // adding column_name for predicate to make use of column selectivity
+    std::unordered_map<std::string, ColumnPredicate&> predicates;
+    const std::vector<RowCursor*>& lower_bound_keys;
+    std::vector<bool> is_lower_keys_included;
+    const std::vector<RowCursor*>& upper_bound_keys;
+    std::vector<bool> is_upper_keys_included;
+    const DeleteHandler& delete_handler;
+    OlapReaderStatistics* stats;
+    bool is_using_cache;
+    RuntimeState* runtime_state;
 };
 
 class RowsetReader {
 public:
     virtual ~RowsetReader() { }
-    
+
     // reader init
-    // check whether this rowset can be filtered
-    virtual NewStatus init(ReadContext* read_context) = 0;
+    virtual NewStatus init(ReaderContext* read_context) = 0;
 
     // check whether rowset has more data
     virtual bool has_next() = 0;
 
     // read next block data
-    virtual NewStatus next_block(RowBlock* row_block) = 0;
+    virtual NewStatus next(RowCursor* row) = 0;
 
     // close reader
     virtual void close() = 0;

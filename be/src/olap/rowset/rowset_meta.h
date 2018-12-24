@@ -30,6 +30,8 @@
 
 namespace doris {
 
+typedef std::shared_ptr<RowsetMeta> RowsetMetaSharedPtr;
+
 class RowsetMeta {
 public:
     virtual ~RowsetMeta() { }

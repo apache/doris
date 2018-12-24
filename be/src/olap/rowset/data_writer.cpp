@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/data_writer.h"
+#include "olap/rowset/data_writer.h"
 
 #include <math.h>
 
-#include "olap/segment_writer.h"
-#include "olap/segment_group.h"
+#include "olap/rowset/segment_writer.h"
+#include "olap/rowset/segment_group.h"
 #include "olap/row_block.h"
 
 

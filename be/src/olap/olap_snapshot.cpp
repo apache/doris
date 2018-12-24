@@ -33,7 +33,7 @@
 #include "common/status.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
-#include "olap/column_data.h"
+#include "olap/rowset/column_data.h"
 #include "olap/olap_define.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta_manager.h"

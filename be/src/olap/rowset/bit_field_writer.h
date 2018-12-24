@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_RUN_LENGTH_BYTE_WRITER_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_RUN_LENGTH_BYTE_WRITER_H
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_BIT_FIELD_WRITER_H
+#define DORIS_BE_SRC_OLAP_ROWSET_BIT_FIELD_WRITER_H
 
 #include "olap/stream_index_writer.h"
 #include "olap/olap_define.h"
@@ -24,33 +24,28 @@
 namespace doris {
 
 class OutStream;
-class RowIndexEntryMessage;
+class RunLengthByteWriter;
 
-// A Writer that writes a sequence of bytes. A control byte is written before
-// each run with positive values 0 to 127 meaning 2 to 129 repetitions. If the
-// bytes is -1 to -128, 1 to 128 literal byte values follow.
-class RunLengthByteWriter {
+class BitFieldWriter {
 public:
-    explicit RunLengthByteWriter(OutStream* output);
-    ~RunLengthByteWriter() {}
-    OLAPStatus write(char byte);
+    explicit BitFieldWriter(OutStream* output);
+    ~BitFieldWriter();
+    OLAPStatus init();
+    // 写入一个bit, bit_value为true表示写入1, false表示写入0
+    OLAPStatus write(bool bit_value);
     OLAPStatus flush();
     void get_position(PositionEntryWriter* index_entry) const;
-    static const int32_t MIN_REPEAT_SIZE = 3;
-    static const int32_t MAX_LITERAL_SIZE = 128;
-    static const int32_t MAX_REPEAT_SIZE = 127 + MIN_REPEAT_SIZE;
 private:
-    OLAPStatus _write_values();
+    OLAPStatus _write_byte();
 
     OutStream* _output;
-    char _literals[MAX_LITERAL_SIZE];
-    int32_t _num_literals;
-    bool _repeat;
-    int32_t _tail_run_length;
+    RunLengthByteWriter* _byte_writer;
+    char _current;
+    uint8_t _bits_left;
 
-    DISALLOW_COPY_AND_ASSIGN(RunLengthByteWriter);
+    DISALLOW_COPY_AND_ASSIGN(BitFieldWriter);
 };
 
 }  // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_RUN_LENGTH_BYTE_WRITER_H
+#endif // DORIS_BE_SRC_OLAP_ROWSET_BIT_FIELD_WRITER_H
