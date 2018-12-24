@@ -95,4 +95,8 @@ public class BrokerUtil {
         }
     }
 
+    public static String printBroker(String brokerName, TNetworkAddress address) {
+        return brokerName + "[" + address.toString() + "]";
+    }
+
 }

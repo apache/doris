@@ -185,7 +185,6 @@ public class Config extends ConfigBase {
     @ConfField public static int http_port = 8030;
     /*
      * FE thrift server port
-     * 
      */
     @ConfField public static int rpc_port = 9020;
     /*

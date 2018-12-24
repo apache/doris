@@ -1826,7 +1826,7 @@ void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) 
 }
 
 void* TaskWorkerPool::_upload_worker_thread_callback(void* arg_this) {
-    TaskWorkerPool* worker_pool_this = (TaskWorkerPool*)arg_this;
+    TaskWorkerPool* worker_pool_this = (TaskWorkerPool*) arg_this;
 
 #ifndef BE_TEST
     while (true) {
@@ -1848,12 +1848,11 @@ void* TaskWorkerPool::_upload_worker_thread_callback(void* arg_this) {
                   << ", job id:" << upload_request.job_id;
 
         std::map<int64_t, std::vector<std::string>> tablet_files;
-        SnapshotLoader* loader = worker_pool_this->_env->snapshot_loader();
-        Status status = loader->upload(
+        SnapshotLoader loader(worker_pool_this->_env, upload_request.job_id, agent_task_req.signature);
+        Status status = loader.upload(
                 upload_request.src_dest_map,
                 upload_request.broker_addr,
                 upload_request.broker_prop,
-                upload_request.job_id,
                 &tablet_files);
 
         TStatusCode::type status_code = TStatusCode::OK; 
@@ -1917,12 +1916,11 @@ void* TaskWorkerPool::_download_worker_thread_callback(void* arg_this) {
 
         // TODO: download
         std::vector<int64_t> downloaded_tablet_ids;
-        SnapshotLoader* loader = worker_pool_this->_env->snapshot_loader();
-        Status status = loader->download(
+        SnapshotLoader loader(worker_pool_this->_env, download_request.job_id, agent_task_req.signature);
+        Status status = loader.download(
                 download_request.src_dest_map,
                 download_request.broker_addr,
                 download_request.broker_prop,
-                download_request.job_id,
                 &downloaded_tablet_ids);
 
         if (!status.ok()) {
@@ -2217,8 +2215,8 @@ AgentStatus TaskWorkerPool::_move_dir(
     std::string dest_tablet_dir = tablet->construct_dir_path();
     std::string store_path = tablet->store()->path();
 
-    SnapshotLoader* loader = _env->snapshot_loader();
-    Status status = loader->move(src, dest_tablet_dir, store_path, job_id, overwrite);
+    SnapshotLoader loader(_env, job_id, tablet_id);
+    Status status = loader.move(src, dest_tablet_dir, store_path, overwrite);
 
     if (!status.ok()) {
         OLAP_LOG_WARNING("move failed. job id: %ld, msg: %s",

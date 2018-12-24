@@ -43,7 +43,6 @@ class PriorityThreadPool;
 class PullLoadTaskMgr;
 class ReservationTracker;
 class ResultBufferMgr;
-class SnapshotLoader;
 class TMasterInfo;
 class TabletWriterMgr;
 class TestExecEnv;
@@ -104,7 +103,6 @@ public:
     BfdParser* bfd_parser() const { return _bfd_parser; }
     PullLoadTaskMgr* pull_load_task_mgr() const { return _pull_load_task_mgr; }
     BrokerMgr* broker_mgr() const { return _broker_mgr; }
-    SnapshotLoader* snapshot_loader() const { return _snapshot_loader; }
     BrpcStubCache* brpc_stub_cache() const { return _brpc_stub_cache; }
     ReservationTracker* buffer_reservation() { return _buffer_reservation; }
     BufferPool* buffer_pool() { return _buffer_pool; }
@@ -151,7 +149,6 @@ private:
     BrokerMgr* _broker_mgr = nullptr;
     TabletWriterMgr* _tablet_writer_mgr = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
-    SnapshotLoader* _snapshot_loader = nullptr;
     BrpcStubCache* _brpc_stub_cache = nullptr;
 
     ReservationTracker* _buffer_reservation = nullptr;

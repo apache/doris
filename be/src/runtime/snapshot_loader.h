@@ -61,7 +61,7 @@ struct FileStat {
  */
 class SnapshotLoader {
 public:
-    SnapshotLoader(ExecEnv* env);
+    SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id);
 
     ~SnapshotLoader();
 
@@ -69,21 +69,18 @@ public:
         const std::map<std::string, std::string>& src_to_dest_path,
         const TNetworkAddress& broker_addr,
         const std::map<std::string, std::string>& broker_prop,
-        int64_t job_id,
         std::map<int64_t, std::vector<std::string>>* tablet_files);
 
     Status download(
         const std::map<std::string, std::string>& src_to_dest_path,
         const TNetworkAddress& broker_addr,
         const std::map<std::string, std::string>& broker_prop,
-        int64_t job_id,
         std::vector<int64_t>* downloaded_tablet_ids);
 
     Status move(
         const std::string& snapshot_path,
         const std::string& tablet_path,
         const std::string& store_path,
-        int64_t job_id,
         bool overwrite);
 
 private:
@@ -133,8 +130,15 @@ private:
         const std::string& remote_path,
         int64_t* tablet_id);
 
+    Status _report_every(
+        int report_threshold, int* counter,
+        int finished_num, int total_num,
+        TTaskType::type type);
+
 private:
     ExecEnv* _env;
+    int64_t _job_id;
+    int64_t _task_id;
 };
 
 } // end namespace doris

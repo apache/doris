@@ -64,37 +64,36 @@ public class GenericPoolTest {
     static ThriftServer service;
     static String ip = "127.0.0.1";
     static int port = 39401;
-    
+
     static void close() {
         if (service != null) {
             service.stop();
         }
     }
-    
+
     @BeforeClass
     public static void beforeClass() throws IOException {
         try {
             GenericKeyedObjectPoolConfig config = new GenericKeyedObjectPoolConfig();
-            config.setLifo(true);     // set Last In First Out strategy
-            config.setMaxIdlePerKey(2);      // (default 8)
-            config.setMinIdlePerKey(0);      // (default 0)
-            config.setMaxTotalPerKey(2);    // (default 8)
-            config.setMaxTotal(3);          // (default -1) 
-            config.setMaxWaitMillis(500);  
+            config.setLifo(true); // set Last In First Out strategy
+            config.setMaxIdlePerKey(2); // (default 8)
+            config.setMinIdlePerKey(0); // (default 0)
+            config.setMaxTotalPerKey(2); // (default 8)
+            config.setMaxTotal(3); // (default -1)
+            config.setMaxWaitMillis(500);
             // new ClientPool
             backendService = new GenericPool("BackendService", config, 0);
             // new ThriftService
-            TProcessor tprocessor = 
-                    new BackendService.Processor<BackendService.Iface>(
-                            new InternalProcessor());
+            TProcessor tprocessor = new BackendService.Processor<BackendService.Iface>(
+                    new InternalProcessor());
             service = new ThriftServer(port, tprocessor);
-            service.start();            
+            service.start();
         } catch (Exception e) {
             e.printStackTrace();
             close();
         }
     }
-    
+
     @AfterClass
     public static void afterClass() throws IOException {
         close();
@@ -104,18 +103,22 @@ public class GenericPoolTest {
         public InternalProcessor() {
             //
         }
+
         @Override
         public TExecPlanFragmentResult exec_plan_fragment(TExecPlanFragmentParams params) {
             return new TExecPlanFragmentResult();
         }
+
         @Override
         public TCancelPlanFragmentResult cancel_plan_fragment(TCancelPlanFragmentParams params) {
             return new TCancelPlanFragmentResult();
         }
+
         @Override
         public TTransmitDataResult transmit_data(TTransmitDataParams params) {
             return new TTransmitDataResult();
         }
+
         @Override
         public TFetchDataResult fetch_data(TFetchDataParams params) {
             TFetchDataResult result = new TFetchDataResult();
@@ -215,7 +218,7 @@ public class GenericPoolTest {
             return null;
         }
     }
-    
+
     @Test
     public void testNormal() throws Exception {
         TNetworkAddress address = new TNetworkAddress(ip, port);
@@ -234,13 +237,13 @@ public class GenericPoolTest {
         BackendService.Client object1;
         BackendService.Client object2;
         BackendService.Client object3;
-        
+
         // first success
         object1 = backendService.borrowObject(address);
-        
+
         // second success
         object2 = backendService.borrowObject(address);
-        
+
         // third fail, because the max connection is 2
         boolean flag = false;
         try {
@@ -251,19 +254,19 @@ public class GenericPoolTest {
         } catch (Exception e) {
             // can't get here
             Assert.fail();
-        } 
+        }
         Assert.assertTrue(flag);
-        
+
         // fouth success, beacuse we drop the object1
         backendService.returnObject(address, object1);
         object3 = null;
         object3 = backendService.borrowObject(address);
-        Assert.assertTrue(object3 != null);  
-        
+        Assert.assertTrue(object3 != null);
+
         backendService.returnObject(address, object2);
         backendService.returnObject(address, object3);
     }
-    
+
     @Test
     public void testException() throws Exception {
         TNetworkAddress address = new TNetworkAddress(ip, port);
