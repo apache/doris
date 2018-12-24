@@ -72,30 +72,6 @@ RuntimeState::RuntimeState(
 }
 
 RuntimeState::RuntimeState(
-        const TUniqueId& fragment_instance_id,
-        const TQueryOptions& query_options,
-        const std::string& now, ExecEnv* exec_env) :
-            _obj_pool(new ObjectPool()),
-            _data_stream_recvrs_pool(new ObjectPool()),
-            _unreported_error_idx(0),
-            _profile(_obj_pool.get(), "Fragment " + print_id(fragment_instance_id)),
-            _fragment_mem_tracker(NULL),
-            _is_cancelled(false),
-            _per_fragment_instance_idx(0),
-            _root_node_id(-1),
-            _num_rows_load_success(0),
-            _num_rows_load_filtered(0),
-            _num_print_error_rows(0),
-            _normal_row_number(0),
-            _error_row_number(0),
-            _error_log_file(nullptr),
-            _is_running(true),
-            _instance_buffer_reservation(new ReservationTracker) {
-    Status status = init(fragment_instance_id, query_options, now, exec_env);
-    DCHECK(status.ok());
-}
-
-RuntimeState::RuntimeState(
         const TExecPlanFragmentParams& fragment_params,
         const TQueryOptions& query_options,
         const std::string& now, ExecEnv* exec_env) :

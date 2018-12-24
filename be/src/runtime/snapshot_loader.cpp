@@ -83,6 +83,11 @@ Status SnapshotLoader::upload(
               << broker_addr << ", job: " << _job_id
               << ", task" << _task_id;
 
+    // check if job has already been cancelled
+    int tmp_counter = 1;
+    RETURN_IF_ERROR(_report_every(0, &tmp_counter, 0, 0,
+            TTaskType::type::UPLOAD));
+
     Status status = Status::OK;
     // 1. validate local tablet snapshot paths
     RETURN_IF_ERROR(_check_local_snapshot_paths(src_to_dest_path, true));
@@ -253,6 +258,11 @@ Status SnapshotLoader::download(
               << src_to_dest_path.size() << ", broker addr: "
               << broker_addr << ", job: " << _job_id
               << ", task id: " << _task_id;
+
+    // check if job has already been cancelled
+    int tmp_counter = 1;
+    RETURN_IF_ERROR(_report_every(0, &tmp_counter, 0, 0,
+            TTaskType::type::DOWNLOAD));
 
     Status status = Status::OK;
     // 1. validate local tablet snapshot paths
