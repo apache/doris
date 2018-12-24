@@ -96,7 +96,7 @@ Status FileUtils::scan_dir(
 
     int64_t count = 0;
     while (true) {
-        auto result = readdir(dir.get());
+        auto result = readdir(dir);
         if (result == nullptr) {
             break;
         }
@@ -129,7 +129,6 @@ Status FileUtils::scan_dir(
         return Status("fail to opendir");
     }
 
-    struct dirent* result = nullptr;
     while (true) {
         auto result = readdir(dir.get());
         if (result == nullptr) {
