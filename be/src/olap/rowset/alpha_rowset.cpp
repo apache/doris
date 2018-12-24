@@ -74,7 +74,7 @@ void set_version(Version version) {
 }
 
 NewStatus AlphaRowset::_init_segment_groups() {
-    std::vector<PSegmentGroup> segment_group_metas;
+    std::vector<SegmentGroupPB> segment_group_metas;
     _rowset_meta.get_segment_groups(&segment_group_metas);
     for (auot& segment_group_meta : segment_group_metas) {
         Version version = _rowset_meta.get_version();
