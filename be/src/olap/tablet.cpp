@@ -28,7 +28,7 @@
 #include <boost/filesystem.hpp>
 
 #include "olap/field.h"
-#include "olap/column_data.h"
+#include "olap/rowset/column_data.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
@@ -39,7 +39,7 @@
 #include "util/defer_op.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
-#include "olap/data_writer.h"
+#include "olap/rowset/data_writer.h"
 
 using std::pair;
 using std::map;

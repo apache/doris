@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/column_writer.h"
+#include "olap/rowset/column_writer.h"
 
 #include "olap/bit_field_writer.h"
 #include "olap/file_helper.h"

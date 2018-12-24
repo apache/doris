@@ -18,7 +18,7 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_BUILDER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_BUILDER_H
 
-#include "rowset/rowset.h"
+#include "olap/rowset/rowset.h"
 #include "olap/new_status.h"
 #include "olap/schema.h"
 #include "olap/row_block.h"
@@ -29,7 +29,7 @@ class RowsetBuilder {
 public:
     virtual ~RowsetBuilder() { }
     
-    virtual NewStatus init(std::string rowset_id, const std::string& rowset_path_prefix, Schema* schema) = 0;
+    virtual NewStatus init(int64_t rowset_id, const std::string& rowset_path_prefix, Schema* schema) = 0;
 
     // add a row block to rowset
     virtual NewStatus add_row_block(RowBlock* row_block) = 0;

@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "bit_field_writer.h"
+#include "olap/rowset/bit_field_writer.h"
 #include <gen_cpp/column_data_file.pb.h>
-#include "olap/run_length_byte_writer.h"
+#include "olap/rowset/run_length_byte_writer.h"
 
 namespace doris {
 
