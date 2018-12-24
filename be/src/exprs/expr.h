@@ -396,7 +396,7 @@ protected:
         ExprContext* ctx, RuntimeState* state, int varargs_buffer_size);
 
     /// Cache entry for the library implementing this function.
-    UserFunctionCacheEntry* _cache_entry;
+    UserFunctionCacheEntry* _cache_entry = nullptr;
 
     // function opcode
 
