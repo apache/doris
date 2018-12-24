@@ -46,6 +46,7 @@
 
 namespace doris {
 
+// for ut only
 RuntimeState::RuntimeState(
         const TUniqueId& fragment_instance_id,
         const TQueryOptions& query_options,

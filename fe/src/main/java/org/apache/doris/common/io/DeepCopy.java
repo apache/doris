@@ -17,6 +17,9 @@
 
 package org.apache.doris.common.io;
 
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.meta.MetaContext;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -27,6 +30,10 @@ public class DeepCopy {
     private static final Logger LOG = LogManager.getLogger(DeepCopy.class);
 
     public static boolean copy(Writable orig, Writable copied) {
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeConstants.meta_version);
+        metaContext.setThreadLocalInfo();
+
         FastByteArrayOutputStream byteArrayOutputStream = new FastByteArrayOutputStream();
         DataOutputStream out = new DataOutputStream(byteArrayOutputStream);
         try {
@@ -41,6 +48,8 @@ public class DeepCopy {
             e.printStackTrace();
             LOG.warn("failed to copy object.", e);
             return false;
+        } finally {
+            MetaContext.remove();
         }
         return true;
     }

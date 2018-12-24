@@ -201,6 +201,9 @@ public class RepositoryTest {
 
                 storage.rename(anyString, anyString);
                 result = Status.OK;
+
+                storage.delete(anyString);
+                result = Status.OK;
             }
         };
 

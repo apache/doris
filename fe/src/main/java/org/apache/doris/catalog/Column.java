@@ -17,13 +17,15 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.base.Strings;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
+
+import com.google.common.base.Strings;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -249,7 +251,7 @@ public class Column implements Writable {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         sb.append(type.toSql()).append(" ");
-        if (aggregationType != null && !isAggregationTypeImplicit) {
+        if (aggregationType != null && aggregationType != AggregateType.NONE && !isAggregationTypeImplicit) {
             sb.append(aggregationType.name()).append(" ");
         }
         if (!isAllowNull) {
