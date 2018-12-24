@@ -35,7 +35,7 @@
 #include "runtime/vectorized_row_batch.h"
 
 #include "olap/delete_handler.h"
-#include "olap/column_data.h"
+#include "olap/rowset/column_data.h"
 #include "olap/olap_cond.h"
 #include "olap/storage_engine.h"
 #include "olap/reader.h"
