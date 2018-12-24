@@ -18,7 +18,7 @@
 #include "olap/delta_writer.h"
 
 #include "olap/schema.h"
-#include "olap/segment_group.h"
+#include "olap/rowset/segment_group.h"
 
 namespace doris {
 

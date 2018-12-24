@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_COLUMN_DATA_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_COLUMN_DATA_H
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_COLUMN_DATA_H
+#define DORIS_BE_SRC_OLAP_ROWSET_COLUMN_DATA_H
 
 #include <string>
 #include <string>
@@ -26,7 +26,7 @@
 #include "olap/delete_handler.h"
 #include "olap/olap_common.h"
 #include "olap/olap_cond.h"
-#include "olap/segment_group.h"
+#include "olap/rowset/segment_group.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
 #include "util/runtime_profile.h"
@@ -256,4 +256,4 @@ private:
 
 }  // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_COLUMN_DATA_H
+#endif // DORIS_BE_SRC_OLAP_ROWSET_COLUMN_DATA_H

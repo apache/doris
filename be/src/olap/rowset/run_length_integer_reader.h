@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_RUN_LENGTH_INTEGER_READER_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_RUN_LENGTH_INTEGER_READER_H
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_INTEGER_READER_H
+#define DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_INTEGER_READER_H
 
 #include "olap/file_stream.h"
-#include "olap/run_length_integer_writer.h"
+#include "olap/rowset/run_length_integer_writer.h"
 #include "olap/stream_index_reader.h"
 #include "olap/olap_define.h"
 #include "util/runtime_profile.h"
@@ -74,4 +74,4 @@ private:
 
 }  // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_RUN_LENGTH_INTEGER_READER_H
+#endif // DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_INTEGER_READER_H

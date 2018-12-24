@@ -348,6 +348,8 @@ public:
     }
 };
 
+typedef std::vector<FieldInfo> RowFields;
+
 }  // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_FIELD_INFO_H

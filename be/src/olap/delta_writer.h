@@ -22,7 +22,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/schema_change.h"
-#include "olap/data_writer.h"
+#include "olap/rowset/data_writer.h"
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"
 #include "gen_cpp/internal_service.pb.h"
