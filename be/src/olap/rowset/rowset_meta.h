@@ -208,7 +208,7 @@ private:
     }
 
 private:
-    RowsetMetaPb _rowset_meta_pb;
+    RowsetMetaPB _rowset_meta_pb;
 };
 
 }

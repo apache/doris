@@ -28,14 +28,14 @@ bool AlphaRowsetMeta::deserialize_extra_properties() {
     return parsed;
 }
 
-void AlphaRowsetMeta::get_segment_groups(std::vector<PSegmentGroup>* segment_groups) {
+void AlphaRowsetMeta::get_segment_groups(std::vector<SegmentGroupPB>* segment_groups) {
     for (auto& segment_group : _extra_meta_pb.segment_groups()) {
         segment_groups->push_back(segment_group);
     }
 }
 
-void AlphaRowsetMeta::add_segment_group(PSegmentGroup& segment_group) {
-    PSegmentGroup* new_segment_group = _extra_meta_pb.mutable_segment_groups();
+void AlphaRowsetMeta::add_segment_group(SegmentGroupPB& segment_group) {
+    SegmentGroupPB* new_segment_group = _extra_meta_pb.mutable_segment_groups();
     *new_segment_group = segment_group;
 }
 
