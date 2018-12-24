@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_SEGMENT_READER_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_SEGMENT_READER_H
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_READER_H
+#define DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_READER_H
 
 #include <gen_cpp/column_data_file.pb.h>
 #include <gen_cpp/olap_common.pb.h>
@@ -379,4 +379,4 @@ private:
 
 }  // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_SEGMENT_READER_H
+#endif // DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_READER_H

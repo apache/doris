@@ -20,13 +20,13 @@
 #include <memory>
 #include <vector>
 
-#include "olap/column_data.h"
+#include "olap/rowset/column_data.h"
 #include "olap/olap_define.h"
-#include "olap/segment_group.h"
+#include "olap/rowset/segment_group.h"
 #include "olap/tablet.h"
 #include "olap/reader.h"
 #include "olap/row_cursor.h"
-#include "olap/data_writer.h"
+#include "olap/rowset/data_writer.h"
 
 using std::list;
 using std::string;

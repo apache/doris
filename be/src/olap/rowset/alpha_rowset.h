@@ -19,7 +19,7 @@
 #define DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_H
 
 #include "olap/rowset/rowset.h"
-#include "olap/segment_group.h"
+#include "olap/rowset/segment_group.h"
 #include "olap/alpha_rowset_reader.h"
 #include "olap/alpha_rowset_builder.h"
 
@@ -33,7 +33,7 @@ public:
     AlphaRowset(const RowFields& tablet_schema,
         int num_key_fields, int num_short_key_fields,
         int num_rows_per_row_block, const std::string rowset_path,
-        std::shared_ptr<RowsetMeta> rowset_meta);
+        RowsetMetaSharedPtr rowset_meta);
 
     virtual NewStatus init();
 
@@ -43,13 +43,15 @@ public:
 
     virtual NewStatus delete();
 
-    virtual NewStatus save_meta();
+    virtual void get_meta(RowsetMetaSharedPtr rowset_meta);
+
+    virtual void set_version(Version version);
 
 private:
     NewStatus _init_segment_groups();
 
 private:
-    std::shared_ptr<RowsetMeta> _rowset_meta;
+    RowsetMetaSharedPtr _rowset_meta;
     std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
     int _segment_group_size;
     bool _is_cumulative_rowset;

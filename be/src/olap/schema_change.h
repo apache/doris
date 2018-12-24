@@ -24,7 +24,7 @@
 
 #include "gen_cpp/AgentService_types.h"
 #include "olap/delete_handler.h"
-#include "olap/column_data.h"
+#include "olap/rowset/column_data.h"
 
 namespace doris {
 // defined in 'field.h'

@@ -22,7 +22,7 @@ namespace doris {
 AlphaRowset::AlphaRowset(const RowFields& tablet_schema,
         int num_key_fields, int num_short_key_fields,
         int num_rows_per_row_block, const std::string rowset_path,
-        std::shared_ptr<RowsetMeta> rowset_meta) : _tablet_schema(tablet_schema),
+        RowsetMetaSharedPtr rowset_meta) : _tablet_schema(tablet_schema),
         _num_key_fields(num_key_fields),
         _num_short_key_fields(num_short_key_fields), 
         _num_rows_per_row_block(num_rows_per_row_block),
@@ -63,6 +63,14 @@ NewStatus AlphaRowset::delete() {
     // delete rowset from meta
     // delete segment groups 
     return NewStatus.OK();
+}
+
+void get_meta(RowsetMetaSharedPtr rowset_meta) {
+    rowset_meta = _rowset_meta;
+}
+
+void set_version(Version version) {
+    _rowset_meta.set_version(version);
 }
 
 NewStatus AlphaRowset::_init_segment_groups() {

@@ -25,10 +25,10 @@
 
 #include "olap/delete_handler.h"
 #include "olap/merger.h"
-#include "olap/column_data.h"
+#include "olap/rowset/column_data.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_meta.h"
-#include "olap/segment_group.h"
+#include "olap/rowset/segment_group.h"
 #include "olap/tablet.h"
 #include "olap/utils.h"
 #include "util/doris_metrics.h"

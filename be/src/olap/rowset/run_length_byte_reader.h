@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_RUN_LENGTH_BYTE_READER_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_RUN_LENGTH_BYTE_READER_H
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_BYTE_READER_H
+#define DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_BYTE_READER_H
 
 #include "olap/file_stream.h"
 #include "olap/run_length_byte_writer.h"
@@ -54,4 +54,4 @@ private:
 
 }  // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_RUN_LENGTH_BYTE_READER_H
+#endif // DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_BYTE_READER_H

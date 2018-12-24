@@ -22,7 +22,7 @@
 #include <cmath>
 #include <fstream>
 
-#include "olap/column_data.h"
+#include "olap/rowset/column_data.h"
 #include "olap/tablet.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
@@ -86,15 +86,14 @@ SegmentGroup::SegmentGroup(int64_t tablet_id, const RowFields& tablet_schema, in
     _new_segment_created = false;
     _empty = false;
 
-    const RowFields& tablet_schema = _tablet_schema();
     for (size_t i = 0; i < _num_short_key_fields; ++i) {
-        _short_key_info_list.push_back(tablet_schema[i]);
-        _short_key_length += tablet_schema[i].index_length + 1;// 1 for null byte
-        if (tablet_schema[i].type == OLAP_FIELD_TYPE_CHAR ||
-            tablet_schema[i].type == OLAP_FIELD_TYPE_VARCHAR) {
+        _short_key_info_list.push_back(_tablet_schema[i]);
+        _short_key_length += _tablet_schema[i].index_length + 1;// 1 for null byte
+        if (_tablet_schema[i].type == OLAP_FIELD_TYPE_CHAR ||
+            _tablet_schema[i].type == OLAP_FIELD_TYPE_VARCHAR) {
             _new_short_key_length += sizeof(Slice) + 1;
         } else {
-            _new_short_key_length += tablet_schema[i].index_length + 1;
+            _new_short_key_length += _tablet_schema[i].index_length + 1;
         }
     }
 }
@@ -148,16 +147,16 @@ SegmentGroup::~SegmentGroup() {
     _seg_pb_map.clear();
 }
 
-std::string SegmentGroup::_construct_pending_file_path(int32_t segment, const std::string& suffix) {
+std::string SegmentGroup::_construct_pending_file_path(int32_t segment_id, const std::string& suffix) {
     std::string pending_dir_path = _rowset_path_prefix + PENDING_DELTA_PREFIX;
     stringstream file_path;
     file_path << pending_dir_path << "/"
                           << _transaction_id << "_"
-                          << _segment_group_id << "_" << segment << suffix;
+                          << _segment_group_id << "_" << segment_id << suffix;
     return file_path.str();
 }
 
-std::string SegmentGroup::_construct_file_path(int32_t segment, const string& suffix) {
+std::string SegmentGroup::_construct_file_path(int32_t segment_id, const string& suffix) {
     stringstream prefix_stream;
     prefix_stream << _rowset_path_prefix << "/" << _tablet_id;
     string path_prefix = prefix_stream.str();
@@ -170,7 +169,7 @@ std::string SegmentGroup::_construct_file_path(int32_t segment, const string& su
                  _version.first,
                  _version.second,
                  _version_hash,
-                 segment,
+                 segment_id,
                  suffix.c_str());
     } else {
         snprintf(file_path,
@@ -180,26 +179,26 @@ std::string SegmentGroup::_construct_file_path(int32_t segment, const string& su
                  _version.first,
                  _version.second,
                  _version_hash,
-                 _segment_group_id, segment,
+                 _segment_group_id, segment_id,
                  suffix.c_str());
     }
 
     return file_path;
 }
 
-string SegmentGroup::construct_index_file_path(int32_t segment_group_id, int32_t segment) const {
+string SegmentGroup::construct_index_file_path(int32_t segment_group_id, int32_t segment_id) const {
     if (_is_pending) {
-        return _construct_pending_file_path(segment, ".idx");
+        return _construct_pending_file_path(segment_id, ".idx");
     } else {
-        return _construct_file_path(segment, ".idx");
+        return _construct_file_path(segment_id, ".idx");
     }
 }
 
-string SegmentGroup::construct_data_file_path(int32_t segment_group_id, int32_t segment) const {
+string SegmentGroup::construct_data_file_path(int32_t segment_group_id, int32_t segment_id) const {
     if (_is_pending) {
-        return _construct_pending_file_path(segment, ".dat");
+        return _construct_pending_file_path(segment_id, ".dat");
     } else {
-        return _construct_file_path(segment, ".dat");
+        return _construct_file_path(segment_id, ".dat");
     }
 }
 

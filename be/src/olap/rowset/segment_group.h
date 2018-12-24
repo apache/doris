@@ -15,7 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_GROUP_H
+#define DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_GROUP_H
 
 #include <boost/thread/condition_variable.hpp>
 #include <boost/thread/mutex.hpp>
@@ -303,3 +304,5 @@ private:
 };
 
 }
+
+#endif // DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_GROUP_H

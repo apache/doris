@@ -19,8 +19,8 @@
 #define DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_READER_H
 P
 #include "olap/rowset/rowset_reader.h"
-#include "olap/segment_group.h"
-#include "olap/column_data.h"
+#include "olap/rowset/segment_group.h"
+#include "olap/rowset/column_data.h"
 
 #include <vector>
 

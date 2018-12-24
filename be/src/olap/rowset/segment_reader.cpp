@@ -26,7 +26,7 @@
 #include "olap/out_stream.h"
 #include "olap/olap_cond.h"
 #include "olap/row_block.h"
-#include "olap/segment_group.h"
+#include "olap/rowset/segment_group.h"
 
 namespace doris {
 

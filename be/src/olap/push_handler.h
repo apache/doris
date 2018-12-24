@@ -27,9 +27,9 @@
 #include "olap/file_helper.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
-#include "olap/segment_group.h"
+#include "olap/rowset/segment_group.h"
 #include "olap/row_cursor.h"
-#include "olap/data_writer.h"
+#include "olap/rowset/data_writer.h"
 
 namespace doris {
 

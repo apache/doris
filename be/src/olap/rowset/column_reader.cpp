@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/rowset/column_reader.h"
+
 #include <cstring>
 
-#include "olap/bit_field_reader.h"
-#include "olap/column_reader.h"
+#include "olap/rowset/bit_field_reader.h"
 #include "olap/file_stream.h"
 #include "olap/olap_define.h"
 
