@@ -74,6 +74,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.stream.Collectors;
 
 // Broker scan node
 public class BrokerScanNode extends ScanNode {
@@ -319,12 +320,17 @@ public class BrokerScanNode extends ScanNode {
         parseExprMap(context.exprMap);
 
         // Generate expr
-        List<String> valueNames = fileGroup.getValueNames();
-        if (valueNames == null) {
-            valueNames = Lists.newArrayList();
+        List<String> fileFieldNames = fileGroup.getFileFieldNames();
+        if (fileFieldNames == null) {
+            fileFieldNames = Lists.newArrayList();
             for (Column column : targetTable.getBaseSchema()) {
-                valueNames.add(column.getName());
+                fileFieldNames.add(column.getName());
             }
+        } else {
+            // change fileFiledName to real column name(case match)
+            fileFieldNames = fileFieldNames.stream().map(
+                    f -> targetTable.getColumn(f) == null ? f : targetTable.getColumn(f).getName()).collect(
+                            Collectors.toList());
         }
 
         // This tuple descriptor is used for file of
@@ -333,12 +339,12 @@ public class BrokerScanNode extends ScanNode {
 
         Map<String, SlotDescriptor> slotDescByName = Maps.newHashMap();
         context.slotDescByName = slotDescByName;
-        for (String value : valueNames) {
+        for (String fieldName : fileFieldNames) {
             SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
             slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
             slotDesc.setIsMaterialized(true);
             slotDesc.setIsNullable(false);
-            slotDescByName.put(value, slotDesc);
+            slotDescByName.put(fieldName, slotDesc);
 
             params.addToSrc_slot_ids(slotDesc.getId().asInt());
         }
