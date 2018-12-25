@@ -26,6 +26,8 @@ import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.backup.RestoreJob_D;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.io.Text;
@@ -391,6 +393,16 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_HEARTBEAT: {
                 data = HbPackage.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_ADD_FUNCTION: {
+                data = Function.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_DROP_FUNCTION: {
+                data = FunctionSearchDesc.read(in);
                 needRead = false;
                 break;
             }

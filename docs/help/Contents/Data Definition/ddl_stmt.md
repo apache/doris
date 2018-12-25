@@ -1094,3 +1094,42 @@
 
     COLOCATE, JOIN, CREATE TABLE
 
+# CREATE FUNCTION
+## description
+    Used to create a UDF/UDAF/UDTF
+    Syntax:
+        CREATE [AGGREGATE] FUNCTION funcName (argType [, ...])
+        RETURNS retType
+        PROPERTIES (
+            k1=v1 [, k2=v2]
+        )
+    
+    valid PROPERTIES: 
+        "symbol": UDF's symbol, which Doris call this symbol's function to execute. MUST BE SET
+        "object_file": UDF library's URL, Doris use it to download library. MUST BE SET
+
+## example
+    1. create a function "my_func", receive two int and return one int
+        CREATE FUNCTION my_func (int, int) RETURNS int
+        PROPERTIES ("symbol"="my_func_symbol", "object_file"="http://127.0.0.1/my_func.so")
+    2. create a variadic function "my_func"
+        CREATE FUNCTION my_func (int, ...) RETURNS int
+        PROPERTIES ("symbol"="my_func_symbol", "object_file"="http://127.0.0.1/my_func.so")
+
+## keyword
+    CREATE, FUNCTION
+
+# DROP FUNCTION
+## description
+    Used to drop a UDF/UDAF/UDTF
+    Syntax:
+        DROP FUNCTION funcName (argType [, ...])
+
+## example
+    1. drop a UDF whose name is my_func
+    DROP FUNCTION my_func (int, int)
+    2. drop a variadic function
+    DROP FUNCTION my_func (int, ...)
+
+## keyword
+    DROP, FUNCTION

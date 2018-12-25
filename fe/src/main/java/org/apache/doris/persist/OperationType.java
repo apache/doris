@@ -150,4 +150,8 @@ public class OperationType {
     // routine load 110~120
     public static final short OP_ROUTINE_LOAD_JOB = 110;
 
+    // UDF 130-140
+    public static final short OP_ADD_FUNCTION = 130;
+    public static final short OP_DROP_FUNCTION = 131;
+
 }

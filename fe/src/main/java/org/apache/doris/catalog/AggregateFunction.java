@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -74,6 +77,10 @@ public class AggregateFunction extends Function {
     // property from the function itself (e.g. evaluating the function on an
     // empty input in BE).
     private boolean returnsNonNullOnEmpty;
+
+    // only used for serialization
+    protected AggregateFunction() {
+    }
 
     public AggregateFunction(FunctionName fnName, ArrayList<Type> argTypes, Type retType,
             boolean hasVarArgs) {
@@ -238,6 +245,52 @@ public class AggregateFunction extends Function {
         //    agg_fn.setIgnores_distinct(ignoresDistinct);
         fn.setAggregate_fn(aggFn);
         return fn;
+    }
+
+    @Override
+    public void write(DataOutput output) throws IOException {
+        // 1. type
+        FunctionType.AGGREGATE.write(output);
+        // 2. parent
+        super.write(output);
+        // 3. self's member
+        boolean hasInterType = intermediateType != null;
+        output.writeBoolean(hasInterType);
+        if (hasInterType) {
+            ColumnType.write(output, intermediateType);
+        }
+        writeOptionString(output, updateFnSymbol);
+        writeOptionString(output, initFnSymbol);
+        writeOptionString(output, serializeFnSymbol);
+        writeOptionString(output, mergeFnSymbol);
+        writeOptionString(output, getValueFnSymbol);
+        writeOptionString(output, removeFnSymbol);
+        writeOptionString(output, finalizeFnSymbol);
+
+        output.writeBoolean(ignoresDistinct);
+        output.writeBoolean(isAnalyticFn);
+        output.writeBoolean(isAggregateFn);
+        output.writeBoolean(returnsNonNullOnEmpty);
+    }
+
+    @Override
+    public void readFields(DataInput input) throws IOException {
+        super.readFields(input);
+
+        if (input.readBoolean()) {
+            intermediateType = ColumnType.read(input);
+        }
+        updateFnSymbol = readOptionStringOrNull(input);
+        initFnSymbol = readOptionStringOrNull(input);
+        serializeFnSymbol = readOptionStringOrNull(input);
+        mergeFnSymbol = readOptionStringOrNull(input);
+        getValueFnSymbol = readOptionStringOrNull(input);
+        removeFnSymbol = readOptionStringOrNull(input);
+        finalizeFnSymbol = readOptionStringOrNull(input);
+        ignoresDistinct = input.readBoolean();
+        isAnalyticFn = input.readBoolean();
+        isAggregateFn = input.readBoolean();
+        returnsNonNullOnEmpty = input.readBoolean();
     }
 }
 

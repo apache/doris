@@ -752,7 +752,7 @@ public class StmtExecutor {
         try {
             DdlExecutor.execute(context.getCatalog(), (DdlStmt) parsedStmt);
             context.getState().setOk();
-        } catch (DdlException e) {
+        } catch (UserException e) {
             // Return message to info client what happened.
             context.getState().setError(e.getMessage());
         } catch (Exception e) {
