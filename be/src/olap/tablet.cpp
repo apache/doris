@@ -76,7 +76,7 @@ OLAPStatus Tablet::init_once() {
     for (int ser = 0; ser < _tablet_meta.rowset_size(); ++ser) {
         const RowsetMeta* rs_meta = _tablet_meta.get_rs_meta(ser);
         Version version = rs_meta->version();
-        Rowset* rowset = new Rowset(rs_meta);
+        RowsetSharedPtr rowset(new Rowset(rs_meta));
         _version_rowset_map[version] = rowset;
         rowset->init();
     }
@@ -88,7 +88,7 @@ bool Tablet::can_do_compaction() {
     // 如果选路成功，则转换完成，可以进行BE
     // 如果选路失败，则转换未完成，不能进行BE
     ReadLock rdlock(_meta_lock);
-    const Rowset* lastest_rowset = lastest_version();
+    RowsetSharedPtr lastest_rowset = lastest_version();
     if (lastest_rowset == NULL) {
         return false;
     }
@@ -111,9 +111,9 @@ bool Tablet::can_do_compaction() {
     return true;
 }
 
-NewStatus Tablet::capture_consistent_versions(
+OLAPStatus Tablet::capture_consistent_versions(
                         const Version& version, vector<Version>* span_versions) const {
-    NewStatus status = _rs_graph->capture_consistent_versions(version, span_versions);
+    OLAPStatus status = _rs_graph->capture_consistent_versions(version, span_versions);
     if (!status.ok()) {
         LOG(WARNING) << "fail to generate shortest version path. tablet=" << full_name()
                      << ", version='" << version.first << "-" << version.second;
@@ -121,17 +121,17 @@ NewStatus Tablet::capture_consistent_versions(
     return status;
 }
 
-NewStatus Tablet::capture_consistent_rowsets(const Version& spec_version,
-                                             vector<Rowset*>* rs_readers) {
+OLAPStatus Tablet::capture_consistent_rowsets(const Version& spec_version,
+                                             vector<std::shared_ptr<RowsetReader>>* rs_readers) {
     vector<Version> version_path;
     _rs_graph->capture_consistent_versions(spec_version, version_graph);
 
     acquire_rs_reader_by_version(version_graph, rs_readers);
-    return Status::OK();
+    return OLAP_SUCCESS; 
 }
 
 void Tablet::acquire_rs_reader_by_version(const vector<Version>& version_vec,
-                                          vector<RowsetReader*>* rs_readers) const {
+                                          vector<std::shared_ptr<RowsetReader>>* rs_readers) const {
     DCHECK(rs_readers != NULL && rs_readers.empty());
     for (auto version : version_vec) {
         auto it2 = _rs_version_map.find(*it1);
@@ -142,32 +142,32 @@ void Tablet::acquire_rs_reader_by_version(const vector<Version>& version_vec,
             return;
         }
 
-        RowsetReader* rs_reader = RowsetReader::create(*it2);
+        std::shared_ptr<RowsetReader> rs_reader = RowsetReader::create(*it2);
         Status status = rs_reader->init();
         if (!status.ok()) {
             LOG(WARNING) << "fail to init rowset_reader. tablet=" << full_name()
                          << ", version=" << version.first << "-" << version.second;
             release_rs_readers(rs_readers);
         }
-        rs_reader.push_back(rs_reader):
+        rs_reader.push_back(std::move(rs_reader)):
     }
 }
 
-NewStatus Tablet::release_rs_readers(vector<RowsetReader*>* rs_readers) const {
+OLAPStatus Tablet::release_rs_readers(vector<std::shared_ptr<RowsetReader>>* rs_readers) const {
     DCHECK(rs_readers != nullptr) << "rs_readers is null. tablet=" << full_name();
     for (auto data : *rs_readers) {
         delete data;
     }
 
     rs_readers->clear();
-    return Status::OK();
+    return OLAP_SUCCESS; 
 }
 
 OLAPStatus Tablet::add_inc_rowset(const Rowset& rowset) {
     return _table_meta->add_inc_rs_meta(rowset->get_rs_meta());
 }
 
-NewStatus Tablet::delete_expired_inc_rowset() {
+OLAPStatus Tablet::delete_expired_inc_rowset() {
     time_t now = time(NULL);
     vector<Version> expired_versions;
     WriteLock wrlock(&_meta_lock);
@@ -187,7 +187,7 @@ NewStatus Tablet::delete_expired_inc_rowset() {
         LOG(FATAL) << "fail to save tablet_meta when delete expired inc_rowset. "
                    << "tablet=" << full_name();
     }
-    return NewStatus::OK();
+    return OLAP_SUCCESS;
 }
 
 void Tablet::delete_inc_rowset_by_version(const Version& version) {
@@ -200,7 +200,7 @@ void Tablet::calc_missed_versions(int64_t spec_version,
                                  vector<Version>* missed_versions) const {
     DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
     std::list<Version> existing_versions;
-    for (RowsetMeta* rs : _tablet_meta->get_all_rs_metas()) {
+    for (RowsetMeta& rs : _tablet_meta->get_all_rs_metas()) {
         existing_versions.emplace_back(rs->version());
     }
 
@@ -228,12 +228,13 @@ void Tablet::calc_missed_versions(int64_t spec_version,
     }
 }
 
-NewStatus Tablet::modify_rowsets(vector<Rowset*>& to_add, vector<Rowset*>& to_delete) {
-    return Status::OK();
+OLAPStatus Tablet::modify_rowsets(vector<RowsetSharedPtr>& to_add,
+                                 vector<RowsetSharedPtr>& to_delete) {
+    return OLAP_SUCESS;
 }
 
-Rowset* Tablet::rowset_with_largest_size() {
-    Rowset* largest_rowset = nullptr;
+RowsetSharedPtr Tablet::rowset_with_largest_size() {
+    RowsetSharedPtr largest_rowset = nullptr;
     size_t ser = 0;
 
     for (auto& it : _version_rowset_map) {
@@ -317,7 +318,7 @@ OLAPStatus Tablet::split_range(
     }
 
     ReadLock rdlock(get_header_lock_ptr());
-    Rowset* base_index = get_largest_rowset();
+    RowsetSharedPtr base_index = get_largest_rowset();
 
     // 如果找不到合适的segment_group，就直接返回startkey，endkey
     if (base_index == NULL) {
@@ -423,7 +424,7 @@ void Tablet::list_entities(vector<VersionEntity>* entities) const {
     DCHECK(entities != nullptr && entities.empty());
 
     for (auto& it : _version_rowset_map) {
-        Rowset* rowset = it->second;
+        RowsetSharedPtr rowset = it->second;
         VersionEntity entity(it->first, rowset);
         entities->push_back(entity);
     }
@@ -533,13 +534,13 @@ bool Tablet::is_used() {
 }
 
 VersionEntity Tablet::get_version_entity_by_version(const Version& version) {
-    Rowset* rowset = _version_rowset_map[version];
+    RowsetSharedPtr rowset = _version_rowset_map[version];
     VersionEntity entity(version, rowset);
     return entity;
 }
 
 size_t Tablet::get_version_data_size(const Version& version) {
-    Rowset* rowset = _version_rowset_map[version];
+    RowsetSharedPtr rowset = _version_rowset_map[version];
     return rowset->get_data_disk_size();
 }
 
