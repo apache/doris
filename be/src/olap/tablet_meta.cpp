@@ -23,37 +23,37 @@ TabletMeta::TabletMeta(DataDir* data_dir) {
     _data_dir = data_dir;
 }
 
-NewStatus TabletMeta::serialize(string* meta_binary) {
+OLAPStatus TabletMeta::serialize(string* meta_binary) {
     std::lock_guard<std::mutex> lock(_mutex);
     return serialize_unlock(meta_binary);
 };
 
-NewStatus TabletMeta::serialize_unlock(string* meta_binary) {
+OLAPStatus TabletMeta::serialize_unlock(string* meta_binary) {
     _tablet_meta_pb.SerializeToString(meta_binary);
-    return NewStatus::OK();
+    return OLAP_SUCCESS:
 };
 
-NewStatus TabletMeta::deserialize(string* meta_binary) {
+OLAPStatus TabletMeta::deserialize(string* meta_binary) {
     std::lock_guard<std::mutex> lock(_mutex);
     return deserialize_unlock(meta_binary);
 }
 
-NewStatus TabletMeta::deserialize_unlock(const string& meta_binary) {
+OLAPStatus TabletMeta::deserialize_unlock(const string& meta_binary) {
     _tablet_meta_pb.ParseFromString(meta_binary);
     _table_id = _tablet_meta_pb.table_id();
     _partition_id = _tablet_meta_pb.partition_id();
     _tablet_id = _tablet_meta_pb.tablet_id();
     _schema_hash = _tablet_meta_pb.schema_hash();
     _shard_id = _tablet_meta_pb.shard_id();
-    RETURN_NOT_OK(_schema.deserialize_from_pb(_tablet_meta_pb.schema()));
+    RETURN_NOT_OK(_schema.init_from_pb(_tablet_meta_pb.schema()));
     for (auto& it : _tablet_meta_pb.rs_metas()) {
-        RowsetMeta rs_meta;
-        rs_meta.deserialize_from_pb(it);
+        RowsetMetaSharedPtr rs_meta(new RowsetMeta());
+        rs_meta.init_from_pb(it);
         _rs_metas.push_back(std::move(rs_meta));
     }
     for (auto& it : _tablet_meta_pb.inc_rs_metas()) {
-        RowsetMeta rs_meta;
-        rs_meta.deserialize_from_pb(it);
+        RowsetMetaSharedPtr rs_meta(new RowsetMeta());
+        rs_meta.init_from_pb(it);
         _rs_metas.push_back(std::move(rs_meta));
     }
 
@@ -81,19 +81,19 @@ NewStatus TabletMeta::deserialize_unlock(const string& meta_binary) {
 
     // generate AlterTabletTask
     RETURN(_alter_task.deserialize_from_pb(_tablet_meta_pb.alter_tablet_task()));
-    return NewStatus::OK();
+    return OLAP_SUCCESS;
 }
 
-NewStatus TabletMeta::save_meta() {
+OLAPStatus TabletMeta::save_meta() {
     std::lock_guard<std::mutex> lock(_mutex);
     return save_meta_unlock();
 }
 
-NewStatus TabletMeta::save_meta_unlock() {
+OLAPStatus TabletMeta::save_meta_unlock() {
     string meta_binary;
     serialize_unlock(meta_binary);
-    NewStatus status = TabletMetaManager::save(_data_dir, _tablet_id, _schema_hash, meta_binary);
-    if (!status.ok()) {
+    OLAPStatus status = TabletMetaManager::save(_data_dir, _tablet_id, _schema_hash, meta_binary);
+    if (status != OLAP_SUCCESS) {
        LOG(WARNING) << "fail to save tablet_meta. status=" << status.to_string()
                     << ", tablet_id=" << _tablet_id
                     << ", schema_hash=" << _schema_hash;
@@ -101,12 +101,12 @@ NewStatus TabletMeta::save_meta_unlock() {
     return status;
 }
 
-NewStatus TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
+OLAPStatus TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     std::lock_guard<std::mutex> lock(_mutex);
     return to_meta_pb_unlock(tablet_meta_pb);
 }
 
-NewStatus TabletMeta::to_meta_pb_unlock(TabletMetaPB* tablet_meta_pb) {
+OLAPStatus TabletMeta::to_meta_pb_unlock(TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_table_id(_table_id);
     tablet_meta_pb->set_partition_id(_partition_id);
     tablet_meta_pb->set_table_id(_tablet_id);
@@ -122,17 +122,17 @@ NewStatus TabletMeta::to_meta_pb_unlock(TabletMetaPB* tablet_meta_pb) {
     }
     _schema.to_schema_pb(pb.mutable_schema());
 
-    return Status::OK();
+    return OLAP_SUCCESS;
 }
 
-NewStatus TabletMeta::add_inc_rs_meta(const RowsetMeta& rs_meta) {
+OLAPStatus TabletMeta::add_inc_rs_meta(const RowsetMeta& rs_meta) {
     std::lock_guard<std::mutex> lock(_mutex);
 
     // check RowsetMeta is valid
     for (auts rs : _inc_rs_metas) {
         if (rs.rowset_id() == rs_meta.rowset_id()()) {
             LOG(WARNING) << "rowset already exist. rowset_id=" << rs.rowset_id();
-            return NewStatus::AlreadyExist("rowset already exist.");
+            return OLAPStatus::AlreadyExist("rowset already exist.");
         }
     }
 
@@ -141,10 +141,10 @@ NewStatus TabletMeta::add_inc_rs_meta(const RowsetMeta& rs_meta) {
     RETURN_NOT_OK(rs_meta->to_meta_pb(rs_meta_pb));
     RETURN_NOT_OK(save_meta_unlock());
 
-    return Status::OK();
+    return OLAP_SUCCESS;
 }
 
-NewStatus TabletMeta::delete_inc_rs_meta_by_version(const Version& version)
+OLAPStatus TabletMeta::delete_inc_rs_meta_by_version(const Version& version)
     std::lock_guard<std::mutex> lock(_mutex);
     for (auto rs : _inc_rs_metas) {
         if (rs.version() == version) {
@@ -157,7 +157,7 @@ NewStatus TabletMeta::delete_inc_rs_meta_by_version(const Version& version)
     _tablet_meta_pb = std::move(tablet_meta_pb);
     RETURN_NOT_OK(save_meta_unlock());
 
-    return NewStatus::OK();
+    return OLAP_SUCCESS;
 }
 
 const RowsetMeta* TabletMeta::get_inc_rowset(const Version& version) const;
@@ -172,11 +172,11 @@ const RowsetMeta* TabletMeta::get_inc_rowset(const Version& version) const;
     return rs_meta;
 }
 
-NewStatus TabletMeta::modify_rowsets(const vector<RowsetMeta>& to_add,
-                                     const vector<RowsetMeta>& to_delete) {
+OLAPStatus TabletMeta::modify_rowsets(const vector<RowsetMetaSharedPtr>& to_add,
+                                     const vector<RowsetMetaSharedPtr>& to_delete) {
     std::lock_guard<std::mutex> lock(_mutex);
-    for (auto& to_delete_rs : to_delete) {
-        if (ContainsKey(to_delete, _rs_metas)) {
+    for (auto rs : to_delete) {
+        if (ContainsKey(rs, _rs_metas)) {
             _rs_metas.erase(rs);
         }
     }
@@ -190,24 +190,24 @@ NewStatus TabletMeta::modify_rowsets(const vector<RowsetMeta>& to_add,
     _tablet_meta_pb = std::move(tablet_meta_pb);
     RETURN_NOT_OK(save_meta_unlock());
 
-    return NewStatus::OK();
+    return OLAP_SUCCESS;
 }
 
-NewStatus TabletMeta::add_alter_task(const AlterTabletTask& alter_task) {
+OLAPStatus TabletMeta::add_alter_task(const AlterTabletTask& alter_task) {
     std::lock_guard<std::mutex> lock(_mutex);
     _alter_task = alter_task;
     RETURN_NOT_OK(_alter_task.to_alter_pb(_tablet_meta_pb.mutable_alter_tablet_task));
     RETURN_NOT_OK(save_meta_unlock());
-    return NewStatus::OK();
+    return OLAP_SUCCESS;
 }
 
-NewStatus TabletMeta::delete_alter_task() {
+OLAPStatus TabletMeta::delete_alter_task() {
     std::lock_guard<std::mutex> lock(_mutex);
     alter_task.clear();
     _tablet_meta_pb.clear_alter_tablet_task();
     RETURN_NOT_OK(save_meta_unlock());
 
-    return NewStatus::OK();
+    return OLAP_SUCCESS;
 }
 
 }  // namespace doris

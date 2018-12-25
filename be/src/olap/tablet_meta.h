@@ -53,9 +53,9 @@ enum AlterTabletType {
 
 class AlterTabletTask {
 public:
-    NewStatus deserialize_from_pb(const AlterTabletPB& alter_tablet_task);
-    NewStatus to_meta_pb(AlterTabletTaskPB* alter_task);
-    NewStatus clear();
+    OLAPStatus deserialize_from_pb(const AlterTabletPB& alter_tablet_task);
+    OLAPStatus to_meta_pb(AlterTabletTaskPB* alter_task);
+    OLAPStatus clear();
 
     inline int64_t related_tablet_id() { return _related_tablet_id; }
     inline int64_t related_schema_hash() { return _related_schema_hash; }
@@ -76,26 +76,27 @@ class TabletMeta {
 public:
     TabletMeta(DataDir* data_dir);
 
-    NewStatus serialize(string* meta_binary);
-    NewStatus serialize_unlock(string* meta_binary);
+    OLAPStatus serialize(string* meta_binary);
+    OLAPStatus serialize_unlock(string* meta_binary);
 
-    NewStatus deserialize(const string& meta_binary);
-    NewStatus deserialize_unlock(const string& meta_binary);
+    OLAPStatus deserialize(const string& meta_binary);
+    OLAPStatus deserialize_unlock(const string& meta_binary);
 
-    NewStatus save_meta();
-    NewStatus save_meta_unlock();
+    OLAPStatus save_meta();
+    OLAPStatus save_meta_unlock();
 
-    NewStatus to_meta_pb(TabletMetaPB* tablet_meta_pb);
-    NewStatus to_meta_pb_unlock(TabletMetaPB* tablet_meta_pb);
+    OLAPStatus to_meta_pb(TabletMetaPB* tablet_meta_pb);
+    OLAPStatus to_meta_pb_unlock(TabletMetaPB* tablet_meta_pb);
 
     Newstatus add_inc_rs_meta(const RowsetMeta& rs_meta);
-    NewStatus delete_inc_rs_meta_by_version(const Version& version);
-    const RowsetMeta* get_inc_rs_meta(const Version& version) const;
+    OLAPStatus delete_inc_rs_meta_by_version(const Version& version);
+    const RowsetMetaSharedPtr get_inc_rs_meta(const Version& version) const;
 
     const std::vector<RowsetMeta>& all_inc_rs_metas() const;
     const std::vector<RowsetMeta>& all_rs_metas() const;
 
-    NewStatus modify_rowsets(const vector<RowsetMeta>& to_add, const vector<RowsetMeta>& to_delete);
+    OLAPStatus modify_rowsets(const vector<RowsetMetaSharedPtr>& to_add,
+                              const vector<RowsetMetaSharedPtr>& to_delete);
 
     inline const int64_t table_id() const;
     inline const string table_name() const;
@@ -106,8 +107,8 @@ public:
 
     inline const AlterTabletTask& alter_task() const;
     inline const AlterTabletState& alter_state() const;
-    NewStatus add_alter_task(const AlterTabletTask& alter_task);
-    NewStatus delete_alter_task();
+    OLAPStatus add_alter_task(const AlterTabletTask& alter_task);
+    OLAPStatus delete_alter_task();
 
     inline const TabletState& tablet_state() const;
 private:
@@ -118,9 +119,9 @@ private:
     int64_t _schema_hash;
     int16_t _shard_id;
 
-    Schema _schema;
-    vector<RowsetMeta> _rs_metas;
-    vector<RowsetMeta> _inc_rs_metas;
+    TabletSchema _schema;
+    vector<RowsetMetaSharedPtr> _rs_metas;
+    vector<RowsetMetaSharedPtr> _inc_rs_metas;
 
     TabletState _tablet_state;
     AlterTabletTask _alter_task;

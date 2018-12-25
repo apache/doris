@@ -26,6 +26,9 @@
 
 namespace doris {
 
+class Rowset;
+using RowsetSharedPtr = std::shared_ptr<Rowset>;
+
 class Rowset {
 public:
     virtual ~Rowset() { }
