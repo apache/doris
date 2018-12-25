@@ -230,6 +230,22 @@ public class StreamLoadScanNodeTest {
             }
         }
 
+        new Expectations() {
+            {
+                dstTable.getColumn("k1");
+                result = columns.stream().filter(c -> c.getName().equals("k1")).findFirst().get();
+
+                dstTable.getColumn("k2");
+                result = columns.stream().filter(c -> c.getName().equals("k2")).findFirst().get();
+
+                dstTable.getColumn("v1");
+                result = columns.stream().filter(c -> c.getName().equals("v1")).findFirst().get();
+
+                dstTable.getColumn("v2");
+                result = columns.stream().filter(c -> c.getName().equals("v2")).findFirst().get();
+            }
+        };
+
         TStreamLoadPutRequest request = getBaseRequest();
         request.setFileType(TFileType.FILE_LOCAL);
         request.setColumns("k1,k2,v1, v2=k2");
@@ -264,6 +280,19 @@ public class StreamLoadScanNodeTest {
             catalog.getFunction((Function) any, (Function.CompareMode) any);
             result = new ScalarFunction(new FunctionName("hll_hash"), Lists.newArrayList(), Type.BIGINT, false);
         }};
+        
+        new Expectations() {
+            {
+                dstTable.getColumn("k1");
+                result = columns.stream().filter(c -> c.getName().equals("k1")).findFirst().get();
+
+                dstTable.getColumn("k2");
+                result = null;
+
+                dstTable.getColumn("v1");
+                result = columns.stream().filter(c -> c.getName().equals("v1")).findFirst().get();
+            }
+        };
 
         TStreamLoadPutRequest request = getBaseRequest();
         request.setFileType(TFileType.FILE_LOCAL);
@@ -299,6 +328,19 @@ public class StreamLoadScanNodeTest {
             catalog.getFunction((Function) any, (Function.CompareMode) any);
             result = new ScalarFunction(new FunctionName("hll_hash1"), Lists.newArrayList(), Type.BIGINT, false);
         }};
+
+        new Expectations() {
+            {
+                dstTable.getColumn("k1");
+                result = columns.stream().filter(c -> c.getName().equals("k1")).findFirst().get();
+
+                dstTable.getColumn("k2");
+                result = null;
+
+                dstTable.getColumn("v1");
+                result = columns.stream().filter(c -> c.getName().equals("v1")).findFirst().get();
+            }
+        };
 
         TStreamLoadPutRequest request = getBaseRequest();
         request.setFileType(TFileType.FILE_LOCAL);
@@ -419,6 +461,22 @@ public class StreamLoadScanNodeTest {
             }
         }
 
+        new Expectations() {
+            {
+                dstTable.getColumn("k1");
+                result = columns.stream().filter(c -> c.getName().equals("k1")).findFirst().get();
+
+                dstTable.getColumn("k2");
+                result = columns.stream().filter(c -> c.getName().equals("k2")).findFirst().get();
+
+                dstTable.getColumn("v1");
+                result = columns.stream().filter(c -> c.getName().equals("v1")).findFirst().get();
+
+                dstTable.getColumn("v2");
+                result = columns.stream().filter(c -> c.getName().equals("v2")).findFirst().get();
+            }
+        };
+
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,v1, v2=k1");
         request.setWhere("k1 = 1");
@@ -448,6 +506,22 @@ public class StreamLoadScanNodeTest {
                 slot.setIsNullable(false);
             }
         }
+
+        new Expectations() {
+            {
+                dstTable.getColumn("k1");
+                result = columns.stream().filter(c -> c.getName().equals("k1")).findFirst().get();
+
+                dstTable.getColumn("k2");
+                result = columns.stream().filter(c -> c.getName().equals("k2")).findFirst().get();
+
+                dstTable.getColumn("v1");
+                result = columns.stream().filter(c -> c.getName().equals("v1")).findFirst().get();
+
+                dstTable.getColumn("v2");
+                result = columns.stream().filter(c -> c.getName().equals("v2")).findFirst().get();
+            }
+        };
 
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,v1, v2=k2");
