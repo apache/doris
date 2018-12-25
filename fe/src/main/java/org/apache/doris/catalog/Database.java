@@ -592,7 +592,6 @@ public class Database extends MetaObject implements Writable {
         if (fns == null) {
             return null;
         }
-        LOG.info("desc is {} and fns is {}", desc.toSql(false), fns.size());
         return Function.getFunction(fns, desc, mode);
     }
 }

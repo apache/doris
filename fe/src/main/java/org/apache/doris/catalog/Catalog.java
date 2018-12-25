@@ -5932,7 +5932,6 @@ public class Catalog {
     }
 
     public void createFunction(CreateFunctionStmt stmt) throws UserException {
-        LOG.info("create function: {}", stmt.toSql());
         FunctionName name = stmt.getFunctionName();
         Database db = getDb(name.getDb());
         if (db == null) {

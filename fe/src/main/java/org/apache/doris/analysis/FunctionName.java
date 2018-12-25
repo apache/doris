@@ -153,6 +153,10 @@ public class FunctionName implements Writable {
         }
         analyzeDbImpl(analyzer);
 
+        if (Strings.isNullOrEmpty(db_)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+        }
+
         // If the function name is not fully qualified, it must not be the same as a builtin
 //        if (!isFullyQualified() && OpcodeRegistry.instance().getFunctionOperator(
 //          getFunction()) != FunctionOperator.INVALID_OPERATOR) {
