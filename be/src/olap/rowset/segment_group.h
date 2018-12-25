@@ -48,11 +48,11 @@ class SegmentGroup {
     friend class MemIndex;
 public:
     SegmentGroup(int64_t tablet_id, const RowFields& tablet_schema, int num_key_fields, int num_short_key_fields,
-            int num_rows_per_row_block, std::string tablet_path_prefix, Version version,
+            size_t num_rows_per_row_block, std::string tablet_path_prefix, Version version,
             VersionHash version_hash, bool delete_flag, int segment_group_id, int32_t num_segments);
 
     SegmentGroup(int64_t tablet_id, const RowFields& tablet_schema, int num_key_fields, int num_short_key_fields,
-            int num_rows_per_row_block, std::string tablet_path_prefix, bool delete_flag,
+            size_t num_rows_per_row_block, std::string tablet_path_prefix, bool delete_flag,
             int32_t segment_group_id, int32_t num_segments, bool is_pending,
             TPartitionId partition_id, TTransactionId transaction_id);
 
@@ -213,10 +213,6 @@ public:
     // return count of entries in MemIndex
     uint64_t num_index_entries() const;
 
-    size_t current_num_rows_per_row_block() const {
-        return _current_num_rows_per_row_block;
-    }
-
     OLAPStatus get_row_block_position(const OLAPIndexOffset& pos, RowBlockPosition* rbp) const {
         return _index.get_row_block_position(pos, rbp);
     }
@@ -239,23 +235,23 @@ public:
 
     int get_num_short_key_fields();
 
-    int get_num_rows_per_row_block();
+    size_t get_num_rows_per_row_block();
 
     std::string get_rowset_path_prefix();
 
     int64_t get_tablet_id();
 
 private:
-    std::string _construct_pending_file_path(int32_t segment, const std::string& suffix);
+    std::string _construct_pending_file_path(int32_t segment, const std::string& suffix) const;
     
-    std::string _construct_file_path(int32_t segment, const std::string& suffix);
+    std::string _construct_file_path(int32_t segment, const std::string& suffix) const;
 
 private:
     int64_t _tablet_id;
     const RowFields& _tablet_schema;    // tablet schema
     int _num_key_fields;    // number of tablet keys
     int _num_short_key_fields;  // number of tablet short keys
-    int _num_rows_per_row_block;    // row number of a row block
+    size_t _num_rows_per_row_block;    // row number of a row block
     std::string _rowset_path_prefix;    // path of rowset
     Version _version;                  // version of associated data file
     VersionHash _version_hash;         // version hash for this segmentgroup
@@ -295,14 +291,12 @@ private:
     // Lock held while loading the index.
     mutable boost::mutex _index_load_lock;
 
-    size_t _current_num_rows_per_row_block;
-
     std::vector<std::pair<WrapperField*, WrapperField*>> _column_statistics;
     std::unordered_map<uint32_t, FileHeader<ColumnDataHeaderMessage> > _seg_pb_map;
 
     DISALLOW_COPY_AND_ASSIGN(SegmentGroup);
 };
 
-}
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_GROUP_H

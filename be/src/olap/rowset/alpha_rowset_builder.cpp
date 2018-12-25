@@ -20,19 +20,19 @@
 namespace doris {
 
 NewStatus AlphaRowsetBuilder::init(int64_t rowset_id, const std::string& rowset_path_prefix, Schema* schema) {
-    return NewStatus.OK();
+    return NewStatus::OK();
 }
 
 NewStatus AlphaRowsetBuilder::add_row_block(const RowBlock& row_block) {
-    return NewStatus.OK();
+    return NewStatus::OK();
 }
 
 NewStatus AlphaRowsetBuilder::generate_written_path(const std::string& src_path, std::string* dest_path) {
-    return NewStatus.OK();
+    return NewStatus::OK();
 }
 
 NewStatus AlphaRowsetBuilder::build(Rowset* rowset) {
-    return NewStatus.OK();
+    return NewStatus::OK();
 }
 
 }  // namespace doris

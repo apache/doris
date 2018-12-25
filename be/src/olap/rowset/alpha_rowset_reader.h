@@ -17,16 +17,17 @@
 
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_READER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_READER_H
-P
+
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/segment_group.h"
 #include "olap/rowset/column_data.h"
+#include "olap/rowset/alpha_rowset_meta.h"
 
 #include <vector>
 
 namespace doris {
 
-class AlphaRowsetReader {
+class AlphaRowsetReader : public RowsetReader {
 public:
     AlphaRowsetReader(const RowFields& tablet_schema,
         int num_key_fields, int num_short_key_fields,
@@ -50,9 +51,9 @@ private:
 
     NewStatus _init_column_datas(ReaderContext* read_context);
 
-    NewStatus _get_next_row_for_singleton_rowset(RowCursor row);
+    NewStatus _get_next_row_for_singleton_rowset(RowCursor* row);
 
-    NewStatus _get_next_row_for_cumulative_rowset(RowCursor row);
+    NewStatus _get_next_row_for_cumulative_rowset(RowCursor* row);
 
     NewStatus _get_next_block(ColumnData* column_data, RowBlock* row_block);
 
@@ -60,17 +61,18 @@ private:
 
 private:
     RowFields _tablet_schema;
-    int num_key_fields;
-    int num_short_key_fields;
-    int num_rows_per_row_block;
+    int _num_key_fields;
+    int _num_short_key_fields;
+    int _num_rows_per_row_block;
     std::string _rowset_path;
     AlphaRowsetMeta* _alpha_rowset_meta;
-    std::vector<std::shared_ptr<SegmentGroup>> _segment_groups
+    std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
     std::vector<std::unique_ptr<ColumnData>> _column_datas;
     std::vector<RowBlock*> _row_blocks;
     int _key_range_size;
     int _key_range_index;
     bool _is_cumulative_rowset;
+    ReaderContext* _current_read_context;
 };
 
 }

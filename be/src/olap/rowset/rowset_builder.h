@@ -25,6 +25,8 @@
 
 namespace doris {
 
+class Rowset;
+
 class RowsetBuilder {
 public:
     virtual ~RowsetBuilder() { }

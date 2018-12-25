@@ -20,11 +20,8 @@
 namespace doris {
 
 bool AlphaRowsetMeta::deserialize_extra_properties() {
-    std::string extra_properties = _rowset_meta->extra_properties();
-    bool parsed = _extra_meta_pb->ParseFromString(extra_properties);
-    if (!parsed) {
-        LOG(WARNING) << "alpha rowset parse extra propertis failed.";
-    }
+    std::string extra_properties = get_extra_properties();
+    bool parsed = _extra_meta_pb.ParseFromString(extra_properties);
     return parsed;
 }
 
@@ -34,15 +31,15 @@ void AlphaRowsetMeta::get_segment_groups(std::vector<SegmentGroupPB>* segment_gr
     }
 }
 
-void AlphaRowsetMeta::add_segment_group(SegmentGroupPB& segment_group) {
-    SegmentGroupPB* new_segment_group = _extra_meta_pb.mutable_segment_groups();
+void AlphaRowsetMeta::add_segment_group(const SegmentGroupPB& segment_group) {
+    SegmentGroupPB* new_segment_group = _extra_meta_pb.add_segment_groups();
     *new_segment_group = segment_group;
 }
 
 void AlphaRowsetMeta::_serialize_extra_meta_pb() {
     std::string extra_properties;
-    _extra_meta_pb->SerializeToString(&extra_properties);
-    _rowset_meta->set_extra_properties(extra_properties);
+    _extra_meta_pb.SerializeToString(&extra_properties);
+    set_extra_properties(extra_properties);
 }
 
 }  // namespace doris

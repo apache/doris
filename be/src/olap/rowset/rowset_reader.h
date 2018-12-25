@@ -23,6 +23,9 @@
 #include "olap/column_predicate.h"
 #include "olap/row_cursor.h"
 #include "olap/row_block.h"
+#include "olap/lru_cache.h"
+#include "olap/olap_cond.h"
+#include "olap/delete_handler.h"
 #include "runtime/runtime_state.h"
 
 #include <memory>
@@ -49,6 +52,7 @@ struct ReaderContext {
     const DeleteHandler& delete_handler;
     OlapReaderStatistics* stats;
     bool is_using_cache;
+    Cache* lru_cache;
     RuntimeState* runtime_state;
 };
 

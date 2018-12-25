@@ -128,4 +128,3 @@ OLAPStatus BitFieldReader::skip(uint64_t num_values) {
 }
 
 }  // namespace doris
-

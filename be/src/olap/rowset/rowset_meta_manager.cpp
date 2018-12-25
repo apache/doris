@@ -24,7 +24,7 @@
 #include <boost/algorithm/string/trim.hpp>
 
 #include "olap/olap_define.h"
-#include "olap/storage_engine.h"
+#include "olap/utils.h"
 #include "common/logging.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"

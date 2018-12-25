@@ -555,7 +555,7 @@ bool CondColumn::eval(const BloomFilter& bf) const {
 }
 
 OLAPStatus Conditions::append_condition(const TCondition& tcond) {
-    int32_t index = _tablet->get_field_index(tcond.column_name);
+    int32_t index = _get_field_index(tcond.column_name);
     if (index < 0) {
         OLAP_LOG_WARNING("fail to get field index, name is invalid. [index=%d; field_name=%s]",
                          index,
@@ -564,7 +564,7 @@ OLAPStatus Conditions::append_condition(const TCondition& tcond) {
     }
 
     // Skip column which is non-key, or whose type is string or float
-    const FieldInfo& fi = _tablet->tablet_schema()[index];
+    const FieldInfo& fi = _tablet_schema[index];
     if (fi.type == OLAP_FIELD_TYPE_DOUBLE || fi.type == OLAP_FIELD_TYPE_FLOAT) {
         return OLAP_SUCCESS;
     }
@@ -572,7 +572,7 @@ OLAPStatus Conditions::append_condition(const TCondition& tcond) {
     CondColumn* cond_col = nullptr;
     auto it = _columns.find(index);
     if (it == _columns.end()) {
-        cond_col = new CondColumn(_tablet, index);
+        cond_col = new CondColumn(_tablet_schema, index);
         _columns[index] = cond_col;
     } else {
         cond_col = it->second;
