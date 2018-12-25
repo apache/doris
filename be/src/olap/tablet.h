@@ -41,8 +41,7 @@ class Tablet;
 class RowBlockPosition;
 class DataDir;
 
-// Define Tablet's shared_ptr. It is used for
-typedef std::shared_ptr<Tablet> TabletSharedPtr;
+using TabletSharedPtr = std::shared_ptr<Tablet>;
 
 class Tablet : public std::enable_shared_from_this<Tablet> {
 public:
@@ -76,29 +75,30 @@ public:
     size_t num_rows() const;
     FieldType get_field_type_by_index(size_t index);
     FieldAggregationMethod get_aggregation_by_index(size_t index);
-    NewStatus test_version(const Version& version);
+    OLAPStatus test_version(const Version& version);
     VersionEntity get_version_entity_by_version(const Version& version);
     size_t get_rowset_size(const Version& version);
 
     AlterTabletState alter_tablet_state();
     TabletState tablet_state() const;
 
-    const Rowset* get_rowset(int index) const;
-    const Rowset* lastest_rowset() const;
-    NewStatus all_rowsets(vector<Rowset*>* rowsets);
-    NewStatus modify_rowsets(vector<Rowset*>& to_add, vector<Rowset*>& to_delete);
+    const RowsetSharedPtr get_rowset(int index) const;
+    const RowsetSharedPtr lastest_rowset() const;
+    OLAPStatus all_rowsets(vector<RowsetSharedPtr> rowsets);
+    OLAPStatus modify_rowsets(vector<RowsetSharedPtr>& to_add,
+                             vector<RowsetSharedPtr>& to_delete);
 
-    NewStatus add_inc_rowset(const Rowset& rowset);
-    Rowset* get_inc_rowset(const Version& version) const;
-    NewStatus delete_inc_rowset_by_version(const Version& version);
-    NewStatus delete_expired_inc_rowset();
-    NewStatus is_deletion_rowset(const Version& version) const;
+    OLAPStatus add_inc_rowset(const Rowset& rowset);
+    RowsetSharedPtr get_inc_rowset(const Version& version) const;
+    OLAPStatus delete_inc_rowset_by_version(const Version& version);
+    OLAPStatus delete_expired_inc_rowset();
+    OLAPStatus is_deletion_rowset(const Version& version) const;
 
-    NewStatus create_snapshot();
-    NewStatus capture_consistent_rowsets(const Version& spec_version, vector<Rowset*>* rs_readers);
+    OLAPStatus create_snapshot();
+    OLAPStatus capture_consistent_rowsets(const Version& spec_version, vector<std::shared_ptr<RowsetReader>>* rs_readers);
     void acquire_rs_reader_by_version(const vector<Version>& version_vec,
-                                      vector<RowsetReader*>* rs_readers) const;
-    NewStatus release_rs_readers(vector<RowsetReader*>* rs_readers) const;
+                                      vector<std::shared_ptr<RowsetReader>>* rs_readers) const;
+    OLAPStatus release_rs_readers(vector<std::shared_ptr<RowsetReader>>* rs_readers) const;
 
     RMMutex* meta_lock();
     Mutex* ingest_lock();
@@ -152,7 +152,7 @@ public:
     }
 
     size_t get_version_data_size(const Version& version);
-    Rowset* rowset_with_largest_size();
+    RowsetSharedPtr rowset_with_largest_size();
 public:
     DataDir* _data_dir;
     TabletState _state;
@@ -164,7 +164,7 @@ public:
     Mutex _ingest_lock;
     Mutex _base_lock;
     Mutex _cumulative_lock;
-    std::unordered_map<Version, Rowset*, HashOfVersion> _version_rowset_map;
+    std::unordered_map<Version, std:shared_ptr<Rowset>, HashOfVersion> _version_rowset_map;
 
     bool _table_for_check;
     std::atomic<bool> _is_bad;   // if this tablet is broken, set to true. default is false
