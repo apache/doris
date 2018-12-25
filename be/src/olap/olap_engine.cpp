@@ -111,7 +111,6 @@ OLAPEngine::OLAPEngine(const EngineOptions& options)
         _effective_cluster_id(-1),
         _is_all_cluster_id_exist(true),
         _is_drop_tables(false),
-        _tablet_map_lock(RWMutex::Priority::PREFER_WRITING),
         _global_table_id(0),
         _index_stream_lru_cache(NULL),
         _tablet_stat_cache_update_time_ms(0),
@@ -1725,7 +1724,7 @@ void OLAPEngine::get_tablet_stat(TTabletStatResult& result) {
     // get current time
     int64_t current_time = UnixMillis();
     
-    _tablet_map_lock.wrlock();
+    _tablet_map_lock.rdlock();
     // update cache if too old
     if (current_time - _tablet_stat_cache_update_time_ms > 
         config::tablet_stat_cache_update_interval_second * 1000) {
