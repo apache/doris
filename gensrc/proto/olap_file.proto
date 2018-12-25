@@ -184,7 +184,7 @@ message OLAPHeaderMessage {
 }
 
 enum AlterTabletStatePB {
-    RUNNING = 0;
+    ALTERING = 0;
     FINISHED = 1;
     FAILED = 2;
 }
@@ -200,6 +200,25 @@ message AlterTabletPB {
     repeated RowsetMetaPB rowsets_to_alter = 3;
     optional AlterTabletStatePB alter_state = 4;
     optional AlterTabletTypePB alter_type = 5; 
+}
+
+message ColumnPB {
+    required int32 column_id = 1;
+    required FieldType type = 2;
+    optional bool is_key = 3;
+    optional bool is_nullable = 4;
+    optional bytes default_value = 5;
+    optional int32 referenced_column_id = 6;
+    optional string aggregation = 7;
+    optional int32 length = 8;
+    optional int32 index_length = 9;
+    optional int32 precision = 10;
+    optional int32 frac = 11;
+    optional bool is_bf_column = 12;
+}
+
+message TabletSchemaPB {
+    repeated ColumnPB columns = 1;
 }
 
 enum TabletStatePB {
@@ -217,50 +236,9 @@ message TabletMetaPB {
     optional int64 schema_hash = 4;
     optional int32 shard_id = 5;
 
-    optional SchemaPB schema = 6;
-    repeated RowsetMetaPB rs_meta = 7;
-    repeated RowsetMetaPB inc_rs_meta = 8;
-    optional TabletStatePB tablet_state = 9;
-    optional AlterTabletPB alter_tablet_task = 10;
-}
-
-enum AlterTabletStatePB {
-    RUNNING = 0;
-    FINISHED = 1;
-    FAILED = 2;
-}
-
-enum AlterTabletTypePB {
-    SCHEMA_CHANGE = 0;
-    ROLLUP = 1;
-}
-
-message AlterTabletPB {
-    required int64 related_tablet_id = 1;
-    optional int64 related_schema_hash = 2;
-    repeated RowsetMetaPB rowsets_to_alter = 3;
-    optional AlterTabletStatePB alter_state = 4;
-    optional AlterTabletTypePB alter_type = 5; 
-}
-
-enum TabletStatePB {
-    NOTREADY = 0; // under alter table, rollup, clone
-    RUNNING = 1;
-    TOMBSTONED = 2;
-    STOPPED = 3;
-    SHUTDOWN = 4;
-}
-
-message TabletMetaPB {
-    optional int64 table_id = 1;
-    optional int64 partition_id = 2;
-    optional int64 tablet_id = 3;
-    optional int64 schema_hash = 4;
-    optional int16 shard_id = 5;
-
-    optional SchemaPB schema = 6;
-    repeated RowsetMetaPB rs_meta = 7;
-    repeated RowsetMetaPB inc_rs_meta = 8;
+    optional TabletSchemaPB schema = 6;
+    repeated RowsetMetaPB rs_metas = 7;
+    repeated RowsetMetaPB inc_rs_metas = 8;
     optional TabletStatePB tablet_state = 9;
     optional AlterTabletPB alter_tablet_task = 10;
 }
