@@ -55,7 +55,7 @@ message PDelta {
     required int64 version_hash = 3;
     required int64 creation_time = 4;
     repeated SegmentGroupPB segment_group = 5;
-    optional DeleteConditionMessage delete_condition = 6;
+    optional DeletePredicatePB delete_condition = 6;
 }
 
 enum RowsetTypePB {
@@ -85,7 +85,7 @@ message RowsetMetaPB {
     optional int64 index_disk_size = 13;
     // column min/max/null flag statistic info
     repeated ColumnPruning column_statistics = 14;
-    optional DeleteConditionMessage delete_predicate = 15;
+    optional DeletePredicatePB delete_predicate = 15;
     optional bool empty = 16;
     optional string rowset_path = 17;
     // spare field id for future use
@@ -111,7 +111,7 @@ message PPendingDelta {
     required int64 transaction_id = 2;
     required int64 creation_time = 3;
     repeated PendingSegmentGroupPB pending_segment_group = 4;
-    optional DeleteConditionMessage delete_condition = 5;
+    optional DeletePredicatePB delete_condition = 5;
 }
 
 message PendingSegmentGroupPB {
@@ -144,7 +144,7 @@ enum KeysType {
     AGG_KEYS = 2;
 }
 
-message DeleteConditionMessage {
+message DeletePredicatePB {
     required int32 version = 1;
     repeated string sub_conditions = 2;
 }
@@ -164,7 +164,7 @@ message OLAPHeaderMessage {
     optional uint32 next_column_unique_id = 10 [default = 0];
     optional CompressKind compress_kind = 11 [default = COMPRESS_LZO];
     optional uint32 segment_size = 12 [default = 4292870144];
-    repeated DeleteConditionMessage delete_data_conditions = 13;
+    repeated DeletePredicatePB delete_data_conditions = 13;
     // bloom filter false positive probability
     optional double bf_fpp = 14;
     optional KeysType keys_type = 15;
@@ -184,9 +184,9 @@ message OLAPHeaderMessage {
 }
 
 enum AlterTabletStatePB {
-    ALTERING = 0;
-    FINISHED = 1;
-    FAILED = 2;
+    PB_ALTERING = 0;
+    PB_FINISHED = 1;
+    PB_FAILED = 2;
 }
 
 enum AlterTabletTypePB {
@@ -202,9 +202,25 @@ message AlterTabletPB {
     optional AlterTabletTypePB alter_type = 5;
 }
 
+enum ColumnType {
+    TINYINT = 0;
+    SMALLINT = 1;
+    INT = 2;
+    BIGINT = 3;
+    LARGEINT = 4;
+    FLOAT = 5;
+    DOUBLE = 6;
+    DECIMAL = 7;
+    CHAR = 8;
+    VARCHAR = 9;
+    HLL = 10;
+    DATE = 11;
+    DATETIME = 12;
+}
+
 message ColumnPB {
     required int32 column_id = 1;
-    required FieldType type = 2;
+    required ColumnType type = 2;
     optional bool is_key = 3;
     optional bool is_nullable = 4;
     optional bytes default_value = 5;
@@ -222,11 +238,11 @@ message TabletSchemaPB {
 }
 
 enum TabletStatePB {
-    NOTREADY = 0; // under alter table, rollup, clone
-    RUNNING = 1;
-    TOMBSTONED = 2;
-    STOPPED = 3;
-    SHUTDOWN = 4;
+    PB_NOTREADY  = 0; // under alter table, rollup, clone
+    PB_RUNNING = 1;
+    PB_TOMBSTONED = 2;
+    PB_STOPPED = 3;
+    PB_SHUTDOWN = 4;
 }
 
 message TabletMetaPB {

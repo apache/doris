@@ -30,10 +30,10 @@ OLAPStatus TabletMeta::serialize(string* meta_binary) {
 
 OLAPStatus TabletMeta::serialize_unlock(string* meta_binary) {
     _tablet_meta_pb.SerializeToString(meta_binary);
-    return OLAP_SUCCESS:
+    return OLAP_SUCCESS;
 };
 
-OLAPStatus TabletMeta::deserialize(string* meta_binary) {
+OLAPStatus TabletMeta::deserialize(const string& meta_binary) {
     std::lock_guard<std::mutex> lock(_mutex);
     return deserialize_unlock(meta_binary);
 }
@@ -59,28 +59,28 @@ OLAPStatus TabletMeta::deserialize_unlock(const string& meta_binary) {
 
     // generate TabletState
     switch (_tablet_meta_pb.tablet_state()) {
-        case NOT_READY:
-            _tablet_state = TabletState::kNotReady;
+        case PB_NOTREADY:
+            _tablet_state = TabletState::NOTREADY;
             break;
-        case RUNNING:
-            _tablet_state = TabletState::kRunning;
+        case PB_RUNNING:
+            _tablet_state = TabletState::RUNNING;
             break;
-        case TOMBSTONED:
-            _tablet_state = TabletState::kTombstoned;
+        case PB_TOMBSTONED:
+            _tablet_state = TabletState::TOMBSTONED;
             break;
-        case STOPPED:
-            _tablet_state = TabletState::kStopped;
+        case PB_STOPPED:
+            _tablet_state = TabletState::STOPPED;
             break;
-        case SHUTDOWN:
-            _tablet_state = TabletState::kShutdown;
+        case PB_SHUTDOWN:
+            _tablet_state = TabletState::SHUTDOWN;
             break;
         default:
-            LOG(WARNNING) << "tablet has no state. tablet=" << _tablet_id
+            LOG(WARNING) << "tablet has no state. tablet=" << _tablet_id
                           << ", schema_hash=" << _schema_hash;
     }
 
     // generate AlterTabletTask
-    RETURN(_alter_task.deserialize_from_pb(_tablet_meta_pb.alter_tablet_task()));
+    RETURN_NOT_OK(_alter_task.init_from_pb(_tablet_meta_pb.alter_tablet_task()));
     return OLAP_SUCCESS;
 }
 
@@ -91,7 +91,7 @@ OLAPStatus TabletMeta::save_meta() {
 
 OLAPStatus TabletMeta::save_meta_unlock() {
     string meta_binary;
-    serialize_unlock(meta_binary);
+    serialize_unlock(&meta_binary);
     OLAPStatus status = TabletMetaManager::save(_data_dir, _tablet_id, _schema_hash, meta_binary);
     if (status != OLAP_SUCCESS) {
        LOG(WARNING) << "fail to save tablet_meta. status=" << status.to_string()
@@ -101,12 +101,12 @@ OLAPStatus TabletMeta::save_meta_unlock() {
     return status;
 }
 
-OLAPStatus TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
+OLAPStatus TabletMeta::to_tablet_pb(TabletMetaPB* tablet_meta_pb) {
     std::lock_guard<std::mutex> lock(_mutex);
-    return to_meta_pb_unlock(tablet_meta_pb);
+    return to_tablet_pb_unlock(tablet_meta_pb);
 }
 
-OLAPStatus TabletMeta::to_meta_pb_unlock(TabletMetaPB* tablet_meta_pb) {
+OLAPStatus TabletMeta::to_tablet_pb_unlock(TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_table_id(_table_id);
     tablet_meta_pb->set_partition_id(_partition_id);
     tablet_meta_pb->set_table_id(_tablet_id);
@@ -115,10 +115,10 @@ OLAPStatus TabletMeta::to_meta_pb_unlock(TabletMetaPB* tablet_meta_pb) {
 
     tablet_meta_pb->set_tablet_name(_tablet_name);
     for (auto rs : _rs_metas) {
-        rs->to_meta_pb(pb.add_rs_meta());
+        rs.to_rowset_pb(pb.add_rs_meta());
     }
     for (auto rs : _inc_rs_metas) {
-        rs->to_meta_pb(pb.add_inc_rc_meta());
+        rs.to_rowset_pb(pb.add_inc_rc_meta());
     }
     _schema.to_schema_pb(pb.mutable_schema());
 
@@ -129,16 +129,16 @@ OLAPStatus TabletMeta::add_inc_rs_meta(const RowsetMeta& rs_meta) {
     std::lock_guard<std::mutex> lock(_mutex);
 
     // check RowsetMeta is valid
-    for (auts rs : _inc_rs_metas) {
-        if (rs.rowset_id() == rs_meta.rowset_id()()) {
+    for (auto rs : _inc_rs_metas) {
+        if (rs.rowset_id() == rs_meta.rowset_id()) {
             LOG(WARNING) << "rowset already exist. rowset_id=" << rs.rowset_id();
             return OLAPStatus::AlreadyExist("rowset already exist.");
         }
     }
 
     _inc_rs_metas.push_back(std::move(rs_meta));
-    RowsetMetaPB* rs_meta_pb = _tablet_meta_pb->add_inc_rs_meta();
-    RETURN_NOT_OK(rs_meta->to_meta_pb(rs_meta_pb));
+    RowsetMetaPB* rs_meta_pb = _tablet_meta_pb.add_inc_rs_meta();
+    RETURN_NOT_OK(rs_meta.to_rowset_pb(rs_meta_pb));
     RETURN_NOT_OK(save_meta_unlock());
 
     return OLAP_SUCCESS;
@@ -153,7 +153,7 @@ OLAPStatus TabletMeta::delete_inc_rs_meta_by_version(const Version& version)
     }
 
     TabletMetaPB tablet_meta_pb;
-    RETURN_NOT_OK(to_meta_pb_unlock(&tablet_meta_pb));
+    RETURN_NOT_OK(to_tablet_pb_unlock(&tablet_meta_pb));
     _tablet_meta_pb = std::move(tablet_meta_pb);
     RETURN_NOT_OK(save_meta_unlock());
 
@@ -186,7 +186,7 @@ OLAPStatus TabletMeta::modify_rowsets(const vector<RowsetMetaSharedPtr>& to_add,
     }
 
     TabletMetaPB tablet_meta_pb;
-    RETURN_NOT_OK(to_meta_pb_unlock(&tablet_meta_pb));
+    RETURN_NOT_OK(to_tablet_pb_unlock(&tablet_meta_pb));
     _tablet_meta_pb = std::move(tablet_meta_pb);
     RETURN_NOT_OK(save_meta_unlock());
 

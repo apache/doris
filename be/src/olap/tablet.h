@@ -32,6 +32,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tuple.h"
 #include "olap/row_cursor.h"
+#include "olap/rowset_graph.h"
 #include "olap/utils.h"
 
 namespace doris {
@@ -40,6 +41,7 @@ class Rowset;
 class Tablet;
 class RowBlockPosition;
 class DataDir;
+class RowsetReader;
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
 
@@ -59,7 +61,7 @@ public:
     double bloom_filter_fpp() const;
     bool equal(TTabletId tablet_id, TSchemaHash schema_hash);
 
-    Schema* schema() const;
+    TabletSchema* schema() const;
     const std::string& full_name() const;
     size_t num_fields() const;
     size_t num_null_fields();
@@ -100,7 +102,7 @@ public:
                                       vector<std::shared_ptr<RowsetReader>>* rs_readers) const;
     OLAPStatus release_rs_readers(vector<std::shared_ptr<RowsetReader>>* rs_readers) const;
 
-    RMMutex* meta_lock();
+    RWMutex* meta_lock();
     Mutex* ingest_lock();
     Mutex* base_lock();
     Mutex* cumulative_lock();
@@ -120,7 +122,7 @@ public:
     bool can_do_compaction();
 
     DeletePredicatePB* add_delete_predicates() {
-        return _tablet_meta->add_delete_predicates();
+        return _tablet_meta.add_delete_predicates();
     }
 
     const google::protobuf::RepeatedPtrField<DeletePredicatePB>&
@@ -159,12 +161,22 @@ public:
     RowsetGraph* _rs_graph;
 
     TabletMeta _tablet_meta;
-    Schema* _schema;
-    RMMutex _meta_lock;
+    TabletSchema* _schema;
+    RWMutex _meta_lock;
     Mutex _ingest_lock;
     Mutex _base_lock;
     Mutex _cumulative_lock;
-    std::unordered_map<Version, std:shared_ptr<Rowset>, HashOfVersion> _version_rowset_map;
+
+    // used for hash-struct of hash_map<Version, Rowset*>.
+    struct HashOfVersion {
+        size_t operator()(const Version& version) const {
+            size_t seed = 0;
+            seed = HashUtil::hash64(&version.first, sizeof(version.first), seed);
+            seed = HashUtil::hash64(&version.second, sizeof(version.second), seed);
+            return seed;
+        }
+    };
+    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _version_rowset_map;
 
     bool _table_for_check;
     std::atomic<bool> _is_bad;   // if this tablet is broken, set to true. default is false
