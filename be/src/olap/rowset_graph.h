@@ -18,15 +18,20 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_GRAPH_H
 #define DORIS_BE_SRC_OLAP_ROWSET_GRAPH_H
 
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
+
+namespace doris {
+
 class RowsetGraph {
 public:
-    NewStatus construct_rowset_graph(const std::vector<RowsetMeta>& rs_metas);
-    NewStatus add_version_to_graph(const Versrion& version);
-    NewStatus delete_version_from_graph(const Version& version);
-    NewStatus capture_consistent_versions(const Version& spec_version,
-                                          version<Version>* version_path);
+    OLAPStatus construct_rowset_graph(const std::vector<RowsetMeta>& rs_metas);
+    OLAPStatus add_version_to_graph(const Version& version);
+    OLAPStatus delete_version_from_graph(const Version& version);
+    OLAPStatus capture_consistent_versions(const Version& spec_version,
+                                           std::vector<Version>* version_path);
 private:
-    NewStatus _add_vertex_to_graph(int vertex_value);
+    OLAPStatus _add_vertex_to_graph(int vertex_value);
 
     // OLAP version contains two parts, [start_version, end_version]. In order
     // to construct graph, the OLAP version has two corresponding vertex, one

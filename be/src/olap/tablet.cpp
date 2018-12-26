@@ -58,12 +58,8 @@ Tablet(TabletMeta* tablet_meta, DataDir* data_dir) {
 }
 
 Tablet::~Tablet() {
-    if (_tablet_meta == NULL) {
-        return;  // for convenience of mock test.
-    }
-
     // ensure that there is nobody using Tablet, like acquiring OLAPData(SegmentGroup)
-    WriteLock wrlock(_meta_lock);
+    WriteLock wrlock(&_meta_lock);
     for (auto& it : _version_rowset_map) {
         SAFE_DELETE(it.second);
     }
@@ -87,7 +83,7 @@ bool Tablet::can_do_compaction() {
     // 如果table正在做schema change，则通过选路判断数据是否转换完成
     // 如果选路成功，则转换完成，可以进行BE
     // 如果选路失败，则转换未完成，不能进行BE
-    ReadLock rdlock(_meta_lock);
+    ReadLock rdlock(&_meta_lock);
     RowsetSharedPtr lastest_rowset = lastest_version();
     if (lastest_rowset == NULL) {
         return false;
@@ -96,7 +92,7 @@ bool Tablet::can_do_compaction() {
     Version test_version = Version(0, lastest_version->end_version());
     vector<Version> path_versions;
     if (OLAP_SUCCESS != _rs_graph->capture_consistent_versions(test_version, &path_versions)) {
-        LOG(WARNING) << "tablet has missed version. tablet=" << table->full_name();
+        LOG(WARNING) << "tablet has missed version. tablet=" << full_name();
         return false;
     }
 
@@ -132,7 +128,7 @@ OLAPStatus Tablet::capture_consistent_rowsets(const Version& spec_version,
 
 void Tablet::acquire_rs_reader_by_version(const vector<Version>& version_vec,
                                           vector<std::shared_ptr<RowsetReader>>* rs_readers) const {
-    DCHECK(rs_readers != NULL && rs_readers.empty());
+    DCHECK(rs_readers != NULL && rs_readers->empty());
     for (auto version : version_vec) {
         auto it2 = _rs_version_map.find(*it1);
         if (it2 == _rs_version_map.end()) {
@@ -149,7 +145,7 @@ void Tablet::acquire_rs_reader_by_version(const vector<Version>& version_vec,
                          << ", version=" << version.first << "-" << version.second;
             release_rs_readers(rs_readers);
         }
-        rs_reader.push_back(std::move(rs_reader)):
+        rs_reader->push_back(std::move(rs_reader)):
     }
 }
 
@@ -160,11 +156,11 @@ OLAPStatus Tablet::release_rs_readers(vector<std::shared_ptr<RowsetReader>>* rs_
     }
 
     rs_readers->clear();
-    return OLAP_SUCCESS; 
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus Tablet::add_inc_rowset(const Rowset& rowset) {
-    return _table_meta->add_inc_rs_meta(rowset->get_rs_meta());
+    return _table_meta.add_inc_rs_meta(rowset->get_rs_meta());
 }
 
 OLAPStatus Tablet::delete_expired_inc_rowset() {
@@ -201,7 +197,7 @@ void Tablet::calc_missed_versions(int64_t spec_version,
     DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
     std::list<Version> existing_versions;
     for (RowsetMeta& rs : _tablet_meta->get_all_rs_metas()) {
-        existing_versions.emplace_back(rs->version());
+        existing_versions.emplace_back(rs.version());
     }
 
     // sort the existing versions in ascending order
@@ -210,7 +206,7 @@ void Tablet::calc_missed_versions(int64_t spec_version,
         return a.first < b.first;
     });
 
-    // find the missing version until until_version
+    // find the missing version until spec_version
     int64_t last_version = -1;
     for (const Version& version : existing_versions) {
         if (version.first > last_version + 1) {
@@ -223,8 +219,8 @@ void Tablet::calc_missed_versions(int64_t spec_version,
             break;
         }
     }
-    for (int64_t i = last_version + 1; i <= until_version; ++i) {
-        spec_versions->emplace_back(i, i);
+    for (int64_t i = last_version + 1; i <= spec_version; ++i) {
+        missed_versions->emplace_back(i, i);
     }
 }
 
@@ -375,7 +371,7 @@ OLAPStatus Tablet::split_range(
     }
 
     cur_start_key.attach(entry.data);
-    last_start_key.allocate_memory_for_string_type(_tablet_schema);
+    last_start_key.allocate_memory_for_string_type(_schema);
     last_start_key.copy_without_pool(cur_start_key);
     // start_key是last start_key, 但返回的实际上是查询层给出的key
     ranges->emplace_back(start_key.to_tuple());
@@ -471,7 +467,7 @@ bool Tablet::is_schema_changing() {
     bool is_schema_changing = false;
 
     ReadLock rdlock(_meta_lock);
-    if (_tablet_meta->alter_state() != AlterTabletState::none) {
+    if (_tablet_meta->alter_state() != AlterTabletState::NONE) {
         is_schema_changing = true;
     }
 
