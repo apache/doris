@@ -17,7 +17,9 @@
 
 #include "olap/rowset_graph.h"
 
-NewStatus Tablet::construct_rowset_graph(const std::vector<RowsetMeta>& rs_metas) {
+namespace doris {
+
+OLAPStatus Tablet::construct_rowset_graph(const std::vector<RowsetMeta>& rs_metas) {
     if (rs_metas.size() == 0) {
         VLOG(3) << "there is no version in the header.";
         return Status::OK();
@@ -43,7 +45,7 @@ NewStatus Tablet::construct_rowset_graph(const std::vector<RowsetMeta>& rs_metas
         }
 
         // Add vertex to graph.
-        NewStatus status = add_vertex_to_graph(vertex_values[i]);
+        OLAPStatus status = add_vertex_to_graph(vertex_values[i]);
         if (!status.ok())
             LOG(WARNING) << "fail to add vertex to version graph. vertex=" << vertex_values[i];
             return status;
@@ -67,19 +69,19 @@ NewStatus Tablet::construct_rowset_graph(const std::vector<RowsetMeta>& rs_metas
     }
 }
 
-NewStatus RowsetGraph::add_version_to_graph(const Version& version) {
+OLAPStatus RowsetGraph::add_version_to_graph(const Version& version) {
     // Add version.first as new vertex of version graph if not exist.
     int start_vertex_value = version.first;
     int end_vertex_value = version.second + 1;
 
     // Add vertex to graph.
-    NewStatus status = add_vertex_to_graph(start_vertex_value);
+    OLAPStatus status = add_vertex_to_graph(start_vertex_value);
     if (!status.ok()) {
         LOG(WARNING) << "fail to add vertex to version graph. vertex=" << start_vertex_value;
         return status;
     }
 
-    NewStatus status = add_vertex_to_graph(end_vertex_value);
+    OLAPStatus status = add_vertex_to_graph(end_vertex_value);
     if (!status.ok()) {
         LOG(WARNING) << "fail to add vertex to version graph. vertex=" << end_vertex_value;
         return status;
@@ -100,7 +102,7 @@ NewStatus RowsetGraph::add_version_to_graph(const Version& version) {
     return Status::OK();
 }
 
-NewStatus RowsetGraph::delete_version_from_graph(const Version& version) {
+OLAPStatus RowsetGraph::delete_version_from_graph(const Version& version) {
     int start_vertex_value = version.first;
     int end_vertex_value = version.second + 1;
 
@@ -108,7 +110,7 @@ NewStatus RowsetGraph::delete_version_from_graph(const Version& version) {
           || _vertex_helper_map->find(end_vertex_value) == _vertex_helper_map->end()) {
         LOG(WARNING) << "vertex for version does not exists. "
                      << "version=" << version.first << "-" << version.second;
-        return NewStatus::NotFound("vertex for version does not exists.");
+        return OLAPStatus::NotFound("vertex for version does not exists.");
     }
 
     int start_vertex_index = (*_vertex_helper_map)[start_vertex_value];
@@ -131,7 +133,7 @@ NewStatus RowsetGraph::delete_version_from_graph(const Version& version) {
     return Status::OK();
 }
 
-NewStatus RowsetGraph::_add_vertex_to_graph(int vertex_value) {
+OLAPStatus RowsetGraph::_add_vertex_to_graph(int vertex_value) {
     // Vertex with vertex_value already exists.
     if (_vertex_index_map->find(vertex_value) != _vertex_index_map->end()) {
         VLOG(3) << "vertex with vertex value already exists. value=" << vertex_value;
@@ -140,7 +142,7 @@ NewStatus RowsetGraph::_add_vertex_to_graph(int vertex_value) {
 
     list<int>* edges = new(std::nothrow) list<int>();
     if (edges == NULL) {
-        return NewStatus::Corruption("malloc memory failed for edge list");
+        return OLAPStatus::Corruption("malloc memory failed for edge list");
     }
 
     Vertex vertex = {vertex_value, edges};
@@ -149,7 +151,8 @@ NewStatus RowsetGraph::_add_vertex_to_graph(int vertex_value) {
     return Status::OK();
 }
 
-NewStatus Tablet::capture_consistent_versions(const Version& spec_version, version<Version>* version_path) {
+OLAPStatus Tablet::capture_consistent_versions(const Version& spec_version,
+                                               std::vector<Version>* version_path) {
     if (spec_version.first > spec_version.second) {
         LOG(WARNING) << "invalid specfied version. "
                      << "spec_version=" << spec_version.first << "-" << spec_version.second;
