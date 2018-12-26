@@ -121,20 +121,18 @@ public class FunctionName implements Writable {
         return db_ + "." + fn_;
     }
 
-    private void analyzeDbImpl(Analyzer analyzer) throws AnalysisException {
-        if (db_ == null) {
-            db_ = analyzer.getDefaultDb();
+    // used to analyze db element in function name, add cluster
+    public String analyzeDb(Analyzer analyzer) throws AnalysisException {
+        String db = db_;
+        if (db == null) {
+            db = analyzer.getDefaultDb();
         } else {
             if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NAME_NULL);
             }
-            db_ = ClusterNamespace.getFullName(analyzer.getClusterName(), db_);
+            db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         }
-    }
-
-    // used to analyze db element in function name, add cluster
-    public void analyzeDb(Analyzer analyzer) throws AnalysisException {
-        analyzeDbImpl(analyzer);
+        return db;
     }
 
     public void analyze(Analyzer analyzer) throws AnalysisException {
@@ -151,10 +149,16 @@ public class FunctionName implements Writable {
         if (Character.isDigit(fn_.charAt(0))) {
             throw new AnalysisException("Function cannot start with a digit: " + fn_);
         }
-        analyzeDbImpl(analyzer);
-
-        if (Strings.isNullOrEmpty(db_)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+        if (db_ == null) {
+            db_ = analyzer.getDefaultDb();
+            if (Strings.isNullOrEmpty(db_)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+            }
+        } else {
+            if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NAME_NULL);
+            }
+            db_ = ClusterNamespace.getFullName(analyzer.getClusterName(), db_);
         }
 
         // If the function name is not fully qualified, it must not be the same as a builtin

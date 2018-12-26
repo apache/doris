@@ -426,7 +426,6 @@ public class FunctionCallExpr extends Expr {
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        fnName.analyzeDb(analyzer);
         if (isMergeAggFn) {
             // This is the function call expr after splitting up to a merge aggregation.
             // The function has already been analyzed so just do the minimal sanity
@@ -487,12 +486,15 @@ public class FunctionCallExpr extends Expr {
             // now first find function in builtin functions
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), collectChildReturnTypes(),
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            if (fn == null && !Strings.isNullOrEmpty(fnName.getDb())) {
-                Database db = Catalog.getInstance().getDb(fnName.getDb());
-                if (db != null) {
-                    Function searchDesc = new Function(
-                            fnName, collectChildReturnTypes(), Type.INVALID, false);
-                    fn = db.getFunction(searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            if (fn == null) {
+                String dbName = fnName.analyzeDb(analyzer);
+                if (!Strings.isNullOrEmpty(dbName)) {
+                    Database db = Catalog.getInstance().getDb(dbName);
+                    if (db != null) {
+                        Function searchDesc = new Function(
+                                fnName, collectChildReturnTypes(), Type.INVALID, false);
+                        fn = db.getFunction(searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                    }
                 }
             }
         }
