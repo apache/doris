@@ -18,13 +18,15 @@
 #ifndef DORIS_BE_SRC_OLAP_TABLET_META_H
 #define DORIS_BE_SRC_OLAP_TABLET_META_H
 
+#include <mutex>
 #include <string>
 #include <vector>
 
+#include "common/logging.h"
 #include "gen_cpp/olap_file.pb.h"
-#include "gen_cpp/Types_types.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/tablet_schema.h"
 
 using std::string;
 using std::vector;
@@ -41,20 +43,23 @@ enum TabletState {
 
 enum AlterTabletState {
     NONE,
-    RUNNING,
+    ALTERING,
     FINISHED,
     FAILED
 };
 
-enum AlterTabletType {
-    SCHEMA_CHANGE = 0,
-    ROLLUP = 1
-}
+class Rowset;
+using RowsetSharedPtr = std::shared_ptr<Rowset>;
+
+class RowsetMeta;
+using RowsetMetaSharedPtr = std::shared_ptr<RowsetMeta>;
+
+class DataDir;
 
 class AlterTabletTask {
 public:
-    OLAPStatus deserialize_from_pb(const AlterTabletPB& alter_tablet_task);
-    OLAPStatus to_meta_pb(AlterTabletTaskPB* alter_task);
+    OLAPStatus init_from_pb(const AlterTabletPB& alter_tablet_task);
+    OLAPStatus to_alter_pb(AlterTabletPB* alter_task);
     OLAPStatus clear();
 
     inline int64_t related_tablet_id() { return _related_tablet_id; }
@@ -62,15 +67,15 @@ public:
 
     vector<RowsetMeta>& rowsets_to_alter() { return _rowsets_to_alter; }
 
-    AlterTabletState alter_state() { return _alter_state; }
-    AlterTabletType { return _alter_type; }
+    const AlterTabletState& alter_state() const { return _alter_state; }
+    const AlterTabletType& alter_type() const { return _alter_type; }
 private:
     int64_t _related_tablet_id;
     int64_t _related_schema_hash;
     vector<RowsetMeta> _rowsets_to_alter;
     AlterTabletState _alter_state;
     AlterTabletType _alter_type;
-}
+};
 
 class TabletMeta {
 public:
@@ -85,12 +90,13 @@ public:
     OLAPStatus save_meta();
     OLAPStatus save_meta_unlock();
 
-    OLAPStatus to_meta_pb(TabletMetaPB* tablet_meta_pb);
-    OLAPStatus to_meta_pb_unlock(TabletMetaPB* tablet_meta_pb);
+    OLAPStatus to_tablet_pb(TabletMetaPB* tablet_meta_pb);
+    OLAPStatus to_tablet_pb_unlock(TabletMetaPB* tablet_meta_pb);
 
-    Newstatus add_inc_rs_meta(const RowsetMeta& rs_meta);
+    OLAPStatus add_inc_rs_meta(const RowsetMeta& rs_meta);
     OLAPStatus delete_inc_rs_meta_by_version(const Version& version);
     const RowsetMetaSharedPtr get_inc_rs_meta(const Version& version) const;
+    DeletePredicatePB* add_delete_predicates();
 
     const std::vector<RowsetMeta>& all_inc_rs_metas() const;
     const std::vector<RowsetMeta>& all_rs_metas() const;
@@ -132,35 +138,35 @@ private:
     std::mutex _mutex;
 };
 
-inline const int64_t table_id() const {
+inline const int64_t TabletMeta::table_id() const {
     return _tablet_id;
 }
 
-inline const int64_t partition_id() const {
+inline const int64_t TabletMeta::partition_id() const {
     return _partition_id;
 }
 
-inline const int64_t tablet_id() const {
+inline const int64_t TabletMeta::tablet_id() const {
     return _tablet_id;
 }
 
-inline const int64_t schema_hash() const {
+inline const int64_t TabletMeta::schema_hash() const {
     return _schema_hash;
 }
 
-inline const int16_t shard_id() {
+inline const int16_t TabletMeta::shard_id() {
     return _shard_id;
 }
 
-inline const AlterTabletTask& alter_task() const {
+inline const AlterTabletTask& TabletMeta::alter_task() const {
     return _alter_task;
 }
 
-inline const AlterTabletState& alter_state() const {
+inline const AlterTabletState& TabletMeta::alter_state() const {
     return _alter_task.alter_state();
 }
 
-inline const TabletState& tablet_state() const {
+inline const TabletState& TabletMeta::tablet_state() const {
     return _tablet_state;
 }
 
