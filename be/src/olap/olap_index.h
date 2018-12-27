@@ -33,14 +33,12 @@
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/tablet.h"
 #include "olap/row_cursor.h"
 #include "olap/utils.h"
 
 namespace doris {
 class IndexComparator;
 class SegmentGroup;
-class Tablet;
 class RowBlock;
 class RowCursor;
 class SegmentComparator;

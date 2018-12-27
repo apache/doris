@@ -453,6 +453,7 @@ set(DORIS_LINK_LIBS
     Exprs
     Gutil
     Olap
+    Rowset
     Runtime
     Service
     Udf
@@ -550,6 +551,7 @@ add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/gen_cpp)
 add_subdirectory(${SRC_DIR}/gutil)
 add_subdirectory(${SRC_DIR}/olap)
+add_subdirectory(${SRC_DIR}/olap/rowset)
 add_subdirectory(${SRC_DIR}/agent)
 add_subdirectory(${SRC_DIR}/http)
 add_subdirectory(${SRC_DIR}/service)

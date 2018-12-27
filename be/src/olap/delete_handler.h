@@ -26,7 +26,6 @@
 #include "olap/field.h"
 #include "olap/olap_cond.h"
 #include "olap/olap_define.h"
-#include "olap/tablet.h"
 #include "olap/row_cursor.h"
 
 namespace doris {
@@ -55,22 +54,7 @@ public:
 
     // 检查cond表示的删除条件是否符合要求；
     // 如果不符合要求，返回OLAP_ERR_DELETE_INVALID_CONDITION；符合要求返回OLAP_SUCCESS
-    OLAPStatus check_condition_valid(TabletSharedPtr tablet, const TCondition& cond);
-
-    // 存储指定版本号的删除条件到Header文件中。因此，调用之前需要对Header文件加写锁
-    //
-    // 输入参数：
-    //     * table：指定删除条件要作用的olap engine表；删除条件就存储在这个表的Header文件中
-    //     * version: 删除条件的版本
-    //     * del_condition: 用字符串形式表示的删除条件
-    // 返回值：
-    //     * OLAP_SUCCESS：调用成功
-    //     * OLAP_ERR_DELETE_INVALID_PARAMETERS：函数参数不符合要求
-    //     * OLAP_ERR_DELETE_INVALID_CONDITION：del_condition不符合要求
-    OLAPStatus store_cond(
-            TabletSharedPtr tablet,
-            const int32_t version,
-            const std::vector<TCondition>& conditions);
+    OLAPStatus check_condition_valid(const RowFields& tablet_schema, const TCondition& cond);
 
     // construct sub condition from TCondition
     std::string construct_sub_conditions(const TCondition& condition);
@@ -90,7 +74,7 @@ public:
     //         * 这个表没有指定版本号的删除条件
     //     * OLAP_ERR_DELETE_INVALID_PARAMETERS：函数参数不符合要求
     OLAPStatus delete_cond(
-            TabletSharedPtr tablet, const int32_t version, bool delete_smaller_version_conditions);
+            del_cond_array* delete_condition, const int32_t version, bool delete_smaller_version_conditions);
 
     // 将一个olap engine的表上存有的所有删除条件打印到log中。调用前只需要给Header文件加读锁
     //
@@ -98,15 +82,26 @@ public:
     //     tablet: 要打印删除条件的olap engine表
     // 返回值：
     //     OLAP_SUCCESS：调用成功
-    OLAPStatus log_conds(TabletSharedPtr tablet);
+    OLAPStatus log_conds(std::string tablet_full_name,
+        const del_cond_array& delete_conditions);
 private:
 
     // 检查指定的删除条件版本是否符合要求；
     // 如果不符合要求，返回OLAP_ERR_DELETE_INVALID_VERSION；符合要求返回OLAP_SUCCESS
-    OLAPStatus _check_version_valid(TabletSharedPtr tablet, const int32_t filter_version);
+    OLAPStatus _check_version_valid(std::vector<Version>* all_file_versions, const int32_t filter_version);
 
     // 检查指定版本的删除条件是否已经存在。如果存在，返回指定版本删除条件的数组下标；不存在返回-1
-    int _check_whether_condition_exist(TabletSharedPtr, int cond_version);
+    int _check_whether_condition_exist(const del_cond_array& delete_conditions, int cond_version);
+
+    int32_t _get_field_index(const RowFields& tablet_schema, const std::string& field_name) const {
+        for (int i = 0; i < tablet_schema.size(); i++) {
+            if (tablet_schema[i].name == field_name) {
+                return i;
+            }
+        }
+        LOG(WARNING) << "invalid field name. [name='" << field_name << "']";
+        return -1;
+    }
 };
 
 // 表示一个删除条件
@@ -154,7 +149,8 @@ public:
     //     * OLAP_SUCCESS: 调用成功
     //     * OLAP_ERR_DELETE_INVALID_PARAMETERS: 参数不符合要求
     //     * OLAP_ERR_MALLOC_ERROR: 在填充_del_conds时，分配内存失败
-    OLAPStatus init(TabletSharedPtr tablet, int32_t version);
+    OLAPStatus init(const RowFields& tablet_schema,
+        const del_cond_array& delete_conditions, int32_t version);
 
     // 判定一条数据是否符合删除条件
     //

@@ -89,6 +89,9 @@ public:
     // Only used to binary search in full-key find row
     const RowCursor* seek_and_get_current_row(const RowBlockPosition& position);
 
+    void set_lru_cache(Cache* lru_cache) {
+        _lru_cache = lru_cache;
+    }
 
     void set_stats(OlapReaderStatistics* stats) {
         _stats = stats;
@@ -202,6 +205,7 @@ private:
     int64_t _end_row_index = 0;
 
     size_t _num_rows_per_block;
+    Cache* _lru_cache;
 };
 
 class ColumnDataComparator {

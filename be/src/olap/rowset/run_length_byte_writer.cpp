@@ -143,4 +143,3 @@ void RunLengthByteWriter::get_position(PositionEntryWriter* index_entry) const {
 }
 
 }  // namespace doris
-

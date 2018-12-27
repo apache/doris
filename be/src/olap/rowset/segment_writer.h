@@ -19,7 +19,7 @@
 #define DORIS_BE_SRC_OLAP_ROWSET_SEGMENT_WRITER_H
 
 #include "olap/olap_define.h"
-#include "olap/rowset/data_writer.h"
+#include "olap/rowset/column_data_writer.h"
 
 namespace doris {
 
@@ -30,8 +30,10 @@ class ColumnDataHeaderMessage;
 class SegmentWriter {
 public:
     explicit SegmentWriter(const std::string& file_name,
-            TabletSharedPtr tablet,
-            uint32_t stream_buffer_size);
+            SegmentGroup* segment_group,
+            uint32_t stream_buffer_size,
+            CompressKind compress_kind,
+            double bloom_filter_fpp);
     ~SegmentWriter();
     OLAPStatus init(uint32_t write_mbytes_per_sec);
     OLAPStatus write_batch(RowBlock* block, RowCursor* cursor, bool is_finalize);
@@ -44,9 +46,12 @@ private:
     // Helper: 生成最终的PB文件头
     OLAPStatus _make_file_header(ColumnDataHeaderMessage* file_header);
 
+private:
     std::string _file_name;
-    TabletSharedPtr _tablet;
+    SegmentGroup* _segment_group;
     uint32_t _stream_buffer_size; // 输出缓冲区大小
+    CompressKind _compress_kind;
+    double _bloom_filter_fpp;
     std::vector<ColumnWriter*> _root_writers;
     OutStreamFactory* _stream_factory;
     uint64_t _row_count;    // 已经写入的行总数
