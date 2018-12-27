@@ -26,7 +26,7 @@
 #include <vector>
 
 #include "common/logging.h"
-#include "gutil/dynamic_annotations.h"
+#include "util/asan.h"
 #include "util/bit_util.h"
 
 namespace doris {

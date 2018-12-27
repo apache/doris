@@ -41,8 +41,6 @@
 #define BUTIL_BASICTYPES_H_
 #endif
 
-#include "gutil/logging-inl.h"
-
 #ifdef DEBUG_MODE
 #undef DEBUG_MODE
 #endif

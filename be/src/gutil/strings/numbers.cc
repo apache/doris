@@ -22,7 +22,6 @@ using std::string;
 #include "gutil/int128.h"
 #include "gutil/integral_types.h"
 #include <common/logging.h>
-#include "gutil/logging-inl.h"
 #include "gutil/gscoped_ptr.h"
 #include "gutil/stringprintf.h"
 #include "gutil/strtoint.h"

@@ -22,7 +22,11 @@
 #include <time.h>
 #include <string>
 
-#include "gutil/walltime.h"
+#define NANOS_PER_SEC  1000000000ll
+#define NANOS_PER_MICRO      1000ll
+#define MICROS_PER_SEC    1000000ll
+#define MICROS_PER_MILLI     1000ll
+#define MILLIS_PER_SEC       1000ll
 
 /// Utilities for collecting timings.
 namespace doris {
@@ -35,6 +39,12 @@ inline int64_t MonotonicNanos() {
   timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
   return ts.tv_sec * NANOS_PER_SEC + ts.tv_nsec;
+}
+
+inline int64_t GetMonoTimeMicros() {
+  timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return ts.tv_sec * MICROS_PER_SEC + ts.tv_nsec / NANOS_PER_MICRO;
 }
 
 inline int64_t MonotonicMicros() {  // 63 bits ~= 5K years uptime
@@ -54,7 +64,7 @@ inline int64_t MonotonicSeconds() {
 /// a cluster. For more accurate timings on the local host use the monotonic functions
 /// above.
 inline int64_t UnixMillis() {
-  return GetCurrentTimeMicros() / MICROS_PER_MILLI;
+  return GetMonoTimeMicros() / MICROS_PER_MILLI;
 }
 
 /// Returns the number of microseconds that have passed since the Unix epoch. This is
@@ -62,7 +72,7 @@ inline int64_t UnixMillis() {
 /// a cluster. For more accurate timings on the local host use the monotonic functions
 /// above.
 inline int64_t UnixMicros() {
-  return GetCurrentTimeMicros();
+  return GetMonoTimeMicros();
 }
 
 /// Sleeps the current thread for at least duration_ms milliseconds.
