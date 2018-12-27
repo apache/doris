@@ -20,8 +20,7 @@ The simplicity (of developing, deploying and using) and meeting many data servin
 
 ## 4. Compile and install
 
-Currently support Docker environment and Linux OS: 
-Docker (Linux / Windows / Mac), Ubuntu and CentOS.
+Currently only supports Docker environment and Linux OS, such as Ubuntu and CentOS.
 
 ### 4.1 For Docker
 
@@ -70,25 +69,15 @@ sh build.sh
 
 After successfully building, it will install binary files in the directory output/.
 
-### 4.2 For Linux
+### 4.2 For Linux OS
 
 #### Prerequisites
 
+You must be install following softwares:
+
 GCC 5.3.1+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.4.3+
 
-* For Ubuntu: 
-
-```
-sudo apt-get install g++ cmake zip byacc flex automake libtool binutils-dev libiberty-dev bison python2.7 libncurses5-dev
-sudo updatedb
-```
-
-* For CentOS:
-
-```
-sudo yum install gcc-c++ libstdc++-static cmake byacc flex automake libtool binutils-devel bison ncurses-devel
-sudo updatedb
-```
+After you installed above all, you also must be set them to environment variable PATH and set JAVA_HOME.
 
 If your GCC version is less than 5.3.1, you can run:
 
@@ -97,7 +86,6 @@ sudo yum install devtoolset-4-toolchain -y
 ```
 
 and then, set the path of GCC (e.g /opt/rh/devtoolset-4/root/usr/bin) to the environment variable PATH.
-
 
 #### Compile and install
 
