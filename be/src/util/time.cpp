@@ -21,6 +21,7 @@
 #include <sstream>
 #include <cstdlib>
 
+#include "common/logging.h"
 #include "util/time.h"
 
 using namespace doris;

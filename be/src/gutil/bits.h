@@ -6,7 +6,6 @@
 
 #include "gutil/basictypes.h"
 #include "gutil/integral_types.h"
-#include "gutil/logging-inl.h"
 #include "gutil/macros.h"
 
 #ifndef _BITS_H_

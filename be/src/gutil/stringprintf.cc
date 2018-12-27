@@ -8,7 +8,6 @@
 #include <vector>
 using std::vector;
 #include <common/logging.h>
-#include "gutil/logging-inl.h"
 #include "gutil/macros.h"
 
 #ifdef _MSC_VER
