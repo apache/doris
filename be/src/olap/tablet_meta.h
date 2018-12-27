@@ -113,6 +113,7 @@ public:
     TabletMeta();
     TabletMeta(const std::string& file_name);
     TabletMeta(DataDir* data_dir);
+
     OLAPStatus serialize(string* meta_binary);
     OLAPStatus serialize_unlock(string* meta_binary);
 

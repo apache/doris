@@ -664,7 +664,7 @@ OLAPStatus SnapshotManager::storage_medium_migrate(
         return OLAP_SUCCESS;
     }
 
-    TStorageMedium::type src_storage_medium = tablet->store()->storage_medium();
+    TStorageMedium::type src_storage_medium = tablet->data_dir()->storage_medium();
     if (src_storage_medium == storage_medium) {
         LOG(INFO) << "tablet is already on specified storage medium. "
                   << "storage_medium=" << storage_medium;
