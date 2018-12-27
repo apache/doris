@@ -134,10 +134,13 @@ OLAPStatus CumulativeCompaction::run() {
 
     do {
         // 3. 生成新cumulative文件对应的olap index
+        /*
         _new_segment_group = new (nothrow) SegmentGroup(_tablet.get(),
                                                         _cumulative_version,
                                                         _cumulative_version_hash,
                                                         false, 0, 0);
+        */
+        _new_segment_group = nullptr;
         if (_new_segment_group == NULL) {
             OLAP_LOG_WARNING("failed to malloc new cumulative olap index. "
                              "[tablet=%s; cumulative_version=%d-%d]",

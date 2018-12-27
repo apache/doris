@@ -312,10 +312,14 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
                                                uint64_t* row_count) {
     OlapStopWatch watch;
     // 1. 生成新base文件对应的olap index
+    /*
     SegmentGroup* new_base = new (std::nothrow) SegmentGroup(_tablet.get(),
                                                        _new_base_version,
                                                        new_base_version_hash,
                                                        false, 0, 0);
+    */
+
+    SegmentGroup* new_base = nullptr;
     if (new_base == NULL) {
         OLAP_LOG_WARNING("fail to new SegmentGroup.");
         return OLAP_ERR_MALLOC_ERROR;
@@ -432,7 +436,7 @@ OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<SegmentGrou
 
     // Base Compaction完成之后，需要删除header中版本号小于等于新base文件版本号的删除条件
     DeleteConditionHandler cond_handler;
-    cond_handler.delete_cond(_tablet, _new_base_version.second, true);
+    cond_handler.delete_cond(nullptr, _new_base_version.second, true);
 
     // 如果保存Header失败, 所有新增的信息会在下次启动时丢失, 属于严重错误
     // 暂时没办法做很好的处理,报FATAL

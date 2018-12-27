@@ -104,8 +104,9 @@ OLAPStatus DeltaWriter::init() {
     }
 
     ++_segment_group_id;
-    _cur_segment_group = new SegmentGroup(_tablet.get(), false, _segment_group_id, 0, true,
-                               _req.partition_id, _req.transaction_id);
+    //_cur_segment_group = new SegmentGroup(_tablet.get(), false, _segment_group_id, 0, true,
+                               //_req.partition_id, _req.transaction_id);
+    _cur_segment_group = nullptr; 
     DCHECK(_cur_segment_group != nullptr) << "failed to malloc SegmentGroup";
     _cur_segment_group->acquire();
     _cur_segment_group->set_load_id(_req.load_id);
@@ -114,7 +115,7 @@ OLAPStatus DeltaWriter::init() {
     // New Writer to write data into SegmentGroup
     VLOG(3) << "init writer. tablet=" << _tablet->full_name() << ", "
             << "block_row_size=" << _tablet->num_rows_per_row_block();
-    _writer = ColumnDataWriter::create(_tablet, _cur_segment_group, true);
+    _writer = ColumnDataWriter::create(_cur_segment_group, true, _tablet->compress_kind(), _tablet->bloom_filter_fpp());
     DCHECK(_writer != nullptr) << "memory error occur when creating writer";
 
     const std::vector<SlotDescriptor*>& slots = _req.tuple_desc->slots();
@@ -146,15 +147,16 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
         RETURN_NOT_OK(_mem_table->flush(_writer));
 
         ++_segment_group_id;
-        _cur_segment_group = new SegmentGroup(_tablet.get(), false, _segment_group_id, 0, true,
-                                   _req.partition_id, _req.transaction_id);
+        //_cur_segment_group = new SegmentGroup(_tablet.get(), false, _segment_group_id, 0, true,
+        //                           _req.partition_id, _req.transaction_id);
+        _cur_segment_group = nullptr; 
         DCHECK(_cur_segment_group != nullptr) << "failed to malloc SegmentGroup";
         _cur_segment_group->acquire();
         _cur_segment_group->set_load_id(_req.load_id);
         _segment_group_vec.push_back(_cur_segment_group);
 
         SAFE_DELETE(_writer);
-        _writer = ColumnDataWriter::create(_tablet, _cur_segment_group, true);
+        _writer = ColumnDataWriter::create(_cur_segment_group, true, _tablet->compress_kind(), _tablet->bloom_filter_fpp());
         DCHECK(_writer != nullptr) << "memory error occur when creating writer";
 
         SAFE_DELETE(_mem_table);

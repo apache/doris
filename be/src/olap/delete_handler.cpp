@@ -63,7 +63,7 @@ string DeleteConditionHandler::construct_sub_conditions(const TCondition& condit
 
 // 删除指定版本号的删除条件；需要注意的是，如果table上没有任何删除条件，或者
 // 指定版本号的删除条件不存在，也会返回OLAP_SUCCESS。
-OLAPStatus DeleteConditionHandler::delete_cond(del_cond_array* delete_condition,
+OLAPStatus DeleteConditionHandler::delete_cond(del_cond_array* delete_conditions,
         const int32_t version,
         bool delete_smaller_version_conditions) {
     if (version < 0) {
@@ -81,7 +81,7 @@ OLAPStatus DeleteConditionHandler::delete_cond(del_cond_array* delete_condition,
         // 1. 如果删除条件的版本号等于形参指定的版本号，则删除该版本的文件；
         // 2. 如果还指定了delete_smaller_version_conditions为true，则同时删除
         //    版本号小于指定版本号的删除条件；否则不删除。
-        DeleteConditionMessage temp = delete_conditions->Get(index);
+        DeletePredicatePB temp = delete_conditions->Get(index);
 
         if (temp.version() == version ||
                 (temp.version() < version && delete_smaller_version_conditions)) {
@@ -114,7 +114,7 @@ OLAPStatus DeleteConditionHandler::log_conds(std::string tablet_full_name,
     LOG(INFO) << "display all delete condition. tablet=" << tablet_full_name;
 
     for (int index = 0; index != delete_conditions.size(); ++index) {
-        DeleteConditionMessage temp = delete_conditions.Get(index);
+        DeletePredicatePB temp = delete_conditions.Get(index);
         string del_cond_str;
         const RepeatedPtrField<string>& sub_conditions = temp.sub_conditions();
 
@@ -210,9 +210,9 @@ OLAPStatus DeleteConditionHandler::_check_version_valid(std::vector<Version>* al
         const int32_t filter_version) {
     // 找到当前最大的delta文件版本号
     int max_delta_version = -1;
-    vector<Version>::const_iterator version_iter = all_file_versions.begin();
+    vector<Version>::const_iterator version_iter = all_file_versions->begin();
 
-    for (; version_iter != all_file_versions.end(); ++version_iter) {
+    for (; version_iter != all_file_versions->end(); ++version_iter) {
         if (version_iter->second > max_delta_version) {
             max_delta_version = version_iter->second;
         }
@@ -235,7 +235,7 @@ int DeleteConditionHandler::_check_whether_condition_exist(const del_cond_array&
     int index = 0;
 
     while (index != delete_conditions.size()) {
-        DeleteConditionMessage temp = delete_conditions.Get(index);
+        DeletePredicatePB temp = delete_conditions.Get(index);
 
         if (temp.version() == cond_version) {
             return index;

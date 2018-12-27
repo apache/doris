@@ -358,7 +358,7 @@ OLAPStatus StorageEngine::_create_snapshot_files(
         }
 
         // load tablet header, in order to remove versions that not in shortest version path
-        DataDir* store = ref_tablet->store();
+        DataDir* store = ref_tablet->data_dir();
         new_tablet_meta = new(nothrow) TabletMeta();
         if (new_tablet_meta == NULL) {
             OLAP_LOG_WARNING("fail to malloc TabletMeta.");
@@ -661,7 +661,7 @@ OLAPStatus StorageEngine::storage_medium_migrate(
         return OLAP_SUCCESS;
     }
 
-    TStorageMedium::type src_storage_medium = tablet->store()->storage_medium();
+    TStorageMedium::type src_storage_medium = tablet->data_dir()->storage_medium();
     if (src_storage_medium == storage_medium) {
         LOG(INFO) << "tablet is already on specified storage medium. "
                   << "storage_medium=" << storage_medium;

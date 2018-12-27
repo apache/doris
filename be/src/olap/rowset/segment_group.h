@@ -295,7 +295,6 @@ private:
     std::vector<std::pair<WrapperField*, WrapperField*>> _column_statistics;
     std::unordered_map<uint32_t, FileHeader<ColumnDataHeaderMessage> > _seg_pb_map;
 
-    DISALLOW_COPY_AND_ASSIGN(SegmentGroup);
 };
 
 } // namespace doris

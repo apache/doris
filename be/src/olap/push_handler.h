@@ -29,7 +29,7 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_group.h"
 #include "olap/row_cursor.h"
-#include "olap/rowset/data_writer.h"
+#include "olap/rowset/column_data_writer.h"
 
 namespace doris {
 
