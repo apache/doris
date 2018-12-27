@@ -187,12 +187,12 @@ public:
         *new_column_statistic = column_statistic;
     }
 
-    virtual const DeleteConditionMessage& get_delete_predicate() {
+    virtual const DeletePredicatePB& get_delete_predicate() {
         return _rowset_meta_pb.delete_predicate();
     }
 
-    virtual void set_delete_predicate(DeleteConditionMessage& delete_predicate) {
-        DeleteConditionMessage* new_delete_condition = _rowset_meta_pb.mutable_delete_predicate();
+    virtual void set_delete_predicate(DeletePredicatePB& delete_predicate) {
+        DeletePredicatePB* new_delete_condition = _rowset_meta_pb.mutable_delete_predicate();
         *new_delete_condition = delete_predicate;
     }
 

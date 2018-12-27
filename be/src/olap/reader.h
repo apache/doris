@@ -36,6 +36,7 @@
 #include "util/runtime_profile.h"
 
 #include "olap/column_predicate.h"
+#include "olap/tablet.h"
 
 namespace doris {
 
@@ -44,6 +45,7 @@ class RowCursor;
 class RowBlock;
 class CollectIterator;
 class RuntimeState;
+class ColumnData;
 
 // Params for Reader,
 // mainly include tablet, data version and fetch range.

@@ -47,7 +47,7 @@ namespace doris {
 //    *  在调用log_conds()的时候，只需要加读锁
 class DeleteConditionHandler {
 public:
-    typedef google::protobuf::RepeatedPtrField<DeleteConditionMessage> del_cond_array;
+    typedef google::protobuf::RepeatedPtrField<DeletePredicatePB> del_cond_array;
 
     DeleteConditionHandler() {}
     ~DeleteConditionHandler() {}
@@ -130,7 +130,7 @@ struct DeleteConditions {
 class DeleteHandler {
 public:
     typedef std::vector<DeleteConditions>::size_type cond_num_t;
-    typedef google::protobuf::RepeatedPtrField<DeleteConditionMessage> del_cond_array;
+    typedef google::protobuf::RepeatedPtrField<DeletePredicatePB> del_cond_array;
 
     DeleteHandler() : _is_inited(false) {}
     ~DeleteHandler() {}
