@@ -142,6 +142,13 @@ OLAPStatus BaseCompaction::run() {
         return res;
     }
 
+    if (_validate_delete_file_action() != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to do base compaction. delete action has error.";
+        _garbage_collection();
+        return OLAP_ERR_BE_ERROR_DELETE_ACTION;
+    }
+
+
     VLOG(3) << "elapsed time of doing base compaction:" << stage_watch.get_elapse_time_us();
 
     // 4. make new versions visable.
@@ -156,24 +163,6 @@ OLAPStatus BaseCompaction::run() {
         return res;
     }
     _delete_old_files(&unused_olap_indices);
-
-    //  validate that delete action is right
-    //  if error happened, sleep 1 hour. Report a fatal log every 1 minute
-    if (_validate_delete_file_action() != OLAP_SUCCESS) {
-        int sleep_count = 0;
-        while (true) {
-            if (sleep_count >= 60) {
-                break;
-            }
-
-            ++sleep_count;
-            LOG(FATAL) << "base compaction's delete action has error.sleep 1 minute...";
-            sleep(60);
-        }
-
-        _garbage_collection();
-        return OLAP_ERR_BE_ERROR_DELETE_ACTION;
-    }
 
     _release_base_compaction_lock();
 
