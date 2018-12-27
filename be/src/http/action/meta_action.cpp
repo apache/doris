@@ -54,7 +54,7 @@ Status MetaAction::_handle_header(HttpRequest *req, std::string* json_header) {
         LOG(WARNING) << "no tablet for tablet_id:" << tablet_id << " schema hash:" << schema_hash;
         return Status("no tablet exist");
     }
-    OLAPStatus s = TabletMetaManager::get_json_header(tablet->store(), tablet_id, schema_hash, json_header);
+    OLAPStatus s = TabletMetaManager::get_json_header(tablet->data_dir(), tablet_id, schema_hash, json_header);
     if (s == OLAP_ERR_META_KEY_NOT_FOUND) {
         return Status("no header exist");
     } else if (s != OLAP_SUCCESS) {

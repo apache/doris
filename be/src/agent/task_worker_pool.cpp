@@ -2303,7 +2303,7 @@ AgentStatus TaskWorkerPool::_move_dir(
     }
 
     std::string dest_tablet_dir = tablet->construct_dir_path();
-    std::string store_path = tablet->store()->path();
+    std::string store_path = tablet->data_dir()->path();
 
     SnapshotLoader* loader = _env->snapshot_loader();
     Status status = loader->move(src, dest_tablet_dir, store_path, job_id, overwrite);

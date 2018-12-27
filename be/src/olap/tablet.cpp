@@ -39,7 +39,9 @@
 #include "util/defer_op.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
-#include "olap/rowset/data_writer.h"
+#include "olap/rowset/column_data_writer.h"
+#include "olap/rowset/column_data.h"
+#include "olap/rowset/segment_group.h"
 
 using std::pair;
 using std::map;
