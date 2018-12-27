@@ -207,7 +207,7 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id, 
             return Status("create link path failed");
         }
     }
-    std::string restore_shard_path = store->get_absolute_shard_path(std::to_string(header.shard()));
+    std::string restore_shard_path = store->get_absolute_shard_path(std::to_string(header.shard_id()));
     Status status = _reload_tablet(key, restore_shard_path, tablet_id, schema_hash);
     return status;
 }
