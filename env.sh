@@ -21,6 +21,12 @@ if [[ -z ${DORIS_HOME} ]]; then
     exit 1
 fi
 
+# check OS type
+if [[ "$OSTYPE" != "linux-gnu" ]]; then
+    echo "Error: Unsupported OS type: $OSTYPE"
+    exit 1
+fi
+
 # include custom environment variables
 if [[ -f ${DORIS_HOME}/custom_env.sh ]]; then
     . ${DORIS_HOME}/custom_env.sh
