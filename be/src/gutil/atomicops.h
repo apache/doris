@@ -67,23 +67,11 @@
 // #endif
 // ------------------------------------------------------------------------
 
-#include "gutil/arm_instruction_set_select.h"
-
 // ThreadSanitizer provides own implementation of atomicops.
 #if defined(THREAD_SANITIZER)
 #include "gutil/atomicops-internals-tsan.h"
-#elif defined(__APPLE__)
-#include "gutil/atomicops-internals-macosx.h"
-#elif defined(__GNUC__) && defined(ARMV6)
-#include "gutil/atomicops-internals-arm-v6plus.h"
-#elif defined(ARMV3)
-#include "gutil/atomicops-internals-arm-generic.h"
 #elif defined(__GNUC__) && (defined(__i386) || defined(__x86_64__))
 #include "gutil/atomicops-internals-x86.h"
-#elif defined(__GNUC__) && defined(ARCH_POWERPC64)
-#include "gutil/atomicops-internals-powerpc.h"
-#elif defined(OS_WINDOWS)
-#include "gutil/atomicops-internals-windows.h"
 #else
 #error You need to implement atomic operations for this architecture
 #endif

@@ -11,7 +11,6 @@
 
 #include "gutil/integral_types.h"
 #include <common/logging.h>
-#include "gutil/logging-inl.h"
 #include "gutil/hash/jenkins.h"
 #include "gutil/hash/jenkins_lookup2.h"
 
