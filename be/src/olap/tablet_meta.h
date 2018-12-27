@@ -34,18 +34,18 @@ using std::vector;
 namespace doris {
 
 enum TabletState {
-    NOTREADY,
-    RUNNING,
-    TOMBSTONED,
-    STOPPED,
-    SHUTDOWN
+    TABLET_NOTREADY,
+    TABLET_RUNNING,
+    TABLET_TOMBSTONED,
+    TABLET_STOPPED,
+    TABLET_SHUTDOWN
 };
 
 enum AlterTabletState {
-    NONE,
-    ALTERING,
-    FINISHED,
-    FAILED
+    ALTER_NONE,
+    ALTER_ALTERING,
+    ALTER_FINISHED,
+    ALTER_FAILED
 };
 
 class Rowset;
@@ -65,22 +65,27 @@ public:
     inline int64_t related_tablet_id() { return _related_tablet_id; }
     inline int64_t related_schema_hash() { return _related_schema_hash; }
 
-    vector<RowsetMeta>& rowsets_to_alter() { return _rowsets_to_alter; }
+    vector<RowsetMetaSharedPtr>& rowsets_to_alter() { return _rowsets_to_alter; }
 
     const AlterTabletState& alter_state() const { return _alter_state; }
     const AlterTabletType& alter_type() const { return _alter_type; }
 private:
     int64_t _related_tablet_id;
     int64_t _related_schema_hash;
-    vector<RowsetMeta> _rowsets_to_alter;
+    vector<RowsetMetaSharedPtr> _rowsets_to_alter;
     AlterTabletState _alter_state;
     AlterTabletType _alter_type;
 };
 
 class TabletMeta {
 public:
+    TabletMeta(const std::string& file_name);
     TabletMeta(DataDir* data_dir);
 
+    OLAPStatus load_and_init();
+    FileVersionMessage& file_version(int32_t index);
+    int file_version_size();
+    OLAPStatus set_shard(int32_t shard_id);
     OLAPStatus serialize(string* meta_binary);
     OLAPStatus serialize_unlock(string* meta_binary);
 
@@ -93,13 +98,13 @@ public:
     OLAPStatus to_tablet_pb(TabletMetaPB* tablet_meta_pb);
     OLAPStatus to_tablet_pb_unlock(TabletMetaPB* tablet_meta_pb);
 
-    OLAPStatus add_inc_rs_meta(const RowsetMeta& rs_meta);
+    OLAPStatus add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     OLAPStatus delete_inc_rs_meta_by_version(const Version& version);
     const RowsetMetaSharedPtr get_inc_rs_meta(const Version& version) const;
     DeletePredicatePB* add_delete_predicates();
 
-    const std::vector<RowsetMeta>& all_inc_rs_metas() const;
-    const std::vector<RowsetMeta>& all_rs_metas() const;
+    const std::vector<RowsetMetaSharedPtr>& all_inc_rs_metas() const;
+    const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
 
     OLAPStatus modify_rowsets(const vector<RowsetMetaSharedPtr>& to_add,
                               const vector<RowsetMetaSharedPtr>& to_delete);

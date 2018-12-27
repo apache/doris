@@ -26,7 +26,7 @@
 #include "olap/tablet.h"
 #include "olap/reader.h"
 #include "olap/row_cursor.h"
-#include "olap/rowset/data_writer.h"
+#include "olap/rowset/column_data_writer.h"
 
 using std::list;
 using std::string;
@@ -62,7 +62,8 @@ OLAPStatus Merger::merge(const vector<ColumnData*>& olap_data_arr,
     }
 
     // create and initiate writer for generating new index and data files.
-    unique_ptr<ColumnDataWriter> writer(ColumnDataWriter::create(_tablet, _segment_group, false));
+    unique_ptr<ColumnDataWriter> writer(ColumnDataWriter::create(_segment_group, false, _tablet->compress_kind(), _tablet->bloom_filter_fpp()));
+    DCHECK(_writer != nullptr) << "memory error occur when creating writer";
 
     if (NULL == writer) {
         OLAP_LOG_WARNING("fail to allocate writer.");

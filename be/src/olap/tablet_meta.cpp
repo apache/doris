@@ -60,19 +60,19 @@ OLAPStatus TabletMeta::deserialize_unlock(const string& meta_binary) {
     // generate TabletState
     switch (_tablet_meta_pb.tablet_state()) {
         case PB_NOTREADY:
-            _tablet_state = TabletState::NOTREADY;
+            _tablet_state = TabletState::TABLET_NOTREADY;
             break;
         case PB_RUNNING:
-            _tablet_state = TabletState::RUNNING;
+            _tablet_state = TabletState::TABLET_RUNNING;
             break;
         case PB_TOMBSTONED:
-            _tablet_state = TabletState::TOMBSTONED;
+            _tablet_state = TabletState::TABLET_TOMBSTONED;
             break;
         case PB_STOPPED:
-            _tablet_state = TabletState::STOPPED;
+            _tablet_state = TabletState::TABLET_STOPPED;
             break;
         case PB_SHUTDOWN:
-            _tablet_state = TabletState::SHUTDOWN;
+            _tablet_state = TabletState::TABLET_SHUTDOWN;
             break;
         default:
             LOG(WARNING) << "tablet has no state. tablet=" << _tablet_id
@@ -115,12 +115,12 @@ OLAPStatus TabletMeta::to_tablet_pb_unlock(TabletMetaPB* tablet_meta_pb) {
 
     tablet_meta_pb->set_tablet_name(_tablet_name);
     for (auto rs : _rs_metas) {
-        rs.to_rowset_pb(pb.add_rs_meta());
+        rs.to_rowset_pb(tablet_meta_pb-.add_rs_meta());
     }
     for (auto rs : _inc_rs_metas) {
-        rs.to_rowset_pb(pb.add_inc_rc_meta());
+        rs.to_rowset_pb(tablet_meta_pb.add_inc_rc_meta());
     }
-    _schema.to_schema_pb(pb.mutable_schema());
+    _schema.to_schema_pb(tablet_meta_pb.mutable_schema());
 
     return OLAP_SUCCESS;
 }

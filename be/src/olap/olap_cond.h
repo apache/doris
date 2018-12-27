@@ -24,6 +24,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/column_data_file.pb.h"
 #include "olap/bloom_filter.hpp"
 #include "olap/stream_index_common.h"
