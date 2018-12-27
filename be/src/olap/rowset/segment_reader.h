@@ -26,7 +26,8 @@
 #include <string>
 
 #include "olap/bloom_filter_reader.h"
-#include "olap/column_reader.h"
+#include "olap/rowset/column_reader.h"
+#include "olap/rowset/segment_group.h"
 #include "olap/compress.h"
 #include "olap/file_stream.h"
 #include "olap/in_stream.h"
@@ -36,7 +37,6 @@
 #include "olap/lru_cache.h"
 #include "olap/olap_cond.h"
 #include "olap/olap_define.h"
-#include "olap/storage_engine.h"
 #include "olap/row_cursor.h"
 #include "runtime/runtime_state.h"
 #include "runtime/mem_pool.h"
@@ -45,25 +45,21 @@
 
 namespace doris {
 
-class SegmentGroup;
-
-
-class ColumnReader;
-
 // SegmentReader 用于读取一个Segment文件
 class SegmentReader {
 public:
     explicit SegmentReader(const std::string file,
             SegmentGroup* segment_group,
             uint32_t segment_id,
-            const std::vector<uint32_t>& return_columns,
+            const std::vector<uint32_t>& used_columns,
             const std::set<uint32_t>& load_bf_columns,
             const Conditions* conditions,
             const std::vector<ColumnPredicate*>* col_predicates,
             const DeleteHandler& delete_handler,
             const DelCondSatisfied delete_status,
             RuntimeState* runtime_state,
-            OlapReaderStatistics* stats);
+            OlapReaderStatistics* stats,
+            Cache* lru_cache);
 
     ~SegmentReader();
 
@@ -230,7 +226,7 @@ private:
 
     // 获取当前的table级schema。
     inline const std::vector<FieldInfo>& tablet_schema() {
-        return _segment_group->tablet_schema();
+        return _segment_group->get_tablet_schema();
     }
 
     inline const ColumnDataHeaderMessage& _header_message() {
@@ -291,10 +287,9 @@ private:
     static const uint32_t CURRENT_COLUMN_DATA_VERSION = 1;
 
     std::string _file_name;                // 文件名
-    doris::FileHandler _file_handler;             // 文件handler
-
     SegmentGroup* _segment_group;
     uint32_t _segment_id;
+    doris::FileHandler _file_handler;             // 文件handler
 
     const Conditions* _conditions;         // 列过滤条件
     DeleteHandler _delete_handler;

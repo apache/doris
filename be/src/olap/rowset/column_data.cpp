@@ -19,24 +19,12 @@
 
 #include "olap/rowset/segment_reader.h"
 #include "olap/olap_cond.h"
-#include "olap/tablet.h"
 #include "olap/row_block.h"
 
 namespace doris {
 
 ColumnData* ColumnData::create(SegmentGroup* segment_group) {
-    ColumnData* data = NULL;
-    DataFileType file_type = segment_group->tablet()->data_file_type();
-
-    switch (file_type) {
-    case COLUMN_ORIENTED_FILE:
-        data = new(std::nothrow) ColumnData(segment_group);
-        break;
-
-    default:
-        LOG(WARNING) << "unknown data file type. type=" << DataFileType_Name(file_type).c_str();
-    }
-
+    ColumnData* data = new(std::nothrow) ColumnData(segment_group);
     return data;
 }
 
@@ -50,8 +38,7 @@ ColumnData::ColumnData(SegmentGroup* segment_group)
         _runtime_state(NULL),
         _is_using_cache(false),
         _segment_reader(NULL) {
-    _tablet = segment_group->tablet();
-    _num_rows_per_block = _tablet->num_rows_per_row_block();
+    _num_rows_per_block = _segment_group->get_num_rows_per_row_block();
 }
 
 ColumnData::~ColumnData() {
@@ -64,8 +51,7 @@ OLAPStatus ColumnData::init() {
 
     auto res = _short_key_cursor.init(_segment_group->short_key_fields());
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "key cursor init failed, tablet:" << _tablet->tablet_id()
-            << ", res:" << res;
+        LOG(WARNING) << "key cursor init failed, res:" << res;
         return res;
     }
     return res;
@@ -137,11 +123,11 @@ OLAPStatus ColumnData::_seek_to_block(const RowBlockPosition& block_pos, bool wi
         }
         SAFE_DELETE(_segment_reader);
         std::string file_name;
-        file_name = segment_group()->construct_data_file_path(segment_group()->segment_group_id(), block_pos.segment);
+        file_name = segment_group()->construct_data_file_path(block_pos.segment);
         _segment_reader = new(std::nothrow) SegmentReader(
-                file_name, _tablet, segment_group(),  block_pos.segment,
+                file_name, segment_group(),  block_pos.segment,
                 _seek_columns, _load_bf_columns, _conditions,
-                _col_predicates, _delete_handler, _delete_status, _runtime_state, _stats);
+                _col_predicates, _delete_handler, _delete_status, _runtime_state, _stats, _lru_cache);
         if (_segment_reader == nullptr) {
             OLAP_LOG_WARNING("fail to malloc segment reader.");
             return OLAP_ERR_MALLOC_ERROR;
@@ -285,8 +271,9 @@ OLAPStatus ColumnData::_find_position_by_full_key(
 OLAPStatus ColumnData::_seek_to_row(const RowCursor& key, bool find_last_key, bool is_end_key) {
     RowBlockPosition position;
     OLAPStatus res = OLAP_SUCCESS;
-    FieldType type = _tablet->get_field_type_by_index(key.field_count() - 1);
-    if (key.field_count() > _tablet->num_short_key_fields() || OLAP_FIELD_TYPE_VARCHAR == type) {
+    const RowFields& tablet_schema = _segment_group->get_tablet_schema();
+    FieldType type = tablet_schema[key.field_count() - 1].type;
+    if (key.field_count() > _segment_group->get_num_short_key_fields() || OLAP_FIELD_TYPE_VARCHAR == type) {
         res = _find_position_by_full_key(key, find_last_key, &position);
     } else {
         res = _find_position_by_short_key(key, find_last_key, &position);
@@ -455,24 +442,24 @@ void ColumnData::set_read_params(
         }
     }
 
-    for (uint32_t i = 0; i < _tablet->tablet_schema().size(); i++) {
+    for (uint32_t i = 0; i < _segment_group->get_tablet_schema().size(); i++) {
         if (i < max_key_column_count || column_set.find(i) != column_set.end()) {
             _seek_columns.push_back(i);
         }
     }
 
-    auto res = _cursor.init(_tablet->tablet_schema());
+    auto res = _cursor.init(_segment_group->get_tablet_schema());
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init row_cursor");
     }
 
     _read_vector_batch.reset(new VectorizedRowBatch(
-            _tablet->tablet_schema(), _return_columns, _num_rows_per_block));
+            _segment_group->get_tablet_schema(), _return_columns, _num_rows_per_block));
 
     _seek_vector_batch.reset(new VectorizedRowBatch(
-            _tablet->tablet_schema(), _seek_columns, _num_rows_per_block));
+            _segment_group->get_tablet_schema(), _seek_columns, _num_rows_per_block));
 
-    _read_block.reset(new RowBlock(_tablet->tablet_schema()));
+    _read_block.reset(new RowBlock(_segment_group->get_tablet_schema()));
     RowBlockInfo block_info;
     block_info.row_num = _num_rows_per_block;
     block_info.null_supported = true;
@@ -610,21 +597,21 @@ uint64_t ColumnData::get_filted_rows() {
 OLAPStatus ColumnData::_schema_change_init() {
     _is_using_cache = false;
 
-    for (int i = 0; i < _tablet->tablet_schema().size(); ++i) {
+    for (int i = 0; i < _segment_group->get_tablet_schema().size(); ++i) {
         _return_columns.push_back(i);
         _seek_columns.push_back(i);
     }
 
-    auto res = _cursor.init(_tablet->tablet_schema());
+    auto res = _cursor.init(_segment_group->get_tablet_schema());
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init row_cursor");
         return res;
     }
 
     _read_vector_batch.reset(new VectorizedRowBatch(
-            _tablet->tablet_schema(), _return_columns, _num_rows_per_block));
+            _segment_group->get_tablet_schema(), _return_columns, _num_rows_per_block));
 
-    _read_block.reset(new RowBlock(_tablet->tablet_schema()));
+    _read_block.reset(new RowBlock(_segment_group->get_tablet_schema()));
 
     RowBlockInfo block_info;
     block_info.row_num = _num_rows_per_block;

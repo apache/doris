@@ -23,7 +23,6 @@
 #include <fstream>
 
 #include "olap/rowset/column_data.h"
-#include "olap/tablet.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
 #include "olap/utils.h"

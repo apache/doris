@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/segment_group.h"
+#include "olap/rowset/segment_group.h"
 
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <fstream>
+#include <sstream>
 
 #include "olap/rowset/column_data.h"
-#include "olap/tablet.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
 #include "olap/utils.h"
@@ -61,7 +61,7 @@ namespace doris {
     } while (0);
 
 SegmentGroup::SegmentGroup(int64_t tablet_id, const RowFields& tablet_schema, int num_key_fields, int num_short_key_fields,
-            int num_rows_per_row_block, std::string rowset_path_prefix, Version version, VersionHash version_hash,
+            size_t num_rows_per_row_block, std::string rowset_path_prefix, Version version, VersionHash version_hash,
             bool delete_flag, int32_t segment_group_id, int32_t num_segments)
       : _tablet_id(tablet_id),
         _tablet_schema(tablet_schema),
@@ -99,7 +99,7 @@ SegmentGroup::SegmentGroup(int64_t tablet_id, const RowFields& tablet_schema, in
 }
 
 SegmentGroup::SegmentGroup(int64_t tablet_id, const RowFields& tablet_schema, int num_key_fields, int num_short_key_fields,
-        int num_rows_per_row_block, std::string rowset_path_prefix, bool delete_flag,
+        size_t num_rows_per_row_block, std::string rowset_path_prefix, bool delete_flag,
         int32_t segment_group_id, int32_t num_segments, bool is_pending,
         TPartitionId partition_id, TTransactionId transaction_id) : _tablet_id(tablet_id),
         _tablet_schema(tablet_schema),
@@ -147,17 +147,17 @@ SegmentGroup::~SegmentGroup() {
     _seg_pb_map.clear();
 }
 
-std::string SegmentGroup::_construct_pending_file_path(int32_t segment_id, const std::string& suffix) {
+std::string SegmentGroup::_construct_pending_file_path(int32_t segment_id, const std::string& suffix) const {
     std::string pending_dir_path = _rowset_path_prefix + PENDING_DELTA_PREFIX;
-    stringstream file_path;
+    std::stringstream file_path;
     file_path << pending_dir_path << "/"
                           << _transaction_id << "_"
                           << _segment_group_id << "_" << segment_id << suffix;
     return file_path.str();
 }
 
-std::string SegmentGroup::_construct_file_path(int32_t segment_id, const string& suffix) {
-    stringstream prefix_stream;
+std::string SegmentGroup::_construct_file_path(int32_t segment_id, const string& suffix) const {
+    std::stringstream prefix_stream;
     prefix_stream << _rowset_path_prefix << "/" << _tablet_id;
     string path_prefix = prefix_stream.str();
     char file_path[OLAP_MAX_PATH_LEN];
@@ -186,7 +186,7 @@ std::string SegmentGroup::_construct_file_path(int32_t segment_id, const string&
     return file_path;
 }
 
-string SegmentGroup::construct_index_file_path(int32_t segment_group_id, int32_t segment_id) const {
+std::string SegmentGroup::construct_index_file_path(int32_t segment_id) const {
     if (_is_pending) {
         return _construct_pending_file_path(segment_id, ".idx");
     } else {
@@ -194,7 +194,7 @@ string SegmentGroup::construct_index_file_path(int32_t segment_group_id, int32_t
     }
 }
 
-string SegmentGroup::construct_data_file_path(int32_t segment_group_id, int32_t segment_id) const {
+std::string SegmentGroup::construct_data_file_path(int32_t segment_id) const {
     if (_is_pending) {
         return _construct_pending_file_path(segment_id, ".dat");
     } else {
@@ -228,8 +228,8 @@ void SegmentGroup::delete_all_files() {
     if (!_file_created) { return; }
     for (uint32_t seg_id = 0; seg_id < _num_segments; ++seg_id) {
         // get full path for one segment
-        string index_path = construct_index_file_path(_segment_group_id, seg_id);
-        string data_path = construct_data_file_path(_segment_group_id, seg_id);
+        string index_path = construct_index_file_path(seg_id);
+        string data_path = construct_data_file_path(seg_id);
 
         if (remove(index_path.c_str()) != 0) {
             char errmsg[64];
@@ -257,11 +257,11 @@ OLAPStatus SegmentGroup::add_column_statistics_for_linked_schema_change(
     //as rollup tablet num_key_fields will less than base tablet column_statistic_fields.size().
     //For LinkedSchemaChange, the rollup tablet keys order is the same as base tablet
     for (size_t i = 0; i < _num_key_fields; ++i) {
-        WrapperField* first = WrapperField::create(_tablet_schema()[i]);
+        WrapperField* first = WrapperField::create(_tablet_schema[i]);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
         first->copy(column_statistic_fields[i].first);
 
-        WrapperField* second = WrapperField::create(_tablet_schema()[i]);
+        WrapperField* second = WrapperField::create(_tablet_schema[i]);
         DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
         second->copy(column_statistic_fields[i].second);
 
@@ -274,11 +274,11 @@ OLAPStatus SegmentGroup::add_column_statistics(
         const std::vector<std::pair<WrapperField*, WrapperField*>>& column_statistic_fields) {
     DCHECK(column_statistic_fields.size() == _num_key_fields);
     for (size_t i = 0; i < column_statistic_fields.size(); ++i) {
-        WrapperField* first = WrapperField::create(_tablet_schema()[i]);
+        WrapperField* first = WrapperField::create(_tablet_schema[i]);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
         first->copy(column_statistic_fields[i].first);
 
-        WrapperField* second = WrapperField::create(_tablet_schema()[i]);
+        WrapperField* second = WrapperField::create(_tablet_schema[i]);
         DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
         second->copy(column_statistic_fields[i].second);
 
@@ -290,16 +290,16 @@ OLAPStatus SegmentGroup::add_column_statistics(
 OLAPStatus SegmentGroup::add_column_statistics(
         std::vector<std::pair<std::string, std::string> > &column_statistic_strings,
         std::vector<bool> &null_vec) {
-    DCHECK(column_statistic_strings.size() == _num_key_fields;
+    DCHECK(column_statistic_strings.size() == _num_key_fields);
     for (size_t i = 0; i < column_statistic_strings.size(); ++i) {
-        WrapperField* first = WrapperField::create(_tablet_schema()[i]);
+        WrapperField* first = WrapperField::create(_tablet_schema[i]);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i ;
         RETURN_NOT_OK(first->from_string(column_statistic_strings[i].first));
         if (null_vec[i]) {
             //[min, max] -> [NULL, max]
             first->set_null();
         }
-        WrapperField* second = WrapperField::create(_tablet_schema()[i]);
+        WrapperField* second = WrapperField::create(_tablet_schema[i]);
         DCHECK(first != NULL) << "failed to allocate memory for field: " << i ;
         RETURN_NOT_OK(second->from_string(column_statistic_strings[i].second));
         _column_statistics.push_back(std::make_pair(first, second));
@@ -331,7 +331,7 @@ OLAPStatus SegmentGroup::load() {
 
     // for each segment
     for (uint32_t seg_id = 0; seg_id < _num_segments; ++seg_id) {
-        string seg_path = construct_data_file_path(_segment_group_id, seg_id);
+        string seg_path = construct_data_file_path(seg_id);
         if (OLAP_SUCCESS != (res = load_pb(seg_path.c_str(), seg_id))) {
             LOG(WARNING) << "failed to load pb structures. [seg_path='" << seg_path << "']";
             
@@ -339,8 +339,8 @@ OLAPStatus SegmentGroup::load() {
         }
         
         // get full path for one segment
-        string path = construct_index_file_path(_segment_group_id, seg_id);
-        if ((res = _index.load_segment(path.c_str(), &_current_num_rows_per_row_block))
+        std::string path = construct_index_file_path(seg_id);
+        if ((res = _index.load_segment(path.c_str(), &_num_rows_per_row_block))
                 != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load segment. [path='" << path << "']";
             
@@ -393,8 +393,8 @@ OLAPStatus SegmentGroup::validate() {
         FileHeader<OLAPDataHeaderMessage> data_file_header;
 
         // get full path for one segment
-        string index_path = construct_index_file_path(_segment_group_id, seg_id);
-        string data_path = construct_data_file_path(_segment_group_id, seg_id);
+        string index_path = construct_index_file_path(seg_id);
+        string data_path = construct_data_file_path(seg_id);
 
         // 检查index文件头
         if ((res = index_file_header.validate(index_path)) != OLAP_SUCCESS) {
@@ -568,7 +568,7 @@ OLAPStatus SegmentGroup::add_segment() {
             return OLAP_ERR_MALLOC_ERROR;
         }
 
-        if (_current_index_row.init(_tablet_schema()) != OLAP_SUCCESS) {
+        if (_current_index_row.init(_tablet_schema) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("init _current_index_row fail.");
             return OLAP_ERR_INIT_FAILED;
         }
@@ -588,7 +588,7 @@ OLAPStatus SegmentGroup::add_row_block(const RowBlock& row_block, const uint32_t
 OLAPStatus SegmentGroup::add_short_key(const RowCursor& short_key, const uint32_t data_offset) {
     OLAPStatus res = OLAP_SUCCESS;
     if (!_new_segment_created) {
-        string file_path = construct_index_file_path(_segment_group_id, _num_segments - 1);
+        string file_path = construct_index_file_path(_num_segments - 1);
         res = _current_file_handler.open_with_mode(
                         file_path.c_str(), O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
         if (res != OLAP_SUCCESS) {
@@ -688,7 +688,7 @@ const RowFields& SegmentGroup::get_tablet_schema() {
     return _tablet_schema;
 }
 
-int SegmentGroup::get_num_key_fields)() {
+int SegmentGroup::get_num_key_fields() {
     return _num_key_fields;
 }
 
@@ -696,7 +696,7 @@ int SegmentGroup::get_num_short_key_fields() {
     return _num_short_key_fields;
 }
 
-int SegmentGroup::get_num_rows_per_row_block() {
+size_t SegmentGroup::get_num_rows_per_row_block() {
     return _num_rows_per_row_block;
 }
 
@@ -708,4 +708,4 @@ int64_t SegmentGroup::get_tablet_id() {
     return _tablet_id;
 }
 
-}
+} // namespace doris
