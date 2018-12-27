@@ -731,4 +731,3 @@ void RunLengthIntegerWriter::get_position(PositionEntryWriter* index_entry, bool
 }
 
 }  // namespace doris
-

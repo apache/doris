@@ -28,6 +28,7 @@
 #include <typeinfo>
 #include <unordered_map>
 #include <unordered_set>
+#include <functional>
 
 #include "gen_cpp/Types_types.h"
 #include "olap/olap_define.h"

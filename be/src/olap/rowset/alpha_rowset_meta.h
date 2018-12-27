@@ -30,7 +30,7 @@ class AlphaRowsetMeta : public RowsetMeta {
 public:
     virtual bool deserialize_extra_properties();
 
-    void get_segment_groups(std::vector<SegmentGroupPB>* segment_groups)
+    void get_segment_groups(std::vector<SegmentGroupPB>* segment_groups);
 
     void add_segment_group(const SegmentGroupPB& segment_group);
 
@@ -40,6 +40,8 @@ private:
 private:
     AlphaRowsetExtraMetaPB _extra_meta_pb;
 };
+
+typedef std::shared_ptr<AlphaRowsetMeta> AlphaRowsetMetaSharedPtr;
 
 }
 

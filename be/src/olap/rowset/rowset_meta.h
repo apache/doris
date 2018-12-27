@@ -85,19 +85,19 @@ public:
         _rowset_meta_pb.set_tablet_schema_hash(tablet_schema_hash);
     }
 
-    virtual RowsetType get_rowset_type() {
+    virtual RowsetTypePB get_rowset_type() {
         return _rowset_meta_pb.rowset_type();
     }
 
-    virtual void set_rowset_type(RowsetType rowset_type) {
+    virtual void set_rowset_type(RowsetTypePB rowset_type) {
         _rowset_meta_pb.set_rowset_type(rowset_type);
     }
 
-    virtual RowsetState get_rowset_state() {
+    virtual RowsetStatePB get_rowset_state() {
         return _rowset_meta_pb.rowset_state();
     }
 
-    virtual void set_rowset_state(RowsetState rowset_state) {
+    virtual void set_rowset_state(RowsetStatePB rowset_state) {
         _rowset_meta_pb.set_rowset_state(rowset_state);
     }
 
@@ -129,6 +129,14 @@ public:
         _rowset_meta_pb.set_end_version(end_version);
     }
     
+    virtual int64_t get_version_hash() {
+        return _rowset_meta_pb.version_hash();
+    }
+
+    virtual void set_version_hash(int64_t version_hash) {
+        _rowset_meta_pb.set_version_hash(version_hash);
+    }
+
     virtual int get_row_number() {
         return _rowset_meta_pb.row_number();
     }
@@ -196,6 +204,14 @@ public:
         _rowset_meta_pb.set_txn_id(txn_id);
     }
 
+    std::string get_extra_properties() {
+        return _rowset_meta_pb.extra_properties();
+    }
+
+    void set_extra_properties(std::string extra_properties) {
+        _rowset_meta_pb.set_extra_properties(extra_properties);
+    }
+
 private:
     bool _deserialize_from_pb(const std::string& value) {
         return _rowset_meta_pb.ParseFromString(value); 
@@ -212,6 +228,6 @@ private:
     RowsetMetaPB _rowset_meta_pb;
 };
 
-}
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_H

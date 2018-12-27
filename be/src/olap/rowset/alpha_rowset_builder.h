@@ -22,7 +22,7 @@
 
 namespace doris {
 
-class AlphaRowsetBuilder {
+class AlphaRowsetBuilder : public RowsetBuilder {
 public:
     virtual NewStatus init(int64_t rowset_id, const std::string& rowset_path_prefix, Schema* schema);
 
@@ -40,4 +40,3 @@ public:
 }
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_BUILDER_H
-

@@ -277,4 +277,3 @@ message OLAPDataHeaderMessage {
 message OLAPRawDeltaHeaderMessage {
     required int32 schema_hash = 2;
 }
-
