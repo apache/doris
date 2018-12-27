@@ -1724,21 +1724,23 @@ void OLAPEngine::get_tablet_stat(TTabletStatResult& result) {
     // get current time
     int64_t current_time = UnixMillis();
     
-    _tablet_map_lock.rdlock();
-    // update cache if too old
-    if (current_time - _tablet_stat_cache_update_time_ms > 
-        config::tablet_stat_cache_update_interval_second * 1000) {
-        VLOG(3) << "update tablet stat.";
-        _build_tablet_stat();
+    {
+        std::lock_guard<std::mutex> l(_tablet_stat_mutex);
+        // update cache if too old
+        if (current_time - _tablet_stat_cache_update_time_ms > 
+                config::tablet_stat_cache_update_interval_second * 1000) {
+            VLOG(3) << "update tablet stat.";
+            _build_tablet_stat();
+        }
     }
 
     result.__set_tablets_stats(_tablet_stat_cache);
-
-    _tablet_map_lock.unlock();
 }
 
 void OLAPEngine::_build_tablet_stat() {
     _tablet_stat_cache.clear();
+
+    _tablet_map_lock.rdlock();
     for (const auto& item : _tablet_map) {
         if (item.second.table_arr.size() == 0) {
             continue;
@@ -1762,6 +1764,7 @@ void OLAPEngine::_build_tablet_stat() {
 
         _tablet_stat_cache.emplace(item.first, stat);
     }
+    _tablet_map_lock.unlock();
 
     _tablet_stat_cache_update_time_ms = UnixMillis();
 }

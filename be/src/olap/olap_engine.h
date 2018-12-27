@@ -556,6 +556,7 @@ private:
     // cache to save tablets' statistics, such as data size and row
     // TODO(cmy): for now, this is a naive implementation
     std::map<int64_t, TTabletStat> _tablet_stat_cache;
+    std::mutex _tablet_stat_mutex;
     // last update time of tablet stat cache
     int64_t _tablet_stat_cache_update_time_ms;
 
