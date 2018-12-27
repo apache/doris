@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/segment_reader.h"
+#include "olap/rowset/segment_reader.h"
 
 #include <sys/mman.h>
 
@@ -43,31 +43,31 @@ SegmentReader::SegmentReader(
         const DeleteHandler& delete_handler,
         const DelCondSatisfied delete_status,
         RuntimeState* runtime_state,
-        OlapReaderStatistics* stats) :
+        OlapReaderStatistics* stats,
+        Cache* lru_cache) :
         _file_name(file),
         _segment_group(segment_group),
         _segment_id(segment_id),
+        _used_columns(used_columns),
+        _load_bf_columns(load_bf_columns),
         _conditions(conditions),
         _delete_handler(delete_handler),
         _delete_status(delete_status),
+        _runtime_state(runtime_state),
+        _stats(stats),
+        _lru_cache(lru_cache),
         _eof(false),
         _end_block(-1),
         // 确保第一次调用_move_to_next_row，会执行seek_to_block
         _block_count(0),
         _num_rows_in_block(0),
         _null_supported(false),
-        _used_columns(used_columns),
-        _load_bf_columns(load_bf_columns),
         _mmap_buffer(NULL),
         _include_blocks(NULL),
         _is_using_mmap(false),
         _is_data_loaded(false),
         _buffer_size(0),
-        _lru_cache(NULL),
-        _runtime_state(runtime_state),
-        _shared_buffer(NULL),
-        _stats(stats) {
-    _lru_cache = StorageEngine::get_instance()->index_stream_lru_cache();
+        _shared_buffer(NULL) {
     _tracker.reset(new MemTracker(-1));
     _mem_pool.reset(new MemPool(_tracker.get()));
 }
@@ -185,7 +185,7 @@ OLAPStatus SegmentReader::_set_decompressor() {
 OLAPStatus SegmentReader::_set_segment_info() {
     _num_rows_in_block = _header_message().num_rows_per_block();
     if (_num_rows_in_block == 0) {
-        _num_rows_in_block = _segment_group->num_rows_per_row_block();
+        _num_rows_in_block = _segment_group->get_num_rows_per_row_block();
     }
 
     _set_column_map();

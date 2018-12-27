@@ -22,7 +22,6 @@
 #include <map>
 #include <functional>
 
-#include "olap/tablet_meta.h"
 #include "olap/olap_define.h"
 #include "rocksdb/db.h"
 

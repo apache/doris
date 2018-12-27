@@ -17,7 +17,7 @@
 
 #include "olap/rowset/column_writer.h"
 
-#include "olap/bit_field_writer.h"
+#include "olap/rowset/bit_field_writer.h"
 #include "olap/file_helper.h"
 
 namespace doris {

@@ -20,15 +20,16 @@
 
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/segment_group.h"
-#include "olap/alpha_rowset_reader.h"
-#include "olap/alpha_rowset_builder.h"
+#include "olap/rowset/alpha_rowset_reader.h"
+#include "olap/rowset/alpha_rowset_builder.h"
+#include "olap/rowset/rowset_meta.h"
 
 #include <vector>
 #include <memory>
 
 namespace doris {
 
-class AlphaRowset {
+class AlphaRowset : public Rowset {
 public:
     AlphaRowset(const RowFields& tablet_schema,
         int num_key_fields, int num_short_key_fields,
@@ -39,11 +40,11 @@ public:
 
     virtual std::unique_ptr<RowsetReader> create_reader();
 
-    virtual NewStatus copy(RowsetBuilder* dest_rowset_builder)；
+    virtual NewStatus copy(RowsetBuilder* dest_rowset_builder);
 
-    virtual NewStatus delete();
+    virtual NewStatus remove();
 
-    virtual void get_meta(RowsetMetaSharedPtr rowset_meta);
+    virtual RowsetMetaSharedPtr get_meta();
 
     virtual void set_version(Version version);
 
@@ -51,12 +52,17 @@ private:
     NewStatus _init_segment_groups();
 
 private:
+    RowFields _tablet_schema;
+    int _num_key_fields;
+    int _num_short_key_fields;
+    int _num_rows_per_row_block;
+    std::string _rowset_path;
     RowsetMetaSharedPtr _rowset_meta;
     std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
     int _segment_group_size;
     bool _is_cumulative_rowset;
 };
 
-}
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_H

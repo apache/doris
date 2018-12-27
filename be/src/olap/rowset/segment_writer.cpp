@@ -15,23 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/segment_writer.h"
+#include "olap/rowset/segment_writer.h"
 
-#include "olap/column_writer.h"
+#include "olap/rowset/column_writer.h"
 #include "olap/out_stream.h"
 #include "olap/file_helper.h"
 #include "olap/utils.h"
-
 
 namespace doris {
 
 SegmentWriter::SegmentWriter(
         const std::string& file_name,
-        TabletSharedPtr tablet,
-        uint32_t stream_buffer_size) : 
+        SegmentGroup* segment_group,
+        uint32_t stream_buffer_size,
+        CompressKind compress_kind,
+        double bloom_filter_fpp) : 
         _file_name(file_name),
-        _tablet(tablet),
+        _segment_group(segment_group),
         _stream_buffer_size(stream_buffer_size),
+        _compress_kind(compress_kind),
+        _bloom_filter_fpp(bloom_filter_fpp),
         _stream_factory(NULL),
         _row_count(0),
         _block_count(0) {}
@@ -49,7 +52,7 @@ OLAPStatus SegmentWriter::init(uint32_t write_mbytes_per_sec) {
     OLAPStatus res = OLAP_SUCCESS;
     // 创建factory
     _stream_factory = 
-        new(std::nothrow) OutStreamFactory(_tablet->compress_kind(), _stream_buffer_size);
+        new(std::nothrow) OutStreamFactory(_compress_kind, _stream_buffer_size);
 
     if (NULL == _stream_factory) {
         OLAP_LOG_WARNING("fail to allocate out stream factory");
@@ -57,12 +60,12 @@ OLAPStatus SegmentWriter::init(uint32_t write_mbytes_per_sec) {
     }
 
     // 创建writer
-    for (uint32_t i = 0; i < _tablet->tablet_schema().size(); i++) {
-        if (_tablet->tablet_schema()[i].is_root_column) {
-            ColumnWriter* writer = ColumnWriter::create(i, _tablet->tablet_schema(),
+    for (uint32_t i = 0; i < _segment_group->get_tablet_schema().size(); i++) {
+        if (_segment_group->get_tablet_schema()[i].is_root_column) {
+            ColumnWriter* writer = ColumnWriter::create(i, _segment_group->get_tablet_schema(),
                                                         _stream_factory,
-                                                        _tablet->num_rows_per_row_block(),
-                                                        _tablet->bloom_filter_fpp());
+                                                        _segment_group->get_num_rows_per_row_block(),
+                                                        _bloom_filter_fpp);
 
             if (NULL == writer) {
                 OLAP_LOG_WARNING("fail to create writer");
@@ -85,9 +88,9 @@ OLAPStatus SegmentWriter::init(uint32_t write_mbytes_per_sec) {
 }
 
 OLAPStatus SegmentWriter::write_batch(RowBlock* block, RowCursor* cursor, bool is_finalize) {
-    DCHECK(block->row_block_info().row_num == _tablet->num_rows_per_row_block() || is_finalize)
+    DCHECK(block->row_block_info().row_num == _segment_group->get_num_rows_per_row_block() || is_finalize)
         << "write block not empty, num_rows=" << block->row_block_info().row_num
-        << ", table_num_rows=" << _tablet->num_rows_per_row_block();
+        << ", table_num_rows=" << _segment_group->get_num_rows_per_row_block();
     OLAPStatus res = OLAP_SUCCESS;
     for (auto col_writer : _root_writers) {
         res = col_writer->write_batch(block, cursor);
@@ -125,12 +128,12 @@ uint64_t SegmentWriter::estimate_segment_size() {
 OLAPStatus SegmentWriter::_make_file_header(ColumnDataHeaderMessage* file_header) {
     OLAPStatus res = OLAP_SUCCESS;
     file_header->set_number_of_rows(_row_count);
-    file_header->set_compress_kind(_tablet->compress_kind());
+    file_header->set_compress_kind(_compress_kind);
     file_header->set_stream_buffer_size(_stream_buffer_size);
     // TODO. 之前没设置
     file_header->set_magic_string("COLUMN DATA");
     file_header->set_version(1);
-    file_header->set_num_rows_per_block(_tablet->num_rows_per_row_block());
+    file_header->set_num_rows_per_block(_segment_group->get_num_rows_per_row_block());
 
     // check if has bloom filter columns
     bool has_bf_column = false;

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/data_writer.h"
+#include "olap/rowset/column_data_writer.h"
 
 #include <math.h>
 
@@ -26,27 +26,23 @@
 
 namespace doris {
 
-ColumnDataWriter* ColumnDataWriter::create(TabletSharedPtr tablet, SegmentGroup* segment_group, bool is_push_write) {
-    ColumnDataWriter* writer = NULL;
-    switch (tablet->data_file_type()) {
-    case COLUMN_ORIENTED_FILE:
-        writer = new (std::nothrow) ColumnDataWriter(tablet, segment_group, is_push_write);
-        break;
-    default:
-        LOG(WARNING) << "unknown data file type. type=" << DataFileType_Name(tablet->data_file_type());
-        break;
-    }
-
+ColumnDataWriter* ColumnDataWriter::create(SegmentGroup* segment_group, bool is_push_write,
+        CompressKind compress_kind, double bloom_filter_fpp) {
+    ColumnDataWriter* writer = new (std::nothrow) ColumnDataWriter(segment_group, is_push_write,
+            compress_kind, bloom_filter_fpp);
     return writer;
 }
 
-ColumnDataWriter::ColumnDataWriter(TabletSharedPtr tablet, SegmentGroup* segment_group, bool is_push_write)
-    : _is_push_write(is_push_write),
-      _tablet(tablet),
-      _column_statistics(_tablet->num_key_fields(),
+ColumnDataWriter::ColumnDataWriter(SegmentGroup* segment_group,
+        bool is_push_write, CompressKind compress_kind,
+        double bloom_filter_fpp)
+    : _segment_group(segment_group),
+      _is_push_write(is_push_write),
+      _compress_kind(compress_kind),
+      _bloom_filter_fpp(bloom_filter_fpp),
+      _column_statistics(segment_group->get_num_key_fields(),
                          std::pair<WrapperField*, WrapperField*>(NULL, NULL)),
       _row_index(0),
-      _segment_group(segment_group),
       _row_block(NULL),
       _segment_writer(NULL),
       _num_rows(0),
@@ -72,36 +68,36 @@ OLAPStatus ColumnDataWriter::init() {
     OLAPStatus res = OLAP_SUCCESS;
 
     for (size_t i = 0; i < _column_statistics.size(); ++i) {
-        _column_statistics[i].first = WrapperField::create(_tablet->tablet_schema()[i]);
+        _column_statistics[i].first = WrapperField::create(_segment_group->get_tablet_schema()[i]);
         DCHECK(_column_statistics[i].first != nullptr) << "fail to create column statistics field.";
         _column_statistics[i].first->set_to_max();
 
-        _column_statistics[i].second = WrapperField::create(_tablet->tablet_schema()[i]);
+        _column_statistics[i].second = WrapperField::create(_segment_group->get_tablet_schema()[i]);
         DCHECK(_column_statistics[i].second != nullptr) << "fail to create column statistics field.";
         _column_statistics[i].second->set_null();
         _column_statistics[i].second->set_to_min();
     }
 
-    double size = static_cast<double>(_tablet->segment_size());
+    double size = static_cast<double>(_segment_group->num_segments());
     size *= OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE;
     _max_segment_size = static_cast<uint32_t>(lround(size));
 
-    _row_block = new(std::nothrow) RowBlock(_tablet->tablet_schema());
+    _row_block = new(std::nothrow) RowBlock(_segment_group->get_tablet_schema());
 
     if (NULL == _row_block) {
-        LOG(WARNING) << "fail to new RowBlock. [tablet='" << _tablet->full_name() << "']";
+        LOG(WARNING) << "fail to new RowBlock.";
         return OLAP_ERR_MALLOC_ERROR;
     }
 
-    res = _cursor.init(_tablet->tablet_schema());
+    res = _cursor.init(_segment_group->get_tablet_schema());
     if (OLAP_SUCCESS != res) {
         OLAP_LOG_WARNING("fail to initiate row cursor. [res=%d]", res);
         return res;
     }
 
-    VLOG(3) << "init ColumnData writer. [tablet='" << _tablet->full_name()
-            << "' block_row_size=" << _tablet->num_rows_per_row_block() << "]";
-    RowBlockInfo block_info(0U, _tablet->num_rows_per_row_block(), 0);
+    VLOG(3) << "init ColumnData writer. [segment group id='" << _segment_group->segment_group_id()
+            << "' block_row_size=" << _segment_group->get_num_rows_per_row_block() << "]";
+    RowBlockInfo block_info(0U, _segment_group->get_num_rows_per_row_block(), 0);
     block_info.data_file_type = DataFileType::COLUMN_ORIENTED_FILE;
     block_info.null_supported = true;
 
@@ -131,7 +127,7 @@ OLAPStatus ColumnDataWriter::_init_segment() {
 }
 
 OLAPStatus ColumnDataWriter::attached_by(RowCursor* row_cursor) {
-    if (_row_index >= _tablet->num_rows_per_row_block()) {
+    if (_row_index >= _segment_group->get_num_rows_per_row_block()) {
         if (OLAP_SUCCESS != _flush_row_block(false)) {
             OLAP_LOG_WARNING("failed to flush data while attaching row cursor.");
             return OLAP_ERR_OTHER_ERROR;
@@ -143,7 +139,7 @@ OLAPStatus ColumnDataWriter::attached_by(RowCursor* row_cursor) {
 }
 
 OLAPStatus ColumnDataWriter::write(const char* row) {
-    if (_row_index >= _tablet->num_rows_per_row_block()) {
+    if (_row_index >= _segment_group->get_num_rows_per_row_block()) {
         if (OLAP_SUCCESS != _flush_row_block(false)) {
             OLAP_LOG_WARNING("failed to flush data while attaching row cursor.");
             return OLAP_ERR_OTHER_ERROR;
@@ -156,7 +152,7 @@ OLAPStatus ColumnDataWriter::write(const char* row) {
 
 
 void ColumnDataWriter::next(const RowCursor& row_cursor) {
-    for (size_t i = 0; i < _tablet->num_key_fields(); ++i) {
+    for (size_t i = 0; i < _segment_group->get_num_key_fields(); ++i) {
         char* right = row_cursor.get_field_by_index(i)->get_field_ptr(row_cursor.get_buf());
         if (_column_statistics[i].first->cmp(right) > 0) {
             _column_statistics[i].first->copy(right);
@@ -171,7 +167,7 @@ void ColumnDataWriter::next(const RowCursor& row_cursor) {
 }
 
 void ColumnDataWriter::next(const char* row, const Schema* schema) {
-    for (size_t i = 0; i < _tablet->num_key_fields(); ++i) {
+    for (size_t i = 0; i < _segment_group->get_num_key_fields(); ++i) {
         char* right = const_cast<char*>(row + schema->get_col_offset(i));
         if (_column_statistics[i].first->cmp(right) > 0) {
             _column_statistics[i].first->copy(right);
@@ -256,9 +252,9 @@ OLAPStatus ColumnDataWriter::_add_segment() {
         return OLAP_ERR_WRITER_SEGMENT_NOT_FINALIZED;
     }
 
-    file_name = _segment_group->construct_data_file_path(_segment_group->segment_group_id(), _segment);
-    _segment_writer = new(std::nothrow) SegmentWriter(file_name, _tablet,
-            OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
+    file_name = _segment_group->construct_data_file_path(_segment);
+    _segment_writer = new(std::nothrow) SegmentWriter(file_name, _segment_group,
+            OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, _compress_kind, _bloom_filter_fpp);
 
     if (NULL == _segment_writer) {
         OLAP_LOG_WARNING("fail to allocate SegmentWriter");
@@ -327,5 +323,8 @@ MemPool* ColumnDataWriter::mem_pool() {
     return _row_block->mem_pool();
 }
 
-}  // namespace doris
+CompressKind ColumnDataWriter::compress_kind() {
+    return _compress_kind;
+}
 
+}  // namespace doris
