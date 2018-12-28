@@ -19,24 +19,40 @@
 #define DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_BUILDER_H
 
 #include "olap/rowset/rowset_builder.h"
+#include "olap/rowset/segment_group.h"
+#include "olap/rowset/column_data_writer.h"
+#include "olap/field_info.h"
+
+#include <vector>
 
 namespace doris {
 
 class AlphaRowsetBuilder : public RowsetBuilder {
 public:
-    virtual NewStatus init(int64_t rowset_id, const std::string& rowset_path_prefix, Schema* schema);
+    AlphaRowsetBuilder();
+
+    virtual NewStatus init(const RowsetBuilderContext& rowset_builder_context);
 
     // add a row block to rowset
-    virtual NewStatus add_row_block(const RowBlock& row_block);
+    virtual NewStatus add_row(RowCursor* row);
 
-    // this is a temp api
-    // it is used to get rewritten path for writing rowset data
-    virtual NewStatus generate_written_path(const std::string& src_path, std::string* dest_path);
+    virtual NewStatus flush();
 
     // get a rowset
-    virtual NewStatus build(Rowset* rowset);
+    virtual std::shared_ptr<Rowset> build();
+
+private:
+    void _init();
+
+private:
+    int32_t _segment_group_id;
+    SegmentGroup* _cur_segment_group;
+    ColumnDataWriter* _column_data_writer;
+    std::shared_ptr<RowsetMeta> _current_rowset_meta;
+    RowsetBuilderContext _rowset_builder_context;
+    std::vector<SegmentGroup*> _segment_groups;
 };
 
-}
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_BUILDER_H
