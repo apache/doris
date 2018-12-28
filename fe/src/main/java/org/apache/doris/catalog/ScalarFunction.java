@@ -17,21 +17,24 @@
 
 package org.apache.doris.catalog;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
+import static org.apache.doris.common.io.IOUtils.writeOptionString;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.HdfsURI;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TScalarFunction;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
 // import org.apache.doris.thrift.TSymbolType;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 
 /**
  * Internal representation of a scalar function.

@@ -17,17 +17,16 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.base.Strings;
+import static org.apache.doris.common.io.IOUtils.writeOptionString;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.HdfsURI;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
-
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -576,20 +575,6 @@ public class Function implements Writable {
             return fromCode(input.readInt());
         }
     };
-
-    protected void writeOptionString(DataOutput output, String value) throws IOException {
-        boolean hasValue = !Strings.isNullOrEmpty(value);
-        output.writeBoolean(hasValue);
-        if (hasValue) {
-            Text.writeString(output, value);
-        }
-    }
-    protected String readOptionStringOrNull(DataInput input) throws IOException {
-        if (input.readBoolean()) {
-            return Text.readString(input);
-        }
-        return null;
-    }
 
     protected void writeFields(DataOutput output) throws IOException {
         output.writeLong(id);

@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSortedMap;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.doris.catalog.Catalog;
@@ -85,8 +86,7 @@ public class CreateFunctionStmt extends DdlStmt {
         functionName.analyze(analyzer);
 
         // check operation privilege
-        if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(
-                ConnectContext.get(), functionName.getDb(), PrivPredicate.ADMIN)) {
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
         // check argument
@@ -96,7 +96,7 @@ public class CreateFunctionStmt extends DdlStmt {
 
         String OBJECT_FILE_KEY = "object_file";
         objectFile = properties.get(OBJECT_FILE_KEY);
-        if (objectFile == null) {
+        if (Strings.isNullOrEmpty(objectFile)) {
             throw new AnalysisException("No 'object_file' in properties");
         }
         try {
@@ -132,7 +132,7 @@ public class CreateFunctionStmt extends DdlStmt {
     private void analyzeUdf() throws AnalysisException {
         final String SYMBOL_KEY = "symbol";
         String symbol = properties.get(SYMBOL_KEY);
-        if (symbol == null) {
+        if (Strings.isNullOrEmpty(symbol)) {
             throw new AnalysisException("No 'symbol' in properties");
         }
         function = ScalarFunction.createUdf(

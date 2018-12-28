@@ -17,21 +17,26 @@
 
 package org.apache.doris.catalog;
 
+import static org.apache.doris.common.io.IOUtils.readOptionStringOrNull;
+import static org.apache.doris.common.io.IOUtils.writeOptionString;
+
+import org.apache.doris.common.io.IOUtils;
+
+import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.HdfsURI;
+import org.apache.doris.thrift.TAggregateFunction;
+import org.apache.doris.thrift.TFunction;
+import org.apache.doris.thrift.TFunctionBinaryType;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.apache.doris.analysis.FunctionName;
 // import org.apache.doris.analysis.String;
-import org.apache.doris.thrift.TAggregateFunction;
-import org.apache.doris.thrift.TFunction;
-import org.apache.doris.thrift.TFunctionBinaryType;
-import org.apache.doris.analysis.HdfsURI;
-
-import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.LogManager;
 
 /**
  * Internal representation of an aggregate function.
