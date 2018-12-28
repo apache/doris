@@ -78,6 +78,13 @@ private:
 
 class TabletMeta {
 public:
+<<<<<<< HEAD
+=======
+    TabletMeta();
+    TabletMeta(const std::string& file_name);
+    TabletMeta(DataDir* data_dir);
+
+>>>>>>> Fix tablet compilation error
     OLAPStatus init();
     OLAPStatus load_and_init();
     FileVersionMessage& file_version(int32_t index);
