@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.io.Writable;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
@@ -135,6 +136,14 @@ public class Tablet extends MetaObject implements Writable {
     
     public Set<Long> getBackendIds() {
         Set<Long> beIds = Sets.newHashSet();
+        for (Replica replica : replicas) {
+            beIds.add(replica.getBackendId());
+        }
+        return beIds;
+    }
+
+    public List<Long> getBackendIdsList() {
+        List<Long> beIds = Lists.newArrayList();
         for (Replica replica : replicas) {
             beIds.add(replica.getBackendId());
         }

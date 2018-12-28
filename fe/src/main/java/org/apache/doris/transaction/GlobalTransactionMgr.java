@@ -133,7 +133,7 @@ public class GlobalTransactionMgr {
                                                             + runningTxnNums.get(dbId) + ", larger than limit " + Config.max_running_txn_num_per_db);
             }
             long tid = idGenerator.getNextTransactionId();
-            LOG.debug("beginTransaction: tid {} with label {} from coordinator {}", tid, label, coordinator);
+            LOG.info("begin transaction: txn id {} with label {} from coordinator {}", tid, label, coordinator);
             TransactionState transactionState = new TransactionState(dbId, tid, label, sourceType,
                                                                      coordinator, txnStateChangeListener);
             transactionState.setPrepareTime(System.currentTimeMillis());
