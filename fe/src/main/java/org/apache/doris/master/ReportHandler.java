@@ -17,13 +17,6 @@
 
 package org.apache.doris.master;
 
-import com.google.common.collect.LinkedListMultimap;
-import com.google.common.collect.ListMultimap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Queues;
-
-import org.apache.commons.lang.StringUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -65,6 +58,14 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTaskType;
+
+import com.google.common.collect.LinkedListMultimap;
+import com.google.common.collect.ListMultimap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Queues;
+
+import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -326,6 +327,7 @@ public class ReportHandler extends Daemon {
             }
             db.writeLock();
             try {
+
                 int syncCounter = 0;
                 List<Long> tabletIds = tabletSyncMap.get(dbId);
                 LOG.info("before sync tablets in db[{}]. report num: {}. backend[{}]",
@@ -461,7 +463,8 @@ public class ReportHandler extends Daemon {
                     }
                     
                     // check report version again
-                    if (backendReportVersion < Catalog.getCurrentSystemInfo().getBackendReportVersion(backendId)) {
+                    long currentBackendReportVersion = Catalog.getCurrentSystemInfo().getBackendReportVersion(backendId);
+                    if (backendReportVersion < currentBackendReportVersion) {
                         continue;
                     }
 
@@ -508,8 +511,10 @@ public class ReportHandler extends Daemon {
                                                                                      indexId, tabletId, backendId);
 
                         Catalog.getInstance().getEditLog().logDeleteReplica(info);
-                        LOG.warn("delete replica[{}] in tablet[{}] from meta. backend[{}]",
-                                 replica.getId(), tabletId, backendId);
+                        LOG.warn("delete replica[{}] in tablet[{}] from meta. backend[{}], report version: {}"
+                                + ", current report version: {}",
+                                replica.getId(), tabletId, backendId, backendReportVersion,
+                                currentBackendReportVersion);
                         
                         // check for clone
                         replicas = tablet.getReplicas();
