@@ -39,6 +39,7 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -138,7 +139,7 @@ public class StreamLoadPlanner {
         queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
         params.setQuery_globals(queryGlobals);
 
-        LOG.info("params is {}", params);
+        LOG.debug("stream load txn id: {}, plan: {}", request.txnId, params);
         return params;
     }
 }

@@ -137,9 +137,12 @@ struct StreamLoadContext {
 
     std::string to_json() const;
 
+    std::string brief() const;
+
     void ref() { _refs.fetch_add(1); }
     // If unref() returns true, this object should be delete
     bool unref() { return _refs.fetch_sub(1) == 1; }
+
 private:
     std::atomic<int> _refs;
 };
@@ -156,6 +159,14 @@ std::string StreamLoadContext::to_json() const {
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(s);
 
     writer.StartObject();
+    // txn id
+    writer.Key("TxnId");
+    writer.Int64(txn_id);
+
+    // label
+    writer.Key("Label");
+    writer.String(label);
+
     // status
     writer.Key("Status");
     switch (status.code()) {
@@ -194,6 +205,12 @@ std::string StreamLoadContext::to_json() const {
     }
     writer.EndObject();
     return s.GetString();
+}
+
+std::string StreamLoadContext::brief() const {
+    std::stringstream ss;
+    ss << " id=" << id << ", txn id=" << txn_id << ", label=" << label;
+    return ss.str();
 }
 
 StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
@@ -315,8 +332,8 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         ctx->label = generate_uuid_string();
     }
 
-    LOG(INFO) << "new income streaming load request, id=" << ctx->id
-        << ", db=" << ctx->db << ", table=" << ctx->table << ", label=" << ctx->label;
+    LOG(INFO) << "new income streaming load request." << ctx->brief();
+              << ", db: " << ctx->db << ", tbl: " << ctx->tbl;
 
     auto st = _on_header(req, ctx);
     if (!st.ok()) {
@@ -339,7 +356,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
 Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ctx) {
     // auth information
     if (!parse_basic_auth(*http_req, &ctx->auth)) {
-        LOG(WARNING) << "parse basic authorization failed, id=" << ctx->id;
+        LOG(WARNING) << "parse basic authorization failed." << ctx->brief();
         return Status("no valid Basic authorization");
     }
     // check content length
@@ -348,7 +365,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
         ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
         if (ctx->body_bytes > max_body_bytes) {
-            LOG(WARNING) << "body exceed max size, id=" << ctx->id;
+            LOG(WARNING) << "body exceed max size." << ctx->brief();
 
             std::stringstream ss;
             ss << "body exceed max size, max_body_bytes=" << max_body_bytes;
@@ -367,7 +384,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     } else {
         ctx->format = parse_format(http_req->header(HTTP_FORMAT_KEY));
         if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
-            LOG(WARNING) << "unknown data format, id=" << ctx->id;
+            LOG(WARNING) << "unknown data format." << ctx->brief();
             std::stringstream ss;
             ss << "unknown data format, format=" << http_req->header(HTTP_FORMAT_KEY);
             return Status(ss.str());
@@ -396,8 +413,8 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
 #endif
         Status status(result.status);
         if (!status.ok()) {
-            LOG(WARNING) << "begin transaction failed, id=" << ctx->id
-                << "errmsg=" << status.get_error_msg();
+            LOG(WARNING) << "begin transaction failed, errmsg=" << status.get_error_msg()
+                    << ctx->brief();
             return status;
         }
         ctx->txn_id = result.txnId;
@@ -424,8 +441,8 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
         bb->flip();
         auto st = ctx->body_sink->append(bb);
         if (!st.ok()) {
-            LOG(WARNING) << "append body content failed, id=" << ctx->id
-                << ", errmsg=" << st.get_error_msg();
+            LOG(WARNING) << "append body content failed. errmsg=" << st.get_error_msg()
+                    << ctx->brief();
             ctx->status = st;
             return;
         }
@@ -502,9 +519,8 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
 #endif
     Status plan_status(ctx->put_result.status);
     if (!plan_status.ok()) {
-        LOG(WARNING) << "plan streaming load failed, id=" << ctx->id
-            << ", txn_id=" << ctx->txn_id
-            << ", errmsg=" << plan_status.get_error_msg();
+        LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status.get_error_msg()
+                << ctx->brief();
         return plan_status;
     }
     VLOG(3) << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
@@ -539,10 +555,10 @@ Status StreamLoadAction::_execute_plan_fragment(StreamLoadContext* ctx) {
                         executor->runtime_state()->get_error_log_file_path());
                 }
             } else {
-                LOG(WARNING) << "fragment execute failed, load_id=" << ctx->id
-                    << ", txn_id=" << ctx->txn_id
+                LOG(WARNING) << "fragment execute failed"
                     << ", query_id=" << UniqueId(ctx->put_result.params.params.query_id)
-                    << ", errmsg=" << status.get_error_msg();
+                    << ", errmsg=" << status.get_error_msg()
+                    << ctx->brief();
                 // cancel body_sink, make sender known it
                 if (ctx->body_sink != nullptr) {
                     ctx->body_sink->cancel();
@@ -580,9 +596,8 @@ void StreamLoadAction::rollback(StreamLoadContext* ctx) {
             client->loadTxnRollback(result, request);
         });
     if (!rpc_st.ok()) {
-        LOG(WARNING) << "transaction rollback failed, id=" << ctx->id
-            << ", txn_id=" << ctx->txn_id
-            << ", errmsg=" << rpc_st.get_error_msg();
+        LOG(WARNING) << "transaction rollback failed. errmsg=" << rpc_st.get_error_msg();
+                << ctx->brief();
     }
 #else
     result = k_stream_load_rollback_result;
