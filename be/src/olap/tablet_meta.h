@@ -78,10 +78,6 @@ private:
 
 class TabletMeta {
 public:
-    TabletMeta();
-    TabletMeta(const std::string& file_name);
-    TabletMeta(DataDir* data_dir);
-
     OLAPStatus init();
     OLAPStatus load_and_init();
     FileVersionMessage& file_version(int32_t index);
@@ -114,6 +110,9 @@ public:
     int32_t cumulative_layer_point();
     void set_num_rows_per_data_block(size_t default_num_rows_per_column_file_block);
 
+    TabletMeta();
+    TabletMeta(const std::string& file_name);
+    TabletMeta(DataDir* data_dir);
     OLAPStatus serialize(string* meta_binary);
     OLAPStatus serialize_unlock(string* meta_binary);
 
