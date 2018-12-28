@@ -22,28 +22,46 @@
 #include "olap/new_status.h"
 #include "olap/schema.h"
 #include "olap/row_block.h"
+#include "gen_cpp/types.pb.h"
 
 namespace doris {
 
 class Rowset;
 
+struct RowsetBuilderContext {
+    int64_t tablet_id;
+    int tablet_schema_hash;
+    int64_t rowset_id;
+    RowsetTypePB rowset_type;
+    std::string rowset_path_prefix;
+    RowFields tablet_schema;
+    int64_t partition_id;
+    int64_t txn_id;
+    int num_key_fields;
+    int num_short_key_fields;
+    int num_rows_per_row_block;
+    Version version;
+    VersionHash version_hash;
+    PUniqueId load_id;
+    CompressKind compress_kind;
+    double bloom_filter_fpp;
+};
+
 class RowsetBuilder {
 public:
     virtual ~RowsetBuilder() { }
     
-    virtual NewStatus init(int64_t rowset_id, const std::string& rowset_path_prefix, Schema* schema) = 0;
+    virtual NewStatus init(const RowsetBuilderContext& rowset_builder_context) = 0;
 
-    // add a row block to rowset
-    virtual NewStatus add_row_block(RowBlock* row_block) = 0;
+    // add a row to rowset
+    virtual NewStatus add_row(RowCursor* row_block) = 0;
 
-    // this is a temp api
-    // it is used to get rewritten path for writing rowset data
-    virtual NewStatus generate_written_path(const std::string& src_path, std::string* dest_path) = 0;
+    virtual NewStatus flush() = 0;
 
     // get a rowset
-    virtual NewStatus build(Rowset* rowset) = 0;
+    virtual std::shared_ptr<Rowset> build() = 0;
 };
 
-}
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_BUILDER_H

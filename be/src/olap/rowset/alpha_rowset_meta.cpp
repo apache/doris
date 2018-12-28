@@ -17,6 +17,8 @@
 
 #include "olap/rowset/alpha_rowset_meta.h"
 
+#include "common/logging.h"
+
 namespace doris {
 
 bool AlphaRowsetMeta::deserialize_extra_properties() {
@@ -34,6 +36,28 @@ void AlphaRowsetMeta::get_segment_groups(std::vector<SegmentGroupPB>* segment_gr
 void AlphaRowsetMeta::add_segment_group(const SegmentGroupPB& segment_group) {
     SegmentGroupPB* new_segment_group = _extra_meta_pb.add_segment_groups();
     *new_segment_group = segment_group;
+}
+
+void AlphaRowsetMeta::get_pending_segment_groups(
+        std::vector<PendingSegmentGroupPB>* pending_segment_groups) {
+    for (auto& pending_segment_group : _extra_meta_pb.pending_segment_groups()) {
+        pending_segment_groups->push_back(pending_segment_group);
+    }
+}
+
+void AlphaRowsetMeta::add_pending_segment_group(const PendingSegmentGroupPB& pending_segment_group) {
+    for (int i = 0; i < _extra_meta_pb.pending_segment_groups_size(); i++) {
+        const PendingSegmentGroupPB& present_segment_group = _extra_meta_pb.pending_segment_groups(i);
+        if (present_segment_group.pending_segment_group_id() ==
+                pending_segment_group.pending_segment_group_id()) {
+            LOG(WARNING) << "pending segment_group already exists in meta."
+                        << "rowset_id:" << get_rowset_id()
+                        << ", pending_segment_group_id: " << pending_segment_group.pending_segment_group_id();
+            return;
+        }
+    }
+    PendingSegmentGroupPB* new_pending_segment_group = _extra_meta_pb.add_pending_segment_groups();
+    *new_pending_segment_group = pending_segment_group;
 }
 
 void AlphaRowsetMeta::_serialize_extra_meta_pb() {
