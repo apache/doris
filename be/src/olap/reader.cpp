@@ -73,7 +73,7 @@ private:
         }
 
         OLAPStatus init() {
-            auto res = _row_cursor.init(_data->segment_group()->tablet()->tablet_schema());
+            auto res = _row_cursor.init(_data->tablet()->tablet_schema());
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to init row cursor, res=" << res;
                 return res;
@@ -805,7 +805,7 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
 OLAPStatus Reader::_init_conditions_param(const ReaderParams& read_params) {
     OLAPStatus res = OLAP_SUCCESS;
 
-    _conditions.set_tablet(_tablet);
+    _conditions.set_tablet_schema(_tablet->tablet_schema());
     for (int i = 0; i < read_params.conditions.size(); ++i) {
         _conditions.append_condition(read_params.conditions[i]);
         ColumnPredicate* predicate = _parse_to_predicate(read_params.conditions[i]);
@@ -1120,7 +1120,9 @@ OLAPStatus Reader::_init_load_bf_columns(const ReaderParams& read_params) {
 OLAPStatus Reader::_init_delete_condition(const ReaderParams& read_params) {
     if (read_params.reader_type != READER_CUMULATIVE_COMPACTION) {
         _tablet->obtain_header_rdlock();
-        OLAPStatus ret = _delete_handler.init(_tablet, read_params.version.second);
+        OLAPStatus ret = _delete_handler.init(_tablet->tablet_schema(),
+                                              _tablet->delete_predicates(),
+                                              read_params.version.second);
         _tablet->release_header_lock();
 
         return ret;

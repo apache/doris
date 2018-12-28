@@ -27,6 +27,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_schema.h"
+#include "olap/rowset/rowset.h"
 
 using std::string;
 using std::vector;
@@ -48,12 +49,8 @@ enum AlterTabletState {
     ALTER_FAILED
 };
 
-class Rowset;
-using RowsetSharedPtr = std::shared_ptr<Rowset>;
-
 class RowsetMeta;
-using RowsetMetaSharedPtr = std::shared_ptr<RowsetMeta>;
-
+class Rowset;
 class DataDir;
 
 class AlterTabletTask {
@@ -64,6 +61,8 @@ public:
 
     inline int64_t related_tablet_id() { return _related_tablet_id; }
     inline int64_t related_schema_hash() { return _related_schema_hash; }
+    inline int64_t set_related_tablet_id(int64_t related_tablet_id) { _related_tablet_id = related_tablet_id; }
+    inline int64_t set_related_schema_hash(int64_t schema_hash) { _related_schema_hash = schema_hash; }
 
     vector<RowsetMetaSharedPtr>& rowsets_to_alter() { return _rowsets_to_alter; }
 
@@ -79,13 +78,41 @@ private:
 
 class TabletMeta {
 public:
-    TabletMeta(const std::string& file_name);
-    TabletMeta(DataDir* data_dir);
-
+    OLAPStatus init();
     OLAPStatus load_and_init();
     FileVersionMessage& file_version(int32_t index);
     int file_version_size();
+    int file_delta_size();
+    Version get_latest_version();
     OLAPStatus set_shard(int32_t shard_id);
+    OLAPStatus save(const std::string& file_path);
+    OLAPStatus clear_schema_change_status();
+    OLAPStatus delete_all_versions();
+    OLAPStatus delete_version(Version version);
+    OLAPStatus add_version(Version version, VersionHash version_hash,
+                           int32_t segment_group_id, int32_t num_segments,
+                           int64_t index_size, int64_t data_size, int64_t num_rows,
+                           bool empty, const std::vector<KeyRange>* column_statistics);
+    const PDelta* get_incremental_version(Version version) const;
+    std::string& file_name() const;
+    const PDelta* get_delta(int index) const;
+    const PDelta* get_base_version() const;
+    const uint32_t get_cumulative_compaction_score() const;
+    const uint32_t get_base_compaction_score() const;
+    const OLAPStatus version_creation_time(const Version& version, int64_t* creation_time) const;
+    void set_tablet_id(int64_t tablet_id);
+    void set_schema_hash(TSchemaHash schema_hash);
+    void set_cumulative_layer_point(int32_t point);
+    void set_next_column_unique_id(int32_t unique_id);
+    void set_compress_kind(CompressKind kind);
+    void set_keys_type(KeysType keys_type);
+    void set_data_file_type(DataFileType type);
+    int32_t cumulative_layer_point();
+    void set_num_rows_per_data_block(size_t default_num_rows_per_column_file_block);
+
+    TabletMeta();
+    TabletMeta(const std::string& file_name);
+    TabletMeta(DataDir* data_dir);
     OLAPStatus serialize(string* meta_binary);
     OLAPStatus serialize_unlock(string* meta_binary);
 

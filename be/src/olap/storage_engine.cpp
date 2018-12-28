@@ -831,7 +831,7 @@ TabletSharedPtr StorageEngine::create_tablet(
             return nullptr;
         }
     } else {
-        stores.push_back(ref_tablet->store());
+        stores.push_back(ref_tablet->data_dir());
     }
 
     return _tablet_mgr.create_tablet(request, ref_root_path,
@@ -1029,12 +1029,11 @@ void StorageEngine::add_unused_index(SegmentGroup* segment_group) {
     auto it = _gc_files.find(segment_group);
     if (it == _gc_files.end()) {
         vector<string> files;
-        int32_t segment_group_id = segment_group->segment_group_id();
         for (size_t seg_id = 0; seg_id < segment_group->num_segments(); ++seg_id) {
-            string index_file = segment_group->construct_index_file_path(segment_group_id, seg_id);
+            string index_file = segment_group->construct_index_file_path(seg_id);
             files.push_back(index_file);
 
-            string data_file = segment_group->construct_data_file_path(segment_group_id, seg_id);
+            string data_file = segment_group->construct_data_file_path(seg_id);
             files.push_back(data_file);
         }
         _gc_files[segment_group] = files;
@@ -1205,7 +1204,7 @@ OLAPStatus StorageEngine::cancel_delete(const TCancelDeleteDataReq& request) {
     DeleteConditionHandler cond_handler;
     for (TabletSharedPtr temp_tablet : table_list) {
         temp_tablet->obtain_header_wrlock();
-        res = cond_handler.delete_cond(temp_tablet, request.version, false);
+        res = cond_handler.delete_cond(&temp_tablet->delete_predicates(), request.version, false);
         if (res != OLAP_SUCCESS) {
             temp_tablet->release_header_lock();
             LOG(WARNING) << "cancel delete failed."
@@ -1227,7 +1226,7 @@ OLAPStatus StorageEngine::cancel_delete(const TCancelDeleteDataReq& request) {
 
     // Show delete conditions in tablet header.
     for (TabletSharedPtr tablet : table_list) {
-        cond_handler.log_conds(tablet);
+        cond_handler.log_conds(tablet->full_name(), tablet->delete_predicates());
     }
 
     LOG(INFO) << "finish to process cancel delete. res=" << res;
