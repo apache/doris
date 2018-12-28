@@ -165,7 +165,7 @@ std::string StreamLoadContext::to_json() const {
 
     // label
     writer.Key("Label");
-    writer.String(label);
+    writer.String(label.c_str());
 
     // status
     writer.Key("Status");
@@ -332,7 +332,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         ctx->label = generate_uuid_string();
     }
 
-    LOG(INFO) << "new income streaming load request." << ctx->brief();
+    LOG(INFO) << "new income streaming load request." << ctx->brief()
               << ", db: " << ctx->db << ", tbl: " << ctx->tbl;
 
     auto st = _on_header(req, ctx);
@@ -596,7 +596,7 @@ void StreamLoadAction::rollback(StreamLoadContext* ctx) {
             client->loadTxnRollback(result, request);
         });
     if (!rpc_st.ok()) {
-        LOG(WARNING) << "transaction rollback failed. errmsg=" << rpc_st.get_error_msg();
+        LOG(WARNING) << "transaction rollback failed. errmsg=" << rpc_st.get_error_msg()
                 << ctx->brief();
     }
 #else
