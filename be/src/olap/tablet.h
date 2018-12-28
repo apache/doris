@@ -80,6 +80,7 @@ public:
     void acquire_data_sources_by_versions(const std::vector<Version>& version_list,
                                           std::vector<ColumnData*>* sources) const;
     OLAPStatus release_data_sources(std::vector<ColumnData*>* data_sources) const;
+    OLAPStatus register_data_source(const std::vector<SegmentGroup*>& segment_group_vec);
     OLAPStatus unregister_data_source(const Version& version, std::vector<SegmentGroup*>* segment_group_vec);
     OLAPStatus add_pending_version(int64_t partition_id, int64_t transaction_id,
                                  const std::vector<std::string>* delete_conditions);
@@ -92,7 +93,7 @@ public:
     void load_pending_data();
     OLAPStatus publish_version(int64_t transaction_id, Version version, VersionHash version_hash);
     const PDelta* get_incremental_delta(Version version) const;
-    void get_missing_versions_with_meta_locked(
+    void get_missing_versions_with_header_locked(
             int64_t until_version, std::vector<Version>* missing_versions) const;
     OLAPStatus is_push_for_delete(int64_t transaction_id, bool* is_push_for_delete) const;
     OLAPStatus clone_data(const TabletMeta& clone_header,
@@ -170,7 +171,7 @@ public:
     void set_cumulative_layer_point(const int32_t new_point);
     bool is_schema_changing();
     bool get_schema_change_request(TTabletId* tablet_id,
-                                   SchemaHash* schema_hash,
+                                   TSchemaHash* schema_hash,
                                    std::vector<Version>* versions_to_changed,
                                    AlterTabletType* alter_table_type) const;
     void set_schema_change_request(int64_t tablet_id,
@@ -196,9 +197,13 @@ public:
     size_t get_version_data_size(const Version& version);
     OLAPStatus recover_tablet_until_specfic_version(const int64_t& until_version,
                                                     const int64_t& version_hash);
+    const std::string& rowset_path_prefix();
+    void set_id(int64_t id);
+    OLAPStatus register_tablet_into_dir();
 
 
 
+    OLAPStatus init_once();
     OLAPStatus capture_consistent_rowsets(const Version& spec_version,
                                           vector<std::shared_ptr<RowsetReader>>* rs_readers);
     void acquire_rs_reader_by_version(const vector<Version>& version_vec,
@@ -231,6 +236,7 @@ public:
     size_t get_row_size() const;
     size_t get_index_size() const;
     size_t all_rowsets_size() const;
+    size_t get_data_size() const;
     size_t get_num_rows() const;
     size_t get_rowset_size(const Version& version);
 
@@ -280,6 +286,7 @@ public:
     uint32_t segment_size() const;
     void set_io_error();
     RowsetSharedPtr rowset_with_largest_size();
+    SegmentGroup* get_largest_index();
 public:
     DataDir* _data_dir;
     TabletState _state;
@@ -301,7 +308,7 @@ public:
             return seed;
         }
     };
-    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _version_rowset_map;
+    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 };

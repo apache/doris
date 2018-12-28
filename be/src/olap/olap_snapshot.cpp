@@ -359,7 +359,7 @@ OLAPStatus StorageEngine::_create_snapshot_files(
 
         // load tablet header, in order to remove versions that not in shortest version path
         DataDir* store = ref_tablet->data_dir();
-        new_tablet_meta = new(nothrow) TabletMeta();
+        new_tablet_meta = new(nothrow) TabletMeta(store);
         if (new_tablet_meta == NULL) {
             OLAP_LOG_WARNING("fail to malloc TabletMeta.");
             res = OLAP_ERR_MALLOC_ERROR;
@@ -479,7 +479,7 @@ OLAPStatus StorageEngine::_create_incremental_snapshot_files(
     do {
         // save header to snapshot path
         TabletMeta tablet_meta;
-        res = TabletMetaManager::get_header(ref_tablet->store(),
+        res = TabletMetaManager::get_header(ref_tablet->data_dir(),
                 ref_tablet->tablet_id(), ref_tablet->schema_hash(), &tablet_meta);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load header. res=" << res << "tablet_id="
@@ -560,7 +560,7 @@ OLAPStatus StorageEngine::_append_single_delta(
         const TSnapshotRequest& request, DataDir* store) {
     OLAPStatus res = OLAP_SUCCESS;
     string root_path = store->path();
-    TabletMeta* new_tablet_meta = new(nothrow) TabletMeta();
+    TabletMeta* new_tablet_meta = new(nothrow) TabletMeta(store);
     if (new_tablet_meta == NULL) {
         OLAP_LOG_WARNING("fail to malloc TabletMeta.");
         return OLAP_ERR_MALLOC_ERROR;

@@ -48,11 +48,11 @@ class SegmentGroup {
     friend class MemIndex;
 public:
     SegmentGroup(int64_t tablet_id, const RowFields& tablet_schema, int num_key_fields, int num_short_key_fields,
-            size_t num_rows_per_row_block, std::string tablet_path_prefix, Version version,
+            size_t num_rows_per_row_block, const std::string& rowset_path_prefix, Version version,
             VersionHash version_hash, bool delete_flag, int segment_group_id, int32_t num_segments);
 
     SegmentGroup(int64_t tablet_id, const RowFields& tablet_schema, int num_key_fields, int num_short_key_fields,
-            size_t num_rows_per_row_block, std::string tablet_path_prefix, bool delete_flag,
+            size_t num_rows_per_row_block, const std::string& rowset_path_prefix, bool delete_flag,
             int32_t segment_group_id, int32_t num_segments, bool is_pending,
             TPartitionId partition_id, TTransactionId transaction_id);
 
@@ -227,6 +227,7 @@ public:
 
     std::string construct_index_file_path(int32_t segment) const;
     std::string construct_data_file_path(int32_t segment) const;
+    size_t current_num_rows_per_row_block() const;
     void publish_version(Version version, VersionHash version_hash);
 
     const RowFields& get_tablet_schema();

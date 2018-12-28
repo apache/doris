@@ -46,6 +46,8 @@ public:
         return ret;
     }
 
+    virtual bool init_from_pb(const RowsetMetaPB& rs_meta_pb);
+
     virtual bool deserialize_extra_properties() {
         return true;
     }
