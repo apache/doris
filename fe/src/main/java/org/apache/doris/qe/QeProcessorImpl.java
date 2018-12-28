@@ -89,7 +89,6 @@ public final class QeProcessorImpl implements QeProcessor {
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params) {
         LOG.info("ReportExecStatus(): instance_id=" + params.fragment_instance_id.toString()
                 + "queryID=" + params.query_id.toString() + " params=" + params);
-
         final TReportExecStatusResult result = new TReportExecStatusResult();
         final QueryInfo info = coordinatorMap.get(params.query_id);
         if (info == null) {
@@ -108,7 +107,6 @@ public final class QeProcessorImpl implements QeProcessor {
     }
 
     public static final class QueryInfo {
-
         private final ConnectContext connectContext;
         private final Coordinator coord;
         private final String sql;

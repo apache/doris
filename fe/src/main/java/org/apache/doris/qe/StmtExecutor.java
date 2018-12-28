@@ -93,7 +93,6 @@ public class StmtExecutor {
     private String originStmt;
     private StatementBase parsedStmt;
     private Analyzer analyzer;
-    private boolean isRegisterQuery = false;
     private RuntimeProfile profile;
     private RuntimeProfile summaryProfile;
     private volatile Coordinator coord = null;
@@ -255,6 +254,8 @@ public class StmtExecutor {
                         LOG.warn("errors when abort txn", abortTxnException);
                     }
                     throw t;
+                } finally {
+                    QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
                 }
             } else if (parsedStmt instanceof DdlStmt) {
                 handleDdlStmt();
@@ -286,10 +287,6 @@ public class StmtExecutor {
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
-            }
-        } finally {
-            if (isRegisterQuery) {
-                QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
             }
         }
     }
@@ -533,7 +530,6 @@ public class StmtExecutor {
 
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), 
                        new QeProcessorImpl.QueryInfo(context, originStmt, coord));
-        isRegisterQuery = true;
 
         coord.exec();
 
@@ -587,7 +583,6 @@ public class StmtExecutor {
         coord = new Coordinator(context, analyzer, planner);
 
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
-        isRegisterQuery = true;
 
         coord.exec();
 

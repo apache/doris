@@ -26,6 +26,7 @@ namespace doris {
 
 class RowBatch;
 class DataStreamRecvr;
+class RuntimeProfile;
 
 // Receiver node for data streams. The data stream receiver is created in Prepare()
 // and closed in Close().
@@ -106,6 +107,8 @@ private:
 
     // Number of rows skipped so far.
     int64_t _num_rows_skipped;
+
+    RuntimeProfile::Counter* _merge_rows_counter;
 };
 
 };

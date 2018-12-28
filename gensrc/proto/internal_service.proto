@@ -141,16 +141,22 @@ enum PFragmentExecStatus {
     FINISHED = 2;
 }
 
-message PFragmentExecInfo {
+message PPlanNodeExecInfo {
+    optional int32 id = 1;
+    optional int32 type = 2;  // same as TPlanNodeType
+    optional int64 io_by_byte = 3;
+    optional int64 cpu_consumpation = 4;
+}
+
+message PInstanceExecInfo {
     required PUniqueId finst_id = 1;
     required int32 exec_status = 2;
-    optional int32 plan_node_type = 3;  // same as TPlanNodeType
-    optional int64 rows_count = 4;
+    repeated PPlanNodeExecInfo plannode_exec_info = 3;
 }
 
 message PFetchFragmentExecInfosResult {
     required PStatus status = 1;
-    repeated PFragmentExecInfo fragment_exec_info = 2;
+    repeated PInstanceExecInfo instance_exec_info = 2;
 }
 
 service PBackendService {

@@ -28,6 +28,7 @@
 #include "service/backend_options.h"
 #include "runtime/plan_fragment_executor.h"
 #include "runtime/exec_env.h"
+#include "runtime/exec_node_resource_consumpation.h"
 #include "runtime/datetime_value.h"
 #include "util/stopwatch.hpp"
 #include "util/debug_util.h"
@@ -314,7 +315,6 @@ void FragmentExecState::coordinator_callback(
                 _executor.cancel();
                 return;
             }
-
             coord->reportExecStatus(res, params);
         }
 
@@ -510,12 +510,13 @@ Status FragmentMgr::fetch_fragment_exec_infos(PFetchFragmentExecInfosResult* res
         TUniqueId id;
         id.__set_hi(p_fragment_id.hi());
         id.__set_lo(p_fragment_id.lo()); 
-        PFragmentExecInfo* info = result->add_fragment_exec_info();
+        PInstanceExecInfo* info = result->add_instance_exec_info();
         PUniqueId* finst_id = info->mutable_finst_id();
         finst_id->set_hi(p_fragment_id.hi());
         finst_id->set_lo(p_fragment_id.lo()); 
 
         bool is_running = false; 
+        RuntimeProfile* root_profile;
         std::lock_guard<std::mutex> lock(_lock);
         {
             auto iter = _fragment_map.find(id);
@@ -524,6 +525,7 @@ Status FragmentMgr::fetch_fragment_exec_infos(PFetchFragmentExecInfosResult* res
                 continue;
             }
             is_running = iter->second->executor()->runtime_state()->is_running();
+            root_profile = iter->second->executor()->runtime_state()->runtime_profile();
         }
 
         if (is_running) {
@@ -531,6 +533,36 @@ Status FragmentMgr::fetch_fragment_exec_infos(PFetchFragmentExecInfosResult* res
         } else {
             info->set_exec_status(PFragmentExecStatus::WAIT);
         }
+
+        std::vector<RuntimeProfile*> all_profiles;
+        root_profile->get_all_children(&all_profiles);
+        ExecNodeResourceConsumpation exec_node_res_consumpation;
+        for (auto profile : all_profiles) {
+            // ExecNode's RuntimeProfile name is "$node_type_name (id=?)" 
+            std::vector<std::string> elements;
+            boost::split(elements, profile->name(), boost::is_any_of(" "), boost::token_compress_off);
+            ExecNodeResourceConsumpation::Consumpation consumpation;
+            bool has = exec_node_res_consumpation.get_consumpation(profile, &consumpation, elements[0]);
+            if (elements.size() == 2 && has) {
+                PPlanNodeExecInfo* p_plan_node_exec_info = info->add_plannode_exec_info();
+                // get ExecNode id
+                std::string& str = elements[1];
+                size_t start_pos = str.find("=");
+                size_t end_pos = str.find(")");
+                if (start_pos > 0 && end_pos > 0) {
+                    std::string id_str = str.substr(start_pos + 1, end_pos - start_pos - 1);
+                    int id = std::stoi(id_str);
+                    p_plan_node_exec_info->set_id(id);
+                } else {
+                    LOG(WARNING) << "Wrong ExecNode RuntimeProfile name format. name:" << profile->name();
+                    p_plan_node_exec_info->set_id(-1);
+                }
+                p_plan_node_exec_info->set_type(exec_node_res_consumpation.get_exec_node_enum_type(elements[0]));
+                p_plan_node_exec_info->set_io_by_byte(consumpation.io_by_byte);
+                p_plan_node_exec_info->set_cpu_consumpation(consumpation.cpu);
+            }
+        }
+        
     }
 
     return Status::OK;       
