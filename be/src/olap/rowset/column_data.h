@@ -121,6 +121,7 @@ public:
     SegmentGroup* segment_group() const { return _segment_group; }
     void set_segment_group(SegmentGroup* segment_group) { _segment_group = segment_group; }
     int64_t num_rows() const { return _segment_group->num_rows(); }
+    Tablet* tablet() const { return _tablet; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(ColumnData);

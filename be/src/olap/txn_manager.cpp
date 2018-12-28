@@ -44,7 +44,7 @@
 #include "olap/schema_change.h"
 #include "olap/data_dir.h"
 #include "olap/utils.h"
-#include "olap/rowset/data_writer.h"
+#include "olap/rowset/column_data_writer.h"
 #include "util/time.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"

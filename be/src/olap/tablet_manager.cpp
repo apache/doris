@@ -44,7 +44,7 @@
 #include "olap/schema_change.h"
 #include "olap/data_dir.h"
 #include "olap/utils.h"
-#include "olap/rowset/data_writer.h"
+#include "olap/rowset/column_data_writer.h"
 #include "util/time.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
@@ -241,7 +241,13 @@ OLAPStatus TabletManager::create_init_version(TTabletId tablet_id, SchemaHash sc
             break;
         }
 
-        new_segment_group = new(nothrow) SegmentGroup(tablet.get(), version, version_hash, false, 0, 0);
+        new_segment_group = new(nothrow) SegmentGroup(tablet->tablet_id(),
+                                                      tablet->tablet_schema(),
+                                                      tablet->num_key_fields(),
+                                                      tablet->num_short_key_fields(),
+                                                      tablet->num_rows_per_row_block(),
+                                                      tablet->rowset_path_prefix(),
+                                                      version, version_hash, false, 0, 0);
         if (new_segment_group == NULL) {
             LOG(WARNING) << "fail to malloc index. [tablet=" << tablet->full_name() << "]";
             res = OLAP_ERR_MALLOC_ERROR;
@@ -881,11 +887,11 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
             tablet_info.__set_transaction_ids(transaction_ids);
 
             if (_available_storage_medium_type_count > 1) {
-                tablet_info.__set_storage_medium(tablet_ptr->store()->storage_medium());
+                tablet_info.__set_storage_medium(tablet_ptr->data_dir()->storage_medium());
             }
 
             tablet_info.__set_version_count(tablet_ptr->file_delta_size());
-            tablet_info.__set_path_hash(tablet_ptr->store()->path_hash());
+            tablet_info.__set_path_hash(tablet_ptr->data_dir()->path_hash());
 
             tablet.tablet_infos.push_back(tablet_info);
         }
@@ -1104,6 +1110,7 @@ OLAPStatus TabletManager::_create_new_tablet_header(
     }
     
     // set basic information
+    /*
     header->set_num_short_key_fields(request.tablet_schema.short_key_column_count);
     header->set_compress_kind(COMPRESS_LZ4);
     if (request.tablet_schema.keys_type == TKeysType::DUP_KEYS) {
@@ -1117,6 +1124,7 @@ OLAPStatus TabletManager::_create_new_tablet_header(
     header->set_data_file_type(COLUMN_ORIENTED_FILE);
     header->set_segment_size(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE);
     header->set_num_rows_per_data_block(config::default_num_rows_per_column_file_block);
+    */
 
     // set column information
     uint32_t i = 0;
@@ -1132,7 +1140,7 @@ OLAPStatus TabletManager::_create_new_tablet_header(
             LOG(WARNING) << "varchar type column should be the last short key.";
             return OLAP_ERR_SCHEMA_SCHEMA_INVALID;
         }
-        header->add_column();
+        //header->add_column();
         if (true == is_schema_change_tablet) {
             /*
              * for schema change, compare old_tablet and new_tablet
@@ -1147,16 +1155,17 @@ OLAPStatus TabletManager::_create_new_tablet_header(
             for (field_off = 0; field_off < field_num; ++field_off) {
                 if (ref_tablet->tablet_schema()[field_off].name == column.column_name) {
                     uint32_t unique_id = ref_tablet->tablet_schema()[field_off].unique_id;
-                    header->mutable_column(i)->set_unique_id(unique_id);
+                    //header->mutable_column(i)->set_unique_id(unique_id);
                     break;
                 }
             }
             if (field_off == field_num) {
-                header->mutable_column(i)->set_unique_id(next_unique_id++);
+                //header->mutable_column(i)->set_unique_id(next_unique_id++);
             }
         } else {
-            header->mutable_column(i)->set_unique_id(i);
+            //header->mutable_column(i)->set_unique_id(i);
         }
+        /*
         header->mutable_column(i)->set_name(column.column_name);
         header->mutable_column(i)->set_is_root_column(true);
         string data_type;
@@ -1212,6 +1221,7 @@ OLAPStatus TabletManager::_create_new_tablet_header(
             header->mutable_column(i)->set_is_bf_column(column.is_bloom_filter_column);
             has_bf_columns = true;
         }
+        */
         ++i;
     }
     if (true == is_schema_change_tablet){
@@ -1223,6 +1233,7 @@ OLAPStatus TabletManager::_create_new_tablet_header(
     } else {
         header->set_next_column_unique_id(i);
     }
+    /*
     if (has_bf_columns && request.tablet_schema.__isset.bloom_filter_fpp) {
         header->set_bf_fpp(request.tablet_schema.bloom_filter_fpp);
     }
@@ -1231,8 +1242,9 @@ OLAPStatus TabletManager::_create_new_tablet_header(
                 << "key_num=" << key_count << " short_key_num=" << request.tablet_schema.short_key_column_count;
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
+    */
 
-    header->set_creation_time(time(NULL));
+    //header->set_creation_time(time(NULL));
     header->set_cumulative_layer_point(-1);
     header->set_tablet_id(request.tablet_id);
     header->set_schema_hash(request.tablet_schema.schema_hash);
@@ -1275,7 +1287,7 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(
         _tablet_map.erase(tablet_id);
     }
 
-    res = dropped_tablet->store()->deregister_tablet(dropped_tablet.get());
+    res = dropped_tablet->data_dir()->deregister_tablet(dropped_tablet.get());
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to unregister from root path. [res=%d tablet=%ld]",
                          res, tablet_id);

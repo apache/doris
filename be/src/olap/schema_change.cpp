@@ -29,7 +29,7 @@
 #include "olap/tablet.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
-#include "olap/rowset/data_writer.h"
+#include "olap/rowset/column_data_writer.h"
 #include "olap/wrapper_field.h"
 #include "common/resource_tls.h"
 #include "agent/cgroups_mgr.h"
@@ -691,10 +691,11 @@ bool SchemaChangeDirectly::_write_row_block(ColumnDataWriter* writer, RowBlock* 
     return true;
 }
 
-bool LinkedSchemaChange::process(ColumnData* olap_data, SegmentGroup* new_segment_group) {
+bool LinkedSchemaChange::process(ColumnData* olap_data, SegmentGroup* new_segment_group,
+                                 TabletSharedPtr tablet) {
     for (size_t i = 0; i < olap_data->segment_group()->num_segments(); ++i) {
-        string index_path = new_segment_group->construct_index_file_path(new_segment_group->segment_group_id(), i);
-        string base_tablet_index_path = olap_data->segment_group()->construct_index_file_path(olap_data->segment_group()->segment_group_id(), i);
+        string index_path = new_segment_group->construct_index_file_path(i);
+        string base_tablet_index_path = olap_data->segment_group()->construct_index_file_path(i);
         if (link(base_tablet_index_path.c_str(), index_path.c_str()) == 0) {
             VLOG(3) << "success to create hard link. from_path=" << base_tablet_index_path
                     << ", to_path=" << index_path;
@@ -705,8 +706,8 @@ bool LinkedSchemaChange::process(ColumnData* olap_data, SegmentGroup* new_segmen
             return false;
         }
 
-        string data_path = new_segment_group->construct_data_file_path(new_segment_group->segment_group_id(), i);
-        string base_tablet_data_path = olap_data->segment_group()->construct_data_file_path(olap_data->segment_group()->segment_group_id(), i);
+        string data_path = new_segment_group->construct_data_file_path(i);
+        string base_tablet_data_path = olap_data->segment_group()->construct_data_file_path(i);
         if (link(base_tablet_data_path.c_str(), data_path.c_str()) == 0) {
             VLOG(3) << "success to create hard link. from_path=" << base_tablet_data_path
                     << ", to_path=" << data_path;
@@ -733,8 +734,9 @@ bool LinkedSchemaChange::process(ColumnData* olap_data, SegmentGroup* new_segmen
     return true;
 }
 
-bool SchemaChangeDirectly::process(ColumnData* olap_data, SegmentGroup* new_segment_group) {
-    DataFileType data_file_type = new_segment_group->tablet()->data_file_type();
+bool SchemaChangeDirectly::process(ColumnData* olap_data, SegmentGroup* new_segment_group,
+                                   TabletSharedPtr tablet) {
+    DataFileType data_file_type = tablet->data_file_type();
     bool null_supported = true;
 
     if (NULL == _row_block_allocator) {
@@ -789,8 +791,8 @@ bool SchemaChangeDirectly::process(ColumnData* olap_data, SegmentGroup* new_segm
     }
 
     if (need_create_empty_version) {
-        res = create_init_version(new_segment_group->tablet()->tablet_id(),
-                                  new_segment_group->tablet()->schema_hash(),
+        res = create_init_version(tablet->tablet_id(),
+                                  tablet->schema_hash(),
                                   new_segment_group->version(),
                                   new_segment_group->version_hash(),
                                   new_segment_group);
@@ -806,7 +808,9 @@ bool SchemaChangeDirectly::process(ColumnData* olap_data, SegmentGroup* new_segm
         << "block_row_size=" << _tablet->num_rows_per_row_block();
     bool result = true;
     RowBlock* new_row_block = NULL;
-    ColumnDataWriter* writer = ColumnDataWriter::create(_tablet, new_segment_group, false);
+    ColumnDataWriter* writer = ColumnDataWriter::create(new_segment_group, false,
+                                                        _tablet->compress_kind(),
+                                                        _tablet->bloom_filter_fpp());
     if (NULL == writer) {
         OLAP_LOG_WARNING("failed to create writer.");
         result = false;
@@ -922,7 +926,8 @@ SchemaChangeWithSorting::~SchemaChangeWithSorting() {
     SAFE_DELETE(_row_block_allocator);
 }
 
-bool SchemaChangeWithSorting::process(ColumnData* olap_data, SegmentGroup* new_segment_group) {
+bool SchemaChangeWithSorting::process(ColumnData* olap_data, SegmentGroup* new_segment_group,
+                                      TabletSharedPtr tablet) {
     if (NULL == _row_block_allocator) {
         if (NULL == (_row_block_allocator = new(nothrow) RowBlockAllocator(
                         _tablet->tablet_schema(), _memory_limitation))) {
@@ -931,7 +936,7 @@ bool SchemaChangeWithSorting::process(ColumnData* olap_data, SegmentGroup* new_s
         }
     }
 
-    DataFileType data_file_type = new_segment_group->tablet()->data_file_type();
+    DataFileType data_file_type = tablet->data_file_type();
     bool null_supported = true;
 
     RowBlock* ref_row_block = NULL;
@@ -952,8 +957,8 @@ bool SchemaChangeWithSorting::process(ColumnData* olap_data, SegmentGroup* new_s
     }
 
     if (need_create_empty_version) {
-        res = create_init_version(new_segment_group->tablet()->tablet_id(),
-                                  new_segment_group->tablet()->schema_hash(),
+        res = create_init_version(tablet->tablet_id(),
+                                  tablet->schema_hash(),
                                   new_segment_group->version(),
                                   new_segment_group->version_hash(),
                                   new_segment_group);
@@ -1080,7 +1085,7 @@ bool SchemaChangeWithSorting::process(ColumnData* olap_data, SegmentGroup* new_s
     }
 
     // TODO(zyh): 如果_temp_delta_versions只有一个，不需要再外排
-    if (!_external_sorting(olap_segment_groups, new_segment_group)) {
+    if (!_external_sorting(olap_segment_groups, new_segment_group, tablet)) {
         OLAP_LOG_WARNING("failed to sorting externally.");
         result = false;
         goto SORTING_PROCESS_ERR;
@@ -1128,11 +1133,17 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
     uint64_t merged_rows = 0;
     RowBlockMerger merger(_tablet);
 
-    (*temp_segment_group) = new(nothrow) SegmentGroup(_tablet.get(),
-                                                temp_delta_versions,
-                                                rand(),
-                                                false,
-                                                0, 0);
+    (*temp_segment_group) =
+        new(nothrow) SegmentGroup(_tablet->tablet_id(),
+                                  _tablet->tablet_schema(),
+                                  _tablet->num_key_fields(),
+                                  _tablet->num_short_key_fields(),
+                                  _tablet->num_rows_per_row_block(),
+                                  _tablet->rowset_path_prefix(),
+                                  temp_delta_versions,
+                                  rand(),
+                                  false,
+                                  0, 0);
     if (NULL == (*temp_segment_group)) {
         OLAP_LOG_WARNING("failed to malloc SegmentGroup. [size=%ld]", sizeof(SegmentGroup));
         goto INTERNAL_SORTING_ERR;
@@ -1140,7 +1151,8 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
 
     VLOG(3) << "init writer. tablet=" << _tablet->full_name()
             << ", block_row_size=" << _tablet->num_rows_per_row_block();
-    writer = ColumnDataWriter::create(_tablet, *temp_segment_group, false);
+    writer = ColumnDataWriter::create(*temp_segment_group, false,
+                                      _tablet->compress_kind(), _tablet->bloom_filter_fpp());
     if (NULL == writer) {
         OLAP_LOG_WARNING("failed to create writer.");
         goto INTERNAL_SORTING_ERR;
@@ -1170,7 +1182,8 @@ INTERNAL_SORTING_ERR:
 
 bool SchemaChangeWithSorting::_external_sorting(
         vector<SegmentGroup*>& src_segment_groups,
-        SegmentGroup* dest_segment_group) {
+        SegmentGroup* dest_segment_group,
+        TabletSharedPtr tablet) {
     Merger merger(_tablet, dest_segment_group, READER_ALTER_TABLE);
 
     uint64_t merged_rows = 0;
@@ -1191,7 +1204,7 @@ bool SchemaChangeWithSorting::_external_sorting(
             OLAP_LOG_WARNING("fail to initial olap data. [version='%d-%d' tablet='%s']",
                              (*it)->version().first,
                              (*it)->version().second,
-                             (*it)->tablet()->full_name().c_str());
+                             tablet->full_name().c_str());
             goto EXTERNAL_SORTING_ERR;
         }
     }
@@ -1584,7 +1597,7 @@ OLAPStatus SchemaChangeHandler::_do_alter_tablet(
             }
         }
 
-        res = delete_handler.init(ref_tablet, end_version);
+        res = delete_handler.init(new_tablet->tablet_schema(), new_tablet->delete_predicates(), end_version);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("init delete handler failed. [tablet=%s; end_version=%d]",
                              ref_tablet->full_name().c_str(), end_version);
@@ -1814,18 +1827,28 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
 
         SegmentGroup* new_segment_group = nullptr;
         if ((*it)->transaction_id() == 0) {
-            new_segment_group = new SegmentGroup(dest_tablet.get(),
-                                           olap_data->version(),
-                                           olap_data->version_hash(),
-                                           olap_data->delete_flag(),
-                                           (*it)->segment_group_id(), 0);
+            new_segment_group = new SegmentGroup(dest_tablet->tablet_id(),
+                                                 dest_tablet->tablet_schema(),
+                                                 dest_tablet->num_key_fields(),
+                                                 dest_tablet->num_short_key_fields(),
+                                                 dest_tablet->num_rows_per_row_block(),
+                                                 dest_tablet->rowset_path_prefix(),
+                                                 olap_data->version(),
+                                                 olap_data->version_hash(),
+                                                 olap_data->delete_flag(),
+                                                 (*it)->segment_group_id(), 0);
         } else {
-            new_segment_group = new SegmentGroup(dest_tablet.get(),
-                                           olap_data->delete_flag(),
-                                           (*it)->segment_group_id(), 0,
-                                           (*it)->is_pending(),
-                                           (*it)->partition_id(),
-                                           (*it)->transaction_id());
+            new_segment_group = new SegmentGroup(dest_tablet->tablet_id(),
+                                                 dest_tablet->tablet_schema(),
+                                                 dest_tablet->num_key_fields(),
+                                                 dest_tablet->num_short_key_fields(),
+                                                 dest_tablet->num_rows_per_row_block(),
+                                                 dest_tablet->rowset_path_prefix(),
+                                                 olap_data->delete_flag(),
+                                                 (*it)->segment_group_id(), 0,
+                                                 (*it)->is_pending(),
+                                                 (*it)->partition_id(),
+                                                 (*it)->transaction_id());
         }
 
         if (NULL == new_segment_group) {
@@ -1836,11 +1859,11 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
 
         new_segment_groups->push_back(new_segment_group);
 
-        if (!sc_procedure->process(olap_data, new_segment_group)) {
+        if (!sc_procedure->process(olap_data, new_segment_group, dest_tablet)) {
             if ((*it)->is_pending()) {
                 OLAP_LOG_WARNING("failed to process the transaction when schema change. "
                                  "[tablet='%s' transaction=%ld]",
-                                 (*it)->tablet()->full_name().c_str(),
+                                 dest_tablet->full_name().c_str(),
                                  (*it)->transaction_id());
             } else {
                 OLAP_LOG_WARNING("failed to process the version. [version='%d-%d']",
@@ -2039,7 +2062,12 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
 
         // we create a new delta with the same version as the ColumnData processing currently.
         SegmentGroup* new_segment_group = new(nothrow) SegmentGroup(
-                                            sc_params->new_tablet.get(),
+                                            sc_params->new_tablet->tablet_id(),
+                                            sc_params->new_tablet->tablet_schema(),
+                                            sc_params->new_tablet->num_key_fields(),
+                                            sc_params->new_tablet->num_short_key_fields(),
+                                            sc_params->new_tablet->num_rows_per_row_block(),
+                                            sc_params->new_tablet->rowset_path_prefix(),
                                             (*it)->version(),
                                             (*it)->version_hash(),
                                             (*it)->delete_flag(),
@@ -2056,8 +2084,8 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
         if (DEL_SATISFIED == del_ret) {
             VLOG(3) << "filter delta in schema change:"
                     << (*it)->version().first << "-" << (*it)->version().second;
-            res = sc_procedure->create_init_version(new_segment_group->tablet()->tablet_id(),
-                                                    new_segment_group->tablet()->schema_hash(),
+            res = sc_procedure->create_init_version(sc_params->new_tablet->tablet_id(),
+                                                    sc_params->new_tablet->schema_hash(),
                                                     new_segment_group->version(),
                                                     new_segment_group->version_hash(),
                                                     new_segment_group);
@@ -2077,7 +2105,7 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
             (*it)->set_delete_status(DEL_NOT_SATISFIED);
         }
 
-        if (DEL_SATISFIED != del_ret && !sc_procedure->process(*it, new_segment_group)) {
+        if (DEL_SATISFIED != del_ret && !sc_procedure->process(*it, new_segment_group, sc_params->new_tablet)) {
             //if del_ret is DEL_SATISFIED, the new delta version has already been created in new_tablet
             OLAP_LOG_WARNING("failed to process the version. [version='%d-%d']",
                              (*it)->version().first, (*it)->version().second);
