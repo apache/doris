@@ -333,7 +333,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     }
 
     LOG(INFO) << "new income streaming load request." << ctx->brief()
-              << ", db: " << ctx->db << ", tbl: " << ctx->tbl;
+              << ", db: " << ctx->db << ", tbl: " << ctx->table;
 
     auto st = _on_header(req, ctx);
     if (!st.ok()) {
