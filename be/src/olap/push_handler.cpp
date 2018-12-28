@@ -168,7 +168,7 @@ OLAPStatus PushHandler::process_realtime_push(
             DeleteConditionHandler del_cond_handler;
             tablet_var.tablet->obtain_header_rdlock();
             for (const TCondition& cond : request.delete_conditions) {
-                res = del_cond_handler.check_condition_valid(tablet_var.tablet, cond);
+                res = del_cond_handler.check_condition_valid(tablet_var.tablet->tablet_schema(), cond);
                 if (res != OLAP_SUCCESS) {
                     OLAP_LOG_WARNING("fail to check delete condition. [table=%s res=%d]",
                                      tablet_var.tablet->full_name().c_str(), res);
@@ -345,11 +345,22 @@ OLAPStatus PushHandler::_convert(
             }
 
             delta_segment_group = new(std::nothrow) SegmentGroup(
-                curr_tablet.get(), (_request.push_type == TPushType::LOAD_DELETE),
+                curr_tablet->tablet_id(),
+                curr_tablet->tablet_schema(),
+                curr_tablet->num_key_fields(),
+                curr_tablet->num_short_key_fields(),
+                curr_tablet->num_rows_per_row_block(),
+                curr_tablet->rowset_path_prefix(),
+                (_request.push_type == TPushType::LOAD_DELETE),
                 0, 0, true, _request.partition_id, _request.transaction_id);
         } else {
             delta_segment_group = new(std::nothrow) SegmentGroup(
-                curr_tablet.get(),
+                curr_tablet->tablet_id(),
+                curr_tablet->tablet_schema(),
+                curr_tablet->num_key_fields(),
+                curr_tablet->num_short_key_fields(),
+                curr_tablet->num_rows_per_row_block(),
+                curr_tablet->rowset_path_prefix(),
                 Version(_request.version, _request.version),
                 _request.version_hash,
                 (_request.push_type == TPushType::LOAD_DELETE),
@@ -368,7 +379,9 @@ OLAPStatus PushHandler::_convert(
         VLOG(3) << "init writer. tablet=" << curr_tablet->full_name()
                 << ", block_row_size=" << curr_tablet->num_rows_per_row_block();
 
-        if (NULL == (writer = ColumnDataWriter::create(curr_tablet, delta_segment_group, true))) {
+        if (NULL == (writer = ColumnDataWriter::create(delta_segment_group, true,
+                                                       curr_tablet->compress_kind(),
+                                                       curr_tablet->bloom_filter_fpp()))) {
             OLAP_LOG_WARNING("fail to create writer. [tablet='%s']",
                              curr_tablet->full_name().c_str());
             res = OLAP_ERR_MALLOC_ERROR;

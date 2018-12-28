@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_H
 
+#include "gen_cpp/olap_file.pb.h"
 #include "olap/new_status.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_builder.h"
@@ -42,6 +43,9 @@ public:
     virtual NewStatus copy(RowsetBuilder* dest_rowset_builder) = 0;
 
     virtual NewStatus remove() = 0;
+
+    virtual OLAPStatus to_rowset_pb(const RowsetMetaPB& rs_meta);
+    virtual OLAPStatus get_rs_meta();
 };
 
 } // namespace doris

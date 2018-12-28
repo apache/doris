@@ -63,7 +63,7 @@ OLAPStatus Merger::merge(const vector<ColumnData*>& olap_data_arr,
 
     // create and initiate writer for generating new index and data files.
     unique_ptr<ColumnDataWriter> writer(ColumnDataWriter::create(_segment_group, false, _tablet->compress_kind(), _tablet->bloom_filter_fpp()));
-    DCHECK(_writer != nullptr) << "memory error occur when creating writer";
+    DCHECK(writer != nullptr) << "memory error occur when creating writer";
 
     if (NULL == writer) {
         OLAP_LOG_WARNING("fail to allocate writer.");
