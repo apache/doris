@@ -25,6 +25,7 @@
 #include "gen_cpp/AgentService_types.h"
 #include "olap/delete_handler.h"
 #include "olap/rowset/column_data.h"
+#include "olap/tablet.h"
 
 namespace doris {
 // defined in 'field.h'
@@ -143,7 +144,9 @@ public:
     SchemaChange() : _filted_rows(0), _merged_rows(0) {}
     virtual ~SchemaChange() {}
 
-    virtual bool process(ColumnData* olap_data, SegmentGroup* new_segment_group) = 0;
+    virtual bool process(ColumnData* olap_data,
+                         SegmentGroup* new_segment_group,
+                         TabletSharedPtr tablet) = 0;
 
     void add_filted_rows(uint64_t filted_rows) {
         _filted_rows += filted_rows;
@@ -188,7 +191,8 @@ public:
                 TabletSharedPtr new_tablet);
     ~LinkedSchemaChange() {}
 
-    bool process(ColumnData* olap_data, SegmentGroup* new_segment_group);
+    bool process(ColumnData* olap_data, SegmentGroup* new_segment_group,
+                 TabletSharedPtr tablet);
 private:
     TabletSharedPtr _base_tablet;
     TabletSharedPtr _new_tablet;
@@ -205,7 +209,8 @@ public:
             const RowBlockChanger& row_block_changer);
     virtual ~SchemaChangeDirectly();
 
-    virtual bool process(ColumnData* olap_data, SegmentGroup* new_segment_group);
+    virtual bool process(ColumnData* olap_data, SegmentGroup* new_segment_group,
+                         TabletSharedPtr tablet);
 
 private:
     TabletSharedPtr _tablet;
@@ -228,7 +233,8 @@ public:
             size_t memory_limitation);
     virtual ~SchemaChangeWithSorting();
 
-    virtual bool process(ColumnData* olap_data, SegmentGroup* new_segment_group);
+    virtual bool process(ColumnData* olap_data, SegmentGroup* new_segment_group,
+                         TabletSharedPtr tablet);
 
 private:
     bool _internal_sorting(
@@ -238,7 +244,8 @@ private:
 
     bool _external_sorting(
             std::vector<SegmentGroup*>& src_segment_group_arr,
-            SegmentGroup* segment_group);
+            SegmentGroup* segment_group,
+            TabletSharedPtr tablet);
 
     TabletSharedPtr _tablet;
     const RowBlockChanger& _row_block_changer;

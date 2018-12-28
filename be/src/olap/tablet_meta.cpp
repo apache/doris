@@ -16,6 +16,9 @@
 // under the License.
 
 #include "olap/tablet_meta.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
+#include "olap/tablet_meta_manager.h"
 
 namespace doris {
 
@@ -93,8 +96,8 @@ OLAPStatus TabletMeta::save_meta_unlock() {
     string meta_binary;
     serialize_unlock(&meta_binary);
     OLAPStatus status = TabletMetaManager::save(_data_dir, _tablet_id, _schema_hash, meta_binary);
-    if (status != OLAP_SUCCESS) {
-       LOG(WARNING) << "fail to save tablet_meta. status=" << status.to_string()
+    if (status != OLAP_SUCCESS) 
+       LOG(WARNING) << "fail to save tablet_meta. status=" << status
                     << ", tablet_id=" << _tablet_id
                     << ", schema_hash=" << _schema_hash;
     }
@@ -115,12 +118,12 @@ OLAPStatus TabletMeta::to_tablet_pb_unlock(TabletMetaPB* tablet_meta_pb) {
 
     tablet_meta_pb->set_tablet_name(_tablet_name);
     for (auto rs : _rs_metas) {
-        rs.to_rowset_pb(tablet_meta_pb-.add_rs_meta());
+        rs.to_rowset_pb(tablet_meta_pb->add_rs_meta());
     }
     for (auto rs : _inc_rs_metas) {
-        rs.to_rowset_pb(tablet_meta_pb.add_inc_rc_meta());
+        rs.to_rowset_pb(tablet_meta_pb->add_inc_rc_meta());
     }
-    _schema.to_schema_pb(tablet_meta_pb.mutable_schema());
+    _schema.to_schema_pb(tablet_meta_pb->mutable_schema());
 
     return OLAP_SUCCESS;
 }
@@ -144,7 +147,7 @@ OLAPStatus TabletMeta::add_inc_rs_meta(const RowsetMeta& rs_meta) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus TabletMeta::delete_inc_rs_meta_by_version(const Version& version)
+OLAPStatus TabletMeta::delete_inc_rs_meta_by_version(const Version& version) {
     std::lock_guard<std::mutex> lock(_mutex);
     for (auto rs : _inc_rs_metas) {
         if (rs.version() == version) {
@@ -160,7 +163,7 @@ OLAPStatus TabletMeta::delete_inc_rs_meta_by_version(const Version& version)
     return OLAP_SUCCESS;
 }
 
-const RowsetMeta* TabletMeta::get_inc_rowset(const Version& version) const;
+const RowsetMeta* TabletMeta::get_inc_rowset(const Version& version) const {
     std::lock_guard<std::mutex> lock(_mutex);
     RowsetMeta* rs_meta = nullptr;
     for (int i = 0; i < _inc_rs_metas.size(); ++i) {
