@@ -36,7 +36,7 @@ class Rowset {
 public:
     virtual ~Rowset() { }
 
-    virtual NewStatus init(const RowsetMeta& rowset_meta) = 0;
+    virtual NewStatus init() = 0;
 
     virtual std::unique_ptr<RowsetReader> create_reader() = 0;
 

@@ -79,6 +79,14 @@ public:
         _rowset_meta_pb.set_tablet_id(tablet_id);
     }
 
+    virtual int64_t get_txn_id() {
+        return _rowset_meta_pb.txn_id();
+    }
+
+    virtual void set_txn_id(int64_t txn_id) {
+        _rowset_meta_pb.set_txn_id(txn_id);
+    }
+
     virtual int32_t get_tablet_schema_hash() {
         return _rowset_meta_pb.tablet_schema_hash();
     }
@@ -198,12 +206,30 @@ public:
         *new_delete_condition = delete_predicate;
     }
 
-    virtual int64_t get_txn_id() {
-        return _rowset_meta_pb.txn_id();
+     virtual bool get_empty() {
+        return _rowset_meta_pb.empty();
     }
 
-    virtual void set_txn_id(int64_t txn_id) {
-        _rowset_meta_pb.set_txn_id(txn_id);
+    virtual void set_empty(bool empty) {
+        _rowset_meta_pb.set_empty(empty);
+    }
+
+    virtual std::string get_rowset_path() {
+        return _rowset_meta_pb.rowset_path();
+    }
+
+    virtual void set_rowset_path(std::string rowset_path) {
+        _rowset_meta_pb.set_rowset_path(rowset_path);
+    }
+
+    virtual PUniqueId get_load_id() {
+        return _rowset_meta_pb.load_id();
+    }
+
+    virtual void set_load_id(PUniqueId load_id) {
+        PUniqueId* new_load_id = _rowset_meta_pb.mutable_load_id();
+        new_load_id->set_hi(load_id.hi());
+        new_load_id->set_lo(load_id.lo());
     }
 
     std::string get_extra_properties() {
