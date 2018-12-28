@@ -35,7 +35,7 @@ public interface PBackendService {
             attachmentHandler = ThriftClientAttachmentHandler.class, onceTalkTimeout = 86400000)
     Future<PFetchDataResult> fetchDataAsync(PFetchDataRequest request);
 
-    @ProtobufRPC(serviceName = "PBackendService", methodName = "fetch_fragment_exec_infos",
+    @ProtobufRPC(serviceName = "PBackendService", methodName = "trigger_report_profile",
             attachmentHandler = ThriftClientAttachmentHandler.class, onceTalkTimeout = 10000)
-    Future<PFetchFragmentExecInfosResult> fetchFragmentExecInfosAsync(PFetchFragmentExecInfoRequest request);
+    Future<PTiggerReportProfileResult> triggerReportProfileOnce(PTiggerReportProfileRequest request);
 }

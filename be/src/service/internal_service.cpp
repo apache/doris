@@ -186,17 +186,14 @@ void PInternalServiceImpl<T>::fetch_data(
 }
 
 template<typename T>
-void PInternalServiceImpl<T>::fetch_fragment_exec_infos(
+void PInternalServiceImpl<T>::trigger_report_profile(
         google::protobuf::RpcController* controller,
-        const PFetchFragmentExecInfoRequest* request,
-        PFetchFragmentExecInfosResult* result,
+        const PTiggerReportProfileRequest* request,
+        PTiggerReportProfileResult* result,
         google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
-    auto status = _exec_env->fragment_mgr()->fetch_fragment_exec_infos(result, request);
-    if (!status.ok()) {
-        LOG(WARNING) << "fetch fragment exec status failed:" << status.get_error_msg();
-    }
-    status.to_protobuf(result->mutable_status());
+    auto st = _exec_env->fragment_mgr()->trigger_report_profile(request);
+    st.to_protobuf(result->mutable_status());
 }
 
 template class PInternalServiceImpl<PBackendService>;

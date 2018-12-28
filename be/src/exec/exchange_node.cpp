@@ -72,6 +72,7 @@ Status ExchangeNode::prepare(RuntimeState* state) {
             _num_senders, config::exchg_node_buffer_size_bytes,
             state->runtime_profile(), _is_merging);
     if (_is_merging) {
+        _merge_rows_counter = ADD_COUNTER(runtime_profile(), "MergeRows", TUnit::UNIT);
         RETURN_IF_ERROR(_sort_exec_exprs.prepare(
                     state, _row_descriptor, _row_descriptor, expr_mem_tracker()));
         // AddExprCtxsToFree(_sort_exec_exprs);
@@ -213,7 +214,8 @@ Status ExchangeNode::get_next_merging(RuntimeState* state, RowBatch* output_batc
     state->set_query_state_for_wait();
     RETURN_IF_ERROR(_stream_recvr->get_next(output_batch, eos));
     state->set_query_state_for_running();
-
+    //TODO chenhao, count only one instance lost others.
+    COUNTER_UPDATE(_merge_rows_counter, output_batch->num_rows()); 
     while ((_num_rows_skipped < _offset)) {
         _num_rows_skipped += output_batch->num_rows();
         // Throw away rows in the output batch until the offset is skipped.
@@ -228,6 +230,7 @@ Status ExchangeNode::get_next_merging(RuntimeState* state, RowBatch* output_batc
             break;
         }
         RETURN_IF_ERROR(_stream_recvr->get_next(output_batch, eos));
+        COUNTER_UPDATE(_merge_rows_counter, output_batch->num_rows());
     }
 
     _num_rows_returned += output_batch->num_rows();

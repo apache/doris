@@ -54,14 +54,14 @@ public:
     // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb);
 
-    Status fetch_fragment_exec_infos(PFetchFragmentExecInfosResult* result,
-                                     const PFetchFragmentExecInfoRequest* request);
-
     Status cancel(const TUniqueId& fragment_id);
 
     void cancel_worker();
 
     virtual void debug(std::stringstream& ss);
+
+    Status trigger_report_profile(const PTiggerReportProfileRequest* request);
+
 private:
     void exec_actual(std::shared_ptr<FragmentExecState> exec_state,
                      FinishCallback cb);

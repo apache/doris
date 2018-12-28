@@ -100,6 +100,8 @@ private:
     /// to -1 if no child needs to be closed.
     int _to_close_child_idx;
 
+    RuntimeProfile::Counter* _materialize_rows_counter;
+
     /// END: Members that must be Reset()
     /////////////////////////////////////////
 

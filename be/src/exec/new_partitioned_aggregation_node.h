@@ -272,6 +272,8 @@ class NewPartitionedAggregationNode : public ExecNode {
   /// Time spent processing the child rows
   RuntimeProfile::Counter* build_timer_;
 
+  RuntimeProfile::Counter* _build_rows_counter;
+
   /// Total time spent resizing hash tables.
   RuntimeProfile::Counter* ht_resize_timer_;
 

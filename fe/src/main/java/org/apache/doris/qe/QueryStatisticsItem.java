@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 import com.google.common.collect.Lists;
@@ -31,16 +32,19 @@ public final class QueryStatisticsItem {
     private final String db;
     private final String connId;
     private final long queryStartTime;
-    private List<FragmentInstanceInfo> fragmentInstanceInfos;
+    private final List<FragmentInstanceInfo> fragmentInstanceInfos;
+    // root query profile
+    private final RuntimeProfile queryProfile;
 
     private QueryStatisticsItem(Builder builder) {
         this.queryId = builder.queryId;
         this.user = builder.user;
         this.sql = builder.sql;
         this.db = builder.db;
+        this.connId = builder.connId;
         this.queryStartTime = builder.queryStartTime;
         this.fragmentInstanceInfos = builder.fragmentInstanceInfos;
-        this.connId = builder.connId;
+        this.queryProfile = builder.queryProfile;
     }
 
     public String getDb() {
@@ -72,6 +76,10 @@ public final class QueryStatisticsItem {
         return fragmentInstanceInfos;
     }
 
+    public RuntimeProfile getQueryProfile() {
+        return queryProfile;
+    }
+
     public static final class Builder {
         private String queryId;
         private String db;
@@ -80,6 +88,7 @@ public final class QueryStatisticsItem {
         private String connId;
         private long queryStartTime;
         private List<FragmentInstanceInfo> fragmentInstanceInfos;
+        private RuntimeProfile queryProfile;
 
         public Builder() {
             fragmentInstanceInfos = Lists.newArrayList();
@@ -120,6 +129,11 @@ public final class QueryStatisticsItem {
             return this;
         }
 
+        public Builder profile(RuntimeProfile profile) {
+            this.queryProfile = profile;
+            return this;
+        }
+
         public QueryStatisticsItem build() {
             initDefaultValue(this);
             return new QueryStatisticsItem(this);
@@ -144,6 +158,10 @@ public final class QueryStatisticsItem {
 
             if (connId == null) {
                 builder.connId = "";
+            }
+
+            if (queryProfile == null) {
+                queryProfile = new RuntimeProfile("");
             }
         }
     }
