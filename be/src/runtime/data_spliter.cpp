@@ -31,6 +31,7 @@
 #include "runtime/dpp_sink.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/mem_tracker.h"
+#include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "util/file_utils.h"
 #include "gen_cpp/DataSinks_types.h"
