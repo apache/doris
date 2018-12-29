@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/storage_engine.h"
+#include "olap/snapshot_manager.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -30,17 +30,7 @@
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/filesystem.hpp>
 
-#include "common/status.h"
-#include "olap/field.h"
-#include "olap/olap_common.h"
-#include "olap/rowset/column_data.h"
-#include "olap/olap_define.h"
-#include "olap/tablet.h"
-#include "olap/tablet_meta_manager.h"
-#include "olap/push_handler.h"
-#include "olap/data_dir.h"
-#include "util/file_utils.h"
-#include "util/doris_metrics.h"
+
 
 using boost::filesystem::canonical;
 using boost::filesystem::copy_file;
@@ -56,7 +46,20 @@ using std::list;
 
 namespace doris {
 
-OLAPStatus StorageEngine::make_snapshot(
+SnapshotManager* SnapshotManager::_s_instance = nullptr;
+std::mutex SnapshotManager::_mlock;
+
+SnapshotManager* SnapshotManager::instance() {
+    if (_s_instance == nullptr) {
+        std::lock_guard<std::mutex> lock(_mlock);
+        if (_s_instance == nullptr) {
+            _s_instance = new SnapshotManager();
+        }
+    }
+    return _s_instance;
+}
+
+OLAPStatus SnapshotManager::make_snapshot(
         const TSnapshotRequest& request,
         string* snapshot_path) {
     OLAPStatus res = OLAP_SUCCESS;
@@ -65,7 +68,7 @@ OLAPStatus StorageEngine::make_snapshot(
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    TabletSharedPtr ref_tablet = get_tablet(request.tablet_id, request.schema_hash);
+    TabletSharedPtr ref_tablet = TabletManager::instance()->get_tablet(request.tablet_id, request.schema_hash);
     if (ref_tablet.get() == NULL) {
         OLAP_LOG_WARNING("failed to get tablet. [tablet=%ld schema_hash=%d]",
                 request.tablet_id, request.schema_hash);
@@ -90,10 +93,10 @@ OLAPStatus StorageEngine::make_snapshot(
     return res;
 }
 
-OLAPStatus StorageEngine::release_snapshot(const string& snapshot_path) {
+OLAPStatus SnapshotManager::release_snapshot(const string& snapshot_path) {
     // 如果请求的snapshot_path位于root/snapshot文件夹下，则认为是合法的，可以删除
     // 否则认为是非法请求，返回错误结果
-    auto stores = get_stores();
+    auto stores = StorageEngine::get_instance()->get_stores();
     for (auto store : stores) {
         path boost_root_path(store->path());
         string abs_path = canonical(boost_root_path).string();
@@ -112,7 +115,7 @@ OLAPStatus StorageEngine::release_snapshot(const string& snapshot_path) {
     return OLAP_ERR_CE_CMD_PARAMS_ERROR;
 }
 
-OLAPStatus StorageEngine::_calc_snapshot_id_path(
+OLAPStatus SnapshotManager::_calc_snapshot_id_path(
         const TabletSharedPtr& tablet,
         string* out_path) {
     OLAPStatus res = OLAP_SUCCESS;
@@ -137,7 +140,7 @@ OLAPStatus StorageEngine::_calc_snapshot_id_path(
     return res;
 }
 
-string StorageEngine::_get_schema_hash_full_path(
+string SnapshotManager::_get_schema_hash_full_path(
         const TabletSharedPtr& ref_tablet,
         const string& location) const {
     stringstream schema_full_path_stream;
@@ -149,7 +152,7 @@ string StorageEngine::_get_schema_hash_full_path(
     return schema_full_path;
 }
 
-string StorageEngine::_get_header_full_path(
+string SnapshotManager::_get_header_full_path(
         const TabletSharedPtr& ref_tablet,
         const std::string& schema_hash_path) const {
     stringstream header_name_stream;
@@ -157,7 +160,7 @@ string StorageEngine::_get_header_full_path(
     return header_name_stream.str();
 }
 
-void StorageEngine::_update_header_file_info(
+void SnapshotManager::_update_header_file_info(
         const vector<VersionEntity>& shortest_versions,
         TabletMeta* header) {
     // clear schema_change_status
@@ -181,7 +184,7 @@ void StorageEngine::_update_header_file_info(
     }
 }
 
-OLAPStatus StorageEngine::_link_index_and_data_files(
+OLAPStatus SnapshotManager::_link_index_and_data_files(
         const string& schema_hash_path,
         const TabletSharedPtr& ref_tablet,
         const vector<VersionEntity>& version_entity_vec) {
@@ -227,7 +230,7 @@ OLAPStatus StorageEngine::_link_index_and_data_files(
     return res;
 }
 
-OLAPStatus StorageEngine::_copy_index_and_data_files(
+OLAPStatus SnapshotManager::_copy_index_and_data_files(
         const string& schema_hash_path,
         const TabletSharedPtr& ref_tablet,
         vector<VersionEntity>& version_entity_vec) {
@@ -270,7 +273,7 @@ OLAPStatus StorageEngine::_copy_index_and_data_files(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus StorageEngine::_create_snapshot_files(
+OLAPStatus SnapshotManager::_create_snapshot_files(
         const TabletSharedPtr& ref_tablet,
         const TSnapshotRequest& request,
         string* snapshot_path) {
@@ -359,7 +362,7 @@ OLAPStatus StorageEngine::_create_snapshot_files(
 
         // load tablet header, in order to remove versions that not in shortest version path
         DataDir* store = ref_tablet->data_dir();
-        new_tablet_meta = new(nothrow) TabletMeta(store);
+        new_tablet_meta = new(nothrow) TabletMeta();
         if (new_tablet_meta == NULL) {
             OLAP_LOG_WARNING("fail to malloc TabletMeta.");
             res = OLAP_ERR_MALLOC_ERROR;
@@ -442,7 +445,7 @@ OLAPStatus StorageEngine::_create_snapshot_files(
     return res;
 }
 
-OLAPStatus StorageEngine::_create_incremental_snapshot_files(
+OLAPStatus SnapshotManager::_create_incremental_snapshot_files(
         const TabletSharedPtr& ref_tablet,
         const TSnapshotRequest& request,
         string* snapshot_path) {
@@ -556,11 +559,11 @@ OLAPStatus StorageEngine::_create_incremental_snapshot_files(
     return res;
 }
 
-OLAPStatus StorageEngine::_append_single_delta(
+OLAPStatus SnapshotManager::_append_single_delta(
         const TSnapshotRequest& request, DataDir* store) {
     OLAPStatus res = OLAP_SUCCESS;
     string root_path = store->path();
-    TabletMeta* new_tablet_meta = new(nothrow) TabletMeta(store);
+    TabletMeta* new_tablet_meta = new(nothrow) TabletMeta();
     if (new_tablet_meta == NULL) {
         OLAP_LOG_WARNING("fail to malloc TabletMeta.");
         return OLAP_ERR_MALLOC_ERROR;
@@ -609,7 +612,7 @@ OLAPStatus StorageEngine::_append_single_delta(
     return res;
 }
 
-string StorageEngine::_construct_index_file_path(
+string SnapshotManager::_construct_index_file_path(
         const string& tablet_path_prefix,
         const Version& version,
         VersionHash version_hash,
@@ -617,7 +620,7 @@ string StorageEngine::_construct_index_file_path(
     return Tablet::construct_file_path(tablet_path_prefix, version, version_hash, segment_group_id, segment, "idx");
 }
 
-string StorageEngine::_construct_data_file_path(
+string SnapshotManager::_construct_data_file_path(
         const string& tablet_path_prefix,
         const Version& version,
         VersionHash version_hash,
@@ -625,7 +628,7 @@ string StorageEngine::_construct_data_file_path(
     return Tablet::construct_file_path(tablet_path_prefix, version, version_hash, segment_group_id, segment, "dat");
 }
 
-OLAPStatus StorageEngine::_create_hard_link(const string& from_path, const string& to_path) {
+OLAPStatus SnapshotManager::_create_hard_link(const string& from_path, const string& to_path) {
     if (link(from_path.c_str(), to_path.c_str()) == 0) {
         VLOG(10) << "success to create hard link from_path=" << from_path
                  << ", to_path=" << to_path;
@@ -637,7 +640,7 @@ OLAPStatus StorageEngine::_create_hard_link(const string& from_path, const strin
     }
 }
 
-OLAPStatus StorageEngine::storage_medium_migrate(
+OLAPStatus SnapshotManager::storage_medium_migrate(
         TTabletId tablet_id, TSchemaHash schema_hash,
         TStorageMedium::type storage_medium) {
     LOG(INFO) << "begin to process storage media migrate. "
@@ -646,7 +649,7 @@ OLAPStatus StorageEngine::storage_medium_migrate(
     DorisMetrics::storage_migrate_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
-    TabletSharedPtr tablet = get_tablet(tablet_id, schema_hash);
+    TabletSharedPtr tablet = TabletManager::instance()->get_tablet(tablet_id, schema_hash);
     if (tablet.get() == NULL) {
         OLAP_LOG_WARNING("can't find tablet. [tablet_id=%ld schema_hash=%d]",
                 tablet_id, schema_hash);
@@ -661,7 +664,7 @@ OLAPStatus StorageEngine::storage_medium_migrate(
         return OLAP_SUCCESS;
     }
 
-    TStorageMedium::type src_storage_medium = tablet->data_dir()->storage_medium();
+    TStorageMedium::type src_storage_medium = tablet->store()->storage_medium();
     if (src_storage_medium == storage_medium) {
         LOG(INFO) << "tablet is already on specified storage medium. "
                   << "storage_medium=" << storage_medium;
@@ -755,7 +758,7 @@ OLAPStatus StorageEngine::storage_medium_migrate(
 
         // if old tablet finished schema change, then the schema change status of the new tablet is DONE
         // else the schema change status of the new tablet is FAILED
-        TabletSharedPtr new_tablet = get_tablet(tablet_id, schema_hash);
+        TabletSharedPtr new_tablet = TabletManager::instance()->get_tablet(tablet_id, schema_hash);
         if (new_tablet.get() == NULL) {
             OLAP_LOG_WARNING("get null tablet. [tablet_id=%ld schema_hash=%d]",
                              tablet_id, schema_hash);
@@ -779,7 +782,7 @@ OLAPStatus StorageEngine::storage_medium_migrate(
     return res;
 }
 
-OLAPStatus StorageEngine::_generate_new_header(
+OLAPStatus SnapshotManager::_generate_new_header(
         DataDir* store,
         const uint64_t new_shard,
         const TabletSharedPtr& tablet,
