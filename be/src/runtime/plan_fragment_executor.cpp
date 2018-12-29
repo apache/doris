@@ -70,7 +70,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _query_id = params.query_id;
 
     LOG(INFO) << "Prepare(): query_id=" << print_id(_query_id)
-               << " instance_id=" << print_id(params.fragment_instance_id)
+               << " fragment_id=" << print_id(params.fragment_instance_id)
                << " backend_num=" << request.backend_num;
     // VLOG(2) << "request:\n" << apache::thrift::ThriftDebugString(request);
 
@@ -254,7 +254,7 @@ void PlanFragmentExecutor::print_volume_ids(
 }
 
 Status PlanFragmentExecutor::open() {
-    LOG(INFO) << "Open(): instance_id=" << _runtime_state->fragment_instance_id();
+    LOG(INFO) << "Open(): fragment_id=" << print_id(_runtime_state->fragment_instance_id());
 
     // we need to start the profile-reporting thread before calling Open(), since it
     // may block
@@ -493,7 +493,7 @@ void PlanFragmentExecutor::update_status(const Status& status) {
 }
 
 void PlanFragmentExecutor::cancel() {
-    LOG(INFO) << "cancel(): instance_id=" << _runtime_state->fragment_instance_id();
+    LOG(INFO) << "cancel(): fragment_id=" << print_id(_runtime_state->fragment_instance_id());
     DCHECK(_prepared);
     _runtime_state->set_is_cancelled(true);
     _runtime_state->exec_env()->stream_mgr()->cancel(_runtime_state->fragment_instance_id());
