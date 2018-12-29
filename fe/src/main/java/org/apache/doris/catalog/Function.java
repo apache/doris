@@ -17,24 +17,29 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.HdfsURI;
-import org.apache.doris.thrift.TFunction;
-import org.apache.doris.thrift.TFunctionBinaryType;
+import static org.apache.doris.common.io.IOUtils.writeOptionString;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-
+import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.HdfsURI;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.thrift.TFunction;
+import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.List;
 
 
 /**
  * Base class for all functions.
  */
-public class Function {
+public class Function implements Writable {
     private static final Logger LOG = LogManager.getLogger(Function.class);
 
     // Enum for how to compare function signatures.
@@ -67,12 +72,19 @@ public class Function {
         // Nonstrict supertypes broaden the definition of supertype to accept implicit casts
         // of arguments that may result in loss of precision - e.g. decimal to float.
         IS_NONSTRICT_SUPERTYPE_OF,
+
+        // Used to drop UDF. User can drop function through name or name and arguments.
+        // If X is matchable with Y, this will only check X's element is identical with Y's.
+        // e.g. fn is matchable with fn(int), fn(float) and fn(int) is only matchable with fn(int).
+        IS_MATCHABLE
     }
 
     public static final long UNIQUE_FUNCTION_ID = 0;
+    // Function id, every function has a unique id. Now all built-in functions' id is 0
+    private long id = 0;
     // User specified function name e.g. "Add"
     private FunctionName name;
-    private final Type retType;
+    private Type retType;
     // Array of parameter types.  empty array if this function does not have parameters.
     private Type[] argTypes;
     // If true, this function has variable arguments.
@@ -89,9 +101,25 @@ public class Function {
     private HdfsURI location;
     private TFunctionBinaryType binaryType;
 
+    // library's checksum to make sure all backends use one library to serve user's request
+    private String checksum = "";
+
+    // Only used for serialization
+    protected Function() {
+    }
+
     public Function(FunctionName name, Type[] argTypes, Type retType, boolean varArgs) {
+        this(0, name, argTypes, retType, varArgs);
+    }
+
+    public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs) {
+        this(0, name, args, retType, varArgs);
+    }
+
+    public Function(long id, FunctionName name, Type[] argTypes, Type retType, boolean hasVarArgs) {
+        this.id = id;
         this.name = name;
-        this.hasVarArgs = varArgs;
+        this.hasVarArgs = hasVarArgs;
         if (argTypes == null) {
             this.argTypes = new Type[0];
         } else {
@@ -100,12 +128,12 @@ public class Function {
         this.retType = retType;
     }
 
-    public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs) {
-        this(name, (Type[]) null, retType, varArgs);
-        if (args.size() > 0) {
-            argTypes = args.toArray(new Type[args.size()]);
+    public Function(long id, FunctionName name, List<Type> argTypes, Type retType, boolean hasVarArgs) {
+        this(id, name, (Type[]) null, retType, hasVarArgs);
+        if (argTypes.size() > 0) {
+            this.argTypes = argTypes.toArray(new Type[argTypes.size()]);
         } else {
-            argTypes = new Type[0];
+            this.argTypes = new Type[0];
         }
     }
 
@@ -174,6 +202,11 @@ public class Function {
         hasVarArgs = v;
     }
 
+    public void setId(long functionId) { this.id = functionId; }
+    public long getId() { return id; }
+    public void setChecksum(String checksum) { this.checksum = checksum; }
+    public String getChecksum() { return checksum; }
+
     // Returns a string with the signature in human readable format:
     // FnName(argtype1, argtyp2).  e.g. Add(int, int)
     public String signatureString() {
@@ -197,6 +230,8 @@ public class Function {
                 return isSubtype(other);
             case IS_NONSTRICT_SUPERTYPE_OF:
                 return isAssignCompatible(other);
+            case IS_MATCHABLE:
+                return isMatchable(other);
             default:
                 Preconditions.checkState(false);
                 return false;
@@ -255,6 +290,27 @@ public class Function {
             }
         }
         return true;
+    }
+
+    private boolean isMatchable(Function o) {
+        if (!o.name.equals(name)) {
+            return false;
+        }
+        if (argTypes != null) {
+            if (o.argTypes.length != this.argTypes.length) {
+                return false;
+            }
+            if (o.hasVarArgs != this.hasVarArgs) {
+                return false;
+            }
+            for (int i = 0; i < this.argTypes.length; ++i) {
+                if (!o.argTypes[i].matchesType(this.argTypes[i])) {
+                    return false;
+                }
+            }
+        }
+        return true;
+
     }
 
     private boolean isIdentical(Function o) {
@@ -364,6 +420,10 @@ public class Function {
         fn.setHas_var_args(hasVarArgs);
         // TODO: Comment field is missing?
         // fn.setComment(comment)
+        fn.setId(id);
+        if (!checksum.isEmpty()) {
+            fn.setChecksum(checksum);
+        }
         return fn;
     }
 
@@ -438,5 +498,147 @@ public class Function {
                 Preconditions.checkState(false, t.toString());
                 return "";
         }
+    }
+
+    public static Function getFunction(List<Function> fns, Function desc, CompareMode mode) {
+        if (fns == null) {
+            return null;
+        }
+        // First check for identical
+        for (Function f : fns) {
+            if (f.compare(desc, Function.CompareMode.IS_IDENTICAL)) {
+                return f;
+            }
+        }
+        if (mode == Function.CompareMode.IS_IDENTICAL) {
+            return null;
+        }
+
+        // Next check for indistinguishable
+        for (Function f : fns) {
+            if (f.compare(desc, Function.CompareMode.IS_INDISTINGUISHABLE)) {
+                return f;
+            }
+        }
+        if (mode == Function.CompareMode.IS_INDISTINGUISHABLE) {
+            return null;
+        }
+
+        // Next check for strict supertypes
+        for (Function f : fns) {
+            if (f.compare(desc, Function.CompareMode.IS_SUPERTYPE_OF)) {
+                return f;
+            }
+        }
+        if (mode == Function.CompareMode.IS_SUPERTYPE_OF) {
+            return null;
+        }
+        // Finally check for non-strict supertypes
+        for (Function f : fns) {
+            if (f.compare(desc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF)) {
+                return f;
+            }
+        }
+        return null;
+    }
+
+    enum FunctionType {
+        ORIGIN(0),
+        SCALAR(1),
+        AGGREGATE(2);
+
+        private int code;
+
+        FunctionType(int code) {
+            this.code = code;
+        }
+        public int getCode() {
+            return code;
+        }
+
+        public static FunctionType fromCode(int code) {
+            switch (code) {
+                case 0:
+                    return ORIGIN;
+                case 1:
+                    return SCALAR;
+                case 2:
+                    return AGGREGATE;
+            }
+            return null;
+        }
+
+        public void write(DataOutput output) throws IOException {
+            output.writeInt(code);
+        }
+        public static FunctionType read(DataInput input) throws IOException {
+            return fromCode(input.readInt());
+        }
+    };
+
+    protected void writeFields(DataOutput output) throws IOException {
+        output.writeLong(id);
+        name.write(output);
+        ColumnType.write(output, retType);
+        output.writeInt(argTypes.length);
+        for (Type type : argTypes) {
+            ColumnType.write(output, type);
+        }
+        output.writeBoolean(hasVarArgs);
+        output.writeBoolean(userVisible);
+        output.writeInt(binaryType.getValue());
+        // write library URL
+        String libUrl = "";
+        if (location != null) {
+            libUrl = location.toString();
+        }
+        writeOptionString(output, libUrl);
+        writeOptionString(output, checksum);
+    }
+
+    @Override
+    public void write(DataOutput output) throws IOException {
+        throw new Error("Origin function cannot be serialized");
+    }
+
+    @Override
+    public void readFields(DataInput input) throws IOException {
+        id = input.readLong();
+        name = FunctionName.read(input);
+        retType = ColumnType.read(input);
+        int numArgs = input.readInt();
+        argTypes = new Type[numArgs];
+        for (int i = 0; i < numArgs; ++i) {
+            argTypes[i] = ColumnType.read(input);
+        }
+        hasVarArgs = input.readBoolean();
+        userVisible = input.readBoolean();
+        binaryType = TFunctionBinaryType.findByValue(input.readInt());
+
+        boolean hasLocation = input.readBoolean();
+        if (hasLocation) {
+            location = new HdfsURI(Text.readString(input));
+        }
+        boolean hasChecksum = input.readBoolean();
+        if (hasChecksum) {
+            checksum = Text.readString(input);
+        }
+    }
+
+    public static Function read(DataInput input) throws IOException {
+        Function function;
+        FunctionType functionType = FunctionType.read(input);
+        switch (functionType) {
+            case SCALAR:
+                function = new ScalarFunction();
+                break;
+            case AGGREGATE:
+                function = new AggregateFunction();
+                break;
+            default:
+                throw new Error("Unsupported function type, type=" + functionType);
+        }
+        function.readFields(input);
+        return function;
     }
 }

@@ -29,6 +29,8 @@ import org.apache.doris.backup.RestoreJob_D;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.Config;
@@ -642,6 +644,16 @@ public class EditLog {
                     Catalog.getCurrentHeartbeatMgr().replayHearbeat(hbPackage);
                     break;
                 }
+                case OperationType.OP_ADD_FUNCTION: {
+                    final Function function = (Function) journal.getData();
+                    Catalog.getCurrentCatalog().replayCreateFunction(function);
+                    break;
+                }
+                case OperationType.OP_DROP_FUNCTION: {
+                    FunctionSearchDesc function = (FunctionSearchDesc) journal.getData();
+                    Catalog.getCurrentCatalog().replayDropFunction(function);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1127,5 +1139,13 @@ public class EditLog {
 
     public void logHeartbeat(HbPackage hbPackage) {
         logEdit(OperationType.OP_HEARTBEAT, hbPackage);
+    }
+
+    public void logAddFunction(Function function) {
+        logEdit(OperationType.OP_ADD_FUNCTION, function);
+    }
+
+    public void logDropFunction(FunctionSearchDesc function) {
+        logEdit(OperationType.OP_DROP_FUNCTION, function);
     }
 }

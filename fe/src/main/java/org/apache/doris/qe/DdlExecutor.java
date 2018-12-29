@@ -29,6 +29,7 @@ import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -38,6 +39,7 @@ import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.DropClusterStmt;
 import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropTableStmt;
@@ -79,6 +81,10 @@ public class DdlExecutor {
             catalog.createDb((CreateDbStmt) ddlStmt);
         } else if (ddlStmt instanceof DropDbStmt) {
             catalog.dropDb((DropDbStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateFunctionStmt) {
+            catalog.createFunction((CreateFunctionStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropFunctionStmt) {
+            catalog.dropFunction((DropFunctionStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateTableStmt) {
             catalog.createTable((CreateTableStmt) ddlStmt);
         } else if (ddlStmt instanceof DropTableStmt) {

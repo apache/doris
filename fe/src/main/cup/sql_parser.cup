@@ -215,7 +215,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_PROC, KW_PROCEDURE, KW_PROCESSLIST, KW_PROPERTIES, KW_PROPERTY,
     KW_QUERY, KW_QUOTA,
     KW_RANDOM, KW_RANGE, KW_READ, KW_RECOVER, KW_REGEXP, KW_RELEASE, KW_RENAME,
-    KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLICA, KW_RESOURCE, KW_RESTORE, KW_REVOKE,
+    KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLICA, KW_RESOURCE, KW_RESTORE, KW_RETURNS, KW_REVOKE,
     KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROW, KW_ROWS,
     KW_SCHEMAS, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SHOW,
     KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STORAGE, KW_STRING, 
@@ -226,7 +226,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VIEW,
     KW_WARNINGS, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE;
 
-terminal COMMA, DOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
+terminal COMMA, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
 terminal EQUAL, NOT, LESSTHAN, GREATERTHAN, SET_VAR;
 terminal String IDENT;
@@ -304,6 +304,8 @@ nonterminal Boolean opt_order_param;
 nonterminal Boolean opt_nulls_order_param;
 nonterminal LimitElement limit_clause;
 nonterminal TypeDef type_def;
+nonterminal List<TypeDef> type_def_list;
+nonterminal FunctionArgsDef func_args_def;
 nonterminal Type type;
 nonterminal Expr cast_expr, case_else_clause, analytic_expr;
 nonterminal LiteralExpr literal;
@@ -379,7 +381,7 @@ nonterminal TablePattern tbl_pattern;
 nonterminal String ident_or_star;
 
 // Boolean
-nonterminal Boolean opt_negative, opt_super_user, opt_is_allow_null, opt_is_key, opt_read_only;
+nonterminal Boolean opt_negative, opt_super_user, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate;
 nonterminal String opt_from_rollup, opt_to_rollup;
 nonterminal ColumnPosition opt_col_pos;
 
@@ -830,20 +832,11 @@ create_stmt ::=
         RESULT = new CreateClusterStmt(name, properties, password);
     :}*/
     /* Function */
-    /*
-    | KW_CREATE KW_FUNCTION function_name:functionName LPAREN column_type_list:arguments RPAREN
-            column_type:retrunType KW_SONAME STRING_LITERAL:soPath
-            opt_properties:properties
+    | KW_CREATE opt_aggregate:isAggregate KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN
+            KW_RETURNS type_def:retrunType opt_properties:properties
     {:
-        RESULT = new CreateFunctionStmt(functionName, arguments, retrunType, soPath, properties, false);
+        RESULT = new CreateFunctionStmt(isAggregate, functionName, args, retrunType, properties);
     :}
-    | KW_CREATE KW_AGGREGATE KW_FUNCTION function_name:functionName LPAREN column_type_list:arguments RPAREN
-            column_type:retrunType KW_SONAME STRING_LITERAL:soPath
-            opt_properties:properties
-    {:
-        RESULT = new CreateFunctionStmt(functionName, arguments, retrunType, soPath, properties, true);
-    :}
-    */
     /* Table */
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             LPAREN column_definition_list:columns RPAREN opt_engine:engineName
@@ -879,6 +872,16 @@ create_stmt ::=
     | KW_CREATE KW_ROLE ident:role
     {:
         RESULT = new CreateRoleStmt(role);
+    :}
+    ;
+
+opt_aggregate ::=
+    {:
+        RESULT = false;
+    :}
+    | KW_AGGREGATE
+    {:
+        RESULT = true;
     :}
     ;
 
@@ -1162,9 +1165,9 @@ drop_stmt ::=
         RESULT = new DropClusterStmt(ifExists, cluster);
     :}
     /* Function */
-    | KW_DROP KW_FUNCTION function_name:functionName
+    | KW_DROP KW_FUNCTION function_name:functionName LPAREN func_args_def:args RPAREN
     {:
-        RESULT = new DropFunctionStmt(functionName);
+        RESULT = new DropFunctionStmt(functionName, args);
     :}
     /* Table */
     | KW_DROP KW_TABLE opt_if_exists:ifExists table_name:name
@@ -2989,6 +2992,33 @@ type_def ::=
   {: RESULT = new TypeDef(t); :}
   ;
 
+type_def_list ::=
+  type_def:typeDef
+  {:
+    RESULT = Lists.newArrayList(typeDef);
+  :}
+  | type_def_list:types COMMA type_def:typeDef
+  {:
+    types.add(typeDef);
+    RESULT = types;
+  :}
+  ;
+
+func_args_def ::=
+  type_def_list:argTypes
+  {:
+    RESULT = new FunctionArgsDef(argTypes, false);
+  :}
+  | DOTDOTDOT
+  {:
+    RESULT = new FunctionArgsDef(Lists.newArrayList(), true);
+  :}
+  | type_def_list:argTypes COMMA DOTDOTDOT
+  {:
+    RESULT = new FunctionArgsDef(argTypes, true);
+  :}
+  ;
+
 cast_expr ::=
   KW_CAST LPAREN expr:e KW_AS type_def:targetType RPAREN
   {: RESULT = new CastExpr(targetType, e); :}
@@ -3703,6 +3733,8 @@ keyword ::=
     | KW_RESOURCE:id
     {: RESULT = id; :}
     | KW_RESTORE:id
+    {: RESULT = id; :}
+    | KW_RETURNS:id
     {: RESULT = id; :}
     | KW_ROLLBACK:id
     {: RESULT = id; :}

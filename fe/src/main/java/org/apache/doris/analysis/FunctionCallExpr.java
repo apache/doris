@@ -17,7 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Strings;
 import org.apache.doris.catalog.AggregateFunction;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.Type;
@@ -479,9 +482,21 @@ public class FunctionCallExpr extends Expr {
 
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{compatibleType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        } else {     
+        } else {
+            // now first find function in builtin functions
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), collectChildReturnTypes(),
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            if (fn == null) {
+                String dbName = fnName.analyzeDb(analyzer);
+                if (!Strings.isNullOrEmpty(dbName)) {
+                    Database db = Catalog.getInstance().getDb(dbName);
+                    if (db != null) {
+                        Function searchDesc = new Function(
+                                fnName, collectChildReturnTypes(), Type.INVALID, false);
+                        fn = db.getFunction(searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                    }
+                }
+            }
         }
 
         if (fn == null) {
