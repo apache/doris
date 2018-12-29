@@ -553,4 +553,48 @@ OLAPStatus Tablet::register_tablet_into_dir() {
     return _store->register_tablet(this);
 }
 
+OLAPStatus Tablet::clear_schema_change_info(
+        AlterTabletType* type,
+        bool only_one,
+        bool check_only) {
+    if (!check_only) {
+        WriteLock w(_meta_lock);
+        _unprotect_clear_schema_change_info(type, only_one, check_only);
+    } else {
+        ReadLock r(_meta_lock);
+        _unprotect_clear_schema_change_info(type, only_one, check_only);
+    }
+}
+
+OLAPStatus Tablet::_unprotect_clear_schema_change_info(
+        AlterTabletType* type,
+        bool only_one,
+        bool check_only) {
+    OLAPStatus res = OLAP_SUCCESS;
+
+    if (NULL == tablet.get()) {
+        return res;
+    }
+
+    vector<Version> versions_to_be_changed;
+    if (this->get_schema_change_request(NULL,
+                                              NULL,
+                                              &versions_to_be_changed,
+                                              NULL)) {
+        if (versions_to_be_changed.size() != 0) {
+            OLAP_LOG_WARNING("schema change is not allowed now, "
+                             "until previous schema change is done. [tablet='%s']",
+                             tablet->full_name().c_str());
+            return OLAP_ERR_PREVIOUS_SCHEMA_CHANGE_NOT_FINISHED;
+        }
+    }
+
+    if (!check_only) {
+        VLOG(3) << "broke old schema change chain";
+        tablet->clear_schema_change_request();
+    }
+
+    return res;
+}
+
 }  // namespace doris

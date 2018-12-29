@@ -62,7 +62,7 @@ void DeltaWriter::_garbage_collection() {
 }
 
 OLAPStatus DeltaWriter::init() {
-    _tablet = StorageEngine::get_instance()->get_tablet(_req.tablet_id, _req.schema_hash);
+    _tablet = TabletManager::instance()->get_tablet(_req.tablet_id, _req.schema_hash);
     if (_tablet == nullptr) {
         LOG(WARNING) << "tablet_id: " << _req.tablet_id << ", "
                      << "schema_hash: " << _req.schema_hash << " not found";
@@ -71,9 +71,9 @@ OLAPStatus DeltaWriter::init() {
 
     {
         MutexLock push_lock(_tablet->get_push_lock());
-        RETURN_NOT_OK(StorageEngine::get_instance()->add_transaction(
+        RETURN_NOT_OK(TxnManager::instance()->add_txn(
                             _req.partition_id, _req.transaction_id,
-                            _req.tablet_id, _req.schema_hash, _req.load_id));
+                            _req.tablet_id, _req.schema_hash, _req.load_id, NULL));
         //_segment_group_id = _tablet->current_pending_segment_group_id(_req.transaction_id);
         if (_req.need_gen_rollup) {
             TTabletId new_tablet_id;
@@ -89,10 +89,10 @@ OLAPStatus DeltaWriter::init() {
                           << "new_tablet_id: " << new_tablet_id << ", "
                           << "new_schema_hash: " << new_schema_hash << ", "
                           << "transaction_id: " << _req.transaction_id;
-                _new_tablet = StorageEngine::get_instance()->get_tablet(new_tablet_id, new_schema_hash);
-                StorageEngine::get_instance()->add_transaction(
+                _new_tablet = TabletManager::instance()->get_tablet(new_tablet_id, new_schema_hash);
+                TxnManager::instance()->add_txn(
                                     _req.partition_id, _req.transaction_id,
-                                    new_tablet_id, new_schema_hash, _req.load_id);
+                                    new_tablet_id, new_schema_hash, _req.load_id, NULL);
             }
         }
 

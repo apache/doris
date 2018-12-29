@@ -30,10 +30,13 @@
 #include "http/http_client.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/push_handler.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
-#include "util/stopwatch.hpp"
+#include "util/doris_metrics.h"
+#include "util/pretty_printer.h"
 
+using apache::thrift::ThriftDebugString;
 using std::list;
 using std::string;
 using std::vector;
@@ -52,7 +55,7 @@ AgentStatus Pusher::init() {
 
     // Check replica exist
     TabletSharedPtr tablet;
-    tablet = _engine->get_tablet(
+    tablet = TabletManager::instance()->get_tablet(
             _push_req.tablet_id,
             _push_req.schema_hash);
     if (tablet.get() == NULL) {
@@ -197,7 +200,7 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
     if (status == DORIS_SUCCESS) {
         // Load delta file
         time_t push_begin = time(NULL);
-        OLAPStatus push_status = _engine->push(_push_req, tablet_infos);
+        OLAPStatus push_status = _push(_push_req, tablet_infos);
         time_t push_finish = time(NULL);
         LOG(INFO) << "Push finish, cost time: " << (push_finish - push_begin);
         if (push_status == OLAPStatus::OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
@@ -215,6 +218,102 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
     }
 
     return status;
+}
+
+OLAPStatus Pusher::_push(const TPushReq& request,
+                        vector<TTabletInfo>* tablet_info_vec) {
+    OLAPStatus res = OLAP_SUCCESS;
+    LOG(INFO) << "begin to process push. tablet_id=" << request.tablet_id
+              << ", version=" << request.version;
+
+    if (tablet_info_vec == NULL) {
+        OLAP_LOG_WARNING("invalid output parameter which is null pointer.");
+        DorisMetrics::push_requests_fail_total.increment(1);
+        return OLAP_ERR_CE_CMD_PARAMS_ERROR;
+    }
+
+    TabletSharedPtr tablet = TabletManager::instance()->get_tablet(
+            request.tablet_id, request.schema_hash);
+    if (NULL == tablet.get()) {
+        OLAP_LOG_WARNING("false to find tablet. [tablet=%ld schema_hash=%d]",
+                         request.tablet_id, request.schema_hash);
+        DorisMetrics::push_requests_fail_total.increment(1);
+        return OLAP_ERR_TABLE_NOT_FOUND;
+    }
+
+    PushType type = PUSH_NORMAL;
+    if (request.push_type == TPushType::LOAD_DELETE) {
+        type = PUSH_FOR_LOAD_DELETE;
+    }
+
+    int64_t duration_ns = 0;
+    PushHandler push_handler;
+    if (request.__isset.transaction_id) {
+        {
+            SCOPED_RAW_TIMER(&duration_ns);
+            res = push_handler.process_realtime_push(tablet, request, type, tablet_info_vec);
+        }
+    } else {
+        {
+            SCOPED_RAW_TIMER(&duration_ns);
+            res = OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED;
+        }
+    }
+
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to push delta, tablet=" << tablet->full_name().c_str()
+            << ",cost=" << PrettyPrinter::print(duration_ns, TUnit::TIME_NS);
+        DorisMetrics::push_requests_fail_total.increment(1);
+    } else {
+        LOG(INFO) << "success to push delta, tablet=" << tablet->full_name().c_str()
+            << ",cost=" << PrettyPrinter::print(duration_ns, TUnit::TIME_NS);
+        DorisMetrics::push_requests_success_total.increment(1);
+        DorisMetrics::push_request_duration_us.increment(duration_ns / 1000);
+        DorisMetrics::push_request_write_bytes.increment(push_handler.write_bytes());
+        DorisMetrics::push_request_write_rows.increment(push_handler.write_rows());
+    }
+    return res;
+}
+
+OLAPStatus Pusher::delete_data(
+        const TPushReq& request,
+        vector<TTabletInfo>* tablet_info_vec) {
+    LOG(INFO) << "begin to process delete data. request=" << ThriftDebugString(request);
+    DorisMetrics::delete_requests_total.increment(1);
+
+    OLAPStatus res = OLAP_SUCCESS;
+
+    if (tablet_info_vec == NULL) {
+        OLAP_LOG_WARNING("invalid output parameter which is null pointer.");
+        return OLAP_ERR_CE_CMD_PARAMS_ERROR;
+    }
+
+    // 1. Get all tablets with same tablet_id
+    TabletSharedPtr tablet = TabletManager::instance()->get_tablet(request.tablet_id, request.schema_hash);
+    if (tablet.get() == NULL) {
+        OLAP_LOG_WARNING("can't find tablet. [tablet=%ld schema_hash=%d]",
+                         request.tablet_id, request.schema_hash);
+        return OLAP_ERR_TABLE_NOT_FOUND;
+    }
+
+    // 2. Process delete data by push interface
+    PushHandler push_handler;
+    if (request.__isset.transaction_id) {
+        res = push_handler.process_realtime_push(tablet, request, PUSH_FOR_DELETE, tablet_info_vec);
+    } else {
+        res = OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED;
+    }
+
+    if (res != OLAP_SUCCESS) {
+        OLAP_LOG_WARNING("fail to push empty version for delete data. "
+                         "[res=%d tablet='%s']",
+                         res, tablet->full_name().c_str());
+        DorisMetrics::delete_requests_failed.increment(1);
+        return res;
+    }
+
+    LOG(INFO) << "finish to process delete data. res=" << res;
+    return res;
 }
 
 } // namespace doris

@@ -43,21 +43,22 @@
 #include "olap/tablet.h"
 #include "olap/olap_meta.h"
 #include "olap/options.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
 
 namespace doris {
 
 // txn manager is used to manage mapping between tablet and txns
 class TxnManager {
 public:
-    TxnManager() {}
     ~TxnManager() {
-        _transaction_tablet_map.clear();
+        _txn_tablet_map.clear();
     }
     // add a txn to manager
     // partition id is useful in publish version stage because version is associated with partition
     OLAPStatus add_txn(TPartitionId partition_id, TTransactionId transaction_id,
                                TTabletId tablet_id, SchemaHash schema_hash,
-                               const PUniqueId& load_id);
+                               const PUniqueId& load_id, RowsetSharedPtr rowset_ptr);
 
     OLAPStatus delete_txn(TPartitionId partition_id, TTransactionId transaction_id,
                             TTabletId tablet_id, SchemaHash schema_hash);
@@ -67,15 +68,25 @@ public:
 
     void get_txn_related_tablets(const TTransactionId transaction_id,
                                 TPartitionId partition_ids,
-                                std::vector<TabletInfo>* tablet_infos);
+                                std::vector<TabletInfo>* tablet_infos,
+                                std::vector<RowsetSharedPtr>* rowset_infos);
 
     bool has_txn(TPartitionId partition_id, TTransactionId transaction_id,
                          TTabletId tablet_id, SchemaHash schema_hash);
 
+    static TxnManager* instance();
+
+private:
+    TxnManager() {}
+
 private:
     RWMutex _txn_map_lock;
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
-    std::map<TxnKey, std::map<TabletInfo, std::vector<PUniqueId>>> _transaction_tablet_map;
+    std::map<TxnKey, std::map<TabletInfo, std::pair<PUniqueId, RowsetSharedPtr>>> _txn_tablet_map;
+
+    // singleton
+    static TxnManager* _s_instance;
+    static std::mutex _mlock;
 };  // TxnManager
 
 }

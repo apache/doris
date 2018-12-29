@@ -79,9 +79,14 @@ Status OlapScanner::_prepare(
     VersionHash version_hash =
         strtoul(scan_range->scan_range().version_hash.c_str(), nullptr, 10);
     {
+<<<<<<< HEAD
         std::string err;
         _tablet = StorageEngine::get_instance()->get_table(tablet_id, schema_hash, true, &err);
         if (_tablet == nullptr) {
+=======
+        _tablet = TabletManager::instance()->get_tablet(tablet_id, schema_hash);
+        if (_tablet.get() == nullptr) {
+>>>>>>> Split tasks from storage engine (#488)
             OLAP_LOG_WARNING("tablet does not exist. [tablet_id=%ld schema_hash=%d]",
                              tablet_id, schema_hash);
             LOG(WARNING) << "failed to get tablet. tablet_id=" << tablet_id
