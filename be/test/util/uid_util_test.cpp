@@ -37,7 +37,7 @@ TEST_F(UidUtilTest, UniqueId) {
     {
         UniqueId id(123456789, 987654321);
         std::string hex_str = id.to_string();
-        ASSERT_STREQ("00000000075BCD15:000000003ADE68B1", hex_str.c_str());
+        ASSERT_STREQ("00000000075bcd15:000000003ade68b1", hex_str.c_str());
     }
     {
         PUniqueId puid;
@@ -45,7 +45,7 @@ TEST_F(UidUtilTest, UniqueId) {
         puid.set_lo(98765432123456789);
         UniqueId id(puid);
         std::string hex_str = id.to_string();
-        ASSERT_STREQ("002BDC546291F4B1:015EE2A321CE7D15", hex_str.c_str());
+        ASSERT_STREQ("002bdc546291f4b1:015ee2a321ce7d15", hex_str.c_str());
     }
     {
         TUniqueId tuid;
@@ -53,7 +53,7 @@ TEST_F(UidUtilTest, UniqueId) {
         tuid.__set_lo(98765432123456789);
         UniqueId id(tuid);
         std::string hex_str = id.to_string();
-        ASSERT_STREQ("002BDC546291F4B1:015EE2A321CE7D15", hex_str.c_str());
+        ASSERT_STREQ("002bdc546291f4b1:015ee2a321ce7d15", hex_str.c_str());
     }
     {
         TUniqueId tuid;
@@ -61,7 +61,7 @@ TEST_F(UidUtilTest, UniqueId) {
         tuid.__set_lo(98765432123456789);
         std::stringstream ss;
         ss << UniqueId(tuid);
-        ASSERT_STREQ("002BDC546291F4B1:015EE2A321CE7D15", ss.str().c_str());
+        ASSERT_STREQ("002bdc546291f4b1:015ee2a321ce7d15", ss.str().c_str());
     }
 }
 

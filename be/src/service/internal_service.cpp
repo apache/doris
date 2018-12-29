@@ -24,6 +24,7 @@
 #include "runtime/data_stream_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "service/brpc.h"
+#include "util/uid_util.h"
 #include "util/thrift_util.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/result_buffer_mgr.h"
@@ -150,7 +151,7 @@ Status PInternalServiceImpl<T>::_exec_plan_fragment(brpc::Controller* cntl) {
         uint32_t len = ser_request.size();
         RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_request));
     }
-    LOG(INFO) << "exec plan fragment, finst_id=" << t_request.params.fragment_instance_id
+    LOG(INFO) << "exec plan fragment, fragment_instance_id=" << print_id(t_request.params.fragment_instance_id)
         << ", coord=" << t_request.coord << ", backend=" << t_request.backend_num;
     return _exec_env->fragment_mgr()->exec_plan_fragment(t_request);
 }
@@ -165,7 +166,7 @@ void PInternalServiceImpl<T>::cancel_plan_fragment(
     TUniqueId tid;
     tid.__set_hi(request->finst_id().hi());
     tid.__set_lo(request->finst_id().lo());
-    LOG(INFO) << "cancel framgent, finst_id=" << tid;
+    LOG(INFO) << "cancel framgent, fragment_instance_id=" << print_id(tid);
     auto st = _exec_env->fragment_mgr()->cancel(tid);
     if (!st.ok()) {
         LOG(WARNING) << "cancel plan fragment failed, errmsg=" << st.get_error_msg();
