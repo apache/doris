@@ -349,11 +349,13 @@ public class Coordinator {
     // A call to Exec() must precede all other member function calls.
     public void exec() throws Exception {
         if (!scanNodes.isEmpty()) {
-            LOG.debug("debug: in Coordinator::exec. planNode: {}", scanNodes.get(0).treeToThrift());
+            LOG.debug("debug: in Coordinator::exec. query id: {}, planNode: {}",
+                    DebugUtil.printId(queryId), scanNodes.get(0).treeToThrift());
         }
 
         if (!fragments.isEmpty()) {
-            LOG.debug("debug: in Coordinator::exec. fragment: {}", fragments.get(0).toThrift());
+            LOG.debug("debug: in Coordinator::exec. query id: {}, fragment: {}",
+                    DebugUtil.printId(queryId), fragments.get(0).toThrift());
         }
 
         // prepare information
