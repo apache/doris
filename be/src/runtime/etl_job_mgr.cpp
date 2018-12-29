@@ -23,7 +23,7 @@
 #include "gen_cpp/Status_types.h"
 #include "gen_cpp/Types_types.h"
 #include "service/backend_options.h"
-#include "util/debug_util.h"
+#include "util/uid_util.h"
 #include "runtime/exec_env.h"
 #include "runtime/plan_fragment_executor.h"
 #include "runtime/fragment_mgr.h"

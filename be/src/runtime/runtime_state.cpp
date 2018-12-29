@@ -36,7 +36,7 @@
 #include "runtime/load_path_mgr.h"
 #include "util/cpu_info.h"
 #include "util/mem_info.h"
-#include "util/debug_util.h"
+#include "util/uid_util.h"
 #include "util/disk_info.h"
 #include "util/file_utils.h"
 #include "util/pretty_printer.h"
