@@ -244,6 +244,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("repositories", new Integer(SqlParserSymbols.KW_REPOSITORIES));
         keywordMap.put("resource", new Integer(SqlParserSymbols.KW_RESOURCE));
         keywordMap.put("restore", new Integer(SqlParserSymbols.KW_RESTORE));
+        keywordMap.put("returns", new Integer(SqlParserSymbols.KW_RETURNS));
         keywordMap.put("revoke", new Integer(SqlParserSymbols.KW_REVOKE));
         keywordMap.put("right", new Integer(SqlParserSymbols.KW_RIGHT));
         keywordMap.put("rlike", new Integer(SqlParserSymbols.KW_REGEXP));
@@ -345,6 +346,7 @@ import org.apache.doris.common.util.SqlUtils;
     tokenIdMap.put(new Integer(SqlParserSymbols.STAR), "*");
     tokenIdMap.put(new Integer(SqlParserSymbols.AT), "@");
     tokenIdMap.put(new Integer(SqlParserSymbols.BITOR), "|");
+    tokenIdMap.put(new Integer(SqlParserSymbols.DOTDOTDOT), "...");
     tokenIdMap.put(new Integer(SqlParserSymbols.DOT), ".");
     tokenIdMap.put(new Integer(SqlParserSymbols.STRING_LITERAL), "STRING LITERAL");
     tokenIdMap.put(new Integer(SqlParserSymbols.EOF), "EOF");
@@ -440,6 +442,8 @@ TraditionalComment = "/*" [^*] ~"*/" | "/*" "*"+ "/"
 EndOfLineComment = "--" {NonTerminator}* {LineTerminator}?
 
 %%
+
+"..." { return newToken(SqlParserSymbols.DOTDOTDOT, null); }
 
 // single-character tokens
 "," { return newToken(SqlParserSymbols.COMMA, null); }

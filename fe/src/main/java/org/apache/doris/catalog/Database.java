@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table.TableType;
@@ -25,15 +28,13 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.persist.CreateTableInfo;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.SystemInfoService;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -48,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.zip.Adler32;
@@ -83,6 +85,9 @@ public class Database extends MetaObject implements Writable {
     // table family group map
     private Map<Long, Table> idToTable;
     private Map<String, Table> nameToTable;
+
+    // user define function
+    private ConcurrentMap<String, ImmutableList<Function>> name2Function = Maps.newConcurrentMap();
 
     private long dataQuotaBytes;
 
@@ -389,6 +394,16 @@ public class Database extends MetaObject implements Writable {
         Text.writeString(out, clusterName);
         Text.writeString(out, dbState.name());
         Text.writeString(out, attachDbName);
+
+        // write functions
+        out.writeInt(name2Function.size());
+        for (Entry<String, ImmutableList<Function>> entry : name2Function.entrySet()) {
+            Text.writeString(out, entry.getKey());
+            out.writeInt(entry.getValue().size());
+            for (Function function : entry.getValue()) {
+                function.write(out);
+            }
+        }
     }
 
     @Override
@@ -417,6 +432,20 @@ public class Database extends MetaObject implements Writable {
             clusterName = Text.readString(in);
             dbState = DbState.valueOf(Text.readString(in));
             attachDbName = Text.readString(in);
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_47) {
+            int numEntries = in.readInt();
+            for (int i = 0; i < numEntries; ++i) {
+                String name = Text.readString(in);
+                ImmutableList.Builder<Function> builder = ImmutableList.builder();
+                int numFunctions = in.readInt();
+                for (int j = 0; j < numFunctions; ++j) {
+                    builder.add(Function.read(in));
+                }
+
+                name2Function.put(name, builder.build());
+            }
         }
     }
 
@@ -478,5 +507,91 @@ public class Database extends MetaObject implements Writable {
 
     public void setName(String name) {
         this.fullQualifiedName = name;
+    }
+
+    public synchronized void addFunction(Function function) throws UserException {
+        addFunctionImpl(function, false);
+        Catalog.getInstance().getEditLog().logAddFunction(function);
+    }
+
+    public synchronized void replayAddFunction(Function function) {
+        try {
+            addFunctionImpl(function, true);
+        } catch (UserException e) {
+            Preconditions.checkArgument(false);
+        }
+    }
+
+    // return true if add success, false
+    private void addFunctionImpl(Function function, boolean isReplay) throws UserException {
+        String functionName = function.getFunctionName().getFunction();
+        List<Function> existFuncs = name2Function.get(functionName);
+        if (!isReplay) {
+            if (existFuncs != null) {
+                for (Function existFunc : existFuncs) {
+                    if (function.compare(existFunc, Function.CompareMode.IS_IDENTICAL)) {
+                        throw new UserException("function already exists");
+                    }
+                }
+            }
+            // Get function id for this UDF, use CatalogIdGenerator. Only get function id
+            // when isReplay is false
+            long functionId = Catalog.getInstance().getNextId();
+            function.setId(functionId);
+        }
+
+        ImmutableList.Builder<Function> builder = ImmutableList.builder();
+        if (existFuncs != null) {
+            builder.addAll(existFuncs);
+        }
+        builder.add(function);
+        name2Function.put(functionName, builder.build());
+    }
+
+    public synchronized void dropFunction(FunctionSearchDesc function) throws UserException {
+        dropFunctionImpl(function);
+        Catalog.getInstance().getEditLog().logDropFunction(function);
+    }
+
+    public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
+        try {
+            dropFunctionImpl(functionSearchDesc);
+        } catch (UserException e) {
+            Preconditions.checkArgument(false);
+        }
+    }
+
+    private void dropFunctionImpl(FunctionSearchDesc function) throws UserException {
+        String functionName = function.getName().getFunction();
+        List<Function> existFuncs = name2Function.get(functionName);
+        if (existFuncs == null) {
+            throw new UserException("Unknown function, function=" + function.toString());
+        }
+        boolean isFound = false;
+        ImmutableList.Builder<Function> builder = ImmutableList.builder();
+        for (Function existFunc : existFuncs) {
+            if (function.isIdentical(existFunc)) {
+                isFound = true;
+            } else {
+                builder.add(existFunc);
+            }
+        }
+        if (!isFound) {
+            throw new UserException("Unknown function, function=" + function.toString());
+        }
+        ImmutableList<Function> newFunctions = builder.build();
+        if (newFunctions.isEmpty()) {
+            name2Function.remove(functionName);
+        } else {
+            name2Function.put(functionName, newFunctions);
+        }
+    }
+
+    public synchronized Function getFunction(Function desc, Function.CompareMode mode) {
+        List<Function> fns = name2Function.get(desc.getFunctionName().getFunction());
+        if (fns == null) {
+            return null;
+        }
+        return Function.getFunction(fns, desc, mode);
     }
 }

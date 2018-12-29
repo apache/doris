@@ -37,6 +37,7 @@ import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
@@ -44,8 +45,10 @@ import org.apache.doris.analysis.DecommissionBackendClause;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropClusterStmt;
 import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LinkDbStmt;
@@ -5926,6 +5929,42 @@ public class Catalog {
         } finally {
             db.writeUnlock();
         }
+    }
+
+    public void createFunction(CreateFunctionStmt stmt) throws UserException {
+        FunctionName name = stmt.getFunctionName();
+        Database db = getDb(name.getDb());
+        if (db == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, name.getDb());
+        }
+        db.addFunction(stmt.getFunction());
+    }
+
+    public void replayCreateFunction(Function function) {
+        String dbName = function.getFunctionName().getDb();
+        Database db = getDb(dbName);
+        if (db == null) {
+            throw new Error("unknown database when replay log, db=" + dbName);
+        }
+        db.replayAddFunction(function);
+    }
+
+    public void dropFunction(DropFunctionStmt stmt) throws UserException {
+        FunctionName name = stmt.getFunctionName();
+        Database db = getDb(name.getDb());
+        if (db == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, name.getDb());
+        }
+        db.dropFunction(stmt.getFunction());
+    }
+
+    public void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
+        String dbName = functionSearchDesc.getName().getDb();
+        Database db = getDb(dbName);
+        if (db == null) {
+            throw new Error("unknown database when replay log, db=" + dbName);
+        }
+        db.replayDropFunction(functionSearchDesc);
     }
 }
 

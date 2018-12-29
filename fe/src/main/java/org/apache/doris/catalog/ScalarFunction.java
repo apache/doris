@@ -17,21 +17,24 @@
 
 package org.apache.doris.catalog;
 
-import java.util.ArrayList;
-import java.util.List;
+import static org.apache.doris.common.io.IOUtils.writeOptionString;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.HdfsURI;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TScalarFunction;
-// import org.apache.doris.thrift.TSymbolType;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 
-import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.LogManager;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+
+// import org.apache.doris.thrift.TSymbolType;
 
 /**
  * Internal representation of a scalar function.
@@ -42,6 +45,15 @@ public class ScalarFunction extends Function {
     private String symbolName;
     private String prepareFnSymbol;
     private String closeFnSymbol;
+
+    // Only used for serialization
+    protected ScalarFunction() {
+    }
+
+    public ScalarFunction(
+            FunctionName fnName, Type[] argTypes, Type retType, boolean hasVarArgs) {
+        super(fnName, argTypes, retType, hasVarArgs);
+    }
 
     public ScalarFunction(
             FunctionName fnName, ArrayList<Type> argTypes, Type retType, boolean hasVarArgs) {
@@ -204,6 +216,18 @@ public class ScalarFunction extends Function {
         return fn;
     }
 
+    public static ScalarFunction createUdf(
+            FunctionName name, Type[] args,
+            Type returnType, boolean isVariadic,
+            String objectFile, String symbol) {
+        ScalarFunction fn = new ScalarFunction(name, args, returnType, isVariadic);
+        fn.setBinaryType(TFunctionBinaryType.HIVE);
+        fn.setUserVisible(true);
+        fn.symbolName = symbol;
+        fn.setLocation(new HdfsURI(objectFile));
+        return fn;
+    }
+
     public void setSymbolName(String s) { symbolName = s; }
     public void setPrepareFnSymbol(String s) { prepareFnSymbol = s; }
     public void setCloseFnSymbol(String s) { closeFnSymbol = s; }
@@ -235,5 +259,29 @@ public class ScalarFunction extends Function {
             fn.getScalar_fn().setClose_fn_symbol(closeFnSymbol);
         }
         return fn;
+    }
+
+    @Override
+    public void write(DataOutput output) throws IOException {
+        // 1. type
+        FunctionType.SCALAR.write(output);
+        // 2. parent
+        super.writeFields(output);
+        // 3.symbols
+        Text.writeString(output, symbolName);
+        writeOptionString(output, prepareFnSymbol);
+        writeOptionString(output, closeFnSymbol);
+    }
+
+    @Override
+    public void readFields(DataInput input) throws IOException {
+        super.readFields(input);
+        symbolName = Text.readString(input);
+        if (input.readBoolean()) {
+            prepareFnSymbol = Text.readString(input);
+        }
+        if (input.readBoolean()) {
+            closeFnSymbol = Text.readString(input);
+        }
     }
 }
