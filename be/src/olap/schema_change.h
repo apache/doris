@@ -276,32 +276,6 @@ public:
                                       std::vector<SegmentGroup*>* ref_segment_groups,
                                       std::vector<SegmentGroup*>* new_segment_groups);
 
-    // 清空一个table下的schema_change信息：包括split_talbe以及其他schema_change信息
-    //  这里只清理自身的out链，不考虑related的tablet
-    // NOTE 需要外部lock header
-    // Params:
-    //   alter_tablet_type
-    //     为NULL时，同时检查table_split和其他普通schema_change
-    //               否则只检查指定type的信息
-    //   only_one:
-    //     为true时：如果其out链只有一个，且可删除，才可能进行clear
-    //     为false时：如果发现有大于1个out链，不管是否可删除，都不进行删除
-    //   check_only:
-    //     检查通过也不删除schema
-    // Returns:
-    //  成功：有的都可以清理（没有就直接跳过）
-    //  失败：如果有信息但不能清理（有version没完成）,或不符合only_one条件
-    static OLAPStatus clear_schema_change_single_info(TTabletId tablet_id,
-                                                      SchemaHash schema_hash,
-                                                      AlterTabletType* alter_tablet_type,
-                                                      bool only_one,
-                                                      bool check_only);
-
-    static OLAPStatus clear_schema_change_single_info(TabletSharedPtr tablet,
-                                                      AlterTabletType* alter_tablet_type,
-                                                      bool only_one,
-                                                      bool check_only);
-
 
 private:
     // 检查schema_change相关的状态:清理"一对"schema_change table间的信息

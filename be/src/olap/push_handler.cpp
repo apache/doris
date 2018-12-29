@@ -64,9 +64,9 @@ OLAPStatus PushHandler::process_realtime_push(
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    res = StorageEngine::get_instance()->add_transaction(
+    res = TxnManager::instance()->add_txn(
         request.partition_id, request.transaction_id,
-        tablet->tablet_id(), tablet->schema_hash(), load_id);
+        tablet->tablet_id(), tablet->schema_hash(), load_id, NULL);
 
     // if transaction exists, exit
     if (res == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
@@ -101,7 +101,7 @@ OLAPStatus PushHandler::process_realtime_push(
                       << ", related_tablet_id=" << related_tablet_id
                       << ", related_schema_hash=" << related_schema_hash
                       << ", transaction_id=" << request.transaction_id;
-            TabletSharedPtr related_tablet = StorageEngine::get_instance()->get_tablet(
+            TabletSharedPtr related_tablet = TabletManager::instance()->get_tablet(
                 related_tablet_id, related_schema_hash);
 
             // if related tablet not exists, only push current tablet
@@ -123,9 +123,9 @@ OLAPStatus PushHandler::process_realtime_push(
                 PUniqueId load_id;
                 load_id.set_hi(0);
                 load_id.set_lo(0);
-                res = StorageEngine::get_instance()->add_transaction(
+                res = TxnManager::instance()->add_txn(
                     request.partition_id, request.transaction_id,
-                    related_tablet->tablet_id(), related_tablet->schema_hash(), load_id);
+                    related_tablet->tablet_id(), related_tablet->schema_hash(), load_id, NULL);
 
                 // if related tablet's transaction exists, only push current tablet
                 if (res == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
@@ -269,7 +269,7 @@ void PushHandler::_get_tablet_infos(
         TTabletInfo tablet_info;
         tablet_info.tablet_id = tablet_var.tablet->tablet_id();
         tablet_info.schema_hash = tablet_var.tablet->schema_hash();
-        StorageEngine::get_instance()->report_tablet_info(&tablet_info);
+        TabletManager::instance()->report_tablet_info(&tablet_info);
         tablet_info_vec->push_back(tablet_info);
     }
 }

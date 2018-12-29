@@ -70,6 +70,19 @@ using std::vector;
 
 namespace doris {
 
+TabletManager* TabletManager::_s_instance = nullptr;
+std::mutex TabletManager::_mlock;
+
+TabletManager* TabletManager::instance() {
+    if (_s_instance == nullptr) {
+        std::lock_guard<std::mutex> lock(_mlock);
+        if (_s_instance == nullptr) {
+            _s_instance = new TabletManager();
+        }
+    }
+    return _s_instance;
+}
+
 bool _sort_tablet_by_create_time(const TabletSharedPtr& a, const TabletSharedPtr& b) {
     return a->creation_time() < b->creation_time();
 }
@@ -436,32 +449,6 @@ TabletSharedPtr TabletManager::create_tablet(
     return tablet;
 } // create_tablet
 
-OLAPStatus TabletManager::create_rollup_tablet(const TAlterTabletReq& request) {
-    LOG(INFO) << "begin to create rollup tablet. "
-              << "old_tablet_id=" << request.base_tablet_id
-              << ", new_tablet_id=" << request.new_tablet_req.tablet_id;
-
-    DorisMetrics::create_rollup_requests_total.increment(1);
-
-    OLAPStatus res = OLAP_SUCCESS;
-
-    SchemaChangeHandler handler;
-    res = handler.process_alter_tablet(ALTER_TABLET_CREATE_ROLLUP_TABLE, request);
-
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("failed to do rollup. "
-                         "[base_tablet=%ld new_tablet=%ld] [res=%d]",
-                         request.base_tablet_id, request.new_tablet_req.tablet_id, res);
-        DorisMetrics::create_rollup_requests_failed.increment(1);
-        return res;
-    }
-
-    LOG(INFO) << "success to create rollup tablet. res=" << res
-              << ", old_tablet_id=" << request.base_tablet_id 
-              << ", new_tablet_id=" << request.new_tablet_req.tablet_id;
-    return res;
-} // create_rollup_tablet
-
 // Drop tablet specified, the main logical is as follows:
 // 1. tablet not in schema change:
 //      drop specified tablet directly;
@@ -805,7 +792,7 @@ OLAPStatus TabletManager::load_one_tablet(
         OLAP_LOG_WARNING("fail to register tablet into root path. [root_path=%s]",
                          schema_hash_path.c_str());
 
-        if (StorageEngine::get_instance()->drop_tablet(tablet_id, schema_hash) != OLAP_SUCCESS) {
+        if (drop_tablet(tablet_id, schema_hash) != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to drop tablet when create tablet failed. "
                              "[tablet=%ld schema_hash=%d]",
                              tablet_id, schema_hash);

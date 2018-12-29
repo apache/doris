@@ -91,6 +91,7 @@ message RowsetMetaPB {
     required PUniqueId load_id = 18;
     // spare field id for future use
     optional bytes extra_properties = 50;
+
 }
 
 message AlphaRowsetExtraMetaPB {

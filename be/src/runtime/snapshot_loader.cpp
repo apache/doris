@@ -556,7 +556,7 @@ Status SnapshotLoader::move(
         // than we merge the 2 .hdr file before reloading it.
     
         // load header in tablet dir to get the base vesion
-        TabletSharedPtr tablet = StorageEngine::get_instance()->get_tablet(
+        TabletSharedPtr tablet = TabletManager::instance()->get_tablet(
                 tablet_id, schema_hash);
         if (tablet.get() == NULL) {
             std::stringstream ss;
@@ -667,7 +667,7 @@ Status SnapshotLoader::move(
         LOG(WARNING) << ss.str();
         return Status(ss.str());
     }
-    OLAPStatus ost = StorageEngine::get_instance()->get_tablet_mgr()->load_one_tablet(
+    OLAPStatus ost = TabletManager::instance()->load_one_tablet(
             store, tablet_id, schema_hash, tablet_path, true);
     if (ost != OLAP_SUCCESS) {
         std::stringstream ss;

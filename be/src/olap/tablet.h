@@ -286,10 +286,7 @@ public:
     uint32_t segment_size() const;
     void set_io_error();
     RowsetSharedPtr rowset_with_largest_size();
-<<<<<<< HEAD
     SegmentGroup* get_largest_index();
-=======
-    Rowset* rowset_with_largest_size();
 
     // 清空一个table下的schema_change信息：包括split_talbe以及其他schema_change信息
     //  这里只清理自身的out链，不考虑related的tablet
@@ -314,7 +311,6 @@ private:
     OLAPStatus _unprotect_clear_schema_change_info(AlterTabletType* alter_tablet_type,
                                                 bool only_one,
                                                 bool check_only);
->>>>>>> Move clear schema change info to tablet
 public:
     DataDir* _data_dir;
     TabletState _state;
