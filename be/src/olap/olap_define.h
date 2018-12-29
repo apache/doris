@@ -235,7 +235,8 @@ enum OLAPStatus {
     OLAP_ERR_PUSH_INPUT_DATA_ERROR = -910,
     OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST = -911,
     // only support realtime push api, batch process is deprecated and is removed
-    OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED = -912,
+    OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED = -912, 
+    OLAP_ERR_PUSH_COMMIT_ROWSET = -913, 
 
     // SegmentGroup
     // [-1000, -1100)
@@ -349,6 +350,7 @@ static const std::string DEFAULT_COLUMN_FAMILY = "default";
 static const std::string DORIS_COLUMN_FAMILY = "doris";
 static const std::string META_COLUMN_FAMILY = "meta";
 static const std::string IS_HEADER_CONVERTED = "is_header_converted";
+static const std::string END_ROWSET_ID = "end_rowset_id";
 static const std::string CONVERTED_FLAG = "true";
 const std::string TABLET_ID_KEY = "tablet_id";
 const std::string TABLET_SCHEMA_HASH_KEY = "schema_hash";

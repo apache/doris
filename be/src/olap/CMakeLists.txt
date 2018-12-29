@@ -49,7 +49,6 @@ add_library(Olap STATIC
     olap_index.cpp
     olap_meta.cpp
     olap_server.cpp
-    olap_snapshot.cpp
     options.cpp
     out_stream.cpp
     push_handler.cpp
@@ -60,6 +59,7 @@ add_library(Olap STATIC
     serialize.cpp
     storage_engine.cpp
     data_dir.cpp
+    snapshot_manager.cpp
     stream_index_common.cpp
     stream_index_reader.cpp
     stream_index_writer.cpp
@@ -72,4 +72,10 @@ add_library(Olap STATIC
     types.cpp 
     utils.cpp
     wrapper_field.cpp
+    rowset/rowset_meta_manager.cpp
+    rowset/alpha_rowset.cpp
+    rowset/alpha_rowset_reader.cpp
+    rowset/alpha_rowset_builder.cpp
+    rowset/alpha_rowset_meta.cpp
+    task/engine_schema_change_task.cpp
 )
