@@ -17,22 +17,32 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.common.UserException;
 
-/**
- * Created by zhaochun on 14-7-30.
- */
-public class DropFunctionStmt extends StatementBase {
+public class DropFunctionStmt extends DdlStmt {
     private final FunctionName functionName;
+    private final FunctionArgsDef argsDef;
 
-    public DropFunctionStmt(FunctionName functionName) {
+    // set after analyzed
+    private FunctionSearchDesc function;
+
+    public DropFunctionStmt(FunctionName functionName, FunctionArgsDef argsDef) {
         this.functionName = functionName;
+        this.argsDef = argsDef;
     }
 
+    public FunctionName getFunctionName() { return functionName; }
+    public FunctionSearchDesc getFunction() { return function; }
+
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+        // analyze function name
+        functionName.analyze(analyzer);
+        // analyze arguments
+        argsDef.analyze(analyzer);
+        function = new FunctionSearchDesc(functionName, argsDef.getArgTypes(), argsDef.isVariadic());
     }
 
     @Override
