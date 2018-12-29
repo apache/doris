@@ -160,8 +160,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         StringBuilder sb = new StringBuilder();
         final String fullName = prefix + "_" + name.replaceAll("\\.", "_");
         sb.append(HELP).append(fullName).append(" ").append("\n");
-        sb.append(TYPE).append(fullName).append(" ").append("\n");
-        sb.append(fullName);
+        sb.append(TYPE).append(fullName).append(" ").append("summary\n");
 
         Snapshot snapshot = histogram.getSnapshot();
         sb.append(fullName).append("{quantile=\"0.75\"} ").append(snapshot.get75thPercentile()).append("\n");
@@ -178,7 +177,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     public String getPaloNodeInfo() {
         final String PALO_NODE_INFO = "palo_node_info";
         StringBuilder sb = new StringBuilder();
-        sb.append(Joiner.on(" ").join(TYPE, PALO_NODE_INFO, "gauge", "\n"));
+        sb.append(Joiner.on(" ").join(TYPE, PALO_NODE_INFO, "gauge\n"));
         sb.append(PALO_NODE_INFO).append("{type=\"fe_node_num\", state=\"total\"} ")
                 .append(Catalog.getInstance().getFrontends(null).size()).append("\n");
         sb.append(PALO_NODE_INFO).append("{type=\"be_node_num\", state=\"total\"} ")
