@@ -52,7 +52,6 @@ class DataDir;
 // TabletManager provides get,add, delete tablet method for storage engine
 class TabletManager {
 public:
-    TabletManager();
     ~TabletManager() {
         _tablet_map.clear();
         _global_tablet_id = 0;
@@ -91,18 +90,6 @@ public:
                               const bool is_schema_change_tablet,
                               const TabletSharedPtr ref_tablet, 
                               std::vector<DataDir*> stores);
-
-    // ######################### ALTER TABLE BEGIN #########################
-    // The following interfaces are all about alter tablet operation, 
-    // the main logical is that generating a new tablet with different
-    // schema on base tablet.
-    
-    // Create rollup tablet on base tablet, after create_rollup_tablet,
-    // both base tablet and new tablet is effective.
-    //
-    // @param [in] request specify base tablet, new tablet and its schema
-    // @return OLAP_SUCCESS if submit success
-    OLAPStatus create_rollup_tablet(const TAlterTabletReq& request);
 
     // Show status of all alter tablet operation.
     // 
@@ -157,7 +144,11 @@ public:
 
     void update_storage_medium_type_count(uint32_t storage_medium_type_count);
 
+    static TabletManager* instance();
+
 private:
+    TabletManager();
+    
     void _build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tablet_info);
     
     void _build_tablet_stat();
@@ -196,6 +187,10 @@ private:
     int64_t _tablet_stat_cache_update_time_ms;
 
     uint32_t _available_storage_medium_type_count;
+
+    // singleton
+    static TabletManager* _s_instance;
+    static std::mutex _mlock;
 };
 
 }  // namespace doris

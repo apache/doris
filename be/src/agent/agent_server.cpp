@@ -35,6 +35,7 @@
 #include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/Status_types.h"
 #include "olap/utils.h"
+#include "olap/snapshot_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/etl_job_mgr.h"
 #include "util/debug_util.h"
@@ -433,7 +434,7 @@ void AgentServer::make_snapshot(TAgentResult& return_value,
 
     string snapshot_path;
     OLAPStatus make_snapshot_status =
-            _exec_env->olap_engine()->make_snapshot(snapshot_request, &snapshot_path);
+            SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path);
     if (make_snapshot_status != OLAP_SUCCESS) {
         status_code = TStatusCode::RUNTIME_ERROR;
         OLAP_LOG_WARNING("make_snapshot failed. tablet_id: %ld, schema_hash: %ld, status: %d",
@@ -460,7 +461,7 @@ void AgentServer::release_snapshot(TAgentResult& return_value, const std::string
     TStatusCode::type status_code = TStatusCode::OK;
 
     OLAPStatus release_snapshot_status =
-            _exec_env->olap_engine()->release_snapshot(snapshot_path);
+            SnapshotManager::instance()->release_snapshot(snapshot_path);
     if (release_snapshot_status != OLAP_SUCCESS) {
         status_code = TStatusCode::RUNTIME_ERROR;
         LOG(WARNING) << "release_snapshot failed. snapshot_path: " << snapshot_path << ", status: " << release_snapshot_status;

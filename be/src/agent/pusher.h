@@ -46,8 +46,23 @@ public:
     // * tablet_infos: The info of pushed tablet after push data
     virtual AgentStatus process(std::vector<TTabletInfo>* tablet_infos);
 
+    // Delete data of specified tablet according to delete conditions,
+    // once delete_data command submit success, deleted data is not visible,
+    // but not actually deleted util delay_delete_time run out.
+    //
+    // @param [in] request specify tablet and delete conditions
+    // @param [out] tablet_info_vec return tablet lastest status, which
+    //              include version info, row count, data size, etc
+    // @return OLAP_SUCCESS if submit delete_data success
+    virtual OLAPStatus delete_data(
+            const TPushReq& request,
+            std::vector<TTabletInfo>* tablet_info_vec);
+
 private:
     AgentStatus _get_tmp_file_dir(const std::string& root_path, std::string* local_path);
+    AgentStatus _download_file();
+    OLAPStatus _push(const TPushReq& request,
+                    std::vector<TTabletInfo>* tablet_info_vec);
     void _get_file_name_from_path(const std::string& file_path, std::string* file_name);
     
     TPushReq _push_req;
