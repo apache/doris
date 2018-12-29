@@ -53,7 +53,7 @@ Status ResultSink::prepare_exprs(RuntimeState* state) {
 Status ResultSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
     std::stringstream title;
-    title << "DataBufferSender (dst_fragment_id=" << print_id(state->fragment_instance_id()) << ")";
+    title << "DataBufferSender (dst_fragment_instance_id=" << print_id(state->fragment_instance_id()) << ")";
     // create profile
     _profile = state->obj_pool()->add(new RuntimeProfile(state->obj_pool(), title.str()));
     // prepare output_expr

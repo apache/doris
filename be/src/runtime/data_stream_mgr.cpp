@@ -98,7 +98,7 @@ Status DataStreamMgr::add_data(
         const PRowBatch& pb_batch, int32_t sender_id,
         int be_number, int64_t packet_seq,
         ::google::protobuf::Closure** done) {
-    VLOG_ROW << "add_data(): finst_id=" << print_id(finst_id)
+    VLOG_ROW << "add_data(): fragment_instance_id=" << print_id(finst_id)
             << " node=" << node_id;
     TUniqueId t_finst_id;
     t_finst_id.hi = finst_id.hi();
