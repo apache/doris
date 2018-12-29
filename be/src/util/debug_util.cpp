@@ -78,41 +78,6 @@ THRIFT_ENUM_PRINT_FN(QueryState);
 THRIFT_ENUM_PRINT_FN(TMetricKind);
 THRIFT_ENUM_PRINT_FN(TUnit);
 
-std::string print_id(const TUniqueId& id) {
-    std::stringstream out;
-    out << std::hex << id.hi << ":" << id.lo;
-    return out.str();
-}
-
-std::string print_id(const PUniqueId& id) {
-    std::stringstream out;
-    out << std::hex << id.hi() << ":" << id.lo();
-    return out.str();
-}
-
-bool parse_id(const std::string& s, TUniqueId* id) {
-    DCHECK(id != NULL);
-
-    const char* hi_part = s.c_str();
-    char* colon = const_cast<char*>(strchr(hi_part, ':'));
-
-    if (colon == NULL) {
-        return false;
-    }
-
-    const char* lo_part = colon + 1;
-    *colon = '\0';
-
-    char* error_hi = NULL;
-    char* error_lo = NULL;
-    id->hi = strtoul(hi_part, &error_hi, 16);
-    id->lo = strtoul(lo_part, &error_lo, 16);
-
-    bool valid = *error_hi == '\0' && *error_lo == '\0';
-    *colon = ':';
-    return valid;
-}
-
 std::string print_plan_node_type(const TPlanNodeType::type& type) {
     std::map<int, const char*>::const_iterator i;
     i = _TPlanNodeType_VALUES_TO_NAMES.find(type);

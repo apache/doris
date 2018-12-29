@@ -21,6 +21,7 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/plan_fragment_executor.h"
 #include "runtime/runtime_state.h"
+#include "util/uid_util.h"
 
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/BackendService.h"

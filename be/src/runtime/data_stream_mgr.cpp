@@ -26,7 +26,7 @@
 #include "runtime/data_stream_recvr.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
-#include "util/debug_util.h"
+#include "util/uid_util.h"
 
 #include "gen_cpp/types.pb.h" // PUniqueId
 #include "gen_cpp/BackendService.h"

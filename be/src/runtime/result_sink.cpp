@@ -18,7 +18,7 @@
 #include "runtime/result_sink.h"
 
 #include "common/config.h"
-#include "util/debug_util.h"
+#include "util/uid_util.h"
 #include "exprs/expr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"

@@ -24,7 +24,7 @@
 #include "runtime/data_stream_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "service/brpc.h"
-#include "util/debug_util.h"
+#include "util/uid_util.h"
 #include "util/thrift_util.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/result_buffer_mgr.h"

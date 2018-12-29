@@ -26,7 +26,7 @@
 #include "common/object_pool.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
-#include "util/debug_util.h"
+#include "util/uid_util.h"
 #include "util/pretty_printer.h"
 
 #include "common/names.h"

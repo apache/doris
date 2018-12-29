@@ -37,7 +37,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/mem_tracker.h"
 #include "util/cpu_info.h"
-#include "util/debug_util.h"
+#include "util/uid_util.h"
 #include "util/container_util.hpp"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
