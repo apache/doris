@@ -712,9 +712,9 @@ public class ShowExecutor {
         if (param == null || param.getType() == HubType.NULL_TYPE) {
             throw new AnalysisException("no load error hub be supplied.");
         }
-        LoadErrorHub importer = LoadErrorHub.createHub(param);
-        ArrayList<LoadErrorHub.ErrorMsg> errors = importer.fetchLoadError(jobId);
-        importer.close();
+        LoadErrorHub errorHub = LoadErrorHub.createHub(param);
+        List<LoadErrorHub.ErrorMsg> errors = errorHub.fetchLoadError(jobId);
+        errorHub.close();
 
         List<List<String>> rows = Lists.newArrayList();
         for (LoadErrorHub.ErrorMsg error : errors) {

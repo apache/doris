@@ -18,42 +18,58 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.load.LoadErrorHub;
+
+import com.google.common.base.Strings;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Map;
+
 // FORMAT:
 //   ALTER SYSTEM SET GLOBAL LOAD_ERROR_URL= "mysql://user:password@host:port[/database[/table]]"
+//   ALTER SYSTEM SET GLOBAL LOAD_ERROR_URL= "broker://"
 
 public class AlterLoadErrorUrlClause extends AlterClause {
     private static final Logger LOG = LogManager.getLogger(AlterLoadErrorUrlClause.class);
 
-    private static final String DEFAULT_TABLE = "load_errors";
-    private String url;
+    private Map<String, String> properties;
     private LoadErrorHub.Param param;
 
-    protected AlterLoadErrorUrlClause(String url) {
-        this.url = url;
+    public AlterLoadErrorUrlClause(Map<String, String> properties) {
+        this.properties = properties;
     }
 
-    public LoadErrorHub.Param getParam() {
-        return param;
+    @Override
+    public Map<String, String> getProperties() {
+        return properties;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        // auth is checked in Alter System Stmt
-        this.param = LoadErrorHub.analyzeUrl(url);
-    }
+        if (properties == null || properties.isEmpty()) {
+            throw new AnalysisException("Load errors hub's properties are missing");
+        }
 
+        String type = properties.get("type");
+        if (Strings.isNullOrEmpty(type)) {
+            throw new AnalysisException("Load errors hub's type is missing");
+        }
+
+        if (!type.equalsIgnoreCase("MYSQL") || !type.equalsIgnoreCase("BROKER")) {
+            throw new AnalysisException("Load errors hub's type should be MYSQL or BROKER");
+        }
+    }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ALTER SYSTEM SET LOAD_ERROR_URL = \"");
-        sb.append(url);
-        sb.append("\"");
+        sb.append("ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES(");
+        PrintableMap<String, String> printableMap = new PrintableMap<>(properties, "=", true, true, true);
+        sb.append(printableMap.toString());
+        sb.append(")");
         return sb.toString();
     }
 

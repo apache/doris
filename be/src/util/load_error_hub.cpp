@@ -25,7 +25,7 @@
 namespace doris {
 
 Status LoadErrorHub::create_hub(const TLoadErrorHubInfo* t_hub_info,
-                                          std::unique_ptr<LoadErrorHub>* hub) {
+                                std::unique_ptr<LoadErrorHub>* hub) {
     LoadErrorHub* tmp_hub = nullptr;
 
     if (t_hub_info == nullptr) {

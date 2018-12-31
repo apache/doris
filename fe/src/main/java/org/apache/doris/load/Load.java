@@ -28,6 +28,8 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.backup.BlobStorage;
+import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -143,7 +145,7 @@ public class Load {
     private Set<Long> partitionUnderDelete; // save partitions which are running delete jobs
     private Map<Long, AsyncDeleteJob> idToQuorumFinishedDeleteJob;
 
-    private volatile LoadErrorHub.Param loadErrorHubInfo = new LoadErrorHub.Param();
+    private volatile LoadErrorHub.Param loadErrorHubParam = new LoadErrorHub.Param();
 
     // lock for load job
     // lock is private and must use after db lock
@@ -1657,23 +1659,78 @@ public class Load {
     }
 
     public LoadErrorHub.Param getLoadErrorHubInfo() {
-        return loadErrorHubInfo;
+        return loadErrorHubParam;
     }
 
     public void setLoadErrorHubInfo(LoadErrorHub.Param info) {
-        this.loadErrorHubInfo = info;
+        this.loadErrorHubParam = info;
     }
 
-    // Note: althrough this.loadErrorHubInfo is volatile, no need to lock.
-    //       but editlog need be locked
-    public void changeLoadErrorHubInfo(LoadErrorHub.Param info) {
-        writeLock();
-        try {
-            this.loadErrorHubInfo = info;
-            Catalog.getInstance().getEditLog().logSetLoadErrorHub(info);
-        } finally {
-            writeUnlock();
+    public void setLoadErrorHubInfo(Map<String, String> properties) throws DdlException {
+        String type = properties.get("type");
+        if (type.equalsIgnoreCase("MYSQL")) {
+            String host = properties.get("host");
+            if (Strings.isNullOrEmpty(host)) {
+                throw new DdlException("mysql host is missing");
+            }
+            
+            int port = -1;
+            try {
+                port = Integer.valueOf(properties.get("port"));
+            } catch (NumberFormatException e) {
+                throw new DdlException("invalid mysql port");
+            }
+            
+            String user = properties.get("user");
+            if (Strings.isNullOrEmpty(user)) {
+                throw new DdlException("mysql user name is missing");
+            }
+            
+            String db = properties.get("db");
+            if (Strings.isNullOrEmpty(db)) {
+                throw new DdlException("mysql database is missing");
+            }
+            
+            String tbl = properties.get("table");
+            if (Strings.isNullOrEmpty(tbl)) {
+                throw new DdlException("mysql table is missing");
+            }
+            
+            String pwd = Strings.nullToEmpty(properties.get("password"));
+
+            MysqlLoadErrorHub.MysqlParam param = new MysqlLoadErrorHub.MysqlParam(host, port, user, pwd, db, tbl);
+            loadErrorHubParam = LoadErrorHub.Param.createMysqlParam(param);
+        } else if (type.equalsIgnoreCase("BROKER")) {
+            String brokerName = properties.get("broker");
+            if (Strings.isNullOrEmpty(brokerName)) {
+                throw new DdlException("broker name is missing");
+            }
+            properties.remove("broker");
+
+            if (!Catalog.getCurrentCatalog().getBrokerMgr().contaisnBroker(brokerName)) {
+                throw new DdlException("broker does not exist: " + brokerName);
+            }
+
+            String path = properties.get("path");
+            if (Strings.isNullOrEmpty(path)) {
+                throw new DdlException("broker path is missing");
+            }
+            properties.remove("path");
+
+            // check if broker info is invalid
+            BlobStorage blobStorage = new BlobStorage(brokerName, properties);
+            Status st = blobStorage.checkPathExist(path);
+            if (!st.ok()) {
+                throw new DdlException("failed to visit path: " + path + ", err: " + st.getErrMsg());
+            }
+            
+            BrokerLoadErrorHub.BrokerParam param = new BrokerLoadErrorHub.BrokerParam(brokerName, path, properties);
+            loadErrorHubParam = LoadErrorHub.Param.createBrokerParam(param);
         }
+        
+        Catalog.getInstance().getEditLog().logSetLoadErrorHub(loadErrorHubParam);
+        
+        LOG.info("set load error hub info: {}", loadErrorHubParam);
     }
 
     public static class JobInfo {

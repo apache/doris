@@ -164,6 +164,7 @@ import org.apache.doris.common.util.SqlUtils;
         keywordMap.put("having", new Integer(SqlParserSymbols.KW_HAVING));
         keywordMap.put("help", new Integer(SqlParserSymbols.KW_HELP));
         keywordMap.put("hll_union", new Integer(SqlParserSymbols.KW_HLL_UNION)); 
+        keywordMap.put("hub", new Integer(SqlParserSymbols.KW_HUB)); 
         keywordMap.put("identified", new Integer(SqlParserSymbols.KW_IDENTIFIED));
         keywordMap.put("if", new Integer(SqlParserSymbols.KW_IF));
         keywordMap.put("in", new Integer(SqlParserSymbols.KW_IN));

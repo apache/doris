@@ -36,7 +36,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.ArrayList;
+import java.util.List;
 
 public class MysqlLoadErrorHub extends LoadErrorHub {
     private static final Logger LOG = LogManager.getLogger(MysqlLoadErrorHub.class);
@@ -141,8 +141,8 @@ public class MysqlLoadErrorHub extends LoadErrorHub {
     }
 
     @Override
-    public ArrayList<ErrorMsg> fetchLoadError(long jobId) {
-        ArrayList<ErrorMsg> result = Lists.newArrayList();
+    public List<ErrorMsg> fetchLoadError(long jobId) {
+        List<ErrorMsg> result = Lists.newArrayList();
 
         Connection conn = null;
         PreparedStatement stmt = null;
