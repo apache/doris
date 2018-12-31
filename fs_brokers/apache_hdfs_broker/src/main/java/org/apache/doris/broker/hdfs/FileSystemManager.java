@@ -17,6 +17,7 @@
 
 package org.apache.doris.broker.hdfs;
 
+import org.apache.doris.common.WildcardURI;
 import org.apache.doris.thrift.TBrokerFD;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
@@ -39,7 +40,6 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.InetAddress;
-import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
@@ -128,12 +128,7 @@ public class FileSystemManager {
      * @throws Exception 
      */
     public BrokerFileSystem getFileSystem(String path, Map<String, String> properties) {
-        URI pathUri;
-        try {
-            pathUri = new URI(path);
-        } catch (URISyntaxException e) {
-            throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH, e);
-        }
+        WildcardURI pathUri = new WildcardURI(path);
         String host = HDFS_SCHEME + pathUri.getAuthority();
         if (Strings.isNullOrEmpty(pathUri.getAuthority())) {
             if (properties.containsKey(FS_DEFAULTFS_KEY)) {
@@ -299,7 +294,7 @@ public class FileSystemManager {
                     }
                 }
 
-                FileSystem dfsFileSystem = FileSystem.get(URI.create(host), conf);
+                FileSystem dfsFileSystem = FileSystem.get(new WildcardURI(path).getUri(), conf);
                 fileSystem.setFileSystem(dfsFileSystem);
             }
             return fileSystem;
@@ -313,7 +308,7 @@ public class FileSystemManager {
     
     public List<TBrokerFileStatus> listPath(String path, boolean fileNameOnly, Map<String, String> properties) {
         List<TBrokerFileStatus> resultFileStatus = null;
-        URI pathUri = getUriFromPath(path);
+        WildcardURI pathUri = new WildcardURI(path);
         BrokerFileSystem fileSystem = getFileSystem(path, properties);
         Path pathPattern = new Path(pathUri.getPath());
         try {
@@ -325,8 +320,8 @@ public class FileSystemManager {
             resultFileStatus = new ArrayList<>(files.length);
             for (FileStatus fileStatus : files) {
                 TBrokerFileStatus brokerFileStatus = new TBrokerFileStatus();
-                brokerFileStatus.setIsDir(fileStatus.isDir());
-                if (fileStatus.isDir()) {
+                brokerFileStatus.setIsDir(fileStatus.isDirectory());
+                if (fileStatus.isDirectory()) {
                     brokerFileStatus.setIsSplitable(false);
                     brokerFileStatus.setSize(-1);
                 } else {
@@ -356,7 +351,7 @@ public class FileSystemManager {
     }
     
     public void deletePath(String path, Map<String, String> properties) {
-        URI pathUri = getUriFromPath(path);
+        WildcardURI pathUri = new WildcardURI(path);
         BrokerFileSystem fileSystem = getFileSystem(path, properties);
         Path filePath = new Path(pathUri.getPath());
         try {
@@ -370,8 +365,8 @@ public class FileSystemManager {
     }
     
     public void renamePath(String srcPath, String destPath, Map<String, String> properties) {
-        URI srcPathUri = getUriFromPath(srcPath);
-        URI destPathUri = getUriFromPath(destPath);
+        WildcardURI srcPathUri = new WildcardURI(srcPath);
+        WildcardURI destPathUri = new WildcardURI(destPath);
         if (!srcPathUri.getAuthority().trim().equals(destPathUri.getAuthority().trim())) {
             throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR, 
                     "only allow rename in same file system");
@@ -394,7 +389,7 @@ public class FileSystemManager {
     }
     
     public boolean checkPathExist(String path, Map<String, String> properties) {
-        URI pathUri = getUriFromPath(path);
+        WildcardURI pathUri = new WildcardURI(path);
         BrokerFileSystem fileSystem = getFileSystem(path, properties);
         Path filePath = new Path(pathUri.getPath());
         try {
@@ -409,7 +404,7 @@ public class FileSystemManager {
     }
     
     public TBrokerFD openReader(String clientId, String path, long startOffset, Map<String, String> properties) {
-        URI pathUri = getUriFromPath(path);
+        WildcardURI pathUri = new WildcardURI(path);
         Path inputFilePath = new Path(pathUri.getPath());
         BrokerFileSystem fileSystem = getFileSystem(path, properties);
         try {
@@ -490,7 +485,7 @@ public class FileSystemManager {
     }
     
     public TBrokerFD openWriter(String clientId, String path, Map<String, String> properties) {
-        URI pathUri = getUriFromPath(path);
+        WildcardURI pathUri = new WildcardURI(path);
         Path inputFilePath = new Path(pathUri.getPath());
         BrokerFileSystem fileSystem = getFileSystem(path, properties);
         try {
@@ -549,19 +544,6 @@ public class FileSystemManager {
     
     public void ping(String clientId) {
         clientContextManager.onPing(clientId);
-    }
-    
-    private URI getUriFromPath(String path) {
-        URI pathUri;
-        try {
-            pathUri = new URI(path);
-            pathUri = pathUri.normalize();
-        } catch (URISyntaxException e) {
-            logger.error("invalid input path " + path);
-            throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH, 
-                    e, "invalid input path {} ", path);
-        }
-        return pathUri;
     }
     
     private static TBrokerFD parseUUIDToFD(UUID uuid) {
