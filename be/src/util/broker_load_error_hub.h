@@ -69,7 +69,7 @@ public:
 private:
     Status write_to_broker();
 
-    ExecEnv _env;
+    ExecEnv* _env;
     BrokerInfo _info;
 
     // the number in a write batch.
