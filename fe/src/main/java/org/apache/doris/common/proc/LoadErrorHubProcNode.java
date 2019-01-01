@@ -25,14 +25,14 @@ import com.google.common.collect.ImmutableList;
 /**
  * Created by lingbin on 17/4/14.
  */
-public class LoadErrorProcNode implements ProcNodeInterface {
+public class LoadErrorHubProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Type").add("Properties")
             .build();
 
     private Catalog catalog;
 
-    public LoadErrorProcNode(Catalog catalog) {
+    public LoadErrorHubProcNode(Catalog catalog) {
         this.catalog = catalog;
     }
 

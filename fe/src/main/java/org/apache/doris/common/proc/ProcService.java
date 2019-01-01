@@ -42,7 +42,7 @@ public final class ProcService {
         root.register("tasks", new TasksProcDir());
         root.register("frontends", new FrontendsProcNode(Catalog.getInstance()));
         root.register("brokers", Catalog.getInstance().getBrokerMgr().getProcNode());
-        root.register("load_error_hub_url", new LoadErrorProcNode(Catalog.getInstance()));
+        root.register("load_error_hub", new LoadErrorHubProcNode(Catalog.getInstance()));
         root.register("transactions", new TransDbProcDir(Catalog.getInstance()));
         root.register("monitor", new MonitorProcDir());
         root.register("cluster_load_statistic", new ClusterLoadStatisticProcDir());
