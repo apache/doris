@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TLoadErrorHubInfo;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
@@ -128,6 +129,7 @@ public abstract class LoadErrorHub {
                 case BROKER_TYPE:
                     info.setType(TErrorHubType.BROKER);
                     info.setBroker_info(brokerParam.toThrift());
+                    break;
                 case NULL_TYPE:
                     info.setType(TErrorHubType.NULL_TYPE);
                     break;
@@ -154,6 +156,22 @@ public abstract class LoadErrorHub {
             return dppHubInfo;
         }
 
+        public List<String> getInfo() {
+            List<String> info = Lists.newArrayList();
+            info.add(type.name());
+            switch (type) {
+                case MYSQL_TYPE:
+                    info.add(mysqlParam.getBrief());
+                    break;
+                case BROKER_TYPE:
+                    info.add(brokerParam.getBrief());
+                    break;
+                default:
+                    info.add("");
+            }
+            return info;
+        }
+
         @Override
         public void write(DataOutput out) throws IOException {
             Text.writeString(out, type.name());
@@ -163,6 +181,7 @@ public abstract class LoadErrorHub {
                     break;
                 case BROKER_TYPE:
                     brokerParam.write(out);
+                    break;
                 case NULL_TYPE:
                     break;
                 default:

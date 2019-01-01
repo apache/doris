@@ -20,11 +20,12 @@ package org.apache.doris.load;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MysqlUtil;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TMysqlErrorHubInfo;
 
-import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -37,6 +38,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Map;
 
 public class MysqlLoadErrorHub extends LoadErrorHub {
     private static final Logger LOG = LogManager.getLogger(MysqlLoadErrorHub.class);
@@ -74,15 +76,16 @@ public class MysqlLoadErrorHub extends LoadErrorHub {
             this.table = table;
         }
 
-        public String debugString() {
-            return Objects.toStringHelper(this)
-                    .add("host", host)
-                    .add("port", port)
-                    .add("user", user)
-                    .add("passwd", passwd)
-                    .add("db", db)
-                    .add("table", table)
-                    .toString();
+        public String getBrief() {
+            Map<String, String> briefMap = Maps.newHashMap();
+            briefMap.put("host", host);
+            briefMap.put("port", String.valueOf(port));
+            briefMap.put("user", user);
+            briefMap.put("password", passwd);
+            briefMap.put("database", db);
+            briefMap.put("table", table);
+            PrintableMap<String, String> printableMap = new PrintableMap<>(briefMap, "=", true, false, true);
+            return printableMap.toString();
         }
 
         public String getHost() {

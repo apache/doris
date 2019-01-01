@@ -70,7 +70,7 @@ Status BrokerLoadErrorHub::close() {
         RETURN_IF_ERROR(write_to_broker());
     }
 
-    Status st = _broker_writer->close();
+    _broker_writer->close();
     delete _broker_writer;
     _broker_writer = nullptr;
 

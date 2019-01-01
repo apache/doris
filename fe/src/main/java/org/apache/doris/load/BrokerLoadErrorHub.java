@@ -4,6 +4,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TBrokerErrorHubInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 
@@ -74,6 +75,14 @@ public class BrokerLoadErrorHub extends LoadErrorHub {
             TBrokerErrorHubInfo info = new TBrokerErrorHubInfo(new TNetworkAddress(fsBroker.ip, fsBroker.port),
                     path, prop);
             return info;
+        }
+
+        public String getBrief() {
+            Map<String, String> briefMap = Maps.newHashMap(prop);
+            briefMap.put("name", brokerName);
+            briefMap.put("path", path);
+            PrintableMap<String, String> printableMap = new PrintableMap<>(briefMap, "=", true, false, true);
+            return printableMap.toString();
         }
     }
 

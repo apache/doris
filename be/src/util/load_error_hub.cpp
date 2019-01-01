@@ -47,12 +47,17 @@ Status LoadErrorHub::create_hub(
         tmp_hub->prepare();
         hub->reset(tmp_hub);
         break;
-    case TErrorHubType::BROKER:
+    case TErrorHubType::BROKER: {
+        // the origin file name may contains __shard_0/xxx
+        // replace the '/' with '_'
+        std::string copied_name(error_log_file_name);
+        std::replace(copied_name.begin(), copied_name.end(), '/', '_');
         tmp_hub = new BrokerLoadErrorHub(env, t_hub_info->broker_info,
-                error_log_file_name);
+                copied_name);
         tmp_hub->prepare();
         hub->reset(tmp_hub);
         break;
+    }
     case TErrorHubType::NULL_TYPE:
         tmp_hub = new NullLoadErrorHub();
         tmp_hub->prepare();

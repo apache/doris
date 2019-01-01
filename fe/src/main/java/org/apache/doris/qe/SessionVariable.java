@@ -68,6 +68,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String DISABLE_COLOCATE_JOIN = "disable_colocate_join";
     public static final String MT_DOP = "mt_dop";
+    public static final String DISABLE_LOAD_ERROR_HUB = "disable_load_error_hub";
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -177,6 +178,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = DISABLE_COLOCATE_JOIN)
     private boolean disableColocateJoin = false;
+
+    @VariableMgr.VarAttr(name = DISABLE_LOAD_ERROR_HUB)
+    private boolean disableLoadErrorHub = false;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -418,6 +422,14 @@ public class SessionVariable implements Serializable, Writable {
         this.disableColocateJoin = disableColocateJoin;
     }
     
+    public boolean isDisableLoadErrorHub() {
+        return this.disableLoadErrorHub;
+    }
+
+    public void setDisableLoadErrorHub(boolean disableLoadErrorHub) {
+        this.disableLoadErrorHub = disableLoadErrorHub;
+    }
+
    // Serialize to thrift object 
     TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
@@ -471,6 +483,7 @@ public class SessionVariable implements Serializable, Writable {
         out.writeInt(batchSize);
         out.writeBoolean(disableStreamPreaggregations); 
         out.writeInt(mtDop);
+        // TODO(cmy): write disable load error hub later
     }
 
     @Override

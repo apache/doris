@@ -41,7 +41,7 @@ public:
     struct BrokerInfo {
         std::vector<TNetworkAddress> addrs;
         // path should be like:
-        // xxx://yyy/__shard/file_name
+        // xxx://yyy/file_name
         std::string path;
         std::map<std::string, std::string> props;
 

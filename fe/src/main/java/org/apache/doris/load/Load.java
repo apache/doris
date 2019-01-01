@@ -1678,7 +1678,7 @@ public class Load {
             try {
                 port = Integer.valueOf(properties.get("port"));
             } catch (NumberFormatException e) {
-                throw new DdlException("invalid mysql port");
+                throw new DdlException("invalid mysql port: " + properties.get("port"));
             }
             
             String user = properties.get("user");
@@ -1686,7 +1686,7 @@ public class Load {
                 throw new DdlException("mysql user name is missing");
             }
             
-            String db = properties.get("db");
+            String db = properties.get("database");
             if (Strings.isNullOrEmpty(db)) {
                 throw new DdlException("mysql database is missing");
             }
@@ -1701,11 +1701,11 @@ public class Load {
             MysqlLoadErrorHub.MysqlParam param = new MysqlLoadErrorHub.MysqlParam(host, port, user, pwd, db, tbl);
             loadErrorHubParam = LoadErrorHub.Param.createMysqlParam(param);
         } else if (type.equalsIgnoreCase("BROKER")) {
-            String brokerName = properties.get("broker");
+            String brokerName = properties.get("name");
             if (Strings.isNullOrEmpty(brokerName)) {
                 throw new DdlException("broker name is missing");
             }
-            properties.remove("broker");
+            properties.remove("name");
 
             if (!Catalog.getCurrentCatalog().getBrokerMgr().contaisnBroker(brokerName)) {
                 throw new DdlException("broker does not exist: " + brokerName);

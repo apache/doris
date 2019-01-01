@@ -38,6 +38,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TAgentResult;
@@ -189,7 +190,7 @@ public class MiniLoadPendingTask extends LoadPendingTask {
         params.setLoad_job_id(job.getId());
 
         LoadErrorHub.Param param = load.getLoadErrorHubInfo();
-        if (param != null) {
+        if (param != null && !ConnectContext.get().getSessionVariable().isDisableLoadErrorHub()) {
             TLoadErrorHubInfo info = param.toThrift();
             if (info != null) {
                 params.setLoad_error_hub_info(info);

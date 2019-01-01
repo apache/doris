@@ -40,6 +40,7 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.PartitionLoadInfo;
 import org.apache.doris.load.Source;
 import org.apache.doris.load.TableLoadInfo;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Function;
@@ -82,7 +83,8 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
     
             LoadErrorHub.Param info = load.getLoadErrorHubInfo();
             // hadoop load only support mysql load error hub
-            if (info != null && info.getType() == HubType.MYSQL_TYPE) {
+            if (info != null && info.getType() == HubType.MYSQL_TYPE
+                    && !ConnectContext.get().getSessionVariable().isDisableLoadErrorHub()) {
                 taskConf.setHubInfo(new EtlErrorHubInfo(this.job.getId(), info));
             }
     

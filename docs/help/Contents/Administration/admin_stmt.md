@@ -19,13 +19,32 @@
             ALTER SYSTEM DROP BROKER broker_name "host:port"[,"host:port"...];
         8) 删除所有Broker
             ALTER SYSTEM DROP ALL BROKER broker_name
-        
+        9) 这是一个 Load error hub，用于集中展示导入时的错误信息
+            ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES ("key" = "value"[, ...]);
+
     说明：
         1) host 可以使主机名或者ip地址
         2) heartbeat_port 为该节点的心跳端口
         3) 增加和删除节点为同步操作。这两种操作不考虑节点上已有的数据，节点直接从元数据中删除，请谨慎使用。
         4) 节点下线操作用于安全下线节点。该操作为异步操作。如果成功，节点最终会从元数据中删除。如果失败，则不会完成下线。
         5) 可以手动取消节点下线操作。详见 CANCEL ALTER SYSTEM
+        6) Load error hub:
+            当前支持两种类型的 Hub：Mysql 和 Broker。需在 PROPERTIES 中指定 "type" = "mysql" 或 "type" = "broker"。
+            1) 当使用 Mysql 类型时，导入时产生的错误信息将会插入到指定的 mysql 库表中，之后可以通过 show load warnings 语句直接查看错误信息。
+               
+                Mysql 类型的 Hub 需指定以下参数：
+                    host：mysql host
+                    port：mysql port
+                    user：mysql user
+                    password：mysql password
+                    database：mysql database
+                    table：mysql table
+
+            2) 当使用 Broker 类型时，导入时产生的错误信息会形成一个文件，通过 broker，写入到指定的远端存储系统中。须确保已经部署对应的 broker
+                Broker 类型的 Hub 需指定以下参数：
+                    broker: broker 的名称
+                    path: 远端存储路径
+                    other properties: 其他访问远端存储所必须的信息，比如认证信息等。
         
 ## example
 
@@ -43,6 +62,27 @@
 
     5. 增加两个Hdfs Broker
         ALTER SYSTEM ADD BROKER hdfs "host1:port", "host2:port";
+
+    6. 添加一个 Mysql 类型的 load error hub
+        ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES
+        ("type"= "mysql",
+         "host" = "192.168.1.17"
+         "port" = "3306",
+         "user" = "my_name",
+         "password" = "my_passwd",
+         "database" = "doris_load",
+         "table" = "load_errors"
+        );
+
+    7. 添加一个 Broker 类型的 load error hub
+        ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES
+        ("type"= "broker",
+         "name" = "bos",
+         "path" = "bos://backup-cmy/logs",
+         "bos_endpoint" = "http://gz.bcebos.com",
+         "bos_accesskey" = "069fc278xxxxxx24ddb522",
+         "bos_secret_accesskey"="700adb0c6xxxxxx74d59eaa980a"
+        );
         
 ## keyword
     ALTER,SYSTEM,BACKEND,BROKER,FREE

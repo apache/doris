@@ -21,18 +21,13 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.load.LoadErrorHub;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-
-import java.util.List;
 
 /**
  * Created by lingbin on 17/4/14.
  */
 public class LoadErrorProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Protocol").add("Host").add("Port")
-            .add("User") .add("Password")
-            .add("DB").add("Table")
+            .add("Type").add("Properties")
             .build();
 
     private Catalog catalog;
@@ -46,16 +41,8 @@ public class LoadErrorProcNode implements ProcNodeInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
         LoadErrorHub.Param param = catalog.getLoadInstance().getLoadErrorHubInfo();
-        if (param != null && param.getType() == LoadErrorHub.HubType.MYSQL_TYPE) {
-            List<String> info = Lists.newArrayList();
-            info.add(param.getType().toString());
-            info.add(param.getMysqlParam().getHost());
-            info.add(String.valueOf(param.getMysqlParam().getPort()));
-            info.add(param.getMysqlParam().getUser());
-            info.add(param.getMysqlParam().getPasswd());
-            info.add(param.getMysqlParam().getDb());
-            info.add(param.getMysqlParam().getTable());
-            result.addRow(info);
+        if (param != null) {
+            result.addRow(param.getInfo());
         }
 
         return result;

@@ -58,7 +58,7 @@ public class AlterLoadErrorUrlClause extends AlterClause {
             throw new AnalysisException("Load errors hub's type is missing");
         }
 
-        if (!type.equalsIgnoreCase("MYSQL") || !type.equalsIgnoreCase("BROKER")) {
+        if (!type.equalsIgnoreCase("MYSQL") && !type.equalsIgnoreCase("BROKER")) {
             throw new AnalysisException("Load errors hub's type should be MYSQL or BROKER");
         }
     }
