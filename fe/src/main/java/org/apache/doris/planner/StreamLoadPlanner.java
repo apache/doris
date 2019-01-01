@@ -143,7 +143,7 @@ public class StreamLoadPlanner {
 
         boolean enableHub = false;
         if (request.isSetEnable_hub()) {
-            if (request.getEnable_hub().eqauls("true")) {
+            if (request.getEnable_hub().equals("true")) {
                 enableHub = true;
             }
         }
