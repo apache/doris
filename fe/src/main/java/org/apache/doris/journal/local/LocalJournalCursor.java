@@ -349,7 +349,7 @@ public final class LocalJournalCursor implements JournalCursor {
                 ret.setData(fe);
                 break;
             }
-            case OperationType.OP_SET_LOAD_ERROR_URL: {
+            case OperationType.OP_SET_LOAD_ERROR_HUB: {
                 LoadErrorHub.Param param = new LoadErrorHub.Param();
                 param.readFields(in);
                 ret.setData(param);

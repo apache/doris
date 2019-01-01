@@ -1726,6 +1726,8 @@ public class Load {
             
             BrokerLoadErrorHub.BrokerParam param = new BrokerLoadErrorHub.BrokerParam(brokerName, path, properties);
             loadErrorHubParam = LoadErrorHub.Param.createBrokerParam(param);
+        } else if (type.equalsIgnoreCase("null")) {
+            loadErrorHubParam = LoadErrorHub.Param.createNullParam();
         }
         
         Catalog.getInstance().getEditLog().logSetLoadErrorHub(loadErrorHubParam);

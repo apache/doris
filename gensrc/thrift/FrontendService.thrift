@@ -492,6 +492,7 @@ struct TStreamLoadPutRequest {
     14: optional string columnSeparator
 
     15: optional string partitions
+    16: optional string enable_hub
 }
 
 struct TStreamLoadPutResult {

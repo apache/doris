@@ -27,7 +27,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.LoadErrorHub;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TLoadErrorHubInfo;
@@ -142,12 +141,20 @@ public class StreamLoadPlanner {
         queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
         params.setQuery_globals(queryGlobals);
 
-        // set load error hub if exist
-        LoadErrorHub.Param param = Catalog.getCurrentCatalog().getLoadInstance().getLoadErrorHubInfo();
-        if (param != null && !ConnectContext.get().getSessionVariable().isDisableLoadErrorHub()) {
-            TLoadErrorHubInfo info = param.toThrift();
-            if (info != null) {
-                params.setLoad_error_hub_info(info);
+        boolean enableHub = false;
+        if (request.isSetEnable_hub()) {
+            if (request.getEnable_hub().eqauls("true")) {
+                enableHub = true;
+            }
+        }
+        if (enableHub) {
+            // set load error hub if exist
+            LoadErrorHub.Param param = Catalog.getCurrentCatalog().getLoadInstance().getLoadErrorHubInfo();
+            if (param != null) {
+                TLoadErrorHubInfo info = param.toThrift();
+                if (info != null) {
+                    params.setLoad_error_hub_info(info);
+                }
             }
         }
 

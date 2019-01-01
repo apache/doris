@@ -19,7 +19,7 @@
             ALTER SYSTEM DROP BROKER broker_name "host:port"[,"host:port"...];
         8) 删除所有Broker
             ALTER SYSTEM DROP ALL BROKER broker_name
-        9) 这是一个 Load error hub，用于集中展示导入时的错误信息
+        9) 设置一个 Load error hub，用于集中展示导入时的错误信息
             ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES ("key" = "value"[, ...]);
 
     说明：
@@ -30,6 +30,7 @@
         5) 可以手动取消节点下线操作。详见 CANCEL ALTER SYSTEM
         6) Load error hub:
             当前支持两种类型的 Hub：Mysql 和 Broker。需在 PROPERTIES 中指定 "type" = "mysql" 或 "type" = "broker"。
+            如果需要删除当前的 load error hub，可以将 type 设为 null。
             1) 当使用 Mysql 类型时，导入时产生的错误信息将会插入到指定的 mysql 库表中，之后可以通过 show load warnings 语句直接查看错误信息。
                
                 Mysql 类型的 Hub 需指定以下参数：
@@ -83,6 +84,10 @@
          "bos_accesskey" = "069fc278xxxxxx24ddb522",
          "bos_secret_accesskey"="700adb0c6xxxxxx74d59eaa980a"
         );
+
+    8. 删除当前的 load error hub
+        ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES
+        ("type"= "null");
         
 ## keyword
     ALTER,SYSTEM,BACKEND,BROKER,FREE

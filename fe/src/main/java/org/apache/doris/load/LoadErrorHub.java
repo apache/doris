@@ -90,6 +90,12 @@ public abstract class LoadErrorHub {
             return param;
         }
 
+        public static Param createNullParam() {
+            Param param = new Param();
+            param.type = HubType.NULL_TYPE;
+            return param;
+        }
+
         public HubType getType() {
             return type;
         }
