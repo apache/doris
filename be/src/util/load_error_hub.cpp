@@ -17,6 +17,7 @@
 
 #include "util/load_error_hub.h"
 #include "util/mysql_load_error_hub.h"
+#include "util/broker_load_error_hub.h"
 #include "util/null_load_error_hub.h"
 #include <thrift/protocol/TDebugProtocol.h>
 
@@ -27,6 +28,7 @@ namespace doris {
 Status LoadErrorHub::create_hub(
         ExecEnv* env,
         const TLoadErrorHubInfo* t_hub_info,
+        const std::string& error_log_file_name,
         std::unique_ptr<LoadErrorHub>* hub) {
     LoadErrorHub* tmp_hub = nullptr;
 
@@ -46,7 +48,8 @@ Status LoadErrorHub::create_hub(
         hub->reset(tmp_hub);
         break;
     case TErrorHubType::BROKER:
-        tmp_hub = new BrokerLoadErrorHub(env, t_hub_info-->broker_info);
+        tmp_hub = new BrokerLoadErrorHub(env, t_hub_info->broker_info,
+                error_log_file_name);
         tmp_hub->prepare();
         hub->reset(tmp_hub);
         break;

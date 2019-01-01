@@ -22,7 +22,12 @@
 
 namespace doris {
 
-BrokerLoadErrorHub::BrokerLoadErrorHub(const TBrokerErrorHubInfo& info) : _info(info) {
+BrokerLoadErrorHub::BrokerLoadErrorHub(
+        ExecEnv* env,
+        const TBrokerErrorHubInfo& info,
+        const std::string& error_log_file_name) :
+        _env(env),
+        _info(info, error_log_file_name) {
 }
 
 BrokerLoadErrorHub::~BrokerLoadErrorHub() {
@@ -66,12 +71,6 @@ Status BrokerLoadErrorHub::close() {
     }
 
     Status st = _broker_writer->close();
-    if (!st.ok()) {
-        LOG(INFO) << "faild to close broker write in broker load error hub";   
-    }
-    
-    // even if we failed to close writer we still delete it
-    // and set valid to false;
     delete _broker_writer;
     _broker_writer = nullptr;
 
@@ -89,7 +88,7 @@ Status BrokerLoadErrorHub::write_to_broker() {
     
     const std::string& msg = ss.str();
     size_t written_len = 0;
-    RETURN_IF_ERROR(_broker_writer->write(msg.c_str(), msg.length(), &written_len));
+    RETURN_IF_ERROR(_broker_writer->write((uint8_t*) msg.c_str(), msg.length(), &written_len));
     return Status::OK;
 }
 

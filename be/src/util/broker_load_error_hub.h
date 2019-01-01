@@ -30,6 +30,7 @@
 namespace doris {
 
 class BrokerWriter;
+class ExecEnv;
 
 // Broker load error hub will write load error info to the sepcified
 // remote storage via broker.
@@ -39,17 +40,21 @@ class BrokerLoadErrorHub : public LoadErrorHub {
 public:
     struct BrokerInfo {
         std::vector<TNetworkAddress> addrs;
+        // path should be like:
+        // xxx://yyy/__shard/file_name
         std::string path;
         std::map<std::string, std::string> props;
 
-        BrokerInfo(const TBrokerErrorHubInfo& t_info) :
-                path(t_info.path),
-                prop(t_info.prop) {
+        BrokerInfo(const TBrokerErrorHubInfo& t_info,
+                   const std::string& error_log_file_name) :
+                props(t_info.prop) {
+            path = t_info.path + "/" + error_log_file_name;
             addrs.push_back(t_info.broker_addr);
         }
     };
 
-    BrokerLoadErrorHub(ExecEnv* env, const TBrokerErrorHubInfo& info);
+    BrokerLoadErrorHub(ExecEnv* env, const TBrokerErrorHubInfo& info,
+            const std::string& error_log_file_name);
 
     virtual ~BrokerLoadErrorHub();
 
@@ -64,6 +69,7 @@ public:
 private:
     Status write_to_broker();
 
+    ExecEnv _env;
     BrokerInfo _info;
 
     // the number in a write batch.
