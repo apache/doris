@@ -376,7 +376,7 @@ Status RuntimeState::check_query_state() {
 }
 
 const std::string ERROR_FILE_NAME = "error_log";
-const int64_t MAX_ERROR_NUM = 1000;
+const int64_t MAX_ERROR_NUM = 50;
 
 Status RuntimeState::create_load_dir() {
     if (!_load_dir.empty()) {
@@ -456,9 +456,10 @@ void RuntimeState::append_error_msg_to_file(
         }
     }
 
-    (*_error_log_file) << out.str() << std::endl;
-
-    export_load_error(out.str());
+    if (!out.str().empty()) {
+        (*_error_log_file) << out.str() << std::endl;
+        export_load_error(out.str());
+    }
 }
 
 const int64_t HUB_MAX_ERROR_NUM = 10;
@@ -468,7 +469,7 @@ void RuntimeState::export_load_error(const std::string& err_msg) {
         if (_load_error_hub_info == nullptr) {
             return;
         }
-        LoadErrorHub::create_hub(_load_error_hub_info.get(), &_error_hub);
+        LoadErrorHub::create_hub(_exec_env, _load_error_hub_info.get(), &_error_hub);
     }
 
     if (_error_row_number <= HUB_MAX_ERROR_NUM) {

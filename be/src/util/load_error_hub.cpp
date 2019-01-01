@@ -24,8 +24,10 @@
 
 namespace doris {
 
-Status LoadErrorHub::create_hub(const TLoadErrorHubInfo* t_hub_info,
-                                std::unique_ptr<LoadErrorHub>* hub) {
+Status LoadErrorHub::create_hub(
+        ExecEnv* env,
+        const TLoadErrorHubInfo* t_hub_info,
+        std::unique_ptr<LoadErrorHub>* hub) {
     LoadErrorHub* tmp_hub = nullptr;
 
     if (t_hub_info == nullptr) {
@@ -40,6 +42,11 @@ Status LoadErrorHub::create_hub(const TLoadErrorHubInfo* t_hub_info,
     switch (t_hub_info->type) {
     case TErrorHubType::MYSQL:
         tmp_hub = new MysqlLoadErrorHub(t_hub_info->mysql_info);
+        tmp_hub->prepare();
+        hub->reset(tmp_hub);
+        break;
+    case TErrorHubType::BROKER:
+        tmp_hub = new BrokerLoadErrorHub(env, t_hub_info-->broker_info);
         tmp_hub->prepare();
         hub->reset(tmp_hub);
         break;

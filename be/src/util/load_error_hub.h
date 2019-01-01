@@ -24,6 +24,7 @@
 
 namespace doris {
 
+class ExecEnv;
 class TLoadErrorHubInfo;
 
 class LoadErrorHub {
@@ -44,8 +45,10 @@ public:
     virtual ~LoadErrorHub() {
     }
 
-    static Status create_hub(const TLoadErrorHubInfo* t_hub_info,
-                           std::unique_ptr<LoadErrorHub>* hub);
+    static Status create_hub(
+            ExecEnv* env,
+            const TLoadErrorHubInfo* t_hub_info,
+            std::unique_ptr<LoadErrorHub>* hub);
 
     virtual Status prepare() = 0;
 
