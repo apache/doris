@@ -99,20 +99,28 @@ Status EsScanNode::open(RuntimeState* state) {
 
     // TExtOpenParams.predicates
     vector<vector<TExtPredicate> > predicates;
-    vector<int> conjunct_idxes;
+    vector<int> predicate_to_conjunct;
     for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
         VLOG(1) << "conjunct: " << _conjunct_ctxs[i]->root()->debug_string();
         vector<TExtPredicate> disjuncts;
         if (get_disjuncts(_conjunct_ctxs[i], _conjunct_ctxs[i]->root(), disjuncts)) {
-            predicates.push_back(std::move(disjuncts));
-            conjunct_idxes.push_back(i);
+            predicates.emplace_back(std::move(disjuncts));
+            predicate_to_conjunct.push_back(i);
         }
     }
 
     // open every scan range
-    int conjunct_accepted_times[_conjunct_ctxs.size()]; 
+    vector<int> conjunct_accepted_times(_conjunct_ctxs.size(), 0); 
     for (int i = 0; i < _scan_ranges.size(); ++i) {
-        TEsScanRange es_scan_range = _scan_ranges[i];
+        TEsScanRange& es_scan_range = _scan_ranges[i];
+
+        if (es_scan_range.es_hosts.empty()) {
+            std::stringstream ss;
+            ss << "es fail to open: hosts empty";
+            LOG(WARNING) << ss.str();
+            return Status(ss.str());
+        }
+
 
         // TExtOpenParams
         TExtOpenParams params;
@@ -128,66 +136,59 @@ Status EsScanNode::open(RuntimeState* state) {
         params.__set_predicates(predicates);
         TExtOpenResult result;
 
-        // check es host
-        if (es_scan_range.es_hosts.empty()) {
-            std::stringstream ss;
-            ss << "es fail to open: hosts empty";
-            LOG(ERROR) << ss.str();
-            return Status(ss.str());
-        }
-
-        // choose an es node, local is better
-        TNetworkAddress es_host_selected = es_scan_range.es_hosts[0];
-        int selected_idx = 0;
-        for (int j = 0; j < es_scan_range.es_hosts.size(); j++) {
-            TNetworkAddress& es_host = es_scan_range.es_hosts[j];
-            if (es_host.hostname == BackendOptions::get_localhost()) {
-                es_host_selected = es_host;
-                selected_idx = j;
+        // choose an es node, local is the first choice
+        std::string localhost = BackendOptions::get_localhost();
+        bool is_success = false;
+        for (int j = 0; j < 2; ++j) {
+            for (auto& es_host : es_scan_range.es_hosts) {
+                if ((j == 0 && es_host.hostname != localhost)
+                    || (j == 1 && es_host.hostname == localhost)) {
+                    continue;
+                } else {
+                    Status status = open_es(es_host, result, params);
+                    if (status.ok()) {
+                       is_success = true;
+                       _addresses.push_back(es_host);
+                       _scan_handles.push_back(result.scan_handle);
+                       if (result.__isset.accepted_conjuncts) {
+                           for (int index : result.accepted_conjuncts) {
+                               conjunct_accepted_times[predicate_to_conjunct[index]]++;
+                           }
+                       }
+                       VLOG(1) << "es open success: scan_range_idx=" << i
+                               << ", params=" << apache::thrift::ThriftDebugString(params)
+                               << ", result=" << apache::thrift::ThriftDebugString(result);
+                       break;
+                    } else if (status.code() == TStatusCode::ES_SHARD_NOT_FOUND) {
+                        // if shard not found, try other nodes
+                        LOG(WARNING) << "shard not found on es node: "
+                                     << ", address=" << es_host
+                                     << ", scan_range_idx=" << i << ", try other nodes";
+                    } else {
+                        LOG(WARNING) << "es open error: scan_range_idx=" << i
+                                     << ", address=" << es_host
+                                     << ", msg=" << status.get_error_msg();
+                        return status;
+                    }
+                }
+            }
+            if (is_success) {
                 break;
             }
         }
 
-        // if shard not found, try other nodes
-        Status status = open_es(es_host_selected, result, params);
-        if (status.code() == TStatusCode::ES_SHARD_NOT_FOUND) {
-            for (int j = 0; j < es_scan_range.es_hosts.size(); j++) {
-                if (j == selected_idx) continue;
-                es_host_selected = es_scan_range.es_hosts[j];
-                status = open_es(es_host_selected, result, params);
-                if (status.code() == TStatusCode::ES_SHARD_NOT_FOUND) {
-                    continue;
-                } else {
-                    break;
-                }
-            }
+        if (!is_success) {
+            std::stringstream ss;
+            ss << "es open error: scan_range_idx=" << i
+               << ", can't find shard on any node";
+            return Status(ss.str());
         }
+    }
 
-        if (!status.ok()) {
-            LOG(WARNING) << "es open error: scan_range_idx=" << i
-                         << ", address=" << es_host_selected
-                         << ", msg=" << status.get_error_msg();
-            return status;
-        }
-
-        // get accepted_conjuncts
-        if (result.__isset.accepted_conjuncts) {
-            for (int conjunct_index : result.accepted_conjuncts) {
-                conjunct_accepted_times[conjunct_index]++;
-            }
-        }
-
-        _addresses.push_back(es_host_selected);
-        _scan_handles.push_back(result.scan_handle);
-        VLOG(1) << "es open success: scan_range_idx=" << i
-                << ", params=" << apache::thrift::ThriftDebugString(params)
-                << ", result=" << apache::thrift::ThriftDebugString(result);
-        }
-
-    // remove those conjuncts that conjunct_accepted_times[i] == _scan_ranges.size()
-    for (int i = conjunct_idxes.size() - 1; i >= 0; --i) {
-        if (conjunct_accepted_times[i] == _scan_ranges.size()) {
-            _conjunct_ctxs.erase(_conjunct_ctxs.begin() + i);
+    // remove those conjuncts that accepted by all scan ranges
+    for (int conjunct_index : predicate_to_conjunct) {
+        if (conjunct_accepted_times[conjunct_index] == _scan_ranges.size()) {
+            _conjunct_ctxs.erase(_conjunct_ctxs.begin() + conjunct_index);
         }
     }
 
