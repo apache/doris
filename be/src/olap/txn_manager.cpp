@@ -178,12 +178,11 @@ void TxnManager::get_txn_related_tablets(const TTransactionId transaction_id,
     // get tablets in this transaction
     pair<int64_t, int64_t> key(partition_id, transaction_id);
 
-    _txn_map_lock.rdlock();
+    ReadLock rdlock(&_txn_map_lock);
     auto it = _txn_tablet_map.find(key);
     if (it == _txn_tablet_map.end()) {
         OLAP_LOG_WARNING("could not find tablet for [partition_id=%ld transaction_id=%ld]",
                             partition_id, transaction_id);
-        _txn_map_lock.unlock();
         return;
     }
     std::map<TabletInfo, std::pair<PUniqueId, RowsetSharedPtr>> load_info_map = it->second;
@@ -193,10 +192,10 @@ void TxnManager::get_txn_related_tablets(const TTransactionId transaction_id,
         const TabletInfo& tablet_info = load_info.first;
         tablet_infos->push_back(tablet_info);
         if (rowset_infos != NULL) {
-            rowset_infos->push_back(load_info.second);
+            // TODO(ygl) check rowsetptr is null?
+            rowset_infos->push_back(load_info.second.second);
         }
     }
-    _txn_map_lock.unlock();
 }
                                 
 

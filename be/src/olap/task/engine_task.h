@@ -18,7 +18,13 @@
 #ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_TASK_H
 #define DORIS_BE_SRC_OLAP_TASK_ENGINE_TASK_H
 
+#include "agent/status.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
+#include "olap/txn_manager.h"
+#include "util/doris_metrics.h"
 
 namespace doris {
 
@@ -27,10 +33,11 @@ namespace doris {
 class EngineTask {
 
 public:
-    virtual OLAPStatus prepare() { return OLAP_SUCCESS; }
-    virtual OLAPStatus execute() { return OLAP_SUCCESS; }
-    virtual OLAPStatus finish() { return OLAP_SUCCESS; }
-    virtual OLAPStatus clean() { return OLAP_SUCCESS; }
+    // use agent_status not olap_status, because the task is very close to engine
+    virtual AgentStatus prepare() { return DORIS_SUCCESS; }
+    virtual AgentStatus execute() { return DORIS_SUCCESS; }
+    virtual AgentStatus finish() { return DORIS_SUCCESS; }
+    virtual AgentStatus clean() { return DORIS_SUCCESS; }
 }; // EngineTask
 
 } // doris

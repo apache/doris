@@ -23,7 +23,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/agent")
   
 add_library(Agent STATIC
     agent_server.cpp
-    pusher.cpp
     file_downloader.cpp
     heartbeat_server.cpp
     task_worker_pool.cpp

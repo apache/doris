@@ -17,16 +17,18 @@
 
 #include "olap/task/engine_schema_change_task.h"
 
+#include "olap/schema_change.h"
+
 namespace doris {
 
-EngineSchemaChangeTask(const TAlterTabletReq& alter_tablet_request, 
+EngineSchemaChangeTask::EngineSchemaChangeTask(const TAlterTabletReq& alter_tablet_request, 
         int64_t signature):
         _alter_tablet_req(alter_tablet_request),
         _signature(signature) {
 
 }
 
-OLAPStatus EngineSchemaChangeTask::execute() {
+AgentStatus EngineSchemaChangeTask::execute() {
     OLAPStatus status = OLAP_SUCCESS;
     TTabletId base_tablet_id = _alter_tablet_req.base_tablet_id;
     TSchemaHash base_schema_hash = _alter_tablet_req.base_schema_hash;
@@ -80,7 +82,12 @@ OLAPStatus EngineSchemaChangeTask::execute() {
             }
         }
     }
-    return status;
+
+    if (status != OLAP_SUCCESS) {
+        return DORIS_ERROR;
+    } else {
+        return DORIS_SUCCESS;
+    }
 } // execute
 
 OLAPStatus EngineSchemaChangeTask::_create_rollup_tablet(const TAlterTabletReq& request) {
