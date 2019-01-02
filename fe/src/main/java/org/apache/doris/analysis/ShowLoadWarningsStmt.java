@@ -106,8 +106,9 @@ public class ShowLoadWarningsStmt extends ShowStmt {
                 throw new AnalysisException("Error load url is missing");
             }
 
-            if (whereClause != null || limitElement != null) {
-                throw new AnalysisException("Can not set where or limit clause if getting error log from url");
+            if (db != null || whereClause != null || limitElement != null) {
+                throw new AnalysisException(
+                        "Can not set database, where or limit clause if getting error log from url");
             }
 
             // url should like:

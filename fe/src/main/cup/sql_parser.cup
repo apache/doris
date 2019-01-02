@@ -1653,7 +1653,7 @@ show_param ::=
     :}
     | KW_LOAD KW_WARNINGS KW_ON STRING_LITERAL:url
     {:
-        RESULT = new ShowLoadWarningsStmt(db, url, null, null);
+        RESULT = new ShowLoadWarningsStmt(null, url, null, null);
     :}
     /* Show load statement */
     | KW_LOAD opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
