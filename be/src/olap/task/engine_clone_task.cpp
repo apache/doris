@@ -24,7 +24,8 @@ EngineCloneTask(TCloneReq& _clone_req, vector<string>& error_msgs) :
     _error_msgs(error_msgs), 
     _tablet_infos(tablet_infos) {}
 
-OLAPStatus EngineCloneTask::execute() {
+AgentStatus EngineCloneTask::execute() {
+    AgentStatus status = DORIS_SUCCESS;
     string src_file_path;
     TBackend src_host;
     // Check local tablet exist or not
@@ -204,6 +205,7 @@ OLAPStatus EngineCloneTask::execute() {
             _tablet_infos.push_back(tablet_info);
         }
     }
+    return status;
 }
 
 string EngineCloneTask::_get_info_before_incremental_clone(TabletSharedPtr tablet,

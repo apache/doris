@@ -29,7 +29,7 @@ namespace doris {
 class EngineSchemaChangeTask : public EngineTask {
 
 public:
-    virtual OLAPStatus execute();
+    virtual AgentStatus execute();
 
 public:
     EngineSchemaChangeTask(const TAlterTabletReq& alter_tablet_request, int64_t signature);
@@ -58,7 +58,7 @@ private:
     OLAPStatus _schema_change(const TAlterTabletReq& request);
 
 private:
-    TAlterTabletReq& _alter_tablet_req;
+    const TAlterTabletReq& _alter_tablet_req;
     int64_t _signature;
 
 }; // EngineTask

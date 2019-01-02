@@ -24,7 +24,6 @@
 #include "gmock/gmock.h"
 #include "agent/file_downloader.h"
 #include "agent/mock_file_downloader.h"
-#include "agent/mock_pusher.h"
 #include "agent/mock_utils.h"
 #include "agent/mock_task_worker_pool.h"
 #include "agent/task_worker_pool.h"

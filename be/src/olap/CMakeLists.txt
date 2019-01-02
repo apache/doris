@@ -78,4 +78,5 @@ add_library(Olap STATIC
     rowset/alpha_rowset_builder.cpp
     rowset/alpha_rowset_meta.cpp
     task/engine_schema_change_task.cpp
+    task/engine_batch_load_task.cpp
 )
