@@ -92,6 +92,8 @@ import org.apache.doris.load.LoadErrorHub.HubType;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -101,7 +103,12 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.lang.annotation.AnnotationFormatError;
+import java.net.URL;
+import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -656,6 +663,11 @@ public class ShowExecutor {
     private void handleShowLoadWarnings() throws AnalysisException {
         ShowLoadWarningsStmt showWarningsStmt = (ShowLoadWarningsStmt) stmt;
 
+        if (showWarningsStmt.getURL() != null) {
+            handleShowLoadWarningsFromURL(showWarningsStmt, showWarningsStmt.getURL());
+            return;
+        }
+
         Catalog catalog = Catalog.getInstance();
         Database db = catalog.getDb(showWarningsStmt.getDbName());
         if (db == null) {
@@ -730,6 +742,41 @@ public class ShowExecutor {
             rows = rows.subList(0, (int) limit);
         }
 
+        resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
+    }
+
+    private void handleShowLoadWarningsFromURL(ShowLoadWarningsStmt showWarningsStmt, URL url)
+            throws AnalysisException {
+        String host = url.getHost();
+        int port = url.getPort();
+        SystemInfoService infoService = Catalog.getCurrentSystemInfo();
+        Backend be = infoService.getBackendWithHttpPort(host, port);
+        if (be == null) {
+            throw new AnalysisException(host + ":" + port + " is not a valid backend");
+        }
+        if (!be.isAvailable()) {
+            throw new AnalysisException("Backend " + host + ":" + port + " is not available");
+        }
+
+        if (!url.getPath().equals("/api/_load_error_log")) {
+            throw new AnalysisException(
+                    "Invalid error log path: " + url.getPath() + ". path should be: /api/_load_error_log");
+        }
+
+        List<List<String>> rows = Lists.newArrayList();
+        try {
+            URLConnection urlConnection = url.openConnection();
+            InputStream inputStream = urlConnection.getInputStream();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
+            while (reader.ready()) {
+                String line = reader.readLine();
+                rows.add(Lists.newArrayList("-1", "N/A", line));
+            }
+        } catch (Exception e) {
+            LOG.warn("failed to get error load from url: " + url, e);
+            throw new AnalysisException("failed to get error load from url: " + e.getMessage());
+        }
+        
         resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
     }
 

@@ -1649,7 +1649,11 @@ show_param ::=
     // show load warnings
     | KW_LOAD KW_WARNINGS opt_db:db opt_wild_where limit_clause:limitClause
     {:
-        RESULT = new ShowLoadWarningsStmt(db, parser.where, limitClause);
+        RESULT = new ShowLoadWarningsStmt(db, null, parser.where, limitClause);
+    :}
+    | KW_LOAD KW_WARNINGS KW_ON STRING_LITERAL:url
+    {:
+        RESULT = new ShowLoadWarningsStmt(db, url, null, null);
     :}
     /* Show load statement */
     | KW_LOAD opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
