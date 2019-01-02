@@ -24,6 +24,7 @@
 #include <gflags/gflags.h>
 
 #include "common/status.h"
+#include "gen_cpp/olap_file.pb.h"
 #include "olap/data_dir.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/olap_define.h"
@@ -130,13 +131,13 @@ int main(int argc, char** argv) {
         auto rollback_func = [&root_path](long tablet_id,
                 long schema_hash, const std::string& value) -> bool {
             TabletMeta tablet_meta;
-            bool parsed = tablet_meta.ParseFromString(value);
+            bool parsed = tablet_meta.deserialize(value);
             if (!parsed) {
                 std::cout << "parse header failed";
                 return true;
             }
             std::string tablet_id_str = std::to_string(tablet_id);
-            std::string schema_hash_path = root_path + "/data/" + std::to_string(tablet_meta.shard())
+            std::string schema_hash_path = root_path + "/data/" + std::to_string(tablet_meta.shard_id())
                     + "/" + tablet_id_str + "/" + std::to_string(schema_hash);
             std::string header_file_path = schema_hash_path + "/" + tablet_id_str + ".hdr";
             std::cout << "save header to path:" << header_file_path << std::endl;
@@ -157,7 +158,9 @@ int main(int argc, char** argv) {
         std::string json_header;
         json2pb::Pb2JsonOptions json_options;
         json_options.pretty_json = true;
-        json2pb::ProtoMessageToJson(header, &json_header, json_options);
+        TabletMetaPB tablet_meta_pb;
+        header.to_tablet_pb(&tablet_meta_pb);
+        json2pb::ProtoMessageToJson(tablet_meta_pb, &json_header, json_options);
         std::cout << "header:" << std::endl;
         std::cout << json_header << std::endl;
     } else {

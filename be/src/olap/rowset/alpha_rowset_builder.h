@@ -31,12 +31,12 @@ class AlphaRowsetBuilder : public RowsetBuilder {
 public:
     AlphaRowsetBuilder();
 
-    virtual NewStatus init(const RowsetBuilderContext& rowset_builder_context);
+    virtual OLAPStatus init(const RowsetBuilderContext& rowset_builder_context);
 
     // add a row block to rowset
-    virtual NewStatus add_row(RowCursor* row);
+    virtual OLAPStatus add_row(RowCursor* row);
 
-    virtual NewStatus flush();
+    virtual OLAPStatus flush();
 
     // get a rowset
     virtual std::shared_ptr<Rowset> build();

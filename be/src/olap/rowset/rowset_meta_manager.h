@@ -29,18 +29,18 @@ namespace doris {
 // Helper class for managing rowset meta of one root path.
 class RowsetMetaManager {
 public:
-    static NewStatus get_rowset_meta(OlapMeta* meta, int64_t rowset_id, RowsetMeta* rowset_meta);
+    static OLAPStatus get_rowset_meta(OlapMeta* meta, int64_t rowset_id, RowsetMeta* rowset_meta);
 
-    static NewStatus get_json_rowset_meta(OlapMeta* meta, int64_t rowset_id, std::string* json_rowset_meta);
+    static OLAPStatus get_json_rowset_meta(OlapMeta* meta, int64_t rowset_id, std::string* json_rowset_meta);
 
-    static NewStatus save(OlapMeta* meta, int64_t rowset_id, RowsetMeta* rowset_meta);
+    static OLAPStatus save(OlapMeta* meta, int64_t rowset_id, RowsetMeta* rowset_meta);
 
-    static NewStatus remove(OlapMeta* meta, int64_t rowset_id);
+    static OLAPStatus remove(OlapMeta* meta, int64_t rowset_id);
 
-    static NewStatus traverse_rowset_metas(OlapMeta* meta,
+    static OLAPStatus traverse_rowset_metas(OlapMeta* meta,
             std::function<bool(uint64_t, const std::string&)> const& func);
 
-    static NewStatus load_json_rowset_meta(OlapMeta* meta, const std::string& rowset_meta_path);
+    static OLAPStatus load_json_rowset_meta(OlapMeta* meta, const std::string& rowset_meta_path);
 };
 
 }

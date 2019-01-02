@@ -584,16 +584,13 @@ void TaskWorkerPool::_alter_tablet(
         break;
     }
 
-    TTabletId base_tablet_id = alter_tablet_request.base_tablet_id;
-    TSchemaHash base_schema_hash = alter_tablet_request.base_schema_hash;
-
     // Check last schema change status, if failed delete tablet file
     // Do not need to adjust delete success or not
     // Because if delete failed create rollup will failed
     if (status == DORIS_SUCCESS) {
         EngineSchemaChangeTask engine_task(alter_tablet_request, signature);
-        OLAPStatus ret = engine_task.execute();
-        if (ret != OLAP_SUCCESS) {
+        AgentStatus ret = engine_task.execute();
+        if (ret != DORIS_SUCCESS) {
             status = DORIS_ERROR;
         } else {
             status = DORIS_SUCCESS;
