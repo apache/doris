@@ -29,7 +29,7 @@ namespace doris {
 class EngineCloneTask : public EngineTask {
 
 public:
-    virtual OLAPStatus execute();
+    virtual AgentStatus execute();
 
 public:
     EngineCloneTask(TCloneReq& _clone_req, vector<string>& error_msgs, vector<TTabletInfo> tablet_infos);
@@ -54,7 +54,7 @@ private:
     OLAPStatus _clone_full_data(TabletSharedPtr tablet, TabletMeta& clone_header);
 
 private:
-    TCloneReq& _clone_req;
+    const TCloneReq& _clone_req;
     vector<string>& _error_msgs;
     vector<TTabletInfo> _tablet_infos;
 }; // EngineTask

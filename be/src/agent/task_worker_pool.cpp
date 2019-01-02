@@ -31,7 +31,6 @@
 
 #include "boost/filesystem.hpp"
 #include "boost/lexical_cast.hpp"
-#include "agent/pusher.h"
 #include "agent/status.h"
 #include "agent/utils.h"
 #include "gen_cpp/FrontendService.h"
@@ -71,7 +70,6 @@ namespace doris {
 
 const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
 const uint32_t TASK_FINISH_MAX_RETRY = 3;
-const uint32_t PUSH_MAX_RETRY = 1;
 const uint32_t PUBLISH_VERSION_MAX_RETRY = 3;
 const uint32_t REPORT_TASK_WORKER_COUNT = 1;
 const uint32_t REPORT_DISK_STATE_WORKER_COUNT = 1;
@@ -721,49 +719,9 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
         LOG(INFO) << "get push task. signature: " << agent_task_req.signature
                   << " user: " << user << " priority: " << priority;
         vector<TTabletInfo> tablet_infos;
-        if (push_req.push_type == TPushType::LOAD || push_req.push_type == TPushType::LOAD_DELETE) {
-#ifndef BE_TEST
-            Pusher pusher(worker_pool_this->_env->olap_engine(), push_req);
-            status = pusher.init();
-#else
-            status = worker_pool_this->_pusher->init();
-#endif
-
-            if (status == DORIS_SUCCESS) {
-                uint32_t retry_time = 0;
-                while (retry_time < PUSH_MAX_RETRY) {
-#ifndef BE_TEST
-                    status = pusher.process(&tablet_infos);
-#else
-                    status = worker_pool_this->_pusher->process(&tablet_infos);
-#endif
-                    if (status == DORIS_PUSH_HAD_LOADED) {
-                        OLAP_LOG_WARNING("transaction exists when realtime push, "
-                                         "but unfinished, do not report to fe, signature: %ld",
-                                         agent_task_req.signature);
-                        break;  // not retry any more
-                    }
-                    // Internal error, need retry
-                    if (status == DORIS_ERROR) {
-                        OLAP_LOG_WARNING("push internal error, need retry.signature: %ld",
-                                         agent_task_req.signature);
-                        retry_time += 1;
-                    } else {
-                        break;
-                    }
-                }
-            }
-        } else if (push_req.push_type == TPushType::DELETE) {
-            Pusher pusher(worker_pool_this->_env->olap_engine(), push_req);
-            OLAPStatus delete_data_status = pusher.delete_data(push_req, &tablet_infos);
-            if (delete_data_status != OLAPStatus::OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("delete data failed. status: %d, signature: %ld",
-                                 delete_data_status, agent_task_req.signature);
-                status = DORIS_ERROR;
-            }
-        } else {
-            status = DORIS_TASK_REQUEST_ERROR;
-        }
+        
+        EngineBatchLoadTask task(push_req, &tablet_infos, agent_task_req.signature);
+        status = task.execute();
 
 #ifndef BE_TEST
         if (status == DORIS_PUSH_HAD_LOADED) {
@@ -1018,10 +976,7 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
         vector<string> error_msgs;
         vector<TTabletInfo> tablet_infos;
         EngineCloneTask engine_task(clone_req, error_msgs, tablet_infos);
-        OLAPStatus exec_status = engine_task.execute();
-        if (exec_status != OLAP_SUCCESS) {
-            status = DORIS_ERROR;
-        }
+        status = engine_task.execute();
         // Return result to fe
         TStatus task_status;
         TFinishTaskRequest finish_task_request;
@@ -1083,7 +1038,7 @@ void* TaskWorkerPool::_storage_medium_migrate_worker_thread_callback(void* arg_t
         TStatus task_status;
 
         OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
-        res = worker_pool_this->_env->olap_engine()->storage_medium_migrate(
+        res = SnapshotManager::instance()->storage_medium_migrate(
             storage_medium_migrate_req.tablet_id,
             storage_medium_migrate_req.schema_hash,
             storage_medium_migrate_req.storage_medium);
@@ -1137,10 +1092,9 @@ void* TaskWorkerPool::_cancel_delete_data_worker_thread_callback(void* arg_this)
         vector<string> error_msgs;
         TStatus task_status;
 
-        OLAPStatus cancel_delete_data_status = OLAPStatus::OLAP_SUCCESS;
         EngineCancelDeleteTask engine_task(cancel_delete_data_req);
-        cancel_delete_data_status = engine_task.execute();
-        if (cancel_delete_data_status != OLAPStatus::OLAP_SUCCESS) {
+        AgentStatus cancel_delete_data_status = engine_task.execute();
+        if (cancel_delete_data_status != DORIS_SUCCESS) {
             OLAP_LOG_WARNING("cancel delete data failed. statusta: %d, signature: %ld",
                              cancel_delete_data_status, agent_task_req.signature);
             status_code = TStatusCode::RUNTIME_ERROR;
@@ -1192,15 +1146,14 @@ void* TaskWorkerPool::_check_consistency_worker_thread_callback(void* arg_this) 
         vector<string> error_msgs;
         TStatus task_status;
 
-        OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
         uint32_t checksum = 0;
         EngineChecksumTask engine_task(check_consistency_req.tablet_id,
                 check_consistency_req.schema_hash,
                 check_consistency_req.version,
                 check_consistency_req.version_hash,
                 &checksum);
-        res = engine_task.execute();
-        if (res != OLAPStatus::OLAP_SUCCESS) {
+        AgentStatus res = engine_task.execute();
+        if (res != DORIS_SUCCESS) {
             OLAP_LOG_WARNING("check consistency failed. status: %d, signature: %ld",
                              res, agent_task_req.signature);
             status_code = TStatusCode::RUNTIME_ERROR;
