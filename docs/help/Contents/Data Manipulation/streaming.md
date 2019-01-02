@@ -59,6 +59,11 @@
         ErrorURL: 被过滤数据的具体内容，仅保留前1000条
         
     ERRORS
+        可以通过以下语句查看导入错误详细信息：
+
+        SHOW LOAD WARNINGS ON 'url'
+
+        其中 url 为 ErrorURL 给出的 url。
     
 ## example
 
