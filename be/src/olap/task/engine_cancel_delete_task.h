@@ -29,7 +29,7 @@ namespace doris {
 class EngineCancelDeleteTask : public EngineTask {
 
 public:
-    virtual OLAPStatus execute();
+    virtual AgentStatus execute();
 
 public:
     EngineCancelDeleteTask(const TCancelDeleteDataReq& request);
@@ -39,7 +39,7 @@ private:
     OLAPStatus _cancel_delete(const TCancelDeleteDataReq& request);
 
 private:
-    TCancelDeleteDataReq& _request;
+    const TCancelDeleteDataReq& _request;
 
 }; // EngineTask
 

@@ -22,7 +22,6 @@
 #include "gmock/gmock.h"
 #include "agent/mock_file_downloader.h"
 #include "agent/mock_utils.h"
-#include "agent/pusher.h"
 #include "olap/mock_command_executor.h"
 #include "olap/olap_define.h"
 #include "olap/tablet.h"

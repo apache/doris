@@ -29,8 +29,13 @@ EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash,
 
 }
 
-OLAPStatus EngineChecksumTask::execute() {
-    return _compute_checksum();
+AgentStatus EngineChecksumTask::execute() {
+    OLAPStatus res = _compute_checksum();
+    if (res != OLAP_SUCCESS) {
+        return DORIS_ERROR;
+    } else {
+        return DORIS_SUCCESS;
+    }
 } // execute
 
 
