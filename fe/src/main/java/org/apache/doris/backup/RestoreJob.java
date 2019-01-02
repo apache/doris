@@ -615,9 +615,9 @@ public class RestoreJob extends AbstractJob {
                     int schemaHash = localTbl.getSchemaHashByIndexId(restoredIdx.getId());
                     KeysType keysType = localTbl.getKeysType();
                     List<Column> columns = localTbl.getSchemaByIndexId(restoredIdx.getId());
+                    TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
+                            restoredIdx.getId(), schemaHash);
                     for (Tablet restoreTablet : restoredIdx.getTablets()) {
-                        TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(),
-                                restorePart.getId(), restoredIdx.getId(), schemaHash);
                         Catalog.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                         for (Replica restoreReplica : restoreTablet.getReplicas()) {
                             Catalog.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
@@ -650,9 +650,9 @@ public class RestoreJob extends AbstractJob {
                         int schemaHash = restoreTbl.getSchemaHashByIndexId(index.getId());
                         KeysType keysType = restoreTbl.getKeysType();
                         List<Column> columns = restoreTbl.getSchemaByIndexId(index.getId());
+                        TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(), restorePart.getId(),
+                                index.getId(), schemaHash);
                         for (Tablet tablet : index.getTablets()) {
-                            TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(),
-                                    restorePart.getId(), index.getId(), schemaHash);
                             Catalog.getCurrentInvertedIndex().addTablet(tablet.getId(), tabletMeta);
                             for (Replica replica : tablet.getReplicas()) {
                                 Catalog.getCurrentInvertedIndex().addReplica(tablet.getId(), replica);
@@ -926,9 +926,9 @@ public class RestoreJob extends AbstractJob {
                 // modify tablet inverted index
                 for (MaterializedIndex restoreIdx : restorePart.getMaterializedIndices()) {
                     int schemaHash = localTbl.getSchemaHashByIndexId(restoreIdx.getId());
+                    TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
+                            restoreIdx.getId(), schemaHash);
                     for (Tablet restoreTablet : restoreIdx.getTablets()) {
-                        TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(),
-                                restorePart.getId(), restoreIdx.getId(), schemaHash);
                         Catalog.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                         for (Replica restoreReplica : restoreTablet.getReplicas()) {
                             Catalog.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
@@ -944,9 +944,9 @@ public class RestoreJob extends AbstractJob {
                 for (Partition restorePart : restoreTbl.getPartitions()) {
                     for (MaterializedIndex restoreIdx : restorePart.getMaterializedIndices()) {
                         int schemaHash = restoreTbl.getSchemaHashByIndexId(restoreIdx.getId());
+                        TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(), restorePart.getId(),
+                                restoreIdx.getId(), schemaHash);
                         for (Tablet restoreTablet : restoreIdx.getTablets()) {
-                            TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(),
-                                    restorePart.getId(), restoreIdx.getId(), schemaHash);
                             Catalog.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                             for (Replica restoreReplica : restoreTablet.getReplicas()) {
                                 Catalog.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
