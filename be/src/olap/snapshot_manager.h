@@ -59,9 +59,8 @@ public:
     OLAPStatus release_snapshot(const std::string& snapshot_path);
 
     OLAPStatus storage_medium_migrate(
-            TTabletId tablet_id,
-            TSchemaHash schema_hash,
-            TStorageMedium::type storage_medium);
+                TTabletId tablet_id, TSchemaHash schema_hash,
+                TStorageMedium::type storage_medium);
                 
     static SnapshotManager* instance();
 
