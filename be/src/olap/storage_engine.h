@@ -152,12 +152,6 @@ public:
         return _store_map.size();
     }
 
-    // @brief 迁移数据，从一种存储介质到另一种存储介质
-    OLAPStatus storage_medium_migrate(
-            TTabletId tablet_id,
-            TSchemaHash schema_hash,
-            TStorageMedium::type storage_medium);
-
     void start_delete_unused_index();
 
     void add_unused_index(SegmentGroup* olap_index);

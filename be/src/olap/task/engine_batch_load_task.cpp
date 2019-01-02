@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "agent/pusher.h"
+#include "olap/task/engine_batch_load_task.h"
 #include <pthread.h>
 #include <cstdio>
 #include <ctime>
@@ -44,15 +44,54 @@ using std::vector;
 namespace doris {
 
     
-Pusher::Pusher(StorageEngine* engine, const TPushReq& push_req) :
-        _push_req(push_req), _engine(engine) {
+EngineBatchLoadTask::EngineBatchLoadTask(const TPushReq& push_req, 
+    std::vector<TTabletInfo>* tablet_infos, 
+    int64_t signature) :
+        _push_req(push_req), _tablet_infos(tablet_infos), _signature(signature) {
     _download_status = DORIS_SUCCESS;
 }
 
-Pusher::~Pusher() {
+EngineBatchLoadTask::~EngineBatchLoadTask() {
 }
 
-AgentStatus Pusher::init() {
+AgentStatus EngineBatchLoadTask::execute() {
+    AgentStatus status = DORIS_SUCCESS;
+    if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_DELETE) {
+        status = _init();
+        if (status == DORIS_SUCCESS) {
+            uint32_t retry_time = 0;
+            while (retry_time < PUSH_MAX_RETRY) {
+                status = _process();
+
+                if (status == DORIS_PUSH_HAD_LOADED) {
+                    OLAP_LOG_WARNING("transaction exists when realtime push, "
+                                        "but unfinished, do not report to fe, signature: %ld",
+                                        _signature);
+                    break;  // not retry any more
+                }
+                // Internal error, need retry
+                if (status == DORIS_ERROR) {
+                    OLAP_LOG_WARNING("push internal error, need retry.signature: %ld",
+                                        _signature);
+                    retry_time += 1;
+                } else {
+                    break;
+                }
+            }
+        }
+    } else if (_push_req.push_type == TPushType::DELETE) {
+        OLAPStatus delete_data_status = _delete_data(_push_req, _tablet_infos);
+        if (delete_data_status != OLAPStatus::OLAP_SUCCESS) {
+            OLAP_LOG_WARNING("delete data failed. status: %d, signature: %ld",
+                                delete_data_status, _signature);
+            status = DORIS_ERROR;
+        }
+    } else {
+        status = DORIS_TASK_REQUEST_ERROR;
+    }
+}
+
+AgentStatus EngineBatchLoadTask::_init() {
     AgentStatus status = DORIS_SUCCESS;
 
     if (_is_init) {
@@ -111,7 +150,7 @@ AgentStatus Pusher::init() {
 }
 
 // Get replica root path
-AgentStatus Pusher::_get_tmp_file_dir(const string& root_path, string* download_path) {
+AgentStatus EngineBatchLoadTask::_get_tmp_file_dir(const string& root_path, string* download_path) {
     AgentStatus status = DORIS_SUCCESS;
     *download_path = root_path + DPP_PREFIX;
 
@@ -133,7 +172,7 @@ AgentStatus Pusher::_get_tmp_file_dir(const string& root_path, string* download_
     return status;
 }
 
-AgentStatus Pusher::_download_file() {
+AgentStatus EngineBatchLoadTask::_download_file() {
     LOG(INFO) << "begin download file. tablet_id=" << _push_req.tablet_id;
     time_t start = time(NULL);
     AgentStatus status = DORIS_SUCCESS;
@@ -165,13 +204,13 @@ AgentStatus Pusher::_download_file() {
     return status;
 }
 
-void Pusher::_get_file_name_from_path(const string& file_path, string* file_name) {
+void EngineBatchLoadTask::_get_file_name_from_path(const string& file_path, string* file_name) {
     size_t found = file_path.find_last_of("/\\");
     pthread_t tid = pthread_self();
     *file_name = file_path.substr(found + 1) + "_" + boost::lexical_cast<string>(tid);
 }
 
-AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
+AgentStatus EngineBatchLoadTask::_process() {
     AgentStatus status = DORIS_SUCCESS;
 
     if (!_is_init) {
@@ -256,7 +295,7 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
     if (status == DORIS_SUCCESS) {
         // Load delta file
         time_t push_begin = time(NULL);
-        OLAPStatus push_status = _push(_push_req, tablet_infos);
+        OLAPStatus push_status = _push(_push_req, _tablet_infos);
         time_t push_finish = time(NULL);
         LOG(INFO) << "Push finish, cost time: " << (push_finish - push_begin);
         if (push_status == OLAPStatus::OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
@@ -278,7 +317,7 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
     return status;
 }
 
-OLAPStatus Pusher::_push(const TPushReq& request,
+OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
                         vector<TTabletInfo>* tablet_info_vec) {
     OLAPStatus res = OLAP_SUCCESS;
     LOG(INFO) << "begin to process push. tablet_id=" << request.tablet_id
@@ -334,7 +373,7 @@ OLAPStatus Pusher::_push(const TPushReq& request,
 }
 
 
-OLAPStatus Pusher::delete_data(
+OLAPStatus EngineBatchLoadTask::_delete_data(
         const TPushReq& request,
         vector<TTabletInfo>* tablet_info_vec) {
     LOG(INFO) << "begin to process delete data. request=" << ThriftDebugString(request);

@@ -126,11 +126,11 @@ void ChecksumAction::handle(HttpRequest *req) {
 int64_t ChecksumAction::do_checksum(int64_t tablet_id, int64_t version, int64_t version_hash,
         int32_t schema_hash, HttpRequest *req) {
 
-    OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
+    AgentStatus res = DORIS_SUCCESS;
     uint32_t checksum;
     EngineChecksumTask engine_task(tablet_id, schema_hash, version, version_hash, &checksum);
     res = engine_task.execute();
-    if (res != OLAPStatus::OLAP_SUCCESS) {
+    if (res != DORIS_SUCCESS) {
         LOG(WARNING) << "checksum failed. status: " << res
                      << ", signature: " << tablet_id;
         return -1L;
