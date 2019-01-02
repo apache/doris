@@ -93,6 +93,7 @@ std::shared_ptr<Rowset> AlphaRowsetBuilder::build() {
 void AlphaRowsetBuilder::_init() {
     _segment_group_id++;
     _cur_segment_group = new SegmentGroup(_rowset_builder_context.tablet_id,
+            _rowset_builder_context.rowset_id,
             _rowset_builder_context.tablet_schema,
             _rowset_builder_context.num_key_fields,
             _rowset_builder_context.num_short_key_fields,

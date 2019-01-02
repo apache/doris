@@ -72,10 +72,7 @@ add_library(Olap STATIC
     types.cpp 
     utils.cpp
     wrapper_field.cpp
-    rowset/rowset_meta_manager.cpp
-    rowset/alpha_rowset.cpp
-    rowset/alpha_rowset_reader.cpp
-    rowset/alpha_rowset_builder.cpp
-    rowset/alpha_rowset_meta.cpp
     task/engine_schema_change_task.cpp
 )
+
+add_subdirectory(rowset)

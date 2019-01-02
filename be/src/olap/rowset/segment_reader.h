@@ -54,7 +54,6 @@ public:
             const std::vector<uint32_t>& used_columns,
             const std::set<uint32_t>& load_bf_columns,
             const Conditions* conditions,
-            const std::vector<ColumnPredicate*>* col_predicates,
             const DeleteHandler& delete_handler,
             const DelCondSatisfied delete_status,
             RuntimeState* runtime_state,
@@ -289,11 +288,24 @@ private:
     std::string _file_name;                // 文件名
     SegmentGroup* _segment_group;
     uint32_t _segment_id;
+    // columns that can be used by client. when client seek to range's start or end,
+    // client may read more columns than normal read.
+    // For example: 
+    //  table1's schema is 'k1, k2, v1'. which k1, k2 is key column, v1 is value column.
+    //  for query 'select sum(v1) from table1', client split all data to sub-range in logical,
+    //  so, one sub-range need to seek to right position with k1 and k2; then only read v1.
+    //  In this situation, _used_columns contains (k1, k2, v1)
+    std::vector<uint32_t> _used_columns;
+    UniqueIdSet _load_bf_columns;
+    const Conditions* _conditions;         // 列过滤条件
     doris::FileHandler _file_handler;             // 文件handler
 
-    const Conditions* _conditions;         // 列过滤条件
+    
     DeleteHandler _delete_handler;
     DelCondSatisfied _delete_status;
+    RuntimeState* _runtime_state;  // 用于统计内存消耗等运行时信息
+    OlapReaderStatistics* _stats;
+    Cache* _lru_cache;
 
     bool _eof;                             // eof标志
 
@@ -313,19 +325,10 @@ private:
     bool _null_supported;
     uint64_t _header_length;           // Header(FixHeader+PB)大小，读数据时需要偏移
 
-    // columns that can be used by client. when client seek to range's start or end,
-    // client may read more columns than normal read.
-    // For example: 
-    //  table1's schema is 'k1, k2, v1'. which k1, k2 is key column, v1 is value column.
-    //  for query 'select sum(v1) from table1', client split all data to sub-range in logical,
-    //  so, one sub-range need to seek to right position with k1 and k2; then only read v1.
-    //  In this situation, _used_columns contains (k1, k2, v1)
-    std::vector<uint32_t> _used_columns;
     std::vector<ColumnReader*> _column_readers;    // 实际的数据读取器
     std::vector<StreamIndexReader*> _column_indices; // 保存column的index
 
     UniqueIdSet _include_columns;           // 用于判断该列是不是被包含
-    UniqueIdSet _load_bf_columns;
     UniqueIdSet _include_bf_columns;
     UniqueIdToColumnIdMap _tablet_id_to_unique_id_map; // tablet id到unique id的映射
     UniqueIdToColumnIdMap _unique_id_to_tablet_id_map; // unique id到tablet id的映射
@@ -354,20 +357,16 @@ private:
     bool _is_data_loaded;
     size_t _buffer_size;
 
-    Cache* _lru_cache;
     std::vector<Cache::Handle*> _cache_handle;
     const FileHeader<ColumnDataHeaderMessage>* _file_header;
 
     std::unique_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _mem_pool;
 
-    RuntimeState* _runtime_state;  // 用于统计内存消耗等运行时信息
     StorageByteBuffer* _shared_buffer;
 
     // Set when seek_to_block is called, valid until next seek_to_block is called.
     bool _without_filter = false;
-
-    OlapReaderStatistics* _stats;
 
     DISALLOW_COPY_AND_ASSIGN(SegmentReader);
 };
