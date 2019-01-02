@@ -1027,7 +1027,7 @@ void* TaskWorkerPool::_storage_medium_migrate_worker_thread_callback(void* arg_t
         TStatus task_status;
 
         OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
-        res = worker_pool_this->_env->olap_engine()->storage_medium_migrate(
+        res = SnapshotManager::instance()->storage_medium_migrate(
             storage_medium_migrate_req.tablet_id,
             storage_medium_migrate_req.schema_hash,
             storage_medium_migrate_req.storage_medium);
