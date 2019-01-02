@@ -51,7 +51,6 @@ private:
 
     Status check_token(HttpRequest *req);
     Status check_path_is_allowed(const std::string& path);
-    Status check_log_path_is_allowed(const std::string& file_path);
 
     void handle_normal(HttpRequest *req, const std::string& file_param);
     void handle_error_log(

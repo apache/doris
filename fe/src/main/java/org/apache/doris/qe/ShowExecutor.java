@@ -773,8 +773,9 @@ public class ShowExecutor {
                 rows.add(Lists.newArrayList("-1", "N/A", line));
             }
         } catch (Exception e) {
-            LOG.warn("failed to get error load from url: " + url, e);
-            throw new AnalysisException("failed to get error load from url: " + e.getMessage());
+            LOG.warn("failed to get error log from url: " + url, e);
+            throw new AnalysisException(
+                    "failed to get error log from url: " + url + ". reason: " + e.getMessage());
         }
         
         resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
