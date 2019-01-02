@@ -141,20 +141,12 @@ public class StreamLoadPlanner {
         queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
         params.setQuery_globals(queryGlobals);
 
-        boolean enableHub = false;
-        if (request.isSetEnable_hub()) {
-            if (request.getEnable_hub().equals("true")) {
-                enableHub = true;
-            }
-        }
-        if (enableHub) {
-            // set load error hub if exist
-            LoadErrorHub.Param param = Catalog.getCurrentCatalog().getLoadInstance().getLoadErrorHubInfo();
-            if (param != null) {
-                TLoadErrorHubInfo info = param.toThrift();
-                if (info != null) {
-                    params.setLoad_error_hub_info(info);
-                }
+        // set load error hub if exist
+        LoadErrorHub.Param param = Catalog.getCurrentCatalog().getLoadInstance().getLoadErrorHubInfo();
+        if (param != null) {
+            TLoadErrorHubInfo info = param.toThrift();
+            if (info != null) {
+                params.setLoad_error_hub_info(info);
             }
         }
 

@@ -767,10 +767,13 @@ public class ShowExecutor {
         try {
             URLConnection urlConnection = url.openConnection();
             InputStream inputStream = urlConnection.getInputStream();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
-            while (reader.ready()) {
-                String line = reader.readLine();
-                rows.add(Lists.newArrayList("-1", "N/A", line));
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
+                int limit = 100;
+                while (reader.ready() && limit > 0) {
+                    String line = reader.readLine();
+                    rows.add(Lists.newArrayList("-1", "N/A", line));
+                    limit--;
+                }
             }
         } catch (Exception e) {
             LOG.warn("failed to get error log from url: " + url, e);

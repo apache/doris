@@ -40,9 +40,6 @@
         partitions: 用于指定这次导入所设计的partition。如果用户能够确定数据对应的partition，推荐指定该项。不满足这些分区的数据将被过滤掉。
         比如指定导入到p1, p2分区，-H "partitions: p1, p2"
 
-        enlable_hub: 如果设置了 load error hub，这里可以指定是否使用 hub。默认为 false，即不使用。
-        如：-H "enable_hub: true" 或 -H "enable_hub: false"
-
     RETURN VALUES
         导入完成后，会以Json格式返回这次导入的相关内容。当前包括一下字段
         Status: 导入最后的状态。

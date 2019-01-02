@@ -294,7 +294,7 @@ public class FileSystemManager {
                     }
                 }
 
-                FileSystem dfsFileSystem = FileSystem.get(new WildcardURI(path).getUri(), conf);
+                FileSystem dfsFileSystem = FileSystem.get(pathUri.getUri(), conf);
                 fileSystem.setFileSystem(dfsFileSystem);
             }
             return fileSystem;
