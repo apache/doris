@@ -58,16 +58,17 @@ struct ReaderContext {
 
 class RowsetReader {
 public:
+    static RowsetReader* create();
     virtual ~RowsetReader() { }
 
     // reader init
-    virtual NewStatus init(ReaderContext* read_context) = 0;
+    virtual OLAPStatus init(ReaderContext* read_context) = 0;
 
     // check whether rowset has more data
     virtual bool has_next() = 0;
 
     // read next block data
-    virtual NewStatus next(RowCursor* row) = 0;
+    virtual OLAPStatus next(RowCursor* row) = 0;
 
     // close reader
     virtual void close() = 0;

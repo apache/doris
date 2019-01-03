@@ -51,7 +51,7 @@ void AlphaRowsetMeta::add_pending_segment_group(const PendingSegmentGroupPB& pen
         if (present_segment_group.pending_segment_group_id() ==
                 pending_segment_group.pending_segment_group_id()) {
             LOG(WARNING) << "pending segment_group already exists in meta."
-                        << "rowset_id:" << get_rowset_id()
+                        << "rowset_id:" << rowset_id()
                         << ", pending_segment_group_id: " << pending_segment_group.pending_segment_group_id();
             return;
         }

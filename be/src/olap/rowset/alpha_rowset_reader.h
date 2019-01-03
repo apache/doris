@@ -35,29 +35,29 @@ public:
         RowsetMeta* rowset_meta, std::vector<std::shared_ptr<SegmentGroup>> segment_groups);
 
     // reader init
-    virtual NewStatus init(ReaderContext* read_context);
+    virtual OLAPStatus init(ReaderContext* read_context);
 
     // check whether rowset has more data
     virtual bool has_next();
 
     // read next block data
-    virtual NewStatus next(RowCursor* row);
+    virtual OLAPStatus next(RowCursor* row);
 
     // close reader
     virtual void close();
 
 private:
-    NewStatus _init_segment_groups(ReaderContext* read_context);
+    OLAPStatus _init_segment_groups(ReaderContext* read_context);
 
-    NewStatus _init_column_datas(ReaderContext* read_context);
+    OLAPStatus _init_column_datas(ReaderContext* read_context);
 
-    NewStatus _get_next_row_for_singleton_rowset(RowCursor* row);
+    OLAPStatus _get_next_row_for_singleton_rowset(RowCursor* row);
 
-    NewStatus _get_next_row_for_cumulative_rowset(RowCursor* row);
+    OLAPStatus _get_next_row_for_cumulative_rowset(RowCursor* row);
 
-    NewStatus _get_next_block(ColumnData* column_data, RowBlock* row_block);
+    OLAPStatus _get_next_block(ColumnData* column_data, RowBlock* row_block);
 
-    NewStatus _refresh_next_block(ColumnData* column_datam, RowBlock* row_block);
+    OLAPStatus _refresh_next_block(ColumnData* column_datam, RowBlock* row_block);
 
 private:
     RowFields _tablet_schema;

@@ -36,20 +36,20 @@ public:
         int num_rows_per_row_block, const std::string rowset_path,
         RowsetMetaSharedPtr rowset_meta);
 
-    virtual NewStatus init();
+    virtual OLAPStatus init();
 
     virtual std::unique_ptr<RowsetReader> create_reader();
 
-    virtual NewStatus copy(RowsetBuilder* dest_rowset_builder);
+    virtual OLAPStatus copy(RowsetBuilder* dest_rowset_builder);
 
-    virtual NewStatus remove();
+    virtual OLAPStatus remove();
 
     virtual RowsetMetaSharedPtr get_meta();
 
     virtual void set_version(Version version);
 
 private:
-    NewStatus _init_segment_groups();
+    OLAPStatus _init_segment_groups();
 
 private:
     RowFields _tablet_schema;

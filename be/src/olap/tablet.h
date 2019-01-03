@@ -177,7 +177,7 @@ public:
     void set_schema_change_request(int64_t tablet_id,
                                    int64_t schema_hash,
                                    const std::vector<Version>& versions_to_changed,
-                                   const AlterTabletType alter_table_type);
+                                   const AlterTabletType alter_type);
     bool remove_last_schema_change_version(TabletSharedPtr new_olap_table);
     void clear_schema_change_request();
     SchemaChangeStatus schema_change_status();
@@ -195,17 +195,20 @@ public:
     VersionEntity get_version_entity_by_version(const Version& version);
     size_t get_version_index_size(const Version& version);
     size_t get_version_data_size(const Version& version);
-    OLAPStatus recover_tablet_until_specfic_version(const int64_t& until_version,
+    OLAPStatus recover_tablet_until_specfic_version(const int64_t& spec_version,
                                                     const int64_t& version_hash);
     const std::string& rowset_path_prefix();
     void set_id(int64_t id);
     OLAPStatus register_tablet_into_dir();
+    void list_entities(vector<VersionEntity>* entities) const;
+
 
 
 
     OLAPStatus init_once();
     OLAPStatus capture_consistent_rowsets(const Version& spec_version,
                                           vector<std::shared_ptr<RowsetReader>>* rs_readers);
+    OLAPStatus capture_consistent_versions(const Version& version, vector<Version>* span_versions) const;
     void acquire_rs_reader_by_version(const vector<Version>& version_vec,
                                       vector<std::shared_ptr<RowsetReader>>* rs_readers) const;
     OLAPStatus release_rs_readers(vector<std::shared_ptr<RowsetReader>>* rs_readers) const;
@@ -251,7 +254,7 @@ public:
     RowsetSharedPtr get_inc_rowset(const Version& version) const;
     OLAPStatus delete_inc_rowset_by_version(const Version& version);
     OLAPStatus delete_expired_inc_rowset();
-    OLAPStatus is_deletion_rowset(const Version& version) const;
+    bool is_deletion_rowset(const Version& version);
 
     OLAPStatus create_snapshot();
 

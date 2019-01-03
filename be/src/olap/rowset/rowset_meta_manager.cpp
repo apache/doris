@@ -33,65 +33,65 @@ namespace doris {
 
 const std::string ROWSET_PREFIX = "rst_";
 
-NewStatus convert_meta_status(OLAPStatus status) {
+OLAPStatus convert_meta_status(OLAPStatus status) {
     if (status == OLAP_SUCCESS) {
-        return NewStatus::OK();
+        return OLAP_SUCCESS;
     } else {
         std::string error_msg = "meta operation failed";
         LOG(WARNING) << error_msg;
-        return NewStatus::IOError(error_msg);
+        return OLAP_ERR_IO_ERROR; 
     }
 }
 
-NewStatus RowsetMetaManager::get_rowset_meta(OlapMeta* meta, int64_t rowset_id, RowsetMeta* rowset_meta) {
+OLAPStatus RowsetMetaManager::get_rowset_meta(OlapMeta* meta, int64_t rowset_id, RowsetMeta* rowset_meta) {
     std::string key = ROWSET_PREFIX + std::to_string(rowset_id);
     std::string value;
     OLAPStatus s = meta->get(META_COLUMN_FAMILY_INDEX, key, value);
     if (s == OLAP_ERR_META_KEY_NOT_FOUND) {
         std::string error_msg = "rowset id:" + std::to_string(rowset_id) + " not found.";
         LOG(WARNING) << error_msg;
-        return NewStatus::NotFound(error_msg);
+        return OLAP_ERR_META_KEY_NOT_FOUND; 
     } else if (s != OLAP_SUCCESS) {
         std::string error_msg = "load rowset id:" + std::to_string(rowset_id) + " failed.";
         LOG(WARNING) << error_msg;
-        return NewStatus::IOError(error_msg);
+        return OLAP_ERR_IO_ERROR; 
     }
     bool ret = rowset_meta->init(value);
     if (!ret) {
         std::string error_msg = "parse rowset meta failed. rowset id:" + std::to_string(rowset_id);
-        return NewStatus::Corruption(error_msg);
+        return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR; 
     }
-    return NewStatus::OK();
+    return OLAP_SUCCESS;
 }
 
-NewStatus RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, int64_t rowset_id, std::string* json_rowset_meta) {
+OLAPStatus RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, int64_t rowset_id, std::string* json_rowset_meta) {
     RowsetMeta rowset_meta;
-    NewStatus s = get_rowset_meta(meta, rowset_id, &rowset_meta);
-    if (!s.ok()) {
-        return s;
+    OLAPStatus status = get_rowset_meta(meta, rowset_id, &rowset_meta);
+    if (status != OLAP_SUCCESS) {
+        return status;
     }
     bool ret = rowset_meta.get_json_rowset_meta(json_rowset_meta);
     if (!ret) {
         std::string error_msg = "get json rowset meta failed. rowset id:" + std::to_string(rowset_id);
-        return NewStatus::Corruption(error_msg);
+        return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR; 
     }
-    return NewStatus::OK();
+    return OLAP_SUCCESS;
 }
 
-NewStatus RowsetMetaManager::save(OlapMeta* meta, int64_t rowset_id, RowsetMeta* rowset_meta) {
+OLAPStatus RowsetMetaManager::save(OlapMeta* meta, int64_t rowset_id, RowsetMeta* rowset_meta) {
     std::string key = ROWSET_PREFIX + std::to_string(rowset_id);
     std::string value;
     bool ret = rowset_meta->serialize(&value);
     if (!ret) {
         std::string error_msg = "serialize rowset pb failed. rowset id:" + std::to_string(rowset_id);
         LOG(WARNING) << error_msg;
-        return NewStatus::Corruption(error_msg);
+        return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR;
     }
     OLAPStatus status = meta->put(META_COLUMN_FAMILY_INDEX, key, value);
     return convert_meta_status(status);
 }
 
-NewStatus RowsetMetaManager::remove(OlapMeta* meta, int64_t rowset_id) {
+OLAPStatus RowsetMetaManager::remove(OlapMeta* meta, int64_t rowset_id) {
     std::string key = ROWSET_PREFIX + std::to_string(rowset_id);
     LOG(INFO) << "start to remove rowset, key:" << key;
     OLAPStatus status = meta->remove(META_COLUMN_FAMILY_INDEX, key);
@@ -99,7 +99,7 @@ NewStatus RowsetMetaManager::remove(OlapMeta* meta, int64_t rowset_id) {
     return convert_meta_status(status);
 }
 
-NewStatus RowsetMetaManager::traverse_rowset_metas(OlapMeta* meta,
+OLAPStatus RowsetMetaManager::traverse_rowset_metas(OlapMeta* meta,
             std::function<bool(uint64_t, const std::string&)> const& func) {
     auto traverse_rowset_meta_func = [&func](const std::string& key, const std::string& value) -> bool {
         std::vector<std::string> parts;
@@ -116,7 +116,7 @@ NewStatus RowsetMetaManager::traverse_rowset_metas(OlapMeta* meta,
     return convert_meta_status(status);
 }
 
-NewStatus RowsetMetaManager::load_json_rowset_meta(OlapMeta* meta, const std::string& rowset_meta_path) {
+OLAPStatus RowsetMetaManager::load_json_rowset_meta(OlapMeta* meta, const std::string& rowset_meta_path) {
     std::ifstream infile(rowset_meta_path);
     char buffer[1024];
     std::string json_rowset_meta;
@@ -130,10 +130,10 @@ NewStatus RowsetMetaManager::load_json_rowset_meta(OlapMeta* meta, const std::st
     if (!ret) {
         std::string error_msg = "parse json rowset meta failed.";
         LOG(WARNING) << error_msg;
-        return NewStatus::Corruption(error_msg);
+        return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR;
     }
-    uint64_t rowset_id = rowset_meta.get_rowset_id();
-    NewStatus status = save(meta, rowset_id, &rowset_meta);
+    uint64_t rowset_id = rowset_meta.rowset_id();
+    OLAPStatus status = save(meta, rowset_id, &rowset_meta);
     return status;
 }
 

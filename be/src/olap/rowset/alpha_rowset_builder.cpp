@@ -27,7 +27,7 @@ AlphaRowsetBuilder::AlphaRowsetBuilder() : _segment_group_id(0),
     _current_rowset_meta(nullptr) {
 }
 
-NewStatus AlphaRowsetBuilder::init(const RowsetBuilderContext& rowset_builder_context) {
+OLAPStatus AlphaRowsetBuilder::init(const RowsetBuilderContext& rowset_builder_context) {
     _rowset_builder_context = rowset_builder_context;
     _init();
     _current_rowset_meta->set_rowset_id(_rowset_builder_context.rowset_id);
@@ -40,24 +40,24 @@ NewStatus AlphaRowsetBuilder::init(const RowsetBuilderContext& rowset_builder_co
     _current_rowset_meta->set_version(_rowset_builder_context.version);
     _current_rowset_meta->set_version_hash(_rowset_builder_context.version_hash);
     _current_rowset_meta->set_load_id(_rowset_builder_context.load_id);
-    return NewStatus::OK();
+    return OLAP_SUCCESS;
 }
 
-NewStatus AlphaRowsetBuilder::add_row(RowCursor* row) {
+OLAPStatus AlphaRowsetBuilder::add_row(RowCursor* row) {
     OLAPStatus status = _column_data_writer->attached_by(row);
     if (status != OLAP_SUCCESS) {
         std::string error_msg = "add row failed";
         LOG(WARNING) << error_msg;
-        return NewStatus::Corruption(error_msg);
+        return status; 
     }
-    return NewStatus::OK();
+    return OLAP_SUCCESS;
 }
 
-NewStatus AlphaRowsetBuilder::flush() {
+OLAPStatus AlphaRowsetBuilder::flush() {
     _column_data_writer->finalize();
     SAFE_DELETE(_column_data_writer);
     _init();
-    return NewStatus::OK();
+    return OLAP_SUCCESS;
 }
 
 std::shared_ptr<Rowset> AlphaRowsetBuilder::build() {

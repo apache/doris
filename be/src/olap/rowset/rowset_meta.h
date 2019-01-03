@@ -64,7 +64,7 @@ public:
         return ret;
     }
 
-    virtual int64_t get_rowset_id() {
+    virtual int64_t rowset_id() {
         return _rowset_meta_pb.rowset_id();
     }
 
@@ -112,7 +112,7 @@ public:
         _rowset_meta_pb.set_rowset_state(rowset_state);
     }
 
-    virtual Version get_version() {
+    virtual Version version() {
         Version version;
         version.first = _rowset_meta_pb.start_version();
         version.second = _rowset_meta_pb.end_version();
@@ -124,7 +124,7 @@ public:
         _rowset_meta_pb.set_end_version(version.second);
     }
 
-    virtual int get_start_version() {
+    virtual int start_version() {
         return _rowset_meta_pb.start_version();
     }
 
@@ -132,7 +132,7 @@ public:
         _rowset_meta_pb.set_start_version(start_version);
     }
     
-    virtual int get_end_version() {
+    virtual int end_version() {
         return _rowset_meta_pb.end_version();
     }
 
@@ -241,6 +241,8 @@ public:
         _rowset_meta_pb.set_extra_properties(extra_properties);
     }
 
+    OLAPStatus to_rowset_pb(RowsetMetaPB* rs_meta_pb);
+    virtual int64_t creation_time() const;
 private:
     bool _deserialize_from_pb(const std::string& value) {
         return _rowset_meta_pb.ParseFromString(value); 
