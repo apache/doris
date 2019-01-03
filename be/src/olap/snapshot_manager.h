@@ -57,6 +57,7 @@ public:
     // @brief 释放snapshot
     // @param snapshot_path [in] 要被释放的snapshot的路径，只包含到ID
     OLAPStatus release_snapshot(const std::string& snapshot_path);
+
     OLAPStatus storage_medium_migrate(
             TTabletId tablet_id,
             TSchemaHash schema_hash,
