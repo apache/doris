@@ -440,19 +440,23 @@ public class Clone {
             if (partition == null) {
                 throw new MetaNotFoundException("partition does not exist. id: " + partitionId);
             }
+
             MaterializedIndex index = partition.getIndex(indexId);
             if (index == null) {
                 throw new MetaNotFoundException("index does not exist. id: " + indexId);
             }
+
             if (schemaHash != olapTable.getSchemaHashByIndexId(indexId)) {
                 throw new MetaNotFoundException("schema hash is not consistent. index's: "
                         + olapTable.getSchemaHashByIndexId(indexId)
                         + ", task's: " + schemaHash);
             }
+
             Tablet tablet = index.getTablet(tabletId);
             if (tablet == null) {
                 throw new MetaNotFoundException("tablet does not exist. id: " + tabletId);
             }
+
             Replica replica = tablet.getReplicaByBackendId(backendId);
             if (replica == null) {
                 throw new MetaNotFoundException("replica does not exist. tablet id: " + tabletId 
@@ -506,7 +510,8 @@ public class Clone {
                 // the clone type is converted to catchup clone 
                 ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tableId, partitionId, indexId,
                                                                             tabletId, backendId, replica.getId(),
-                                                                            version, versionHash, dataSize, rowCount,
+                                                                            version, versionHash,
+                                                                            schemaHash, dataSize, rowCount,
                                                                             replica.getLastFailedVersion(),
                                                                             replica.getLastFailedVersionHash(),
                                                                             replica.getLastSuccessVersion(), 

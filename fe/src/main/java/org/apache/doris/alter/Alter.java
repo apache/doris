@@ -180,15 +180,17 @@ public class Alter {
                 // ROLLUP: we allow user DROP a rollup index when it's under ROLLUP
             }
             
-            // check if all tablets are healthy, and no tablet is in tablet scheduler
-            boolean isStable = olapTable.checkStable(Catalog.getCurrentSystemInfo(),
-                    Catalog.getCurrentCatalog().getTabletScheduler(),
-                    db.getClusterName());
-            if (!isStable) {
-                throw new DdlException("table [" + olapTable.getName() + "] is not stable."
-                        + "Some tablets of this table may not be healthy or are being scheduled."
-                        + " You need to repair the table first"
-                        + " or stop cluster balance. See 'help admin;'.");
+            if (hasSchemaChange || hasModifyProp || hasRollup) {
+                // check if all tablets are healthy, and no tablet is in tablet scheduler
+                boolean isStable = olapTable.isStable(Catalog.getCurrentSystemInfo(),
+                        Catalog.getCurrentCatalog().getTabletScheduler(),
+                        db.getClusterName());
+                if (!isStable) {
+                    throw new DdlException("table [" + olapTable.getName() + "] is not stable."
+                            + "Some tablets of this table may not be healthy or are being scheduled."
+                            + " You need to repair the table first"
+                            + " or stop cluster balance. See 'help admin;'.");
+                }
             }
 
             if (hasSchemaChange || hasModifyProp) {

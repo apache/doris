@@ -303,6 +303,7 @@ public class OlapTable extends Table {
             for (Map.Entry<Long, String> entry2 : origIdxIdToName.entrySet()) {
                 MaterializedIndex idx = partition.getIndex(entry2.getKey());
                 long newIdxId = indexNameToId.get(entry2.getValue());
+                int schemaHash = indexIdToSchemaHash.get(newIdxId);
                 idx.setIdForRestore(newIdxId);
                 if (newIdxId != id) {
                     // not base table, reset
@@ -330,7 +331,7 @@ public class OlapTable extends Table {
                     for (Long beId : beIds) {
                         long newReplicaId = catalog.getNextId();
                         Replica replica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
-                                partition.getVisibleVersion(), partition.getVisibleVersionHash());
+                                partition.getVisibleVersion(), partition.getVisibleVersionHash(), schemaHash);
                         newTablet.addReplica(replica, true /* is restore */);
                     }
                 }
@@ -953,7 +954,7 @@ public class OlapTable extends Table {
         return dataSize;
     }
 
-    public boolean checkStable(SystemInfoService infoService, TabletScheduler tabletScheduler, String clusterName) {
+    public boolean isStable(SystemInfoService infoService, TabletScheduler tabletScheduler, String clusterName) {
         for (Partition partition : idToPartition.values()) {
             long visibleVersion = partition.getVisibleVersion();
             long visibleVersionHash = partition.getVisibleVersionHash();

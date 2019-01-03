@@ -1189,6 +1189,7 @@ public class SchemaChangeHandler extends AlterHandler {
             // has to remove here, because check is running every interval, it maybe finished but also in job list
             // some check will failed
             ((SchemaChangeJob) alterJob).deleteAllTableHistorySchema();
+            ((SchemaChangeJob) alterJob).finishJob();
             jobDone(alterJob);
             Catalog.getInstance().getEditLog().logFinishSchemaChange((SchemaChangeJob) alterJob);
         }

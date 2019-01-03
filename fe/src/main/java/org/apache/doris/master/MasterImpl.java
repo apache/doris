@@ -622,7 +622,7 @@ public class MasterImpl {
                             + ((SchemaChangeJob) alterJob).getSchemaHashByIndexId(pushIndexId) + " vs. " + schemaHash);
                 }
             } else {
-                // this should not happend. observe(cmy)
+                // this should not happen. observe(cmy)
                 throw new MetaNotFoundException("Diff tablet[" + tabletId + "] schemaHash. index[" + pushIndexId + "]: "
                         + currentSchemaHash + " vs. " + schemaHash);
             }
@@ -647,7 +647,7 @@ public class MasterImpl {
 
         LOG.debug("replica[{}] report schemaHash:{}", replica.getId(), schemaHash);
         return ReplicaPersistInfo.createForLoad(olapTable.getId(), partition.getId(), pushIndexId, tabletId,
-                                                replica.getId(), version, versionHash, dataSize, rowCount);
+                replica.getId(), version, versionHash, schemaHash, dataSize, rowCount);
     }
 
     private void finishDropReplica(AgentTask task) {

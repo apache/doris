@@ -3323,16 +3323,17 @@ public class Load {
                         for (Replica replica : tablet.getReplicas()) {
                             ReplicaPersistInfo info =
                                     ReplicaPersistInfo.createForCondDelete(indexId,
-                                                                           tabletId,
-                                                                           replica.getId(),
-                                                                           replica.getVersion(),
-                                                                           replica.getVersionHash(),
-                                                                           replica.getDataSize(),
-                                                                           replica.getRowCount(),
-                                                                           replica.getLastFailedVersion(),
-                                                                           replica.getLastFailedVersionHash(),
-                                                                           replica.getLastSuccessVersion(),
-                                                                           replica.getLastSuccessVersionHash());
+                                            tabletId,
+                                            replica.getId(),
+                                            replica.getVersion(),
+                                            replica.getVersionHash(),
+                                            table.getSchemaHashByIndexId(indexId),
+                                            replica.getDataSize(),
+                                            replica.getRowCount(),
+                                            replica.getLastFailedVersion(),
+                                            replica.getLastFailedVersionHash(),
+                                            replica.getLastSuccessVersion(),
+                                            replica.getLastSuccessVersionHash());
                             deleteInfo.addReplicaPersistInfo(info);
                         }
                     }

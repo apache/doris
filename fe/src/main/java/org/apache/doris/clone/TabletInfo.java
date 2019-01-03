@@ -604,12 +604,12 @@ public class TabletInfo implements Comparable<TabletInfo> {
         cloneTask.setPathHash(srcPathHash, destPathHash);
         
         Replica cloneReplica = new Replica(
-            Catalog.getCurrentCatalog().getNextId(), destBackendId,
-            -1 /* version */, 0 /* version hash */,
-            -1 /* data size */, -1 /* row count */,
-            ReplicaState.CLONE,
-            committedVersion, committedVersionHash, /* use committed version as last failed version */
-            -1 /* last success version */, 0 /* last success version hash */);
+                Catalog.getCurrentCatalog().getNextId(), destBackendId,
+                -1 /* version */, 0 /* version hash */, schemaHash,
+                -1 /* data size */, -1 /* row count */,
+                ReplicaState.CLONE,
+                committedVersion, committedVersionHash, /* use committed version as last failed version */
+                -1 /* last success version */, 0 /* last success version hash */);
         
         // addReplica() method will add this replica to tablet inverted index too.
         tablet.addReplica(cloneReplica);
@@ -745,6 +745,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
                     tabletId, destBackendId, replica.getId(),
                     reportedTablet.getVersion(),
                     reportedTablet.getVersion_hash(),
+                    reportedTablet.getSchema_hash(),
                     reportedTablet.getData_size(),
                     reportedTablet.getRow_count(),
                     replica.getLastFailedVersion(),

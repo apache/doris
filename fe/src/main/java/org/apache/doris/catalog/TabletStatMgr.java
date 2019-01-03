@@ -84,7 +84,6 @@ public class TabletStatMgr extends Daemon {
                 TTabletStatResult result = client.get_tablet_stat();
 
                 LOG.info("get tablet stat from backend: {}, num: {}", backend.getId(), result.getTablets_statsSize());
-                // LOG.debug("get tablet stat from backend: {}, stat: {}", backend.getId(), result.getTablets_stats());
                 updateTabletStat(backend.getId(), result);
 
                 ok = true;

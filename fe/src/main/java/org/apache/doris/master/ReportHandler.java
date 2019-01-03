@@ -714,6 +714,7 @@ public class ReportHandler extends Daemon {
             if (materializedIndex == null) {
                 throw new MetaNotFoundException("index[" + indexId + "] does not exist");
             }
+
             Tablet tablet = materializedIndex.getTablet(tabletId);
             if (tablet == null) {
                 throw new MetaNotFoundException("tablet[" + tabletId + "] does not exist");
@@ -759,17 +760,17 @@ public class ReportHandler extends Daemon {
                     lastFailedVersion = partition.getCommittedVersion();
                     lastFailedVersionHash = partition.getCommittedVersionHash();
                 }
-                Replica replica = new Replica(replicaId, backendId, version, versionHash, 
+                Replica replica = new Replica(replicaId, backendId, version, versionHash, schemaHash,
                                               dataSize, rowCount, ReplicaState.NORMAL, 
                                               lastFailedVersion, lastFailedVersionHash, version, versionHash);
                 tablet.addReplica(replica);
                 
                 // write edit log
                 ReplicaPersistInfo info = ReplicaPersistInfo.createForAdd(dbId, tableId, partitionId, indexId,
-                                                                          tabletId, backendId, replicaId,
-                                                                          version, versionHash, dataSize, rowCount, 
-                                                                          lastFailedVersion, lastFailedVersionHash, 
-                                                                          version, versionHash);
+                        tabletId, backendId, replicaId,
+                        version, versionHash, schemaHash, dataSize, rowCount,
+                        lastFailedVersion, lastFailedVersionHash,
+                        version, versionHash);
 
                 Catalog.getInstance().getEditLog().logAddReplica(info);
 

@@ -413,7 +413,7 @@ public class RollupJob extends AlterJob {
                     return false;
                 }
 
-                LOG.info("sending create rollup job[{}] tasks.", tableId);
+                LOG.info("sending rollup job[{}] tasks.", tableId);
                 // in palo 3.2, the rollup keys type is not serialized, when a fe follower change to fe master
                 // the rollup keys type == null, so that send tasks will report error
                 if (rollupKeysType == null) {

@@ -48,7 +48,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
@@ -358,7 +357,8 @@ public class RollupHandler extends AlterHandler {
                     Preconditions.checkState(baseReplica.getState() == ReplicaState.NORMAL);
                     ++replicaNum;
                     // the new replica's init version is -1 until finished history rollup
-                    Replica rollupReplica = new Replica(rollupReplicaId, backendId, ReplicaState.ROLLUP);
+                    Replica rollupReplica = new Replica(rollupReplicaId, backendId, rollupSchemaHash,
+                            ReplicaState.ROLLUP);
                     // new replica's last failed version is equal to the partition's next version - 1
                     // has to set failed verison and version hash here, because there will be no load after rollup
                     // so that if not set here, last failed version will not be set

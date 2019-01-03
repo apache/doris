@@ -33,7 +33,6 @@ import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TTabletInfo;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Multimap;
 
 import org.apache.logging.log4j.LogManager;
@@ -106,7 +105,7 @@ public abstract class AlterJob implements Writable {
 
         this.createTime = System.currentTimeMillis();
         this.finishedTime = -1L;
-        this.backendIdToReplicaIds = HashMultimap.create();
+        // this.backendIdToReplicaIds = HashMultimap.create();
     }
 
     public AlterJob(JobType type, long dbId, long tableId, TResourceInfo resourceInfo) {
@@ -121,7 +120,7 @@ public abstract class AlterJob implements Writable {
         this.finishedTime = -1L;
 
         this.cancelMsg = "";
-        this.backendIdToReplicaIds = HashMultimap.create();
+        // this.backendIdToReplicaIds = HashMultimap.create();
     }
 
     public final JobType getType() {
@@ -184,7 +183,7 @@ public abstract class AlterJob implements Writable {
         LOG.debug("check backend[{}] state for replica[{}]", replica.getBackendId(), replica.getId());
         Backend backend = Catalog.getCurrentSystemInfo().getBackend(replica.getBackendId());
         // not send event to event bus because there is a dead lock, job --> check state --> bus lock --> handle backend down
-        // backenddown --> bus lock --> handle backend down --> job.lock 
+        // backend down --> bus lock --> handle backend down --> job.lock
         if (backend == null) {
             return false;
         } else if (!backend.isAlive()) {
@@ -255,7 +254,7 @@ public abstract class AlterJob implements Writable {
      * return
      *      -1: need cancel
      *       0: waiting next poll
-     *       1: finished
+     *       1: finishing
      */
     public abstract int tryFinishJob();
 

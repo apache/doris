@@ -1338,6 +1338,10 @@ public class Catalog {
                             invertedIndex.addTablet(tabletId, tabletMeta);
                             for (Replica replica : tablet.getReplicas()) {
                                 invertedIndex.addReplica(tabletId, replica);
+                                if (MetaContext.get().getMetaVersion() < FeMetaVersion.VERSION_48) {
+                                    // set replica's schema hash
+                                    replica.setSchemaHash(schemaHash);
+                                }
                             }
                         }
                     } // end for indices
@@ -4056,7 +4060,8 @@ public class Catalog {
 
                 for (long backendId : chosenBackendIds) {
                     long replicaId = getNextId();
-                    Replica replica = new Replica(replicaId, backendId, replicaState, version, versionHash);
+                    Replica replica = new Replica(replicaId, backendId, replicaState, version, versionHash,
+                            tabletMeta.getOldSchemaHash());
                     tablet.addReplica(replica);
                 }
             }
@@ -4200,8 +4205,16 @@ public class Catalog {
         Partition partition = olapTable.getPartition(info.getPartitionId());
         MaterializedIndex materializedIndex = partition.getIndex(info.getIndexId());
         Tablet tablet = materializedIndex.getTablet(info.getTabletId());
+
+        // for compatibility
+        int schemaHash = info.getSchemaHash();
+        if (schemaHash == -1) {
+            schemaHash = olapTable.getSchemaHashByIndexId(info.getIndexId());
+        }
+
         Replica replica = new Replica(info.getReplicaId(), info.getBackendId(), info.getVersion(),
-                info.getVersionHash(), info.getDataSize(), info.getRowCount(), ReplicaState.NORMAL,
+                info.getVersionHash(), schemaHash, info.getDataSize(), info.getRowCount(),
+                ReplicaState.NORMAL,
                 info.getLastFailedVersion(),
                 info.getLastFailedVersionHash(),
                 info.getLastSuccessVersion(),
