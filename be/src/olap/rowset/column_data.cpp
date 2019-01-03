@@ -127,7 +127,7 @@ OLAPStatus ColumnData::_seek_to_block(const RowBlockPosition& block_pos, bool wi
         _segment_reader = new(std::nothrow) SegmentReader(
                 file_name, segment_group(),  block_pos.segment,
                 _seek_columns, _load_bf_columns, _conditions,
-                _col_predicates, _delete_handler, _delete_status, _runtime_state, _stats, _lru_cache);
+                _delete_handler, _delete_status, _runtime_state, _stats, _lru_cache);
         if (_segment_reader == nullptr) {
             OLAP_LOG_WARNING("fail to malloc segment reader.");
             return OLAP_ERR_MALLOC_ERROR;

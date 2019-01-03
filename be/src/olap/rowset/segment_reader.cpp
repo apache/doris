@@ -39,7 +39,6 @@ SegmentReader::SegmentReader(
         const std::vector<uint32_t>& used_columns,
         const std::set<uint32_t>& load_bf_columns,
         const Conditions* conditions,
-        const std::vector<ColumnPredicate*>* col_predicates,
         const DeleteHandler& delete_handler,
         const DelCondSatisfied delete_status,
         RuntimeState* runtime_state,
