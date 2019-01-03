@@ -293,6 +293,10 @@ public class BrokerScanNode extends ScanNode {
                     entry.setValue(unixTimeFunc);
                 } else if (funcName.equalsIgnoreCase("default_value")) {
                     entry.setValue(funcExpr.getChild(0));
+                } else if (funcName.equalsIgnoreCase("now")) {
+                    FunctionName nowFunctionName = new FunctionName("NOW");
+                    FunctionCallExpr newFunc = new FunctionCallExpr(nowFunctionName, new FunctionParams(null));
+                    entry.setValue(newFunc);
                 }
             }
         }

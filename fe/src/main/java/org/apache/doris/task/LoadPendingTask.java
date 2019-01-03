@@ -82,7 +82,7 @@ public abstract class LoadPendingTask extends MasterTask {
             }
             createEtlRequest();
         } catch (Exception e) {
-            LOG.info("create etl request failed.{}", e);
+            LOG.info("create etl request failed.", e);
             load.cancelLoadJob(job, CancelType.ETL_SUBMIT_FAIL, "create job request fail. " + e.getMessage());
             return;
         }

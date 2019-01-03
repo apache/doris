@@ -417,8 +417,8 @@ public class SessionVariable implements Serializable, Writable {
     public void setDisableColocateJoin(boolean disableColocateJoin) {
         this.disableColocateJoin = disableColocateJoin;
     }
-    
-   // Serialize to thrift object 
+
+    // Serialize to thrift object
     TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMem_limit(maxExecMemByte);

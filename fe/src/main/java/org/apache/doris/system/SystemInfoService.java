@@ -274,6 +274,16 @@ public class SystemInfoService {
         return null;
     }
 
+    public Backend getBackendWithHttpPort(String host, int httpPort) {
+        ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
+        for (Backend backend : idToBackend.values()) {
+            if (backend.getHost().equals(host) && backend.getHttpPort() == httpPort) {
+                return backend;
+            }
+        }
+        return null;
+    }
+
     public List<Long> getBackendIds(boolean needAlive) {
         ImmutableMap<Long, Backend> idToBackend = idToBackendRef.get();
         List<Long> backendIds = Lists.newArrayList(idToBackend.keySet());
