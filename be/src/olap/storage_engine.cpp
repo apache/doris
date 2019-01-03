@@ -153,7 +153,7 @@ OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
         };
         OLAPStatus s = RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), load_rowset_func);
         if (has_error) {
-            LOG(WARN) << "errors when load rowset meta from meta env, skip this data dir:" << data_dir_path;
+            LOG(WARNING) << "errors when load rowset meta from meta env, skip this data dir:" << data_dir_path;
             return OLAP_ERR_META_ITERATOR;
         }
         LOG(INFO) << "load header from meta finished";

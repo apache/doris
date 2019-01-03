@@ -25,7 +25,7 @@ namespace doris {
 
 class RowsetGraph {
 public:
-    OLAPStatus construct_rowset_graph(const std::vector<RowsetMeta>& rs_metas);
+    OLAPStatus construct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas);
     OLAPStatus add_version_to_graph(const Version& version);
     OLAPStatus delete_version_from_graph(const Version& version);
     OLAPStatus capture_consistent_versions(const Version& spec_version,
