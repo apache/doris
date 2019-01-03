@@ -681,21 +681,21 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
 }
 
 OLAPStatus TabletManager::load_tablet_from_header(DataDir* data_dir, TTabletId tablet_id,
-        TSchemaHash schema_hash, const std::string& header) {
+        TSchemaHash schema_hash, const std::string& meta_binary) {
     std::unique_ptr<TabletMeta> tablet_meta(new TabletMeta());
-    bool parsed = tablet_meta->deserialize(header);
+    bool parsed = tablet_meta->deserialize(meta_binary);
     if (!parsed) {
-        LOG(WARNING) << "parse header string failed for tablet_id:" << tablet_id << " schema_hash:" << schema_hash;
+        LOG(WARNING) << "parse meta_binary string failed for tablet_id:" << tablet_id << " schema_hash:" << schema_hash;
         return OLAP_ERR_HEADER_PB_PARSE_FAILED;
     }
 
     // init must be called
     OLAPStatus res = tablet_meta->init();
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to init header, tablet_id:" << tablet_id << ", schema_hash:" << schema_hash;
+        LOG(WARNING) << "fail to init tablet_meta. tablet_id:" << tablet_id << ", schema_hash:" << schema_hash;
         res = TabletMetaManager::remove(data_dir, tablet_id, schema_hash);
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "remove header failed. tablet_id:" << tablet_id
+            LOG(WARNING) << "remove tablet_meta failed. tablet_id:" << tablet_id
                 << "schema_hash:" << schema_hash
                 << "store path:" << path();
         }
