@@ -51,12 +51,12 @@ class RowsetBuilder {
 public:
     virtual ~RowsetBuilder() { }
     
-    virtual NewStatus init(const RowsetBuilderContext& rowset_builder_context) = 0;
+    virtual OLAPStatus init(const RowsetBuilderContext& rowset_builder_context) = 0;
 
     // add a row to rowset
-    virtual NewStatus add_row(RowCursor* row_block) = 0;
+    virtual OLAPStatus add_row(RowCursor* row_block) = 0;
 
-    virtual NewStatus flush() = 0;
+    virtual OLAPStatus flush() = 0;
 
     // get a rowset
     virtual std::shared_ptr<Rowset> build() = 0;

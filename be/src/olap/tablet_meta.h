@@ -28,6 +28,7 @@
 #include "olap/olap_define.h"
 #include "olap/tablet_schema.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta.h"
 
 using std::string;
 using std::vector;
@@ -59,15 +60,16 @@ public:
     OLAPStatus to_alter_pb(AlterTabletPB* alter_task);
     OLAPStatus clear();
 
-    inline int64_t related_tablet_id() { return _related_tablet_id; }
-    inline int64_t related_schema_hash() { return _related_schema_hash; }
-    inline int64_t set_related_tablet_id(int64_t related_tablet_id) { _related_tablet_id = related_tablet_id; }
-    inline int64_t set_related_schema_hash(int64_t schema_hash) { _related_schema_hash = schema_hash; }
+    inline int64_t related_tablet_id() const { return _related_tablet_id; }
+    inline int64_t related_schema_hash() const { return _related_schema_hash; }
+    inline void set_related_tablet_id(int64_t related_tablet_id) { _related_tablet_id = related_tablet_id; }
+    inline void set_related_schema_hash(int64_t schema_hash) { _related_schema_hash = schema_hash; }
 
-    vector<RowsetMetaSharedPtr>& rowsets_to_alter() { return _rowsets_to_alter; }
+    const vector<RowsetMetaSharedPtr>& rowsets_to_alter() const { return _rowsets_to_alter; }
 
     const AlterTabletState& alter_state() const { return _alter_state; }
     const AlterTabletType& alter_type() const { return _alter_type; }
+    void set_alter_type(AlterTabletType alter_type) { _alter_type = alter_type; }
 private:
     int64_t _related_tablet_id;
     int64_t _related_schema_hash;
@@ -113,8 +115,10 @@ public:
     TabletMeta();
     TabletMeta(const std::string& file_name);
     TabletMeta(DataDir* data_dir);
-    OLAPStatus serialize(string* meta_binary);
-    OLAPStatus serialize_unlock(string* meta_binary);
+
+    OLAPStatus init_from_pb(const TabletMetaPB& tablet_meta_pb);
+    OLAPStatus serialize(string* meta_binary) const;
+    OLAPStatus serialize_unlock(string* meta_binary) const;
 
     OLAPStatus deserialize(const string& meta_binary);
     OLAPStatus deserialize_unlock(const string& meta_binary);
@@ -127,8 +131,10 @@ public:
 
     OLAPStatus add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     OLAPStatus delete_inc_rs_meta_by_version(const Version& version);
+    const RowsetMeta* get_inc_rowset(const Version& version) const;
     const RowsetMetaSharedPtr get_inc_rs_meta(const Version& version) const;
     DeletePredicatePB* add_delete_predicates();
+    std::vector<DeletePredicatePB>& delete_predicates();
 
     const std::vector<RowsetMetaSharedPtr>& all_inc_rs_metas() const;
     const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
@@ -167,7 +173,7 @@ private:
     TabletMetaPB _tablet_meta_pb;
     DataDir* _data_dir;
 
-    std::mutex _mutex;
+    mutable std::mutex _mutex;
 };
 
 inline const int64_t TabletMeta::table_id() const {

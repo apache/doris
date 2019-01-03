@@ -34,18 +34,23 @@ using RowsetSharedPtr = std::shared_ptr<Rowset>;
 
 class Rowset {
 public:
+    static Rowset* create();
     virtual ~Rowset() { }
 
-    virtual NewStatus init() = 0;
+    virtual OLAPStatus init() = 0;
 
     virtual std::unique_ptr<RowsetReader> create_reader() = 0;
 
-    virtual NewStatus copy(RowsetBuilder* dest_rowset_builder) = 0;
+    virtual OLAPStatus copy(RowsetBuilder* dest_rowset_builder) = 0;
 
-    virtual NewStatus remove() = 0;
+    virtual OLAPStatus remove() = 0;
 
     virtual OLAPStatus to_rowset_pb(const RowsetMetaPB& rs_meta);
-    virtual OLAPStatus get_rs_meta();
+    virtual RowsetMetaSharedPtr& get_rs_meta() const;
+    virtual int get_data_disk_size() const;
+    virtual bool empty() const;
+    virtual bool zero_num_rows() const;
+    virtual size_t get_num_rows() const;
 };
 
 } // namespace doris

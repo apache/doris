@@ -35,6 +35,7 @@ public:
             TSchemaHash schema_hash, std::string* json_header);
 
     static OLAPStatus save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash, const TabletMeta* header);
+    static OLAPStatus save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash, const std::string& meta_binary);
 
     static OLAPStatus remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash);
 

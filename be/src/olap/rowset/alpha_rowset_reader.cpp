@@ -33,7 +33,7 @@ AlphaRowsetReader::AlphaRowsetReader(const RowFields& tablet_schema,
             _key_range_size(0),
             _key_range_index(0) {
     _alpha_rowset_meta = (AlphaRowsetMeta*)rowset_meta;
-    Version version = _alpha_rowset_meta->get_version();
+    Version version = _alpha_rowset_meta->version();
     if (version.first == version.second) {
         _is_cumulative_rowset = false;
     } else {
@@ -41,10 +41,10 @@ AlphaRowsetReader::AlphaRowsetReader(const RowFields& tablet_schema,
     }
 }
 
-NewStatus AlphaRowsetReader::init(ReaderContext* read_context) {
+OLAPStatus AlphaRowsetReader::init(ReaderContext* read_context) {
     _current_read_context = read_context;
-    NewStatus status = _init_segment_groups(read_context);
-    if (!status.ok()) {
+    OLAPStatus status = _init_segment_groups(read_context);
+    if (status != OLAP_SUCCESS) {
         return status;
     }
     status = _init_column_datas(read_context);
@@ -62,26 +62,26 @@ bool AlphaRowsetReader::has_next() {
     return false;
 }
 
-NewStatus AlphaRowsetReader::_get_next_block(ColumnData* column_data, RowBlock* row_block) {
+OLAPStatus AlphaRowsetReader::_get_next_block(ColumnData* column_data, RowBlock* row_block) {
      // get next block
      OLAPStatus status = column_data->get_next_block(&row_block);
      if (status != OLAP_SUCCESS) {
         if (status == OLAP_ERR_DATA_EOF) {
             // reach the end of one predicate
             // refresh the predicate and continue read
-            NewStatus status = _refresh_next_block(column_data, row_block);
-            if (!status.ok()) {
+            status = _refresh_next_block(column_data, row_block);
+            if (status != OLAP_SUCCESS) {
                 LOG(WARNING) << "refresh next block failed";
                 return status;
             }
-            return NewStatus::OK();
+            return OLAP_SUCCESS;
        }
-       return NewStatus::Corruption("get next block failed");
+       return status; 
      }
-     return NewStatus::OK();
+     return OLAP_SUCCESS;
 }
 
-NewStatus AlphaRowsetReader::_get_next_row_for_singleton_rowset(RowCursor* row) {
+OLAPStatus AlphaRowsetReader::_get_next_row_for_singleton_rowset(RowCursor* row) {
     RowCursor* min_row = nullptr;
     int min_index = -1;
     for (int i = 0; i < _row_blocks.size(); i++) {
@@ -95,36 +95,36 @@ NewStatus AlphaRowsetReader::_get_next_row_for_singleton_rowset(RowCursor* row) 
         }
     }
     if (min_row == nullptr || min_index == -1) {
-        return NewStatus::Corruption("get next row failed");
+        return OLAP_ERR_READER_READING_ERROR; 
     }
     row = min_row;
     RowBlock* row_block = _row_blocks[min_index];
     ColumnData* column_data = _column_datas[min_index].get();
     row_block->pos_inc();
     if (!row_block->has_remaining()) {
-        NewStatus status = _get_next_block(column_data, row_block);
-        if (!status.ok()) {
+        OLAPStatus status = _get_next_block(column_data, row_block);
+        if (status != OLAP_SUCCESS) {
             return status;
         }
     }
-    return NewStatus::OK();
+    return OLAP_SUCCESS;
 }
 
-NewStatus AlphaRowsetReader::_get_next_row_for_cumulative_rowset(RowCursor* row) {
+OLAPStatus AlphaRowsetReader::_get_next_row_for_cumulative_rowset(RowCursor* row) {
     RowBlock* current_row_block = _row_blocks[0];
     size_t pos = current_row_block->pos();
     current_row_block->get_row(pos, row);
     current_row_block->pos_inc();
     if (!current_row_block->has_remaining()) {
-        NewStatus status = _get_next_block(_column_datas[0].get(), current_row_block);
-        if (!status.ok()) {
+        OLAPStatus status = _get_next_block(_column_datas[0].get(), current_row_block);
+        if (status != OLAP_SUCCESS) {
             return status;
         }
     }
-    return NewStatus::OK();
+    return OLAP_SUCCESS;
 }
 
-NewStatus AlphaRowsetReader::next(RowCursor* row) {
+OLAPStatus AlphaRowsetReader::next(RowCursor* row) {
     if (_is_cumulative_rowset) {
         return _get_next_row_for_cumulative_rowset(row);
     } else {
@@ -136,12 +136,12 @@ void AlphaRowsetReader::close() {
     _column_datas.clear();
 }
 
-NewStatus AlphaRowsetReader::_init_column_datas(ReaderContext* read_context) {
+OLAPStatus AlphaRowsetReader::_init_column_datas(ReaderContext* read_context) {
     for (auto& segment_group : _segment_groups) {
         std::unique_ptr<ColumnData> new_column_data(ColumnData::create(segment_group.get()));
         OLAPStatus status = new_column_data->init();
         if (status != OLAP_SUCCESS) {
-            return NewStatus::Corruption("init column data failed");
+            return OLAP_ERR_READER_READING_ERROR; 
         }
         new_column_data->set_delete_handler(read_context->delete_handler);
         new_column_data->set_stats(read_context->stats);
@@ -155,7 +155,7 @@ NewStatus AlphaRowsetReader::_init_column_datas(ReaderContext* read_context) {
                 || read_context->upper_bound_keys.size() != read_context->is_upper_keys_included.size()) {
             std::string error_msg = "invalid key range arguments";
             LOG(WARNING) << error_msg;
-            return NewStatus::InvalidArgument(error_msg);
+            return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
         new_column_data->set_read_params(read_context->return_columns,
                                 read_context->load_bf_columns,
@@ -196,14 +196,14 @@ NewStatus AlphaRowsetReader::_init_column_datas(ReaderContext* read_context) {
                     &row_block);
             if (status != OLAP_SUCCESS) {
                 LOG(WARNING) << "prepare block read failed";
-                return NewStatus::Corruption("prepare block read failed");
+                return status;
             }
             _key_range_index++;
         } else {
             status = new_column_data->get_first_row_block(&row_block);
             if (status != OLAP_SUCCESS) {
                 LOG(WARNING) << "get first row block failed";
-                return NewStatus::Corruption("get first row block failed");
+                return status;
             }
         }
         _row_blocks.push_back(row_block);
@@ -211,12 +211,12 @@ NewStatus AlphaRowsetReader::_init_column_datas(ReaderContext* read_context) {
     if (_is_cumulative_rowset && _column_datas.size() > 1) {
         LOG(WARNING) << "invalid column_datas for cumulative rowset. column_datas size:"
                 << _column_datas.size();
-        return NewStatus::InvalidArgument("invalid _column_datas size:" + std::to_string(_column_datas.size()));
+        return OLAP_ERR_READER_READING_ERROR;
     }
-    return NewStatus::OK();
+    return OLAP_SUCCESS;
 }
 
-NewStatus AlphaRowsetReader::_refresh_next_block(ColumnData* column_data, RowBlock* next_block) {
+OLAPStatus AlphaRowsetReader::_refresh_next_block(ColumnData* column_data, RowBlock* next_block) {
     OLAPStatus status = column_data->get_next_block(&next_block);
     if (status == OLAP_ERR_DATA_EOF) {
         // currently, SegmentReader can only support filter one key range a time
@@ -229,18 +229,18 @@ NewStatus AlphaRowsetReader::_refresh_next_block(ColumnData* column_data, RowBlo
                     &next_block);
             if (status != OLAP_SUCCESS) {
                 LOG(WARNING) << "prepare block read failed";
-                return NewStatus::Corruption("prepare block read failed");
+                return status; 
             }
             _key_range_index++;
         } else {
             // read finished
             next_block = nullptr;
         }
-        return NewStatus::OK();
+        return OLAP_SUCCESS;
     } else if (status != OLAP_SUCCESS) {
-        return NewStatus::Corruption("get next block failed");
+        return status; 
     } else {
-        return NewStatus::OK();
+        return OLAP_SUCCESS;
     }
 }
 

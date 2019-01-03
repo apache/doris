@@ -48,26 +48,26 @@ SegmentReader::SegmentReader(
         _file_name(file),
         _segment_group(segment_group),
         _segment_id(segment_id),
-        _used_columns(used_columns),
-        _load_bf_columns(load_bf_columns),
         _conditions(conditions),
         _delete_handler(delete_handler),
         _delete_status(delete_status),
-        _runtime_state(runtime_state),
-        _stats(stats),
-        _lru_cache(lru_cache),
         _eof(false),
         _end_block(-1),
         // 确保第一次调用_move_to_next_row，会执行seek_to_block
         _block_count(0),
         _num_rows_in_block(0),
         _null_supported(false),
+        _used_columns(used_columns),
+        _load_bf_columns(load_bf_columns),
         _mmap_buffer(NULL),
         _include_blocks(NULL),
         _is_using_mmap(false),
         _is_data_loaded(false),
         _buffer_size(0),
-        _shared_buffer(NULL) {
+        _lru_cache(lru_cache),
+        _runtime_state(runtime_state),
+        _shared_buffer(NULL), 
+        _stats(stats) {
     _tracker.reset(new MemTracker(-1));
     _mem_pool.reset(new MemPool(_tracker.get()));
 }

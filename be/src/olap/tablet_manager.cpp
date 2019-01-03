@@ -88,10 +88,9 @@ bool _sort_tablet_by_create_time(const TabletSharedPtr& a, const TabletSharedPtr
 }
 
 TabletManager::TabletManager()
-        : _available_storage_medium_type_count(0),
-        _global_tablet_id(0),
-        _tablet_stat_cache_update_time_ms(0) {
-}
+    : _global_tablet_id(0),
+      _tablet_stat_cache_update_time_ms(0),
+      _available_storage_medium_type_count(0) { }
 
 OLAPStatus TabletManager::add_tablet(TTabletId tablet_id, SchemaHash schema_hash,
                                  const TabletSharedPtr& tablet, bool force) {
@@ -268,7 +267,7 @@ OLAPStatus TabletManager::create_init_version(TTabletId tablet_id, SchemaHash sc
         }
 
         // Create writer, which write nothing to tablet, to generate empty data file
-        writer = ColumnDataWriter::create(tablet, new_segment_group, false);
+        writer = ColumnDataWriter::create(new_segment_group, false, tablet->compress_kind(), tablet->bloom_filter_fpp());
         if (writer == NULL) {
             LOG(WARNING) << "fail to create writer. [tablet=" << tablet->full_name() << "]";
             res = OLAP_ERR_MALLOC_ERROR;
@@ -684,7 +683,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
 OLAPStatus TabletManager::load_tablet_from_header(DataDir* data_dir, TTabletId tablet_id,
         TSchemaHash schema_hash, const std::string& header) {
     std::unique_ptr<TabletMeta> tablet_meta(new TabletMeta());
-    bool parsed = tablet_meta->ParseFromString(header);
+    bool parsed = tablet_meta->deserialize(header);
     if (!parsed) {
         LOG(WARNING) << "parse header string failed for tablet_id:" << tablet_id << " schema_hash:" << schema_hash;
         return OLAP_ERR_HEADER_PB_PARSE_FAILED;
@@ -1115,8 +1114,8 @@ OLAPStatus TabletManager::_create_new_tablet_header(
 
     // set column information
     uint32_t i = 0;
-    uint32_t key_count = 0;
-    bool has_bf_columns = false;
+    //uint32_t key_count = 0;
+    //bool has_bf_columns = false;
     uint32_t next_unique_id = 0;
     if (true == is_schema_change_tablet) {
         next_unique_id = ref_tablet->next_unique_id();
@@ -1141,7 +1140,7 @@ OLAPStatus TabletManager::_create_new_tablet_header(
             size_t field_off = 0;
             for (field_off = 0; field_off < field_num; ++field_off) {
                 if (ref_tablet->tablet_schema()[field_off].name == column.column_name) {
-                    uint32_t unique_id = ref_tablet->tablet_schema()[field_off].unique_id;
+                    //uint32_t unique_id = ref_tablet->tablet_schema()[field_off].unique_id;
                     //header->mutable_column(i)->set_unique_id(unique_id);
                     break;
                 }

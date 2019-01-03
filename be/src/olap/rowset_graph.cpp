@@ -19,7 +19,7 @@
 
 namespace doris {
 
-OLAPStatus Tablet::construct_rowset_graph(const std::vector<RowsetMeta>& rs_metas) {
+OLAPStatus Tablet::construct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
     if (rs_metas.size() == 0) {
         VLOG(3) << "there is no version in the header.";
         return Status::OK();
@@ -30,8 +30,8 @@ OLAPStatus Tablet::construct_rowset_graph(const std::vector<RowsetMeta>& rs_meta
     vertex_values.reserve(2 * rs_metas.size());
 
     for (int i = 0; i < rs_metas.size(); ++i) {
-        vertex_values.push_back(rs_metas.Get(i).start_version());
-        vertex_values.push_back(rs_metas.Get(i).end_version() + 1);
+        vertex_values.push_back(rs_metas.Get(i)->start_version());
+        vertex_values.push_back(rs_metas.Get(i)->end_version() + 1);
     }
 
     sort(vertex_values.begin(), vertex_values.end());
@@ -58,8 +58,8 @@ OLAPStatus Tablet::construct_rowset_graph(const std::vector<RowsetMeta>& rs_meta
     for (int i = 0; i < rs_metas.size(); ++i) {
         // Versions in header are unique.
         // We ensure _vertex_index_map has its start_version.
-        int start_vertex_index = (*_vertex_index_map)[rs_metas.Get(i).start_version()];
-        int end_vertex_index = (*_vertex_index_map)[rs_metas.Get(i).end_version() + 1];
+        int start_vertex_index = (*_vertex_index_map)[rs_metas.Get(i)->start_version()];
+        int end_vertex_index = (*_vertex_index_map)[rs_metas.Get(i)->end_version() + 1];
         // Add one edge from start_version to end_version.
         list<int>* edges = (*_version_graph)[start_vertex_index].edges;
         edges->insert(edges->begin(), end_vertex_index);

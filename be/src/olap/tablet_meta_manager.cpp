@@ -61,7 +61,8 @@ OLAPStatus TabletMetaManager::get_header(DataDir* store,
         LOG(WARNING) << "load tablet_id:" << tablet_id << ", schema_hash:" << schema_hash << " failed.";
         return s;
     }
-    header->ParseFromString(value);
+    //header->ParseFromString(value);
+    header->deserialize(value);
     return header->init();
 }
 
@@ -72,12 +73,13 @@ OLAPStatus TabletMetaManager::get_json_header(DataDir* store,
     if (s != OLAP_SUCCESS) {
         return s;
     }
+    TabletMetaPB tablet_meta_pb;
+    header.to_tablet_pb(&tablet_meta_pb);
     json2pb::Pb2JsonOptions json_options;
     json_options.pretty_json = true;
-    json2pb::ProtoMessageToJson(header, json_header, json_options);
+    json2pb::ProtoMessageToJson(tablet_meta_pb, json_header, json_options);
     return OLAP_SUCCESS;
 }
-
 
 OLAPStatus TabletMetaManager::save(DataDir* store,
         TTabletId tablet_id, TSchemaHash schema_hash, const TabletMeta* header) {
@@ -85,9 +87,19 @@ OLAPStatus TabletMetaManager::save(DataDir* store,
     key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
     std::string value;
-    header->SerializeToString(&value);
+    header->serialize(&value);
     OlapMeta* meta = store->get_meta();
     OLAPStatus s = meta->put(META_COLUMN_FAMILY_INDEX, key, value);
+    return s;
+}
+
+OLAPStatus TabletMetaManager::save(DataDir* store,
+        TTabletId tablet_id, TSchemaHash schema_hash, const std::string& meta_binary) {
+    std::stringstream key_stream;
+    key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
+    std::string key = key_stream.str();
+    OlapMeta* meta = store->get_meta();
+    OLAPStatus s = meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
     return s;
 }
 
@@ -152,11 +164,13 @@ OLAPStatus TabletMetaManager::load_json_header(DataDir* store, const std::string
         json_header = json_header + buffer;
     }
     boost::algorithm::trim(json_header);
-    TabletMeta header;
-    bool ret = json2pb::JsonToProtoMessage(json_header, &header);
+    TabletMetaPB tablet_meta_pb;
+    bool ret = json2pb::JsonToProtoMessage(json_header, &tablet_meta_pb);
     if (!ret) {
         return OLAP_ERR_HEADER_LOAD_JSON_HEADER;
     }
+    TabletMeta header;
+    header.init_from_pb(tablet_meta_pb);
     TTabletId tablet_id = header.tablet_id();
     TSchemaHash schema_hash = header.schema_hash();
     OLAPStatus s = save(store, tablet_id, schema_hash, &header);
