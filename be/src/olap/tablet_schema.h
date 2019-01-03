@@ -47,7 +47,9 @@ class TabletSchema {
 public:
     TabletSchema();
     OLAPStatus init_from_pb(const TabletSchemaPB& schema);
+    OLAPStatus to_schema_pb(TabletSchemaPB* tablet_meta_pb);
     size_t get_row_size() const;
+    size_t get_field_index(const std::string& field_name) const;
 private:
     std::vector<TabletColumnSchema> _cols;
     size_t _num_columns;
