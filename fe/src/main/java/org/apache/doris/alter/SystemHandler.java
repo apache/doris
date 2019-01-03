@@ -206,7 +206,7 @@ public class SystemHandler extends AlterHandler {
             Catalog.getInstance().getBrokerMgr().execute(clause);
         } else if (alterClause instanceof AlterLoadErrorUrlClause) {
             AlterLoadErrorUrlClause clause = (AlterLoadErrorUrlClause) alterClause;
-            Catalog.getInstance().getLoadInstance().changeLoadErrorHubInfo(clause.getParam());
+            Catalog.getInstance().getLoadInstance().setLoadErrorHubInfo(clause.getProperties());
         } else {
             Preconditions.checkState(false, alterClause.getClass());
         }

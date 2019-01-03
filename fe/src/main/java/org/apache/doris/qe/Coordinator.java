@@ -27,6 +27,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
@@ -52,6 +53,7 @@ import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TEsScanRange;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TLoadErrorHubInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPartitionType;
@@ -1592,6 +1594,16 @@ public class Coordinator {
                 params.setBackend_num(backendNum++);
                 params.setQuery_globals(queryGlobals);
                 params.setQuery_options(queryOptions);
+
+                if (queryOptions.getQuery_type() == TQueryType.LOAD) {
+                    LoadErrorHub.Param param = Catalog.getCurrentCatalog().getLoadInstance().getLoadErrorHubInfo();
+                    if (param != null) {
+                        TLoadErrorHubInfo info = param.toThrift();
+                        if (info != null) {
+                            params.setLoad_error_hub_info(info);
+                        }
+                    }
+                }
 
                 paramsList.add(params);
             }

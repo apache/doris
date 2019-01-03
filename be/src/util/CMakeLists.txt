@@ -63,6 +63,7 @@ add_library(Util STATIC
   filesystem_util.cc
   load_error_hub.cpp
   mysql_load_error_hub.cpp
+  broker_load_error_hub.cpp
   null_load_error_hub.cpp
   time.cpp
   os_info.cpp

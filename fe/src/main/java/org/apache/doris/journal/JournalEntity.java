@@ -264,7 +264,7 @@ public class JournalEntity implements Writable {
                 data = new Frontend();
                 break;
             }
-            case OperationType.OP_SET_LOAD_ERROR_URL: {
+            case OperationType.OP_SET_LOAD_ERROR_HUB: {
                 data = new LoadErrorHub.Param();
                 break;
             }

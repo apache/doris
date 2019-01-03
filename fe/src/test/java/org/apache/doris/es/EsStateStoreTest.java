@@ -41,6 +41,7 @@ import com.google.common.collect.Range;
 
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.BufferedReader;
@@ -89,6 +90,7 @@ public class EsStateStoreTest {
      * partitioned es table schema: k1(date), k2(int), v(double)
      * @throws AnalysisException 
      */
+    @Ignore
     @Test
     public void testParsePartitionedClusterState() throws AnalysisException {
         EsTable esTable = (EsTable) Catalog.getCurrentCatalog()
@@ -136,6 +138,7 @@ public class EsStateStoreTest {
      * 2 indices, one with partition desc, the other does not contains partition desc
      * @throws AnalysisException 
      */
+    @Ignore
     @Test
     public void testParsePartitionedClusterStateTwoIndices() throws AnalysisException {
         EsTable esTable = (EsTable) Catalog.getCurrentCatalog()

@@ -360,11 +360,14 @@ Status CsvScanNode::close(RuntimeState* state) {
         return Status(error_msg.str());
     }
 
-    // Summary normal line and error line number info
-    std::stringstream summary_msg;
-    summary_msg << "error line: " << _error_row_number
+    // only write summary line if there are error lines
+    if (_error_row_number > 0) {
+        // Summary normal line and error line number info
+        std::stringstream summary_msg;
+        summary_msg << "error line: " << _error_row_number
             << "; normal line: " << _normal_row_number;
-    state->append_error_msg_to_file("", summary_msg.str(), true);
+        state->append_error_msg_to_file("", summary_msg.str(), true);
+    }
 
     return Status::OK;
 }

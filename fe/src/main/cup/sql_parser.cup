@@ -200,7 +200,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_ELSE, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXISTS, KW_EXPORT, KW_EXTERNAL, KW_EXTRACT,
     KW_FALSE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FIRST, KW_FLOAT, KW_FOR, KW_FRONTENDS, KW_FULL, KW_FUNCTION,
     KW_GLOBAL, KW_GRANT, KW_GRANTS, KW_GROUP,
-    KW_HASH, KW_HAVING, KW_HELP,KW_HLL, KW_HLL_UNION,
+    KW_HASH, KW_HAVING, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HUB,
     KW_IDENTIFIED, KW_IF, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE,
     KW_INNER, KW_INSERT, KW_INT, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL,  KW_ISOLATION,
     KW_JOIN,
@@ -796,11 +796,10 @@ alter_system_clause ::=
     {:
         RESULT = ModifyBrokerClause.createDropAllBrokerClause(brokerName);
     :}
-    // set load error url
-    | KW_SET ident equal STRING_LITERAL:url
+    // set load errors hub
+    | KW_SET KW_LOAD KW_ERRORS KW_HUB opt_properties:properties
     {:
-        RESULT = new AlterLoadErrorUrlClause(url);
-        // RESULT = new Object();
+        RESULT = new AlterLoadErrorUrlClause(properties);
     :}
     ;
 
@@ -1650,7 +1649,11 @@ show_param ::=
     // show load warnings
     | KW_LOAD KW_WARNINGS opt_db:db opt_wild_where limit_clause:limitClause
     {:
-        RESULT = new ShowLoadWarningsStmt(db, parser.where, limitClause);
+        RESULT = new ShowLoadWarningsStmt(db, null, parser.where, limitClause);
+    :}
+    | KW_LOAD KW_WARNINGS KW_ON STRING_LITERAL:url
+    {:
+        RESULT = new ShowLoadWarningsStmt(null, url, null, null);
     :}
     /* Show load statement */
     | KW_LOAD opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
@@ -3659,6 +3662,8 @@ keyword ::=
     | KW_HASH:id
     {: RESULT = id; :}
     | KW_HELP:id
+    {: RESULT = id; :}
+    | KW_HUB:id
     {: RESULT = id; :}
     | KW_IDENTIFIED:id
     {: RESULT = id; :}

@@ -17,8 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TErrorHubType;
@@ -26,28 +24,29 @@ import org.apache.doris.thrift.TLoadErrorHubInfo;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.commons.validator.routines.InetAddressValidator;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.net.InetAddress;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.UnknownHostException;
-import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 public abstract class LoadErrorHub {
     private static final Logger LOG = LogManager.getLogger(LoadErrorHub.class);
 
     public static final String MYSQL_PROTOCOL = "MYSQL";
-
-    private static final String DEFAULT_TABLE = "load_errors";
+    public static final String BROKER_PROTOCAL = "BROKER";
+    
+    public static enum HubType {
+        MYSQL_TYPE,
+        BROKER_TYPE,
+        NULL_TYPE
+    }
 
     public class ErrorMsg {
         private long jobId;
@@ -67,24 +66,34 @@ public abstract class LoadErrorHub {
         }
     }
 
-    // we only support mysql for now
-    public static enum HubType {
-        MYSQL_TYPE,
-        NULL_TYPE
-    }
-
     public static class Param implements Writable {
         private HubType type;
         private MysqlLoadErrorHub.MysqlParam mysqlParam;
+        private BrokerLoadErrorHub.BrokerParam brokerParam;
 
         // for replay
         public Param() {
             type = HubType.NULL_TYPE;
         }
 
-        public Param(HubType type, MysqlLoadErrorHub.MysqlParam mysqlParam) {
-            this.type = type;
-            this.mysqlParam = mysqlParam;
+        public static Param createMysqlParam(MysqlLoadErrorHub.MysqlParam mysqlParam) {
+            Param param = new Param();
+            param.type = HubType.MYSQL_TYPE;
+            param.mysqlParam = mysqlParam;
+            return param;
+        }
+
+        public static Param createBrokerParam(BrokerLoadErrorHub.BrokerParam brokerParam) {
+            Param param = new Param();
+            param.type = HubType.BROKER_TYPE;
+            param.brokerParam = brokerParam;
+            return param;
+        }
+
+        public static Param createNullParam() {
+            Param param = new Param();
+            param.type = HubType.NULL_TYPE;
+            return param;
         }
 
         public HubType getType() {
@@ -93,6 +102,10 @@ public abstract class LoadErrorHub {
 
         public MysqlLoadErrorHub.MysqlParam getMysqlParam() {
             return mysqlParam;
+        }
+
+        public BrokerLoadErrorHub.BrokerParam getBrokerParam() {
+            return brokerParam;
         }
 
         public String toString() {
@@ -119,6 +132,10 @@ public abstract class LoadErrorHub {
                     info.setType(TErrorHubType.MYSQL);
                     info.setMysql_info(mysqlParam.toThrift());
                     break;
+                case BROKER_TYPE:
+                    info.setType(TErrorHubType.BROKER);
+                    info.setBroker_info(brokerParam.toThrift());
+                    break;
                 case NULL_TYPE:
                     info.setType(TErrorHubType.NULL_TYPE);
                     break;
@@ -130,12 +147,13 @@ public abstract class LoadErrorHub {
 
         public Map<String, Object> toDppConfigInfo() {
             Map<String, Object> dppHubInfo = Maps.newHashMap();
-
             dppHubInfo.put("type", type.toString());
             switch (type) {
                 case MYSQL_TYPE:
                     dppHubInfo.put("info", mysqlParam);
                     break;
+                case BROKER_TYPE:
+                    Preconditions.checkState(false, "hadoop load do not support broker error hub");
                 case NULL_TYPE:
                     break;
                 default:
@@ -144,12 +162,31 @@ public abstract class LoadErrorHub {
             return dppHubInfo;
         }
 
+        public List<String> getInfo() {
+            List<String> info = Lists.newArrayList();
+            info.add(type.name());
+            switch (type) {
+                case MYSQL_TYPE:
+                    info.add(mysqlParam.getBrief());
+                    break;
+                case BROKER_TYPE:
+                    info.add(brokerParam.getBrief());
+                    break;
+                default:
+                    info.add("");
+            }
+            return info;
+        }
+
         @Override
         public void write(DataOutput out) throws IOException {
             Text.writeString(out, type.name());
             switch (type) {
                 case MYSQL_TYPE:
                     mysqlParam.write(out);
+                    break;
+                case BROKER_TYPE:
+                    brokerParam.write(out);
                     break;
                 case NULL_TYPE:
                     break;
@@ -166,6 +203,10 @@ public abstract class LoadErrorHub {
                     mysqlParam = new MysqlLoadErrorHub.MysqlParam();
                     mysqlParam.readFields(in);
                     break;
+                case BROKER_TYPE:
+                    brokerParam = new BrokerLoadErrorHub.BrokerParam();
+                    brokerParam.readFields(in);
+                    break;
                 case NULL_TYPE:
                     break;
                 default:
@@ -174,7 +215,7 @@ public abstract class LoadErrorHub {
         }
     }
 
-    public abstract ArrayList<ErrorMsg> fetchLoadError(long jobId);
+    public abstract List<ErrorMsg> fetchLoadError(long jobId);
 
     public abstract boolean prepare();
 
@@ -182,146 +223,20 @@ public abstract class LoadErrorHub {
 
     public static LoadErrorHub createHub(Param param) {
         switch (param.getType()) {
-            case MYSQL_TYPE:
+            case MYSQL_TYPE: {
                 LoadErrorHub hub = new MysqlLoadErrorHub(param.getMysqlParam());
                 hub.prepare();
                 return hub;
+            }
+            case BROKER_TYPE: {
+                LoadErrorHub hub = new BrokerLoadErrorHub(param.getBrokerParam());
+                hub.prepare();
+                return hub;
+            }
             default:
                 Preconditions.checkState(false, "unknown hub type");
         }
 
         return null;
-    }
-
-    public static Param analyzeUrl(String url) throws AnalysisException {
-        String protocol = null;
-        String host = null;
-        int port = 0;
-        String user = "";
-        String passwd = "";
-        String db = null;
-        String table = null;
-
-        String userInfo = null;
-        String path = null;
-        try {
-            URI uri = new URI(url);
-            protocol = uri.getScheme();
-            host = uri.getHost();
-            port = uri.getPort();
-            userInfo = uri.getUserInfo();
-            path = uri.getPath();
-        } catch (URISyntaxException e) {
-            new AnalysisException(e.getMessage());
-        }
-
-        LOG.debug("debug: protocol={}, host={}, port={}, userInfo={}, path={}", protocol, host, port, userInfo, path);
-
-        // protocol
-        HubType hubType = HubType.NULL_TYPE;
-        if (!Strings.isNullOrEmpty(protocol)) {
-            if (protocol.equalsIgnoreCase("mysql")) {
-                hubType = HubType.MYSQL_TYPE;
-            } else {
-                throw new AnalysisException("error protocol: " + protocol);
-            }
-        }
-
-        // host
-        try {
-            // validate host
-            if (!InetAddressValidator.getInstance().isValid(host)) {
-                // maybe this is a hostname
-                // if no IP address for the host could be found, 'getByName' will throw
-                // UnknownHostException
-                InetAddress inetAddress = null;
-                inetAddress = InetAddress.getByName(host);
-                host = inetAddress.getHostAddress();
-            }
-        } catch (UnknownHostException e) {
-            throw new AnalysisException("host is invalid: " + host);
-        }
-
-        // port
-        if (port <= 0 || port >= 65536) {
-            throw new AnalysisException("Port is out of range: " + port);
-        }
-
-        // user && password
-        // Note:
-        //  1. user cannot contain ':' character, but password can.
-        //  2. user cannot be empty, but password can.
-        // valid sample:
-        //   user:pwd   user   user:    user:pw:d
-        // invalid sample:
-        //   :pwd    --- not valid
-        if (Strings.isNullOrEmpty(userInfo) || userInfo.startsWith(":")) {
-            throw new AnalysisException("user:passwd is wrong: [" + userInfo + "]");
-        } else {
-            // password may contain ":", so we split as much as 2 parts.
-            String[] parts = userInfo.split(":", 2);
-            if (parts.length == 1) {
-                // "passwd:"
-                user = parts[0];
-                passwd = "";
-            } else if (parts.length == 2) {
-                user = parts[0];
-                passwd = parts[1];
-            }
-        }
-
-        // db && table
-        path = trimChar(path, '/');
-        LOG.debug("debug: path after trim = [{}]", path);
-        if (!Strings.isNullOrEmpty(path)) {
-            String[] parts = path.split("/");
-            if (parts.length == 1) {
-                db = path;
-                table = DEFAULT_TABLE;
-            } else if (parts.length == 2) {
-                db = parts[0];
-                table = parts[1];
-            } else {
-                throw new AnalysisException("path is wrong: [" + path + "]");
-            }
-        } else {
-            db = String.valueOf(Catalog.getInstance().getClusterId());
-            table = DEFAULT_TABLE;
-        }
-
-        MysqlLoadErrorHub.MysqlParam mysqlParam = new MysqlLoadErrorHub.MysqlParam(host, port, user, passwd, db, table);
-        Param param = new Param(hubType, mysqlParam);
-        return param;
-    }
-
-    // remove specified char at the leading and trailing。
-    private static String trimChar(String str, char c) {
-        if (Strings.isNullOrEmpty(str)) {
-            return "";
-        }
-
-        int beginIdx = 0;
-        for (int i = 0; i < str.length(); ++i) {
-            if (str.charAt(i) == c) {
-                beginIdx = i;
-            } else {
-                break;
-            }
-        }
-
-        if (beginIdx == str.length() - 1) {
-            return "";
-        }
-
-        int endIdx = str.length();
-        for (int i = str.length() - 1; i > beginIdx; --i) {
-            if (str.charAt(i) == c) {
-                endIdx = i;
-            } else {
-                break;
-            }
-        }
-
-        return str.substring(beginIdx + 1, endIdx);
     }
 }

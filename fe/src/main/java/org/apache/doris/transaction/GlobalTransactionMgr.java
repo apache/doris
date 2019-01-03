@@ -111,7 +111,7 @@ public class GlobalTransactionMgr {
      * @throws IllegalTransactionParameterException
      */
     public long beginTransaction(long dbId, String label, String coordinator, LoadJobSourceType sourceType,
-                                 TxnStateChangeListener txnStateChangeListener)
+            TxnStateChangeListener txnStateChangeListener)
             throws AnalysisException, LabelAlreadyExistsException, BeginTransactionException {
         
         if (Config.disable_load_job) {
