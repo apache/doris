@@ -33,16 +33,6 @@ namespace doris {
 
 const std::string ROWSET_PREFIX = "rst_";
 
-OLAPStatus convert_meta_status(OLAPStatus status) {
-    if (status == OLAP_SUCCESS) {
-        return OLAP_SUCCESS;
-    } else {
-        std::string error_msg = "meta operation failed";
-        LOG(WARNING) << error_msg;
-        return OLAP_ERR_IO_ERROR; 
-    }
-}
-
 OLAPStatus RowsetMetaManager::get_rowset_meta(OlapMeta* meta, int64_t rowset_id, RowsetMeta* rowset_meta) {
     std::string key = ROWSET_PREFIX + std::to_string(rowset_id);
     std::string value;
@@ -88,7 +78,7 @@ OLAPStatus RowsetMetaManager::save(OlapMeta* meta, int64_t rowset_id, RowsetMeta
         return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR;
     }
     OLAPStatus status = meta->put(META_COLUMN_FAMILY_INDEX, key, value);
-    return convert_meta_status(status);
+    return status;
 }
 
 OLAPStatus RowsetMetaManager::remove(OlapMeta* meta, int64_t rowset_id) {
@@ -96,7 +86,7 @@ OLAPStatus RowsetMetaManager::remove(OlapMeta* meta, int64_t rowset_id) {
     LOG(INFO) << "start to remove rowset, key:" << key;
     OLAPStatus status = meta->remove(META_COLUMN_FAMILY_INDEX, key);
     LOG(INFO) << "remove rowset key:" << key << " finished";
-    return convert_meta_status(status);
+    return status;
 }
 
 OLAPStatus RowsetMetaManager::traverse_rowset_metas(OlapMeta* meta,
@@ -113,7 +103,7 @@ OLAPStatus RowsetMetaManager::traverse_rowset_metas(OlapMeta* meta,
         return func(rowset_id, value);
     };
     OLAPStatus status = meta->iterate(META_COLUMN_FAMILY_INDEX, ROWSET_PREFIX, traverse_rowset_meta_func);
-    return convert_meta_status(status);
+    return status;
 }
 
 OLAPStatus RowsetMetaManager::load_json_rowset_meta(OlapMeta* meta, const std::string& rowset_meta_path) {
