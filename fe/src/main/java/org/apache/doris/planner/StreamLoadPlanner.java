@@ -26,8 +26,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
+import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TLoadErrorHubInfo;
 import org.apache.doris.thrift.TPlanFragmentExecParams;
 import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
@@ -138,6 +140,15 @@ public class StreamLoadPlanner {
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
         params.setQuery_globals(queryGlobals);
+
+        // set load error hub if exist
+        LoadErrorHub.Param param = Catalog.getCurrentCatalog().getLoadInstance().getLoadErrorHubInfo();
+        if (param != null) {
+            TLoadErrorHubInfo info = param.toThrift();
+            if (info != null) {
+                params.setLoad_error_hub_info(info);
+            }
+        }
 
         LOG.debug("stream load txn id: {}, plan: {}", request.txnId, params);
         return params;

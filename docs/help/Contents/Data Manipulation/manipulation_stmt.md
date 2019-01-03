@@ -612,6 +612,9 @@
         4) 如果指定了 STATE，则匹配 LOAD 状态
         5) 可以使用 ORDER BY 对任意列组合进行排序
         6) 如果指定了 LIMIT，则显示 limit 条匹配记录。否则全部显示
+        7) 如果是使用 broker/mini load，则 URL 列中的连接可以使用以下命令查看：
+
+            SHOW LOAD WARNINGS ON 'url'
 
 ## example
     1. 展示默认 db 的所有导入任务

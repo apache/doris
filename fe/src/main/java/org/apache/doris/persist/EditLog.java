@@ -571,7 +571,7 @@ public class EditLog {
                     catalog.getBrokerMgr().replayDropAllBroker(param);
                     break;
                 }
-                case OperationType.OP_SET_LOAD_ERROR_URL: {
+                case OperationType.OP_SET_LOAD_ERROR_HUB: {
                     final LoadErrorHub.Param param = (LoadErrorHub.Param) journal.getData();
                     catalog.getLoadInstance().setLoadErrorHubInfo(param);
                     break;
@@ -1064,7 +1064,7 @@ public class EditLog {
     }
 
     public void logSetLoadErrorHub(LoadErrorHub.Param param) {
-        logEdit(OperationType.OP_SET_LOAD_ERROR_URL, param);
+        logEdit(OperationType.OP_SET_LOAD_ERROR_HUB, param);
     }
 
     public void logExportCreate(ExportJob job) {

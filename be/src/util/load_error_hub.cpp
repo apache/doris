@@ -17,6 +17,7 @@
 
 #include "util/load_error_hub.h"
 #include "util/mysql_load_error_hub.h"
+#include "util/broker_load_error_hub.h"
 #include "util/null_load_error_hub.h"
 #include <thrift/protocol/TDebugProtocol.h>
 
@@ -24,8 +25,11 @@
 
 namespace doris {
 
-Status LoadErrorHub::create_hub(const TLoadErrorHubInfo* t_hub_info,
-                                          std::unique_ptr<LoadErrorHub>* hub) {
+Status LoadErrorHub::create_hub(
+        ExecEnv* env,
+        const TLoadErrorHubInfo* t_hub_info,
+        const std::string& error_log_file_name,
+        std::unique_ptr<LoadErrorHub>* hub) {
     LoadErrorHub* tmp_hub = nullptr;
 
     if (t_hub_info == nullptr) {
@@ -43,6 +47,17 @@ Status LoadErrorHub::create_hub(const TLoadErrorHubInfo* t_hub_info,
         tmp_hub->prepare();
         hub->reset(tmp_hub);
         break;
+    case TErrorHubType::BROKER: {
+        // the origin file name may contains __shard_0/xxx
+        // replace the '/' with '_'
+        std::string copied_name(error_log_file_name);
+        std::replace(copied_name.begin(), copied_name.end(), '/', '_');
+        tmp_hub = new BrokerLoadErrorHub(env, t_hub_info->broker_info,
+                copied_name);
+        tmp_hub->prepare();
+        hub->reset(tmp_hub);
+        break;
+    }
     case TErrorHubType::NULL_TYPE:
         tmp_hub = new NullLoadErrorHub();
         tmp_hub->prepare();

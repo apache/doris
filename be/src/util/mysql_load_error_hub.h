@@ -82,7 +82,7 @@ private:
     MysqlInfo _info;
 
     // the number in a write batch.
-    static const int32_t EXPORTER_THRESHOLD = 10;
+    static const int32_t EXPORTER_THRESHOLD = 100;
     static const int32_t EXPORTER_MAX_ERROR_NUM = 50;
 
     // the max size of one line
