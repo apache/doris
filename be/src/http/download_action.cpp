@@ -275,7 +275,7 @@ Status DownloadAction::check_log_path_is_allowed(const std::string& file_path) {
         return Status::OK;
     }
 
-    return Status("file path is not allowed: " + canonical_file_path);
+    return Status("file path is not allowed: " + file_path);
 }
 
 } // end namespace doris
