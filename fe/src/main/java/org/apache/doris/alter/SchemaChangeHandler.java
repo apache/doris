@@ -1320,10 +1320,12 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Table[" + tableName + "] is not under SCHEMA CHANGE");
             }
 
-            if (alterJob.getState() == JobState.FINISHING) {
-                throw new DdlException("The schemachange job related with table[" + olapTable.getName()
-                        + "] is under finishing state, it could not be cancelled");
+            if (alterJob.getState() == JobState.FINISHING ||
+                    alterJob.getState() == JobState.FINISHED ||
+                    alterJob.getState() == JobState.CANCELLED) {
+                throw new DdlException("job is already " + alterJob.getState().name() + ", can not cancel it");
             }
+
             // 3. cancel schema change job
             alterJob.cancel(olapTable, "user cancelled");
         } finally {

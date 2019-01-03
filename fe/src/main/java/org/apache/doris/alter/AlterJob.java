@@ -264,6 +264,13 @@ public abstract class AlterJob implements Writable {
     public abstract void clear();
 
     /*
+     * do something when state transfering from FINISHING to FINISHED.
+     * eg:
+     *  set table's state to NORMAL
+     */
+    public abstract void finishJob();
+
+    /*
      * replay methods
      *   corresponding to start/finished/cancelled
      */

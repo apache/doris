@@ -636,4 +636,9 @@ public class DecommissionBackendJob extends AlterJob {
         decommissionBackendJob.readFields(in);
         return decommissionBackendJob;
     }
+
+    @Override
+    public void finishJob() {
+        // do nothing
+    }
 }

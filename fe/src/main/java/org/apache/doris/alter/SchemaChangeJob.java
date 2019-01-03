@@ -860,6 +860,7 @@ public class SchemaChangeJob extends AlterJob {
         return 1;
     }
 
+    @Override
     public void finishJob() {
         Database db = Catalog.getInstance().getDb(dbId);
         if (db == null) {

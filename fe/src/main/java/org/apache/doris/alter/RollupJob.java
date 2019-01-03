@@ -596,6 +596,12 @@ public class RollupJob extends AlterJob {
                  rollupReplicaId, rollupIndexId, rollupTabletId, task.getBackendId());
     }
 
+    /*
+     * we make the rollup visible, but keep table's state as ROLLUP.
+     * 1. Make the rollup visible, because we want that the following load jobs will load data to the new
+     *    rollup, too.
+     * 2. keep the table's state in ROLLUP, because we don't want another alter job being processed.
+     */
     @Override
     public int tryFinishJob() {
         if (this.state != JobState.RUNNING) {
@@ -693,41 +699,27 @@ public class RollupJob extends AlterJob {
 
                 // all partition is finished rollup
                 // add rollup index to each partition
-                // if 
                 for (Partition partition : olapTable.getPartitions()) {
                     long partitionId = partition.getId();
                     MaterializedIndex rollupIndex = this.partitionIdToRollupIndex.get(partitionId);
                     Preconditions.checkNotNull(rollupIndex);
 
-                    long rollupRowCount = 0L;
                     // 1. record replica info
                     for (Tablet tablet : rollupIndex.getTablets()) {
                         long tabletId = tablet.getId();
                         for (Replica replica : tablet.getReplicas()) {
                             ReplicaPersistInfo replicaInfo =
                                     ReplicaPersistInfo.createForRollup(rollupIndexId, tabletId, replica.getBackendId(),
-                                                                       replica.getVersion(), replica.getVersionHash(),
-                                                                       replica.getDataSize(), replica.getRowCount(),
-                                                                       replica.getLastFailedVersion(), 
-                                                                       replica.getLastFailedVersionHash(),
-                                                                       replica.getLastSuccessVersion(), 
-                                                                       replica.getLastSuccessVersionHash());
+                                            replica.getVersion(), replica.getVersionHash(),
+                                            rollupSchemaHash,
+                                            replica.getDataSize(), replica.getRowCount(),
+                                            replica.getLastFailedVersion(),
+                                            replica.getLastFailedVersionHash(),
+                                            replica.getLastSuccessVersion(),
+                                            replica.getLastSuccessVersionHash());
                             this.partitionIdToReplicaInfos.put(partitionId, replicaInfo);
                         }
-
-                        // calculate rollup index row count
-                        long tabletRowCount = 0L;
-                        for (Replica replica : tablet.getReplicas()) {
-                            long replicaRowCount = replica.getRowCount();
-                            if (replicaRowCount > tabletRowCount) {
-                                tabletRowCount = replicaRowCount;
-                            }
-                        }
-                        rollupRowCount += tabletRowCount;
- 
                     } // end for tablets
-
-                    rollupIndex.setRowCount(rollupRowCount);
 
                     // 2. add to partition
                     partition.createRollupIndex(rollupIndex);
@@ -746,7 +738,6 @@ public class RollupJob extends AlterJob {
                                              rollupSchemaHash, rollupShortKeyColumnCount);
                 olapTable.setStorageTypeToIndex(rollupIndexId, rollupStorageType);
                 Preconditions.checkState(olapTable.getState() == OlapTableState.ROLLUP);
-                olapTable.setState(OlapTableState.NORMAL);
 
                 this.finishedTime = System.currentTimeMillis();
                 this.state = JobState.FINISHING;
@@ -758,7 +749,7 @@ public class RollupJob extends AlterJob {
 
         // log rollup done operation
         Catalog.getInstance().getEditLog().logFinishingRollup(this);
-        LOG.info("rollup job[{}] done.", this.getTableId());
+        LOG.info("rollup job[{}] is finishing.", this.getTableId());
 
         return 1;
     }
@@ -865,10 +856,11 @@ public class RollupJob extends AlterJob {
             olapTable.setIndexSchemaInfo(rollupIndexId, rollupIndexName, rollupSchema, 0,
                                          rollupSchemaHash, rollupShortKeyColumnCount);
             olapTable.setStorageTypeToIndex(rollupIndexId, rollupStorageType);
-            olapTable.setState(OlapTableState.NORMAL);
         } finally {
             db.writeUnlock();
         }
+
+        LOG.info("replay finishing the rollup job: {}", tableId);
     }
     
     @Override
@@ -876,6 +868,14 @@ public class RollupJob extends AlterJob {
         // if this is an old job, then should also update table or replica's state
         if (transactionId < 0) {
             replayFinishing(db);
+        }
+
+        db.writeLock();
+        try {
+            OlapTable olapTable = (OlapTable) db.getTable(tableId);
+            olapTable.setState(OlapTableState.NORMAL);
+        } finally {
+            db.writeUnlock();
         }
     }
 
@@ -905,6 +905,31 @@ public class RollupJob extends AlterJob {
         } finally {
             db.writeUnlock();
         }
+    }
+
+    @Override
+    public void finishJob() {
+        Database db = Catalog.getInstance().getDb(dbId);
+        if (db == null) {
+            cancelMsg = String.format("database %d does not exist", dbId);
+            LOG.warn(cancelMsg);
+            return;
+        }
+
+        db.writeLock();
+        try {
+            OlapTable olapTable = (OlapTable) db.getTable(tableId);
+            if (olapTable == null) {
+                cancelMsg = String.format("table %d does not exist", tableId);
+                LOG.warn(cancelMsg);
+                return;
+            }
+            olapTable.setState(OlapTableState.NORMAL);
+        } finally {
+            db.writeUnlock();
+        }
+
+        LOG.info("finished schema change job: {}", tableId);
     }
 
     @Override

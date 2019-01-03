@@ -654,6 +654,7 @@ public class RollupHandler extends AlterHandler {
             // has to remove here, because the job maybe finished and it still in alter job list,
             // then user could submit schema change task, and auto load to two table flag will be set false.
             // then schema change job will be failed.
+            alterJob.finishJob();
             jobDone(alterJob);
             Catalog.getInstance().getEditLog().logFinishRollup((RollupJob) alterJob);
         }
@@ -755,6 +756,11 @@ public class RollupHandler extends AlterHandler {
 
             rollupJob = getAlterJob(olapTable.getId());
             Preconditions.checkNotNull(rollupJob);
+
+            if (rollupJob.getState() == JobState.FINISHED || rollupJob.getState() == JobState.CANCELLED) {
+                throw new DdlException("job is already " + rollupJob.getState().name() + ", can not cancel it");
+            }
+
             rollupJob.cancel(olapTable, "user cancelled");
         } finally {
             db.writeUnlock();
