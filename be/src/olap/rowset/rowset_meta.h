@@ -42,6 +42,11 @@ public:
         return _deserialize_from_pb(pb_rowset_meta);
     }
 
+    virtual bool init_from_pb(const RowsetMetaPB& rowset_meta_pb) {
+        _rowset_meta_pb = rowset_meta_pb;
+        return true;
+    }
+
     virtual bool init_from_json(const std::string& json_rowset_meta) {
         bool ret = json2pb::JsonToProtoMessage(json_rowset_meta, &_rowset_meta_pb);
         return ret;

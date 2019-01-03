@@ -60,10 +60,12 @@ namespace doris {
         } \
     } while (0);
 
-SegmentGroup::SegmentGroup(int64_t tablet_id, const RowFields& tablet_schema, int num_key_fields, int num_short_key_fields,
-            size_t num_rows_per_row_block, const std::string& rowset_path_prefix, Version version, VersionHash version_hash,
+SegmentGroup::SegmentGroup(int64_t tablet_id, int64_t rowset_id, const RowFields& tablet_schema,
+            int num_key_fields, int num_short_key_fields, size_t num_rows_per_row_block,
+            const std::string& rowset_path_prefix, Version version, VersionHash version_hash,
             bool delete_flag, int32_t segment_group_id, int32_t num_segments)
       : _tablet_id(tablet_id),
+        _rowset_id(rowset_id),
         _tablet_schema(tablet_schema),
         _num_key_fields(num_key_fields),
         _num_short_key_fields(num_short_key_fields),
@@ -98,10 +100,12 @@ SegmentGroup::SegmentGroup(int64_t tablet_id, const RowFields& tablet_schema, in
     }
 }
 
-SegmentGroup::SegmentGroup(int64_t tablet_id, const RowFields& tablet_schema, int num_key_fields, int num_short_key_fields,
-        size_t num_rows_per_row_block, const std::string& rowset_path_prefix, bool delete_flag,
+SegmentGroup::SegmentGroup(int64_t tablet_id, int64_t rowset_id, const RowFields& tablet_schema,
+        int num_key_fields, int num_short_key_fields, size_t num_rows_per_row_block,
+        const std::string& rowset_path_prefix, bool delete_flag,
         int32_t segment_group_id, int32_t num_segments, bool is_pending,
         TPartitionId partition_id, TTransactionId transaction_id) : _tablet_id(tablet_id),
+        _rowset_id(rowset_id),
         _tablet_schema(tablet_schema),
         _num_key_fields(num_key_fields),
         _num_short_key_fields(num_short_key_fields),
@@ -159,30 +163,8 @@ std::string SegmentGroup::_construct_pending_file_path(int32_t segment_id, const
 std::string SegmentGroup::_construct_file_path(int32_t segment_id, const string& suffix) const {
     std::stringstream prefix_stream;
     prefix_stream << _rowset_path_prefix << "/" << _tablet_id;
-    string path_prefix = prefix_stream.str();
-    char file_path[OLAP_MAX_PATH_LEN];
-    if (_segment_group_id == -1) {
-        snprintf(file_path,
-                 sizeof(file_path),
-                 "%s_%ld_%ld_%ld_%d.%s",
-                 path_prefix.c_str(),
-                 _version.first,
-                 _version.second,
-                 _version_hash,
-                 segment_id,
-                 suffix.c_str());
-    } else {
-        snprintf(file_path,
-                 sizeof(file_path),
-                 "%s_%ld_%ld_%ld_%d_%d.%s",
-                 path_prefix.c_str(),
-                 _version.first,
-                 _version.second,
-                 _version_hash,
-                 _segment_group_id, segment_id,
-                 suffix.c_str());
-    }
-
+    std::string file_path = _rowset_path_prefix + "/" + std::to_string(_rowset_id)
+            + "_" + std::to_string(segment_id) + suffix;
     return file_path;
 }
 

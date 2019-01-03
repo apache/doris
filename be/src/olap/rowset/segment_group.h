@@ -47,12 +47,14 @@ namespace doris {
 class SegmentGroup {
     friend class MemIndex;
 public:
-    SegmentGroup(int64_t tablet_id, const RowFields& tablet_schema, int num_key_fields, int num_short_key_fields,
-            size_t num_rows_per_row_block, const std::string& rowset_path_prefix, Version version,
+    SegmentGroup(int64_t tablet_id, int64_t rowset_id, const RowFields& tablet_schema,
+            int num_key_fields, int num_short_key_fields, size_t num_rows_per_row_block,
+            const std::string& rowset_path_prefix, Version version,
             VersionHash version_hash, bool delete_flag, int segment_group_id, int32_t num_segments);
 
-    SegmentGroup(int64_t tablet_id, const RowFields& tablet_schema, int num_key_fields, int num_short_key_fields,
-            size_t num_rows_per_row_block, const std::string& rowset_path_prefix, bool delete_flag,
+    SegmentGroup(int64_t tablet_id, int64_t rowset_id, const RowFields& tablet_schema,
+            int num_key_fields, int num_short_key_fields, size_t num_rows_per_row_block,
+            const std::string& rowset_path_prefix, bool delete_flag,
             int32_t segment_group_id, int32_t num_segments, bool is_pending,
             TPartitionId partition_id, TTransactionId transaction_id);
 
@@ -249,6 +251,7 @@ private:
 
 private:
     int64_t _tablet_id;
+    int64_t _rowset_id;
     const RowFields& _tablet_schema;    // tablet schema
     int _num_key_fields;    // number of tablet keys
     int _num_short_key_fields;  // number of tablet short keys
