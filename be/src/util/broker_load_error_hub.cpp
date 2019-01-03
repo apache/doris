@@ -27,10 +27,13 @@ BrokerLoadErrorHub::BrokerLoadErrorHub(
         const TBrokerErrorHubInfo& info,
         const std::string& error_log_file_name) :
         _env(env),
-        _info(info, error_log_file_name) {
+        _info(info, error_log_file_name),
+        _broker_writer(nullptr) {
 }
 
 BrokerLoadErrorHub::~BrokerLoadErrorHub() {
+    delete _broker_writer;
+    _broker_writer = nullptr;
 }
 
 Status BrokerLoadErrorHub::prepare() {
@@ -67,12 +70,11 @@ Status BrokerLoadErrorHub::close() {
     }
 
     if (!_error_msgs.empty()) {
-        RETURN_IF_ERROR(write_to_broker());
+        write_to_broker();
     }
 
+    // close anyway
     _broker_writer->close();
-    delete _broker_writer;
-    _broker_writer = nullptr;
 
     _is_valid = false;
     return Status::OK;

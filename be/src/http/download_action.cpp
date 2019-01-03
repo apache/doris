@@ -95,6 +95,13 @@ void DownloadAction::handle_error_log(
         const std::string& file_param) {
     const std::string absolute_path = _error_log_root_dir + "/" + file_param;
 
+    Status status = check_log_path_is_allowed(absolute_path);
+    if (!status.ok()) {
+        std::string error_msg = status.get_error_msg();
+        HttpChannel::send_reply(req, error_msg);
+        return;
+    }
+
     if (FileUtils::is_dir(absolute_path)) {
         std::string error_msg = "error log can only be file.";
         HttpChannel::send_reply(req, error_msg);
@@ -250,6 +257,22 @@ Status DownloadAction::check_path_is_allowed(const std::string& file_path) {
         if (FileSystemUtil::contain_path(allow_path, canonical_file_path)) {
             return Status::OK;
         }
+    }
+
+    return Status("file path is not allowed: " + canonical_file_path);
+}
+
+Status DownloadAction::check_log_path_is_allowed(const std::string& file_path) {
+    DCHECK_EQ(_download_type, ERROR_LOG);
+    boost::system::error_code errcode;
+    boost::filesystem::path path = canonical(file_path, errcode);
+    if (errcode.value() != boost::system::errc::success) {
+        return Status("file path is invalid: " + file_path);
+    }
+
+    std::string canonical_file_path = path.string();
+    if (FileSystemUtil::contain_path(_error_log_root_dir, canonical_file_path)) {
+        return Status::OK;
     }
 
     return Status("file path is not allowed: " + canonical_file_path);
