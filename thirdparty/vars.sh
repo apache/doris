@@ -146,10 +146,10 @@ BZIP_SOURCE=bzip2-1.0.6
 BZIP_MD5SUM="00b516f4704d4a7cb50a1d97e6e8e15b"
 
 # lzo2
-LZO2_DOWNLOAD="https://github.com/damageboy/lzo2/archive/master.zip"
-LZO2_NAME=lzo2-master.zip
-LZO2_SOURCE=lzo2-master
-LZO2_MD5SUM="0afc2456c8f425778d8a4e976f97d717"
+LZO2_DOWNLOAD="http://www.oberhumer.com/opensource/lzo/download/lzo-2.10.tar.gz"
+LZO2_NAME=lzo-2.10.tar.gz
+LZO2_SOURCE=lzo-2.10
+LZO2_MD5SUM="39d3f3f9c55c87b1e5d6888e1420f4b5"
 
 # rapidjson
 RAPIDJSON_DOWNLOAD="https://github.com/miloyip/rapidjson/archive/v1.1.0.tar.gz"
