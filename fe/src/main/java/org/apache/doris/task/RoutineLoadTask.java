@@ -18,10 +18,9 @@
 package org.apache.doris.task;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.CatalogIdGenerator;
-import org.apache.doris.common.SystemIdGenerator;
-import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.task.AgentTask;
+import org.apache.doris.load.routineload.LoadDataSourceType;
+import org.apache.doris.common.LoadException;
+import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TTaskType;
 
@@ -29,23 +28,26 @@ public class RoutineLoadTask extends AgentTask {
 
     private String id;
     private long txnId;
-    private String columns;
-    private String where;
-    private String columnSeparator;
-    private RoutineLoadJob.DataSourceType dataSourceType;
+    private RoutineLoadDesc routineLoadDesc;
+    private LoadDataSourceType dataSourceType;
 
 
-    public RoutineLoadTask(TResourceInfo resourceInfo, long backendId, TTaskType taskType,
-                           long dbId, long tableId, long partitionId, long indexId, long tabletId, String id,
-                           String columns, String where, String columnSeparator,
-                           RoutineLoadJob.DataSourceType dataSourceType, long txnId) {
-        super(resourceInfo, backendId, taskType, dbId, tableId, partitionId, indexId, tabletId,
-                Catalog.getCurrentCatalog().getNextId());
+    public RoutineLoadTask(TResourceInfo resourceInfo, long backendId, long dbId, long tableId, String id,
+                           LoadDataSourceType dataSourceType, long txnId) {
+        super(resourceInfo, backendId, TTaskType.STREAM_LOAD, dbId, tableId, 0L, 0L, 0L,
+              Catalog.getCurrentCatalog().getNextId());
         this.id = id;
         this.txnId = txnId;
-        this.columns = columns;
-        this.where = where;
-        this.columnSeparator = columnSeparator;
         this.dataSourceType = dataSourceType;
+    }
+
+    public void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) throws LoadException {
+        if (this.routineLoadDesc != null) {
+            throw new LoadException("Column separator has been initialized");
+        }
+        this.routineLoadDesc = new RoutineLoadDesc(routineLoadDesc.getColumnSeparator(),
+                                                   routineLoadDesc.getColumnsInfo(),
+                                                   routineLoadDesc.getWherePredicate(),
+                                                   null);
     }
 }

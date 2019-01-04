@@ -17,8 +17,10 @@
 
 package org.apache.doris.load.routineload;
 
+import com.google.common.collect.Maps;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.task.KafkaRoutineLoadTask;
 import org.apache.doris.task.RoutineLoadTask;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -26,11 +28,12 @@ import org.apache.doris.transaction.LabelAlreadyExistsException;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public class KafkaTaskInfo extends RoutineLoadTaskInfo {
 
-    private RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadInstance();
+    private RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
 
     private List<Integer> partitions;
 
@@ -55,12 +58,19 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     }
 
     @Override
-    public RoutineLoadTask createStreamLoadTask(long beId) {
+    public RoutineLoadTask createStreamLoadTask(long beId) throws LoadException {
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
-        return new KafkaRoutineLoadTask(routineLoadJob.getResourceInfo(),
-                beId, routineLoadJob.getDbId(), routineLoadJob.getTableId(),
-                0L, 0L, 0L, routineLoadJob.getColumns(), routineLoadJob.getWhere(),
-                routineLoadJob.getColumnSeparator(), this, (KafkaProgress) routineLoadJob.getProgress(),
-                txnId);
+        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
+        this.getPartitions().parallelStream()
+                .forEach(entity -> partitionIdToOffset.put(entity, ((KafkaProgress) routineLoadJob.getProgress())
+                        .getPartitionIdToOffset().get(entity)));
+        RoutineLoadTask routineLoadTask = new KafkaRoutineLoadTask(routineLoadJob.getResourceInfo(),
+                                                                   beId, routineLoadJob.getDbId(),
+                                                                   routineLoadJob.getTableId(),
+                                                                   id, txnId, partitionIdToOffset);
+        if (routineLoadJob.getRoutineLoadDesc() != null) {
+            routineLoadTask.setRoutineLoadDesc(routineLoadJob.getRoutineLoadDesc());
+        }
+        return routineLoadTask;
     }
 }

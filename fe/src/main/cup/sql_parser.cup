@@ -205,7 +205,9 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_INNER, KW_INSERT, KW_INT, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL,  KW_ISOLATION,
     KW_JOIN,
     KW_KEY, KW_KILL,
-    KW_LABEL, KW_LARGEINT, KW_LAST, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LOAD, KW_LOCAL, KW_LOCATION,
+    KW_LABEL, KW_LARGEINT, KW_LAST, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LOAD,
+    KW_ROUTINE, KW_PAUSE, KW_RESUME, KW_STOP,
+    KW_LOCAL, KW_LOCATION,
     KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY,
     KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
     KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_ORDER, KW_OUTER, KW_OVER,
@@ -240,7 +242,9 @@ terminal String UNMATCHED_STRING_LITERAL;
 terminal String COMMENTED_PLAN_HINTS;
 
 // Statement that the result of this parser.
-nonterminal StatementBase query, stmt, show_stmt, show_param, help_stmt, load_stmt, describe_stmt, alter_stmt,
+nonterminal StatementBase query, stmt, show_stmt, show_param, help_stmt, load_stmt,
+    create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt, show_routine_load_stmt,
+    describe_stmt, alter_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     link_stmt, migrate_stmt, enter_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt, import_columns_stmt, import_where_stmt;
 
@@ -294,6 +298,7 @@ nonterminal ClusterName des_cluster_name;
 nonterminal TableName table_name;
 nonterminal FunctionName function_name;
 nonterminal Expr where_clause;
+nonterminal Expr where_clause_without_null;
 nonterminal Predicate predicate, between_predicate, comparison_predicate,
   compound_predicate, in_predicate, like_predicate, exists_predicate;
 nonterminal ArrayList<Expr> group_by_clause, opt_partition_by_clause;
@@ -372,13 +377,18 @@ nonterminal LabelName job_label;
 nonterminal String opt_system;
 nonterminal String opt_cluster;
 nonterminal BrokerDesc opt_broker;
-nonterminal List<String> opt_col_list, opt_dup_keys;
-nonterminal List<String> opt_partitions;
+nonterminal List<String> opt_col_list, col_list, opt_dup_keys;
+nonterminal List<String> opt_partitions, partitions;
 nonterminal List<Expr> opt_col_mapping_list;
-nonterminal ColumnSeparator opt_field_term;
+nonterminal ColumnSeparator opt_field_term, column_separator;
 nonterminal String opt_user_role;
 nonterminal TablePattern tbl_pattern;
 nonterminal String ident_or_star;
+
+// Routine load
+nonterminal LoadColumnsInfo load_columns_info;
+nonterminal ParseNode load_property;
+nonterminal List<ParseNode> opt_load_property_list;
 
 // Boolean
 nonterminal Boolean opt_negative, opt_super_user, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate;
@@ -510,6 +520,16 @@ stmt ::=
     {: RESULT = stmt; :}
     | load_stmt : stmt
     {: RESULT = stmt; :}
+    | create_routine_load_stmt : stmt
+    {: RESULT = stmt; :}
+    | pause_routine_load_stmt : stmt
+    {: RESULT = stmt; :}
+    | resume_routine_load_stmt : stmt
+    {: RESULT = stmt; :}
+    | stop_routine_load_stmt : stmt
+    {: RESULT = stmt; :}
+    | show_routine_load_stmt : stmt
+    {: RESULT = stmt; :}
     | cancel_stmt : stmt
     {: RESULT = stmt; :}
     | delete_stmt : stmt
@@ -585,7 +605,7 @@ alter_stmt ::=
     {:
         RESULT = new AlterSystemStmt(clause);
     :}
-    | KW_ALTER KW_CLUSTER ident:name opt_properties:properties 
+    | KW_ALTER KW_CLUSTER ident:name opt_properties:properties
     {:
         RESULT = new AlterClusterStmt(name, properties);
     :}
@@ -1029,6 +1049,13 @@ opt_partitions ::=
     :}
     ;
 
+partitions ::=
+    KW_PARTITION LPAREN ident_list:partitionNames RPAREN
+    {:
+        RESULT = partitionNames;
+    :}
+    ;
+
 opt_negative ::=
     {:
         RESULT = false;
@@ -1050,11 +1077,25 @@ opt_field_term ::=
     :}
     ;
 
+column_separator ::=
+    KW_COLUMNS KW_TERMINATED KW_BY STRING_LITERAL:sep
+    {:
+        RESULT = new ColumnSeparator(sep);
+    :}
+    ;
+
 opt_col_list ::=
     {:
         RESULT = null;
     :}
     | LPAREN ident_list:colList RPAREN
+    {:
+        RESULT = colList;
+    :}
+    ;
+
+col_list ::=
+    KW_COLUMNS LPAREN ident_list:colList RPAREN
     {:
         RESULT = colList;
     :}
@@ -1102,6 +1143,87 @@ opt_cluster ::=
     | KW_BY ident_or_text:cluster
     {:
         RESULT = cluster;
+    :}
+    ;
+
+// Routine load statement
+create_routine_load_stmt ::=
+    KW_CREATE KW_ROUTINE KW_LOAD ident:jobName KW_ON table_name:dbTableName
+    opt_load_property_list:loadPropertyList
+    opt_properties:properties
+    KW_FROM ident:type LPAREN key_value_map:customProperties RPAREN
+    {:
+        RESULT = new CreateRoutineLoadStmt(jobName, dbTableName, loadPropertyList, properties, type, customProperties);
+    :}
+    ;
+
+opt_load_property_list ::=
+    {:
+        RESULT = null;
+    :}
+    | load_property:loadProperty
+    {:
+        RESULT = Lists.newArrayList(loadProperty);
+    :}
+    | opt_load_property_list:list COMMA load_property:loadProperty
+    {:
+        list.add(loadProperty);
+        RESULT = list;
+    :}
+    ;
+
+load_property ::=
+    column_separator:colSep
+    {:
+      RESULT = colSep;
+    :}
+    | load_columns_info:columnsInfo
+    {:
+      RESULT = columnsInfo;
+    :}
+    | where_clause_without_null:wherePredicate
+    {:
+      RESULT = wherePredicate;
+    :}
+    | partitions:partitionNames
+    {:
+      RESULT = new PartitionNames(partitionNames);
+    :}
+    ;
+
+load_columns_info ::=
+    col_list:colList
+    opt_col_mapping_list:colMappingList
+    {:
+        RESULT = new LoadColumnsInfo(colList, colMappingList);
+    :}
+    ;
+
+pause_routine_load_stmt ::=
+    KW_PAUSE KW_ROUTINE KW_LOAD ident:name
+    {:
+        RESULT = new PauseRoutineLoadStmt(name);
+    :}
+    ;
+
+resume_routine_load_stmt ::=
+    KW_RESUME KW_ROUTINE KW_LOAD ident:name
+    {:
+        RESULT = new ResumeRoutineLoadStmt(name);
+    :}
+    ;
+
+stop_routine_load_stmt ::=
+    KW_STOP KW_ROUTINE KW_LOAD ident:name
+    {:
+        RESULT = new StopRoutineLoadStmt(name);
+    :}
+    ;
+
+show_routine_load_stmt ::=
+    KW_SHOW KW_ROUTINE KW_LOAD ident:name
+    {:
+        RESULT = new ShowRoutineLoadStmt(name);
     :}
     ;
 
@@ -2871,6 +2993,11 @@ where_clause ::=
   {: RESULT = e; :}
   | /* empty */
   {: RESULT = null; :}
+  ;
+
+where_clause_without_null ::=
+  KW_WHERE expr:e
+  {: RESULT = e; :}
   ;
 
 group_by_clause ::=
