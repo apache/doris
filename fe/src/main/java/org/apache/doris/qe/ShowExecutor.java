@@ -48,6 +48,7 @@ import org.apache.doris.analysis.ShowRepositoriesStmt;
 import org.apache.doris.analysis.ShowRestoreStmt;
 import org.apache.doris.analysis.ShowRolesStmt;
 import org.apache.doris.analysis.ShowRollupStmt;
+import org.apache.doris.analysis.ShowRoutineLoadStmt;
 import org.apache.doris.analysis.ShowSnapshotStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
@@ -91,6 +92,7 @@ import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadErrorHub.HubType;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
+import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -163,6 +165,8 @@ public class ShowExecutor {
             handleShowLoad();
         } else if (stmt instanceof ShowLoadWarningsStmt) {
             handleShowLoadWarnings();
+        } else if (stmt instanceof ShowRoutineLoadStmt) {
+            handleShowRoutineLoad();
         } else if (stmt instanceof ShowDeleteStmt) {
             handleShowDelete();
         } else if (stmt instanceof ShowAlterStmt) {
@@ -308,7 +312,7 @@ public class ShowExecutor {
         for (BaseParam param : infos) {
             final int percent = (int) (param.getFloatParam(0) * 100f);
             rows.add(Lists.newArrayList(param.getStringParam(0), param.getStringParam(1), param.getStringParam(2),
-                    String.valueOf(percent + "%")));
+                                        String.valueOf(percent + "%")));
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -489,7 +493,7 @@ public class ShowExecutor {
             } else {
                 if (showStmt.isView()) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_OBJECT, showStmt.getDb(),
-                            showStmt.getTable(), "VIEW");
+                                                        showStmt.getTable(), "VIEW");
                 }
                 rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0)));
                 resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -535,22 +539,22 @@ public class ShowExecutor {
                             // Field Type Collation Null Key Default Extra
                             // Privileges Comment
                             rows.add(Lists.newArrayList(columnName,
-                                    columnType,
-                                    "",
-                                    isAllowNull,
-                                    isKey,
-                                    defaultValue,
-                                    aggType,
-                                    "",
-                                    col.getComment()));
+                                                        columnType,
+                                                        "",
+                                                        isAllowNull,
+                                                        isKey,
+                                                        defaultValue,
+                                                        aggType,
+                                                        "",
+                                                        col.getComment()));
                         } else {
                             // Field Type Null Key Default Extra
                             rows.add(Lists.newArrayList(columnName,
-                                    columnType,
-                                    isAllowNull,
-                                    isKey,
-                                    defaultValue,
-                                    aggType));
+                                                        columnType,
+                                                        isAllowNull,
+                                                        isKey,
+                                                        defaultValue,
+                                                        aggType));
                         }
                     }
                 }
@@ -592,7 +596,7 @@ public class ShowExecutor {
             }
         }
         if (topic != null) {
-            resultSet = new ShowResultSet(helpStmt.getMetaData(), Lists.<List<String>> newArrayList(
+            resultSet = new ShowResultSet(helpStmt.getMetaData(), Lists.<List<String>>newArrayList(
                     Lists.newArrayList(topic.getName(), topic.getDescription(), topic.getExample())));
         } else {
             List<String> categories = module.listCategoryByName(mark);
@@ -602,7 +606,7 @@ public class ShowExecutor {
             } else if (categories.size() > 1) {
                 // Send category list
                 resultSet = new ShowResultSet(helpStmt.getCategoryMetaData(),
-                        Lists.<List<String>> newArrayList(categories));
+                                              Lists.<List<String>>newArrayList(categories));
             } else {
                 // Send topic list and sub-category list
                 List<List<String>> rows = Lists.newArrayList();
@@ -704,8 +708,8 @@ public class ShowExecutor {
             if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), db.getFullName(),
                                                                    PrivPredicate.SHOW)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED,
-                                               ConnectContext.get().getQualifiedUser(),
-                                               db.getFullName());
+                                                    ConnectContext.get().getQualifiedUser(),
+                                                    db.getFullName());
             }
         } else {
             for (String tblName : tableNames) {
@@ -780,8 +784,43 @@ public class ShowExecutor {
             throw new AnalysisException(
                     "failed to get error log from url: " + url + ". reason: " + e.getMessage());
         }
-        
+
         resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
+    }
+
+    private void handleShowRoutineLoad() throws AnalysisException {
+        ShowRoutineLoadStmt showRoutineLoadStmt = (ShowRoutineLoadStmt) stmt;
+        // if job exists
+        RoutineLoadJob routineLoadJob =
+                Catalog.getCurrentCatalog().getRoutineLoadManager().getJobByName(showRoutineLoadStmt.getName());
+        if (routineLoadJob == null) {
+            throw new AnalysisException("There is no routine load job with id " + showRoutineLoadStmt.getName());
+        }
+
+        // check auth
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                                                                routineLoadJob.getDbFullName(),
+                                                                routineLoadJob.getTableName(),
+                                                                PrivPredicate.LOAD)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
+                                                ConnectContext.get().getQualifiedUser(),
+                                                ConnectContext.get().getRemoteIP(),
+                                                routineLoadJob.getTableName());
+        }
+
+        // get routine load info
+        List<List<String>> rows = Lists.newArrayList();
+        List<String> row = Lists.newArrayList();
+        row.add(routineLoadJob.getId());
+        row.add(routineLoadJob.getName());
+        row.add(String.valueOf(routineLoadJob.getDbId()));
+        row.add(String.valueOf(routineLoadJob.getTableId()));
+        row.add(routineLoadJob.getPartitions());
+        row.add(routineLoadJob.getState().name());
+        row.add(routineLoadJob.getDesiredConcurrentNumber());
+        row.add(routineLoadJob.getProgress().toString());
+
+        resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
     }
 
     // Show user property statement

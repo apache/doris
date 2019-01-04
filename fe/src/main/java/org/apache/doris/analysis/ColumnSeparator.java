@@ -23,7 +23,7 @@ import com.google.common.base.Strings;
 
 import java.io.StringWriter;
 
-public class ColumnSeparator {
+public class ColumnSeparator implements ParseNode {
     private static final String HEX_STRING = "0123456789ABCDEF";
 
     private final String oriSeparator;
@@ -55,6 +55,11 @@ public class ColumnSeparator {
     }
 
     public void analyze() throws AnalysisException {
+        analyze(null);
+    }
+
+    @Override
+    public void analyze(Analyzer analyzer) throws AnalysisException {
         this.separator = convertSeparator(oriSeparator);
     }
 
