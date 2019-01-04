@@ -40,8 +40,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * It is accessed by two kinds of threads, one is thread which create
- * RuntimeProfile, namely query thread, the other is thread which call
+ * It is accessed by two kinds of threads, one is to create this RuntimeProfile
+ * , named 'query thread', the other is to call 
  * {@link org.apache.doris.common.proc.CurrentQueryInfoProvider}.
  */
 public class RuntimeProfile {

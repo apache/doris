@@ -131,15 +131,19 @@ public class CurrentQueryInfoProvider {
     private String parseInstanceId(String str) {
         final String[] elements = str.split(" ");
         if (elements.length == 4) {
-            return  elements[1];
+            return elements[1];
         } else {
             Preconditions.checkState(false);
             return "";
         }
     }
 
+    /**
+     * @param numOfQuery
+     * @return unit(ms)
+     */
     private long getWaitTime(int numOfQuery) {
-        final int oneQueryWaitTime = 200;
+        final int oneQueryWaitTime = 100;
         final int allQueryMaxWaitTime = 2000;
         final int waitTime = numOfQuery * oneQueryWaitTime;
         return waitTime > allQueryMaxWaitTime ? allQueryMaxWaitTime : waitTime;
@@ -153,7 +157,7 @@ public class CurrentQueryInfoProvider {
 
     private void triggerReportAndWait(Collection<QueryStatisticsItem> items, long waitTime, boolean allQuery)
             throws AnalysisException {
-        triggerReportProfile(items, allQuery);
+        triggerProfileReport(items, allQuery);
         try {
             Thread.currentThread().sleep(waitTime);
         } catch (InterruptedException e) {
@@ -166,7 +170,7 @@ public class CurrentQueryInfoProvider {
      * @param allQuery true:all queries profile will be reported, false:specified queries profile will be reported.
      * @throws AnalysisException
      */
-    private void triggerReportProfile(Collection<QueryStatisticsItem> items, boolean allQuery) throws AnalysisException {
+    private void triggerProfileReport(Collection<QueryStatisticsItem> items, boolean allQuery) throws AnalysisException {
         final Map<TNetworkAddress, Request> requestMap = Maps.newHashMap();
         final Map<TNetworkAddress, TNetworkAddress> brpcAddressMap = Maps.newHashMap();
         for (QueryStatisticsItem item : items) {
@@ -198,16 +202,16 @@ public class CurrentQueryInfoProvider {
         recvResponse(sendRequest(requestMap));
     }
 
-    private List<Pair<Request, Future<PTiggerReportProfileResult>>> sendRequest(
+    private List<Pair<Request, Future<PTriggerProfileReportResult>>> sendRequest(
             Map<TNetworkAddress, Request> requestMap) throws AnalysisException {
-        final List<Pair<Request, Future<PTiggerReportProfileResult>>> futures = Lists.newArrayList();
+        final List<Pair<Request, Future<PTriggerProfileReportResult>>> futures = Lists.newArrayList();
         for (TNetworkAddress address : requestMap.keySet()) {
             final Request request = requestMap.get(address);
-            final PTiggerReportProfileRequest pbRequest =
-                    new PTiggerReportProfileRequest(request.getInstanceIds());
+            final PTriggerProfileReportRequest pbRequest =
+                    new PTriggerProfileReportRequest(request.getInstanceIds());
             try {
                 futures.add(Pair.create(request, BackendServiceProxy.getInstance().
-                        triggerReportProfileAsync(address, pbRequest)));
+                        triggerProfileReportAsync(address, pbRequest)));
             } catch (RpcException e) {
                 throw new AnalysisException("Sending request fails for query's execution informations.");
             }
@@ -215,13 +219,13 @@ public class CurrentQueryInfoProvider {
         return futures;
     }
 
-    private void recvResponse(List<Pair<Request, Future<PTiggerReportProfileResult>>> futures)
+    private void recvResponse(List<Pair<Request, Future<PTriggerProfileReportResult>>> futures)
             throws AnalysisException {
         final String reasonPrefix = "Fail to receive result.";
-        for (Pair<Request, Future<PTiggerReportProfileResult>> pair : futures) {
+        for (Pair<Request, Future<PTriggerProfileReportResult>> pair : futures) {
             try {
-                final PTiggerReportProfileResult result
-                        = pair.second.get(10, TimeUnit.SECONDS);
+                final PTriggerProfileReportResult result
+                        = pair.second.get(2, TimeUnit.SECONDS);
                 final TStatusCode code = TStatusCode.findByValue(result.status.code);
                 if (code != TStatusCode.OK) {
                     String errMsg = "";

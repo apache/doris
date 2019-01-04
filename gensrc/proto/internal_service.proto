@@ -131,11 +131,11 @@ message PFetchDataResult {
     optional bool eos = 3;
 };
 
-message PTiggerReportProfileRequest {
+message PTriggerProfileReportRequest {
     repeated PUniqueId instance_ids = 1;
 }
 
-message PTiggerReportProfileResult {
+message PTriggerProfileReportResult {
     required PStatus status = 1;
 }
 
@@ -147,7 +147,7 @@ service PBackendService {
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
     rpc tablet_writer_add_batch(PTabletWriterAddBatchRequest) returns (PTabletWriterAddBatchResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);
-    rpc trigger_report_profile(PTiggerReportProfileRequest) returns (PTiggerReportProfileResult);
+    rpc trigger_profile_report(PTriggerProfileReportRequest) returns (PTriggerProfileReportResult);
     // NOTE(zc): If you want to add new method here,
     // you MUST add same method to palo_internal_service.proto
 };

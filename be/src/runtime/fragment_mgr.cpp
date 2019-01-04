@@ -500,7 +500,7 @@ void FragmentMgr::cancel_worker() {
     LOG(INFO) << "FragmentMgr cancel worker is going to exit.";
 }
 
-Status FragmentMgr::trigger_report_profile(const PTiggerReportProfileRequest* request) {
+Status FragmentMgr::trigger_profile_report(const PTriggerProfileReportRequest* request) {
     if (request->instance_ids_size() > 0) {
         for (int i = 0; i < request->instance_ids_size(); i++) {
             const PUniqueId& p_fragment_id = request->instance_ids(i);

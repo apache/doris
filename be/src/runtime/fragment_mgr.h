@@ -60,7 +60,7 @@ public:
 
     virtual void debug(std::stringstream& ss);
 
-    Status trigger_report_profile(const PTiggerReportProfileRequest* request);
+    Status trigger_profile_report(const PTriggerProfileReportRequest* request);
 
 private:
     void exec_actual(std::shared_ptr<FragmentExecState> exec_state,

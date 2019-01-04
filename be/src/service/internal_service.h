@@ -74,10 +74,10 @@ public:
                               PTabletWriterCancelResult* response,
                               google::protobuf::Closure* done) override;
 
-    void trigger_report_profile(
+    void trigger_profile_report(
         google::protobuf::RpcController* controller,
-        const PTiggerReportProfileRequest* request,
-        PTiggerReportProfileResult* result,
+        const PTriggerProfileReportRequest* request,
+        PTriggerProfileReportResult* result,
         google::protobuf::Closure* done) override;
 
 private:

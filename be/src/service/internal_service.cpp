@@ -186,13 +186,13 @@ void PInternalServiceImpl<T>::fetch_data(
 }
 
 template<typename T>
-void PInternalServiceImpl<T>::trigger_report_profile(
+void PInternalServiceImpl<T>::trigger_profile_report(
         google::protobuf::RpcController* controller,
-        const PTiggerReportProfileRequest* request,
-        PTiggerReportProfileResult* result,
+        const PTriggerProfileReportRequest* request,
+        PTriggerProfileReportResult* result,
         google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
-    auto st = _exec_env->fragment_mgr()->trigger_report_profile(request);
+    auto st = _exec_env->fragment_mgr()->trigger_profile_report(request);
     st.to_protobuf(result->mutable_status());
 }
 
