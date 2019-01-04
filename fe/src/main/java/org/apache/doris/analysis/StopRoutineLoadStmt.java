@@ -15,26 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.task;
 
-import org.apache.doris.load.routineload.LoadDataSourceType;
-import org.apache.doris.thrift.TResourceInfo;
+package org.apache.doris.analysis;
 
-import java.util.Map;
+import com.google.common.base.Strings;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 
+/*
+  Stop routine load job by name
 
-public class KafkaRoutineLoadTask extends RoutineLoadTask {
+  syntax:
+      STOP ROUTINE LOAD name
+ */
+public class StopRoutineLoadStmt extends DdlStmt {
 
-    private Map<Integer, Long> partitionIdToOffset;
+    private final String name;
 
-    public KafkaRoutineLoadTask(TResourceInfo resourceInfo, long backendId,
-                                long dbId, long tableId, String taskId,
-                                long txnId, Map<Integer, Long> partitionIdToOffset) {
-        super(resourceInfo, backendId, dbId, tableId, taskId, LoadDataSourceType.KAFKA, txnId);
-        this.partitionIdToOffset = partitionIdToOffset;
+    public StopRoutineLoadStmt(String name) {
+        this.name = name;
     }
 
-    public Map<Integer, Long> getPartitionIdToOffset() {
-        return partitionIdToOffset;
+    public String getName() {
+        return name;
+    }
+
+    @Override
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+        super.analyze(analyzer);
+        if (Strings.isNullOrEmpty(name)) {
+            throw new AnalysisException("routine load name could not be empty or null");
+        }
     }
 }

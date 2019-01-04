@@ -32,6 +32,7 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
+import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
@@ -48,12 +49,15 @@ import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.LinkDbStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.MigrateDbStmt;
+import org.apache.doris.analysis.PauseRoutineLoadStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
 import org.apache.doris.analysis.RestoreStmt;
+import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
+import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.Catalog;
@@ -108,7 +112,15 @@ public class DdlExecutor {
             catalog.getLoadInstance().addLoadJob(loadStmt, jobType, System.currentTimeMillis());
         } else if (ddlStmt instanceof CancelLoadStmt) {
             catalog.getLoadInstance().cancelLoadJob((CancelLoadStmt) ddlStmt);
-        } else if (ddlStmt instanceof DeleteStmt) {
+        } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
+            catalog.getRoutineLoadManager().addRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
+        } else if (ddlStmt instanceof PauseRoutineLoadStmt) {
+            catalog.getRoutineLoadManager().pauseRoutineLoadJob((PauseRoutineLoadStmt) ddlStmt);
+        } else if (ddlStmt instanceof ResumeRoutineLoadStmt) {
+            catalog.getRoutineLoadManager().resumeRoutineLoadJob((ResumeRoutineLoadStmt) ddlStmt);
+        } else if (ddlStmt instanceof StopRoutineLoadStmt) {
+            catalog.getRoutineLoadManager().stopRoutineLoadJob((StopRoutineLoadStmt) ddlStmt);
+        }  else if (ddlStmt instanceof DeleteStmt) {
             catalog.getLoadInstance().delete((DeleteStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateUserStmt) {
             CreateUserStmt stmt = (CreateUserStmt) ddlStmt;

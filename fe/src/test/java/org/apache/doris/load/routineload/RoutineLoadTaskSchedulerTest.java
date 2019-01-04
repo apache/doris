@@ -24,6 +24,8 @@ import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
 import mockit.Verifications;
+import org.apache.doris.analysis.LoadColumnsInfo;
+import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LoadException;
@@ -52,7 +54,9 @@ public class RoutineLoadTaskSchedulerTest {
 
     @Test
     public void testRunOneCycle(@Injectable KafkaRoutineLoadJob kafkaRoutineLoadJob1,
-                                @Injectable KafkaRoutineLoadJob routineLoadJob) throws LoadException,
+                                @Injectable KafkaRoutineLoadJob routineLoadJob,
+                                @Injectable RoutineLoadDesc routineLoadDesc,
+                                @Injectable LoadColumnsInfo loadColumnsInfo) throws LoadException,
             MetaNotFoundException, AnalysisException, LabelAlreadyExistsException, BeginTransactionException {
         long beId = 100L;
 
@@ -81,7 +85,7 @@ public class RoutineLoadTaskSchedulerTest {
             {
                 Catalog.getInstance();
                 result = catalog;
-                catalog.getRoutineLoadInstance();
+                catalog.getRoutineLoadManager();
                 result = routineLoadManager;
                 Catalog.getCurrentCatalog();
                 result = catalog;
@@ -95,9 +99,9 @@ public class RoutineLoadTaskSchedulerTest {
                 result = 1L;
                 kafkaRoutineLoadJob1.getTableId();
                 result = 1L;
-                kafkaRoutineLoadJob1.getColumns();
-                result = "columns";
-                kafkaRoutineLoadJob1.getColumnSeparator();
+                routineLoadDesc.getColumnsInfo();
+                result = loadColumnsInfo;
+                routineLoadDesc.getColumnSeparator();
                 result = "";
                 kafkaRoutineLoadJob1.getProgress();
                 result = kafkaProgress;
@@ -115,10 +119,7 @@ public class RoutineLoadTaskSchedulerTest {
 
         KafkaRoutineLoadTask kafkaRoutineLoadTask = new KafkaRoutineLoadTask(kafkaRoutineLoadJob1.getResourceInfo(),
                 beId, kafkaRoutineLoadJob1.getDbId(), kafkaRoutineLoadJob1.getTableId(),
-                0L, 0L, 0L, kafkaRoutineLoadJob1.getColumns(), kafkaRoutineLoadJob1.getWhere(),
-                kafkaRoutineLoadJob1.getColumnSeparator(),
-                (KafkaTaskInfo) routineLoadTaskInfo1,
-                (KafkaProgress) kafkaRoutineLoadJob1.getProgress(), 0L);
+                "", 0L, partitionIdToOffset);
 //
 //        new Expectations() {
 //            {

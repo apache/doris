@@ -164,7 +164,7 @@ public class CastExpr extends Expr {
         return isImplicit;
     }
 
-    private void analyze() throws AnalysisException {
+    public void analyze() throws AnalysisException {
         // cast was asked for in the query, check for validity of cast
         Type childType = getChild(0).getType();
 

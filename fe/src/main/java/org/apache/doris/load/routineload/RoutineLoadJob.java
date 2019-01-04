@@ -17,14 +17,22 @@
 
 package org.apache.doris.load.routineload;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.TxnStateChangeListener;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendServiceImpl;
 import org.apache.doris.task.AgentTaskQueue;
@@ -45,6 +53,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -55,141 +64,234 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * The routine load job support different streaming medium such as KAFKA
  */
 public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener {
-    
+
     private static final Logger LOG = LogManager.getLogger(RoutineLoadJob.class);
-    
+
     private static final int DEFAULT_TASK_TIMEOUT_SECONDS = 10;
     private static final int BASE_OF_ERROR_RATE = 10000;
-    
+    private static final String STAR_STRING = "*";
+
+    /**
+                      +-----------------+
+     fe scheduler job |  NEED_SCHEDULER |  user resume job
+     +-----------     +                 | <---------+
+     |                |                 |           |
+     v                +-----------------+           ^
+     |
+     +------------+   user pause job        +-------+----+
+     |  RUNNING   |                         |  PAUSED    |
+     |            +-----------------------> |            |
+     +----+-------+                         +-------+----+
+     |                                              |
+     |                +---------------+             |
+     |                | STOPPED       |             |
+     +--------------> |               | <-----------+
+     user stop job    +---------------+    user stop| job
+     |                                              |
+     |                                              |
+     |                 +---------------+            |
+     |                 | CANCELLED     |            |
+     +---------------> |               | <----------+
+     system error      +---------------+    system error
+
+     */
     public enum JobState {
         NEED_SCHEDULER,
         RUNNING,
         PAUSED,
         STOPPED,
-        CANCELLED
+        CANCELLED;
+
+        public boolean isFinalState() {
+            return this == STOPPED || this == CANCELLED;
+        }
+
     }
-    
-    public enum DataSourceType {
-        KAFKA
-    }
-    
+
     protected String id;
     protected String name;
-    protected String userName;
     protected long dbId;
     protected long tableId;
-    protected String partitions;
-    protected String columns;
-    protected String where;
-    protected String columnSeparator;
-    protected int desireTaskConcurrentNum;
+    protected RoutineLoadDesc routineLoadDesc; // optional
+    protected int desireTaskConcurrentNum; // optional
     protected JobState state;
-    protected DataSourceType dataSourceType;
+    protected LoadDataSourceType dataSourceType;
     // max number of error data in ten thousand data
     // maxErrorNum / BASE_OF_ERROR_RATE = max error rate of routine load job
     // if current error rate is more then max error rate, the job will be paused
-    protected int maxErrorNum;
+    protected int maxErrorNum; // optional
+    // thrift object
+    protected TResourceInfo resourceInfo;
+
     protected RoutineLoadProgress progress;
     protected String pausedReason;
-    
+
     // currentErrorNum and currentTotalNum will be update
     // when currentTotalNum is more then ten thousand or currentErrorNum is more then maxErrorNum
     protected int currentErrorNum;
     protected int currentTotalNum;
-    
+
     // The tasks belong to this job
     protected List<RoutineLoadTaskInfo> routineLoadTaskInfoList;
     protected List<RoutineLoadTaskInfo> needSchedulerTaskInfoList;
-    
+
     protected ReentrantReadWriteLock lock;
     // TODO(ml): error sample
-    
-    
-    public RoutineLoadJob() {
-    }
-    
-    public RoutineLoadJob(String id, String name, String userName, long dbId, long tableId,
-                          String partitions, String columns, String where, String columnSeparator,
-                          int desireTaskConcurrentNum, JobState state, DataSourceType dataSourceType,
-                          int maxErrorNum, TResourceInfo resourceInfo) {
-        this.id = id;
+
+    public RoutineLoadJob(String name, long dbId, long tableId, LoadDataSourceType dataSourceType) {
+        this.id = UUID.randomUUID().toString();
         this.name = name;
-        this.userName = userName;
         this.dbId = dbId;
         this.tableId = tableId;
-        this.partitions = partitions;
-        this.columns = columns;
-        this.where = where;
-        this.columnSeparator = columnSeparator;
-        this.desireTaskConcurrentNum = desireTaskConcurrentNum;
-        this.state = state;
+        this.state = JobState.NEED_SCHEDULER;
         this.dataSourceType = dataSourceType;
-        this.maxErrorNum = maxErrorNum;
-        this.resourceInfo = resourceInfo;
+        this.resourceInfo = ConnectContext.get().toResourceCtx();
         this.routineLoadTaskInfoList = new ArrayList<>();
         this.needSchedulerTaskInfoList = new ArrayList<>();
         lock = new ReentrantReadWriteLock(true);
     }
-    
+
+    // TODO(ml): I will change it after ut.
+    @VisibleForTesting
+    public RoutineLoadJob(String id, String name, long dbId, long tableId,
+                          RoutineLoadDesc routineLoadDesc,
+                          int desireTaskConcurrentNum, LoadDataSourceType dataSourceType,
+                          int maxErrorNum) {
+        this.id = id;
+        this.name = name;
+        this.dbId = dbId;
+        this.tableId = tableId;
+        this.routineLoadDesc = routineLoadDesc;
+        this.desireTaskConcurrentNum = desireTaskConcurrentNum;
+        this.state = JobState.NEED_SCHEDULER;
+        this.dataSourceType = dataSourceType;
+        this.maxErrorNum = maxErrorNum;
+        this.resourceInfo = ConnectContext.get().toResourceCtx();
+        this.routineLoadTaskInfoList = new ArrayList<>();
+        this.needSchedulerTaskInfoList = new ArrayList<>();
+        lock = new ReentrantReadWriteLock(true);
+    }
+
     public void readLock() {
         lock.readLock().lock();
     }
-    
+
     public void readUnlock() {
         lock.readLock().unlock();
     }
-    
+
     public void writeLock() {
         lock.writeLock().lock();
     }
-    
+
     public void writeUnlock() {
         lock.writeLock().unlock();
     }
-    
-    // thrift object
-    private TResourceInfo resourceInfo;
-    
+
     public String getId() {
         return id;
     }
-    
+
+    public String getName() {
+        return name;
+    }
+
     public long getDbId() {
         return dbId;
     }
-    
+
+    public String getDbFullName() {
+        Database database = Catalog.getCurrentCatalog().getDb(dbId);
+        return database.getFullName();
+    }
+
     public long getTableId() {
         return tableId;
     }
-    
-    public String getColumns() {
-        return columns;
+
+    public String getTableName() {
+        Database database = Catalog.getCurrentCatalog().getDb(dbId);
+        database.readLock();
+        try {
+            Table table = database.getTable(tableId);
+            return table.getName();
+        } finally {
+            database.readUnlock();
+        }
     }
-    
-    public String getWhere() {
-        return where;
-    }
-    
-    public String getColumnSeparator() {
-        return columnSeparator;
-    }
-    
+
     public JobState getState() {
         return state;
     }
-    
+
     public void setState(JobState state) {
         this.state = state;
     }
-    
+
+    protected void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) throws LoadException {
+        writeLock();
+        try {
+            if (this.routineLoadDesc != null) {
+                throw new LoadException("Routine load desc has been initialized");
+            }
+            this.routineLoadDesc = routineLoadDesc;
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public RoutineLoadDesc getRoutineLoadDesc() {
+        return routineLoadDesc;
+    }
+
     public TResourceInfo getResourceInfo() {
         return resourceInfo;
     }
-    
+
     public RoutineLoadProgress getProgress() {
         return progress;
     }
-    
+
+    public String getPartitions() {
+        if (routineLoadDesc.getPartitionNames() == null || routineLoadDesc.getPartitionNames().size() == 0) {
+            return STAR_STRING;
+        } else {
+            return String.join(",", routineLoadDesc.getPartitionNames());
+        }
+    }
+
+    protected void setDesireTaskConcurrentNum(int desireTaskConcurrentNum) throws LoadException {
+        writeLock();
+        try {
+            if (this.desireTaskConcurrentNum != 0) {
+                throw new LoadException("Desired task concurrent num has been initialized");
+            }
+            this.desireTaskConcurrentNum = desireTaskConcurrentNum;
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public String getDesiredConcurrentNumber() {
+        if (desireTaskConcurrentNum == 0) {
+            return "";
+        } else {
+            return String.valueOf(desireTaskConcurrentNum);
+        }
+    }
+
+    protected void setMaxErrorNum(int maxErrorNum) throws LoadException {
+        writeLock();
+        try {
+            if (this.maxErrorNum != 0) {
+                throw new LoadException("Max error num has been initialized");
+            }
+            this.maxErrorNum = maxErrorNum;
+        } finally {
+            writeUnlock();
+        }
+    }
+
     public int getSizeOfRoutineLoadTaskInfoList() {
         readLock();
         try {
@@ -197,13 +299,13 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         } finally {
             readUnlock();
         }
-        
+
     }
-    
+
     public List<RoutineLoadTaskInfo> getNeedSchedulerTaskInfoList() {
         return needSchedulerTaskInfoList;
     }
-    
+
     public void updateState(JobState jobState) {
         writeLock();
         try {
@@ -212,14 +314,14 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
             writeUnlock();
         }
     }
-    
+
     public List<RoutineLoadTaskInfo> processTimeoutTasks() {
         List<RoutineLoadTaskInfo> result = new ArrayList<>();
         writeLock();
         try {
             List<RoutineLoadTaskInfo> runningTasks = new ArrayList<>(routineLoadTaskInfoList);
             runningTasks.removeAll(needSchedulerTaskInfoList);
-            
+
             for (RoutineLoadTaskInfo routineLoadTaskInfo : runningTasks) {
                 if ((System.currentTimeMillis() - routineLoadTaskInfo.getLoadStartTimeMs())
                         > DEFAULT_TASK_TIMEOUT_SECONDS * 1000) {
@@ -234,7 +336,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
                             continue;
                         }
                     }
-                    
+
                     try {
                         result.add(reNewTask(routineLoadTaskInfo));
                         LOG.debug("Task {} was ran more then {} minutes. It was removed and rescheduled",
@@ -251,24 +353,24 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
         }
         return result;
     }
-    
+
     abstract List<RoutineLoadTaskInfo> divideRoutineLoadJob(int currentConcurrentTaskNum);
-    
+
     public int calculateCurrentConcurrentTaskNum() throws MetaNotFoundException {
         return 0;
     }
-    
+
     @Override
     public void write(DataOutput out) throws IOException {
         // TODO(ml)
     }
-    
+
     @Override
     public void readFields(DataInput in) throws IOException {
         // TODO(ml)
     }
-    
-    
+
+
     public void removeNeedSchedulerTask(RoutineLoadTaskInfo routineLoadTaskInfo) {
         writeLock();
         try {
@@ -277,9 +379,9 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
             writeUnlock();
         }
     }
-    
+
     abstract void updateProgress(RoutineLoadProgress progress);
-    
+
     public boolean containsTask(String taskId) {
         readLock();
         try {
@@ -289,23 +391,34 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
             readUnlock();
         }
     }
-    
+
     // All of private method could not be call without lock
-    private void checkStateTransform(RoutineLoadJob.JobState currentState, RoutineLoadJob.JobState desireState)
-            throws LoadException {
-        if (currentState == RoutineLoadJob.JobState.PAUSED && desireState == RoutineLoadJob.JobState.NEED_SCHEDULER) {
-            throw new LoadException("could not transform " + currentState + " to " + desireState);
-        } else if (currentState == RoutineLoadJob.JobState.CANCELLED ||
-                currentState == RoutineLoadJob.JobState.STOPPED) {
-            throw new LoadException("could not transform " + currentState + " to " + desireState);
+    private void checkStateTransform(RoutineLoadJob.JobState desireState)
+            throws UnsupportedOperationException {
+        switch (state) {
+            case RUNNING:
+                if (desireState == JobState.NEED_SCHEDULER) {
+                    throw new UnsupportedOperationException("Could not transform " + state + " to " + desireState);
+                }
+                break;
+            case PAUSED:
+                if (desireState == JobState.PAUSED) {
+                    throw new UnsupportedOperationException("Could not transform " + state + " to " + desireState);
+                }
+                break;
+            case STOPPED:
+            case CANCELLED:
+                throw new UnsupportedOperationException("Could not transfrom " + state + " to " + desireState);
+            default:
+                break;
         }
     }
-    
+
     private void loadTxnCommit(TLoadTxnCommitRequest request) throws TException {
         FrontendServiceImpl frontendService = new FrontendServiceImpl(ExecuteEnv.getInstance());
         frontendService.loadTxnCommit(request);
     }
-    
+
     private void updateNumOfData(int numOfErrorData, int numOfTotalData) {
         currentErrorNum += numOfErrorData;
         currentTotalNum += numOfTotalData;
@@ -314,9 +427,9 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
                 LOG.info("current error num {} of job {} is more then max error num {}. begin to pause job",
                          currentErrorNum, id, maxErrorNum);
                 // remove all of task in jobs and change job state to paused
-                pausedJob("current error num of job is more then max error num");
+                executePause("current error num of job is more then max error num");
             }
-            
+
             // reset currentTotalNum and currentErrorNum
             currentErrorNum = 0;
             currentTotalNum = 0;
@@ -324,16 +437,16 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
             LOG.info("current error num {} of job {} is more then max error num {}. begin to pause job",
                      currentErrorNum, id, maxErrorNum);
             // remove all of task in jobs and change job state to paused
-            pausedJob("current error num is more then max error num");
+            executePause("current error num is more then max error num");
             // reset currentTotalNum and currentErrorNum
             currentErrorNum = 0;
             currentTotalNum = 0;
         }
     }
-    
+
     abstract RoutineLoadTaskInfo reNewTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws AnalysisException,
             LabelAlreadyExistsException, BeginTransactionException;
-    
+
     @Override
     public void beforeAborted(TransactionState txnState, TransactionState.TxnStatusChangeReason txnStatusChangeReason)
             throws AbortTransactionException {
@@ -355,12 +468,12 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
             readUnlock();
         }
     }
-    
+
     @Override
     public void onCommitted(TransactionState txnState) {
         // step0: get progress from transaction state
         RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
-        
+
         writeLock();
         try {
             // step1: find task in job
@@ -368,47 +481,127 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
                     routineLoadTaskInfoList.parallelStream()
                             .filter(entity -> entity.getId().equals(txnState.getLabel())).findFirst();
             RoutineLoadTaskInfo routineLoadTaskInfo = routineLoadTaskInfoOptional.get();
-            
+
             // step2: update job progress
             updateProgress(rlTaskTxnCommitAttachment.getProgress());
-            
+
             // step3: remove task in agentTaskQueue
             AgentTaskQueue.removeTask(rlTaskTxnCommitAttachment.getBackendId(), TTaskType.STREAM_LOAD,
                                       rlTaskTxnCommitAttachment.getTaskSignature());
-            
-            // step4: if rate of error data is more then max_filter_ratio, paused job
+
+            // step4: if rate of error data is more then max_filter_ratio, pause job
             updateNumOfData(rlTaskTxnCommitAttachment.getNumOfErrorData(), rlTaskTxnCommitAttachment.getNumOfTotalData());
-            
+
             if (state == JobState.RUNNING) {
                 // step5: create a new task for partitions
                 RoutineLoadTaskInfo newRoutineLoadTaskInfo = reNewTask(routineLoadTaskInfo);
-                Catalog.getCurrentCatalog().getRoutineLoadInstance()
+                Catalog.getCurrentCatalog().getRoutineLoadManager()
                         .getNeedSchedulerTasksQueue().addAll(Lists.newArrayList(newRoutineLoadTaskInfo));
             }
         } catch (Throwable e) {
             LOG.error("failed to update offset in routine load task {} when transaction {} has been committed. "
                               + "change job to paused",
                       rlTaskTxnCommitAttachment.getTaskId(), txnState.getTransactionId());
-            pausedJob("failed to update offset when transaction "
-                              + txnState.getTransactionId() + " has been committed");
+            executePause("failed to update offset when transaction "
+                                 + txnState.getTransactionId() + " has been committed");
         } finally {
             writeUnlock();
         }
     }
-    
+
     @Override
     public void onAborted(TransactionState txnState, TransactionState.TxnStatusChangeReason txnStatusChangeReason) {
-        pausedJob(txnStatusChangeReason.name());
-        LOG.debug("job {} need to be paused while txn {} abort with reason {}",
+        pause(txnStatusChangeReason.name());
+        LOG.debug("job {} need to be pause while txn {} abort with reason {}",
                   id, txnState.getTransactionId(), txnStatusChangeReason.name());
     }
-    
-    private void pausedJob(String reason) {
+
+    protected static void checkCreate(CreateRoutineLoadStmt stmt) throws AnalysisException {
+        // check table belong to db, partitions belong to table
+        if (stmt.getRoutineLoadDesc() == null) {
+            checkDBSemantics(stmt.getDBTableName(), null);
+        } else {
+            checkDBSemantics(stmt.getDBTableName(), stmt.getRoutineLoadDesc().getPartitionNames());
+        }
+    }
+
+    private static void checkDBSemantics(TableName dbTableName, List<String> partitionNames)
+            throws AnalysisException {
+        String tableName = dbTableName.getTbl();
+        String dbName = dbTableName.getDb();
+        // check database
+        Database database = Catalog.getCurrentCatalog().getDb(dbName);
+        if (database == null) {
+            throw new AnalysisException("There is no database named " + dbName);
+        }
+
+        database.readLock();
+        try {
+            Table table = database.getTable(tableName);
+            // check table belong to database
+            if (table == null) {
+                throw new AnalysisException("There is no table named " + tableName + " in " + dbName);
+            }
+            // check table type
+            if (table.getType() != Table.TableType.OLAP) {
+                throw new AnalysisException("Only doris table support routine load");
+            }
+
+            if (partitionNames == null || partitionNames.size() == 0) {
+                return;
+            }
+            // check partitions belong to table
+            Optional<String> partitionNotInTable = partitionNames.parallelStream()
+                    .filter(entity -> ((OlapTable) table).getPartition(entity) == null).findFirst();
+            if (partitionNotInTable != null && partitionNotInTable.isPresent()) {
+                throw new AnalysisException("Partition " + partitionNotInTable.get()
+                                                    + " does not belong to table " + tableName);
+            }
+        } finally {
+            database.readUnlock();
+        }
+    }
+
+    public void pause(String reason) {
+        writeLock();
+        try {
+            checkStateTransform(JobState.PAUSED);
+            executePause(reason);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    private void executePause(String reason) {
         // TODO(ml): edit log
         // remove all of task in jobs and change job state to paused
         pausedReason = reason;
         state = JobState.PAUSED;
         routineLoadTaskInfoList.clear();
         needSchedulerTaskInfoList.clear();
+    }
+
+    public void resume() {
+        // TODO(ml): edit log
+        writeLock();
+        try {
+            checkStateTransform(JobState.NEED_SCHEDULER);
+            state = JobState.NEED_SCHEDULER;
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public void stop() {
+        // TODO(ml): edit log
+        writeLock();
+        try {
+            checkStateTransform(JobState.STOPPED);
+            state = JobState.STOPPED;
+            routineLoadTaskInfoList.clear();
+            needSchedulerTaskInfoList.clear();
+        } finally {
+            writeUnlock();
+        }
     }
 }

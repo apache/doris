@@ -17,16 +17,18 @@
 
 package org.apache.doris.load.routineload;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
+import org.apache.doris.analysis.CreateRoutineLoadStmt;
+import org.apache.doris.common.LoadException;
+import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.SystemIdGenerator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.LabelAlreadyExistsException;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -55,19 +57,37 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     // optional, user want to load partitions.
     private List<Integer> kafkaPartitions;
 
-    public KafkaRoutineLoadJob() {
+    public KafkaRoutineLoadJob(String name, long dbId, long tableId, String serverAddress, String topic) {
+        super(name, dbId, tableId, LoadDataSourceType.KAFKA);
+        this.serverAddress = serverAddress;
+        this.topic = topic;
+        this.progress = new KafkaProgress();
     }
 
-    public KafkaRoutineLoadJob(String id, String name, String userName, long dbId, long tableId,
-                               String partitions, String columns, String where, String columnSeparator,
-                               int desireTaskConcurrentNum, JobState state, DataSourceType dataSourceType,
-                               int maxErrorNum, TResourceInfo resourceInfo, String serverAddress, String topic,
-                               KafkaProgress kafkaProgress) {
-        super(id, name, userName, dbId, tableId, partitions, columns, where,
-                columnSeparator, desireTaskConcurrentNum, state, dataSourceType, maxErrorNum, resourceInfo);
+    // TODO(ml): I will change it after ut.
+    @VisibleForTesting
+    public KafkaRoutineLoadJob(String id, String name, long dbId, long tableId,
+                               RoutineLoadDesc routineLoadDesc,
+                               int desireTaskConcurrentNum, int maxErrorNum,
+                               String serverAddress, String topic, KafkaProgress kafkaProgress) {
+        super(id, name, dbId, tableId, routineLoadDesc,
+              desireTaskConcurrentNum, LoadDataSourceType.KAFKA,
+              maxErrorNum);
         this.serverAddress = serverAddress;
         this.topic = topic;
         this.progress = kafkaProgress;
+    }
+
+    private void setKafkaPartitions(List<Integer> kafkaPartitions) throws LoadException {
+        writeLock();
+        try {
+            if (this.kafkaPartitions != null) {
+                throw new LoadException("Kafka partitions have been initialized");
+            }
+            this.kafkaPartitions = kafkaPartitions;
+        } finally {
+            writeUnlock();
+        }
     }
 
     @Override
@@ -124,10 +144,13 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
         int aliveBeNum = systemInfoService.getClusterBackendIds(clusterName, true).size();
         int partitionNum = kafkaPartitions.size();
+        if (desireTaskConcurrentNum == 0) {
+            desireTaskConcurrentNum = partitionNum;
+        }
 
         LOG.info("current concurrent task number is min "
-                        + "(current size of partition {}, desire task concurrent num {}, alive be num {})",
-                partitionNum, desireTaskConcurrentNum, aliveBeNum);
+                         + "(current size of partition {}, desire task concurrent num {}, alive be num {})",
+                 partitionNum, desireTaskConcurrentNum, aliveBeNum);
         return Math.min(partitionNum, Math.min(desireTaskConcurrentNum, aliveBeNum));
     }
 
@@ -149,6 +172,39 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return kafkaTaskInfo;
     }
 
+    public static KafkaRoutineLoadJob fromCreateStmt(CreateRoutineLoadStmt stmt) throws AnalysisException,
+            LoadException {
+        checkCreate(stmt);
+        // find dbId
+        Database database = Catalog.getCurrentCatalog().getDb(stmt.getDBTableName().getDb());
+        Table table;
+        database.readLock();
+        try {
+            table = database.getTable(stmt.getDBTableName().getTbl());
+        } finally {
+            database.readUnlock();
+        }
+        List<Integer> kafkaPartitionList = new ArrayList<>();
+        if (stmt.getCustomProperties().get(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY) != null) {
+            String[] kafkaPartitionStringList = stmt.getCustomProperties()
+                    .get(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY).split(",");
+            for (String s : kafkaPartitionStringList) {
+                kafkaPartitionList.add(Integer.valueOf(s));
+            }
+        } else {
+            LOG.debug("All of partitions which belong to topic will be load for {} routine load job", stmt.getName());
+        }
+
+        // init kafka routine load job
+        KafkaRoutineLoadJob kafkaRoutineLoadJob =
+                new KafkaRoutineLoadJob(stmt.getName(), database.getId(), table.getId(),
+                                        stmt.getKafkaEndpoint(),
+                                        stmt.getKafkaTopic());
+        kafkaRoutineLoadJob.setOptional(stmt);
+
+        return kafkaRoutineLoadJob;
+    }
+
     private void updatePartitions() {
         // fetch all of kafkaPartitions in topic
         if (kafkaPartitions == null || kafkaPartitions.size() == 0) {
@@ -164,6 +220,21 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             for (PartitionInfo partitionInfo : partitionList) {
                 kafkaPartitions.add(partitionInfo.partition());
             }
+        }
+    }
+
+    private void setOptional(CreateRoutineLoadStmt stmt) throws LoadException {
+        if (stmt.getRoutineLoadDesc() != null) {
+            setRoutineLoadDesc(stmt.getRoutineLoadDesc());
+        }
+        if (stmt.getDesiredConcurrentNum() != 0) {
+            setDesireTaskConcurrentNum(stmt.getDesiredConcurrentNum());
+        }
+        if (stmt.getMaxErrorNum() != 0) {
+            setMaxErrorNum(stmt.getMaxErrorNum());
+        }
+        if (stmt.getKafkaPartitions() != null) {
+            setKafkaPartitions(stmt.getKafkaPartitions());
         }
     }
 }
