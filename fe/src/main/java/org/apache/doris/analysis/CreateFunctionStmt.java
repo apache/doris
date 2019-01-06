@@ -104,6 +104,12 @@ public class CreateFunctionStmt extends DdlStmt {
         } catch (IOException | NoSuchAlgorithmException e) {
             throw new AnalysisException("cannot to compute object's checksum");
         }
+
+        String MD5_CHECKSUM = "md5";
+        String md5sum = properties.get(MD5_CHECKSUM);
+        if (md5sum != null && !md5sum.equalsIgnoreCase(checksum)) {
+            throw new AnalysisException("library's checksum is not equal with input, checksum=" + checksum);
+        }
     }
 
     private void computeObjectChecksum() throws IOException, NoSuchAlgorithmException {
