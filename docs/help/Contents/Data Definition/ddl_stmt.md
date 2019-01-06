@@ -1107,6 +1107,7 @@
     valid PROPERTIES: 
         "symbol": UDF's symbol, which Doris call this symbol's function to execute. MUST BE SET
         "object_file": UDF library's URL, Doris use it to download library. MUST BE SET
+        "md5": when this property is set, Doris will check library's md5um against this value. This is a option
 
 ## example
     1. create a function "my_func", receive two int and return one int

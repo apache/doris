@@ -17,8 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FunctionSearchDesc;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 public class DropFunctionStmt extends DdlStmt {
     private final FunctionName functionName;
@@ -38,8 +43,15 @@ public class DropFunctionStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+
         // analyze function name
         functionName.analyze(analyzer);
+
+        // check operation privilege
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
+
         // analyze arguments
         argsDef.analyze(analyzer);
         function = new FunctionSearchDesc(functionName, argsDef.getArgTypes(), argsDef.isVariadic());
