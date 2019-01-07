@@ -596,5 +596,5 @@ OLAPStatus SnapshotManager::_create_hard_link(const string& from_path, const str
         return OLAP_ERR_OTHER_ERROR;
     }
 }
-
+  
 }  // namespace doris

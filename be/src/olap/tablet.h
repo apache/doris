@@ -314,7 +314,6 @@ private:
     OLAPStatus _unprotect_clear_schema_change_info(AlterTabletType* alter_tablet_type,
                                                 bool only_one,
                                                 bool check_only);
-public:
     DataDir* _data_dir;
     TabletState _state;
     RowsetGraph* _rs_graph;
