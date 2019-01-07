@@ -67,17 +67,17 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
         final List<List<String>> sortedRowData = Lists.newArrayList();
 
         final CurrentQueryInfoProvider provider = new CurrentQueryInfoProvider();
-        final Map<String, CurrentQueryInfoProvider.Consumption> consumptionMap
-                = provider.getQueriesConsumptions(statistic.values());
+        final Map<String, CurrentQueryInfoProvider.Consumption> consumptions
+                = provider.getQueryConsumption(statistic.values());
         for (QueryStatisticsItem item : statistic.values()) {
             final List<String> values = Lists.newArrayList();
             values.add(item.getConnId());
             values.add(item.getQueryId());
             values.add(item.getDb());
             values.add(item.getUser());
-            final CurrentQueryInfoProvider.Consumption consumption = consumptionMap.get(item.getQueryId());
-            values.add(String.valueOf(consumption.getTotalIoConsumpation()));
-            values.add(String.valueOf(consumption.getTotalCpuConsumpation()));
+            final CurrentQueryInfoProvider.Consumption consumption = consumptions.get(item.getQueryId());
+            values.add(String.valueOf(consumption.getTotalIoConsumption()));
+            values.add(String.valueOf(consumption.getTotalCpuConsumption()));
             values.add(item.getQueryExecTime());
             sortedRowData.add(values);
         }

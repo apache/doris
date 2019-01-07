@@ -44,8 +44,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * Provide running query's PlanNode informations, includeing execution State
- * , IO consumption and CPU consumption.
+ * Provide running query's PlanNode informations, IO consumption and CPU consumption.
  */
 public class CurrentQueryInfoProvider {
     private static final Logger LOG = LogManager.getLogger(CurrentQueryInfoProvider.class);
@@ -54,7 +53,7 @@ public class CurrentQueryInfoProvider {
     }
 
     /**
-     * Firstly send request to trigger report profile for specified query and wait a while,
+     * Firstly send request to trigger profile to report for specified query and wait a while,
      * Secondly get Counters from Coordinator's RuntimeProfile and return query's consumption.
      *
      * @param item
@@ -62,7 +61,7 @@ public class CurrentQueryInfoProvider {
      * @throws AnalysisException
      */
     public Consumption getQueryConsumption(QueryStatisticsItem item) throws AnalysisException {
-        triggerReportAndWait(item, getWaitTime(1), false);
+        triggerReportAndWait(item, getWaitingTimeForSingleQuery(), false);
         return new Consumption(item.getQueryProfile());
     }
 
@@ -73,14 +72,14 @@ public class CurrentQueryInfoProvider {
      * @return
      * @throws AnalysisException
      */
-    public Map<String, Consumption> getQueriesConsumptions(Collection<QueryStatisticsItem> items)
+    public Map<String, Consumption> getQueryConsumption(Collection<QueryStatisticsItem> items)
             throws AnalysisException {
-        triggerReportAndWait(items, getWaitTime(items.size()), true);
-        final Map<String, Consumption> queryConsumpations = Maps.newHashMap();
+        triggerReportAndWait(items, getWaitingTime(items.size()), true);
+        final Map<String, Consumption> queryConsumptions = Maps.newHashMap();
         for (QueryStatisticsItem item : items) {
-            queryConsumpations.put(item.getQueryId(), new Consumption(item.getQueryProfile()));
+            queryConsumptions.put(item.getQueryId(), new Consumption(item.getQueryProfile()));
         }
-        return queryConsumpations;
+        return queryConsumptions;
     }
 
     /**
@@ -90,8 +89,8 @@ public class CurrentQueryInfoProvider {
      * @return
      * @throws AnalysisException
      */
-    public Collection<InstanceConsumption> getQueryInstancesConsumptions(QueryStatisticsItem item) throws AnalysisException {
-        triggerReportAndWait(item, getWaitTime(1), false);
+    public Collection<InstanceConsumption> getQueryInstanceConsumption(QueryStatisticsItem item) throws AnalysisException {
+        triggerReportAndWait(item, getWaitingTimeForSingleQuery(), false);
         final Map<String, RuntimeProfile> instanceProfiles = collectInstanceProfile(item.getQueryProfile());
         final List<InstanceConsumption> instanceConsumptions = Lists.newArrayList();
         for (QueryStatisticsItem.FragmentInstanceInfo instanceInfo : item.getFragmentInstanceInfos()) {
@@ -138,28 +137,32 @@ public class CurrentQueryInfoProvider {
         }
     }
 
+    private long getWaitingTimeForSingleQuery() {
+        return getWaitingTime(1);
+    }
+
     /**
      * @param numOfQuery
      * @return unit(ms)
      */
-    private long getWaitTime(int numOfQuery) {
-        final int oneQueryWaitTime = 100;
-        final int allQueryMaxWaitTime = 2000;
-        final int waitTime = numOfQuery * oneQueryWaitTime;
-        return waitTime > allQueryMaxWaitTime ? allQueryMaxWaitTime : waitTime;
+    private long getWaitingTime(int numOfQuery) {
+        final int oneQueryWaitingTime = 100;
+        final int allQueryMaxWaitingTime = 2000;
+        final int waitingTime = numOfQuery * oneQueryWaitingTime;
+        return waitingTime > allQueryMaxWaitingTime ? allQueryMaxWaitingTime : waitingTime;
     }
 
-    private void triggerReportAndWait(QueryStatisticsItem item, long waitTime, boolean allQuery)
+    private void triggerReportAndWait(QueryStatisticsItem item, long waitingTime, boolean allQuery)
             throws AnalysisException {
         final List<QueryStatisticsItem> items = Lists.newArrayList(item);
-        triggerReportAndWait(items, waitTime, allQuery);
+        triggerReportAndWait(items, waitingTime, allQuery);
     }
 
-    private void triggerReportAndWait(Collection<QueryStatisticsItem> items, long waitTime, boolean allQuery)
+    private void triggerReportAndWait(Collection<QueryStatisticsItem> items, long waitingTime, boolean allQuery)
             throws AnalysisException {
         triggerProfileReport(items, allQuery);
         try {
-            Thread.currentThread().sleep(waitTime);
+            Thread.currentThread().sleep(waitingTime);
         } catch (InterruptedException e) {
         }
     }
@@ -171,26 +174,26 @@ public class CurrentQueryInfoProvider {
      * @throws AnalysisException
      */
     private void triggerProfileReport(Collection<QueryStatisticsItem> items, boolean allQuery) throws AnalysisException {
-        final Map<TNetworkAddress, Request> requestMap = Maps.newHashMap();
-        final Map<TNetworkAddress, TNetworkAddress> brpcAddressMap = Maps.newHashMap();
+        final Map<TNetworkAddress, Request> requests = Maps.newHashMap();
+        final Map<TNetworkAddress, TNetworkAddress> brpcAddresses = Maps.newHashMap();
         for (QueryStatisticsItem item : items) {
             for (QueryStatisticsItem.FragmentInstanceInfo instanceInfo : item.getFragmentInstanceInfos()) {
                 // use brpc address
-                TNetworkAddress brpcNetAddress = brpcAddressMap.get(instanceInfo.getAddress());
+                TNetworkAddress brpcNetAddress = brpcAddresses.get(instanceInfo.getAddress());
                 if (brpcNetAddress == null) {
                     try {
                         brpcNetAddress = toBrpcHost(instanceInfo.getAddress());
-                        brpcAddressMap.put(instanceInfo.getAddress(), brpcNetAddress);
+                        brpcAddresses.put(instanceInfo.getAddress(), brpcNetAddress);
                     } catch (Exception e) {
                         LOG.warn(e.getMessage());
                         throw new AnalysisException(e.getMessage());
                     }
                 }
                 // merge different requests
-                Request request = requestMap.get(brpcNetAddress);
+                Request request = requests.get(brpcNetAddress);
                 if (request == null) {
                     request = new Request(brpcNetAddress);
-                    requestMap.put(brpcNetAddress, request);
+                    requests.put(brpcNetAddress, request);
                 }
                 // specified query instance which will report.
                 if (!allQuery) {
@@ -199,14 +202,14 @@ public class CurrentQueryInfoProvider {
                 }
             }
         }
-        recvResponse(sendRequest(requestMap));
+        recvResponse(sendRequest(requests));
     }
 
     private List<Pair<Request, Future<PTriggerProfileReportResult>>> sendRequest(
-            Map<TNetworkAddress, Request> requestMap) throws AnalysisException {
+            Map<TNetworkAddress, Request> requests) throws AnalysisException {
         final List<Pair<Request, Future<PTriggerProfileReportResult>>> futures = Lists.newArrayList();
-        for (TNetworkAddress address : requestMap.keySet()) {
-            final Request request = requestMap.get(address);
+        for (TNetworkAddress address : requests.keySet()) {
+            final Request request = requests.get(address);
             final PTriggerProfileReportRequest pbRequest =
                     new PTriggerProfileReportRequest(request.getInstanceIds());
             try {
@@ -331,18 +334,18 @@ public class CurrentQueryInfoProvider {
             }
         }
 
-        public long getTotalCpuConsumpation() {
+        public long getTotalCpuConsumption() {
             long cpu = 0;
-            for (ConsumptionCalculator consumpation : calculators) {
-                cpu += consumpation.getCpu();
+            for (ConsumptionCalculator consumption : calculators) {
+                cpu += consumption.getCpu();
             }
             return cpu;
         }
 
-        public long getTotalIoConsumpation() {
+        public long getTotalIoConsumption() {
             long io = 0;
-            for (ConsumptionCalculator consumpation : calculators) {
-                io += consumpation.getIo();
+            for (ConsumptionCalculator consumption : calculators) {
+                io += consumption.getIo();
             }
             return io;
         }
@@ -387,25 +390,25 @@ public class CurrentQueryInfoProvider {
 
         public long getCpu() {
             long cpu = 0;
-            for (Map<String, Counter> counterMap : counterMaps) {
-                cpu += getCpuByRows(counterMap);
+            for (Map<String, Counter> counters : counterMaps) {
+                cpu += getCpuByRows(counters);
             }
             return cpu;
         }
 
         public long getIo() {
             long io = 0;
-            for (Map<String, Counter> counterMap : counterMaps) {
-                io += getIoByByte(counterMap);
+            for (Map<String, Counter> counters : counterMaps) {
+                io += getIoByByte(counters);
             }
             return io;
         }
 
-        protected long getCpuByRows(Map<String, Counter> counterMap) {
+        protected long getCpuByRows(Map<String, Counter> counters) {
             return 0;
         }
 
-        protected long getIoByByte(Map<String, Counter> counterMap) {
+        protected long getIoByByte(Map<String, Counter> counters) {
             return 0;
         }
     }
@@ -416,8 +419,8 @@ public class CurrentQueryInfoProvider {
         }
 
         @Override
-        protected long getIoByByte(Map<String, Counter> counterMap) {
-            final Counter counter = counterMap.get("CompressedBytesRead");
+        protected long getIoByByte(Map<String, Counter> counters) {
+            final Counter counter = counters.get("CompressedBytesRead");
             return counter == null ? 0 : counter.getValue();
         }
     }
@@ -428,9 +431,9 @@ public class CurrentQueryInfoProvider {
         }
 
         @Override
-        protected long getCpuByRows(Map<String, Counter> counterMap) {
-            final Counter probeCounter = counterMap.get("ProbeRows");
-            final Counter buildCounter = counterMap.get("BuildRows");
+        protected long getCpuByRows(Map<String, Counter> counters) {
+            final Counter probeCounter = counters.get("ProbeRows");
+            final Counter buildCounter = counters.get("BuildRows");
             return probeCounter == null || buildCounter == null ?
                     0 : probeCounter.getValue() + buildCounter.getValue();
         }
@@ -442,8 +445,8 @@ public class CurrentQueryInfoProvider {
         }
 
         @Override
-        protected long getCpuByRows(Map<String, Counter> counterMap) {
-            final Counter buildCounter = counterMap.get("BuildRows");
+        protected long getCpuByRows(Map<String, Counter> counters) {
+            final Counter buildCounter = counters.get("BuildRows");
             return buildCounter == null ? 0 : buildCounter.getValue();
         }
     }
@@ -454,8 +457,8 @@ public class CurrentQueryInfoProvider {
         }
 
         @Override
-        protected long getCpuByRows(Map<String, Counter> counterMap) {
-            final Counter sortRowsCounter = counterMap.get("SortRows");
+        protected long getCpuByRows(Map<String, Counter> counters) {
+            final Counter sortRowsCounter = counters.get("SortRows");
             return sortRowsCounter == null ? 0 : sortRowsCounter.getValue();
         }
     }
@@ -466,8 +469,8 @@ public class CurrentQueryInfoProvider {
         }
 
         @Override
-        protected long getCpuByRows(Map<String, Counter> counterMap) {
-            final Counter processRowsCounter = counterMap.get("ProcessRows");
+        protected long getCpuByRows(Map<String, Counter> counters) {
+            final Counter processRowsCounter = counters.get("ProcessRows");
             return processRowsCounter == null ? 0 : processRowsCounter.getValue();
 
         }
@@ -479,8 +482,8 @@ public class CurrentQueryInfoProvider {
         }
 
         @Override
-        protected long getCpuByRows(Map<String, Counter> counterMap) {
-            final Counter materializeRowsCounter = counterMap.get("MaterializeRows");
+        protected long getCpuByRows(Map<String, Counter> counters) {
+            final Counter materializeRowsCounter = counters.get("MaterializeRows");
             return materializeRowsCounter == null ? 0 : materializeRowsCounter.getValue();
         }
     }
@@ -492,8 +495,8 @@ public class CurrentQueryInfoProvider {
         }
 
         @Override
-        protected long getCpuByRows(Map<String, Counter> counterMap) {
-            final Counter mergeRowsCounter = counterMap.get("MergeRows");
+        protected long getCpuByRows(Map<String, Counter> counters) {
+            final Counter mergeRowsCounter = counters.get("MergeRows");
             return mergeRowsCounter == null ? 0 : mergeRowsCounter.getValue();
         }
     }

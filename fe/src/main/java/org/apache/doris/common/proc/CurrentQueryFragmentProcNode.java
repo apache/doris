@@ -71,7 +71,7 @@ public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
     private ProcResult requestFragmentExecInfos() throws AnalysisException {
         final CurrentQueryInfoProvider provider = new CurrentQueryInfoProvider();
         final Collection<CurrentQueryInfoProvider.InstanceConsumption> instanceConsumptions
-                = provider.getQueryInstancesConsumptions(item);
+                = provider.getQueryInstanceConsumption(item);
         final List<List<String>> sortedRowDatas = Lists.newArrayList();
         for (CurrentQueryInfoProvider.InstanceConsumption instanceConsumption :
                 instanceConsumptions) {
@@ -79,8 +79,8 @@ public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
             rowData.add(instanceConsumption.getFragmentId());
             rowData.add(instanceConsumption.getInstanceId().toString());
             rowData.add(instanceConsumption.getAddress().toString());
-            rowData.add(String.valueOf(instanceConsumption.getTotalIoConsumpation()));
-            rowData.add(String.valueOf(instanceConsumption.getTotalCpuConsumpation()));
+            rowData.add(String.valueOf(instanceConsumption.getTotalIoConsumption()));
+            rowData.add(String.valueOf(instanceConsumption.getTotalCpuConsumption()));
             sortedRowDatas.add(rowData);
         }
 
