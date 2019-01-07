@@ -9,7 +9,9 @@
         "name": "ejy2E2s",
         "ephemeral_id": "HO-_F6BLSqedHuv7-yhkNQ",
         "transport_address": "192.168.0.1:9209",
-        "attributes": {}
+        "attributes": {
+	  "thrift_port": "9210"
+	}
       }
     },
     "metadata": {
