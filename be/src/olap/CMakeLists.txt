@@ -59,7 +59,7 @@ add_library(Olap STATIC
     serialize.cpp
     storage_engine.cpp
     data_dir.cpp
-    #snapshot_manager.cpp
+    snapshot_manager.cpp
     stream_index_common.cpp
     stream_index_reader.cpp
     stream_index_writer.cpp
