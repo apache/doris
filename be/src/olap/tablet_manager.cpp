@@ -254,6 +254,7 @@ OLAPStatus TabletManager::create_init_version(TTabletId tablet_id, SchemaHash sc
         }
 
         new_segment_group = new(nothrow) SegmentGroup(tablet->tablet_id(),
+                                                      0,
                                                       tablet->tablet_schema(),
                                                       tablet->num_key_fields(),
                                                       tablet->num_short_key_fields(),

@@ -1123,6 +1123,7 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
 
     (*temp_segment_group) =
         new(nothrow) SegmentGroup(_tablet->tablet_id(),
+                                  0,
                                   _tablet->tablet_schema(),
                                   _tablet->num_key_fields(),
                                   _tablet->num_short_key_fields(),
@@ -1772,6 +1773,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
         SegmentGroup* new_segment_group = nullptr;
         if ((*it)->transaction_id() == 0) {
             new_segment_group = new SegmentGroup(dest_tablet->tablet_id(),
+                                                 0,
                                                  dest_tablet->tablet_schema(),
                                                  dest_tablet->num_key_fields(),
                                                  dest_tablet->num_short_key_fields(),
@@ -1783,6 +1785,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
                                                  (*it)->segment_group_id(), 0);
         } else {
             new_segment_group = new SegmentGroup(dest_tablet->tablet_id(),
+                                                 0,
                                                  dest_tablet->tablet_schema(),
                                                  dest_tablet->num_key_fields(),
                                                  dest_tablet->num_short_key_fields(),
@@ -2007,6 +2010,7 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
         // we create a new delta with the same version as the ColumnData processing currently.
         SegmentGroup* new_segment_group = new(nothrow) SegmentGroup(
                                             sc_params->new_tablet->tablet_id(),
+                                            0,
                                             sc_params->new_tablet->tablet_schema(),
                                             sc_params->new_tablet->num_key_fields(),
                                             sc_params->new_tablet->num_short_key_fields(),
@@ -2371,7 +2375,7 @@ OLAPStatus SchemaChange::create_init_version(
         }
 
         // Create writer, which write nothing to tablet, to generate empty data file
-        writer = ColumnDataWriter::create(tablet, segment_group, false);
+        writer = ColumnDataWriter::create(segment_group, false, tablet->compress_kind(), tablet->bloom_filter_fpp());
         if (writer == NULL) {
             LOG(WARNING) << "fail to create writer. [tablet=" << tablet->full_name() << "]";
             res = OLAP_ERR_MALLOC_ERROR;
