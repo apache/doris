@@ -161,7 +161,7 @@ public:
     inline void set_pending_finished() { _is_pending = false; }
 
     inline TPartitionId partition_id() const { return _partition_id; }
-    inline TTransactionId transaction_id() const { return _transaction_id; }
+    inline TTransactionId transaction_id() const { return _txn_id; }
 
     inline bool delete_flag() const { return _delete_flag; }
 
@@ -227,8 +227,14 @@ public:
         return _index.get_null_supported(seg_id);
     }
 
-    std::string construct_index_file_path(int32_t segment) const;
-    std::string construct_data_file_path(int32_t segment) const;
+    std::string construct_index_file_path(int32_t segment_id) const;
+    std::string construct_data_file_path(int32_t segment_id) const;
+
+    // these two functions are for compatible, and will be deleted later
+    // so it is better not to use it.
+    std::string construct_old_index_file_path(int32_t segment_id) const;
+    std::string construct_old_data_file_path(int32_t segment_id) const;
+
     size_t current_num_rows_per_row_block() const;
     void publish_version(Version version, VersionHash version_hash);
 
@@ -244,10 +250,18 @@ public:
 
     int64_t get_tablet_id();
 
+    bool create_hard_links();
+
+    bool remove_old_files();
+
 private:
-    std::string _construct_pending_file_path(int32_t segment, const std::string& suffix) const;
+    std::string _construct_pending_file_path(int32_t segment_id, const std::string& suffix) const;
     
-    std::string _construct_file_path(int32_t segment, const std::string& suffix) const;
+    std::string _construct_file_path(int32_t segment_id, const std::string& suffix) const;
+
+    std::string _construct_old_pending_file_path(int32_t segment_id, const std::string& suffix) const;
+    
+    std::string _construct_old_file_path(int32_t segment_id, const std::string& suffix) const;
 
 private:
     int64_t _tablet_id;
@@ -268,7 +282,7 @@ private:
     MemIndex _index;
     bool _is_pending;
     TPartitionId _partition_id;
-    TTransactionId _transaction_id;
+    TTransactionId _txn_id;
 
     // short key对应的field_info数组
     RowFields _short_key_info_list;
