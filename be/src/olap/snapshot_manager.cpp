@@ -657,7 +657,7 @@ OLAPStatus SnapshotManager::storage_medium_migrate(
     }
 
     // judge case when no need to migrate
-    uint32_t count = available_storage_medium_type_count();
+    uint32_t count = StorageEngine::get_instance()->available_storage_medium_type_count();
     if (count <= 1) {
         LOG(INFO) << "available storage medium type count is less than 1, "
                   << "no need to migrate. count=" << count;
@@ -711,7 +711,7 @@ OLAPStatus SnapshotManager::storage_medium_migrate(
         tablet->release_header_lock();
 
         // generate schema hash path where files will be migrated
-        auto stores = get_stores_for_create_tablet(storage_medium);
+        auto stores = StorageEngine::get_instance()->get_stores_for_create_tablet(storage_medium);
         if (stores.empty()) {
             res = OLAP_ERR_INVALID_ROOT_PATH;
             OLAP_LOG_WARNING("fail to get root path for create tablet.");
@@ -762,7 +762,7 @@ OLAPStatus SnapshotManager::storage_medium_migrate(
             res = OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
             break;
         }
-        res = _tablet_mgr.add_tablet(tablet_id, schema_hash, tablet, false);
+        res = TabletManager::instance()->add_tablet(tablet_id, schema_hash, tablet, false);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to add tablet to StorageEngine. [res=%d]", res);
             break;
