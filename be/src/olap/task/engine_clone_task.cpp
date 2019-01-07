@@ -17,14 +17,32 @@
 
 #include "olap/task/engine_clone_task.h"
 
+#include <set>
+
+using std::set;
+using std::stringstream;
+
 namespace doris {
 
-EngineCloneTask(TCloneReq& _clone_req, vector<string>& error_msgs) :
+const std::string HTTP_REQUEST_PREFIX = "/api/_tablet/_download?";
+const std::string HTTP_REQUEST_TOKEN_PARAM = "token=";
+const std::string HTTP_REQUEST_FILE_PARAM = "&file=";
+const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
+const uint32_t LIST_REMOTE_FILE_TIMEOUT = 15;
+
+EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, vector<string>* error_msgs, 
+                    vector<TTabletInfo>* tablet_infos, 
+                    AgentStatus* res_status, 
+                    int64_t signature, 
+                    const TMasterInfo& master_info) :
     _clone_req(clone_req),
     _error_msgs(error_msgs), 
-    _tablet_infos(tablet_infos) {}
+    _tablet_infos(tablet_infos), 
+    _res_status(res_status),
+    _signature(signature), 
+    _master_info(master_info) {}
 
-AgentStatus EngineCloneTask::execute() {
+OLAPStatus EngineCloneTask::execute() {
     AgentStatus status = DORIS_SUCCESS;
     string src_file_path;
     TBackend src_host;
@@ -34,7 +52,7 @@ AgentStatus EngineCloneTask::execute() {
             _clone_req.tablet_id, _clone_req.schema_hash);
     if (tablet.get() != NULL) {
         LOG(INFO) << "clone tablet exist yet, begin to incremental clone. "
-                    << "signature:" << agent_task_req.signature
+                    << "signature:" << _signature
                     << ", tablet_id:" << _clone_req.tablet_id
                     << ", schema_hash:" << _clone_req.schema_hash
                     << ", committed_version:" << _clone_req.committed_version;
@@ -44,12 +62,12 @@ AgentStatus EngineCloneTask::execute() {
         string local_data_path = _get_info_before_incremental_clone(tablet, _clone_req.committed_version, &missing_versions);
 
         bool allow_incremental_clone = false;
-        status = _clone_copy(clone_req,
-                                                agent_task_req.signature,
+        status = _clone_copy(_clone_req,
+                                                _signature,
                                                 local_data_path,
                                                 &src_host,
                                                 &src_file_path,
-                                                &_error_msgs,
+                                                _error_msgs,
                                                 &missing_versions,
                                                 &allow_incremental_clone);
         if (status == DORIS_SUCCESS) {
@@ -57,18 +75,18 @@ AgentStatus EngineCloneTask::execute() {
             if (olap_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to finish incremental clone. [table=" << tablet->full_name()
                                 << " res=" << olap_status << "]";
-                _error_msgs.push_back("incremental clone error.");
+                _error_msgs->push_back("incremental clone error.");
                 status = DORIS_ERROR;
             }
         } else {
             // begin to full clone if incremental failed
             LOG(INFO) << "begin to full clone. [table=" << tablet->full_name();
-            status = _clone_copy(clone_req,
-                                                    agent_task_req.signature,
+            status = _clone_copy(_clone_req,
+                                                    _signature,
                                                     local_data_path,
                                                     &src_host,
                                                     &src_file_path,
-                                                    &_error_msgs,
+                                                    _error_msgs,
                                                     NULL, NULL);
             if (status == DORIS_SUCCESS) {
                 LOG(INFO) << "download successfully when full clone. [table=" << tablet->full_name()
@@ -80,7 +98,7 @@ AgentStatus EngineCloneTask::execute() {
                 if (olap_status != OLAP_SUCCESS) {
                     LOG(WARNING) << "fail to finish full clone. [table=" << tablet->full_name()
                                     << " res=" << olap_status << "]";
-                    _error_msgs.push_back("full clone error.");
+                    _error_msgs->push_back("full clone error.");
                     status = DORIS_ERROR;
                 }
             }
@@ -90,12 +108,12 @@ AgentStatus EngineCloneTask::execute() {
         // Get local disk from olap
         string local_shard_root_path;
         DataDir* store = nullptr;
-        OLAPStatus olap_status = worker_pool_this->_env->olap_engine()->obtain_shard_path(
+        OLAPStatus olap_status = StorageEngine::get_instance()->obtain_shard_path(
             _clone_req.storage_medium, &local_shard_root_path, &store);
         if (olap_status != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("clone get local root path failed. signature: %ld",
-                                agent_task_req.signature);
-            _error_msgs.push_back("clone get local root path failed.");
+                                _signature);
+            _error_msgs->push_back("clone get local root path failed.");
             status = DORIS_ERROR;
         }
 
@@ -104,12 +122,12 @@ AgentStatus EngineCloneTask::execute() {
             tablet_dir_stream << local_shard_root_path
                                 << "/" << _clone_req.tablet_id
                                 << "/" << _clone_req.schema_hash;
-            status = _clone_copy(clone_req,
-                                                    agent_task_req.signature,
+            status = _clone_copy(_clone_req,
+                                                    _signature,
                                                     tablet_dir_stream.str(),
                                                     &src_host,
                                                     &src_file_path,
-                                                    &_error_msgs,
+                                                    _error_msgs,
                                                     NULL, NULL);
         }
 
@@ -118,7 +136,7 @@ AgentStatus EngineCloneTask::execute() {
                         << " src_file_path: " << src_file_path;
             // Load header
             OLAPStatus load_header_status =
-                worker_pool_this->_env->olap_engine()->load_header(
+                StorageEngine::get_instance()->load_header(
                     store,
                     local_shard_root_path,
                     _clone_req.tablet_id,
@@ -126,8 +144,8 @@ AgentStatus EngineCloneTask::execute() {
             if (load_header_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "load header failed. local_shard_root_path: '" << local_shard_root_path
                                 << "' schema_hash: " << _clone_req.schema_hash << ". status: " << load_header_status
-                                << ". signature: " << agent_task_req.signature;
-                _error_msgs.push_back("load header failed.");
+                                << ". signature: " << _signature;
+                _error_msgs->push_back("load header failed.");
                 status = DORIS_ERROR;
             }
         }
@@ -140,7 +158,7 @@ AgentStatus EngineCloneTask::execute() {
                                     << "/" << _clone_req.tablet_id;
             string local_data_path = local_data_path_stream.str();
             LOG(INFO) << "clone failed. want to delete local dir: " << local_data_path
-                        << ". signature: " << agent_task_req.signature;
+                        << ". signature: " << _signature;
             try {
                 boost::filesystem::path local_path(local_data_path);
                 if (boost::filesystem::exists(local_path)) {
@@ -151,7 +169,7 @@ AgentStatus EngineCloneTask::execute() {
                 OLAP_LOG_WARNING("clone delete useless dir failed. "
                                     "error: %s, local dir: %s, signature: %ld",
                                     e.what(), local_data_path.c_str(),
-                                    agent_task_req.signature);
+                                    _signature);
             }
         }
 #endif
@@ -160,18 +178,18 @@ AgentStatus EngineCloneTask::execute() {
     // Get clone tablet info
     if (status == DORIS_SUCCESS || status == DORIS_CREATE_TABLE_EXIST) {
         TTabletInfo tablet_info;
-        tablet_info.__set_tablet_id(tablet_id);
-        tablet_info.__set_schema_hash(schema_hash);
-        OLAPStatus get_tablet_info_status = TabletManager::instance()->report_tablet_info(tablet_info);
+        tablet_info.__set_tablet_id(_clone_req.tablet_id);
+        tablet_info.__set_schema_hash(_clone_req.schema_hash);
+        OLAPStatus get_tablet_info_status = TabletManager::instance()->report_tablet_info(&tablet_info);
         if (get_tablet_info_status != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("clone success, but get tablet info failed."
                                 "tablet id: %ld, schema hash: %ld, signature: %ld",
                                 _clone_req.tablet_id, _clone_req.schema_hash,
-                                agent_task_req.signature);
-            _error_msgs.push_back("clone success, but get tablet info failed.");
+                                _signature);
+            _error_msgs->push_back("clone success, but get tablet info failed.");
             status = DORIS_ERROR;
         } else if (
-            (clone_req.__isset.committed_version
+            (_clone_req.__isset.committed_version
                     && _clone_req.__isset.committed_version_hash)
                     && (tablet_info.version < _clone_req.committed_version ||
                         (tablet_info.version == _clone_req.committed_version
@@ -182,7 +200,7 @@ AgentStatus EngineCloneTask::execute() {
             // we drop it.
             LOG(INFO) << "begin to drop the stale table. tablet_id:" << _clone_req.tablet_id
                         << ", schema_hash:" << _clone_req.schema_hash
-                        << ", signature:" << agent_task_req.signature
+                        << ", signature:" << _signature
                         << ", version:" << tablet_info.version
                         << ", version_hash:" << tablet_info.version_hash
                         << ", expected_version: " << _clone_req.committed_version
@@ -199,13 +217,14 @@ AgentStatus EngineCloneTask::execute() {
         } else {
             LOG(INFO) << "clone get tablet info success. tablet_id:" << _clone_req.tablet_id
                         << ", schema_hash:" << _clone_req.schema_hash
-                        << ", signature:" << agent_task_req.signature
+                        << ", signature:" << _signature
                         << ", version:" << tablet_info.version
                         << ", version_hash:" << tablet_info.version_hash;
-            _tablet_infos.push_back(tablet_info);
+            _tablet_infos->push_back(tablet_info);
         }
     }
-    return status;
+    *_res_status = status;
+    return OLAP_SUCCESS;
 }
 
 string EngineCloneTask::_get_info_before_incremental_clone(TabletSharedPtr tablet,
@@ -234,7 +253,7 @@ string EngineCloneTask::_get_info_before_incremental_clone(TabletSharedPtr table
     return tablet->tablet_path() + CLONE_PREFIX;
 }
 
-OLAPStatus EngineCloneTask::_clone_copy(
+AgentStatus EngineCloneTask::_clone_copy(
         const TCloneReq& clone_req,
         int64_t signature,
         const string& local_data_path,
@@ -243,7 +262,7 @@ OLAPStatus EngineCloneTask::_clone_copy(
         vector<string>* error_msgs,
         const vector<Version>* missing_versions,
         bool* allow_incremental_clone) {
-    OLAPStatus status = OLAP_SUCCESS;
+    AgentStatus status = DORIS_SUCCESS;
 
     std::string token = _master_info.token;
     for (auto src_backend : clone_req.src_backends) {
@@ -252,9 +271,7 @@ OLAPStatus EngineCloneTask::_clone_copy(
         string http_host = http_host_stream.str();
         // Make snapshot in remote olap engine
         *src_host = src_backend;
-#ifndef BE_TEST
         AgentServerClient agent_client(*src_host);
-#endif
         TAgentResult make_snapshot_result;
         status = DORIS_SUCCESS;
 
@@ -271,15 +288,9 @@ OLAPStatus EngineCloneTask::_clone_copy(
             } 
             snapshot_request.__set_missing_version(snapshot_versions);
         }
-#ifndef BE_TEST
         agent_client.make_snapshot(
                 snapshot_request,
                 &make_snapshot_result);
-#else
-        _agent_client->make_snapshot(
-                snapshot_request,
-                &make_snapshot_result);
-#endif
 
         if (make_snapshot_result.__isset.allow_incremental_clone) {
             // During upgrading, some BE nodes still be installed an old previous old.
@@ -549,15 +560,9 @@ OLAPStatus EngineCloneTask::_clone_copy(
 
         // Release snapshot, if failed, ignore it. OLAP engine will drop useless snapshot
         TAgentResult release_snapshot_result;
-#ifndef BE_TEST
         agent_client.release_snapshot(
                 make_snapshot_result.snapshot_path,
                 &release_snapshot_result);
-#else
-        _agent_client->release_snapshot(
-                make_snapshot_result.snapshot_path,
-                &release_snapshot_result);
-#endif
         if (release_snapshot_result.status.status_code != TStatusCode::OK) {
             LOG(WARNING) << "release snapshot failed. src_file_path: " << *src_file_path
                          << ". signature: " << signature;
@@ -571,7 +576,7 @@ OLAPStatus EngineCloneTask::_clone_copy(
 }
 
 
-OLAPStatus StorageEngine::_finish_clone(TabletSharedPtr tablet, const string& clone_dir,
+OLAPStatus EngineCloneTask::_finish_clone(TabletSharedPtr tablet, const string& clone_dir,
                                          int64_t committed_version, bool is_incremental_clone) {
     OLAPStatus res = OLAP_SUCCESS;
     vector<string> linked_success_files;

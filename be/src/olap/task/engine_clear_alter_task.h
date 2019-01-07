@@ -15,29 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_TASK_H
-#define DORIS_BE_SRC_OLAP_TASK_ENGINE_TASK_H
+#ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_CLEAR_ALTER_TASK_H
+#define DORIS_BE_SRC_OLAP_TASK_ENGINE_CLEAR_ALTER_TASK_H
 
-#include "olap/olap_common.h"
+#include "gen_cpp/AgentService_types.h"
 #include "olap/olap_define.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet_manager.h"
-#include "olap/txn_manager.h"
-#include "util/doris_metrics.h"
+#include "olap/task/engine_task.h"
 
 namespace doris {
 
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
-class EngineTask {
+class EngineClearAlterTask : public EngineTask {
 
 public:
-    // use agent_status not olap_status, because the task is very close to engine
-    virtual OLAPStatus prepare() { return OLAP_SUCCESS; }
-    virtual OLAPStatus execute() { return OLAP_SUCCESS; }
-    virtual OLAPStatus finish() { return OLAP_SUCCESS; }
-    virtual OLAPStatus cancel() { return OLAP_SUCCESS; }
+    virtual OLAPStatus execute();
+
+public:
+    EngineClearAlterTask(const TClearAlterTaskRequest& request);
+    ~EngineClearAlterTask() {}
+
+private:
+    OLAPStatus _clear_alter_task(const TTabletId tablet_id,
+                                const TSchemaHash schema_hash);
+
+private:
+    const TClearAlterTaskRequest& _clear_alter_task_req;
+
 }; // EngineTask
 
 } // doris
-#endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_TASK_H
+#endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_CLEAR_ALTER_TASK_H
