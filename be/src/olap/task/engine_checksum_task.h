@@ -29,7 +29,7 @@ namespace doris {
 class EngineChecksumTask : public EngineTask {
 
 public:
-    virtual AgentStatus execute();
+    virtual OLAPStatus execute();
 
 public:
     EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash, 
