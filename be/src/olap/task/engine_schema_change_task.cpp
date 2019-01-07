@@ -21,10 +21,16 @@
 
 namespace doris {
 
+using std::to_string;
+
 EngineSchemaChangeTask::EngineSchemaChangeTask(const TAlterTabletReq& alter_tablet_request, 
-        int64_t signature):
+        int64_t signature, const TTaskType::type task_type, vector<string>& error_msgs,
+        string& process_name):
         _alter_tablet_req(alter_tablet_request),
-        _signature(signature) {
+        _signature(signature),
+        _task_type(task_type),
+        _error_msgs(error_msgs),
+        _process_name(process_name) {
 
 }
 
@@ -55,7 +61,7 @@ AgentStatus EngineSchemaChangeTask::execute() {
             OLAP_LOG_WARNING("delete failed rollup file failed, status: %d, "
                                 "signature: %ld.",
                                 status, _signature);
-            error_msgs.push_back("delete failed rollup file failed, "
+            _error_msgs.push_back("delete failed rollup file failed, "
                                     "signature: " + to_string(_signature));
         }
     }
@@ -66,7 +72,7 @@ AgentStatus EngineSchemaChangeTask::execute() {
                 || alter_tablet_status == ALTER_TABLE_FAILED
                 || alter_tablet_status == ALTER_TABLE_WAITING) {
             // Create rollup table
-            switch (task_type) {
+            switch (_task_type) {
             case TTaskType::ROLLUP:
                 status = _create_rollup_tablet(_alter_tablet_req);
                 break;
@@ -78,7 +84,7 @@ AgentStatus EngineSchemaChangeTask::execute() {
                 break;
             }
             if (status != OLAPStatus::OLAP_SUCCESS) {
-                LOG(WARNING) << process_name << " failed. signature: " << _signature << " status: " << status;
+                LOG(WARNING) << _process_name << " failed. signature: " << _signature << " status: " << status;
             }
         }
     }

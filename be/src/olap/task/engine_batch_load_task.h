@@ -39,7 +39,7 @@ class StorageEngine;
 
 class EngineBatchLoadTask : public EngineTask{
 public:
-    EngineBatchLoadTask(const TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos, int64_t signature);
+    EngineBatchLoadTask(TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos, int64_t signature);
     virtual ~EngineBatchLoadTask();
     
     virtual AgentStatus execute();
@@ -72,7 +72,7 @@ private:
     void _get_file_name_from_path(const std::string& file_path, std::string* file_name);
     
     bool _is_init = false;
-    const TPushReq& _push_req;
+    TPushReq& _push_req;
     std::vector<TTabletInfo>* _tablet_infos;
     FileDownloader::FileDownloaderParam _downloader_param;
     FileDownloader* _file_downloader;

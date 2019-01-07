@@ -74,6 +74,7 @@ add_library(Olap STATIC
     wrapper_field.cpp
     task/engine_schema_change_task.cpp
     task/engine_batch_load_task.cpp
+    task/engine_storage_migration_task.cpp
 )
 
 add_subdirectory(rowset)
