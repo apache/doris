@@ -32,7 +32,8 @@ public:
     virtual AgentStatus execute();
 
 public:
-    EngineSchemaChangeTask(const TAlterTabletReq& alter_tablet_request, int64_t signature);
+    EngineSchemaChangeTask(const TAlterTabletReq& alter_tablet_request, int64_t signature, 
+        const TTaskType::type task_type, vector<string>& error_msgs, string& process_name);
     ~EngineSchemaChangeTask() {}
 
 private:
@@ -60,6 +61,9 @@ private:
 private:
     const TAlterTabletReq& _alter_tablet_req;
     int64_t _signature;
+    const TTaskType::type _task_type;
+    vector<string>& _error_msgs;
+    string& _process_name;
 
 }; // EngineTask
 
