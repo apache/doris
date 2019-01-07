@@ -56,9 +56,9 @@ public:
             const Conditions* conditions,
             const DeleteHandler& delete_handler,
             const DelCondSatisfied delete_status,
+            Cache* lru_cache,
             RuntimeState* runtime_state,
-            OlapReaderStatistics* stats,
-            Cache* lru_cache);
+            OlapReaderStatistics* stats);
 
     ~SegmentReader();
 
@@ -303,9 +303,6 @@ private:
     
     DeleteHandler _delete_handler;
     DelCondSatisfied _delete_status;
-    RuntimeState* _runtime_state;  // 用于统计内存消耗等运行时信息
-    OlapReaderStatistics* _stats;
-    Cache* _lru_cache;
 
     bool _eof;                             // eof标志
 
@@ -364,6 +361,9 @@ private:
     std::unique_ptr<MemPool> _mem_pool;
 
     StorageByteBuffer* _shared_buffer;
+    Cache* _lru_cache;
+    RuntimeState* _runtime_state;  // 用于统计内存消耗等运行时信息
+    OlapReaderStatistics* _stats;
 
     // Set when seek_to_block is called, valid until next seek_to_block is called.
     bool _without_filter = false;

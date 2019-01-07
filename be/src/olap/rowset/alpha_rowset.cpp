@@ -81,7 +81,7 @@ OLAPStatus AlphaRowset::_init_segment_groups() {
         Version version = _rowset_meta->version();
         int64_t version_hash = _rowset_meta->get_version_hash();
         std::shared_ptr<SegmentGroup> segment_group(new SegmentGroup(_rowset_meta->get_tablet_id(),
-                _rowset_meta->get_rowset_id(), _tablet_schema, _num_key_fields, _num_short_key_fields,
+                _rowset_meta->rowset_id(), _tablet_schema, _num_key_fields, _num_short_key_fields,
                 _num_rows_per_row_block, _rowset_path, version, version_hash,
                 false, segment_group_meta.segment_group_id(), segment_group_meta.num_segments()));
         if (segment_group.get() == nullptr) {
