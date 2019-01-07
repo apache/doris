@@ -26,6 +26,7 @@
 #include <mutex>
 #include <utility>
 #include <vector>
+#include "agent/file_downloader.h"
 #include "agent/status.h"
 #include "agent/utils.h"
 #include "gen_cpp/AgentService_types.h"
@@ -114,18 +115,6 @@ private:
     static void* _move_dir_thread_callback(void* arg_this);
     static void* _recover_tablet_thread_callback(void* arg_this);
 
-    AgentStatus _clone_copy(
-            const TCloneReq& clone_req,
-            int64_t signature,
-            const std::string& local_data_path,
-            TBackend* src_host,
-            std::string* src_file_path,
-            std::vector<std::string>* error_msgs,
-            const std::vector<Version>* missing_versions,
-            bool* allow_incremental_clone,
-            int64_t* copy_size,
-            int64_t* copy_time_ms);
-
     void _alter_tablet(
             const TAlterTabletReq& create_rollup_request,
             int64_t signature,
@@ -155,7 +144,7 @@ private:
     ExecEnv* _env;
 #ifdef BE_TEST
     AgentServerClient* _agent_client;
-    Pusher * _pusher;
+    FileDownloader* _file_downloader_ptr;
 #endif
 
     std::deque<TAgentTaskRequest> _tasks;

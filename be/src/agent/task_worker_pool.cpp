@@ -45,6 +45,8 @@
 #include "olap/task/engine_clone_task.h"
 #include "olap/task/engine_cancel_delete_task.h"
 #include "olap/task/engine_schema_change_task.h"
+#include "olap/task/engine_batch_load_task.h"
+#include "olap/task/engine_storage_migration_task.h"
 #include "olap/utils.h"
 #include "common/resource_tls.h"
 #include "common/status.h"
@@ -593,13 +595,8 @@ void TaskWorkerPool::_alter_tablet(
     // Do not need to adjust delete success or not
     // Because if delete failed create rollup will failed
     if (status == DORIS_SUCCESS) {
-        EngineSchemaChangeTask engine_task(alter_tablet_request, signature);
-        AgentStatus ret = engine_task.execute();
-        if (ret != DORIS_SUCCESS) {
-            status = DORIS_ERROR;
-        } else {
-            status = DORIS_SUCCESS;
-        }
+        EngineSchemaChangeTask engine_task(alter_tablet_request, signature, task_type, error_msgs, process_name);
+        status = engine_task.execute();
     }
 
     if (status == DORIS_SUCCESS) {
@@ -1033,13 +1030,9 @@ void* TaskWorkerPool::_storage_medium_migrate_worker_thread_callback(void* arg_t
         TStatusCode::type status_code = TStatusCode::OK;
         vector<string> error_msgs;
         TStatus task_status;
-
-        OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
-        res = SnapshotManager::instance()->storage_medium_migrate(
-            storage_medium_migrate_req.tablet_id,
-            storage_medium_migrate_req.schema_hash,
-            storage_medium_migrate_req.storage_medium);
-        if (res != OLAPStatus::OLAP_SUCCESS) {
+        EngineStorageMigrationTask task(storage_medium_migrate_req);
+        AgentStatus res = task.execute();
+        if (res != DORIS_SUCCESS) {
             OLAP_LOG_WARNING("storage media migrate failed. status: %d, signature: %ld",
                              res, agent_task_req.signature);
             status_code = TStatusCode::RUNTIME_ERROR;

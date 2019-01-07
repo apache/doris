@@ -54,14 +54,37 @@ public:
             const TSnapshotRequest& request,
             std::string* snapshot_path);
 
+
+    // TODO(ygl) move it to a utility class
+    void update_header_file_info(
+            const std::vector<VersionEntity>& shortest_version_entity,
+            TabletMeta* header);
+
+    // TODO(ygl) move it to a utility class
+    // TODO: hkp
+    // rewrite this function
+    std::string construct_index_file_path(
+            const std::string& tablet_path_prefix,
+            const Version& version,
+            VersionHash version_hash,
+            int32_t segment_group_id, int32_t segment) const;
+            
+    // TODO(ygl) move it to a utility class
+    // TODO: hkp
+    // rewrite this function
+    std::string construct_data_file_path(
+            const std::string& tablet_path_prefix,
+            const Version& version,
+            VersionHash version_hash,
+            int32_t segment_group_id, int32_t segment) const;
+
+    std::string get_schema_hash_full_path(
+            const TabletSharedPtr& ref_tablet,
+            const std::string& location) const;
+
     // @brief 释放snapshot
     // @param snapshot_path [in] 要被释放的snapshot的路径，只包含到ID
     OLAPStatus release_snapshot(const std::string& snapshot_path);
-
-    OLAPStatus storage_medium_migrate(
-            TTabletId tablet_id,
-            TSchemaHash schema_hash,
-            TStorageMedium::type storage_medium);
                 
     static SnapshotManager* instance();
 
@@ -73,17 +96,9 @@ private:
             const TabletSharedPtr& tablet,
             std::string* out_path);
 
-    std::string _get_schema_hash_full_path(
-            const TabletSharedPtr& ref_tablet,
-            const std::string& location) const;
-
     std::string _get_header_full_path(
             const TabletSharedPtr& ref_tablet,
             const std::string& schema_hash_path) const;
-
-    void _update_header_file_info(
-            const std::vector<VersionEntity>& shortest_version_entity,
-            TabletMeta* header);
 
     // TODO: hkp
     // rewrite this function
@@ -91,13 +106,6 @@ private:
             const std::string& header_path,
             const TabletSharedPtr& ref_tablet,
             const std::vector<VersionEntity>& version_entity_vec);
-
-    // TODO: hkp
-    // rewrite this function
-    OLAPStatus _copy_index_and_data_files(
-            const std::string& header_path,
-            const TabletSharedPtr& ref_tablet,
-            std::vector<VersionEntity>& version_entity_vec);
 
     OLAPStatus _create_snapshot_files(
             const TabletSharedPtr& ref_tablet,
@@ -115,28 +123,6 @@ private:
     OLAPStatus _append_single_delta(
             const TSnapshotRequest& request,
             DataDir* store);
-
-    // TODO: hkp
-    // rewrite this function
-    std::string _construct_index_file_path(
-            const std::string& tablet_path_prefix,
-            const Version& version,
-            VersionHash version_hash,
-            int32_t segment_group_id, int32_t segment) const;
-
-    // TODO: hkp
-    // rewrite this function
-    std::string _construct_data_file_path(
-            const std::string& tablet_path_prefix,
-            const Version& version,
-            VersionHash version_hash,
-            int32_t segment_group_id, int32_t segment) const;
-
-    OLAPStatus _generate_new_header(
-            DataDir* store,
-            const uint64_t new_shard,
-            const TabletSharedPtr& tablet,
-            const std::vector<VersionEntity>& version_entity_vec, TabletMeta* new_tablet_meta);
 
     OLAPStatus _create_hard_link(const std::string& from_path, const std::string& to_path);
 

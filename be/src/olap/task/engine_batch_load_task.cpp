@@ -43,7 +43,6 @@ using std::vector;
 
 namespace doris {
 
-    
 EngineBatchLoadTask::EngineBatchLoadTask(const TPushReq& push_req,
         std::vector<TTabletInfo>* tablet_infos, 
         int64_t signature) : _push_req(push_req), _tablet_infos(tablet_infos), _signature(signature) {
@@ -88,6 +87,7 @@ AgentStatus EngineBatchLoadTask::execute() {
     } else {
         status = DORIS_TASK_REQUEST_ERROR;
     }
+    return status;
 }
 
 AgentStatus EngineBatchLoadTask::_init() {
