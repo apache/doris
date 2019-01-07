@@ -200,7 +200,7 @@ OLAPStatus SnapshotManager::_link_index_and_data_files(
             int32_t segment_group_id = segment_group_entity.segment_group_id;
             for (int seg_id = 0; seg_id < segment_group_entity.num_segments; ++seg_id) {
                 std::string index_path =
-                    _construct_index_file_path(tablet_path_prefix, version, v_hash, segment_group_id, seg_id);
+                    construct_index_file_path(tablet_path_prefix, version, v_hash, segment_group_id, seg_id);
                 std::string ref_tablet_index_path =
                     ref_tablet->construct_index_file_path(version, v_hash, segment_group_id, seg_id);
                 res = _create_hard_link(ref_tablet_index_path, index_path);
@@ -213,7 +213,7 @@ OLAPStatus SnapshotManager::_link_index_and_data_files(
                 }
 
                 std:: string data_path =
-                    _construct_data_file_path(tablet_path_prefix, version, v_hash, segment_group_id, seg_id);
+                    construct_data_file_path(tablet_path_prefix, version, v_hash, segment_group_id, seg_id);
                 std::string ref_tablet_data_path =
                     ref_tablet->construct_data_file_path(version, v_hash, segment_group_id, seg_id);
                 res = _create_hard_link(ref_tablet_data_path, data_path);

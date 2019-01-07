@@ -18,7 +18,11 @@
 #ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_CLONE_TASK_H
 #define DORIS_BE_SRC_OLAP_TASK_ENGINE_CLONE_TASK_H
 
+#include "agent/file_downloader.h"
+#include "agent/utils.h"
 #include "gen_cpp/AgentService_types.h"
+#include "gen_cpp/HeartbeatService.h"
+#include "gen_cpp/MasterService_types.h"
 #include "olap/olap_define.h"
 #include "olap/task/engine_task.h"
 
@@ -29,10 +33,14 @@ namespace doris {
 class EngineCloneTask : public EngineTask {
 
 public:
-    virtual AgentStatus execute();
+    virtual OLAPStatus execute();
 
 public:
-    EngineCloneTask(TCloneReq& _clone_req, vector<string>& error_msgs, vector<TTabletInfo> tablet_infos);
+    EngineCloneTask(const TCloneReq& _clone_req, vector<string>* error_msgs, 
+                    vector<TTabletInfo>* tablet_infos, 
+                    AgentStatus* _res_status, 
+                    int64_t _signature, 
+                    const TMasterInfo& _master_info);
     ~EngineCloneTask() {}
 
 private:
@@ -53,10 +61,27 @@ private:
 
     OLAPStatus _clone_full_data(TabletSharedPtr tablet, TabletMeta& clone_header);
 
+    AgentStatus _clone_copy(
+        const TCloneReq& clone_req,
+        int64_t signature,
+        const string& local_data_path,
+        TBackend* src_host,
+        string* src_file_path,
+        vector<string>* error_msgs,
+        const vector<Version>* missing_versions,
+        bool* allow_incremental_clone);
+
 private:
     const TCloneReq& _clone_req;
-    vector<string>& _error_msgs;
-    vector<TTabletInfo> _tablet_infos;
+    vector<string>* _error_msgs;
+    vector<TTabletInfo>* _tablet_infos;
+    AgentStatus* _res_status;
+    int64_t _signature;
+    const TMasterInfo& _master_info;
+#ifdef BE_TEST
+    AgentServerClient* _agent_client;
+    FileDownloader* _file_downloader_ptr;
+#endif
 }; // EngineTask
 
 } // doris

@@ -17,19 +17,19 @@
 
 #include "olap/task/engine_cancel_delete_task.h"
 
+#include <list>
+
 namespace doris {
 
-EngineCancelDeleteTask(const TCancelDeleteDataReq& request):_request(request) {
+using std::list;
+
+EngineCancelDeleteTask::EngineCancelDeleteTask(const TCancelDeleteDataReq& request):_request(request) {
 
 }
 
-AgentStatus EngineCancelDeleteTask::execute() {
+OLAPStatus EngineCancelDeleteTask::execute() {
     OLAPStatus res =  _cancel_delete();
-    if (res != OLAP_SUCCESS) {
-        return DORIS_ERROR;
-    } else {
-        return DORIS_SUCCESS;
-    }
+    return res;
 } // execute
 
 OLAPStatus EngineCancelDeleteTask::_cancel_delete() {
