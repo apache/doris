@@ -346,6 +346,7 @@ OLAPStatus PushHandler::_convert(
 
             delta_segment_group = new(std::nothrow) SegmentGroup(
                 curr_tablet->tablet_id(),
+                0,
                 curr_tablet->tablet_schema(),
                 curr_tablet->num_key_fields(),
                 curr_tablet->num_short_key_fields(),
@@ -356,6 +357,7 @@ OLAPStatus PushHandler::_convert(
         } else {
             delta_segment_group = new(std::nothrow) SegmentGroup(
                 curr_tablet->tablet_id(),
+                0,
                 curr_tablet->tablet_schema(),
                 curr_tablet->num_key_fields(),
                 curr_tablet->num_short_key_fields(),

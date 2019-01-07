@@ -41,12 +41,14 @@ SegmentReader::SegmentReader(
         const Conditions* conditions,
         const DeleteHandler& delete_handler,
         const DelCondSatisfied delete_status,
+        Cache* lru_cache,
         RuntimeState* runtime_state,
-        OlapReaderStatistics* stats,
-        Cache* lru_cache) :
+        OlapReaderStatistics* stats) :
         _file_name(file),
         _segment_group(segment_group),
         _segment_id(segment_id),
+        _used_columns(used_columns),
+        _load_bf_columns(load_bf_columns),
         _conditions(conditions),
         _delete_handler(delete_handler),
         _delete_status(delete_status),
@@ -56,16 +58,14 @@ SegmentReader::SegmentReader(
         _block_count(0),
         _num_rows_in_block(0),
         _null_supported(false),
-        _used_columns(used_columns),
-        _load_bf_columns(load_bf_columns),
         _mmap_buffer(NULL),
         _include_blocks(NULL),
         _is_using_mmap(false),
         _is_data_loaded(false),
         _buffer_size(0),
+        _shared_buffer(NULL),
         _lru_cache(lru_cache),
         _runtime_state(runtime_state),
-        _shared_buffer(NULL), 
         _stats(stats) {
     _tracker.reset(new MemTracker(-1));
     _mem_pool.reset(new MemPool(_tracker.get()));
