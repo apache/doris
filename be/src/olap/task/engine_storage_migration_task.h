@@ -29,7 +29,7 @@ namespace doris {
 class EngineStorageMigrationTask : public EngineTask {
 
 public:
-    virtual AgentStatus execute();
+    virtual OLAPStatus execute();
 
 public:
     EngineStorageMigrationTask(TStorageMediumMigrateReq& storage_medium_migrate_req);

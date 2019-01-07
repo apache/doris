@@ -183,9 +183,6 @@ public:
             TTabletId tablet_id,
             TSchemaHash schema_hash);
 
-    OLAPStatus clear_alter_task(const TTabletId tablet_id,
-                                const TSchemaHash schema_hash);
-
     // call this if you want to trigger a disk and tablet report
     void report_notify(bool is_all) {
         is_all ? _report_cv.notify_all() : _report_cv.notify_one();

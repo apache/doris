@@ -39,10 +39,11 @@ class StorageEngine;
 
 class EngineBatchLoadTask : public EngineTask{
 public:
-    EngineBatchLoadTask(TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos, int64_t signature);
+    EngineBatchLoadTask(TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos, 
+                        int64_t signature, AgentStatus* res_status);
     virtual ~EngineBatchLoadTask();
     
-    virtual AgentStatus execute();
+    virtual OLAPStatus execute();
 
 private:
     // The initial function of pusher
@@ -77,7 +78,7 @@ private:
     FileDownloader::FileDownloaderParam _downloader_param;
     FileDownloader* _file_downloader;
     AgentStatus _download_status;
-
+    AgentStatus* _res_status;
     int64_t _signature;
 };  // class Pusher
 }  // namespace doris

@@ -43,16 +43,22 @@ using std::vector;
 
 namespace doris {
 
-EngineBatchLoadTask::EngineBatchLoadTask(const TPushReq& push_req,
-        std::vector<TTabletInfo>* tablet_infos, 
-        int64_t signature) : _push_req(push_req), _tablet_infos(tablet_infos), _signature(signature) {
+    
+EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, 
+    std::vector<TTabletInfo>* tablet_infos, 
+    int64_t signature, 
+    AgentStatus* res_status) :
+        _push_req(push_req),
+        _tablet_infos(tablet_infos),
+        _signature(signature),
+        _res_status(res_status) {
     _download_status = DORIS_SUCCESS;
 }
 
 EngineBatchLoadTask::~EngineBatchLoadTask() {
 }
 
-AgentStatus EngineBatchLoadTask::execute() {
+OLAPStatus EngineBatchLoadTask::execute() {
     AgentStatus status = DORIS_SUCCESS;
     if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_DELETE) {
         status = _init();
@@ -87,7 +93,8 @@ AgentStatus EngineBatchLoadTask::execute() {
     } else {
         status = DORIS_TASK_REQUEST_ERROR;
     }
-    return status;
+    *_res_status = status;
+    return OLAP_SUCCESS;
 }
 
 AgentStatus EngineBatchLoadTask::_init() {

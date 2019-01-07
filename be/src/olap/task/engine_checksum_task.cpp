@@ -17,9 +17,11 @@
 
 #include "olap/task/engine_checksum_task.h"
 
+#include "olap/reader.h"
+
 namespace doris {
 
-EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash, 
+EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash, 
         TVersion version, TVersionHash version_hash, uint32_t* checksum)
         :_tablet_id(tablet_id),
          _schema_hash(schema_hash),
@@ -29,17 +31,13 @@ EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash,
 
 }
 
-AgentStatus EngineChecksumTask::execute() {
+OLAPStatus EngineChecksumTask::execute() {
     OLAPStatus res = _compute_checksum();
-    if (res != OLAP_SUCCESS) {
-        return DORIS_ERROR;
-    } else {
-        return DORIS_SUCCESS;
-    }
+    return res;
 } // execute
 
 
-OLAPStatus StorageEngine::_compute_checksum() {
+OLAPStatus EngineChecksumTask::_compute_checksum() {
     LOG(INFO) << "begin to process compute checksum."
               << "tablet_id=" << _tablet_id
               << ", schema_hash=" << _schema_hash
