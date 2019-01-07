@@ -29,17 +29,13 @@ EngineStorageMigrationTask::EngineStorageMigrationTask(TStorageMediumMigrateReq&
 
 }
 
-AgentStatus EngineStorageMigrationTask::execute() {
+OLAPStatus EngineStorageMigrationTask::execute() {
     OLAPStatus res = OLAP_SUCCESS;
     res = _storage_medium_migrate(
         _storage_medium_migrate_req.tablet_id,
         _storage_medium_migrate_req.schema_hash,
         _storage_medium_migrate_req.storage_medium);
-    if (res != OLAP_SUCCESS) {
-        return DORIS_ERROR;
-    } else {
-        return DORIS_SUCCESS;
-    }
+    return res;
 }
 
 OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
