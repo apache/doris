@@ -73,23 +73,23 @@ public class RuntimeProfile {
         this.counterMap.put("TotalTime", counterTotalTime);
     }
     
-    public synchronized Counter getCounterTotalTime() {
+    public Counter getCounterTotalTime() {
         return counterTotalTime;
     }
 
-    public synchronized Map<String, Counter> getCounterMap() {
+    public Map<String, Counter> getCounterMap() {
         return counterMap;
     }
 
-    public synchronized List<Pair<RuntimeProfile, Boolean>> getChildList() {
+    public List<Pair<RuntimeProfile, Boolean>> getChildList() {
         return childList;
     }
 
-    public synchronized Map<String, RuntimeProfile> getChildMap () {
+    public Map<String, RuntimeProfile> getChildMap () {
         return childMap;
     }
 
-    public synchronized Counter addCounter(String name, TUnit type, String parentCounterName) {
+    public Counter addCounter(String name, TUnit type, String parentCounterName) {
         Counter counter = this.counterMap.get(name); 
         if (counter != null) {
             return counter;
@@ -109,7 +109,7 @@ public class RuntimeProfile {
         }
     }
     
-    public synchronized void update(final TRuntimeProfileTree thriftProfile) {
+    public void update(final TRuntimeProfileTree thriftProfile) {
         Reference<Integer> idx  = new Reference<Integer>(0);
         update(thriftProfile.nodes, idx);
         Preconditions.checkState(idx.getRef().equals(thriftProfile.nodes.size()));
@@ -186,7 +186,7 @@ public class RuntimeProfile {
     //  2. Info Strings
     //  3. Counters
     //  4. Children
-    public synchronized void prettyPrint(StringBuilder builder, String prefix) {
+    public void prettyPrint(StringBuilder builder, String prefix) {
         Counter counter = this.counterMap.get("TotalTime");
         Preconditions.checkState(counter != null);
         // 1. profile name
@@ -307,7 +307,7 @@ public class RuntimeProfile {
         return builder.toString();
     }
     
-    public synchronized void addChild(RuntimeProfile child) {
+    public void addChild(RuntimeProfile child) {
         if (child == null) {
             return;
         }
@@ -321,7 +321,7 @@ public class RuntimeProfile {
         computeTimeInProfile(this.counterTotalTime.getValue());
     }
     
-    public synchronized void computeTimeInProfile(long total) {
+    public void computeTimeInProfile(long total) {
         if (total == 0) {
             return;
         }
@@ -345,7 +345,7 @@ public class RuntimeProfile {
     }
     
     // from bigger to smaller
-    public synchronized void sortChildren() {
+    public void sortChildren() {
         Collections.sort(this.childList, new Comparator<Pair<RuntimeProfile, Boolean>>() {
             @Override
             public int compare(Pair<RuntimeProfile, Boolean> profile1, Pair<RuntimeProfile, Boolean> profile2)
@@ -357,7 +357,7 @@ public class RuntimeProfile {
         });
     }
     
-    public synchronized void addInfoString(String key, String value) {
+    public void addInfoString(String key, String value) {
         String target = this.infoStrings.get(key);
         if (target == null) {
             this.infoStrings.put(key, value);
@@ -367,14 +367,14 @@ public class RuntimeProfile {
         }
     }
 
-    public synchronized void setName(String name) {
+    public void setName(String name) {
         this.name = name;
     }
 
 
     // Returns the value to which the specified key is mapped;
     // or null if this map contains no mapping for the key.
-    public synchronized String getInfoString(String key) {
+    public String getInfoString(String key) {
         return infoStrings.get(key);
     }
 }
