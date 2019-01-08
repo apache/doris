@@ -63,7 +63,7 @@ string DeleteConditionHandler::construct_sub_conditions(const TCondition& condit
 
 // 删除指定版本号的删除条件；需要注意的是，如果table上没有任何删除条件，或者
 // 指定版本号的删除条件不存在，也会返回OLAP_SUCCESS。
-OLAPStatus DeleteConditionHandler::delete_cond(del_cond_array* delete_conditions,
+OLAPStatus DeleteConditionHandler::delete_cond(DelPredicateArray* delete_conditions,
         const int32_t version,
         bool delete_smaller_version_conditions) {
     if (version < 0) {
@@ -110,7 +110,7 @@ OLAPStatus DeleteConditionHandler::delete_cond(del_cond_array* delete_conditions
 }
 
 OLAPStatus DeleteConditionHandler::log_conds(std::string tablet_full_name,
-        const del_cond_array& delete_conditions) {
+        const DelPredicateArray& delete_conditions) {
     LOG(INFO) << "display all delete condition. tablet=" << tablet_full_name;
 
     for (int index = 0; index != delete_conditions.size(); ++index) {
@@ -227,7 +227,7 @@ OLAPStatus DeleteConditionHandler::_check_version_valid(std::vector<Version>* al
     }
 }
 
-int DeleteConditionHandler::_check_whether_condition_exist(const del_cond_array& delete_conditions, int cond_version) {
+int DeleteConditionHandler::_check_whether_condition_exist(const DelPredicateArray& delete_conditions, int cond_version) {
     if (delete_conditions.size() == 0) {
         return -1;
     }
@@ -280,7 +280,7 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
 }
 
 OLAPStatus DeleteHandler::init(const RowFields& tablet_schema,
-        const del_cond_array& delete_conditions, int32_t version) {
+        const DelPredicateArray& delete_conditions, int32_t version) {
     if (_is_inited) {
         OLAP_LOG_WARNING("reintialize delete handler.");
         return OLAP_ERR_INIT_FAILED;
@@ -292,7 +292,7 @@ OLAPStatus DeleteHandler::init(const RowFields& tablet_schema,
         return OLAP_ERR_DELETE_INVALID_PARAMETERS;
     }
 
-    del_cond_array::const_iterator it = delete_conditions.begin();
+    DelPredicateArray::const_iterator it = delete_conditions.begin();
 
     for (; it != delete_conditions.end(); ++it) {
         // 跳过版本号大于version的过滤条件

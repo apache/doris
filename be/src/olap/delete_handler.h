@@ -30,6 +30,8 @@
 
 namespace doris {
 
+typedef google::protobuf::RepeatedPtrField<DeletePredicatePB> DelPredicateArray;
+
 // 实现了删除条件的存储，移除和显示功能
 // *  存储删除条件：
 //    OLAPStatus res;
@@ -47,7 +49,6 @@ namespace doris {
 //    *  在调用log_conds()的时候，只需要加读锁
 class DeleteConditionHandler {
 public:
-    typedef google::protobuf::RepeatedPtrField<DeletePredicatePB> del_cond_array;
 
     DeleteConditionHandler() {}
     ~DeleteConditionHandler() {}
@@ -74,7 +75,7 @@ public:
     //         * 这个表没有指定版本号的删除条件
     //     * OLAP_ERR_DELETE_INVALID_PARAMETERS：函数参数不符合要求
     OLAPStatus delete_cond(
-            del_cond_array* delete_condition, const int32_t version, bool delete_smaller_version_conditions);
+            DelPredicateArray* delete_condition, const int32_t version, bool delete_smaller_version_conditions);
 
     // 将一个olap engine的表上存有的所有删除条件打印到log中。调用前只需要给Header文件加读锁
     //
@@ -83,7 +84,7 @@ public:
     // 返回值：
     //     OLAP_SUCCESS：调用成功
     OLAPStatus log_conds(std::string tablet_full_name,
-        const del_cond_array& delete_conditions);
+        const DelPredicateArray& delete_conditions);
 private:
 
     // 检查指定的删除条件版本是否符合要求；
@@ -91,7 +92,7 @@ private:
     OLAPStatus _check_version_valid(std::vector<Version>* all_file_versions, const int32_t filter_version);
 
     // 检查指定版本的删除条件是否已经存在。如果存在，返回指定版本删除条件的数组下标；不存在返回-1
-    int _check_whether_condition_exist(const del_cond_array& delete_conditions, int cond_version);
+    int _check_whether_condition_exist(const DelPredicateArray& delete_conditions, int cond_version);
 
     int32_t _get_field_index(const RowFields& tablet_schema, const std::string& field_name) const {
         for (int i = 0; i < tablet_schema.size(); i++) {
@@ -130,7 +131,6 @@ struct DeleteConditions {
 class DeleteHandler {
 public:
     typedef std::vector<DeleteConditions>::size_type cond_num_t;
-    typedef google::protobuf::RepeatedPtrField<DeletePredicatePB> del_cond_array;
 
     DeleteHandler() : _is_inited(false) {}
     ~DeleteHandler() {}
@@ -150,7 +150,7 @@ public:
     //     * OLAP_ERR_DELETE_INVALID_PARAMETERS: 参数不符合要求
     //     * OLAP_ERR_MALLOC_ERROR: 在填充_del_conds时，分配内存失败
     OLAPStatus init(const RowFields& tablet_schema,
-        const del_cond_array& delete_conditions, int32_t version);
+        const DelPredicateArray& delete_conditions, int32_t version);
 
     // 判定一条数据是否符合删除条件
     //
