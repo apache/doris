@@ -131,6 +131,7 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
 
     if (reached_limit()) {
         _stream_recvr->transfer_all_resources(output_batch);
+        set_runtime_consumption(state);
         *eos = true;
         return Status::OK;
     } else {
@@ -179,6 +180,7 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
 
             if (reached_limit()) {
                 _stream_recvr->transfer_all_resources(output_batch);
+                set_runtime_consumption(state); 
                 *eos = true;
                 return Status::OK;
             }
@@ -197,6 +199,7 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
         RETURN_IF_ERROR(fill_input_row_batch(state));
         *eos = (_input_batch == NULL);
         if (*eos) {
+            set_runtime_consumption(state);
             return Status::OK;
         }
 
@@ -243,6 +246,7 @@ Status ExchangeNode::get_next_merging(RuntimeState* state, RowBatch* output_batc
     // by the merger to the output batch.
     if (*eos) {
         _stream_recvr->transfer_all_resources(output_batch);
+        set_runtime_consumption(state);
     }
 
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
