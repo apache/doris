@@ -81,9 +81,9 @@ void AlphaRowset::set_version(Version version) {
     _is_pending_rowset = false;
 }
 
-bool AlphaRowset::create_hard_links() {
+bool AlphaRowset::create_hard_links(std::vector<std::string>* success_links) {
     for (auto segment_group : _segment_groups) {
-        bool  ret = segment_group->create_hard_links();
+        bool  ret = segment_group->create_hard_links(success_links);
         if (!ret) {
             LOG(WARNING) << "create hard links failed for segment group:"
                 << segment_group->segment_group_id();
@@ -93,9 +93,9 @@ bool AlphaRowset::create_hard_links() {
     return true;
 }
 
-bool AlphaRowset::remove_old_files() {
+bool AlphaRowset::remove_old_files(std::vector<std::string>* removed_links) {
     for (auto segment_group : _segment_groups) {
-        bool  ret = segment_group->remove_old_files();
+        bool  ret = segment_group->remove_old_files(removed_links);
         if (!ret) {
             LOG(WARNING) << "remove old files failed for segment group:"
                 << segment_group->segment_group_id();

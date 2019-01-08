@@ -48,9 +48,9 @@ public:
 
     virtual void set_version(Version version);
 
-    bool create_hard_links();
+    bool create_hard_links(std::vector<std::string>* success_links);
 
-    bool remove_old_files();
+    bool remove_old_files(std::vector<std::string>* removed_links);
 
 private:
     OLAPStatus _init_segment_groups();

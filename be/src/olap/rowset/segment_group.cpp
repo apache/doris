@@ -688,38 +688,46 @@ int64_t SegmentGroup::get_tablet_id() {
     return _tablet_id;
 }
 
-bool SegmentGroup::create_hard_links() {
+bool SegmentGroup::create_hard_links(std::vector<std::string>* success_links) {
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
         std::string new_data_file_name = construct_data_file_path(segment_id);
-        std::string old_data_file_name = construct_old_data_file_path(segment_id);
-        if (link(new_data_file_name.c_str(), old_data_file_name.c_str()) != 0) {
-            LOG(WARNING) << "fail to create hard link. from=" << old_data_file_name << ", "
-                     << "to=" << new_data_file_name << ", " << "errno=" << Errno::no();
-            return false;
+        if (!check_dir_existed(new_data_file_name)) {
+            std::string old_data_file_name = construct_old_data_file_path(segment_id);
+            if (link(new_data_file_name.c_str(), old_data_file_name.c_str()) != 0) {
+                LOG(WARNING) << "fail to create hard link. from=" << old_data_file_name << ", "
+                    << "to=" << new_data_file_name << ", " << "errno=" << Errno::no();
+                return false;
+            }
         }
+        success_links->push_back(new_data_file_name);
         std::string new_index_file_name = construct_index_file_path(segment_id);
-        std::string old_index_file_name = construct_old_index_file_path(segment_id);
-        if (link(new_index_file_name.c_str(), old_index_file_name.c_str()) != 0) {
-            LOG(WARNING) << "fail to create hard link. from=" << old_index_file_name << ", "
-                     << "to=" << new_index_file_name << ", " << "errno=" << Errno::no();
-            return false;
+        if (!check_dir_existed(new_index_file_name)) {
+            std::string old_index_file_name = construct_old_index_file_path(segment_id);
+            if (link(new_index_file_name.c_str(), old_index_file_name.c_str()) != 0) {
+                LOG(WARNING) << "fail to create hard link. from=" << old_index_file_name << ", "
+                    << "to=" << new_index_file_name << ", " << "errno=" << Errno::no();
+                return false;
+            }
         }
+        success_links->push_back(new_index_file_name);
     }
     return true;
 }
 
-bool SegmentGroup::remove_old_files() {
+bool SegmentGroup::remove_old_files(std::vector<std::string>* removed_links) {
     for (int segment_id = 0; segment_id < _num_segments; segment_id++) {
         std::string old_data_file_name = construct_old_data_file_path(segment_id);
         OLAPStatus status = remove_dir(old_data_file_name);
         if (status != OLAP_SUCCESS) {
             return false;
         }
+        removed_links->push_back(old_data_file_name);
         std::string old_index_file_name = construct_old_index_file_path(segment_id);
         status = remove_dir(old_index_file_name);
         if (status != OLAP_SUCCESS) {
             return false;
         }
+        removed_links->push_back(old_index_file_name);
     }
     return true;
 }

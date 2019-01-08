@@ -250,9 +250,9 @@ public:
 
     int64_t get_tablet_id();
 
-    bool create_hard_links();
+    bool create_hard_links(std::vector<std::string>* success_links);
 
-    bool remove_old_files();
+    bool remove_old_files(std::vector<std::string>* removed_links);
 
 private:
     std::string _construct_pending_file_path(int32_t segment_id, const std::string& suffix) const;
