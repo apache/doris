@@ -17,6 +17,15 @@
 
 package org.apache.doris.journal.bdbje;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.io.DataOutputBuffer;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.journal.Journal;
+import org.apache.doris.journal.JournalCursor;
+import org.apache.doris.journal.JournalEntity;
+import org.apache.doris.persist.OperationType;
+
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
@@ -27,14 +36,6 @@ import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.Pair;
-import org.apache.doris.common.io.DataOutputBuffer;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.journal.Journal;
-import org.apache.doris.journal.JournalCursor;
-import org.apache.doris.journal.JournalEntity;
-import org.apache.doris.persist.OperationType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -363,11 +364,11 @@ public class BDBJEJournal implements Journal {
             return;
         }
         
-        String msg = "delete database names: ";
+        String msg = "existing database names: ";
         for (long name : dbNames) {
             msg += name + " ";
         }
-        msg += " deleteToJournalId is " + deleteToJournalId;
+        msg += ", deleteToJournalId is " + deleteToJournalId;
         LOG.info(msg);
         
         for (int i = 1; i < dbNames.size(); i++) {
@@ -377,7 +378,8 @@ public class BDBJEJournal implements Journal {
                 LOG.info("delete database name {}", stringName);
                 bdbEnvironment.removeDatabase(stringName);
             } else {
-                LOG.info("database name {} is larger than deleteToJournalId {}", dbNames.get(i), deleteToJournalId);
+                LOG.info("database name {} is larger than deleteToJournalId {}, not delete",
+                        dbNames.get(i), deleteToJournalId);
                 break;
             }
         }

@@ -70,6 +70,7 @@ public class TabletChecker extends Daemon {
     // priority of replicas of partitions in this table will be set to VERY_HIGH if not healthy
     private com.google.common.collect.Table<Long, Long, Set<PrioPart>> prios = HashBasedTable.create();
     
+    // represent a partition which need to be repaired preferentially
     public static class PrioPart {
         public long partId;
         public long addTime;
