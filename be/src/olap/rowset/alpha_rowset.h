@@ -48,6 +48,10 @@ public:
 
     virtual void set_version(Version version);
 
+    bool create_hard_links(std::vector<std::string>* success_links);
+
+    bool remove_old_files(std::vector<std::string>* removed_links);
+
 private:
     OLAPStatus _init_segment_groups();
 
@@ -61,6 +65,7 @@ private:
     std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
     int _segment_group_size;
     bool _is_cumulative_rowset;
+    bool _is_pending_rowset;
 };
 
 } // namespace doris

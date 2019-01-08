@@ -127,6 +127,11 @@ public:
         _rowset_meta_pb.set_end_version(version.second);
     }
 
+    virtual bool has_version() {
+        return _rowset_meta_pb.has_start_version()
+            &&  _rowset_meta_pb.has_end_version();
+    }
+
     virtual int start_version() {
         return _rowset_meta_pb.start_version();
     }
