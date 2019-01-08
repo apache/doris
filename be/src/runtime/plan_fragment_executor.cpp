@@ -260,7 +260,7 @@ Status PlanFragmentExecutor::open() {
     // may block
     // TODO: if no report thread is started, make sure to send a final profile
     // at end, otherwise the coordinator hangs in case we finish w/ an error
-    if (_is_report_success && !_report_status_cb.empty() && config::status_report_interval > 0) {
+    if (!_report_status_cb.empty() && config::status_report_interval > 0) {
         boost::unique_lock<boost::mutex> l(_report_thread_lock);
         _report_thread = boost::thread(&PlanFragmentExecutor::report_profile, this);
         // make sure the thread started up, otherwise report_profile() might get into a race
@@ -366,17 +366,21 @@ void PlanFragmentExecutor::report_profile() {
         boost::get_system_time() + boost::posix_time::seconds(report_fragment_offset);
     // We don't want to wait longer than it takes to run the entire fragment.
     _stop_report_thread_cv.timed_wait(l, timeout);
-
+    bool is_report_profile_interval = _is_report_success && config::status_report_interval > 0;
     while (_report_thread_active) {
-        boost::system_time timeout =
-            boost::get_system_time() + boost::posix_time::seconds(config::status_report_interval);
-
-        // timed_wait can return because the timeout occurred or the condition variable
-        // was signaled.  We can't rely on its return value to distinguish between the
-        // two cases (e.g. there is a race here where the wait timed out but before grabbing
-        // the lock, the condition variable was signaled).  Instead, we will use an external
-        // flag, _report_thread_active, to coordinate this.
-        _stop_report_thread_cv.timed_wait(l, timeout);
+        if (is_report_profile_interval) {
+            boost::system_time timeout =
+                boost::get_system_time() + boost::posix_time::seconds(config::status_report_interval);
+            // timed_wait can return because the timeout occurred or the condition variable
+            // was signaled.  We can't rely on its return value to distinguish between the
+            // two cases (e.g. there is a race here where the wait timed out but before grabbing
+            // the lock, the condition variable was signaled).  Instead, we will use an external
+            // flag, _report_thread_active, to coordinate this.
+            _stop_report_thread_cv.timed_wait(l, timeout);
+        } else {
+            // Artificial triggering, such as show proc "/current_queries".
+            _stop_report_thread_cv.wait(l);
+        }
 
         if (VLOG_FILE_IS_ON) {
             VLOG_FILE << "Reporting " << (!_report_thread_active ? "final " : " ")

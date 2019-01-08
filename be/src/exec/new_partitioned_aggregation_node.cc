@@ -44,7 +44,6 @@
 #include "runtime/tuple_row.h"
 #include "runtime/tuple.h"
 #include "udf/udf_internal.h"
-#include "util/runtime_profile.h"
 
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -201,6 +200,7 @@ Status NewPartitionedAggregationNode::prepare(RuntimeState* state) {
       ADD_COUNTER(runtime_profile(), "PartitionsCreated", TUnit::UNIT);
   largest_partition_percent_ =
       runtime_profile()->AddHighWaterMarkCounter("LargestPartitionPercent", TUnit::UNIT);
+  _build_rows_counter = ADD_COUNTER(runtime_profile(), "BuildRows", TUnit::UNIT);
   if (is_streaming_preagg_) {
     runtime_profile()->append_exec_option("Streaming Preaggregation");
     streaming_timer_ = ADD_TIMER(runtime_profile(), "StreamingTime");
@@ -308,7 +308,7 @@ Status NewPartitionedAggregationNode::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(QueryMaintenance(state));
     RETURN_IF_ERROR(_children[0]->get_next(state, &batch, &eos));
-
+    COUNTER_UPDATE(_build_rows_counter, batch.num_rows());
     if (UNLIKELY(VLOG_ROW_IS_ON)) {
       for (int i = 0; i < batch.num_rows(); ++i) {
         TupleRow* row = batch.get_row(i);
@@ -532,7 +532,6 @@ Status NewPartitionedAggregationNode::GetRowsStreaming(RuntimeState* state,
     RETURN_IF_ERROR(QueryMaintenance(state));
 
     RETURN_IF_ERROR(child(0)->get_next(state, child_batch_.get(), &child_eos_));
-
     SCOPED_TIMER(streaming_timer_);
 
     int remaining_capacity[PARTITION_FANOUT];

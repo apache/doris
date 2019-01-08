@@ -477,6 +477,7 @@ public class Coordinator {
                 }
                 profileFragmentId += 1;
             }
+            attachInstanceProfileToFragmentProfile();
         } finally {
             unlock();
         }
@@ -1415,22 +1416,6 @@ public class Coordinator {
             }
         }
 
-        for (int i = 0; i < backendExecStates.size(); ++i) {
-            if (backendExecStates.get(i) == null) {
-                continue;
-            }
-            BackendExecState backendExecState = backendExecStates.get(i);
-            backendExecState.profile().computeTimeInProfile();
-
-            int profileFragmentId = backendExecState.profileFragmentId();
-            if (profileFragmentId < 0 || profileFragmentId > fragmentProfile.size()) {
-                LOG.error("profileFragmentId " + profileFragmentId
-                        + " should be in [0," + fragmentProfile.size() + ")");
-                return;
-            }
-            fragmentProfile.get(profileFragmentId).addChild(backendExecState.profile());
-        }
-
         for (int i = 1; i < fragmentProfile.size(); ++i) {
             fragmentProfile.get(i).sortChildren();
         }
@@ -1717,5 +1702,23 @@ public class Coordinator {
             }
         }
         return result;
+    }
+
+    private void attachInstanceProfileToFragmentProfile() {
+        for (int i = 0; i < backendExecStates.size(); ++i) {
+            if (backendExecStates.get(i) == null) {
+                continue;
+            }
+            BackendExecState backendExecState = backendExecStates.get(i);
+            backendExecState.profile().computeTimeInProfile();
+
+            int profileFragmentId = backendExecState.profileFragmentId();
+            if (profileFragmentId < 0 || profileFragmentId > fragmentProfile.size()) {
+                LOG.error("profileFragmentId " + profileFragmentId
+                        + " should be in [0," + fragmentProfile.size() + ")");
+                return;
+            }
+            fragmentProfile.get(profileFragmentId).addChild(backendExecState.profile());
+        }
     }
 }
