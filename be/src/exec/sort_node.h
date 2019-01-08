@@ -70,6 +70,7 @@ private:
     std::vector<bool> _nulls_first;
     boost::scoped_ptr<MemPool> _tuple_pool;
 
+    RuntimeProfile::Counter* _sort_rows_counter;
 };
 
 }

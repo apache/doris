@@ -23,6 +23,7 @@
 #include "runtime/buffered_tuple_stream3.inline.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
+#include "util/runtime_profile.h"
 
 using namespace doris;
 
@@ -238,7 +239,7 @@ bool NewPartitionedAggregationNode::TryAddToHashTable(
       return false;
     }
   }
-
+  COUNTER_UPDATE(_build_rows_counter, 1);
   UpdateTuple(partition->agg_fn_evals.data(), intermediate_tuple, in_row);
   return true;
 }

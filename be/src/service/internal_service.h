@@ -74,10 +74,10 @@ public:
                               PTabletWriterCancelResult* response,
                               google::protobuf::Closure* done) override;
 
-    void fetch_fragment_exec_infos(
+    void trigger_profile_report(
         google::protobuf::RpcController* controller,
-        const PFetchFragmentExecInfoRequest* request,
-        PFetchFragmentExecInfosResult* result,
+        const PTriggerProfileReportRequest* request,
+        PTriggerProfileReportResult* result,
         google::protobuf::Closure* done) override;
 
 private:

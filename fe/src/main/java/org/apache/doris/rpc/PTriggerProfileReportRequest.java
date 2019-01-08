@@ -20,13 +20,21 @@ package org.apache.doris.rpc;
 import com.baidu.bjf.remoting.protobuf.FieldType;
 import com.baidu.bjf.remoting.protobuf.annotation.Protobuf;
 import com.baidu.bjf.remoting.protobuf.annotation.ProtobufClass;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 
 @ProtobufClass
-public class PFetchFragmentExecInfosResult {
-    @Protobuf(order = 1, required = true)
-    public PStatus status;
-    @Protobuf(fieldType = FieldType.OBJECT, order = 2, required = false)
-    public List<PFragmentExecInfo> execInfos;
+public class PTriggerProfileReportRequest extends AttachmentRequest {
+
+    @Protobuf(fieldType = FieldType.OBJECT, order = 1, required = false)
+    List<PUniqueId> instanceIds;
+
+    public PTriggerProfileReportRequest() {
+    }
+
+    public PTriggerProfileReportRequest(List<PUniqueId> instanceIds) {
+        this.instanceIds = Lists.newArrayList();
+        this.instanceIds.addAll(instanceIds);
+    }
 }
