@@ -53,7 +53,8 @@ OLAPStatus EngineCancelDeleteTask::_cancel_delete() {
     DeleteConditionHandler cond_handler;
     for (TabletSharedPtr temp_tablet : table_list) {
         temp_tablet->obtain_header_wrlock();
-        res = cond_handler.delete_cond(temp_tablet, _request.version, false);
+        DelPredicateArray* delete_conditions = temp_tablet->mutable_delete_predicate();
+        res = cond_handler.delete_cond(delete_conditions, _request.version, false);
         if (res != OLAP_SUCCESS) {
             temp_tablet->release_header_lock();
             OLAP_LOG_WARNING("cancel delete failed. [res=%d tablet=%s]",
@@ -73,7 +74,10 @@ OLAPStatus EngineCancelDeleteTask::_cancel_delete() {
 
     // Show delete conditions in tablet header.
     for (TabletSharedPtr tablet : table_list) {
-        cond_handler.log_conds(tablet);
+        tablet->obtain_header_rdlock();
+        const DelPredicateArray& delete_conditions = tablet->delete_data_conditions();
+        cond_handler.log_conds(tablet->full_name(), delete_conditions);
+        tablet->release_header_lock();
     }
 
     LOG(INFO) << "finish to process cancel delete. res=" << res;

@@ -200,8 +200,6 @@ protected:
         ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
     }
 
-    typedef RepeatedPtrField<DeleteConditionMessage> del_cond_array;
-
     std::string _tablet_path;
     TabletSharedPtr tablet;
     TCreateTabletReq _create_tablet;
@@ -236,7 +234,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(3));
 
     // 验证存储在header中的过滤条件正确
-    const del_cond_array& delete_conditions = tablet->delete_data_conditions();
+    const DelPredicateArray& delete_conditions = tablet->delete_data_conditions();
     ASSERT_EQ(size_t(1), delete_conditions.size());
     EXPECT_EQ(3, delete_conditions.Get(0).version());
     ASSERT_EQ(size_t(3), delete_conditions.Get(0).sub_conditions_size());
@@ -256,7 +254,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     ASSERT_EQ(OLAP_SUCCESS, success_res);
 
     // 验证存储相同版本号的过滤条件情况下，新的过滤条件替换掉旧的过滤条件
-    const del_cond_array& new_delete_conditions = tablet->delete_data_conditions();
+    const DelPredicateArray& new_delete_conditions = tablet->delete_data_conditions();
     ASSERT_EQ(size_t(1), new_delete_conditions.size());
     EXPECT_EQ(3, new_delete_conditions.Get(0).version());
     ASSERT_EQ(size_t(1), new_delete_conditions.Get(0).sub_conditions_size());
@@ -280,7 +278,7 @@ TEST_F(TestDeleteConditionHandler, StoreCondSucceed) {
     ASSERT_EQ(OLAP_SUCCESS, success_res);
     ASSERT_EQ(OLAP_SUCCESS, push_empty_delta(4));
 
-    const del_cond_array& all_delete_conditions = tablet->delete_data_conditions();
+    const DelPredicateArray& all_delete_conditions = tablet->delete_data_conditions();
     ASSERT_EQ(size_t(2), all_delete_conditions.size());
     EXPECT_EQ(3, all_delete_conditions.Get(0).version());
     ASSERT_EQ(size_t(1), all_delete_conditions.Get(0).sub_conditions_size());
@@ -389,7 +387,7 @@ TEST_F(TestDeleteConditionHandler, DeleteCondRemoveOneCondition) {
     res = _delete_condition_handler.delete_cond(tablet, 5, false);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
-    const del_cond_array& all_delete_conditions = tablet->delete_data_conditions();
+    const DelPredicateArray& all_delete_conditions = tablet->delete_data_conditions();
     ASSERT_EQ(size_t(2), all_delete_conditions.size());
 
     EXPECT_EQ(3, all_delete_conditions.Get(0).version());
@@ -456,7 +454,7 @@ TEST_F(TestDeleteConditionHandler, DeleteCondRemovBelowCondition) {
     res = _delete_condition_handler.delete_cond(tablet, 4, true);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
-    const del_cond_array& all_delete_conditions = tablet->delete_data_conditions();
+    const DelPredicateArray& all_delete_conditions = tablet->delete_data_conditions();
     ASSERT_EQ(size_t(1), all_delete_conditions.size());
 
     EXPECT_EQ(5, all_delete_conditions.Get(0).version());
@@ -497,8 +495,6 @@ protected:
         }
         ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
     }
-
-    typedef RepeatedPtrField<DeleteConditionMessage> del_cond_array;
 
     std::string _tablet_path;
     TabletSharedPtr tablet;
@@ -817,8 +813,6 @@ protected:
         }
         ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
     }
-
-    typedef RepeatedPtrField<DeleteConditionMessage> del_cond_array;
 
     std::string _tablet_path;
     RowCursor _data_row_cursor;
