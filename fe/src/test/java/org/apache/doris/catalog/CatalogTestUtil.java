@@ -279,7 +279,7 @@ public class CatalogTestUtil {
                                                                            .newArrayList("100")),
                                                                    null));
 
-        RangePartitionInfo partitionInfo = new RangePartitionInfo(partitionColumns);
+        SinglePartitionInfo partitionInfo = new SinglePartitionInfo();
         Map<String, String> properties = Maps.newHashMap();
         properties.put(EsTable.HOSTS, "xxx");
         properties.put(EsTable.INDEX, "indexa");
