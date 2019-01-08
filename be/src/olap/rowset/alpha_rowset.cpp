@@ -30,13 +30,20 @@ AlphaRowset::AlphaRowset(const RowFields& tablet_schema,
         _rowset_path(rowset_path),
         _rowset_meta(rowset_meta),
         _segment_group_size(0),
-        _is_cumulative_rowset(false) {
-    Version version = _rowset_meta->version();
-    if (version.first == version.second) {
-        _is_cumulative_rowset = false;
-    } else {
-        _is_cumulative_rowset = true;
+        _is_cumulative_rowset(false),
+        _is_pending_rowset(false) {
+    if (!_rowset_meta->has_version()) {
+        _is_pending_rowset = true;
     }
+    if (!_is_pending_rowset) {
+        Version version = _rowset_meta->version();
+        if (version.first == version.second) {
+            _is_cumulative_rowset = false;
+        } else {
+            _is_cumulative_rowset = true;
+        }
+    }
+
 }
 
 OLAPStatus AlphaRowset::init() {
@@ -71,6 +78,31 @@ RowsetMetaSharedPtr AlphaRowset::get_meta() {
 
 void AlphaRowset::set_version(Version version) {
     _rowset_meta->set_version(version);
+    _is_pending_rowset = false;
+}
+
+bool AlphaRowset::create_hard_links(std::vector<std::string>* success_links) {
+    for (auto segment_group : _segment_groups) {
+        bool  ret = segment_group->create_hard_links(success_links);
+        if (!ret) {
+            LOG(WARNING) << "create hard links failed for segment group:"
+                << segment_group->segment_group_id();
+            return false;
+        }
+    }
+    return true;
+}
+
+bool AlphaRowset::remove_old_files(std::vector<std::string>* removed_links) {
+    for (auto segment_group : _segment_groups) {
+        bool  ret = segment_group->remove_old_files(removed_links);
+        if (!ret) {
+            LOG(WARNING) << "remove old files failed for segment group:"
+                << segment_group->segment_group_id();
+            return false;
+        }
+    }
+    return true;
 }
 
 OLAPStatus AlphaRowset::_init_segment_groups() {
