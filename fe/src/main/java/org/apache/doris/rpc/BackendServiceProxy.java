@@ -142,12 +142,11 @@ public class BackendServiceProxy {
         }
     }
 
-
-    public Future<PFetchFragmentExecInfosResult> fetchFragmentExecInfosAsync(
-            TNetworkAddress address, PFetchFragmentExecInfoRequest request) throws RpcException {
+    public Future<PTriggerProfileReportResult> triggerProfileReportAsync(
+            TNetworkAddress address, PTriggerProfileReportRequest request) throws RpcException {
         try {
             final PBackendService service = getProxy(address);
-            return service.fetchFragmentExecInfosAsync(request);
+            return service.triggerProfileReport(request);
         } catch (Throwable e) {
             LOG.warn("fetch data catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);

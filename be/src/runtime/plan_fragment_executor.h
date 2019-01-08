@@ -135,6 +135,11 @@ public:
     DataSink* get_sink() {
         return _sink.get();
     }
+
+    void report_profile_once() {
+        _stop_report_thread_cv.notify_one();
+    }
+
 private:
     ExecEnv* _exec_env;  // not owned
     ExecNode* _plan;  // lives in _runtime_state->obj_pool()

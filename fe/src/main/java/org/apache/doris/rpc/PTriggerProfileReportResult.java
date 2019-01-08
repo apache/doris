@@ -17,21 +17,14 @@
 
 package org.apache.doris.rpc;
 
-import com.baidu.bjf.remoting.protobuf.FieldType;
-import com.baidu.bjf.remoting.protobuf.annotation.ProtobufClass;
 import com.baidu.bjf.remoting.protobuf.annotation.Protobuf;
-
-import java.util.List;
+import com.baidu.bjf.remoting.protobuf.annotation.ProtobufClass;
 
 @ProtobufClass
-public class PFetchFragmentExecInfoRequest extends AttachmentRequest {
+public class PTriggerProfileReportResult {
+    @Protobuf(order = 1, required = true)
+    public PStatus status;
 
-    public PFetchFragmentExecInfoRequest() {
+    public PTriggerProfileReportResult() {
     }
-
-    public PFetchFragmentExecInfoRequest(List<PUniqueId> finstIds) {
-        this.finstIds = finstIds;
-    }
-    @Protobuf(fieldType = FieldType.OBJECT, order = 1, required = false)
-    public List<PUniqueId> finstIds;
 }
