@@ -44,13 +44,23 @@ public:
 
     virtual OLAPStatus remove();
 
-    virtual RowsetMetaSharedPtr get_meta();
+    virtual RowsetMetaSharedPtr get_rs_meta() const;
 
     virtual void set_version(Version version);
 
     bool create_hard_links(std::vector<std::string>* success_links);
 
     bool remove_old_files(std::vector<std::string>* removed_links);
+
+    virtual int get_data_disk_size() const;
+
+    virtual int get_index_disk_size() const;
+
+    virtual bool empty() const;
+
+    virtual bool zero_num_rows() const;
+
+    virtual size_t get_num_rows() const;
 
 private:
     OLAPStatus _init_segment_groups();

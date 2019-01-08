@@ -52,11 +52,7 @@ OLAPStatus AlphaRowset::init() {
 }
 
 std::unique_ptr<RowsetReader> AlphaRowset::create_reader() {
-    std::vector<SegmentGroup*> segment_groups;
-    for (auto& segment_group : _segment_groups) {
-        segment_groups.push_back(segment_group.get());
-    }
-    return std::unique_ptr<RowsetReader>(new AlphaRowsetReader(_tablet_schema,
+    return std::unique_ptr<RowsetReader>(new AlphaRowsetReader(
             _num_key_fields, _num_short_key_fields, _num_rows_per_row_block,
             _rowset_path, _rowset_meta.get(), _segment_groups));
 }
@@ -72,7 +68,7 @@ OLAPStatus AlphaRowset::remove() {
     return OLAP_SUCCESS;
 }
 
-RowsetMetaSharedPtr AlphaRowset::get_meta() {
+RowsetMetaSharedPtr AlphaRowset::get_rs_meta() const {
     return _rowset_meta;
 }
 
@@ -105,14 +101,34 @@ bool AlphaRowset::remove_old_files(std::vector<std::string>* removed_links) {
     return true;
 }
 
+int AlphaRowset::get_data_disk_size() const {
+    return _rowset_meta->total_disk_size();
+}
+
+int AlphaRowset::get_index_disk_size() const {
+    return _rowset_meta->index_disk_size();
+}
+
+bool AlphaRowset::empty() const {
+    return _rowset_meta->empty();
+}
+
+bool AlphaRowset::zero_num_rows() const {
+    return _rowset_meta->row_number() == 0;
+}
+
+size_t AlphaRowset::get_num_rows() const {
+    return _rowset_meta->row_number();
+}
+
 OLAPStatus AlphaRowset::_init_segment_groups() {
     std::vector<SegmentGroupPB> segment_group_metas;
     AlphaRowsetMeta* _alpha_rowset_meta = (AlphaRowsetMeta*)_rowset_meta.get();
     _alpha_rowset_meta->get_segment_groups(&segment_group_metas);
     for (auto& segment_group_meta : segment_group_metas) {
         Version version = _rowset_meta->version();
-        int64_t version_hash = _rowset_meta->get_version_hash();
-        std::shared_ptr<SegmentGroup> segment_group(new SegmentGroup(_rowset_meta->get_tablet_id(),
+        int64_t version_hash = _rowset_meta->version_hash();
+        std::shared_ptr<SegmentGroup> segment_group(new SegmentGroup(_rowset_meta->tablet_id(),
                 _rowset_meta->rowset_id(), _tablet_schema, _num_key_fields, _num_short_key_fields,
                 _num_rows_per_row_block, _rowset_path, version, version_hash,
                 false, segment_group_meta.segment_group_id(), segment_group_meta.num_segments()));

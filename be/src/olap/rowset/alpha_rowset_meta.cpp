@@ -22,8 +22,8 @@
 namespace doris {
 
 bool AlphaRowsetMeta::deserialize_extra_properties() {
-    std::string extra_properties = get_extra_properties();
-    bool parsed = _extra_meta_pb.ParseFromString(extra_properties);
+    std::string properties = extra_properties();
+    bool parsed = _extra_meta_pb.ParseFromString(properties);
     return parsed;
 }
 
