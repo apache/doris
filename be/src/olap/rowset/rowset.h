@@ -47,17 +47,17 @@ public:
 
     virtual OLAPStatus to_rowset_pb(const RowsetMetaPB& rs_meta);
 
-    virtual RowsetMetaSharedPtr get_rs_meta() const = 0;
+    virtual RowsetMetaSharedPtr rowset_meta() const = 0;
 
-    virtual int get_data_disk_size() const = 0;
+    virtual int data_disk_size() const = 0;
 
-    virtual int get_index_disk_size() const = 0;
+    virtual int index_disk_size() const = 0;
 
     virtual bool empty() const = 0;
 
     virtual bool zero_num_rows() const = 0;
 
-    virtual size_t get_num_rows() const = 0;
+    virtual size_t num_rows() const = 0;
 };
 
 } // namespace doris

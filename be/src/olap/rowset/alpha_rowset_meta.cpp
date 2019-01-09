@@ -23,8 +23,7 @@ namespace doris {
 
 bool AlphaRowsetMeta::deserialize_extra_properties() {
     std::string properties = extra_properties();
-    bool parsed = _extra_meta_pb.ParseFromString(properties);
-    return parsed;
+    return _extra_meta_pb.ParseFromString(properties);
 }
 
 void AlphaRowsetMeta::get_segment_groups(std::vector<SegmentGroupPB>* segment_groups) {

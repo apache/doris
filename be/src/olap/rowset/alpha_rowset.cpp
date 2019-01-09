@@ -68,7 +68,7 @@ OLAPStatus AlphaRowset::remove() {
     return OLAP_SUCCESS;
 }
 
-RowsetMetaSharedPtr AlphaRowset::get_rs_meta() const {
+RowsetMetaSharedPtr AlphaRowset::rowset_meta() const {
     return _rowset_meta;
 }
 
@@ -101,11 +101,11 @@ bool AlphaRowset::remove_old_files(std::vector<std::string>* removed_links) {
     return true;
 }
 
-int AlphaRowset::get_data_disk_size() const {
+int AlphaRowset::data_disk_size() const {
     return _rowset_meta->total_disk_size();
 }
 
-int AlphaRowset::get_index_disk_size() const {
+int AlphaRowset::index_disk_size() const {
     return _rowset_meta->index_disk_size();
 }
 
@@ -117,7 +117,7 @@ bool AlphaRowset::zero_num_rows() const {
     return _rowset_meta->row_number() == 0;
 }
 
-size_t AlphaRowset::get_num_rows() const {
+size_t AlphaRowset::num_rows() const {
     return _rowset_meta->row_number();
 }
 
