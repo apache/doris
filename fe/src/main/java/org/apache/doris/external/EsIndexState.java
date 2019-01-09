@@ -68,8 +68,12 @@ public class EsIndexState {
                 JSONObject shard = shardRouting.getJSONObject(i);
                 String shardState = shard.getString("state");
                 if ("STARTED".equalsIgnoreCase(shardState)) {
-                    singleShardRouting.add(EsShardRouting.parseShardRoutingV55(shardState, 
-                            shardKey, shard, nodesMap));
+                    try {
+                        singleShardRouting.add(EsShardRouting.parseShardRoutingV55(shardState, 
+                                shardKey, shard, nodesMap));
+                    } catch (Exception e) {
+                        LOG.info("errors while parse shard routing from json [{}], ignore this shard", shard.toString(), e);
+                    }
                 } 
             }
             if (singleShardRouting.isEmpty()) {
@@ -80,7 +84,7 @@ public class EsIndexState {
 
         // get some meta info from es, could be used to prune index when query
         // index.bpack.partition.upperbound: stu_age
-        if (partitionInfo instanceof RangePartitionInfo) {
+        if (partitionInfo != null && partitionInfo instanceof RangePartitionInfo) {
             JSONObject indexMeta = indicesMetaMap.getJSONObject(indexName);
             JSONObject partitionSetting = EsUtil.getJsonObject(indexMeta, "settings.index.bpack.partition", 0);
             LOG.debug("index {} range partition setting is {}", indexName, 
