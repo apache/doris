@@ -200,10 +200,10 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(ReaderContext* read_context) {
         
         RowBlock* row_block = nullptr;
         if (_key_range_size > 0) {
-            status = new_column_data->prepare_block_read((*read_context->lower_bound_keys)[_key_range_index],
-                    (*read_context->is_lower_keys_included)[_key_range_index],
-                    (*read_context->upper_bound_keys)[_key_range_index],
-                    (*read_context->is_upper_keys_included)[_key_range_index],
+            status = new_column_data->prepare_block_read(read_context->lower_bound_keys->at(_key_range_index),
+                    read_context->is_lower_keys_included->at(_key_range_index),
+                    read_context->upper_bound_keys->at(_key_range_index),
+                    read_context->is_upper_keys_included->at(_key_range_index),
                     &row_block);
             if (status != OLAP_SUCCESS) {
                 LOG(WARNING) << "prepare block read failed";
