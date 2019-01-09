@@ -118,13 +118,15 @@ public class Config extends ConfigBase {
     @ConfField public static int meta_delay_toleration_second = 300;    // 5 min
     /*
      * Master FE sync policy of bdbje.
+     * If you only deploy one Follower FE, set this to 'SYNC'. If you deploy more than 3 Follower FE,
+     * you can set this and the following 'replica_sync_policy' to WRITE_NO_SYNC.
      * more info, see: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.SyncPolicy.html
      */
-    @ConfField public static String master_sync_policy = "WRITE_NO_SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
+    @ConfField public static String master_sync_policy = "SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
     /*
      * Follower FE sync policy of bdbje.
      */
-    @ConfField public static String replica_sync_policy = "WRITE_NO_SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
+    @ConfField public static String replica_sync_policy = "SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
     /*
      * Replica ack policy of bdbje.
      * more info, see: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.ReplicaAckPolicy.html
