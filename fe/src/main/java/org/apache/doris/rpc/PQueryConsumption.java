@@ -21,13 +21,9 @@ import com.baidu.bjf.remoting.protobuf.annotation.Protobuf;
 import com.baidu.bjf.remoting.protobuf.annotation.ProtobufClass;
 
 @ProtobufClass
-public class PFetchDataResult {
-    @Protobuf(order = 1, required = true)
-    public PStatus status;
+public class PQueryConsumption {
+    @Protobuf(order = 1, required = false)
+    public long cpu;
     @Protobuf(order = 2, required = false)
-    public long packetSeq;
-    @Protobuf(order = 3, required = false)
-    public boolean eos;
-    @Protobuf(order = 4, required = false)
-    public PQueryConsumption queryConsumption;
+    public long io;
 }

@@ -31,9 +31,13 @@ void GetResultBatchCtx::on_failure(const Status& status) {
     delete this;
 }
 
-void GetResultBatchCtx::on_close(int64_t packet_seq) {
+void GetResultBatchCtx::on_close(int64_t packet_seq,
+                 ExecNodeConsumptionProvider::Consumption* consumption) {
     Status status;
     status.to_protobuf(result->mutable_status());
+    if (consumption != nullptr) {
+        consumption->serialize(result->mutable_query_consumption());
+    }
     result->set_packet_seq(packet_seq);
     result->set_eos(true);
     done->Run();
@@ -183,7 +187,7 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
         return;
     }
     if (_is_close) {
-        ctx->on_close(_packet_num);
+        ctx->on_close(_packet_num, &_consumption);
         return;
     }
     // no ready data, push ctx to waiting list
@@ -200,7 +204,7 @@ Status BufferControlBlock::close(Status exec_status) {
     if (!_waiting_rpc.empty()) {
         if (_status.ok()) {
             for (auto& ctx : _waiting_rpc) {
-                ctx->on_close(_packet_num);
+                ctx->on_close(_packet_num, &_consumption);
             }
         } else {
             for (auto& ctx : _waiting_rpc) {
