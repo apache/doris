@@ -144,33 +144,32 @@ Status EsScanNode::open(RuntimeState* state) {
                 if ((j == 0 && es_host.hostname != localhost)
                     || (j == 1 && es_host.hostname == localhost)) {
                     continue;
-                } else {
-                    Status status = open_es(es_host, result, params);
-                    if (status.ok()) {
-                       is_success = true;
-                       _addresses.push_back(es_host);
-                       _scan_handles.push_back(result.scan_handle);
-                       if (result.__isset.accepted_conjuncts) {
-                           for (int index : result.accepted_conjuncts) {
-                               conjunct_accepted_times[predicate_to_conjunct[index]]++;
-                           }
-                       }
-                       VLOG(1) << "es open success: scan_range_idx=" << i
-                               << ", params=" << apache::thrift::ThriftDebugString(params)
-                               << ", result=" << apache::thrift::ThriftDebugString(result);
-                       break;
-                    } else if (status.code() == TStatusCode::ES_SHARD_NOT_FOUND) {
-                        // if shard not found, try other nodes
-                        LOG(WARNING) << "shard not found on es node: "
-                                     << ", address=" << es_host
-                                     << ", scan_range_idx=" << i << ", try other nodes";
-                    } else {
-                        LOG(WARNING) << "es open error: scan_range_idx=" << i
-                                     << ", address=" << es_host
-                                     << ", msg=" << status.get_error_msg();
-                        return status;
-                    }
                 }
+                Status status = open_es(es_host, result, params);
+                if (status.ok()) {
+                   is_success = true;
+                   _addresses.push_back(es_host);
+                   _scan_handles.push_back(result.scan_handle);
+                   if (result.__isset.accepted_conjuncts) {
+                       for (int index : result.accepted_conjuncts) {
+                           conjunct_accepted_times[predicate_to_conjunct[index]]++;
+                       }
+                   }
+                   VLOG(1) << "es open success: scan_range_idx=" << i
+                           << ", params=" << apache::thrift::ThriftDebugString(params)
+                           << ", result=" << apache::thrift::ThriftDebugString(result);
+                   break;
+                } else if (status.code() == TStatusCode::ES_SHARD_NOT_FOUND) {
+                    // if shard not found, try other nodes
+                    LOG(WARNING) << "shard not found on es node: "
+                                 << ", address=" << es_host
+                                 << ", scan_range_idx=" << i << ", try other nodes";
+                } else {
+                    LOG(WARNING) << "es open error: scan_range_idx=" << i
+                                 << ", address=" << es_host
+                                 << ", msg=" << status.get_error_msg();
+                    return status;
+                } 
             }
             if (is_success) {
                 break;
@@ -186,7 +185,8 @@ Status EsScanNode::open(RuntimeState* state) {
     }
 
     // remove those conjuncts that accepted by all scan ranges
-    for (int conjunct_index : predicate_to_conjunct) {
+    for (int i = predicate_to_conjunct.size() - 1; i >= 0; i--) {
+        int conjunct_index = predicate_to_conjunct[i];
         if (conjunct_accepted_times[conjunct_index] == _scan_ranges.size()) {
             _conjunct_ctxs.erase(_conjunct_ctxs.begin() + conjunct_index);
         }
