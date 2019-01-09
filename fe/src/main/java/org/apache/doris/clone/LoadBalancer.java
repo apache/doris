@@ -71,7 +71,7 @@ public class LoadBalancer {
      *      2. Only select tablets from 'high' backends.
      *      3. Only select tablets from 'high' and 'mid' paths.
      * 
-     * Here we only select tablets form high load node, do not set its src or dest, all this will be set
+     * Here we only select tablets from high load node, do not set its src or dest, all this will be set
      * when this tablet is being scheduled in tablet scheduler.
      */
     private List<TabletInfo> selectAlternativeTabletsForCluster(
@@ -200,21 +200,31 @@ public class LoadBalancer {
         List<Replica> replicas = tabletInfo.getReplicas();
 
         // Check if this tablet has replica on high load backend.
-        boolean setSource = false;
+        boolean hasHighReplica = false;
         for (Replica replica : replicas) {
             if (highBe.stream().anyMatch(b -> b.getBeId() == replica.getBackendId())) {
-                PathSlot slot = backendsWorkingSlots.get(replica.getBackendId());
-                if (slot == null) {
-                    continue;
-                }
-                long pathHash = slot.takeBalanceSlot(replica.getPathHash());
-                if (pathHash == -1) {
-                    continue;
-                } else {
-                    tabletInfo.setSrc(replica);
-                    setSource = true;
-                    break;
-                }
+                hasHighReplica = true;
+                break;
+            }
+        }
+        if (!hasHighReplica) {
+            throw new SchedException(Status.UNRECOVERABLE, "no replica on high load backend");
+        }
+
+        // select a replica as source
+        boolean setSource = false;
+        for (Replica replica : replicas) {
+            PathSlot slot = backendsWorkingSlots.get(replica.getBackendId());
+            if (slot == null) {
+                continue;
+            }
+            long pathHash = slot.takeBalanceSlot(replica.getPathHash());
+            if (pathHash == -1) {
+                continue;
+            } else {
+                tabletInfo.setSrc(replica);
+                setSource = true;
+                break;
             }
         }
         if (!setSource) {

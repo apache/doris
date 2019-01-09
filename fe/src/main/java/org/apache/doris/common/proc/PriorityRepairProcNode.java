@@ -23,6 +23,7 @@ import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.ImmutableList;
 
+// show proc "/cluster_balance/priority_repair";
 public class PriorityRepairProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Database").add("Table").add("Partition").add("RemainingTimeMs").build();

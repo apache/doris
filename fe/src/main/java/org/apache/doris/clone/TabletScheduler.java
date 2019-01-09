@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
@@ -400,6 +401,11 @@ public class TabletScheduler extends Daemon {
             OlapTable tbl = (OlapTable) db.getTable(tabletInfo.getTblId());
             if (tbl == null) {
                 throw new SchedException(Status.UNRECOVERABLE, "tbl does not exist");
+            }
+
+            // we may add a tablet of a NOT NORMAL table during balance, which should be blocked
+            if (tbl.getState() != OlapTableState.NORMAL) {
+                throw new SchedException(Status.UNRECOVERABLE, "tbl's state is not normal: " + tbl.getState());
             }
 
             Partition partition = tbl.getPartition(tabletInfo.getPartitionId());
