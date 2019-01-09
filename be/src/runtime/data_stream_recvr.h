@@ -24,6 +24,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "gen_cpp/Types_types.h" // for TUniqueId
+#include "runtime/exec_node_consumption_provider.h"
 #include "runtime/descriptors.h"
 #include "util/tuple_row_compare.h"
 
@@ -99,6 +100,11 @@ public:
     const RowDescriptor& row_desc() const { return _row_desc; }
     MemTracker* mem_tracker() const { return _mem_tracker.get(); }
 
+    void add_sub_plan_consumption(const PQueryConsumption& p_consumption);
+
+    ExecNodeConsumptionProvider::Consumption get_sub_plan_consumption() {
+        return _sub_plan_consumption;
+    }
 private:
     friend class DataStreamMgr;
     class SenderQueue;
@@ -194,6 +200,7 @@ private:
     // Wall time senders spend waiting for the recv buffer to have capacity.
     RuntimeProfile::Counter* _buffer_full_wall_timer;
 
+    ExecNodeConsumptionProvider::Consumption _sub_plan_consumption; 
     // Total time spent waiting for data to arrive in the recv buffer
     // RuntimeProfile::Counter* _data_arrival_timer;
 };

@@ -46,6 +46,7 @@ class DataStreamRecvr;
 class RowBatch;
 class RuntimeState;
 class PRowBatch;
+class PQueryConsumption;
 class PUniqueId;
 
 // Singleton class which manages all incoming data streams at a backend node. It
@@ -96,7 +97,7 @@ public:
     // sender has closed.
     // Returns OK if successful, error status otherwise.
     Status close_sender(const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-            int sender_id, int be_number);
+            int sender_id, int be_number, const PQueryConsumption& consumption);
 
     // Closes all receivers registered for fragment_instance_id immediately.
     void cancel(const TUniqueId& fragment_instance_id);

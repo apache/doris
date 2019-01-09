@@ -33,6 +33,7 @@
 
 #include "common/global_types.h"
 #include "util/logging.h"
+#include "runtime/exec_node_consumption_provider.h"
 #include "runtime/mem_pool.h"
 #include "runtime/thread_resource_mgr.h"
 #include "gen_cpp/Types_types.h"  // for TUniqueId
@@ -492,6 +493,18 @@ public:
         return _is_running;
     }
 
+    void add_sub_plan_consumption(const ExecNodeConsumptionProvider::Consumption& consumption) {
+        _sub_plan_consumption.add(consumption);
+    }
+
+    ExecNodeConsumptionProvider::Consumption get_consumption() {
+        ExecNodeConsumptionProvider provider;
+        ExecNodeConsumptionProvider::Consumption total_consumption;
+        total_consumption = provider.get_consumption(&_profile);
+        total_consumption.add(_sub_plan_consumption);
+        return total_consumption; 
+    }
+
 private:
     // Allow TestEnv to set block_mgr manually for testing.
     friend class TestEnv;
@@ -637,6 +650,9 @@ private:
     /// from 'initial_reservations_'.
     /// TODO: not needed if we call ReleaseResources() in a timely manner (IMPALA-1575).
     AtomicInt32 _initial_reservation_refcnt;
+
+    // Consumption from sub plan, it should only be updated by ExchangeNode.
+    ExecNodeConsumptionProvider::Consumption _sub_plan_consumption;
 
     // prohibit copies
     RuntimeState(const RuntimeState&);
