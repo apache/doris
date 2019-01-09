@@ -60,7 +60,7 @@ struct ReaderParams {
     std::vector<OlapTuple> end_key;
     std::vector<TCondition> conditions;
     // The ColumnData will be set when using Merger, eg Cumulative, BE.
-    std::vector<ColumnData*> olap_data_arr;
+    std::vector<RowsetReaderSharedPtr> olap_data_arr;
     std::vector<uint32_t> return_columns;
     RuntimeProfile* profile;
     RuntimeState* runtime_state;
@@ -165,7 +165,7 @@ private:
 
     OLAPStatus _init_params(const ReaderParams& read_params);
 
-    OLAPStatus _acquire_data_sources(const ReaderParams& read_params);
+    OLAPStatus _capture_rs_readers(const ReaderParams& read_params);
 
     OLAPStatus _init_keys_param(const ReaderParams& read_params);
 
@@ -202,10 +202,10 @@ private:
 
     TabletSharedPtr _tablet;
 
-    // _own_data_sources is data source that reader aquire from tablet, so we need to
+    // _own_rs_readers is data source that reader aquire from tablet, so we need to
     // release these when reader closing
-    std::vector<ColumnData*> _own_data_sources;
-    std::vector<ColumnData*> _data_sources;
+    std::vector<RowsetReaderSharedPtr> _own_rs_readers;
+    std::vector<RowsetReaderSharedPtr> _rs_readers;
 
     KeysParam _keys_param;
     int32_t _next_key_index;

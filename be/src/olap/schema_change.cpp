@@ -1177,7 +1177,7 @@ bool SchemaChangeWithSorting::_external_sorting(
 
     uint64_t merged_rows = 0;
     uint64_t filted_rows = 0;
-    vector<ColumnData*> olap_data_arr;
+    vector<RowsetReaderSharedPtr> rs_readers;
 
     for (vector<SegmentGroup*>::iterator it = src_segment_groups.begin();
             it != src_segment_groups.end(); ++it) {
@@ -1187,7 +1187,7 @@ bool SchemaChangeWithSorting::_external_sorting(
             goto EXTERNAL_SORTING_ERR;
         }
 
-        olap_data_arr.push_back(olap_data);
+        rs_readers.push_back(olap_data);
 
         if (OLAP_SUCCESS != olap_data->init()) {
             OLAP_LOG_WARNING("fail to initial olap data. [version='%d-%d' tablet='%s']",
@@ -1198,7 +1198,7 @@ bool SchemaChangeWithSorting::_external_sorting(
         }
     }
 
-    if (OLAP_SUCCESS != merger.merge(olap_data_arr, &merged_rows, &filted_rows)) {
+    if (OLAP_SUCCESS != merger.merge(rs_readers, &merged_rows, &filted_rows)) {
         OLAP_LOG_WARNING("fail to merge deltas. [tablet='%s' version='%d-%d']",
                          _tablet->full_name().c_str(),
                          dest_segment_group->version().first,
@@ -1216,16 +1216,16 @@ bool SchemaChangeWithSorting::_external_sorting(
         goto EXTERNAL_SORTING_ERR;
     }
 
-    for (vector<ColumnData*>::iterator it = olap_data_arr.begin();
-            it != olap_data_arr.end(); ++it) {
+    for (vector<RowsetReaderSharedPtr>::iterator it = rs_readers.begin();
+            it != rs_readers.end(); ++it) {
         SAFE_DELETE(*it);
     }
 
     return true;
 
 EXTERNAL_SORTING_ERR:
-    for (vector<ColumnData*>::iterator it = olap_data_arr.begin();
-            it != olap_data_arr.end(); ++it) {
+    for (vector<RowsetReaderSharedPtr>::iterator it = rs_readers.begin();
+            it != rs_readers.end(); ++it) {
         SAFE_DELETE(*it);
     }
 
@@ -1498,7 +1498,7 @@ OLAPStatus SchemaChangeHandler::_do_alter_tablet(
     }
 
     vector<Version> versions_to_be_changed;
-    vector<ColumnData*> olap_data_arr;
+    vector<RowsetReaderSharedPtr> rs_readers;
     // delete handlers for new tablet
     DeleteHandler delete_handler;
     do {
@@ -1523,22 +1523,21 @@ OLAPStatus SchemaChangeHandler::_do_alter_tablet(
         }
 
         // acquire data sources correspond to history versions
-        ref_tablet->acquire_data_sources_by_versions(
-                versions_to_be_changed, &olap_data_arr);
-        if (olap_data_arr.size() < 1) {
+        ref_tablet->capture_rs_readers(versions_to_be_changed, &rs_readers);
+        if (rs_readers.size() < 1) {
             OLAP_LOG_WARNING("fail to acquire all data sources."
                              "[version_num=%d data_source_num=%d]",
                              versions_to_be_changed.size(),
-                             olap_data_arr.size());
+                             rs_readers.size());
             res = OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS;
             break;
         }
 
         // init one delete handler
         int32_t end_version = -1;
-        for (size_t i = 0; i < olap_data_arr.size(); ++i) {
-            if (olap_data_arr[i]->version().second > end_version) {
-                end_version = olap_data_arr[i]->version().second;
+        for (size_t i = 0; i < rs_readers.size(); ++i) {
+            if (rs_readers[i]->version().second > end_version) {
+                end_version = rs_readers[i]->version().second;
             }
         }
 
@@ -1563,7 +1562,7 @@ OLAPStatus SchemaChangeHandler::_do_alter_tablet(
         sc_params.alter_tablet_type = type;
         sc_params.ref_tablet = ref_tablet;
         sc_params.new_tablet = new_tablet;
-        sc_params.ref_olap_data_arr = olap_data_arr;
+        sc_params.ref_olap_data_arr = rs_readers;
         sc_params.delete_handler = delete_handler;
 
 
@@ -2132,8 +2131,8 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
             << ", version=" << (*it)->version().first << "-" << (*it)->version().second;
 
         // 释放ColumnData
-        vector<ColumnData*> olap_data_to_be_released(it, it + 1);
-        sc_params->ref_tablet->release_data_sources(&olap_data_to_be_released);
+        vector<RowsetReaderSharedPtr> olap_data_to_be_released(it, it + 1);
+        sc_params->ref_tablet->release_rs_readers(&olap_data_to_be_released);
 
         it = sc_params->ref_olap_data_arr.erase(it); // after erasing, it will point to end()
     }
@@ -2179,7 +2178,7 @@ PROCESS_ALTER_EXIT:
                 << "status=" << sc_params->ref_tablet->schema_change_status().status;
     }
 
-    sc_params->ref_tablet->release_data_sources(&(sc_params->ref_olap_data_arr));
+    sc_params->ref_tablet->release_rs_readers(&(sc_params->ref_olap_data_arr));
     SAFE_DELETE(sc_procedure);
 
     LOG(INFO) << "finish to process alter tablet job. res=" << res;

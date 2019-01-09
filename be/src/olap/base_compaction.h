@@ -24,11 +24,13 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet.h"
+#include "rowset/rowset_id_generator.h"
+#include "rowset/alpha_rowset_builder.h"
 
 namespace doris {
 
-class ColumnData;
-class SegmentGroup;
+class Rowset;
+class RowsetReader;
 
 // @brief 实现对START_BASE_COMPACTION命令的处理逻辑，并返回处理结果
 class BaseCompaction {
@@ -82,35 +84,35 @@ private:
     // 
     // 输入参数：
     // - new_base_version_hash: 新Base的VersionHash
-    // - base_data_sources: 生成新Base需要的ColumnData*
+    // - rs_readers : 生成新Base需要的RowsetReaders*
     // - row_count: 生成Base过程中产生的row_count
     //
     // 返回值：
     // - 如果执行成功，则返回OLAP_SUCCESS；
     // - 其它情况下，返回相应的错误码
     OLAPStatus _do_base_compaction(VersionHash new_base_version_hash,
-                                  std::vector<ColumnData*>* base_data_sources,
-                                  uint64_t* row_count);
+                                   const std::vector<RowsetSharedPtr>& rowsets,
+                                   uint64_t* row_count);
    
     // 更新Header使得修改对外可见
     // 输出参数：
-    // - unused_olap_indices: 需要被物理删除的SegmentGroup*
+    // - unused_olap_indices: 需要被物理删除的Rowset*
     //
     // 返回值：
     // - 如果执行成功，则返回OLAP_SUCCESS；
     // - 其它情况下，返回相应的错误码
     OLAPStatus _update_header(uint64_t row_count,
-                              std::vector<SegmentGroup*>* unused_olap_indices);
+                              std::vector<RowsetSharedPtr>* unused_olap_indices);
 
-    // 删除不再使用的SegmentGroup文件
+    // 删除不再使用的Rowset
     // 
     // 输入参数：
-    // - unused_olap_indices: 需要被物理删除的SegmentGroup*
+    // - unused_olap_indices: 需要被物理删除的Rowset*
     //
     // 返回值：
     // - 如果执行成功，则返回OLAP_SUCCESS；
     // - 其它情况下，返回相应的错误码
-    void _delete_old_files(std::vector<SegmentGroup*>* unused_indices);
+    void _delete_old_files(std::vector<RowsetSharedPtr>* unused_indices);
 
     // 其它函数执行失败时，调用该函数进行清理工作
     void _garbage_collection();
@@ -173,8 +175,8 @@ private:
     Version _latest_cumulative;
     // 在此次base compaction执行过程中，将被合并的cumulative文件版本
     std::vector<Version> _need_merged_versions;
-    // 需要新增的版本对应的SegmentGroup
-    std::vector<SegmentGroup*> _new_olap_indices;
+    // 需要新增的版本对应Rowset的
+    std::vector<RowsetSharedPtr> _new_olap_indices;
 
     bool _base_compaction_locked;
 

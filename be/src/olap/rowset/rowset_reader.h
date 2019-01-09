@@ -33,6 +33,9 @@
 
 namespace doris {
 
+class RowsetReader;
+using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
+
 struct ReaderContext {
 	const RowFields& tablet_schema;
     // projection columns
