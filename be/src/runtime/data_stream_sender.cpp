@@ -71,7 +71,7 @@ public:
     Channel(DataStreamSender* parent, const RowDescriptor& row_desc,
             const TNetworkAddress& brpc_dest,
             const TUniqueId& fragment_instance_id,
-            PlanNodeId dest_node_id, int buffer_size) :
+            PlanNodeId dest_node_id, int buffer_size, bool is_transfer_chain) :
         _parent(parent),
         _buffer_size(buffer_size),
         _row_desc(row_desc),
@@ -80,7 +80,8 @@ public:
         _num_data_bytes_sent(0),
         _packet_seq(0),
         _need_close(false),
-        _brpc_dest_addr(brpc_dest) {
+        _brpc_dest_addr(brpc_dest),
+        _is_transfer_chain(is_transfer_chain) {
     }
 
     virtual ~Channel() {
@@ -163,6 +164,8 @@ private:
     palo::PInternalService_Stub* _brpc_stub = nullptr;
     RefCountClosure<PTransmitDataResult>* _closure = nullptr;
     int32_t _brpc_timeout_ms = 500;
+    // whether the dest can be treated as consumption transfer chain.
+    bool _is_transfer_chain;
 };
 
 Status DataStreamSender::Channel::init(RuntimeState* state) {
@@ -203,6 +206,10 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
     }
     VLOG_ROW << "Channel::send_batch() instance_id=" << _fragment_instance_id
              << " dest_node=" << _dest_node_id;
+    if (eos && _is_transfer_chain) {
+        auto consumption = _brpc_request.mutable_query_consumption();
+        _parent->_query_consumption.serialize(consumption); 
+    }
 
     _brpc_request.set_eos(eos);
     if (batch != nullptr) {
@@ -305,11 +312,16 @@ DataStreamSender::DataStreamSender(
             || sink.output_partition.type == TPartitionType::RANGE_PARTITIONED);
     // TODO: use something like google3's linked_ptr here (scoped_ptr isn't copyable)
     for (int i = 0; i < destinations.size(); ++i) {
+        bool is_transfer_chain = false;
+        if (destinations[i].__isset.is_transfer_chain) {
+            is_transfer_chain = destinations[i].is_transfer_chain;
+        }
         _channel_shared_ptrs.emplace_back(
             new Channel(this, row_desc,
                         destinations[i].brpc_server,
                         destinations[i].fragment_instance_id,
-                        sink.dest_node_id, per_channel_buffer_size));
+                        sink.dest_node_id, per_channel_buffer_size, 
+                        is_transfer_chain));
         _channels.push_back(_channel_shared_ptrs[i].get());
     }
 }

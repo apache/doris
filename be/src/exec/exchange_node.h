@@ -21,11 +21,12 @@
 #include <boost/scoped_ptr.hpp>
 #include "exec/exec_node.h"
 #include "exec/sort_exec_exprs.h"
+#include "runtime/data_stream_recvr.h"
+#include "runtime/exec_node_consumption_provider.h"
 
 namespace doris {
 
 class RowBatch;
-class DataStreamRecvr;
 class RuntimeProfile;
 
 // Receiver node for data streams. The data stream receiver is created in Prepare()
@@ -61,6 +62,12 @@ protected:
     virtual void debug_string(int indentation_level, std::stringstream* out) const;
 
 private:
+
+    void set_runtime_consumption(RuntimeState* state) {
+        ExecNodeConsumptionProvider::Consumption consumption = _stream_recvr->get_sub_plan_consumption();
+        state->add_sub_plan_consumption(consumption);
+    }
+
     // Implements GetNext() for the case where _is_merging is true. Delegates the GetNext()
     // call to the underlying DataStreamRecvr.
     Status get_next_merging(RuntimeState* state, RowBatch* output_batch, bool* eos);
