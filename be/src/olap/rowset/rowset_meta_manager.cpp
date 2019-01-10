@@ -60,7 +60,7 @@ OLAPStatus RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, int64_t rowse
     if (status != OLAP_SUCCESS) {
         return status;
     }
-    bool ret = rowset_meta.get_json_rowset_meta(json_rowset_meta);
+    bool ret = rowset_meta.json_rowset_meta(json_rowset_meta);
     if (!ret) {
         std::string error_msg = "get json rowset meta failed. rowset id:" + std::to_string(rowset_id);
         return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR; 

@@ -819,7 +819,6 @@ OLAPStatus StorageEngine::_do_sweep(
     return res;
 }
 
-
 void StorageEngine::start_delete_unused_index() {
     _gc_mutex.lock();
 
@@ -853,6 +852,31 @@ void StorageEngine::add_unused_index(SegmentGroup* segment_group) {
         _gc_files[segment_group] = files;
     }
 
+    _gc_mutex.unlock();
+}
+
+void StorageEngine::start_delete_unused_rowset() {
+    _gc_mutex.lock();
+
+    auto it = _unused_rowsets.begin();
+    for (; it != _unused_rowsets.end();) { 
+        if (it->second->in_use()) {
+            ++it;
+        } else {
+            it->second->delete_files();
+            _unused_rowsets.erase(it);
+        }
+    }
+
+    _gc_mutex.unlock();
+}
+
+void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
+    _gc_mutex.lock();
+    auto it = _unused_rowsets.find(rowset->rowset_id());
+    if (it == _unused_rowsets.end()) {
+        _unused_rowsets[rowset->rowset_id()] = rowset;
+    }
     _gc_mutex.unlock();
 }
 

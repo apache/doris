@@ -23,26 +23,23 @@
 #include "olap/schema.h"
 #include "olap/row_block.h"
 #include "gen_cpp/types.pb.h"
+#include "runtime/mem_pool.h"
 
 namespace doris {
 
 class Rowset;
 
 struct RowsetBuilderContext {
+    int64_t partition_id;
     int64_t tablet_id;
-    int tablet_schema_hash;
+    int64_t tablet_schema_hash;
     int64_t rowset_id;
     RowsetTypePB rowset_type;
     std::string rowset_path_prefix;
     RowFields tablet_schema;
-    int64_t partition_id;
-    int64_t txn_id;
-    int num_key_fields;
-    int num_short_key_fields;
-    int num_rows_per_row_block;
-    Version version;
-    VersionHash version_hash;
-    PUniqueId load_id;
+    size_t num_key_fields;
+    size_t num_short_key_fields;
+    size_t num_rows_per_row_block;
     CompressKind compress_kind;
     double bloom_filter_fpp;
 };
@@ -52,6 +49,10 @@ public:
     virtual ~RowsetBuilder() { }
     
     virtual OLAPStatus init(const RowsetBuilderContext& rowset_builder_context) = 0;
+    virtual void set_txn_id(const int64_t& txn_id) = 0;
+    virtual void set_load_id(const PUniqueId& load_id) = 0; 
+    virtual void set_version(const Version& version) = 0; 
+    virtual void set_version_hash(const VersionHash& version_hash) = 0;
 
     // add a row to rowset
     virtual OLAPStatus add_row(RowCursor* row_block) = 0;
@@ -60,6 +61,7 @@ public:
 
     // get a rowset
     virtual std::shared_ptr<Rowset> build() = 0;
+    virtual MemPool* mem_pool();
 };
 
 } // namespace doris

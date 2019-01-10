@@ -25,6 +25,9 @@
 
 namespace doris {
 
+class RowsetReader;
+using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
+
 class RowsetReader {
 public:
     static RowsetReader* create();

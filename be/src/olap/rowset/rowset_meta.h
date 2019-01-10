@@ -32,7 +32,7 @@ namespace doris {
 
 class RowsetMeta;
 using RowsetMetaSharedPtr = std::shared_ptr<RowsetMeta>;
-typedef uint64_t RowsetId;
+typedef int64_t RowsetId;
 
 class RowsetMeta {
 public:
@@ -60,7 +60,7 @@ public:
         return _serialize_to_pb(value);
     }
 
-    virtual bool get_json_rowset_meta(std::string* json_rowset_meta) {
+    virtual bool json_rowset_meta(std::string* json_rowset_meta) {
         json2pb::Pb2JsonOptions json_options;
         json_options.pretty_json = true;
         bool ret = json2pb::ProtoMessageToJson(_rowset_meta_pb, json_rowset_meta, json_options);
@@ -75,7 +75,7 @@ public:
         _rowset_meta_pb.set_rowset_id(rowset_id);
     }
 
-    virtual int64_t get_tablet_id() {
+    virtual int64_t tablet_id() {
         return _rowset_meta_pb.tablet_id();
     }
 
@@ -83,7 +83,7 @@ public:
         _rowset_meta_pb.set_tablet_id(tablet_id);
     }
 
-    virtual int64_t get_txn_id() {
+    virtual int64_t txn_id() {
         return _rowset_meta_pb.txn_id();
     }
 
@@ -91,7 +91,7 @@ public:
         _rowset_meta_pb.set_txn_id(txn_id);
     }
 
-    virtual int32_t get_tablet_schema_hash() {
+    virtual int32_t tablet_schema_hash() {
         return _rowset_meta_pb.tablet_schema_hash();
     }
 
@@ -99,7 +99,7 @@ public:
         _rowset_meta_pb.set_tablet_schema_hash(tablet_schema_hash);
     }
 
-    virtual RowsetTypePB get_rowset_type() {
+    virtual RowsetTypePB rowset_type() {
         return _rowset_meta_pb.rowset_type();
     }
 
@@ -107,7 +107,7 @@ public:
         _rowset_meta_pb.set_rowset_type(rowset_type);
     }
 
-    virtual RowsetStatePB get_rowset_state() {
+    virtual RowsetStatePB rowset_state() {
         return _rowset_meta_pb.rowset_state();
     }
 
@@ -148,7 +148,7 @@ public:
         _rowset_meta_pb.set_end_version(end_version);
     }
     
-    virtual int64_t get_version_hash() {
+    virtual int64_t version_hash() {
         return _rowset_meta_pb.version_hash();
     }
 
@@ -156,7 +156,7 @@ public:
         _rowset_meta_pb.set_version_hash(version_hash);
     }
 
-    virtual int get_row_number() {
+    virtual int row_number() {
         return _rowset_meta_pb.row_number();
     }
 
@@ -164,7 +164,7 @@ public:
         _rowset_meta_pb.set_row_number(row_number);
     }
 
-    virtual int get_total_disk_size() {
+    virtual int total_disk_size() {
         return _rowset_meta_pb.total_disk_size();
     }
 
@@ -172,7 +172,7 @@ public:
         _rowset_meta_pb.set_total_disk_size(total_disk_size);
     }
 
-    virtual int get_data_disk_size() {
+    virtual int data_disk_size() {
         return _rowset_meta_pb.data_disk_size();
     }
 
@@ -180,7 +180,7 @@ public:
         _rowset_meta_pb.set_data_disk_size(data_disk_size);
     }
 
-    virtual int get_index_disk_size() {
+    virtual int index_disk_size() {
         return _rowset_meta_pb.index_disk_size();
     }
 
@@ -188,7 +188,7 @@ public:
         _rowset_meta_pb.set_index_disk_size(index_disk_size);
     }
 
-    virtual void get_column_statistics(std::vector<ColumnPruning>* column_statistics) {
+    virtual void column_statistics(std::vector<ColumnPruning>* column_statistics) {
         for (const ColumnPruning& column_statistic : _rowset_meta_pb.column_statistics()) {
             column_statistics->push_back(column_statistic);
         }
@@ -206,7 +206,7 @@ public:
         *new_column_statistic = column_statistic;
     }
 
-    virtual const DeletePredicatePB& get_delete_predicate() {
+    virtual const DeletePredicatePB& delete_predicate() {
         return _rowset_meta_pb.delete_predicate();
     }
 
@@ -215,7 +215,7 @@ public:
         *new_delete_condition = delete_predicate;
     }
 
-     virtual bool get_empty() {
+     virtual bool empty() {
         return _rowset_meta_pb.empty();
     }
 
@@ -223,7 +223,7 @@ public:
         _rowset_meta_pb.set_empty(empty);
     }
 
-    virtual std::string get_rowset_path() {
+    virtual std::string rowset_path() {
         return _rowset_meta_pb.rowset_path();
     }
 
@@ -231,7 +231,7 @@ public:
         _rowset_meta_pb.set_rowset_path(rowset_path);
     }
 
-    virtual PUniqueId get_load_id() {
+    virtual PUniqueId load_id() {
         return _rowset_meta_pb.load_id();
     }
 
@@ -241,11 +241,11 @@ public:
         new_load_id->set_lo(load_id.lo());
     }
 
-    std::string get_extra_properties() {
+    virtual std::string extra_properties() {
         return _rowset_meta_pb.extra_properties();
     }
 
-    void set_extra_properties(std::string extra_properties) {
+    virtual void set_extra_properties(std::string extra_properties) {
         _rowset_meta_pb.set_extra_properties(extra_properties);
     }
 
