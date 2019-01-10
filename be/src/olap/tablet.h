@@ -76,10 +76,6 @@ public:
 
     OLAPStatus select_versions_to_span(const Version& version,
                                        std::vector<Version>* span_versions) const;
-    void acquire_data_sources(const Version& version, std::vector<ColumnData*>* sources) const;
-    void acquire_data_sources_by_versions(const std::vector<Version>& version_list,
-                                          std::vector<ColumnData*>* sources) const;
-    OLAPStatus release_data_sources(std::vector<ColumnData*>* data_sources) const;
     OLAPStatus register_data_source(const std::vector<SegmentGroup*>& segment_group_vec);
     OLAPStatus unregister_data_source(const Version& version, std::vector<SegmentGroup*>* segment_group_vec);
     OLAPStatus add_pending_version(int64_t partition_id, int64_t transaction_id,
@@ -99,9 +95,6 @@ public:
     OLAPStatus clone_data(const TabletMeta& clone_header,
                           const std::vector<const PDelta*>& clone_deltas,
                           const std::vector<Version>& versions_to_delete);
-    OLAPStatus replace_data_sources(const std::vector<Version>* old_versions,
-                                const std::vector<SegmentGroup*>* new_data_sources,
-                                std::vector<SegmentGroup*>* old_data_sources);
     OLAPStatus compute_all_versions_hash(const std::vector<Version>& versions,
                                          VersionHash* version_hash) const;
     OLAPStatus merge_tablet_meta(const TabletMeta& hdr, int to_version);
@@ -207,13 +200,19 @@ public:
 
     OLAPStatus init_once();
     OLAPStatus capture_consistent_rowsets(const Version& spec_version,
-                                          vector<std::shared_ptr<RowsetReader>>* rs_readers);
+                                          vector<RowsetSharedPtr>* rowsets) const;
+    OLAPStatus capture_consistent_rowsets(const vector<Version>& version_vec,
+                                          vector<RowsetSharedPtr>* rowsets) const;
+    OLAPStatus release_rowsets(vector<RowsetSharedPtr>* rowsets) const;
+    OLAPStatus capture_rs_readers(const Version& spec_version,
+                                  vector<RowsetReaderSharedPtr>* rs_readers) const;
+    OLAPStatus capture_rs_readers(const vector<Version>& version_path,
+                                  vector<RowsetReaderSharedPtr>* rs_readers) const;
+    OLAPStatus release_rs_readers(vector<RowsetReaderSharedPtr>* rs_readers) const;
     OLAPStatus capture_consistent_versions(const Version& version, vector<Version>* span_versions) const;
-    void acquire_rs_reader_by_version(const vector<Version>& version_vec,
-                                      vector<std::shared_ptr<RowsetReader>>* rs_readers) const;
-    OLAPStatus release_rs_readers(vector<std::shared_ptr<RowsetReader>>* rs_readers) const;
-    OLAPStatus modify_rowsets(vector<RowsetSharedPtr>& to_add,
-                             vector<RowsetSharedPtr>& to_delete);
+    OLAPStatus modify_rowsets(std::vector<Version>* old_version,
+                              vector<RowsetSharedPtr>* to_add,
+                              vector<RowsetSharedPtr>* to_delete);
 
     const int64_t table_id() const;
     const std::string table_name() const;
@@ -240,7 +239,7 @@ public:
     size_t get_index_size() const;
     size_t all_rowsets_size() const;
     size_t get_data_size() const;
-    size_t get_num_rows() const;
+    size_t num_rows() const;
     size_t get_rowset_size(const Version& version);
 
     AlterTabletState alter_tablet_state();

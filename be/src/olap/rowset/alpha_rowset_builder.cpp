@@ -32,15 +32,27 @@ OLAPStatus AlphaRowsetBuilder::init(const RowsetBuilderContext& rowset_builder_c
     _init();
     _current_rowset_meta->set_rowset_id(_rowset_builder_context.rowset_id);
     _current_rowset_meta->set_tablet_id(_rowset_builder_context.tablet_id);
-    _current_rowset_meta->set_txn_id(_rowset_builder_context.txn_id);
     _current_rowset_meta->set_tablet_schema_hash(_rowset_builder_context.tablet_schema_hash);
     _current_rowset_meta->set_rowset_type(_rowset_builder_context.rowset_type);
     _current_rowset_meta->set_rowset_state(PREPARING);
     _current_rowset_meta->set_rowset_path(_rowset_builder_context.rowset_path_prefix);
-    _current_rowset_meta->set_version(_rowset_builder_context.version);
-    _current_rowset_meta->set_version_hash(_rowset_builder_context.version_hash);
-    _current_rowset_meta->set_load_id(_rowset_builder_context.load_id);
     return OLAP_SUCCESS;
+}
+
+void AlphaRowsetBuilder::set_txn_id(const int64_t& txn_id) {
+    _current_rowset_meta->set_txn_id(txn_id);
+}
+
+void AlphaRowsetBuilder::set_load_id(const PUniqueId& load_id) {
+    _current_rowset_meta->set_load_id(load_id);
+}
+
+void AlphaRowsetBuilder::set_version(const Version& version) {
+    _current_rowset_meta->set_version(version);
+}
+
+void AlphaRowsetBuilder::set_version_hash(const VersionHash& version_hash) {
+    _current_rowset_meta->set_version_hash(version_hash);
 }
 
 OLAPStatus AlphaRowsetBuilder::add_row(RowCursor* row) {
@@ -66,9 +78,9 @@ std::shared_ptr<Rowset> AlphaRowsetBuilder::build() {
         PendingSegmentGroupPB pending_segment_group_pb;
         pending_segment_group_pb.set_pending_segment_group_id(segment_group->segment_group_id());
         pending_segment_group_pb.set_num_segments(segment_group->num_segments());
-        PUniqueId* unique_id = pending_segment_group_pb.mutable_load_id();
-        unique_id->set_hi(_rowset_builder_context.load_id.hi());
-        unique_id->set_lo(_rowset_builder_context.load_id.lo());
+        //PUniqueId* unique_id = pending_segment_group_pb.mutable_load_id();
+        //unique_id->set_hi(_rowset_builder_context.load_id.hi());
+        //unique_id->set_lo(_rowset_builder_context.load_id.lo());
         pending_segment_group_pb.set_empty(segment_group->empty());
         const std::vector<KeyRange>* column_statistics = &(segment_group->get_column_statistics());
         if (column_statistics != nullptr) {
@@ -100,10 +112,10 @@ void AlphaRowsetBuilder::_init() {
             _rowset_builder_context.num_rows_per_row_block,
             _rowset_builder_context.rowset_path_prefix,
             false, _segment_group_id, 0, true,
-            _rowset_builder_context.partition_id, _rowset_builder_context.txn_id);
+            _rowset_builder_context.partition_id, 0);
     DCHECK(_cur_segment_group != nullptr) << "failed to malloc SegmentGroup";
     _cur_segment_group->acquire();
-    _cur_segment_group->set_load_id(_rowset_builder_context.load_id);
+    //_cur_segment_group->set_load_id(_rowset_builder_context.load_id);
     _segment_groups.push_back(_cur_segment_group);
 
     _column_data_writer = ColumnDataWriter::create(_cur_segment_group, true,

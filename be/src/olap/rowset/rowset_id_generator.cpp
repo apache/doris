@@ -34,7 +34,7 @@ RowsetIdGenerator RowsetIdGenerator::instance() {
     return _s_instance;
 }
 
-OLAPStatus RowsetIdGenerator::get_next_id(DataDir* dir, RowsetId& gen_rowset_id) {
+OLAPStatus RowsetIdGenerator::get_next_id(DataDir* dir, RowsetId* gen_rowset_id) {
     WriteLock wrlock(&_ids_lock);
     // if could not find the dir in map, then load the start id from meta
     RowsetId batch_end_id = 10000;
@@ -71,7 +71,7 @@ OLAPStatus RowsetIdGenerator::get_next_id(DataDir* dir, RowsetId& gen_rowset_id)
     } 
 
     start_end_id.first = start_end_id.first + 1;
-    gen_rowset_id = start_end_id.first;
+    *gen_rowset_id = start_end_id.first;
 
     return OLAP_SUCCESS;
 } // get_next_id
