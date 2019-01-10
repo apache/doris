@@ -58,11 +58,11 @@ public class ResultReceiver {
         this.timeoutTs = System.currentTimeMillis() + timeoutMs;
     }
 
-    public RowBatch getNext(Status status) throws TException {
+    public TResultBatch getNext(Status status) throws TException {
         if (isDone) {
             return null;
         }
-        final RowBatch rowBatch = new RowBatch();
+        
         try {
             while (!isDone && !isCancel) {
                 PFetchDataRequest request = new PFetchDataRequest(finstId);
@@ -90,10 +90,6 @@ public class ResultReceiver {
                 if (code != TStatusCode.OK) {
                     status.setPstatus(pResult.status);
                     return null;
-                } 
- 
-                if (pResult.queryConsumption != null) {
-                    rowBatch.setQueryConsumption(pResult.queryConsumption);
                 }
 
                 if (packetIdx != pResult.packetSeq) {
@@ -110,9 +106,7 @@ public class ResultReceiver {
                     TResultBatch resultBatch = new TResultBatch();
                     TDeserializer deserializer = new TDeserializer();
                     deserializer.deserialize(resultBatch, serialResult);
-                    rowBatch.setBatch(resultBatch);
-                    rowBatch.setEos(pResult.eos);
-                    return rowBatch;
+                    return resultBatch;
                 }
             }
         } catch (RpcException e) {
@@ -140,7 +134,7 @@ public class ResultReceiver {
         if (isCancel) {
             status.setStatus(Status.CANCELLED);
         }
-        return rowBatch;
+        return null;
     }
 
     public void cancel() {

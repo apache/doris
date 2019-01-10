@@ -79,8 +79,8 @@ public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
             rowData.add(instanceConsumption.getFragmentId());
             rowData.add(instanceConsumption.getInstanceId().toString());
             rowData.add(instanceConsumption.getAddress().toString());
-            rowData.add(instanceConsumption.getFormattingIoConsumption());
-            rowData.add(instanceConsumption.getFormattingCpuConsumption());
+            rowData.add(String.valueOf(instanceConsumption.getTotalIoConsumption()));
+            rowData.add(String.valueOf(instanceConsumption.getTotalCpuConsumption()));
             sortedRowDatas.add(rowData);
         }
 

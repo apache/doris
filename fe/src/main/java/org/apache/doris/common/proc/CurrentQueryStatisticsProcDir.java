@@ -76,8 +76,8 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             values.add(item.getDb());
             values.add(item.getUser());
             final CurrentQueryInfoProvider.Consumption consumption = consumptions.get(item.getQueryId());
-            values.add(consumption.getFormattingIoConsumption());
-            values.add(consumption.getFormattingCpuConsumption());
+            values.add(String.valueOf(consumption.getTotalIoConsumption()));
+            values.add(String.valueOf(consumption.getTotalCpuConsumption()));
             values.add(item.getQueryExecTime());
             sortedRowData.add(values);
         }
