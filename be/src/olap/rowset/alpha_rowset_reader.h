@@ -46,7 +46,6 @@ public:
     virtual void close();
 
 private:
-    OLAPStatus _init_segment_groups(ReaderContext* read_context);
 
     OLAPStatus _init_column_datas(ReaderContext* read_context);
 
@@ -73,6 +72,6 @@ private:
     ReaderContext* _current_read_context;
 };
 
-}
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_READER_H
