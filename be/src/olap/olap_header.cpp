@@ -460,6 +460,48 @@ void OLAPHeader::add_delete_condition(const DeleteConditionMessage& delete_condi
     LOG(INFO) << "add delete condition. version=" << version;
 }
 
+void OLAPHeader::delete_cond_by_version(const Version& version) {
+    DCHECK(version.first == version.second);
+    google::protobuf::RepeatedPtrField<DeleteConditionMessage>* delete_conditions
+            = mutable_delete_data_conditions();
+    int index = 0;
+    for (; index < delete_conditions->size(); ++index) {
+        const DeleteConditionMessage& temp = delete_conditions->Get(index);
+        if (temp.version() == version.first) {
+            // log delete condtion
+            string del_cond_str;
+            const RepeatedPtrField<string>& sub_conditions = temp.sub_conditions();
+
+            for (int i = 0; i != sub_conditions.size(); ++i) {
+                del_cond_str += sub_conditions.Get(i) + ";";
+            }
+
+            LOG(INFO) << "delete one condition. version=" << temp.version()
+                      << ", condition=" << del_cond_str;
+
+            // remove delete condition from PB
+            delete_conditions->SwapElements(index, delete_conditions->size() - 1);
+            delete_conditions->RemoveLast();
+        }
+    }
+}
+
+bool OLAPHeader::is_delete_data_version(Version version) {
+    if (version.first != version.second) {
+        return false;
+    }
+
+    google::protobuf::RepeatedPtrField<DeleteConditionMessage>::const_iterator it;
+    it = delete_data_conditions().begin();
+    for (; it != delete_data_conditions().end(); ++it) {
+        if (it->version() == version.first) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 const PPendingDelta* OLAPHeader::get_pending_delta(int64_t transaction_id) const {
     for (int i = 0; i < pending_delta_size(); i++) {
         if (pending_delta(i).transaction_id() == transaction_id) {
