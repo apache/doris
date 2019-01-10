@@ -32,6 +32,10 @@ public:
     AlphaRowsetBuilder();
 
     virtual OLAPStatus init(const RowsetBuilderContext& rowset_builder_context);
+    virtual void set_txn_id(const int64_t& txn_id);
+    virtual void set_load_id(const PUniqueId& load_id);
+    virtual void set_version(const Version& version);
+    virtual void set_version_hash(const VersionHash& version_hash);
 
     // add a row block to rowset
     virtual OLAPStatus add_row(RowCursor* row);

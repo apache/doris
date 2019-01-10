@@ -264,7 +264,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
     ref_tablet->obtain_header_rdlock();
     header_locked = true;
 
-    vector<ColumnData*> olap_data_sources;
+    vector<RowsetReaderSharedPtr> rs_readers;
     TabletMeta* new_tablet_meta = nullptr;
     do {
         // get latest version
@@ -309,8 +309,8 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
         }
 
         // get data source and add reference count for prevent to delete data files
-        ref_tablet->acquire_data_sources_by_versions(shortest_path, &olap_data_sources);
-        if (olap_data_sources.size() == 0) {
+        ref_tablet->capture_rs_readers(shortest_path, &rs_readers);
+        if (rs_readers.empty()) {
             OLAP_LOG_WARNING("failed to acquire data sources. [tablet='%s', version=%d]",
                     ref_tablet->full_name().c_str(), version);
             res = OLAP_ERR_OTHER_ERROR;
@@ -384,7 +384,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
 
     if (ref_tablet.get() != NULL) {
         VLOG(10) << "release data sources.";
-        ref_tablet->release_data_sources(&olap_data_sources);
+        ref_tablet->release_rs_readers(&rs_readers);
     }
 
     if (res != OLAP_SUCCESS) {
@@ -596,5 +596,5 @@ OLAPStatus SnapshotManager::_create_hard_link(const string& from_path, const str
         return OLAP_ERR_OTHER_ERROR;
     }
 }
-  
+
 }  // namespace doris

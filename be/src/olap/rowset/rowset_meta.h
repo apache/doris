@@ -32,7 +32,7 @@ namespace doris {
 
 class RowsetMeta;
 using RowsetMetaSharedPtr = std::shared_ptr<RowsetMeta>;
-typedef uint64_t RowsetId;
+typedef int64_t RowsetId;
 
 class RowsetMeta {
 public:

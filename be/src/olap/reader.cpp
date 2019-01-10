@@ -308,13 +308,13 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
         return res;
     }
 
-    res = _acquire_data_sources(read_params);
+    res = _capture_rs_readers(read_params);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to init reader when acquire data sources.[res=%d]", res);      
         return res;
     }
 
-    for (auto i_data: _data_sources) {
+    for (auto i_data : _rs_readers) {
         i_data->set_stats(&_stats);
     }
 
@@ -468,7 +468,7 @@ void Reader::close() {
     VLOG(3) << "merged rows:" << _merged_rows;
     _conditions.finalize();
     _delete_handler.finalize();
-    _tablet->release_data_sources(&_own_data_sources);
+    _tablet->release_rs_readers(&_own_rs_readers);
 
     for (auto pred : _col_predicates) {
         delete pred;
@@ -477,23 +477,23 @@ void Reader::close() {
     delete _collect_iter;
 }
 
-OLAPStatus Reader::_acquire_data_sources(const ReaderParams& read_params) {
-    const std::vector<ColumnData*>* data_sources;
+OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
+    const std::vector<RowsetReaderSharedPtr>* rs_readers;
     if (read_params.reader_type == READER_ALTER_TABLE
             || read_params.reader_type == READER_BASE_COMPACTION
             || read_params.reader_type == READER_CUMULATIVE_COMPACTION) {
-        data_sources = &read_params.olap_data_arr;
+        rs_readers = &read_params.rs_readers;
     } else {
         _tablet->obtain_header_rdlock();
-        _tablet->acquire_data_sources(_version, &_own_data_sources);
+        _tablet->capture_rs_readers(_version, &_own_rs_readers);
         _tablet->release_header_lock();
 
-        if (_own_data_sources.size() < 1) {
+        if (_own_rs_readers.size() < 1) {
             LOG(WARNING) << "fail to acquire data sources. [table_name='" << _tablet->full_name()
                          << "' version=" << _version.first << "-" << _version.second << "]";
             return OLAP_ERR_VERSION_NOT_EXIST;
         }
-        data_sources = &_own_data_sources;
+        rs_readers = &_own_rs_readers;
     }
     
     // do not use index stream cache when be/ce/alter/checksum,
@@ -503,7 +503,7 @@ OLAPStatus Reader::_acquire_data_sources(const ReaderParams& read_params) {
         is_using_cache = false;
     }
 
-    for (auto i_data: *data_sources) {
+    for (auto i_data: *rs_readers) {
         // skip empty version
         if (i_data->empty() || i_data->zero_num_rows()) {
             continue;
@@ -538,7 +538,7 @@ OLAPStatus Reader::_acquire_data_sources(const ReaderParams& read_params) {
                     << i_data->version().first << ", " << i_data->version().second;
             i_data->set_delete_status(DEL_NOT_SATISFIED);
         }
-        _data_sources.push_back(i_data);
+        _rs_readers.push_back(i_data);
     }
 
     return OLAP_SUCCESS;
@@ -712,7 +712,7 @@ OLAPStatus Reader::_attach_data_to_merge_set(bool first, bool *eof) {
             return res;
         }
 
-        for (auto data : _data_sources) {
+        for (auto data : _rs_readers) {
             RowBlock* block = nullptr;
             auto res = data->prepare_block_read(
                 start_key, find_last_row, end_key, end_key_find_last_row, &block);
