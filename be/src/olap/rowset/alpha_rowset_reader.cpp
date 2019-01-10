@@ -39,12 +39,11 @@ AlphaRowsetReader::AlphaRowsetReader(int num_key_fields, int num_short_key_field
 }
 
 OLAPStatus AlphaRowsetReader::init(ReaderContext* read_context) {
-    _current_read_context = read_context;
-    OLAPStatus status = _init_segment_groups(read_context);
-    if (status != OLAP_SUCCESS) {
-        return status;
+    if (read_context == nullptr) {
+        return OLAP_ERR_INIT_FAILED;
     }
-    status = _init_column_datas(read_context);
+    _current_read_context = read_context;
+    OLAPStatus status = _init_column_datas(read_context);
     return status;
 }
 
@@ -140,26 +139,20 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(ReaderContext* read_context) {
         if (status != OLAP_SUCCESS) {
             return OLAP_ERR_READER_READING_ERROR; 
         }
-        new_column_data->set_delete_handler(read_context->delete_handler);
+        new_column_data->set_delete_handler(*read_context->delete_handler);
         new_column_data->set_stats(read_context->stats);
         new_column_data->set_lru_cache(read_context->lru_cache);
         std::vector<ColumnPredicate*> col_predicates;
-        for (auto& column_predicate : read_context->predicates) {
-            col_predicates.push_back(&column_predicate.second);
+        for (auto& column_predicate : *read_context->predicates) {
+            col_predicates.push_back(column_predicate.second);
         }
-        if (read_context->lower_bound_keys.size() != read_context->is_lower_keys_included.size()
-                || read_context->lower_bound_keys.size() != read_context->upper_bound_keys.size()
-                || read_context->upper_bound_keys.size() != read_context->is_upper_keys_included.size()) {
-            std::string error_msg = "invalid key range arguments";
-            LOG(WARNING) << error_msg;
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
-        }
-        new_column_data->set_read_params(read_context->return_columns,
-                                read_context->load_bf_columns,
-                                read_context->conditions,
+        
+        new_column_data->set_read_params(*read_context->return_columns,
+                                *read_context->load_bf_columns,
+                                *read_context->conditions,
                                 col_predicates,
-                                read_context->lower_bound_keys,
-                                read_context->upper_bound_keys,
+                                *read_context->lower_bound_keys,
+                                *read_context->upper_bound_keys,
                                 read_context->is_using_cache,
                                 read_context->runtime_state);
         // filter column data
@@ -183,13 +176,31 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(ReaderContext* read_context) {
             new_column_data->set_delete_status(DEL_NOT_SATISFIED);
         }
         _column_datas.emplace_back(std::move(new_column_data));
-        _key_range_size = read_context->lower_bound_keys.size();
+        if (read_context->lower_bound_keys == nullptr) {
+            if (read_context->is_lower_keys_included != nullptr
+                || read_context->upper_bound_keys != nullptr
+                || read_context->is_upper_keys_included != nullptr) {
+                LOG(WARNING) << "invalid key range arguments";
+                return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            }
+            _key_range_size = 0;
+        } else {
+            if (read_context->lower_bound_keys->size() != read_context->is_lower_keys_included->size()
+                || read_context->lower_bound_keys->size() != read_context->upper_bound_keys->size()
+                || read_context->upper_bound_keys->size() != read_context->is_upper_keys_included->size()) {
+                std::string error_msg = "invalid key range arguments";
+                LOG(WARNING) << error_msg;
+                return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            }
+            _key_range_size = read_context->lower_bound_keys->size();
+        }
+        
         RowBlock* row_block = nullptr;
         if (_key_range_size > 0) {
-            status = new_column_data->prepare_block_read(read_context->lower_bound_keys[_key_range_index],
-                    read_context->is_lower_keys_included[_key_range_index],
-                    read_context->upper_bound_keys[_key_range_index],
-                    read_context->is_upper_keys_included[_key_range_index],
+            status = new_column_data->prepare_block_read(read_context->lower_bound_keys->at(_key_range_index),
+                    read_context->is_lower_keys_included->at(_key_range_index),
+                    read_context->upper_bound_keys->at(_key_range_index),
+                    read_context->is_upper_keys_included->at(_key_range_index),
                     &row_block);
             if (status != OLAP_SUCCESS) {
                 LOG(WARNING) << "prepare block read failed";
@@ -219,10 +230,10 @@ OLAPStatus AlphaRowsetReader::_refresh_next_block(ColumnData* column_data, RowBl
         // currently, SegmentReader can only support filter one key range a time
         // use the next predicate range to get data from segment here
         if (_key_range_size > 0 && _key_range_index < _key_range_size) {
-            status = column_data->prepare_block_read(_current_read_context->lower_bound_keys[_key_range_index],
-                    _current_read_context->is_lower_keys_included[_key_range_index],
-                    _current_read_context->upper_bound_keys[_key_range_index],
-                    _current_read_context->is_upper_keys_included[_key_range_index],
+            status = column_data->prepare_block_read(_current_read_context->lower_bound_keys->at(_key_range_index),
+                    _current_read_context->is_lower_keys_included->at(_key_range_index),
+                    _current_read_context->upper_bound_keys->at(_key_range_index),
+                    _current_read_context->is_upper_keys_included->at(_key_range_index),
                     &next_block);
             if (status != OLAP_SUCCESS) {
                 LOG(WARNING) << "prepare block read failed";
