@@ -333,8 +333,6 @@ Status PlanFragmentExecutor::open_internal() {
     // audit the sinks to check that this is ok, or change that behaviour.
     {
         SCOPED_TIMER(profile()->total_time_counter());
-        ExecNodeConsumptionProvider::Consumption consumption = runtime_state()->get_consumption(); 
-        _sink->set_query_consumption(consumption);
         Status status = _sink->close(runtime_state(), _status);
         RETURN_IF_ERROR(status);
     }

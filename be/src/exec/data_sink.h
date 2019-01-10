@@ -24,7 +24,6 @@
 #include "common/status.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Exprs_types.h"
-#include "runtime/exec_node_consumption_provider.h"
 #include "runtime/mem_tracker.h"
 
 namespace doris {
@@ -79,17 +78,11 @@ public:
     // Returns the runtime profile for the sink.
     virtual RuntimeProfile* profile() = 0;
 
-    void set_query_consumption(const ExecNodeConsumptionProvider::Consumption& consumption) {
-        _query_consumption = consumption;
-    }
-
 protected:
     // Set to true after close() has been called. subclasses should check and set this in
     // close().
     bool _closed;
     std::unique_ptr<MemTracker> _expr_mem_tracker;
-
-    ExecNodeConsumptionProvider::Consumption _query_consumption;
 };
 
 }  // namespace doris

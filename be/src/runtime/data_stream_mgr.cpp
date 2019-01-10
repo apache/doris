@@ -121,8 +121,7 @@ Status DataStreamMgr::add_data(
 Status DataStreamMgr::close_sender(const TUniqueId& fragment_instance_id,
                                    PlanNodeId dest_node_id,
                                    int sender_id, 
-                                   int be_number,
-                                   const PQueryConsumption& consumption) {
+                                   int be_number) {
     VLOG_FILE << "close_sender(): fragment_instance_id=" << fragment_instance_id
         << ", node=" << dest_node_id;
     shared_ptr<DataStreamRecvr> recvr = find_recvr(fragment_instance_id, dest_node_id);
@@ -136,7 +135,6 @@ Status DataStreamMgr::close_sender(const TUniqueId& fragment_instance_id,
         // errors from receiver-initiated teardowns.
         return Status::OK;
     }
-    recvr->add_sub_plan_consumption(consumption);
     recvr->remove_sender(sender_id, be_number);
     return Status::OK;
 }

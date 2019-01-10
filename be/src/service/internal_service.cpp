@@ -60,7 +60,7 @@ void PInternalServiceImpl<T>::transmit_data(google::protobuf::RpcController* cnt
         finst_id.__set_lo(request->finst_id().lo());
         _exec_env->stream_mgr()->close_sender(
             finst_id, request->node_id(),
-            request->sender_id(), request->be_number(), request->query_consumption());
+            request->sender_id(), request->be_number());
     }
     if (done != nullptr) {
         done->Run();

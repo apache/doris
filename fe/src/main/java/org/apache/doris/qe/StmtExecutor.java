@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -53,7 +52,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.NotImplementedException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
@@ -65,7 +63,6 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.rewrite.ExprRewriter;
-import org.apache.doris.rpc.PQueryConsumption;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TQueryOptions;
@@ -78,7 +75,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
-import java.util.Formatter;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -105,7 +101,6 @@ public class StmtExecutor {
     private Planner planner;
     private boolean isProxy;
     private ShowResultSet proxyResultSet = null;
-    private QueryConsumption consumptionForAuditLog;
 
     public StmtExecutor(ConnectContext context, String stmt, boolean isProxy) {
         this.context = context;
@@ -542,32 +537,24 @@ public class StmtExecutor {
         // so We need to send fields after first batch arrived
 
         // send result
-        RowBatch batch;
+        TResultBatch batch;
         MysqlChannel channel = context.getMysqlChannel();
         boolean isSendFields = false;
-      
-        while ((batch = coord.getNext()) != null && !batch.isEos()) {
+        while ((batch = coord.getNext()) != null) {
             if (!isSendFields) {
                 sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
             }
             isSendFields = true;
-            for (ByteBuffer row : batch.getBatch().getRows()) {
+
+            for (ByteBuffer row : batch.getRows()) {
                 channel.sendOnePacket(row);
             }
-            context.updateReturnRows(batch.getBatch().getRows().size());
+            context.updateReturnRows(batch.getRows().size());
         }
-        setConsumptionForAuditLog(batch);
         if (!isSendFields) {
             sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
         }
         context.getState().setEof();
-    }
-
-    private void setConsumptionForAuditLog(RowBatch batch) {
-        if (batch != null) {
-            final PQueryConsumption queryConsumption = batch.getQueryConsumption();
-            consumptionForAuditLog = new QueryConsumption(queryConsumption.cpu, queryConsumption.io);
-        }
     }
 
     // Process a select statement.
@@ -786,41 +773,5 @@ public class StmtExecutor {
     private void handleExportStmt() throws Exception {
         ExportStmt exportStmt = (ExportStmt) parsedStmt;
         context.getCatalog().getExportMgr().addExportJob(exportStmt);
-    }
-
-    public QueryConsumption getQueryConsumptionForAuditLog() {
-        if (consumptionForAuditLog == null) {
-            consumptionForAuditLog = new QueryConsumption();
-        }
-        return consumptionForAuditLog;
-    }
-
-    public static class QueryConsumption {
-        private final long cpu;
-        private final long io;
-
-        public QueryConsumption() {
-            this.cpu = 0;
-            this.io = 0;
-        }
-
-        public QueryConsumption(long cpu, long io) {
-            this.cpu = cpu;
-            this.io = io;
-        }
-
-        public String getFormattingCpuConsumption() {
-            final StringBuilder builder = new StringBuilder();
-            builder.append(cpu).append(" Rows");
-            return builder.toString();
-        }
-
-        public String getFormattingIoConsumption() {
-            final Pair<Double, String> pair = DebugUtil.getByteUint(io);
-            final Formatter fmt = new Formatter();
-            final StringBuilder builder = new StringBuilder();
-            builder.append(fmt.format("%.2f", pair.first)).append(" ").append(pair.second);
-            return builder.toString();
-        }
     }
 }

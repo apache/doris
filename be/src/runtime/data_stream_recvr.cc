@@ -242,7 +242,6 @@ void DataStreamRecvr::SenderQueue::add_batch(
         // it in this thread.
         batch = new RowBatch(_recvr->row_desc(), pb_batch, _recvr->mem_tracker());
     }
-   
     VLOG_ROW << "added #rows=" << batch->num_rows()
         << " batch_size=" << batch_size << "\n";
     _batch_queue.emplace_back(batch_size, batch);
@@ -434,9 +433,4 @@ Status DataStreamRecvr::get_batch(RowBatch** next_batch) {
     return _sender_queues[0]->get_batch(next_batch);
 }
 
-void DataStreamRecvr::add_sub_plan_consumption(const PQueryConsumption& p_consumption) {
-    ExecNodeConsumptionProvider::Consumption consumption;
-    consumption.deserialize(p_consumption);
-    _sub_plan_consumption.add(consumption);
-}
 }
