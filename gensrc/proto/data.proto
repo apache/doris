@@ -19,11 +19,6 @@ syntax="proto2";
 
 package doris;
 
-message PQueryConsumption {
-    optional int64 cpu = 1;
-    optional int64 io = 2;
-}
-
 message PRowBatch {
     required int32 num_rows = 1;
     repeated int32 row_tuples = 2;

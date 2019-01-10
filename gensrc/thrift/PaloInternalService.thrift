@@ -142,7 +142,6 @@ struct TPlanFragmentDestination {
   // ... which is being executed on this server
   2: required Types.TNetworkAddress server
   3: optional Types.TNetworkAddress brpc_server
-  4: optional bool is_transfer_chain
 }
 
 // Parameters for a single execution instance of a particular TPlanFragment

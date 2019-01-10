@@ -28,6 +28,4 @@ public class PFetchDataResult {
     public long packetSeq;
     @Protobuf(order = 3, required = false)
     public boolean eos;
-    @Protobuf(order = 4, required = false)
-    public PQueryConsumption queryConsumption;
 }

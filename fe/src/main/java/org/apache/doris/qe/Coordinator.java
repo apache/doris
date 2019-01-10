@@ -574,12 +574,12 @@ public class Coordinator {
         }
     }
 
-    public RowBatch getNext() throws Exception {
+    TResultBatch getNext() throws Exception {
         if (receiver == null) {
             throw new UserException("There is no receiver.");
         }
 
-        RowBatch resultBatch;
+        TResultBatch resultBatch;
         Status status = new Status();
 
         resultBatch = receiver.getNext(status);
@@ -611,7 +611,7 @@ public class Coordinator {
             }
         }
 
-        if (resultBatch.isEos()) {
+        if (resultBatch == null) {
             this.returnedAllResults = true;
 
             // if this query is a block query do not cancel.
@@ -622,7 +622,7 @@ public class Coordinator {
                 cancelInternal();
             }
         } else {
-            numReceivedRows += resultBatch.getBatch().getRowsSize();
+            numReceivedRows += resultBatch.getRowsSize();
         }
 
         return resultBatch;
@@ -746,12 +746,6 @@ public class Coordinator {
                 dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
                 dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
                 dest.setBrpc_server(toBrpcHost(destParams.instanceExecParams.get(j).host));
-                // select first dest as consumption transfer chain.
-                if (j == 0) {
-                    dest.setIs_transfer_chain(true);
-                } else {
-                    dest.setIs_transfer_chain(false);
-                }
                 params.destinations.add(dest);
             }
         }
@@ -1044,7 +1038,7 @@ public class Coordinator {
         return result;
     }
 
-    private void createScanInstance(PlanNodeId leftMostScanId, FragmentExecParams fragmentExecParams) 
+    public void createScanInstance(PlanNodeId leftMostScanId, FragmentExecParams fragmentExecParams) 
          throws UserException {
         int maxNumInstance = queryOptions.mt_dop;
         if (maxNumInstance == 0) {
@@ -1156,7 +1150,7 @@ public class Coordinator {
     }
     
     // create collocated instance according to inputFragments
-    private void createCollocatedInstance(FragmentExecParams fragmentExecParams) {
+    public void createCollocatedInstance(FragmentExecParams fragmentExecParams) {
         Preconditions.checkState(fragmentExecParams.inputFragments.size() >= 1);
         final FragmentExecParams inputFragmentParams = fragmentExecParamsMap.get(fragmentExecParams.
                 inputFragments.get(0));
@@ -1175,7 +1169,7 @@ public class Coordinator {
     }
     
     
-    private void createUnionInstance(FragmentExecParams fragmentExecParams) {
+    public void createUnionInstance(FragmentExecParams fragmentExecParams) {
         final PlanFragment fragment = fragmentExecParams.fragment;
         // Add hosts of scan nodes
         List<PlanNodeId> scanNodeIds = findScanNodes(fragment.getPlanRoot());
@@ -1569,6 +1563,7 @@ public class Coordinator {
                 params.setResource_info(tResourceInfo);
                 params.params.setQuery_id(queryId);
                 params.params.setFragment_instance_id(instanceExecParam.instanceId);
+                
                 Map<Integer, List<TScanRangeParams>> scanRanges = instanceExecParam.perNodeScanRanges;
                 if (scanRanges == null) {
                     scanRanges = Maps.newHashMap();
