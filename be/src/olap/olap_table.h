@@ -528,19 +528,7 @@ public:
     }
 
     bool is_delete_data_version(Version version) {
-        if (version.first != version.second) {
-            return false;
-        }
-
-        google::protobuf::RepeatedPtrField<DeleteConditionMessage>::const_iterator it;
-        it = _header->delete_data_conditions().begin();
-        for (; it != _header->delete_data_conditions().end(); ++it) {
-            if (it->version() == version.first) {
-                return true;
-            }
-        }
-
-        return false;
+        return _header->is_delete_data_version(version);
     }
 
     bool is_load_delete_version(Version version);
