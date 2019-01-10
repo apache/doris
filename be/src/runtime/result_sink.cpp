@@ -82,8 +82,6 @@ Status ResultSink::close(RuntimeState* state, Status exec_status) {
     }
     // close sender, this is normal path end
     if (_sender) {
-        // In the last, send consumption of execnode.
-        _sender->set_query_consumption(_query_consumption);  
         _sender->close(exec_status);
     }
     state->exec_env()->result_mgr()->cancel_at_time(time(NULL) + config::result_buffer_cancelled_interval_time, 

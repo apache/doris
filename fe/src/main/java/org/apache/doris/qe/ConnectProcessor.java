@@ -37,7 +37,6 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
 import org.apache.logging.log4j.LogManager;
@@ -93,16 +92,12 @@ public class ConnectProcessor {
         ctx.getState().setOk();
     }
 
-    private void auditAfterExec(String origStmt, StatementBase parsedStmt,
-                StmtExecutor.QueryConsumption queryConsumption) {
+    private void auditAfterExec(String origStmt, StatementBase parsedStmt) {
         // slow query
         long elapseMs = System.currentTimeMillis() - ctx.getStartTime();
         // query state log
         ctx.getAuditBuilder().put("state", ctx.getState());
         ctx.getAuditBuilder().put("time", elapseMs);
-        Preconditions.checkNotNull(queryConsumption); 
-        ctx.getAuditBuilder().put("cpu", queryConsumption.getFormattingCpuConsumption());
-        ctx.getAuditBuilder().put("io", queryConsumption.getFormattingIoConsumption());
         ctx.getAuditBuilder().put("returnRows", ctx.getReturnRows());
         ctx.getAuditBuilder().put("stmt_id", ctx.getStmtId());
 
@@ -182,8 +177,7 @@ public class ConnectProcessor {
 
         // audit after exec
         // replace '\n' to '\\n' to make string in one line
-        auditAfterExec(stmt.replace("\n", " \\n"), executor.getParsedStmt(), 
-                executor.getQueryConsumptionForAuditLog());
+        auditAfterExec(stmt.replace("\n", " \\n"), executor.getParsedStmt());
     }
 
     // Get the column definitions of a table
