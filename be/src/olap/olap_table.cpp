@@ -1307,6 +1307,9 @@ OLAPStatus OLAPTable::clone_data(const OLAPHeader& clone_header,
                              << " version=" << version.first << "-" << version.second << "]";
                 break;
             }
+            if (new_local_header.is_delete_data_version(version)) {
+                new_local_header.delete_cond_by_version(version);
+            }
             LOG(INFO) << "delete version from new local header when clone. [table='" << full_name()
                       << "', version=" << version.first << "-" << version.second << "]";
         }
