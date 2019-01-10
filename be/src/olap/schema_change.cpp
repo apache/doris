@@ -1525,10 +1525,9 @@ OLAPStatus SchemaChangeHandler::_do_alter_tablet(
         // acquire data sources correspond to history versions
         ref_tablet->capture_rs_readers(versions_to_be_changed, &rs_readers);
         if (rs_readers.size() < 1) {
-            OLAP_LOG_WARNING("fail to acquire all data sources."
-                             "[version_num=%d data_source_num=%d]",
-                             versions_to_be_changed.size(),
-                             rs_readers.size());
+            LOG(WARNING) << "fail to acquire all data sources. "
+                         << "version_num=" << versions_to_be_changed.size()
+                         << ", data_source_num=" << rs_readers.size();
             res = OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS;
             break;
         }

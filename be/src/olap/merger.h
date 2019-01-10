@@ -29,7 +29,6 @@ class ColumnData;
 class Merger {
 public:
     // parameter index is created by caller, and it is empty.
-    //Merger(TabletSharedPtr tablet, RowsetSharedPtr rowset, ReaderType type);
     Merger(TabletSharedPtr tablet, RowsetBuilder* builder, ReaderType type);
 
     virtual ~Merger() {};
@@ -46,7 +45,6 @@ public:
     }
 private:
     TabletSharedPtr _tablet;
-    //RowsetSharedPtr _rowset;
     RowsetBuilder* _builder;
     ReaderType _reader_type;
     uint64_t _row_count;

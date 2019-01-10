@@ -24,7 +24,6 @@
 #include <vector>
 
 #include "olap/merger.h"
-#include "olap/rowset/column_data.h"
 #include "olap/olap_define.h"
 #include "olap/tablet.h"
 #include "rowset/rowset_id_generator.h"
