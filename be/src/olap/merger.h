@@ -29,15 +29,15 @@ class ColumnData;
 class Merger {
 public:
     // parameter index is created by caller, and it is empty.
-    Merger(TabletSharedPtr tablet, SegmentGroup* index, ReaderType type);
+    Merger(TabletSharedPtr tablet, RowsetBuilder* builder, ReaderType type);
 
     virtual ~Merger() {};
 
     // @brief read from multiple OLAPData and SegmentGroup, then write into single OLAPData and SegmentGroup
     // @return  OLAPStatus: OLAP_SUCCESS or FAIL
     // @note it will take long time to finish.
-    OLAPStatus merge(const std::vector<ColumnData*>& olap_data_arr, 
-                     uint64_t* merged_rows, uint64_t* filted_rows);
+    OLAPStatus merge(const std::vector<RowsetReaderSharedPtr>& rs_readers, 
+                     const Version& version, uint64_t* merged_rows, uint64_t* filted_rows);
 
     // 获取在做merge过程中累积的行数
     uint64_t row_count() {
@@ -45,7 +45,7 @@ public:
     }
 private:
     TabletSharedPtr _tablet;
-    SegmentGroup* _segment_group;
+    RowsetBuilder* _builder;
     ReaderType _reader_type;
     uint64_t _row_count;
     Version _simple_merge_version;

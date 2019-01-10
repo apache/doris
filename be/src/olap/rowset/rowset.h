@@ -58,6 +58,16 @@ public:
     virtual bool zero_num_rows() const = 0;
 
     virtual size_t num_rows() const = 0;
+
+    virtual Version version() const = 0;
+
+    virtual VersionHash version_hash() const = 0;
+
+    virtual bool in_use() const = 0;
+
+    virtual RowsetId rowset_id() const = 0;
+
+    virtual bool delete_files() const = 0;
 };
 
 } // namespace doris

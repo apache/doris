@@ -291,7 +291,7 @@ private:
         AlterTabletType alter_tablet_type;
         TabletSharedPtr ref_tablet;
         TabletSharedPtr new_tablet;
-        std::vector<ColumnData*> ref_olap_data_arr;
+        std::vector<RowsetReaderSharedPtr> ref_olap_data_arr;
         std::string debug_message;
         DeleteHandler delete_handler;
         // TODO(zc): fuck me please, I don't add mutable here, but no where

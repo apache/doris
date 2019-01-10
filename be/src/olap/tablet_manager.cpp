@@ -974,7 +974,7 @@ void TabletManager::_build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tabl
     tablet_info->schema_hash = tablet->schema_hash();
 
     tablet->obtain_header_rdlock();
-    tablet_info->row_count = tablet->get_num_rows();
+    tablet_info->row_count = tablet->num_rows();
     tablet_info->data_size = tablet->get_data_size();
     const PDelta* last_file_version = tablet->lastest_version();
     if (last_file_version == NULL) {
@@ -1014,10 +1014,10 @@ void TabletManager::_build_tablet_stat() {
                 
             // we only get base tablet's stat
             stat.__set_data_size(tablet->get_data_size());
-            stat.__set_row_num(tablet->get_num_rows());
+            stat.__set_row_num(tablet->num_rows());
             VLOG(3) << "tablet_id=" << item.first 
                     << ", data_size=" << tablet->get_data_size()
-                    << ", row_num:" << tablet->get_num_rows();
+                    << ", row_num:" << tablet->num_rows();
             break;
         }
 
