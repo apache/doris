@@ -417,9 +417,9 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     }
 
     // 3. add new cumulative file into tablet
-    vector<RowsetSharedPtr> unused_indices;
+    vector<RowsetSharedPtr> unused_rowsets;
     _obtain_header_wrlock();
-    res = _update_header(&unused_indices);
+    res = _update_header(&unused_rowsets);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("failed to update header for new cumulative."
                          "[tablet=%s; cumulative_version=%d-%d]",
@@ -438,7 +438,7 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
                    << ", cumulative_version=" << _cumulative_version.first 
                    << "-" << _cumulative_version.second;
         // if error happened, roll back
-        OLAPStatus ret = _roll_back(unused_indices);
+        OLAPStatus ret = _roll_back(unused_rowsets);
         if (ret != OLAP_SUCCESS) {
             LOG(FATAL) << "roll back failed. [tablet=" <<  _tablet->full_name() << "]";
         }
@@ -452,7 +452,7 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     _release_header_lock();
 
     // 6. delete delta files which have been merged into new cumulative file
-    _delete_unused_delta_files(&unused_indices);
+    _delete_unused_delta_files(&unused_rowsets);
 
     LOG(INFO) << "succeed to do cumulative compaction. tablet=" << _tablet->full_name()
               << ", cumulative_version=" << _cumulative_version.first << "-"
@@ -460,12 +460,12 @@ OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     return res;
 }
 
-OLAPStatus CumulativeCompaction::_update_header(vector<RowsetSharedPtr>* unused_indices) {
-    vector<RowsetSharedPtr> new_indices;
-    new_indices.push_back(_rowset);
+OLAPStatus CumulativeCompaction::_update_header(vector<RowsetSharedPtr>* unused_rowsets) {
+    vector<RowsetSharedPtr> new_rowsets;
+    new_rowsets.push_back(_rowset);
 
     OLAPStatus res = OLAP_SUCCESS;
-    res = _tablet->modify_rowsets(&_need_merged_versions, &new_indices, unused_indices);
+    res = _tablet->modify_rowsets(&_need_merged_versions, &new_rowsets, unused_rowsets);
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "failed to replace data sources. res=" << res
                    << ", tablet=" << _tablet->full_name();
@@ -482,12 +482,12 @@ OLAPStatus CumulativeCompaction::_update_header(vector<RowsetSharedPtr>* unused_
     return res;
 }
 
-void CumulativeCompaction::_delete_unused_delta_files(vector<RowsetSharedPtr>* unused_indices) {
-    if (!unused_indices->empty()) {
+void CumulativeCompaction::_delete_unused_delta_files(vector<RowsetSharedPtr>* unused_rowsets) {
+    if (!unused_rowsets->empty()) {
         StorageEngine* storage_engine = StorageEngine::get_instance();
 
-        for (vector<RowsetSharedPtr>::iterator it = unused_indices->begin();
-                it != unused_indices->end(); ++it) {
+        for (vector<RowsetSharedPtr>::iterator it = unused_rowsets->begin();
+                it != unused_rowsets->end(); ++it) {
             storage_engine->add_unused_rowset(*it);
         }
     }
@@ -529,12 +529,12 @@ OLAPStatus CumulativeCompaction::_validate_delete_file_action() {
 OLAPStatus CumulativeCompaction::_roll_back(vector<RowsetSharedPtr>& old_olap_indices) {
     vector<Version> need_remove_version;
     need_remove_version.push_back(_cumulative_version);
-    // unused_indices will only contain new cumulative index
+    // unused_rowsets will only contain new cumulative index
     // we don't need to delete it here; we will delete new cumulative index in the end.
-    vector<RowsetSharedPtr> unused_indices;
+    vector<RowsetSharedPtr> unused_rowsets;
 
     OLAPStatus res = OLAP_SUCCESS;
-    res = _tablet->modify_rowsets(&need_remove_version, &old_olap_indices, &unused_indices);
+    res = _tablet->modify_rowsets(&need_remove_version, &old_olap_indices, &unused_rowsets);
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "failed to replace data sources. [tablet=" << _tablet->full_name() << "]";
         return res;

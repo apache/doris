@@ -60,7 +60,7 @@ struct ReaderParams {
     std::vector<OlapTuple> end_key;
     std::vector<TCondition> conditions;
     // The ColumnData will be set when using Merger, eg Cumulative, BE.
-    std::vector<RowsetReaderSharedPtr> olap_data_arr;
+    std::vector<RowsetReaderSharedPtr> rs_readers;
     std::vector<uint32_t> return_columns;
     RuntimeProfile* profile;
     RuntimeState* runtime_state;
@@ -73,7 +73,7 @@ struct ReaderParams {
         start_key.clear();
         end_key.clear();
         conditions.clear();
-        olap_data_arr.clear();
+        rs_readers.clear();
     }
 
     std::string to_string() {

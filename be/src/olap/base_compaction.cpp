@@ -152,15 +152,15 @@ OLAPStatus BaseCompaction::run() {
     // 4. make new versions visable.
     //    If success, remove files belong to old versions;
     //    If fail, gc files belong to new versions.
-    vector<RowsetSharedPtr> unused_olap_indices;
-    res = _update_header(row_count, &unused_olap_indices);
+    vector<RowsetSharedPtr> unused_rowsets;
+    res = _update_header(row_count, &unused_rowsets);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to update header. tablet=" << _tablet->full_name()
                      << ", version=" << _new_base_version.first << "-" << _new_base_version.second;
         _garbage_collection();
         return res;
     }
-    _delete_old_files(&unused_olap_indices);
+    _delete_old_files(&unused_rowsets);
 
     _release_base_compaction_lock();
 
@@ -318,11 +318,11 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
                                     _tablet->num_short_key_fields(), _tablet->num_rows_per_row_block(),
                                     _tablet->compress_kind(), _tablet->bloom_filter_fpp()};
     RowsetBuilder* builder = new AlphaRowsetBuilder(); 
-    builder->init(context);
     if (builder == nullptr) {
-        OLAP_LOG_WARNING("fail to new rowset.");
+        LOG(WARNING) << "fail to new rowset.";
         return OLAP_ERR_MALLOC_ERROR;
     }
+    builder->init(context);
 
     vector<RowsetReaderSharedPtr> rs_readers;
     for (auto& rowset : rowsets) {
@@ -373,7 +373,7 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     }
 
     // 4. 如果merge成功，则将新base文件对应的olap index载入
-    _new_olap_indices.push_back(new_base);
+    _new_rowsets.push_back(new_base);
 
     VLOG(10) << "merge new base success, start load index. tablet=" << _tablet->full_name()
              << ", version=" << _new_base_version.second;
@@ -417,7 +417,7 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<RowsetSharedPtr>* unused_olap_indices) {
+OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<RowsetSharedPtr>* unused_rowsets) {
     WriteLock wrlock(_tablet->get_header_lock_ptr());
     vector<Version> unused_versions;
     _get_unused_versions(&unused_versions);
@@ -425,8 +425,8 @@ OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<RowsetShare
     OLAPStatus res = OLAP_SUCCESS;
     // 由于在modify_rowsets中可能会发生很小概率的非事务性失败, 因此这里定位FATAL错误
     res = _tablet->modify_rowsets(&unused_versions,
-                                  &_new_olap_indices,
-                                  unused_olap_indices);
+                                  &_new_rowsets,
+                                  unused_rowsets);
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to replace data sources. res" << res
                    << ", tablet=" << _tablet->full_name()
@@ -451,7 +451,7 @@ OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<RowsetShare
                    << ", old_base_version=" << _old_base_version.second;
         return OLAP_ERR_BE_SAVE_HEADER_ERROR;
     }
-    _new_olap_indices.clear();
+    _new_rowsets.clear();
 
     return OLAP_SUCCESS;
 }
@@ -470,11 +470,11 @@ void BaseCompaction::_delete_old_files(vector<RowsetSharedPtr>* unused_indices) 
 void BaseCompaction::_garbage_collection() {
     // 清理掉已生成的版本文件
     StorageEngine* storage_engine = StorageEngine::get_instance();
-    for (vector<RowsetSharedPtr>::iterator it = _new_olap_indices.begin();
-            it != _new_olap_indices.end(); ++it) {
+    for (vector<RowsetSharedPtr>::iterator it = _new_rowsets.begin();
+            it != _new_rowsets.end(); ++it) {
         storage_engine->add_unused_rowset(*it);
     }
-    _new_olap_indices.clear();
+    _new_rowsets.clear();
 
     _release_base_compaction_lock();
 }

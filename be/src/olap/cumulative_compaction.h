@@ -107,18 +107,18 @@ private:
     // 将合并得到的新cumulative文件载入tablet
     //
     // 输出参数：
-    // - unused_indices: 返回不再使用的delta文件对应的olap index
+    // - unused_rowsets: 返回不再使用的delta文件对应的olap index
     //
     // 返回值：
     // - 如果成功，返回OLAP_SUCCESS
     // - 如果不成功，返回相应错误码
-    OLAPStatus _update_header(std::vector<RowsetSharedPtr>* unused_indices);
+    OLAPStatus _update_header(std::vector<RowsetSharedPtr>* unused_rowsets);
 
     // 删除不再使用的delta文件
     //
     // 输入输出参数
-    // - unused_indices: 待删除的不再使用的delta文件对应的olap index
-    void _delete_unused_delta_files(std::vector<RowsetSharedPtr>* unused_indices);
+    // - unused_rowsets: 待删除的不再使用的delta文件对应的olap index
+    void _delete_unused_delta_files(std::vector<RowsetSharedPtr>* unused_rowsets);
 
     // 验证得到的m_need_merged_versions是否正确
     //

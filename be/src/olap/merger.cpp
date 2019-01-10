@@ -49,7 +49,7 @@ OLAPStatus Merger::merge(const vector<RowsetReaderSharedPtr>& rs_readers,
     ReaderParams reader_params;
     reader_params.tablet = _tablet;
     reader_params.reader_type = _reader_type;
-    reader_params.olap_data_arr = rs_readers;
+    reader_params.rs_readers = rs_readers;
 
     if (_reader_type == READER_BASE_COMPACTION) {
         reader_params.version = version;

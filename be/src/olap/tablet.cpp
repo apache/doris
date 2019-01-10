@@ -135,7 +135,7 @@ OLAPStatus Tablet::capture_consistent_rowsets(const Version& spec_version,
 OLAPStatus Tablet::capture_consistent_rowsets(const vector<Version>& version_path,
                                         vector<RowsetSharedPtr>* rowsets) const {
     DCHECK(rowsets != nullptr && rowsets->empty());
-    for (auto version : version_path) {
+    for (auto& version : version_path) {
         auto it = _rs_version_map.find(version);
         if (it == _rs_version_map.end()) {
             LOG(WARNING) << "fail to find Rowset for version. tablet=" << full_name()

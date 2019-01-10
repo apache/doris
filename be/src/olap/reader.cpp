@@ -482,7 +482,7 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
     if (read_params.reader_type == READER_ALTER_TABLE
             || read_params.reader_type == READER_BASE_COMPACTION
             || read_params.reader_type == READER_CUMULATIVE_COMPACTION) {
-        rs_readers = &read_params.olap_data_arr;
+        rs_readers = &read_params.rs_readers;
     } else {
         _tablet->obtain_header_rdlock();
         _tablet->capture_rs_readers(_version, &_own_rs_readers);
