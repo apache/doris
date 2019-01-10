@@ -153,8 +153,10 @@ public:
     }
 
     void start_delete_unused_index();
+    void start_delete_unused_rowset();
 
     void add_unused_index(SegmentGroup* olap_index);
+    void add_unused_rowset(RowsetSharedPtr rowset);
 
     OLAPStatus recover_tablet_until_specfic_version(
         const TRecoverTabletReq& recover_tablet_req);
@@ -301,6 +303,7 @@ private:
     static StorageEngine* _s_instance;
 
     std::unordered_map<SegmentGroup*, std::vector<std::string>> _gc_files;
+    std::unordered_map<int64_t, RowsetSharedPtr> _unused_rowsets;
     Mutex _gc_mutex;
 
     // thread to monitor snapshot expiry

@@ -104,9 +104,9 @@ OLAPStatus BaseCompaction::run() {
     VLOG(10) << "new_base_version_hash" << new_base_version_hash;
 
     // 2. 获取生成新base需要的data sources
-    vector<ColumnData*> base_data_sources;
-    _tablet->acquire_data_sources_by_versions(_need_merged_versions, &base_data_sources);
-    if (base_data_sources.empty()) {
+    vector<RowsetSharedPtr> rowsets;
+    _tablet->capture_consistent_rowsets(_need_merged_versions, &rowsets);
+    if (rowsets.empty()) {
         OLAP_LOG_WARNING("fail to acquire need data sources. [tablet=%s; version=%d]",
                          _tablet->full_name().c_str(),
                          _new_base_version.second);
@@ -117,8 +117,8 @@ OLAPStatus BaseCompaction::run() {
     {
         DorisMetrics::base_compaction_deltas_total.increment(_need_merged_versions.size());
         int64_t merge_bytes = 0;
-        for (ColumnData* i_data : base_data_sources) {
-            merge_bytes += i_data->segment_group()->data_size();
+        for (auto& rowset : rowsets) {
+            merge_bytes += rowset->data_disk_size();
         }
         DorisMetrics::base_compaction_bytes_total.increment(merge_bytes);
     }
@@ -129,11 +129,8 @@ OLAPStatus BaseCompaction::run() {
     // 3. 执行base compaction
     //    执行过程可能会持续比较长时间
     stage_watch.reset();
-    res = _do_base_compaction(new_base_version_hash,
-                             &base_data_sources,
-                             &row_count);
+    res = _do_base_compaction(new_base_version_hash, rowsets, &row_count);
     // 释放不再使用的ColumnData对象
-    _tablet->release_data_sources(&base_data_sources);
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to do base version. [tablet=%s; version=%d]",
                          _tablet->full_name().c_str(),
@@ -142,38 +139,28 @@ OLAPStatus BaseCompaction::run() {
         return res;
     }
 
+    //  validate that delete action is right
+    //  if error happened, sleep 1 hour. Report a fatal log every 1 minute
+    if (_validate_delete_file_action() != OLAP_SUCCESS) {
+        LOG(WARNING) << "failed to do base compaction. delete action has error.";
+        _garbage_collection();
+        return OLAP_ERR_BE_ERROR_DELETE_ACTION;
+    }
+
     VLOG(3) << "elapsed time of doing base compaction:" << stage_watch.get_elapse_time_us();
 
     // 4. make new versions visable.
     //    If success, remove files belong to old versions;
     //    If fail, gc files belong to new versions.
-    vector<SegmentGroup*> unused_olap_indices;
-    res = _update_header(row_count, &unused_olap_indices);
+    vector<RowsetSharedPtr> unused_rowsets;
+    res = _update_header(row_count, &unused_rowsets);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to update header. tablet=" << _tablet->full_name()
                      << ", version=" << _new_base_version.first << "-" << _new_base_version.second;
         _garbage_collection();
         return res;
     }
-    _delete_old_files(&unused_olap_indices);
-
-    //  validate that delete action is right
-    //  if error happened, sleep 1 hour. Report a fatal log every 1 minute
-    if (_validate_delete_file_action() != OLAP_SUCCESS) {
-        int sleep_count = 0;
-        while (true) {
-            if (sleep_count >= 60) {
-                break;
-            }
-
-            ++sleep_count;
-            LOG(FATAL) << "base compaction's delete action has error.sleep 1 minute...";
-            sleep(60);
-        }
-
-        _garbage_collection();
-        return OLAP_ERR_BE_ERROR_DELETE_ACTION;
-    }
+    _delete_old_files(&unused_rowsets);
 
     _release_base_compaction_lock();
 
@@ -319,20 +306,28 @@ bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
 }
 
 OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash,
-                                               vector<ColumnData*>* base_data_sources,
+                                               const vector<RowsetSharedPtr>& rowsets,
                                                uint64_t* row_count) {
     // 1. 生成新base文件对应的olap index
-    /*
-    SegmentGroup* new_base = new (std::nothrow) SegmentGroup(_tablet.get(),
-                                                       _new_base_version,
-                                                       new_base_version_hash,
-                                                       false, 0, 0);
-    */
-
-    SegmentGroup* new_base = nullptr;
-    if (new_base == NULL) {
-        OLAP_LOG_WARNING("fail to new SegmentGroup.");
+    RowsetId rowset_id = 0;
+    RowsetIdGenerator::instance()->get_next_id(_tablet->data_dir(), &rowset_id);
+    RowsetBuilderContext context = {_tablet->partition_id(), _tablet->tablet_id(),
+                                    _tablet->schema_hash(), rowset_id, 
+                                    RowsetTypePB::ALPHA_ROWSET, _tablet->rowset_path_prefix(),
+                                    _tablet->tablet_schema(), _tablet->num_key_fields(),
+                                    _tablet->num_short_key_fields(), _tablet->num_rows_per_row_block(),
+                                    _tablet->compress_kind(), _tablet->bloom_filter_fpp()};
+    RowsetBuilder* builder = new AlphaRowsetBuilder(); 
+    if (builder == nullptr) {
+        LOG(WARNING) << "fail to new rowset.";
         return OLAP_ERR_MALLOC_ERROR;
+    }
+    builder->init(context);
+
+    vector<RowsetReaderSharedPtr> rs_readers;
+    for (auto& rowset : rowsets) {
+        RowsetReaderSharedPtr rs_reader(rowset->create_reader());
+        rs_readers.push_back(rs_reader);
     }
 
     LOG(INFO) << "start merge new base. tablet=" << _tablet->full_name()
@@ -349,12 +344,13 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     uint64_t merged_rows = 0;
     uint64_t filted_rows = 0;
     OLAPStatus res = OLAP_SUCCESS;
+    RowsetSharedPtr new_base = builder->build();
     if (_tablet->data_file_type() == COLUMN_ORIENTED_FILE) {
         _tablet->obtain_header_rdlock();
         _tablet->release_header_lock();
 
-        Merger merger(_tablet, new_base, READER_BASE_COMPACTION);
-        res = merger.merge(*base_data_sources, &merged_rows, &filted_rows);
+        Merger merger(_tablet, builder, READER_BASE_COMPACTION);
+        res = merger.merge(rs_readers, _new_base_version, &merged_rows, &filted_rows);
         if (res == OLAP_SUCCESS) {
             *row_count = merger.row_count();
         }
@@ -372,19 +368,17 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
                          _new_base_version.second,
                          res);
 
-        new_base->delete_all_files();
-        SAFE_DELETE(new_base);
-
+        StorageEngine::get_instance()->add_unused_rowset(new_base);
         return OLAP_ERR_BE_MERGE_ERROR;
     }
 
     // 4. 如果merge成功，则将新base文件对应的olap index载入
-    _new_olap_indices.push_back(new_base);
+    _new_rowsets.push_back(new_base);
 
     VLOG(10) << "merge new base success, start load index. tablet=" << _tablet->full_name()
              << ", version=" << _new_base_version.second;
 
-    res = new_base->load();
+    res = new_base->init();
     if (res != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("fail to load index. [version='%d-%d' version_hash=%ld tablet='%s']",
                          new_base->version().first,
@@ -396,8 +390,8 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
 
     // Check row num changes
     uint64_t source_rows = 0;
-    for (ColumnData* i_data : *base_data_sources) {
-        source_rows += i_data->segment_group()->num_rows();
+    for (auto& rowset : rowsets) {
+        source_rows += rowset->num_rows();
     }
     bool row_nums_check = config::row_nums_check;
     if (row_nums_check) {
@@ -419,19 +413,20 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
 
     LOG(INFO) << "succeed to do base compaction. tablet=" << _tablet->full_name()
               << ", base_version=" << _new_base_version.first << "-" << _new_base_version.second;
+    _tablet->release_rs_readers(&rs_readers);
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<SegmentGroup*>* unused_olap_indices) {
+OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<RowsetSharedPtr>* unused_rowsets) {
     WriteLock wrlock(_tablet->get_header_lock_ptr());
     vector<Version> unused_versions;
     _get_unused_versions(&unused_versions);
 
     OLAPStatus res = OLAP_SUCCESS;
-    // 由于在replace_data_sources中可能会发生很小概率的非事务性失败, 因此这里定位FATAL错误
-    res = _tablet->replace_data_sources(&unused_versions,
-                                       &_new_olap_indices,
-                                       unused_olap_indices);
+    // 由于在modify_rowsets中可能会发生很小概率的非事务性失败, 因此这里定位FATAL错误
+    res = _tablet->modify_rowsets(&unused_versions,
+                                  &_new_rowsets,
+                                  unused_rowsets);
     if (res != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to replace data sources. res" << res
                    << ", tablet=" << _tablet->full_name()
@@ -456,30 +451,30 @@ OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<SegmentGrou
                    << ", old_base_version=" << _old_base_version.second;
         return OLAP_ERR_BE_SAVE_HEADER_ERROR;
     }
-    _new_olap_indices.clear();
+    _new_rowsets.clear();
 
     return OLAP_SUCCESS;
 }
 
-void BaseCompaction::_delete_old_files(vector<SegmentGroup*>* unused_indices) {
+void BaseCompaction::_delete_old_files(vector<RowsetSharedPtr>* unused_indices) {
     if (!unused_indices->empty()) {
-        StorageEngine* unused_index = StorageEngine::get_instance();
+        StorageEngine* storage_engine = StorageEngine::get_instance();
 
-        for (vector<SegmentGroup*>::iterator it = unused_indices->begin();
+        for (vector<RowsetSharedPtr>::iterator it = unused_indices->begin();
                 it != unused_indices->end(); ++it) {
-            unused_index->add_unused_index(*it);
+            storage_engine->add_unused_rowset(*it);
         }
     }
 }
 
 void BaseCompaction::_garbage_collection() {
     // 清理掉已生成的版本文件
-    for (vector<SegmentGroup*>::iterator it = _new_olap_indices.begin();
-            it != _new_olap_indices.end(); ++it) {
-        (*it)->delete_all_files();
-        SAFE_DELETE(*it);
+    StorageEngine* storage_engine = StorageEngine::get_instance();
+    for (vector<RowsetSharedPtr>::iterator it = _new_rowsets.begin();
+            it != _new_rowsets.end(); ++it) {
+        storage_engine->add_unused_rowset(*it);
     }
-    _new_olap_indices.clear();
+    _new_rowsets.clear();
 
     _release_base_compaction_lock();
 }
@@ -526,17 +521,17 @@ OLAPStatus BaseCompaction::_validate_delete_file_action() {
     // 1. acquire the latest version to make sure all is right after deleting files
     ReadLock rdlock(_tablet->get_header_lock_ptr());
     const PDelta* lastest_version = _tablet->lastest_version();
-    Version test_version = Version(0, lastest_version->end_version());
-    vector<ColumnData*> test_sources;
-    _tablet->acquire_data_sources(test_version, &test_sources);
+    Version spec_version = Version(0, lastest_version->end_version());
+    vector<RowsetReaderSharedPtr> rs_readers;
+    _tablet->capture_rs_readers(spec_version, &rs_readers);
 
-    if (test_sources.size() == 0) {
+    if (rs_readers.empty()) {
         LOG(INFO) << "acquire data sources failed. version="
-           << test_version.first << "-" << test_version.second; 
+           << spec_version.first << "-" << spec_version.second; 
         return OLAP_ERR_BE_ERROR_DELETE_ACTION;
     }
 
-    _tablet->release_data_sources(&test_sources);
+    _tablet->release_rs_readers(&rs_readers);
     VLOG(3) << "delete file action is OK";
 
     return OLAP_SUCCESS;

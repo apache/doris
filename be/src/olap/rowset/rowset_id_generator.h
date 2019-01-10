@@ -33,7 +33,7 @@ public:
     // generator a id according to data dir
     // rowsetid is not globally unique, it is dir level
     // it saves the batch end id into meta env
-    OLAPStatus get_next_id(DataDir* dir, RowsetId& rowset_id); 
+    OLAPStatus get_next_id(DataDir* dir, RowsetId* rowset_id); 
 
 private:
     RowsetIdGenerator(){}
@@ -43,7 +43,7 @@ private:
     std::map<DataDir*, std::pair<RowsetId,RowsetId>> _dir_ids; 
     static RowsetIdGenerator* _s_instance;
     static std::mutex _mlock;
-} // RowsetIdGenerator
+}; // RowsetIdGenerator
 
 } // namespace doris
 #endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_ID_GENERATOR_H
