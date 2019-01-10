@@ -2358,7 +2358,7 @@ OLAPStatus SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mappi
         return OLAP_ERR_MALLOC_ERROR;
     }
 
-    if (true == column_schema.is_allow_null && value.length() == 0) {
+    if (column_schema.is_allow_null && !column_schema.has_default_value) {
         column_mapping->default_value->set_null();
     } else {
         column_mapping->default_value->from_string(value);
