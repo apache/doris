@@ -132,6 +132,11 @@ public class Config extends ConfigBase {
      * more info, see: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.ReplicaAckPolicy.html
      */
     @ConfField public static String replica_ack_policy = "SIMPLE_MAJORITY"; // ALL, NONE, SIMPLE_MAJORITY
+    
+    /*
+     * the max txn number which bdbje can rollback when trying to rejoin the group
+     */
+    @ConfField public static int txn_rollback_limit = 100;
 
     /*
      * Specified an IP for frontend, instead of the ip get by *InetAddress.getByName*.
