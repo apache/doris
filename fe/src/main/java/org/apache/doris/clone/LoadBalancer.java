@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.SchedException.Status;
-import org.apache.doris.clone.TabletInfo.Priority;
+import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.task.AgentBatchTask;
 
@@ -54,8 +54,8 @@ public class LoadBalancer {
         this.invertedIndex = Catalog.getCurrentInvertedIndex();
     }
 
-    public List<TabletInfo> selectAlternativeTablets() {
-        List<TabletInfo> alternativeTablets = Lists.newArrayList();
+    public List<TabletSchedCtx> selectAlternativeTablets() {
+        List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
         for (Map.Entry<String, ClusterLoadStatistic> entry : statisticMap.entrySet()) {
             alternativeTablets.addAll(selectAlternativeTabletsForCluster(entry.getKey(), entry.getValue()));
         }
@@ -74,10 +74,10 @@ public class LoadBalancer {
      * Here we only select tablets from high load node, do not set its src or dest, all this will be set
      * when this tablet is being scheduled in tablet scheduler.
      */
-    private List<TabletInfo> selectAlternativeTabletsForCluster(
+    private List<TabletSchedCtx> selectAlternativeTabletsForCluster(
             String clusterName, ClusterLoadStatistic clusterStat) {
         // tablet id -> backend id -> path hash
-        List<TabletInfo> alternativeTablets = Lists.newArrayList();
+        List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
 
         // get classification of backends
         List<BackendLoadStatistic> lowBe = Lists.newArrayList();
@@ -143,13 +143,13 @@ public class LoadBalancer {
                         continue;
                     }
                     
-                    TabletInfo tabletInfo = new TabletInfo(TabletInfo.Type.BALANCE, clusterName,
+                    TabletSchedCtx tabletCtx = new TabletSchedCtx(TabletSchedCtx.Type.BALANCE, clusterName,
                             tabletMeta.getDbId(), tabletMeta.getTableId(), tabletMeta.getPartitionId(),
                             tabletMeta.getIndexId(), tabletId, System.currentTimeMillis());
                     // balance task's priority is always LOW
-                    tabletInfo.setOrigPriority(Priority.LOW);
+                    tabletCtx.setOrigPriority(Priority.LOW);
 
-                    alternativeTablets.add(tabletInfo);
+                    alternativeTablets.add(tabletCtx);
 
                     // update remaining paths
                     int remaining = remainingPaths.get(replicaPathHash) - 1;
@@ -175,7 +175,7 @@ public class LoadBalancer {
      * 2. Select a low load backend as destination. And tablet should not has replica on this backend.
      * 3. Create a clone task.
      */
-    public void createBalanceTask(TabletInfo tabletInfo, Map<Long, PathSlot> backendsWorkingSlots,
+    public void createBalanceTask(TabletSchedCtx tabletInfo, Map<Long, PathSlot> backendsWorkingSlots,
             AgentBatchTask batchTask) throws SchedException {
         ClusterLoadStatistic clusterStat = statisticMap.get(tabletInfo.getCluster());
         if (clusterStat == null) {

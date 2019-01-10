@@ -32,7 +32,7 @@ import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet.TabletStatus;
-import org.apache.doris.clone.TabletInfo;
+import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
@@ -965,7 +965,7 @@ public class OlapTable extends Table {
                         return false;
                     }
 
-                    Pair<TabletStatus, TabletInfo.Priority> statusPair = tablet.getHealthStatusWithPriority(
+                    Pair<TabletStatus, TabletSchedCtx.Priority> statusPair = tablet.getHealthStatusWithPriority(
                             infoService, clusterName, visibleVersion, visibleVersionHash, replicationNum);
                     if (statusPair.first != TabletStatus.HEALTHY) {
                         return false;

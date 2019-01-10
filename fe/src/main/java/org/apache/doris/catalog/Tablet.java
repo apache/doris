@@ -18,8 +18,8 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
-import org.apache.doris.clone.TabletInfo;
-import org.apache.doris.clone.TabletInfo.Priority;
+import org.apache.doris.clone.TabletSchedCtx;
+import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
@@ -353,7 +353,7 @@ public class Tablet extends MetaObject implements Writable {
      * 1. healthy replica num is equal to replicationNum
      * 2. all healthy replicas are in right cluster
      */
-    public Pair<TabletStatus, TabletInfo.Priority> getHealthStatusWithPriority(
+    public Pair<TabletStatus, TabletSchedCtx.Priority> getHealthStatusWithPriority(
             SystemInfoService systemInfoService, String clusterName,
             long visibleVersion, long visibleVersionHash, int replicationNum) {
 
@@ -386,28 +386,28 @@ public class Tablet extends MetaObject implements Writable {
 
         // 1. alive replicas are not enough
         if (aliveReplicaNum < (replicationNum / 2) + 1) {
-            return Pair.create(TabletStatus.REPLICA_MISSING, TabletInfo.Priority.HIGH);
+            return Pair.create(TabletStatus.REPLICA_MISSING, TabletSchedCtx.Priority.HIGH);
         } else if (aliveReplicaNum < replicationNum) {
-            return Pair.create(TabletStatus.REPLICA_MISSING, TabletInfo.Priority.NORMAL);
+            return Pair.create(TabletStatus.REPLICA_MISSING, TabletSchedCtx.Priority.NORMAL);
         }
         
         // 2. healthy replicas are not enough
         if (healthyReplicaNum < (replicationNum / 2) + 1) {
-            return Pair.create(TabletStatus.VERSION_INCOMPLETE, TabletInfo.Priority.HIGH);
+            return Pair.create(TabletStatus.VERSION_INCOMPLETE, TabletSchedCtx.Priority.HIGH);
         } else if (healthyReplicaNum < replicationNum) {
-            return Pair.create(TabletStatus.VERSION_INCOMPLETE, TabletInfo.Priority.NORMAL);
+            return Pair.create(TabletStatus.VERSION_INCOMPLETE, TabletSchedCtx.Priority.NORMAL);
         }
 
         // 3. healthy replicas in cluster are not enough
         if (healthyReplicaNumInCluster < replicationNum) {
-            return Pair.create(TabletStatus.REPLICA_MISSING_IN_CLUSTER, TabletInfo.Priority.LOW);
+            return Pair.create(TabletStatus.REPLICA_MISSING_IN_CLUSTER, TabletSchedCtx.Priority.LOW);
         } else if (replicas.size() > replicationNum) {
             // we set REDUNDANT as VERY_HIGH, because delete redundant replicas can free the space quickly.
-            return Pair.create(TabletStatus.REDUNDANT, TabletInfo.Priority.VERY_HIGH);
+            return Pair.create(TabletStatus.REDUNDANT, TabletSchedCtx.Priority.VERY_HIGH);
         }
 
         // 4. healthy
-        return Pair.create(TabletStatus.HEALTHY, TabletInfo.Priority.NORMAL);
+        return Pair.create(TabletStatus.HEALTHY, TabletSchedCtx.Priority.NORMAL);
     }
 
     /*
@@ -417,7 +417,7 @@ public class Tablet extends MetaObject implements Writable {
      * NORNAL:  delay Config.tablet_repair_delay_factor_second * 2;
      * LOW:     delay Config.tablet_repair_delay_factor_second * 3;
      */
-    public boolean readyToBeRepaired(TabletInfo.Priority priority) {
+    public boolean readyToBeRepaired(TabletSchedCtx.Priority priority) {
         if (priority == Priority.VERY_HIGH) {
             return true;
         }

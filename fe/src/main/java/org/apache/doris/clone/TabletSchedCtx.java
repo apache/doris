@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -53,10 +52,10 @@ import java.util.List;
 import java.util.Map;
 
 /*
- * TabletInfo contains all information which is created during tablet scheduler processing.
+ * TabletSchedCtx contains all information which is created during tablet scheduler processing.
  */
-public class TabletInfo implements Comparable<TabletInfo> {
-    private static final Logger LOG = LogManager.getLogger(TabletInfo.class);
+public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
+    private static final Logger LOG = LogManager.getLogger(TabletSchedCtx.class);
     
     /*
      * SCHED_FAILED_COUNTER_THRESHOLD:
@@ -197,7 +196,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
 
     private SystemInfoService infoService;
     
-    public TabletInfo(Type type, String cluster, long dbId, long tblId, long partId,
+    public TabletSchedCtx(Type type, String cluster, long dbId, long tblId, long partId,
             long idxId, long tabletId, long createTime) {
         this.type = type;
         this.cluster = cluster;
@@ -843,7 +842,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
     }
     
     public boolean isTimeout() {
-        if (state != TabletInfo.State.RUNNING) {
+        if (state != TabletSchedCtx.State.RUNNING) {
             return false;
         }
         
@@ -885,7 +884,7 @@ public class TabletInfo implements Comparable<TabletInfo> {
      * If priority is equals, compared by last visit time, earlier visit time rank ahead.
      */
     @Override
-    public int compareTo(TabletInfo o) {
+    public int compareTo(TabletSchedCtx o) {
         if (dynamicPriority.ordinal() < o.dynamicPriority.ordinal()) {
             return 1;
         } else if (dynamicPriority.ordinal() > o.dynamicPriority.ordinal()) {

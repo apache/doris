@@ -202,7 +202,7 @@ public class TabletChecker extends Daemon {
                                     continue;
                                 }
                                 
-                                Pair<TabletStatus, TabletInfo.Priority> statusWithPrio = tablet.getHealthStatusWithPriority(
+                                Pair<TabletStatus, TabletSchedCtx.Priority> statusWithPrio = tablet.getHealthStatusWithPriority(
                                     infoService,
                                     db.getClusterName(),
                                     partition.getVisibleVersion(),
@@ -214,7 +214,7 @@ public class TabletChecker extends Daemon {
                                     tablet.setLastStatusCheckTime(start);
                                     continue;
                                 } else if (isInPrios) {
-                                    statusWithPrio.second = TabletInfo.Priority.VERY_HIGH;
+                                    statusWithPrio.second = TabletSchedCtx.Priority.VERY_HIGH;
                                     prioPartIsHealthy = false;
                                 }
 
@@ -224,15 +224,15 @@ public class TabletChecker extends Daemon {
                                     continue;
                                 }
 
-                                TabletInfo tabletInfo = new TabletInfo(
-                                        TabletInfo.Type.REPAIR,
+                                TabletSchedCtx tabletCtx = new TabletSchedCtx(
+                                        TabletSchedCtx.Type.REPAIR,
                                         db.getClusterName(),
                                         db.getId(), olapTbl.getId(),
                                         partition.getId(), idx.getId(), tablet.getId(),
                                         System.currentTimeMillis());
-                                tabletInfo.setOrigPriority(statusWithPrio.second);
+                                tabletCtx.setOrigPriority(statusWithPrio.second);
 
-                                if (tabletScheduler.addTablet(tabletInfo, false /* not force */)) {
+                                if (tabletScheduler.addTablet(tabletCtx, false /* not force */)) {
                                     addToSchedulerTabletNum++;
                                 }
                             }
