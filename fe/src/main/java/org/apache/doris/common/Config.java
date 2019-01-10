@@ -118,18 +118,25 @@ public class Config extends ConfigBase {
     @ConfField public static int meta_delay_toleration_second = 300;    // 5 min
     /*
      * Master FE sync policy of bdbje.
+     * If you only deploy one Follower FE, set this to 'SYNC'. If you deploy more than 3 Follower FE,
+     * you can set this and the following 'replica_sync_policy' to WRITE_NO_SYNC.
      * more info, see: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.SyncPolicy.html
      */
-    @ConfField public static String master_sync_policy = "WRITE_NO_SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
+    @ConfField public static String master_sync_policy = "SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
     /*
      * Follower FE sync policy of bdbje.
      */
-    @ConfField public static String replica_sync_policy = "WRITE_NO_SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
+    @ConfField public static String replica_sync_policy = "SYNC"; // SYNC, NO_SYNC, WRITE_NO_SYNC
     /*
      * Replica ack policy of bdbje.
      * more info, see: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.ReplicaAckPolicy.html
      */
     @ConfField public static String replica_ack_policy = "SIMPLE_MAJORITY"; // ALL, NONE, SIMPLE_MAJORITY
+    
+    /*
+     * the max txn number which bdbje can rollback when trying to rejoin the group
+     */
+    @ConfField public static int txn_rollback_limit = 100;
 
     /*
      * Specified an IP for frontend, instead of the ip get by *InetAddress.getByName*.
