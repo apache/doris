@@ -46,6 +46,7 @@ import org.apache.doris.thrift.TUploadReq;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.transport.TTransportException;
 
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -115,13 +116,39 @@ public class AgentBatchTask implements Runnable {
                 List<AgentTask> tasks = this.backendIdToTasks.get(backendId);
                 // create AgentClient
                 address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+
                 client = ClientPool.backendPool.borrowObject(address);
 
                 List<TAgentTaskRequest> agentTaskRequests = new LinkedList<TAgentTaskRequest>();
                 for (AgentTask task : tasks) {
                     agentTaskRequests.add(toAgentTaskRequest(task));
                 }
-                client.submit_tasks(agentTaskRequests);
+
+                int count = 0;
+                int retryCount = 1;
+                boolean needRetry = true;
+                while (needRetry && count++ <= retryCount) {
+                    needRetry = false;
+                    try {
+                        client.submit_tasks(agentTaskRequests);
+                    } catch (TTransportException e) {
+                        //handle the TCP connection is CLOSE_WAIT status
+                        if (e.getMessage() == null && (e.getType() == TTransportException.END_OF_FILE)) {
+                            LOG.warn("Maybe the BE {} : {} restarted just now, will retry", backendId, backend.getHost());
+                            needRetry = true;
+
+                            //close the TCP connection
+                            ClientPool.backendPool.invalidateObject(address, client);
+
+                            //create a new TCP connection
+                            address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+                            client = ClientPool.backendPool.borrowObject(address);
+                        } else {
+                            throw e;
+                        }
+                    }
+                }
+
                 if (LOG.isDebugEnabled()) {
                     for (AgentTask task : tasks) {
                         LOG.debug("send task: type[{}], backend[{}], signature[{}]",
