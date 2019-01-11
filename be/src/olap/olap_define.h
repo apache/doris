@@ -333,6 +333,10 @@ enum OLAPStatus {
     OLAP_ERR_META_PUT = -3004,
     OLAP_ERR_META_ITERATOR = -3005,
     OLAP_ERR_META_DELETE = -3006,
+
+    // Rowset
+    // [-3100, -3200)
+    OLAP_ERR_ROWSET_BUILDER_INIT = -3100,
 };
 
 enum ColumnFamilyIndex {

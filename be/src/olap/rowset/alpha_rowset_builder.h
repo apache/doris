@@ -32,18 +32,18 @@ public:
     AlphaRowsetBuilder();
 
     virtual OLAPStatus init(const RowsetBuilderContext& rowset_builder_context);
-    virtual void set_txn_id(const int64_t& txn_id);
-    virtual void set_load_id(const PUniqueId& load_id);
-    virtual void set_version(const Version& version);
-    virtual void set_version_hash(const VersionHash& version_hash);
 
     // add a row block to rowset
     virtual OLAPStatus add_row(RowCursor* row);
+
+    virtual OLAPStatus add_row(const char* row, Schema* schema);
 
     virtual OLAPStatus flush();
 
     // get a rowset
     virtual std::shared_ptr<Rowset> build();
+
+    virtual MemPool* mem_pool();
 
 private:
     void _init();
@@ -53,6 +53,7 @@ private:
     SegmentGroup* _cur_segment_group;
     ColumnDataWriter* _column_data_writer;
     std::shared_ptr<RowsetMeta> _current_rowset_meta;
+    bool is_pending_rowset;
     RowsetBuilderContext _rowset_builder_context;
     std::vector<SegmentGroup*> _segment_groups;
 };

@@ -19,7 +19,7 @@
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_BUILDER_H
 
 #include "olap/rowset/rowset.h"
-#include "olap/new_status.h"
+#include "olap/rowset/rowset_builder_context.h"
 #include "olap/schema.h"
 #include "olap/row_block.h"
 #include "gen_cpp/types.pb.h"
@@ -27,41 +27,27 @@
 
 namespace doris {
 
-class Rowset;
-
-struct RowsetBuilderContext {
-    int64_t partition_id;
-    int64_t tablet_id;
-    int64_t tablet_schema_hash;
-    int64_t rowset_id;
-    RowsetTypePB rowset_type;
-    std::string rowset_path_prefix;
-    RowFields tablet_schema;
-    size_t num_key_fields;
-    size_t num_short_key_fields;
-    size_t num_rows_per_row_block;
-    CompressKind compress_kind;
-    double bloom_filter_fpp;
-};
+class RowsetBuilder;
+using RowsetBuilderSharedPtr = std::shared_ptr<RowsetBuilder>;
 
 class RowsetBuilder {
 public:
     virtual ~RowsetBuilder() { }
     
     virtual OLAPStatus init(const RowsetBuilderContext& rowset_builder_context) = 0;
-    virtual void set_txn_id(const int64_t& txn_id) = 0;
-    virtual void set_load_id(const PUniqueId& load_id) = 0; 
-    virtual void set_version(const Version& version) = 0; 
-    virtual void set_version_hash(const VersionHash& version_hash) = 0;
 
     // add a row to rowset
     virtual OLAPStatus add_row(RowCursor* row_block) = 0;
 
+    virtual OLAPStatus add_row(const char* row, Schema* schema) = 0;
+
     virtual OLAPStatus flush() = 0;
 
     // get a rowset
-    virtual std::shared_ptr<Rowset> build() = 0;
-    virtual MemPool* mem_pool();
+    virtual RowsetSharedPtr build() = 0;
+
+    // TODO(hkp): this interface should be optimized!
+    virtual MemPool* mem_pool() = 0;
 };
 
 } // namespace doris
