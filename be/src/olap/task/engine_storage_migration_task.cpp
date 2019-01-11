@@ -69,7 +69,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         return OLAP_SUCCESS;
     }
 
-    vector<ColumnData*> olap_data_sources;
+    vector<RowsetReaderSharedPtr> rs_readers;
     tablet->obtain_push_lock();
 
     do {
@@ -84,8 +84,8 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         }
 
         int32_t end_version = lastest_version->end_version();
-        tablet->acquire_data_sources(Version(0, end_version), &olap_data_sources);
-        if (olap_data_sources.size() == 0) {
+        tablet->capture_rs_readers(Version(0, end_version), &rs_readers);
+        if (rs_readers.empty()) {
             tablet->release_header_lock();
             res = OLAP_ERR_VERSION_NOT_EXIST;
             OLAP_LOG_WARNING("fail to acquire data souces. [tablet='%s' version=%d]",
@@ -175,7 +175,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
     } while (0);
 
     tablet->release_push_lock();
-    tablet->release_data_sources(&olap_data_sources);
+    tablet->release_rs_readers(&rs_readers);
 
     return res;
 }

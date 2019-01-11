@@ -77,9 +77,9 @@ private:
     std::vector<TTabletInfo>* _tablet_infos;
     FileDownloader::FileDownloaderParam _downloader_param;
     FileDownloader* _file_downloader;
+    int64_t _signature;
     AgentStatus _download_status;
     AgentStatus* _res_status;
-    int64_t _signature;
 };  // class Pusher
 }  // namespace doris
 #endif  // DORIS_BE_SRC_OLAP_TASK_ENGINE_BATCH_LOAD_TASK_H
