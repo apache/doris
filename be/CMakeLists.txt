@@ -383,31 +383,6 @@ message(STATUS "LLVM compile flags: ${LLVM_CFLAGS}")
 # these reasons we need to manually add the system c++ headers to the path when we
 # compile the IR code with clang.
 
-# Check the release version of the system to set the correct flags.
-# You may have to modify the ${CLANG_BASE_FLAGS} by you own.
-execute_process(COMMAND lsb_release -si OUTPUT_VARIABLE LINUX_VERSION)
-string(TOLOWER ${LINUX_VERSION} LINUX_VERSION_LOWER)
-message(STATUS "${LINUX_VERSION_LOWER}")
-
-# if(DEFINED ENV{CLANG_BASE_FLAGS})
-#     set(CLANG_BASE_FLAGS
-#         $ENV{CLANG_BASE_FLAGS})
-# elseif(${LINUX_VERSION_LOWER} MATCHES "ubuntu")
-#     set(CLANG_BASE_FLAGS
-#         "-I/usr/include/c++/5/"
-#         "-I/usr/include/x86_64-linux-gnu/c++/5/")
-# elseif(${LINUX_VERSION_LOWER} MATCHES "centos")
-#     set(CLANG_BASE_FLAGS
-#         "-I/usr/include/c++/4.8.5/"
-#         "-I/usr/include/c++/4.8.5/x86_64-redhat-linux/")
-# elseif(${LINUX_VERSION_LOWER} MATCHES "fedora")
-#     set(CLANG_BASE_FLAGS
-#         "-I/usr/include/c++/7/"
-#         "-I/usr/include/c++/7/x86_64-redhat-linux/")
-# else()
-#     message(FATAL_ERROR "Currently not support system ${LINUX_VERSION}")
-# endif()
-
 if(DEFINED ENV{CLANG_COMPATIBLE_FLAGS})
     set(CLANG_COMPATIBLE_FLAGS $ENV{CLANG_COMPATIBLE_FLAGS})
 endif()
