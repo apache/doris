@@ -50,6 +50,7 @@ import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.HashMultiset;
 import com.google.common.collect.LinkedHashMultimap;
@@ -532,7 +533,7 @@ public class SchemaChangeJob extends AlterJob {
         }
 
         this.state = JobState.CANCELLED;
-        if (msg != null) {
+        if (!Strings.isNullOrEmpty(cancelMsg) && !Strings.isNullOrEmpty(msg)) {
             this.cancelMsg = msg;
         }
 
@@ -540,7 +541,8 @@ public class SchemaChangeJob extends AlterJob {
 
         // 2. log
         Catalog.getInstance().getEditLog().logCancelSchemaChange(this);
-        LOG.info("cancel schema change job[" + olapTable == null ? -1 : olapTable.getId() + "] finished");
+        LOG.info("cancel schema change job[{}] finished, because: {}",
+                olapTable == null ? -1 : olapTable.getId(), cancelMsg);
     }
 
     @Override

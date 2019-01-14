@@ -49,6 +49,7 @@ import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.LinkedHashMultimap;
@@ -501,7 +502,7 @@ public class RollupJob extends AlterJob {
         }
 
         this.state = JobState.CANCELLED;
-        if (msg != null) {
+        if (!Strings.isNullOrEmpty(cancelMsg) && !Strings.isNullOrEmpty(msg)) {
             this.cancelMsg = msg;
         }
 
@@ -509,7 +510,7 @@ public class RollupJob extends AlterJob {
 
         // log
         Catalog.getInstance().getEditLog().logCancelRollup(this);
-        LOG.debug("log cancel rollup job[{}]", tableId);
+        LOG.debug("cancel rollup job[{}] finished. because: {}", tableId, cancelMsg);
     }
 
     /*
@@ -806,21 +807,23 @@ public class RollupJob extends AlterJob {
 
     @Override
     public void replayFinishing(Database db) {
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         db.writeLock();
         try {
             OlapTable olapTable = (OlapTable) db.getTable(tableId);
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
                 long partitionId = entry.getKey();
-                long indexId = entry.getValue().getId();
-
+                MaterializedIndex rollupIndex = entry.getValue();
                 Partition partition = olapTable.getPartition(partitionId);
-                // rollupIndex should be got from catalog, not from 'entry.getValue()';
-                MaterializedIndex rollupIndex = partition.getIndex(indexId);
 
                 long rollupRowCount = 0L;
                 for (Tablet tablet : rollupIndex.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
                         replica.setState(ReplicaState.NORMAL);
+                        // we also need to set replica's state in inverted index, because replica in
+                        // 'partitionIdToRollupIndex' is read from edit log, and is no longer be the same
+                        // object in inverted index.
+                        invertedIndex.getReplica(tablet.getId(), replica.getBackendId()).setState(ReplicaState.NORMAL);
                     }
 
                     // calculate rollup index row count
