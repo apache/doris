@@ -17,12 +17,13 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.ColocatePersistInfo;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.ColocatePersistInfo;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -42,23 +43,23 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class ColocateTableIndex implements Writable {
     private ReentrantReadWriteLock lock;
 
-    //group_id -> table_ids
+    // group_id -> table_ids
     private Multimap<Long, Long> group2Tables;
-    //table_id -> group_id
-    private Map<Long, Long> table2Groups;
-    //group_id -> db_id
-    private Map<Long, Long> group2DBs;
-    //group_id -> bucketSeq -> backends
+    // table_id -> group_id
+    private Map<Long, Long> table2Group;
+    // group_id -> db_id
+    private Map<Long, Long> group2DB;
+    // group_id -> bucketSeq -> backend ids
     private Map<Long, List<List<Long>>> group2BackendsPerBucketSeq;
-    //the colocate group is balancing
+    // the colocate group is balancing
     private Set<Long> balancingGroups;
 
     public ColocateTableIndex() {
         lock = new ReentrantReadWriteLock();
 
         group2Tables = ArrayListMultimap.create();
-        table2Groups = Maps.newHashMap();
-        group2DBs = Maps.newHashMap();
+        table2Group = Maps.newHashMap();
+        group2DB = Maps.newHashMap();
         group2BackendsPerBucketSeq = Maps.newHashMap();
         balancingGroups = new CopyOnWriteArraySet<Long>();
     }
@@ -83,8 +84,8 @@ public class ColocateTableIndex implements Writable {
         writeLock();
         try {
             group2Tables.put(groupId, tableId);
-            group2DBs.put(groupId, dbId);
-            table2Groups.put(tableId, groupId);
+            group2DB.put(groupId, dbId);
+            table2Group.put(tableId, groupId);
         } finally {
             writeUnlock();
         }
@@ -111,10 +112,10 @@ public class ColocateTableIndex implements Writable {
         long groupId;
         readLock();
         try {
-            if (!table2Groups.containsKey(tableId)) {
+            if (!table2Group.containsKey(tableId)) {
                 return;
             }
-            groupId = table2Groups.get(tableId);
+            groupId = table2Group.get(tableId);
         } finally {
             readUnlock();
         }
@@ -125,18 +126,17 @@ public class ColocateTableIndex implements Writable {
     private void removeTableFromGroup(long tableId, long groupId) {
         writeLock();
         try {
-
             if (groupId == tableId) {
                 //for parent table
                 group2Tables.removeAll(groupId);
                 group2BackendsPerBucketSeq.remove(groupId);
-                group2DBs.remove(groupId);
+                group2DB.remove(groupId);
                 balancingGroups.remove(groupId);
             } else {
                 //for child table
                 group2Tables.remove(groupId, tableId);
             }
-            table2Groups.remove(tableId);
+            table2Group.remove(tableId);
         } finally {
             writeUnlock();
         }
@@ -168,7 +168,7 @@ public class ColocateTableIndex implements Writable {
     public boolean isColocateTable(long tableId) {
         readLock();
         try {
-            return table2Groups.containsKey(tableId);
+            return table2Group.containsKey(tableId);
         } finally {
             readUnlock();
         }
@@ -177,8 +177,8 @@ public class ColocateTableIndex implements Writable {
     public long getGroup(long tableId) {
         readLock();
         try {
-            Preconditions.checkState(table2Groups.containsKey(tableId));
-            return table2Groups.get(tableId);
+            Preconditions.checkState(table2Group.containsKey(tableId));
+            return table2Group.get(tableId);
         } finally {
             readUnlock();
         }
@@ -214,8 +214,8 @@ public class ColocateTableIndex implements Writable {
     public Long getDB(long group) {
         readLock();
         try {
-            Preconditions.checkState(group2DBs.containsKey(group));
-            return group2DBs.get(group);
+            Preconditions.checkState(group2DB.containsKey(group));
+            return group2DB.get(group);
         } finally {
             readUnlock();
         }
@@ -280,16 +280,16 @@ public class ColocateTableIndex implements Writable {
             }
         }
 
-        size = table2Groups.size();
+        size = table2Group.size();
         out.writeInt(size);
-        for (Map.Entry<Long, Long> entry : table2Groups.entrySet()) {
+        for (Map.Entry<Long, Long> entry : table2Group.entrySet()) {
             out.writeLong(entry.getKey());
             out.writeLong(entry.getValue());
         }
 
-        size = group2DBs.size();
+        size = group2DB.size();
         out.writeInt(size);
-        for (Map.Entry<Long, Long> entry : group2DBs.entrySet()) {
+        for (Map.Entry<Long, Long> entry : group2DB.entrySet()) {
             out.writeLong(entry.getKey());
             out.writeLong(entry.getValue());
         }
@@ -331,14 +331,14 @@ public class ColocateTableIndex implements Writable {
         for (int i = 0; i < size; i++) {
             long table = in.readLong();
             long group = in.readLong();
-            table2Groups.put(table, group);
+            table2Group.put(table, group);
         }
 
         size = in.readInt();
         for (int i = 0; i < size; i++) {
             long group = in.readLong();
             long db = in.readLong();
-            group2DBs.put(group, db);
+            group2DB.put(group, db);
         }
 
         size = in.readInt();

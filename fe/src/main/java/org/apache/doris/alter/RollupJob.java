@@ -739,7 +739,6 @@ public class RollupJob extends AlterJob {
                 olapTable.setStorageTypeToIndex(rollupIndexId, rollupStorageType);
                 Preconditions.checkState(olapTable.getState() == OlapTableState.ROLLUP);
 
-                this.finishedTime = System.currentTimeMillis();
                 this.state = JobState.FINISHING;
                 this.transactionId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
             }
@@ -929,6 +928,7 @@ public class RollupJob extends AlterJob {
             db.writeUnlock();
         }
 
+        this.finishedTime = System.currentTimeMillis();
         LOG.info("finished schema change job: {}", tableId);
     }
 

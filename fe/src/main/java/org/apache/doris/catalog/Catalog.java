@@ -3374,16 +3374,16 @@ public class Catalog {
 
         // colocateTable
         try {
-            String colocateTable = PropertyAnalyzer.analyzeColocate(properties);
-            if (colocateTable != null) {
+            String colocateTableName = PropertyAnalyzer.analyzeColocate(properties);
+            if (colocateTableName != null) {
                 if (Config.disable_colocate_join) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_DISABLED);
                 }
 
-                Table parentTable = ColocateTableUtils.getColocateTable(db, colocateTable);
-                //for colocate child table
-                if (!colocateTable.equalsIgnoreCase(tableName)) {
-                    ColocateTableUtils.checkTableExist(parentTable, colocateTable);
+                Table parentTable = ColocateTableUtils.getColocateTable(db, colocateTableName);
+                // for colocate child table
+                if (!colocateTableName.equalsIgnoreCase(tableName)) {
+                    ColocateTableUtils.checkTableExist(parentTable, colocateTableName);
 
                     ColocateTableUtils.checkTableType(parentTable);
 
@@ -3396,7 +3396,7 @@ public class Catalog {
                     getColocateTableIndex().addTableToGroup(db.getId(), tableId, tableId);
                 }
 
-                olapTable.setColocateTable(colocateTable);
+                olapTable.setColocateTable(colocateTableName);
 
             }
         } catch (AnalysisException e) {
@@ -4009,14 +4009,13 @@ public class Catalog {
 
         DistributionInfoType distributionInfoType = distributionInfo.getType();
         if (distributionInfoType == DistributionInfoType.RANDOM || distributionInfoType == DistributionInfoType.HASH) {
-
             ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
             List<List<Long>> backendsPerBucketSeq = new ArrayList<>();
             if (colocateIndex.isColocateTable(tabletMeta.getTableId())) {
                 Database db = Catalog.getInstance().getDb(tabletMeta.getDbId());
                 long groupId = colocateIndex.getGroup(tabletMeta.getTableId());
-                //Use db write lock here to make sure the backendsPerBucketSeq is consistent when the backendsPerBucketSeq is updating.
-                //This lock will release very fast.
+                // Use db write lock here to make sure the backendsPerBucketSeq is consistent when the backendsPerBucketSeq is updating.
+                // This lock will release very fast.
                 db.writeLock();
                 try {
                     backendsPerBucketSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
@@ -4032,29 +4031,29 @@ public class Catalog {
                 index.addTablet(tablet, tabletMeta);
                 tabletIdSet.add(tablet.getId());
 
-                //get BackendIds
+                // get BackendIds
                 List<Long> chosenBackendIds;
 
-                //for colocate parent table
+                // for colocate parent table
                 if (colocateIndex.isColocateParentTable(tabletMeta.getTableId())) {
                     if (backendsPerBucketSeq.size() == distributionInfo.getBucketNum()) {
-                        //for not first partitions of colocate parent table
+                        // for not first partitions of colocate parent table
                         chosenBackendIds = backendsPerBucketSeq.get(i);
                     } else {
-                        //for the first partitions of colocate parent table
+                        // for the first partitions of colocate parent table
                         chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName);
                         backendsPerBucketSeq.add(chosenBackendIds);
 
                         if (i == distributionInfo.getBucketNum() - 1) {
-                            //delay persist this until we ensure the table create successfully
+                            // delay persist this until we ensure the table create successfully
                             colocateIndex.addBackendsPerBucketSeq(tabletMeta.getTableId(), backendsPerBucketSeq);
                         }
                     }
                 } else if (colocateIndex.isColocateTable(tabletMeta.getTableId())) {
-                    //for colocate child table
+                    // for colocate child table
                     chosenBackendIds = backendsPerBucketSeq.get(i);
                 } else {
-                    //for normal table
+                    // for normal table
                     chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName);
                 }
 

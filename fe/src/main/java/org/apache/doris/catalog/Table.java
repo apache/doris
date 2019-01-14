@@ -29,6 +29,8 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
 import org.apache.commons.lang.NotImplementedException;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -41,6 +43,8 @@ import java.util.Map;
  * Internal representation of table-related metadata. A table contains several partitions.
  */
 public class Table extends MetaObject implements Writable {
+    private static final Logger LOG = LogManager.getLogger(Table.class);
+
     public enum TableType {
         MYSQL,
         OLAP,
@@ -275,10 +279,13 @@ public class Table extends MetaObject implements Writable {
         OlapTable olapTable = (OlapTable) this;
         
         if (!Strings.isNullOrEmpty(olapTable.getColocateTable())) {
+            LOG.info("table {} is a colocate table, skip tablet scheduler.", name);
             return false;
         }
 
         if (olapTable.getState() != OlapTableState.NORMAL) {
+            LOG.info("table {}'s state is not NORMAL: {}, skip tablet scheduler.",
+                    name, olapTable.getState().name());
             return false;
         }
         

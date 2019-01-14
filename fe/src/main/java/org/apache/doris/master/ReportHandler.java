@@ -699,7 +699,7 @@ public class ReportHandler extends Daemon {
                 throw new MetaNotFoundException("table[" + tableId + "] does not exist");
             }
 
-            //colocate table will delete Replica in meta when balance
+            // colocate table will delete Replica in meta when balance
             if (olapTable.getColocateTable() != null) {
                 return;
             }

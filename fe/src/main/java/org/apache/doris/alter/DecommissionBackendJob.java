@@ -19,20 +19,9 @@ package org.apache.doris.alter;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.Replica.ReplicaState;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.clone.Clone;
-import org.apache.doris.clone.CloneJob.JobPriority;
 import org.apache.doris.cluster.Cluster;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
@@ -73,16 +62,13 @@ public class DecommissionBackendJob extends AlterJob {
 
     private static final Joiner JOINER = Joiner.on("; ");
 
-    private static final int NUM_TABLETS_PER_ONE_ROUND = 1000;
-
+    // all backends need to be decommissioned
     private Map<String, Map<Long, Backend>> clusterBackendsMap;
     private Set<Long> allClusterBackendIds;
 
     // add backendId to 'finishedBackendIds' only if no tablets exist in that
     // backend
     private Set<Long> finishedBackendIds;
-    // add tabletId to 'finishedTabletIds' only if that tablet has full replicas
-    private Set<Long> finishedTabletIds;
 
     private DecommissionType decommissionType;
 
@@ -91,22 +77,22 @@ public class DecommissionBackendJob extends AlterJob {
         super(JobType.DECOMMISSION_BACKEND);
 
         clusterBackendsMap = Maps.newHashMap();
-        finishedBackendIds = Sets.newHashSet();
-        finishedTabletIds = Sets.newHashSet();
         allClusterBackendIds = Sets.newHashSet();
+
+        finishedBackendIds = Sets.newHashSet();
         decommissionType = DecommissionType.SystemDecommission;
     }
 
     public DecommissionBackendJob(long jobId, Map<String, Map<Long, Backend>> backendIds) {
         super(JobType.DECOMMISSION_BACKEND, -1L, jobId, null);
 
-        this.clusterBackendsMap = backendIds;
-        finishedBackendIds = Sets.newHashSet();
-        finishedTabletIds = Sets.newHashSet();
+        clusterBackendsMap = backendIds;
         allClusterBackendIds = Sets.newHashSet();
         for (Map<Long, Backend> backends : clusterBackendsMap.values()) {
             allClusterBackendIds.addAll(backends.keySet());
         }
+
+        finishedBackendIds = Sets.newHashSet();
         decommissionType = DecommissionType.SystemDecommission;
     }
 
@@ -132,10 +118,6 @@ public class DecommissionBackendJob extends AlterJob {
     public Set<Long> getBackendIds(String name) {
         return clusterBackendsMap.get(name).keySet();
     }
-
-    public synchronized int getFinishedTabletNum() {
-        return finishedTabletIds.size();
-    }
     
     public DecommissionType getDecommissionType() {
         return decommissionType;
@@ -157,178 +139,10 @@ public class DecommissionBackendJob extends AlterJob {
 
     @Override
     public synchronized boolean sendTasks() {
+        // do nothing.
+        // In previous implementation, we send clone task actively.
+        // But now, TabletChecker will do all the things, here we just skip PENDING phase.
         this.state = JobState.RUNNING;
-        // not like other alter job,
-        // here we send clone task(migration) actively.
-        // always return true. because decommission backend job never cancelled
-        // except cancelled by administrator manually.
-
-        Catalog catalog = Catalog.getInstance();
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        SystemInfoService clusterInfo = Catalog.getCurrentSystemInfo();
-        Clone clone = catalog.getCloneInstance();
-
-        // clusterName -> available backends num
-        final Map<String, Integer> clusterAvailBeMap = Maps.newHashMap();
-        for (String clusterName : clusterBackendsMap.keySet()) {
-            final Map<Long, Backend> backends = clusterBackendsMap.get(clusterName);
-            final List<Backend> clusterAliveBackends = clusterInfo.getClusterBackends(clusterName,
-                                                                                      true /* need alive */);
-            if (clusterAliveBackends == null) {
-                LOG.warn("does not belong to any cluster.");
-                return true;
-            }
-            int aliveBackendNum = clusterAliveBackends.size();
-            int availableBackendNum = aliveBackendNum - backends.keySet().size();
-            if (availableBackendNum <= 0) {
-                // do nothing, just log
-                LOG.warn("no available backends except decommissioning ones.");
-                return true;
-            }
-            clusterAvailBeMap.put(clusterName, availableBackendNum);
-        }
-
-        for (String clusterName : clusterBackendsMap.keySet()) {
-            final Map<Long, Backend> backends = clusterBackendsMap.get(clusterName);
-            Iterator<Long> backendIter = backends.keySet().iterator();
-            final int availableBackendNum = clusterAvailBeMap.get(clusterName);
-            while (backendIter.hasNext()) {
-                long backendId = backendIter.next();
-                Backend backend = clusterInfo.getBackend(backendId);
-
-                if (backend == null || !backend.isDecommissioned()) {
-                    backendIter.remove();
-                    LOG.info("backend[{}] is not decommissioned. remove from decommission jobs");
-                    continue;
-                }
-
-                if (finishedBackendIds.contains(backendId)) {
-                    continue;
-                }
-
-                List<Long> backendTabletIds = invertedIndex.getTabletIdsByBackendId(backendId);
-                LOG.info("backend[{}] which is being decommissioned has {} tablets", backendId,
-                        backendTabletIds.size());
-                if (backendTabletIds.isEmpty()) {
-                    LOG.info("no tablets on backend[{}]. set finished.", backendId);
-                    continue;
-                }
-
-                int counter = 0;
-                Iterator<Long> iterator = backendTabletIds.iterator();
-                while (iterator.hasNext() && counter <= NUM_TABLETS_PER_ONE_ROUND) {
-                    long tabletId = iterator.next();
-                    if (finishedTabletIds.contains(tabletId)) {
-                        // this tablet is finished
-                        continue;
-                    }
-
-                    // get tablet meta
-                    TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-                    if (tabletMeta == null) {
-                        LOG.debug("cannot find tablet meta. tablet[{}]", tabletId);
-                        continue;
-                    }
-
-                    long dbId = tabletMeta.getDbId();
-                    Database db = catalog.getDb(dbId);
-                    if (db == null) {
-                        LOG.debug("cannot find db. tablet[{}]", tabletId);
-                        continue;
-                    }
-
-                    // get db lock
-                    db.readLock();
-                    try {
-                        long tableId = tabletMeta.getTableId();
-                        Table table = db.getTable(tableId);
-                        if (table == null) {
-                            LOG.debug("cannot find table. tablet[{}]", tabletId);
-                            continue;
-                        }
-                        OlapTable olapTable = (OlapTable) table;
-
-                        if (olapTable.getColocateTable() != null) {
-                            LOG.debug("{} is colocate table, skip", olapTable.getName());
-                            continue;
-                        }
-
-                        long partitionId = tabletMeta.getPartitionId();
-                        Partition partition = olapTable.getPartition(partitionId);
-                        if (partition == null) {
-                            LOG.debug("cannot find partition. tablet[{}]", tabletId);
-                            continue;
-                        }
-
-                        // get replication num
-                        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-                        short replicationNum = partitionInfo.getReplicationNum(partitionId);
-                        if (availableBackendNum < replicationNum) {
-                            LOG.warn("partition[{}]'s replication num is {}. not enough available backend: {}",
-                                    partitionId, replicationNum, availableBackendNum);
-                            return true;
-                        }
-
-                        long indexId = tabletMeta.getIndexId();
-                        MaterializedIndex index = partition.getIndex(indexId);
-                        if (index == null) {
-                            LOG.debug("cannot find index. tablet[{}]", tabletId);
-                            continue;
-                        }
-
-                        Tablet tablet = index.getTablet(tabletId);
-                        if (tablet == null) {
-                            LOG.error("can this happends? tabletMeta {}: {}", tabletId, tabletMeta.toString());
-                            continue;
-                        }
-
-  
-                        // exclude backend in same hosts with the other replica
-                        Set<String> hosts = Sets.newHashSet();
-                        for (Replica replica : tablet.getReplicas()) {
-                            if (replica.getBackendId() != backendId) {
-                                hosts.add(clusterInfo.getBackend(replica.getBackendId()).getHost());
-                            }   
-                        } 
-
-                        // choose dest backend
-                        long destBackendId = -1L;
-                        int num = 0;
-                        while (num++ < availableBackendNum) {
-                            List<Long> destBackendIds = clusterInfo.seqChooseBackendIds(1, true, false, clusterName);
-                            if (destBackendIds == null) {
-                                LOG.warn("no more backends available.");
-                                return true;
-                            }
-
-                            if (hosts.contains(clusterInfo.getBackend(destBackendIds.get(0)).getHost())) {
-                                // replica can not in same backend
-                                continue;
-                            }
-
-                            destBackendId = destBackendIds.get(0);
-                            break;
-                        }
-
-                        if (destBackendId == -1L) {
-                            LOG.warn("no available backend. tablet:{} {}", tabletId, tabletMeta.toString());
-                            return true;
-                        }
-
-                        if (clone.addCloneJob(dbId, tableId, partitionId, indexId, tabletId, destBackendId,
-                                org.apache.doris.clone.CloneJob.JobType.MIGRATION, JobPriority.NORMAL,
-                                Config.clone_job_timeout_second * 1000L)) {
-                            ++counter;
-                        }
-                    } finally {
-                        db.readUnlock();
-                    }
-                } // end for backend tablets
-
-                LOG.info("add {} clone tasks. total backend tablets: {}", counter, backendTabletIds.size());
-            } // end for backends
-        }
-
         return true;
     }
 
@@ -359,7 +173,6 @@ public class DecommissionBackendJob extends AlterJob {
 
     @Override
     public synchronized int tryFinishJob() {
-        Catalog catalog = Catalog.getInstance();
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         SystemInfoService systemInfo = Catalog.getCurrentSystemInfo();
 
@@ -388,95 +201,7 @@ public class DecommissionBackendJob extends AlterJob {
                     continue;
                 }
 
-                // for each tablet, check if replica is full
-                boolean isBackendFinished = true;
-                Iterator<Long> iterator = backendTabletIds.iterator();
-                while (iterator.hasNext()) {
-                    long tabletId = iterator.next();
-                    if (finishedTabletIds.contains(tabletId)) {
-                        continue;
-                    }
-
-                    TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
-                    if (tabletMeta == null) {
-                        continue;
-                    }
-
-                    long dbId = tabletMeta.getDbId();
-                    Database db = catalog.getDb(dbId);
-                    if (db == null) {
-                        continue;
-                    }
-
-                    // get db lock
-                    db.readLock();
-                    try {
-                        long tableId = tabletMeta.getTableId();
-                        Table table = db.getTable(tableId);
-                        if (table == null) {
-                            continue;
-                        }
-                        OlapTable olapTable = (OlapTable) table;
-
-                        long partitionId = tabletMeta.getPartitionId();
-                        Partition partition = olapTable.getPartition(partitionId);
-                        if (partition == null) {
-                            continue;
-                        }
-
-                        long indexId = tabletMeta.getIndexId();
-                        MaterializedIndex index = partition.getIndex(indexId);
-                        if (index == null) {
-                            continue;
-                        }
-
-                        Tablet tablet = index.getTablet(tabletId);
-                        if (tablet == null) {
-                            LOG.warn("can this happends? tabletMeta {}: {}", tabletId, tabletMeta.toString());
-                            continue;
-                        }
-
-                        if (olapTable.getColocateTable() != null) {
-                            LOG.debug("{} is colocate table, ColocateTableBalancer will handle the tablet clone", olapTable.getName());
-                            finishedTabletIds.add(tabletId);
-                            continue;
-                        }
-
-                        // get replication num
-                        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-                        short replicationNum = partitionInfo.getReplicationNum(partitionId);
-
-                        int onlineReplicaNum = 0;
-                        for (Replica replica : tablet.getReplicas()) {
-                            if (replica.getState() == ReplicaState.CLONE) {
-                                continue;
-                            }
-
-                            if (!systemInfo.checkBackendAvailable(replica.getBackendId())) {
-                                continue;
-                            }
-                            ++onlineReplicaNum;
-                        }
-
-                        if (onlineReplicaNum >= replicationNum) {
-                            LOG.debug("tablet[{}] has full replicas.", tabletId);
-                            finishedTabletIds.add(tabletId);
-                            continue;
-                        } else {
-                            isBackendFinished = false;
-                        }
-                    } finally {
-                        db.readUnlock();
-                    }
-                } // end for tablets
-
-                if (isBackendFinished) {
-                    LOG.info("{} finished migrating tablets", backend);
-                    finishedBackendIds.add(backendId);
-                } else {
-                    LOG.info("{} lefts tablets to migrate. total finished tablets num: {}", backend,
-                             finishedTabletIds.size());
-                }
+                LOG.info("{} lefts {} replicas to migrate.", backend, backendTabletIds.size());
             } // end for backends
         }
 
@@ -538,7 +263,6 @@ public class DecommissionBackendJob extends AlterJob {
     @Override
     public synchronized void clear() {
         finishedBackendIds.clear();
-        finishedTabletIds.clear();
     }
 
     @Override

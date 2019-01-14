@@ -18,8 +18,6 @@
 package org.apache.doris.clone;
 
 
-import com.google.common.collect.HashBasedTable;
-import com.google.common.collect.Sets;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
@@ -34,6 +32,10 @@ import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+
+import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -602,13 +604,13 @@ public class ColocateTableBalancer extends Daemon {
         }
     }
 
-    //for backend down or removed
+    // for backend down or removed
     private void AddSupplementJob(CloneTabletInfo tabletInfo, long cloneBackendId) {
         Clone clone = Catalog.getInstance().getCloneInstance();
         clone.addCloneJob(tabletInfo.getDbId(), tabletInfo.getTableId(), tabletInfo.getPartitionId(), tabletInfo.getIndexId(), tabletInfo.getTabletId(), cloneBackendId, CloneJob.JobType.SUPPLEMENT, CloneJob.JobPriority.HIGH, Config.clone_job_timeout_second * 1000L);
     }
 
-    //for backend added
+    // for backend added
     private void AddMigrationJob(CloneTabletInfo tabletInfo, long cloneBackendId) {
         Clone clone = Catalog.getInstance().getCloneInstance();
         clone.addCloneJob(tabletInfo.getDbId(), tabletInfo.getTableId(), tabletInfo.getPartitionId(), tabletInfo.getIndexId(), tabletInfo.getTabletId(), cloneBackendId, CloneJob.JobType.MIGRATION, CloneJob.JobPriority.HIGH, Config.clone_job_timeout_second * 1000L);

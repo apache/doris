@@ -809,6 +809,8 @@ public class SchemaChangeJob extends AlterJob {
                                         replica.getLastSuccessVersionHash());
                                 this.replicaInfos.put(partitionId, replicaInfo);
 
+                                replica.setState(ReplicaState.NORMAL);
+
                                 // remove tasks for safety
                                 AgentTaskQueue.removeTask(replica.getBackendId(), TTaskType.SCHEMA_CHANGE,
                                         tabletId);
@@ -846,7 +848,6 @@ public class SchemaChangeJob extends AlterJob {
                     olapTable.setBloomFilterInfo(bfColumns, bfFpp);
                 }
 
-                this.finishedTime = System.currentTimeMillis();
                 this.state = JobState.FINISHING;
                 this.transactionId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
             }
@@ -882,6 +883,7 @@ public class SchemaChangeJob extends AlterJob {
             db.writeUnlock();
         }
 
+        this.finishedTime = System.currentTimeMillis();
         LOG.info("finished schema change job: {}", tableId);
     }
 

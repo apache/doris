@@ -1450,7 +1450,7 @@ AgentStatus TaskWorkerPool::_clone_copy(
         MonotonicStopWatch watch;
         watch.start();
         for (auto file_name : file_name_list) {
-            downloader_param.remote_file_path = http_host + HTTP_REQUEST_PREFIX
+            remote_file_path = http_host + HTTP_REQUEST_PREFIX
                 + HTTP_REQUEST_TOKEN_PARAM + token
                 + HTTP_REQUEST_FILE_PARAM + src_file_full_path + file_name;
 
