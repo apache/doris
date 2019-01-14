@@ -205,7 +205,6 @@ OLAPStatus EngineCloneTask::execute() {
                         << ", version_hash:" << tablet_info.version_hash
                         << ", expected_version: " << _clone_req.committed_version
                         << ", version_hash:" << _clone_req.committed_version_hash;
-            AgentStatus status = DORIS_SUCCESS;
             OLAPStatus drop_status = TabletManager::instance()->drop_tablet(_clone_req.tablet_id, _clone_req.schema_hash);
             if (drop_status != OLAP_SUCCESS && drop_status != OLAP_ERR_TABLE_NOT_FOUND) {
                 // just log
