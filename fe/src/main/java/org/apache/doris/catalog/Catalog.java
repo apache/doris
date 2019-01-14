@@ -5941,9 +5941,6 @@ public class Catalog {
             OlapTable olapTable = (OlapTable) db.getTable(info.getTblId());
             truncateTableInternal(olapTable, info.getPartitions());
 
-            // if this is checkpoint thread, no need to handle inverted index
-            // because tablet and replica info are already in catalog, and inverted index will be rebuild
-            // when loading image
             if (!Catalog.isCheckpointThread()) {
                 // add tablet to inverted index
                 TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();

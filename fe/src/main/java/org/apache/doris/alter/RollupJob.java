@@ -816,15 +816,18 @@ public class RollupJob extends AlterJob {
                 MaterializedIndex rollupIndex = entry.getValue();
                 Partition partition = olapTable.getPartition(partitionId);
 
-                // Here we have to use replicas in inverted index to rebuild the rollupIndex's tablet.
-                // Because the rollupIndex here is read from edit log, so the replicas in it are
-                // not the same objects as in inverted index.
-                for (Tablet tablet : rollupIndex.getTablets()) {
-                    List<Replica> copiedReplicas = Lists.newArrayList(tablet.getReplicas());
-                    tablet.clearReplica();
-                    for (Replica copiedReplica : copiedReplicas) {
-                        Replica replica = invertedIndex.getReplica(tablet.getId(), copiedReplica.getBackendId());
-                        tablet.addReplica(replica, true);
+                if (!Catalog.isCheckpointThread()) {
+                    // Here we have to use replicas in inverted index to rebuild the rollupIndex's tablet.
+                    // Because the rollupIndex here is read from edit log, so the replicas in it are
+                    // not the same objects as in inverted index.
+                    // And checkpoint thread is no need to handle inverted index
+                    for (Tablet tablet : rollupIndex.getTablets()) {
+                        List<Replica> copiedReplicas = Lists.newArrayList(tablet.getReplicas());
+                        tablet.clearReplica();
+                        for (Replica copiedReplica : copiedReplicas) {
+                            Replica replica = invertedIndex.getReplica(tablet.getId(), copiedReplica.getBackendId());
+                            tablet.addReplica(replica, true);
+                        }
                     }
                 }
 
@@ -868,8 +871,6 @@ public class RollupJob extends AlterJob {
                                                   info.getLastFailedVersionHash(),
                                                   info.getLastSuccessVersion(),
                                                   info.getLastSuccessVersionHash());
-
-                        invertedIndex.getReplica(tablet.getId(), replica.getBackendId()).setState(ReplicaState.NORMAL);
                     }
                 }
             }

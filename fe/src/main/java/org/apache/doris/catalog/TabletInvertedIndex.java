@@ -47,6 +47,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 /*
  * this class stores a inverted index
  * key is tablet id. value is the related ids of this tablet
+ * Checkpoint thread is no need to modify this inverted index, because this inverted index will no be wrote
+ * into images, all meta data are in catalog, and the inverted index will be rebuild when FE restart.
  */
 public class TabletInvertedIndex {
     private static final Logger LOG = LogManager.getLogger(TabletInvertedIndex.class);
@@ -345,7 +347,10 @@ public class TabletInvertedIndex {
             tabletMetaMap.put(tabletId, tabletMeta);
             if (!tabletMetaTable.contains(tabletMeta.getPartitionId(), tabletMeta.getIndexId())) {
                 tabletMetaTable.put(tabletMeta.getPartitionId(), tabletMeta.getIndexId(), tabletMeta);
+                LOG.debug("add tablet meta: {}", tabletId);
             }
+
+            LOG.debug("add tablet: {}", tabletId);
         } finally {
             writeUnlock();
         }
@@ -370,7 +375,10 @@ public class TabletInvertedIndex {
             TabletMeta tabletMeta = tabletMetaMap.remove(tabletId);
             if (tabletMeta != null) {
                 tabletMetaTable.remove(tabletMeta.getPartitionId(), tabletMeta.getIndexId());
+                LOG.debug("delete tablet meta: {}", tabletId);
             }
+
+            LOG.debug("delete tablet: {}", tabletId);
         } finally {
             writeUnlock();
         }
@@ -386,6 +394,8 @@ public class TabletInvertedIndex {
             replicaMetaTable.put(tabletId, replica.getBackendId(), replica);
             replicaToTabletMap.put(replica.getId(), tabletId);
             backingReplicaMetaTable.put(replica.getBackendId(), tabletId, replica);
+            LOG.debug("add replica {} of tablet {} in backend {}",
+                    replica.getId(), tabletId, replica.getBackendId());
         } finally {
             writeUnlock();
         }
@@ -404,7 +414,8 @@ public class TabletInvertedIndex {
                 replicaToTabletMap.remove(replica.getId());
                 replicaMetaTable.remove(tabletId, backendId);
                 backingReplicaMetaTable.remove(backendId, tabletId);
-                LOG.debug("delete tablet[{}] in backend[{}]", tabletId, backendId);
+                LOG.debug("delete replica {} of tablet {} in backend {}",
+                        replica.getId(), tabletId, backendId);
             } else {
                 // this may happen when fe restart after tablet is empty(bug cause)
                 // add log instead of assertion to observe
