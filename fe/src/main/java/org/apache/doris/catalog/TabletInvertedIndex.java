@@ -303,7 +303,6 @@ public class TabletInvertedIndex {
     }
     
     public Set<Long> getTabletBackends(long tabletId) {
-
         Map<Long, Replica> backendIdToReplica = replicaMetaTable.row(tabletId);
         return backendIdToReplica.keySet();
     }

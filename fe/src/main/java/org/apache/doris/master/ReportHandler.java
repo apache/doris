@@ -402,11 +402,12 @@ public class ReportHandler extends Daemon {
                             replica.updateVersionInfo(backendVersion, backendVersionHash, dataSize, rowCount);
                             
                             ++syncCounter;
-                            LOG.debug("sync replica[{}] in db[{}].", replica.getId(), dbId);
+                            LOG.debug("sync replica {} of tablet {} in backend {} in db {}.",
+                                    replica.getId(), tabletId, backendId, dbId);
                         } else {
-                            LOG.debug("replica[{}] version is changed between check and real sync."
-                                    + " meta[{}-{}]. backend[{}-{}]",
-                                      replica.getId(), metaVersion, metaVersionHash,
+                            LOG.debug("replica {} of tablet {} in backend {} version is changed"
+                                    + " between check and real sync. meta[{}-{}]. backend[{}-{}]",
+                                    replica.getId(), tabletId, backendId, metaVersion, metaVersionHash,
                                       backendVersion, backendVersionHash);
                         }
                     }

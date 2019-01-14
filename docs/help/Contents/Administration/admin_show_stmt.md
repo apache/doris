@@ -12,7 +12,7 @@
             WHERE STATUS [!]= "replica_status"
 
         replica_status:
-            OK:             replica 处于监控状态
+            OK:             replica 处于健康状态
             DEAD:           replica 所在 Backend 不可用
             VERSION_ERROR:  replica 数据版本有缺失
             MISSING:        replica 不存在
@@ -55,7 +55,7 @@
 
         ADMIN SHOW REPLICA DISTRIBUTION FROM tbl1;
 
-    1. 查看表的分区的副本分布
+    2. 查看表的分区的副本分布
 
         ADMIN SHOW REPLICA DISTRIBUTION FROM db1.tbl1 PARTITION(p1, p2);
 

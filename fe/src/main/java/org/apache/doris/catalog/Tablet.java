@@ -240,7 +240,8 @@ public class Tablet extends MetaObject implements Writable {
         return null;
     }
 
-    // for test only
+    // for test,
+    // and for some replay cases
     public void clearReplica() {
         this.replicas.clear();
     }
