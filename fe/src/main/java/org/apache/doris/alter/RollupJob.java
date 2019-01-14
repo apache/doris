@@ -311,6 +311,12 @@ public class RollupJob extends AlterJob {
         }
     }
     
+    /*
+     * return
+     * 0:  sending clear tasks
+     * 1:  all clear tasks are finished, the job is done normally.
+     * -1: job meet some fatal error, like db or table is missing.
+     */
     public int checkOrResendClearTasks() {
         Preconditions.checkState(this.state == JobState.FINISHING);
         // 1. check if all task finished
@@ -331,9 +337,8 @@ public class RollupJob extends AlterJob {
         }
         Database db = Catalog.getInstance().getDb(dbId);
         if (db == null) {
-            String msg = "db[" + dbId + "] does not exist";
-            setMsg(msg);
-            LOG.warn(msg);
+            cancelMsg = "db[" + dbId + "] does not exist";
+            LOG.warn(cancelMsg);
             return -1;
         }
 
@@ -360,7 +365,7 @@ public class RollupJob extends AlterJob {
                         for (Replica baseReplica : baseReplicas) {
                             long backendId = baseReplica.getBackendId();
                             ClearAlterTask clearRollupTask = new ClearAlterTask(backendId, dbId, tableId,
-                                                         partitionId, baseIndexId, baseTabletId, baseSchemaHash);
+                                    partitionId, baseIndexId, baseTabletId, baseSchemaHash);
                             if (AgentTaskQueue.addTask(clearRollupTask)) {
                                 batchClearAlterTask.addTask(clearRollupTask);
                             } else {
@@ -575,7 +580,7 @@ public class RollupJob extends AlterJob {
             throw new MetaNotFoundException("Cannot find rollup replica[" + rollupReplicaId + "]");
         }
         if (rollupReplica.getState() == ReplicaState.NORMAL) {
-            // FIXME(cmy): still don't know why this happend. add log to observe
+            // FIXME(cmy): still don't know why this can happen. add log to observe
             LOG.warn("rollup replica[{}]' state is already set to NORMAL. tablet[{}]. backend[{}]",
                      rollupReplicaId, rollupTabletId, task.getBackendId());
         }
@@ -651,7 +656,8 @@ public class RollupJob extends AlterJob {
                                 // if the replica is finished history data, but failed during load, then it is a abnormal
                                 // remove it from replica set
                                 // have to use delete replica, it will remove it from tablet inverted index
-                                LOG.warn("replica [{}] last failed version > 0 and have finished history rollup job, its a bad replica, remove it from rollup tablet", replica);
+                                LOG.warn("replica [{}] last failed version > 0 and have finished history rollup job,"
+                                        + " its a bad replica, remove it from rollup tablet", replica);
                                 errorReplicas.add(replica);
                             }
                         }
@@ -805,8 +811,11 @@ public class RollupJob extends AlterJob {
             OlapTable olapTable = (OlapTable) db.getTable(tableId);
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
                 long partitionId = entry.getKey();
+                long indexId = entry.getValue().getId();
+
                 Partition partition = olapTable.getPartition(partitionId);
-                MaterializedIndex rollupIndex = entry.getValue();
+                // rollupIndex should be got from catalog, not from 'entry.getValue()';
+                MaterializedIndex rollupIndex = partition.getIndex(indexId);
 
                 long rollupRowCount = 0L;
                 for (Tablet tablet : rollupIndex.getTablets()) {

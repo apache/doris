@@ -44,9 +44,10 @@ import java.util.List;
 public class TabletsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TabletId").add("ReplicaId").add("BackendId").add("HostName").add("Version")
-            .add("VersionHash").add("LastSuccessVersion").add("LastSuccessVersionHash")
-            .add("LastFailedVersion").add("LastFailedTime").add("DataSize").add("RowCount").add("State")
-            .add("LastConsistencyCheckTime").add("CheckVersion").add("CheckVersionHash")
+            .add("VersionHash").add("LstSuccessVersion").add("LstSuccessVersionHash")
+            .add("LstFailedVersion").add("LstFailedVersionHash").add("LstFailedTime")
+            .add("DataSize").add("RowCount").add("State")
+            .add("LstConsistencyCheckTime").add("CheckVersion").add("CheckVersionHash")
             .add("VersionCount").add("PathHash")
             .build();
 
@@ -72,22 +73,24 @@ public class TabletsProcDir implements ProcDirInterface {
                 if (tablet.getReplicas().size() == 0) {
                     List<Comparable> tabletInfo = new ArrayList<Comparable>();
                     tabletInfo.add(tabletId);
-                    tabletInfo.add(-1);
-                    tabletInfo.add(-1);
-                    tabletInfo.add(-1);
-                    tabletInfo.add(-1);
-                    tabletInfo.add(-1);
-                    tabletInfo.add(-1);
-                    tabletInfo.add(-1);
-                    tabletInfo.add("N/A");
-                    tabletInfo.add(-1);
-                    tabletInfo.add(-1);
-                    tabletInfo.add("N/A");
-                    tabletInfo.add("N/A");
-                    tabletInfo.add(-1);
-                    tabletInfo.add(-1);
-                    tabletInfo.add(-1);
-                    tabletInfo.add(-1);
+                    tabletInfo.add(-1); // replica id
+                    tabletInfo.add(-1); // backend id
+                    tabletInfo.add("N/A"); // host name
+                    tabletInfo.add(-1); // version
+                    tabletInfo.add(-1); // version hash
+                    tabletInfo.add(-1); // lst success version
+                    tabletInfo.add(-1); // lst success version hash
+                    tabletInfo.add(-1); // lst failed version
+                    tabletInfo.add(-1); // lst failed version hash
+                    tabletInfo.add(-1); // lst failed time
+                    tabletInfo.add(-1); // data size
+                    tabletInfo.add(-1); // row count
+                    tabletInfo.add("N/A"); // state
+                    tabletInfo.add(-1); // lst consistency check time
+                    tabletInfo.add(-1); // check version
+                    tabletInfo.add(-1); // check version hash
+                    tabletInfo.add(-1); // version count
+                    tabletInfo.add(-1); // path hash
 
                     tabletInfos.add(tabletInfo);
                 } else {
@@ -116,6 +119,7 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(replica.getLastSuccessVersion());
                         tabletInfo.add(replica.getLastSuccessVersionHash());
                         tabletInfo.add(replica.getLastFailedVersion());
+                        tabletInfo.add(replica.getLastFailedVersionHash());
                         tabletInfo.add(TimeUtils.longToTimeString(replica.getLastFailedTimestamp()));
                         tabletInfo.add(replica.getDataSize());
                         tabletInfo.add(replica.getRowCount());

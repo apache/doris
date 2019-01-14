@@ -18,6 +18,7 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.common.util.TimeUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -31,9 +32,12 @@ import java.util.List;
 public class ReplicasProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("ReplicaId").add("BackendId").add("Version").add("VersionHash")
-            .add("DataSize").add("RowCount").add("State").add("VersionCount")
+            .add("LstSuccessVersion").add("LstSuccessVersionHash")
+            .add("LstFailedVersion").add("LstFailedVersionHash")
+            .add("LstFailedTime").add("DataSize").add("RowCount").add("State")
+            .add("VersionCount").add("PathHash")
             .build();
-
+    
     private List<Replica> replicas;
 
     public ReplicasProcNode(List<Replica> replicas) {
@@ -46,15 +50,20 @@ public class ReplicasProcNode implements ProcNodeInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
         for (Replica replica : replicas) {
-            // id -- backendId -- version -- versionHash -- dataSize -- rowCount -- state
             result.addRow(Arrays.asList(String.valueOf(replica.getId()),
                                         String.valueOf(replica.getBackendId()),
                                         String.valueOf(replica.getVersion()),
                                         String.valueOf(replica.getVersionHash()),
+                                        String.valueOf(replica.getLastSuccessVersion()),
+                                        String.valueOf(replica.getLastSuccessVersionHash()),
+                                        String.valueOf(replica.getLastFailedVersion()),
+                                        String.valueOf(replica.getLastFailedVersionHash()),
+                                        TimeUtils.longToTimeString(replica.getLastFailedTimestamp()),
                                         String.valueOf(replica.getDataSize()),
                                         String.valueOf(replica.getRowCount()),
                                         String.valueOf(replica.getState()),
-                                        String.valueOf(replica.getVersionCount())));
+                                        String.valueOf(replica.getVersionCount()),
+                                        String.valueOf(replica.getPathHash())));
         }
         return result;
     }

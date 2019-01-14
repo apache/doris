@@ -187,7 +187,7 @@ public class Alter {
                         db.getClusterName());
                 if (!isStable) {
                     throw new DdlException("table [" + olapTable.getName() + "] is not stable."
-                            + "Some tablets of this table may not be healthy or are being scheduled."
+                            + " Some tablets of this table may not be healthy or are being scheduled."
                             + " You need to repair the table first"
                             + " or stop cluster balance. See 'help admin;'.");
                 }

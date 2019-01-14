@@ -291,6 +291,12 @@ public class Replica implements Writable {
     }
 
     public boolean checkVersionCatchUp(long committedVersion, long committedVersionHash) {
+        if (committedVersion == Partition.PARTITION_INIT_VERSION
+                && committedVersionHash == Partition.PARTITION_INIT_VERSION_HASH) {
+            // no data is loaded into this replica, just return true
+            return true;
+        }
+
         if (this.version < committedVersion
                 || (this.version == committedVersion && this.versionHash != committedVersionHash)) {
             LOG.debug("replica version does not catch up with version: {}-{}. replica: {}",

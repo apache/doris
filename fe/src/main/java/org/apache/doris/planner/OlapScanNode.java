@@ -446,7 +446,7 @@ public class OlapScanNode extends ScanNode {
             if (allQueryableReplicas.isEmpty()) {
                 LOG.error("no queryable replica found in tablet[{}]. committed version[{}], committed version hash[{}]",
                          tabletId, visibleVersion, visibleVersionHash);
-                throw new UserException("Failed to get scan range, no replica!");
+                throw new UserException("Failed to get scan range, no queryable replica found in tablet: " + tabletId);
             }
 
             List<Replica> replicas = null;
