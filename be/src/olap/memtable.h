@@ -38,8 +38,8 @@ public:
     ~MemTable();
     size_t memory_usage();
     void insert(Tuple* tuple);
-    OLAPStatus flush(RowsetBuilder* rowset_builder);
-    OLAPStatus close(RowsetBuilder* rowset_builder);
+    OLAPStatus flush(RowsetBuilderSharedPtr rowset_builder);
+    OLAPStatus close(RowsetBuilderSharedPtr rowset_builder);
 private:
     Schema* _schema;
     std::vector<FieldInfo>* _field_infos;

@@ -143,7 +143,7 @@ void MemTable::insert(Tuple* tuple) {
     }
 }
 
-OLAPStatus MemTable::flush(RowsetBuilder* rowset_builder) {
+OLAPStatus MemTable::flush(RowsetBuilderSharedPtr rowset_builder) {
     Table::Iterator it(_skip_list);
     for (it.SeekToFirst(); it.Valid(); it.Next()) {
         const char* row = it.key();
@@ -155,7 +155,7 @@ OLAPStatus MemTable::flush(RowsetBuilder* rowset_builder) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus MemTable::close(RowsetBuilder* rowset_builder) {
+OLAPStatus MemTable::close(RowsetBuilderSharedPtr rowset_builder) {
     return flush(rowset_builder);
 }
 

@@ -148,7 +148,7 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
 
     _mem_table->insert(tuple);
     if (_mem_table->memory_usage() >= config::write_buffer_size) {
-        RETURN_NOT_OK(_mem_table->flush(_rowset_builder.get()));
+        RETURN_NOT_OK(_mem_table->flush(_rowset_builder));
 
         SAFE_DELETE(_mem_table);
         _mem_table = new MemTable(_schema, _field_infos, &_col_ids,
@@ -164,17 +164,19 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
             return st;
         }
     }
-    RETURN_NOT_OK(_mem_table->close(_rowset_builder.get()));
+    RETURN_NOT_OK(_mem_table->close(_rowset_builder));
 
     OLAPStatus res = OLAP_SUCCESS;
-    //add pending data to tablet
-    RETURN_NOT_OK(_tablet->add_pending_version(_req.partition_id, _req.txn_id, nullptr));
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_builder->build();
-    RowsetMetaManager::save(
+    res = RowsetMetaManager::save(
             _tablet->data_dir()->get_meta(),
             _cur_rowset->rowset_id(),
-            _cur_rowset->rowset_meta().get());
+            _cur_rowset->rowset_meta());
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "save pending rowset failed. rowset_id:" << _cur_rowset->rowset_id();
+        return OLAP_ERR_ROWSET_SAVE_FAILED;
+    }
 
     if (_new_tablet != nullptr) {
         LOG(INFO) << "convert version for schema change";
@@ -197,10 +199,14 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
         }
 
         RETURN_NOT_OK(_new_tablet->add_pending_version(_req.partition_id, _req.txn_id, nullptr));
-        RowsetMetaManager::save(
+        res = RowsetMetaManager::save(
             _new_tablet->data_dir()->get_meta(),
             _related_rowset->rowset_id(),
-            _related_rowset->rowset_meta().get());
+            _related_rowset->rowset_meta());
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "save pending rowset failed. rowset_id:" << _cur_rowset->rowset_id();
+            return OLAP_ERR_ROWSET_SAVE_FAILED;
+        }
     }
 
 #ifndef BE_TEST

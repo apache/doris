@@ -337,6 +337,7 @@ enum OLAPStatus {
     // Rowset
     // [-3100, -3200)
     OLAP_ERR_ROWSET_BUILDER_INIT = -3100,
+    OLAP_ERR_ROWSET_SAVE_FAILED = -3101,
 };
 
 enum ColumnFamilyIndex {
