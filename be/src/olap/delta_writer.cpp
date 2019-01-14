@@ -198,7 +198,6 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
                 return res;
         }
 
-        RETURN_NOT_OK(_new_tablet->add_pending_version(_req.partition_id, _req.txn_id, nullptr));
         res = RowsetMetaManager::save(
             _new_tablet->data_dir()->get_meta(),
             _related_rowset->rowset_id(),
