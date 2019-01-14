@@ -203,7 +203,7 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
             _related_rowset->rowset_id(),
             _related_rowset->rowset_meta());
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "save pending rowset failed. rowset_id:" << _cur_rowset->rowset_id();
+            LOG(WARNING) << "save pending rowset failed. rowset_id:" << _related_rowset->rowset_id();
             return OLAP_ERR_ROWSET_SAVE_FAILED;
         }
     }
