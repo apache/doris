@@ -68,6 +68,12 @@ private:
     // 1. check if left conjuncts contain "match" function, since match function could only be executed on es
     bool check_left_conjuncts(Expr* conjunct);
 
+    bool is_match_func(Expr* conjunct);
+
+    // check if open result meets condition
+    // 1. check if left conjuncts contain "match" function, since match function could only be executed on es
+    bool check_left_conjuncts(Expr* conjunct);
+
 private:
     TupleId _tuple_id;
     std::map<std::string, std::string> _properties;
