@@ -25,6 +25,7 @@
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/query_statistic.h"
 
 namespace doris {
 
@@ -78,11 +79,16 @@ public:
     // Returns the runtime profile for the sink.
     virtual RuntimeProfile* profile() = 0;
 
+    virtual void set_query_statistic(boost::shared_ptr<QueryStatistic> statistic) {
+        _query_statistic = statistic;
+    }
 protected:
     // Set to true after close() has been called. subclasses should check and set this in
     // close().
     bool _closed;
     std::unique_ptr<MemTracker> _expr_mem_tracker;
+
+    boost::shared_ptr<QueryStatistic> _query_statistic;
 };
 
 }  // namespace doris

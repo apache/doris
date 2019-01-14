@@ -54,6 +54,18 @@ void PInternalServiceImpl<T>::transmit_data(google::protobuf::RpcController* cnt
             request->be_number(), request->packet_seq(),
             eos ? nullptr : &done);
     }
+
+    if (request->has_query_statistic()) {
+        TUniqueId finst_id;
+        finst_id.__set_hi(request->finst_id().hi());
+        finst_id.__set_lo(request->finst_id().lo());
+        _exec_env->stream_mgr()->update_query_statistic(
+            finst_id,
+            request->node_id(),
+            request->sender_id(), 
+            request->query_statistic());
+    }
+
     if (eos) {
         TUniqueId finst_id;
         finst_id.__set_hi(request->finst_id().hi());

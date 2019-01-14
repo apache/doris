@@ -15,20 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-syntax="proto2";
+package org.apache.doris.qe;
 
-package doris;
+import org.apache.doris.rpc.PQueryStatistic;
+import org.apache.doris.thrift.TResultBatch;
 
-message PQueryStatistic {
-    optional int64 cpu_by_row = 1;
-    optional int64 io_by_byte = 2;
+public final class RowBatch {
+    private TResultBatch batch;
+    private PQueryStatistic queryStatistic;
+    private boolean eos;
+
+    public RowBatch() {
+        eos = true;
+    }
+
+    public TResultBatch getBatch() {
+        return batch;
+    }
+
+    public void setBatch(TResultBatch batch) {
+        this.batch = batch;
+    }
+
+    public PQueryStatistic getQueryStatistic() {
+        return queryStatistic;
+    }
+
+    public void setQueryStatistic(PQueryStatistic queryStatistic) {
+        this.queryStatistic = queryStatistic;
+    }
+
+    public boolean isEos() {
+        return eos;
+    }
+
+    public void setEos(boolean eos) {
+        this.eos = eos;
+    }
 }
-
-message PRowBatch {
-    required int32 num_rows = 1;
-    repeated int32 row_tuples = 2;
-    repeated int32 tuple_offsets = 3;
-    required bytes tuple_data = 4;
-    required bool is_compressed = 5;
-};
-

@@ -242,6 +242,7 @@ void DataStreamRecvr::SenderQueue::add_batch(
         // it in this thread.
         batch = new RowBatch(_recvr->row_desc(), pb_batch, _recvr->mem_tracker());
     }
+   
     VLOG_ROW << "added #rows=" << batch->num_rows()
         << " batch_size=" << batch_size << "\n";
     _batch_queue.emplace_back(batch_size, batch);
@@ -350,7 +351,7 @@ DataStreamRecvr::DataStreamRecvr(
         DataStreamMgr* stream_mgr, MemTracker* parent_tracker,
         const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
         PlanNodeId dest_node_id, int num_senders, bool is_merging, int total_buffer_limit,
-        RuntimeProfile* profile) :
+        RuntimeProfile* profile, QueryStatistic* query_statistic) :
             _mgr(stream_mgr),
             _fragment_instance_id(fragment_instance_id),
             _dest_node_id(dest_node_id),
@@ -358,7 +359,8 @@ DataStreamRecvr::DataStreamRecvr(
             _row_desc(row_desc),
             _is_merging(is_merging),
             _num_buffered_bytes(0),
-            _profile(profile) {
+            _profile(profile),
+            _sub_plan_query_statistic(query_statistic) {
     _mem_tracker.reset(new MemTracker(-1, "DataStreamRecvr", parent_tracker));
 
     // Create one queue per sender if is_merging is true.

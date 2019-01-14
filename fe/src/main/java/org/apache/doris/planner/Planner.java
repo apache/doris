@@ -176,7 +176,11 @@ public class Planner {
             fragments = distributedPlanner.createPlanFragments(singleNodePlan);
         }
 
+        // Optimize the transfer of query statistic when query does't contain limit.
         PlanFragment rootFragment = fragments.get(fragments.size() - 1);
+        QueryStatisticTransferOptimizer queryStatisticTransferOptimizer = new QueryStatisticTransferOptimizer(rootFragment);
+        queryStatisticTransferOptimizer.optimizeTransferQueryStatistic();
+
         if (statment instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statment;
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
@@ -229,5 +233,39 @@ public class Planner {
         selectNode.init(analyzer);
         Preconditions.checkState(selectNode.hasValidStats());
         return selectNode;
+    }
+
+    private static class QueryStatisticTransferOptimizer {
+        private final PlanFragment root;
+        
+        public QueryStatisticTransferOptimizer(PlanFragment root) {
+            Preconditions.checkNotNull(root);
+            this.root = root;
+        }
+
+        public void optimizeTransferQueryStatistic() {
+            optimizeTransferQueryStatistic(root, null);
+        }
+
+        private void optimizeTransferQueryStatistic(PlanFragment fragment, PlanFragment parent) {
+            if (parent != null && hasLimit(parent.getPlanRoot())) {
+                fragment.setTransferQueryStatisticWithEveryBatch(true);
+            }
+            for (PlanFragment child : fragment.getChildren()) {
+                optimizeTransferQueryStatistic(child, fragment);
+            }
+        }
+
+        private boolean hasLimit(PlanNode planNode) {
+            if (planNode.hasLimit()) {
+                return true;
+            }
+            for (PlanNode child : planNode.getChildren()) {
+                if (hasLimit(child)) {
+                    return true;
+                };
+            }
+            return false;
+        }
     }
 }

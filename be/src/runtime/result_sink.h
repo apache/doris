@@ -56,6 +56,8 @@ public:
         return _profile;
     }
 
+    virtual void set_query_statistic(boost::shared_ptr<QueryStatistic> statistic);
+
 private:
     Status prepare_exprs(RuntimeState* state);
 

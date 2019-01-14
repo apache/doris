@@ -671,6 +671,12 @@ Status NewPartitionedAggregationNode::reset(RuntimeState* state) {
   return ExecNode::reset(state);
 }
 
+Status NewPartitionedAggregationNode::collect_query_statistic(QueryStatistic* statistic) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistic(statistic));
+    statistic->add_cpu_by_row(_build_rows_counter->value());
+    return Status::OK;
+}
+
 Status NewPartitionedAggregationNode::close(RuntimeState* state) {
   if (is_closed()) return Status::OK;
 

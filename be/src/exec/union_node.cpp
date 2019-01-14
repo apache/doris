@@ -337,6 +337,12 @@ Status UnionNode::reset(RuntimeState* state) {
 }
 #endif
 
+Status UnionNode::collect_query_statistic(QueryStatistic* statistic) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistic(statistic));
+    statistic->add_cpu_by_row(_materialize_rows_counter->value());
+    return Status::OK;
+}
+
 Status UnionNode::close(RuntimeState* state) {
     if (is_closed()) return Status::OK;
     _child_batch.reset();

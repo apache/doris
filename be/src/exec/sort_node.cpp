@@ -117,6 +117,13 @@ Status SortNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     return Status::OK;
 }
 
+
+Status SortNode::collect_query_statistic(QueryStatistic* statistic) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistic(statistic));
+    statistic->add_cpu_by_row(_sort_rows_counter->value());
+    return Status::OK;
+}
+
 Status SortNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK;

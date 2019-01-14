@@ -15,20 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-syntax="proto2";
+package org.apache.doris.rpc;
 
-package doris;
+import com.baidu.bjf.remoting.protobuf.annotation.Protobuf;
+import com.baidu.bjf.remoting.protobuf.annotation.ProtobufClass;
 
-message PQueryStatistic {
-    optional int64 cpu_by_row = 1;
-    optional int64 io_by_byte = 2;
+@ProtobufClass
+public class PQueryStatistic {
+    @Protobuf(order = 1, required = false)
+    public long cpu;
+    @Protobuf(order = 2, required = false)
+    public long io;
 }
-
-message PRowBatch {
-    required int32 num_rows = 1;
-    repeated int32 row_tuples = 2;
-    repeated int32 tuple_offsets = 3;
-    required bytes tuple_data = 4;
-    required bool is_compressed = 5;
-};
-

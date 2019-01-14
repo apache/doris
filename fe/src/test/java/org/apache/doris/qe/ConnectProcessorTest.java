@@ -231,6 +231,7 @@ public class ConnectProcessorTest {
         // Mock statement executor
         StmtExecutor qe = EasyMock.createNiceMock(StmtExecutor.class);
         qe.execute();
+        EasyMock.expect(qe.getQueryStatisticForAuditLog()).andReturn(new StmtExecutor.QueryStatistic());
         EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(qe);
         PowerMock.expectNew(
@@ -254,11 +255,11 @@ public class ConnectProcessorTest {
         StmtExecutor qe = EasyMock.createNiceMock(StmtExecutor.class);
         qe.execute();
         EasyMock.expectLastCall().andThrow(new IOException("Fail")).anyTimes();
+        EasyMock.expect(qe.getQueryStatisticForAuditLog()).andReturn(new StmtExecutor.QueryStatistic());
         EasyMock.replay(qe);
         PowerMock.expectNew(StmtExecutor.class, EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class))
                 .andReturn(qe).anyTimes();
         PowerMock.replay(StmtExecutor.class);
-
         processor.processOnce();
         Assert.assertEquals(MysqlCommand.COM_QUERY, myContext.getCommand());
     }
@@ -272,6 +273,7 @@ public class ConnectProcessorTest {
         // Mock statement executor
         StmtExecutor qe = EasyMock.createNiceMock(StmtExecutor.class);
         qe.execute();
+        EasyMock.expect(qe.getQueryStatisticForAuditLog()).andReturn(new StmtExecutor.QueryStatistic());
         EasyMock.expectLastCall().andThrow(new NullPointerException("Fail")).anyTimes();
         EasyMock.replay(qe);
         PowerMock.expectNew(StmtExecutor.class, EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class))

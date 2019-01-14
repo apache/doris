@@ -36,6 +36,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
+import java.util.Formatter;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -334,7 +335,7 @@ public class CurrentQueryInfoProvider {
             }
         }
 
-        public long getTotalCpuConsumption() {
+        private long getTotalCpuConsumption() {
             long cpu = 0;
             for (ConsumptionCalculator consumption : calculators) {
                 cpu += consumption.getCpu();
@@ -342,12 +343,26 @@ public class CurrentQueryInfoProvider {
             return cpu;
         }
 
-        public long getTotalIoConsumption() {
+        private long getTotalIoConsumption() {
             long io = 0;
             for (ConsumptionCalculator consumption : calculators) {
                 io += consumption.getIo();
             }
             return io;
+        }
+
+        public String getFormattingCpu() {
+            final StringBuilder builder = new StringBuilder();
+            builder.append(getTotalCpuConsumption()).append(" Rows");
+            return builder.toString();
+        }
+
+        public String getFormattingIo() {
+            final Pair<Double, String> pair = DebugUtil.getByteUint(getTotalIoConsumption());
+            final Formatter fmt = new Formatter();
+            final StringBuilder builder = new StringBuilder();
+            builder.append(fmt.format("%.2f", pair.first)).append(" ").append(pair.second);
+            return builder.toString();
         }
     }
 

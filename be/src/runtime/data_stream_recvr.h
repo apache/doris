@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "gen_cpp/Types_types.h" // for TUniqueId
 #include "runtime/descriptors.h"
+#include "runtime/query_statistic.h"
 #include "util/tuple_row_compare.h"
 
 namespace google {
@@ -99,6 +100,10 @@ public:
     const RowDescriptor& row_desc() const { return _row_desc; }
     MemTracker* mem_tracker() const { return _mem_tracker.get(); }
 
+    void update_sub_plan_statistic(const PQueryStatistic& statistic, int sender_id) {
+        _sub_plan_query_statistic->deserialize(statistic, sender_id);
+    }
+
 private:
     friend class DataStreamMgr;
     class SenderQueue;
@@ -106,7 +111,7 @@ private:
     DataStreamRecvr(DataStreamMgr* stream_mgr, MemTracker* parent_tracker,
             const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
             PlanNodeId dest_node_id, int num_senders, bool is_merging, int total_buffer_limit,
-            RuntimeProfile* profile);
+            RuntimeProfile* profile, QueryStatistic* query_statistic);
 
     // If receive queue is full, done is enqueue pending, and return with *done is nullptr
     void add_batch(const PRowBatch& batch, int sender_id,
@@ -193,6 +198,9 @@ private:
 
     // Wall time senders spend waiting for the recv buffer to have capacity.
     RuntimeProfile::Counter* _buffer_full_wall_timer;
+
+    // Query statistic returned with batch
+    QueryStatistic* _sub_plan_query_statistic;
 
     // Total time spent waiting for data to arrive in the recv buffer
     // RuntimeProfile::Counter* _data_arrival_timer;

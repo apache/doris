@@ -32,6 +32,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/initial_reservations.h"
+#include "runtime/query_statistic.h"
 #include "runtime/runtime_state.h"
 #include "runtime/load_path_mgr.h"
 #include "util/cpu_info.h"
@@ -188,7 +189,6 @@ Status RuntimeState::init(
     }
     _db_name = "insert_stmt";
     _import_label = print_id(fragment_instance_id);
-
     return Status::OK;
 }
 

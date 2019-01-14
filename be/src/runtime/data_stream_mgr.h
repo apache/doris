@@ -30,6 +30,7 @@
 #include "common/object_pool.h"
 #include "runtime/descriptors.h"  // for PlanNodeId
 #include "runtime/mem_tracker.h"
+#include "runtime/query_statistic.h"
 #include "util/runtime_profile.h"
 #include "gen_cpp/Types_types.h"  // for TUniqueId
 
@@ -76,7 +77,7 @@ public:
             RuntimeState* state, const RowDescriptor& row_desc,
             const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
             int num_senders, int buffer_size, RuntimeProfile* profile,
-            bool is_merging);
+            bool is_merging, QueryStatistic* query_statistic);
 
     // Adds a row batch to the recvr identified by fragment_instance_id/dest_node_id
     // if the recvr has not been cancelled. sender_id identifies the sender instance
@@ -97,6 +98,9 @@ public:
     // Returns OK if successful, error status otherwise.
     Status close_sender(const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
             int sender_id, int be_number);
+
+    Status update_query_statistic(const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
+                                  int sender_id, const PQueryStatistic& query_statistic);
 
     // Closes all receivers registered for fragment_instance_id immediately.
     void cancel(const TUniqueId& fragment_instance_id);

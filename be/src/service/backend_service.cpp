@@ -130,14 +130,14 @@ void BackendService::transmit_data(TTransmitDataResult& return_val,
     }
 
     if (params.eos) {
-        Status status = _exec_env->stream_mgr()->close_sender(
-                params.dest_fragment_instance_id,
-                params.dest_node_id,
-                params.sender_id,
-                params.be_number);
-        VLOG_ROW << "params.eos: " << (params.eos ? "true" : "false")
-                << " close_sender status: " << status.get_error_msg();
-        status.set_t_status(&return_val);
+        // Status status = _exec_env->stream_mgr()->close_sender(
+        //        params.dest_fragment_instance_id,
+        //        params.dest_node_id,
+        //        params.sender_id,
+        //        params.be_number);
+        //VLOG_ROW << "params.eos: " << (params.eos ? "true" : "false")
+        //        << " close_sender status: " << status.get_error_msg();
+        //status.set_t_status(&return_val);
     }
 }
 
