@@ -93,6 +93,11 @@ public class TabletChecker extends Daemon {
             }
             return partId == ((PrioPart) obj).partId;
         }
+
+        @Override
+        public int hashCode() {
+            return Long.valueOf(partId).hashCode();
+        }
     }
 
     public TabletChecker(Catalog catalog, SystemInfoService infoService, TabletScheduler tabletScheduler,
@@ -238,10 +243,12 @@ public class TabletChecker extends Daemon {
                             }
                         }
 
-                        if (prioPartIsHealthy) {
+                        if (prioPartIsHealthy && isInPrios) {
                             // if all replicas in this partition are healthy, remove this partition from
                             // priorities.
-                            removeHealthyPartFromPrios(db.getId(), olapTbl.getId(), partition.getId());
+                            LOG.debug("partition is healthy, remove from prios: {}-{}-{}",
+                                    db.getId(), olapTbl.getId(), partition.getId());
+                            removePrios(db.getId(), olapTbl.getId(), Lists.newArrayList(partition.getId()));
                         }
                     }
                 }
@@ -259,19 +266,6 @@ public class TabletChecker extends Daemon {
 
         LOG.info("finished to check tablets. unhealth/total/added: {}/{}/{}, cost: {} ms",
                  unhealthyTabletNum, totalTabletNum, addToSchedulerTabletNum, cost);
-    }
-
-    public void removeHealthyPartFromPrios(Long dbId, Long tblId, Long partId) {
-       synchronized (prios) {
-            Set<PrioPart> parts = prios.get(dbId, tblId);
-            if (parts == null) {
-                return;
-            }
-            parts.remove(new PrioPart(partId, -1, -1));
-            if (parts.isEmpty()) {
-                prios.remove(dbId, tblId);
-            }
-       }
     }
 
     private boolean isInPrios(long dbId, long tblId, long partId) {

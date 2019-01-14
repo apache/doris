@@ -258,7 +258,7 @@ public class SystemHandler extends AlterHandler {
                 Backend backend = entry.getValue();
                 if (decommBackendsInCluster.containsKey(backendId)
                         || !backend.isAvailable()) {
-                    totalNeededCapacityB += backend.getTotalCapacityB() - backend.getAvailableCapacityB();
+                    totalNeededCapacityB += backend.getDataUsedCapacityB();
                 } else {
                     ++availableBackendNum;
                     totalAvailableCapacityB += backend.getAvailableCapacityB();
@@ -268,7 +268,9 @@ public class SystemHandler extends AlterHandler {
             // if the space we needed is larger than the current available capacity * 0.85,
             // we refuse this decommission operation.
             if (totalNeededCapacityB > totalAvailableCapacityB * Config.storage_high_watermark_usage_percent) {
-                throw new DdlException("No available capacity for decommission in cluster: " + clusterName);
+                throw new DdlException("No available capacity for decommission in cluster: " + clusterName
+                        + ", needed: " + totalNeededCapacityB + ", available: " + totalAvailableCapacityB
+                        + ", threshold: " + Config.storage_high_watermark_usage_percent);
             }
 
             // backend num not enough
