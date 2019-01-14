@@ -155,9 +155,6 @@ Status EsScanNode::open(RuntimeState* state) {
                            conjunct_accepted_times[predicate_to_conjunct[index]]++;
                        }
                    }
-                   VLOG(1) << "es open success: scan_range_idx=" << i
-                           << ", params=" << apache::thrift::ThriftDebugString(params)
-                           << ", result=" << apache::thrift::ThriftDebugString(result);
                    break;
                 } else if (status.code() == TStatusCode::ES_SHARD_NOT_FOUND) {
                     // if shard not found, try other nodes
@@ -189,6 +186,12 @@ Status EsScanNode::open(RuntimeState* state) {
         int conjunct_index = predicate_to_conjunct[i];
         if (conjunct_accepted_times[conjunct_index] == _scan_ranges.size()) {
             _conjunct_ctxs.erase(_conjunct_ctxs.begin() + conjunct_index);
+        }
+    }
+
+    for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
+        if (!check_left_conjuncts(_conjunct_ctxs[i]->root())) {
+            return Status("esquery could only be executed on es, but could not push down to es");
         }
     }
 
@@ -276,8 +279,10 @@ Status EsScanNode::close(RuntimeState* state) {
             }
 
             try {
+                VLOG(1) << "es close param=" << apache::thrift::ThriftDebugString(params);
                 client->close(result, params);
             } catch (apache::thrift::transport::TTransportException& e) {
+                LOG(WARNING) << "es close retrying, because: " << e.what();
                 RETURN_IF_ERROR(client.reopen());
                 client->close(result, params);
             }
@@ -289,6 +294,7 @@ Status EsScanNode::close(RuntimeState* state) {
             return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str(), false);
         }
 
+        VLOG(1) << "es close result=" << apache::thrift::ThriftDebugString(result);
         Status status(result.status);
         if (!status.ok()) {
             LOG(WARNING) << "es close error: : scan_range_idx=" << i
@@ -341,11 +347,14 @@ Status EsScanNode::open_es(TNetworkAddress& address, TExtOpenResult& result, TEx
         }
 
         try {
+            VLOG(1) << "es open param=" << apache::thrift::ThriftDebugString(params);
             client->open(result, params);
         } catch (apache::thrift::transport::TTransportException& e) {
+            LOG(WARNING) << "es open retrying, because: " << e.what();
             RETURN_IF_ERROR(client.reopen());
             client->open(result, params);
         }
+        VLOG(1) << "es open result=" << apache::thrift::ThriftDebugString(result);
         return Status(result.status);
     } catch (apache::thrift::TException &e) {
         std::stringstream ss;
@@ -358,6 +367,21 @@ Status EsScanNode::open_es(TNetworkAddress& address, TExtOpenResult& result, TEx
     result.__set_scan_handle("0");
     return Status(status);
 #endif
+}
+
+// legacy conjuncts must not contain match function
+bool EsScanNode::check_left_conjuncts(Expr* conjunct) {
+    if (is_match_func(conjunct)) {
+        return false;
+    } else {
+        int num_children = conjunct->get_num_children();
+        for (int child_idx = 0; child_idx < num_children; ++child_idx) {
+            if (!check_left_conjuncts(conjunct->get_child(child_idx))) {
+                return false;
+            }
+        }
+        return true;
+    }
 }
 
 bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
@@ -409,6 +433,19 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
         predicate.__set_binary_predicate(binaryPredicate);
         disjuncts.push_back(std::move(predicate));
         return true;
+    } else if (is_match_func(conjunct)) {
+        // if this is a function call expr and function name is match, then push 
+        // down it to es
+        TExtFunction match_function;
+        match_function.__set_func_name(conjunct->fn().name.function_name);
+        vector<TExtLiteral> query_conditions;
+        query_conditions.push_back(to_exe_literal(context, conjunct->get_child(1)));
+        match_function.__set_values(query_conditions);
+        TExtPredicate predicate;
+        predicate.__set_node_type(TExprNodeType::FUNCTION_CALL);
+        predicate.__set_ext_function(match_function);
+        disjuncts.push_back(std::move(predicate));
+        return true;
     } else if (TExprNodeType::COMPOUND_PRED == conjunct->node_type()) {
         if (TExprOpcode::COMPOUND_OR != conjunct->op()) {
             VLOG(1) << "get disjuncts fail: op is not COMPOUND_OR";
@@ -426,6 +463,14 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
                 << ", should be BINARY_PRED or COMPOUND_PRED";
         return false;
     }
+}
+
+bool EsScanNode::is_match_func(Expr* conjunct) {
+    if (TExprNodeType::FUNCTION_CALL == conjunct->node_type()
+        && conjunct->fn().name.function_name == "esquery") {
+            return true;
+    }
+    return false;
 }
 
 TExtLiteral EsScanNode::to_exe_literal(ExprContext* context, Expr* expr) {
@@ -507,8 +552,10 @@ Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {
         }
 
         try {
+            VLOG(1) << "es get_next param=" << apache::thrift::ThriftDebugString(params);
             client->getNext(result, params);
         } catch (apache::thrift::transport::TTransportException& e) {
+            LOG(WARNING) << "es get_next retrying, because: " << e.what();
             RETURN_IF_ERROR(client.reopen());
             client->getNext(result, params);
         }
@@ -541,6 +588,7 @@ Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {
 #endif
 
     // check result
+    VLOG(1) << "es get_next result=" << apache::thrift::ThriftDebugString(result);
     Status get_next_status(result.status);
     if (!get_next_status.ok()) {
         LOG(WARNING) << "es get_next error: scan_range_idx=" << _scan_range_idx

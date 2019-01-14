@@ -57,6 +57,7 @@ struct TExtLiteral {
 // The column and the value are guaranteed to be type compatible in Impala,
 // but they are not necessarily the same type, so the data source
 // implementation may need to do an implicit cast.
+// > < = != >= <=
 struct TExtBinaryPredicate {
   // Column on which the predicate is applied. Always set.
   1: optional TExtColumnDesc col
@@ -66,10 +67,49 @@ struct TExtBinaryPredicate {
   3: optional TExtLiteral value
 }
 
+struct TExtInPredicate {
+  // Column on which the predicate is applied. Always set.
+  1: optional TExtColumnDesc col
+  // Comparison operator. Always set.
+  2: optional Opcodes.TExprOpcode op
+  // Value on the right side of the binary predicate. Always set.
+  3: optional list<TExtLiteral> value
+}
+
+struct TExtLikePredicate {
+  1: optional TExtColumnDesc col
+  2: optional TExtLiteral value
+}
+
+struct TExtIsNullPredicate {
+  // is null  or is not null predicate
+  1: optional bool is_null 
+  2: optional TExtColumnDesc col
+}
+
+struct TExtBetweenPredicate {
+  1: optional TExtColumnDesc col
+  2: optional TExtLiteral left_val
+  3: optional TExtLiteral right_val
+}
+
+struct TExtFunction { 
+  1: optional string func_name
+  // input parameter column descs
+  2: optional list<TExtColumnDesc> cols
+  // input parameter column literals
+  3: optional list<TExtLiteral> values
+}
+
 // a union of all predicates
 struct TExtPredicate {
   1: required Exprs.TExprNodeType node_type
   2: optional TExtBinaryPredicate binary_predicate
+  3: optional TExtInPredicate in_predicate
+  4: optional TExtLikePredicate like_predicate
+  5: optional TExtIsNullPredicate is_null_predicate
+  6: optional TExtBetweenPredicate between_predicate
+  7: optional TExtFunction ext_function
 }
 
 // A union over all possible return types for a column of data

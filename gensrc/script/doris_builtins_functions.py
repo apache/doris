@@ -438,7 +438,7 @@ visible_functions = [
     [['coalesce'], 'DATETIME', ['DATETIME', '...'], ''],
     [['coalesce'], 'DECIMAL', ['DECIMAL', '...'], ''],
 
-    [['match'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 
+    [['esquery'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 
         '_ZN5doris11ESFunctions5matchEPN'
         '9doris_udf15FunctionContextERKNS1_9StringValES6_'],
 

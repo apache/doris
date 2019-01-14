@@ -159,6 +159,10 @@ public:
         return _node_type;
     }
 
+    const TFunction& fn() const {
+        return _fn;
+    }
+
     bool is_slotref() const {
         return _is_slotref;
     }

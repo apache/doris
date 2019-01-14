@@ -59,6 +59,12 @@ private:
     bool get_disjuncts(ExprContext* context, Expr* conjunct, vector<TExtPredicate>& disjuncts);
     TExtLiteral to_exe_literal(ExprContext* context, Expr* expr);
 
+    bool is_match_func(Expr* conjunct);
+
+    // check if open result meets condition
+    // 1. check if left conjuncts contain "match" function, since match function could only be executed on es
+    bool check_left_conjuncts(Expr* conjunct);
+
 private:
     TupleId _tuple_id;
     std::map<std::string, std::string> _properties;
