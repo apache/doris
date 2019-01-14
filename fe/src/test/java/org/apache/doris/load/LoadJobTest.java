@@ -148,7 +148,7 @@ public class LoadJobTest {
         EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
         PowerMock.replay(Catalog.class);
 
-        File file = new File("./loadJobTest");
+        File file = new File("./loadJobTest" + System.currentTimeMillis());
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
         

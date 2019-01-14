@@ -20,7 +20,6 @@ package org.apache.doris.persist;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.meta.MetaContext;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -157,8 +156,7 @@ public class ReplicaPersistInfo implements Writable {
     // for original batch load, the last success version = version, last success version hash = version hash
     // last failed version = -1
     public static ReplicaPersistInfo createForLoad(long tableId, long partitionId, long indexId, long tabletId,
-            long replicaId, long version, long versionHash, int schemaHash, long dataSize,
-            long rowCount) {
+            long replicaId, long version, long versionHash, int schemaHash, long dataSize, long rowCount) {
 
         return new ReplicaPersistInfo(ReplicaOperationType.LOAD,
                 -1L, tableId, partitionId, indexId, tabletId, -1L,
@@ -347,7 +345,7 @@ public class ReplicaPersistInfo implements Writable {
             lastSuccessVersionHash = in.readLong();
         }
 
-        if (MetaContext.get().getMetaVersion() >= FeMetaVersion.VERSION_48) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_48) {
             schemaHash = in.readInt();
         }
     }

@@ -68,7 +68,7 @@ public class ReplicaPersistInfoTest {
         Assert.assertEquals(4, info.getReplicaId());
         Assert.assertEquals(5, info.getVersion());
         Assert.assertEquals(6, info.getVersionHash());
-        Assert.assertEquals(7, info.getDataSize());
+        Assert.assertEquals(0, info.getDataSize());
         Assert.assertEquals(8, info.getRowCount());
     }
 }
