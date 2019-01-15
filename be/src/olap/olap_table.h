@@ -176,6 +176,8 @@ public:
 
     bool has_pending_data(int64_t transaction_id);
 
+    bool has_pending_data();
+
     void delete_pending_data(int64_t transaction_id);
 
     // check the pending data that still not publish version
@@ -261,6 +263,18 @@ public:
 
     RWMutex* get_header_lock_ptr() {
         return &_header_lock;
+    }
+    
+    OLAPStatus try_migration_rdlock() {
+        return _migration_lock.tryrdlock();
+    }
+    
+    OLAPStatus try_migration_wrlock() {
+        return _migration_lock.trywrlock();
+    }
+    
+    void release_migration_lock() {
+        _migration_lock.unlock();
     }
 
     // Prevent push operations execute concurrently.
@@ -675,6 +689,8 @@ private:
     void _list_files_with_suffix(const std::string& file_suffix,
                                  std::set<std::string>* file_names) const;
 
+    OLAPStatus _publish_version(int64_t transaction_id, Version version, VersionHash version_hash);
+
     // 获取最大的index（只看大小）
     SegmentGroup* _get_largest_index();
 
@@ -721,7 +737,8 @@ private:
     // A series of status
     SchemaChangeStatus _schema_change_status;
     // related locks to ensure that commands are executed correctly.
-    RWMutex _header_lock;
+    RWMutex _header_lock;    
+    RWMutex _migration_lock;
     Mutex _push_lock;
     Mutex _cumulative_lock;
     Mutex _base_compaction_lock;
