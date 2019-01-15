@@ -1579,7 +1579,7 @@ public class Coordinator {
                 params.setQuery_globals(queryGlobals);
                 params.setQuery_options(queryOptions);
                 params.params.setSend_query_statistics_with_every_batch(
-                        fragment.isTransferQueryStatisticWithEveryBatch());
+                        fragment.isTransferQueryStatisticsWithEveryBatch());
                 if (queryOptions.getQuery_type() == TQueryType.LOAD) {
                     LoadErrorHub.Param param = Catalog.getCurrentCatalog().getLoadInstance().getLoadErrorHubInfo();
                     if (param != null) {

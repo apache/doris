@@ -96,10 +96,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // if the output is UNPARTITIONED, it is being broadcast
     private DataPartition outputPartition;
 
-    // Whether query statistic is sent with every batch. In order to get the query
-    // statistic correctly when query contains limit, it is necessary to send query 
-    // statistic in every batch, or only in close.
-    private boolean transferQueryStatisticWithEveryBatch;
+    // Whether query statistics is sent with every batch. In order to get the query
+    // statistics correctly when query contains limit, it is necessary to send query 
+    // statistics with every batch, or only in close.
+    private boolean transferQueryStatisticsWithEveryBatch;
 
     // TODO: SubstitutionMap outputSmap;
     // substitution map to remap exprs onto the output of this fragment, to be applied
@@ -113,7 +113,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.planRoot = root;
         this.dataPartition = partition;
         this.outputPartition = DataPartition.UNPARTITIONED;
-        this.transferQueryStatisticWithEveryBatch = false;
+        this.transferQueryStatisticsWithEveryBatch = false;
         setFragmentInPlanTree(planRoot);
     }
 
@@ -275,11 +275,11 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return fragmentId;
     }
 
-    public void setTransferQueryStatisticWithEveryBatch(boolean value) {
-        transferQueryStatisticWithEveryBatch = value;
+    public void setTransferQueryStatisticsWithEveryBatch(boolean value) {
+        transferQueryStatisticsWithEveryBatch = value;
     }
 
-    public boolean isTransferQueryStatisticWithEveryBatch() {
-        return transferQueryStatisticWithEveryBatch;
+    public boolean isTransferQueryStatisticsWithEveryBatch() {
+        return transferQueryStatisticsWithEveryBatch;
     }
 }

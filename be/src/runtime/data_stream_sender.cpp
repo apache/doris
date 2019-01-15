@@ -168,7 +168,7 @@ private:
     palo::PInternalService_Stub* _brpc_stub = nullptr;
     RefCountClosure<PTransmitDataResult>* _closure = nullptr;
     int32_t _brpc_timeout_ms = 500;
-    // whether the dest can be treated as consumption transfer chain.
+    // whether the dest can be treated as query statistics transfer chain.
     bool _is_transfer_chain;
     bool _send_query_statistics_with_every_batch;
 };

@@ -556,14 +556,14 @@ public class StmtExecutor {
             }
             context.updateReturnRows(batch.getBatch().getRows().size());
         }
-        setConsumptionForAuditLog(batch);
+        setQueryStatisticsForAuditLog(batch);
         if (!isSendFields) {
             sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
         }
         context.getState().setEof();
     }
 
-    private void setConsumptionForAuditLog(RowBatch batch) {
+    private void setQueryStatisticsForAuditLog(RowBatch batch) {
         if (batch != null) {
             final PQueryStatistics statistics = batch.getQueryStatistics();
             statisticsForAuditLog = new QueryStatistics(statistics.processRows, statistics.scanBytes);

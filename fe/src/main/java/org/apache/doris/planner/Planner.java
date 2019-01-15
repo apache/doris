@@ -178,8 +178,8 @@ public class Planner {
 
         // Optimize the transfer of query statistic when query does't contain limit.
         PlanFragment rootFragment = fragments.get(fragments.size() - 1);
-        QueryStatisticTransferOptimizer queryStatisticTransferOptimizer = new QueryStatisticTransferOptimizer(rootFragment);
-        queryStatisticTransferOptimizer.optimizeTransferQueryStatistic();
+        QueryStatisticsTransferOptimizer queryStatisticTransferOptimizer = new QueryStatisticsTransferOptimizer(rootFragment);
+        queryStatisticTransferOptimizer.optimizeQueryStatisticsTransfer();
 
         if (statment instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statment;
@@ -235,32 +235,32 @@ public class Planner {
         return selectNode;
     }
 
-    private static class QueryStatisticTransferOptimizer {
+    private static class QueryStatisticsTransferOptimizer {
         private final PlanFragment root;
         
-        public QueryStatisticTransferOptimizer(PlanFragment root) {
+        public QueryStatisticsTransferOptimizer(PlanFragment root) {
             Preconditions.checkNotNull(root);
             this.root = root;
         }
 
-        public void optimizeTransferQueryStatistic() {
-            optimizeTransferQueryStatistic(root, null);
+        public void optimizeQueryStatisticsTransfer() {
+            optimizeQueryStatisticsTransfer(root, null);
         }
 
-        private void optimizeTransferQueryStatistic(PlanFragment fragment, PlanFragment parent) {
+        private void optimizeQueryStatisticsTransfer(PlanFragment fragment, PlanFragment parent) {
             if (parent != null && hasLimit(parent.getPlanRoot(), fragment.getPlanRoot())) {
-                fragment.setTransferQueryStatisticWithEveryBatch(true);
+                fragment.setTransferQueryStatisticsWithEveryBatch(true);
             }
             for (PlanFragment child : fragment.getChildren()) {
-                optimizeTransferQueryStatistic(child, fragment);
+                optimizeQueryStatisticsTransfer(child, fragment);
             }
         }
 
         // Check whether leaf node contains limit.
         private boolean hasLimit(PlanNode ancestor, PlanNode successor) {
-            final List<PlanNode> leaves = Lists.newArrayList();
-            collectExchangeNode(ancestor, leaves);
-            for (PlanNode leaf : leaves) {
+            final List<PlanNode> exchangeNodes = Lists.newArrayList();
+            collectExchangeNode(ancestor, exchangeNodes);
+            for (PlanNode leaf : exchangeNodes) {
                 if (leaf.getChild(0) == successor
                         && leaf.hasLimit()) {
                     return true;
@@ -269,16 +269,16 @@ public class Planner {
             return false;
         }
 
-        private void collectExchangeNode(PlanNode planNode, List<PlanNode> leaves) {
+        private void collectExchangeNode(PlanNode planNode, List<PlanNode> exchangeNodes) {
             if (planNode instanceof ExchangeNode) {
-                leaves.add(planNode);
+                exchangeNodes.add(planNode);
             }
 
             for (PlanNode child : planNode.getChildren()) {
                 if (child instanceof ExchangeNode) {
-                    leaves.add(child);
+                    exchangeNodes.add(child);
                 } else {
-                    collectExchangeNode(child, leaves);
+                    collectExchangeNode(child, exchangeNodes);
                 }
             }
         }

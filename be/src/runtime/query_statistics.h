@@ -26,7 +26,7 @@ namespace doris {
 
 // This is responsible for collecting query statistics, usually it consist of 
 // two parts, one is current fragment or plan's statistics, the other is sub fragment
-// or plan's statistics.Now cpu is measured by number of rows, io is measured by byte.
+// or plan's statistics.
 class QueryStatistics {
 public:
 
@@ -86,7 +86,7 @@ public:
             scan_bytes = statistics.scan_bytes();
          }
 
-        private:
+    private:
 
         long process_rows;
         long scan_bytes;
@@ -95,10 +95,13 @@ public:
     QueryStatistics() {
     }
 
-    void add(const QueryStatistics& other) {
+    // It can't be called by this and other at the same time in different threads.
+    // Otherwise it will cause dead lock.
+    void add(QueryStatistics* other) {
         boost::lock_guard<SpinLock> l(_lock);
-        auto other_iter = other._statistics_map.begin();
-        while (other_iter != other._statistics_map.end()) {
+        boost::lock_guard<SpinLock> other_l(other->_lock);
+        auto other_iter = other->_statistics_map.begin();
+        while (other_iter != other->_statistics_map.end()) {
             auto iter = _statistics_map.find(other_iter->first);
             Statistics* statistics = nullptr;          
             if (iter == _statistics_map.end()) {
@@ -107,8 +110,8 @@ public:
             } else {
                 statistics = iter->second;
             }
-            Statistics* other_statistic = other_iter->second;
-            statistics->add(*other_statistic); 
+            Statistics* other_statistics = other_iter->second;
+            statistics->add(*other_statistics); 
             other_iter++;
         }
     }
@@ -132,8 +135,8 @@ public:
     }
 
     void serialize(PQueryStatistics* statistics) { 
-        boost::lock_guard<SpinLock> l(_lock);
         DCHECK(statistics != nullptr);
+        boost::lock_guard<SpinLock> l(_lock);
         Statistics total_statistics = get_total_statistics();
         total_statistics.serialize(statistics);
     }

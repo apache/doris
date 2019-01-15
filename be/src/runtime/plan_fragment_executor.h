@@ -205,10 +205,10 @@ private:
     // of the execution.
     RuntimeProfile::Counter* _average_thread_tokens;
 
-    // This plan and it's sub plan query statisic. Because plan may have been finished
-    // when fe fetch data and query statistics, this will be shared with BufferControlBlock.
+    // This plan and it's sub plan query statisics. Because plan may have been finished
+    // when fe fetch data and query statistics, this will be shared with ResultSink.
     std::shared_ptr<QueryStatistics> _query_statistics;
-    bool _collect_query_statistics_every_batch;    
+    bool _collect_query_statistics_with_every_batch;    
 
     ObjectPool* obj_pool() {
         return _runtime_state->obj_pool();

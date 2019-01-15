@@ -338,7 +338,7 @@ public class CurrentQueryInfoProvider {
         private long getTotalCpuConsumption() {
             long cpu = 0;
             for (ConsumptionCalculator consumption : calculators) {
-                cpu += consumption.getCpu();
+                cpu += consumption.getProcessRows();
             }
             return cpu;
         }
@@ -346,7 +346,7 @@ public class CurrentQueryInfoProvider {
         private long getTotalIoConsumption() {
             long io = 0;
             for (ConsumptionCalculator consumption : calculators) {
-                io += consumption.getIo();
+                io += consumption.getScanBytes();
             }
             return io;
         }
@@ -403,27 +403,27 @@ public class CurrentQueryInfoProvider {
             this.counterMaps = counterMaps;
         }
 
-        public long getCpu() {
+        public long getProcessRows() {
             long cpu = 0;
             for (Map<String, Counter> counters : counterMaps) {
-                cpu += getCpuByRows(counters);
+                cpu += getProcessRows(counters);
             }
             return cpu;
         }
 
-        public long getIo() {
+        public long getScanBytes() {
             long io = 0;
             for (Map<String, Counter> counters : counterMaps) {
-                io += getIoByByte(counters);
+                io += getScanBytes(counters);
             }
             return io;
         }
 
-        protected long getCpuByRows(Map<String, Counter> counters) {
+        protected long getProcessRows(Map<String, Counter> counters) {
             return 0;
         }
 
-        protected long getIoByByte(Map<String, Counter> counters) {
+        protected long getScanBytes(Map<String, Counter> counters) {
             return 0;
         }
     }
@@ -434,7 +434,7 @@ public class CurrentQueryInfoProvider {
         }
 
         @Override
-        protected long getIoByByte(Map<String, Counter> counters) {
+        protected long getScanBytes(Map<String, Counter> counters) {
             final Counter counter = counters.get("CompressedBytesRead");
             return counter == null ? 0 : counter.getValue();
         }
@@ -446,7 +446,7 @@ public class CurrentQueryInfoProvider {
         }
 
         @Override
-        protected long getCpuByRows(Map<String, Counter> counters) {
+        protected long getProcessRows(Map<String, Counter> counters) {
             final Counter probeCounter = counters.get("ProbeRows");
             final Counter buildCounter = counters.get("BuildRows");
             return probeCounter == null || buildCounter == null ?
@@ -460,7 +460,7 @@ public class CurrentQueryInfoProvider {
         }
 
         @Override
-        protected long getCpuByRows(Map<String, Counter> counters) {
+        protected long getProcessRows(Map<String, Counter> counters) {
             final Counter buildCounter = counters.get("BuildRows");
             return buildCounter == null ? 0 : buildCounter.getValue();
         }
@@ -472,7 +472,7 @@ public class CurrentQueryInfoProvider {
         }
 
         @Override
-        protected long getCpuByRows(Map<String, Counter> counters) {
+        protected long getProcessRows(Map<String, Counter> counters) {
             final Counter sortRowsCounter = counters.get("SortRows");
             return sortRowsCounter == null ? 0 : sortRowsCounter.getValue();
         }
@@ -484,7 +484,7 @@ public class CurrentQueryInfoProvider {
         }
 
         @Override
-        protected long getCpuByRows(Map<String, Counter> counters) {
+        protected long getProcessRows(Map<String, Counter> counters) {
             final Counter processRowsCounter = counters.get("ProcessRows");
             return processRowsCounter == null ? 0 : processRowsCounter.getValue();
 
@@ -497,7 +497,7 @@ public class CurrentQueryInfoProvider {
         }
 
         @Override
-        protected long getCpuByRows(Map<String, Counter> counters) {
+        protected long getProcessRows(Map<String, Counter> counters) {
             final Counter materializeRowsCounter = counters.get("MaterializeRows");
             return materializeRowsCounter == null ? 0 : materializeRowsCounter.getValue();
         }
@@ -510,7 +510,7 @@ public class CurrentQueryInfoProvider {
         }
 
         @Override
-        protected long getCpuByRows(Map<String, Counter> counters) {
+        protected long getProcessRows(Map<String, Counter> counters) {
             final Counter mergeRowsCounter = counters.get("MergeRows");
             return mergeRowsCounter == null ? 0 : mergeRowsCounter.getValue();
         }

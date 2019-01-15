@@ -104,9 +104,6 @@ public:
         _sub_plan_query_statistics->deserialize(statistics, sender_id);
     }
 
-    QueryStatistics* get() {
-        return _sub_plan_query_statistics;
-    }
 private:
     friend class DataStreamMgr;
     class SenderQueue;

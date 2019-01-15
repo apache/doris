@@ -49,11 +49,8 @@ Status DataSink::create_data_sink(
         if (!thrift_sink.__isset.stream_sink) {
             return Status("Missing data stream sink.");
         }
-        bool send_query_statistics_with_every_batch = false;
-        if (params.__isset.send_query_statistics_with_every_batch) {
-            send_query_statistics_with_every_batch = 
-                    params.send_query_statistics_with_every_batch;
-        }
+        bool send_query_statistics_with_every_batch = params.__isset.send_query_statistics_with_every_batch ?
+            params.send_query_statistics_with_every_batch : false;
         // TODO: figure out good buffer size based on size of output row
         tmp_sink = new DataStreamSender(
                 pool, params.sender_id, row_desc,
