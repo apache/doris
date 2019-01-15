@@ -499,6 +499,12 @@ public class Config extends ConfigBase {
     @ConfField
     public static int query_colocate_join_memory_limit_penalty_factor = 8;
 
+    /*
+     * co-location join is an experimental feature now.
+     * Set to false if you know what it is and really want to use it.
+     * if set to false, 'use_new_tablet_scheduler' must be set to false, because the new TabletScheduler
+     * can not handle tablet repair for colocate tables.
+     */
     @ConfField
     public static boolean disable_colocate_join = true;
 
@@ -689,7 +695,9 @@ public class Config extends ConfigBase {
     @ConfField public static int schedule_slot_num_per_path = 1;
     
     /*
-     * set to true to use the TabletScheduler instead of the old CloneChecker
+     * set to true to use the TabletScheduler instead of the old CloneChecker.
+     * if set to true, 'disable_colocate_join' must be set to true.
+     * Because the new TabeltScheduler can not handle tablet repair for colocate tables.
      */
     @ConfField public static boolean use_new_tablet_scheduler = false;
 
