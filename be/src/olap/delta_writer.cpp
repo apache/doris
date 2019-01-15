@@ -67,7 +67,17 @@ OLAPStatus DeltaWriter::init() {
                      << "schema_hash: " << _req.schema_hash << " not found";
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
+    OLAPStatus lock_status = _table->try_migration_rdlock();
+    if (lock_status != OLAP_SUCCESS) {
+        return lock_status;
+    } else {
+        OLAPStatus res = _init();
+        _table->release_migration_lock();
+        return res;
+    }
+}
 
+OLAPStatus DeltaWriter::_init() {
     {
         MutexLock push_lock(_table->get_push_lock());
         RETURN_NOT_OK(OLAPEngine::get_instance()->add_transaction(
