@@ -20,6 +20,7 @@
 
 #include "olap/olap_define.h"
 #include "olap/tablet.h"
+#include "olap/rowset/rowset_builder.h"
 
 namespace doris {
 
