@@ -247,8 +247,7 @@ public class ReportHandler extends Daemon {
         deleteFromBackend(backendTablets, foundTabletsWithValidSchema, foundTabletsWithInvalidSchema, backendId);
         
         // 5. migration (ssd <-> hdd)
-        // disable migration because stream load does not support migration
-        // handleMigration(tabletMigrationMap, backendId);
+        handleMigration(tabletMigrationMap, backendId);
         
         // 6. send clear transactions to be
         handleClearTransactions(transactionsToClear, backendId);

@@ -657,11 +657,20 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
     }
 
     vector<ColumnData*> olap_data_sources;
+    OLAPStatus lock_status = tablet->try_migration_wrlock();
+    if (lock_status != OLAP_SUCCESS) {
+        return lock_status;
+    }
     tablet->obtain_push_lock();
 
     do {
         // get all versions to be migrate
         tablet->obtain_header_rdlock();
+        if (tablet->has_pending_data()) {
+            OLAP_LOG_WARNING("could not migration because has pending data [tablet='%s' ]",
+                    tablet->full_name().c_str());
+            break;
+        }
         const PDelta* lastest_version = tablet->lastest_version();
         if (lastest_version == NULL) {
             tablet->release_header_lock();
@@ -720,7 +729,8 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
         OLAPHeader* new_olap_header = new(std::nothrow) OLAPHeader();
         if (new_olap_header == NULL) {
             OLAP_LOG_WARNING("new olap header failed");
-            return OLAP_ERR_BUFFER_OVERFLOW;
+            res = OLAP_ERR_BUFFER_OVERFLOW;
+            break;
         }
         res = _generate_new_header(stores[0], shard, tablet, version_entity_vec, new_olap_header);
         if (res != OLAP_SUCCESS) {
@@ -747,7 +757,8 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
         if (new_tablet.get() == NULL) {
             OLAP_LOG_WARNING("get null olap table. [tablet_id=%ld schema_hash=%d]",
                              tablet_id, schema_hash);
-            return OLAP_ERR_TABLE_NOT_FOUND;
+            res = OLAP_ERR_TABLE_NOT_FOUND;
+            break;
         }
         SchemaChangeStatus tablet_status = tablet->schema_change_status();
         if (tablet->schema_change_status().status == AlterTableStatus::ALTER_TABLE_FINISHED) {
@@ -763,7 +774,7 @@ OLAPStatus OLAPEngine::storage_medium_migrate(
 
     tablet->release_push_lock();
     tablet->release_data_sources(&olap_data_sources);
-
+    tablet->release_migration_lock();
     return res;
 }
 

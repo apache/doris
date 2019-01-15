@@ -2553,10 +2553,17 @@ OLAPStatus OLAPEngine::cancel_delete(const TCancelDeleteDataReq& request) {
     // 2. Remove delete conditions from each tablet.
     DeleteConditionHandler cond_handler;
     for (OLAPTablePtr temp_table : table_list) {
+        OLAPStatus lock_status = temp_table->try_migration_rdlock();
+        if (lock_status != OLAP_SUCCESS) {
+            OLAP_LOG_WARNING("cancel delete failed. could not get migration lock [res=%d table=%s]",
+                             res, temp_table->full_name().c_str());
+            break;
+        }  
         temp_table->obtain_header_wrlock();
         res = cond_handler.delete_cond(temp_table, request.version, false);
         if (res != OLAP_SUCCESS) {
             temp_table->release_header_lock();
+            temp_table->release_migration_lock();
             OLAP_LOG_WARNING("cancel delete failed. [res=%d table=%s]",
                              res, temp_table->full_name().c_str());
             break;
@@ -2565,11 +2572,13 @@ OLAPStatus OLAPEngine::cancel_delete(const TCancelDeleteDataReq& request) {
         res = temp_table->save_header();
         if (res != OLAP_SUCCESS) {
             temp_table->release_header_lock();
+            temp_table->release_migration_lock();
             OLAP_LOG_WARNING("fail to save header. [res=%d table=%s]",
                              res, temp_table->full_name().c_str());
             break;
         }
         temp_table->release_header_lock();
+        temp_table->release_migration_lock();
     }
 
     // Show delete conditions in tablet header.
@@ -2627,9 +2636,15 @@ OLAPStatus OLAPEngine::recover_tablet_until_specfic_version(
     OLAPTablePtr table = get_table(recover_tablet_req.tablet_id,
                                    recover_tablet_req.schema_hash);
     if (table == nullptr) { return OLAP_ERR_TABLE_NOT_FOUND; }
-    RETURN_NOT_OK(table->recover_tablet_until_specfic_version(recover_tablet_req.version,
-                                                        recover_tablet_req.version_hash));
-    return OLAP_SUCCESS;
+    OLAPStatus lock_status = table->try_migration_rdlock();
+    if (lock_status != OLAP_SUCCESS) {
+        return lock_status;
+    }
+    OLAPStatus res = OLAP_SUCCESS;
+    res = table->recover_tablet_until_specfic_version(recover_tablet_req.version,
+                                                        recover_tablet_req.version_hash);
+    table->release_migration_lock();
+    return res;
 }
 
 string OLAPEngine::get_info_before_incremental_clone(OLAPTablePtr tablet,
@@ -2954,16 +2969,22 @@ OLAPStatus OLAPEngine::push(
 
     int64_t duration_ns = 0;
     PushHandler push_handler;
-    if (request.__isset.transaction_id) {
-        {
-            SCOPED_RAW_TIMER(&duration_ns);
-            res = push_handler.process_realtime_push(olap_table, request, type, tablet_info_vec);
-        }
+    OLAPStatus lock_status = olap_table->try_migration_rdlock();
+    if (lock_status != OLAP_SUCCESS) {
+        res = lock_status;
     } else {
-        {
-            SCOPED_RAW_TIMER(&duration_ns);
-            res = push_handler.process(olap_table, request, type, tablet_info_vec);
+        if (request.__isset.transaction_id) {
+            {
+                SCOPED_RAW_TIMER(&duration_ns);
+                res = push_handler.process_realtime_push(olap_table, request, type, tablet_info_vec);
+            }
+        } else {
+            {
+                SCOPED_RAW_TIMER(&duration_ns);
+                res = push_handler.process(olap_table, request, type, tablet_info_vec);
+            }
         }
+        olap_table->release_migration_lock();
     }
 
     if (res != OLAP_SUCCESS) {
