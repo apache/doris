@@ -416,8 +416,15 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
                 break;
             }
         }
-        if (nullptr == slot_desc) {
+        if (slot_desc == nullptr) {
             VLOG(1) << "get disjuncts fail: slot_desc is null";
+            return false;
+        }
+
+        TExtLiteral literal;
+        if (!to_exe_literal(context, expr, &literal)) {
+            VLOG(1) << "get disjuncts fail: can't get literal, node_type="
+                    << expr->node_type();
             return false;
         }
 
@@ -427,7 +434,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
         TExtBinaryPredicate binaryPredicate;
         binaryPredicate.__set_col(columnDesc);
         binaryPredicate.__set_op(op);
-        binaryPredicate.__set_value(to_exe_literal(context, expr));
+        binaryPredicate.__set_value(std::move(literal));
         TExtPredicate predicate;
         predicate.__set_node_type(TExprNodeType::BINARY_PRED);
         predicate.__set_binary_predicate(binaryPredicate);
@@ -439,7 +446,16 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
         TExtFunction match_function;
         match_function.__set_func_name(conjunct->fn().name.function_name);
         vector<TExtLiteral> query_conditions;
-        query_conditions.push_back(to_exe_literal(context, conjunct->get_child(1)));
+
+
+        TExtLiteral literal;
+        if (!to_exe_literal(context, conjunct->get_child(1), &literal)) {
+            VLOG(1) << "get disjuncts fail: can't get literal, node_type="
+                    << conjunct->get_child(1)->node_type();
+            return false;
+        }
+
+        query_conditions.push_back(std::move(literal));
         match_function.__set_values(query_conditions);
         TExtPredicate predicate;
         predicate.__set_node_type(TExprNodeType::FUNCTION_CALL);
@@ -473,63 +489,67 @@ bool EsScanNode::is_match_func(Expr* conjunct) {
     return false;
 }
 
-TExtLiteral EsScanNode::to_exe_literal(ExprContext* context, Expr* expr) {
-    void* value = context->get_value(expr, NULL);
-    TExtLiteral literal;
-    literal.__set_node_type(expr->node_type());
+bool EsScanNode::to_exe_literal(ExprContext* context, Expr* expr, TExtLiteral* literal) {
+    literal->__set_node_type(expr->node_type());
     switch (expr->node_type()) {
     case TExprNodeType::BOOL_LITERAL: {
         TBoolLiteral bool_literal;
+        void* value = context->get_value(expr, NULL);
         bool_literal.__set_value(*reinterpret_cast<bool*>(value));
-        literal.__set_bool_literal(bool_literal);
-        break;
+        literal->__set_bool_literal(bool_literal);
+        return true;
     }
     case TExprNodeType::DATE_LITERAL: {
+        void* value = context->get_value(expr, NULL);
         DateTimeValue date_value = *reinterpret_cast<DateTimeValue*>(value);
         char str[MAX_DTVALUE_STR_LEN];
         date_value.to_string(str);
         TDateLiteral date_literal;
         date_literal.__set_value(str);
-        literal.__set_date_literal(date_literal);
-        break;
+        literal->__set_date_literal(date_literal);
+        return true;
     }
     case TExprNodeType::FLOAT_LITERAL: {
         TFloatLiteral float_literal;
+        void* value = context->get_value(expr, NULL);
         float_literal.__set_value(*reinterpret_cast<float*>(value));
-        literal.__set_float_literal(float_literal);
-        break;
+        literal->__set_float_literal(float_literal);
+        return true;
     }
     case TExprNodeType::INT_LITERAL: {
         TIntLiteral int_literal;
+        void* value = context->get_value(expr, NULL);
         int_literal.__set_value(*reinterpret_cast<int32_t*>(value));
-        literal.__set_int_literal(int_literal);
-        break;
+        literal->__set_int_literal(int_literal);
+        return true;
     }
     case TExprNodeType::STRING_LITERAL: {
         TStringLiteral string_literal;
+        void* value = context->get_value(expr, NULL);
         string_literal.__set_value(*reinterpret_cast<string*>(value));
-        literal.__set_string_literal(string_literal);
-        break;
+        literal->__set_string_literal(string_literal);
+        return true;
     }
     case TExprNodeType::DECIMAL_LITERAL: {
         TDecimalLiteral decimal_literal;
+        void* value = context->get_value(expr, NULL);
         decimal_literal.__set_value(reinterpret_cast<DecimalValue*>(value)->to_string());
-        literal.__set_decimal_literal(decimal_literal);
-        break;
+        literal->__set_decimal_literal(decimal_literal);
+        return true;
     }
     case TExprNodeType::LARGE_INT_LITERAL: {
         char buf[48];
         int len = 48;
+        void* value = context->get_value(expr, NULL);
         char* v = LargeIntValue::to_string(*reinterpret_cast<__int128*>(value), buf, &len);
         TLargeIntLiteral large_int_literal;
         large_int_literal.__set_value(v);
-        literal.__set_large_int_literal(large_int_literal);
-        break;
+        literal->__set_large_int_literal(large_int_literal);
+        return true;
     }
     default:
-        break;
+        return false;
     }
-    return literal;
 }
 
 Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {
@@ -555,9 +575,12 @@ Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {
             VLOG(1) << "es get_next param=" << apache::thrift::ThriftDebugString(params);
             client->getNext(result, params);
         } catch (apache::thrift::transport::TTransportException& e) {
-            LOG(WARNING) << "es get_next retrying, because: " << e.what();
+            std::stringstream ss;
+            ss << "es get_next error: scan_range_idx=" << _scan_range_idx
+               << ", msg=" << e.what();
+            LOG(WARNING) << ss.str();
             RETURN_IF_ERROR(client.reopen());
-            client->getNext(result, params);
+            return Status(TStatusCode::THRIFT_RPC_ERROR, ss.str(), false);
         }
     } catch (apache::thrift::TException &e) {
         std::stringstream ss;
@@ -631,6 +654,7 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
 
     int val_idx = cols_next_val_idx[i]++;
     switch (slot_desc->type().type) {
+      case TYPE_CHAR:
       case TYPE_VARCHAR: {
           if (val_idx >= col.string_vals.size()) {
             return Status(strings::Substitute(ERROR_INVALID_COL_DATA, "STRING"));

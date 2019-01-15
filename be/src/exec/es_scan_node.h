@@ -57,7 +57,7 @@ private:
     Status get_next_from_es(TExtGetNextResult& result);
 
     bool get_disjuncts(ExprContext* context, Expr* conjunct, vector<TExtPredicate>& disjuncts);
-    TExtLiteral to_exe_literal(ExprContext* context, Expr* expr);
+    bool to_exe_literal(ExprContext* context, Expr* expr, TExtLiteral* literal);
 
     bool is_match_func(Expr* conjunct);
 
