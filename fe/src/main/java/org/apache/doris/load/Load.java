@@ -625,6 +625,10 @@ public class Load {
             }
         } else if (etlJobType == EtlJobType.INSERT) {
             job.setPrority(TPriority.HIGH);
+            if (job.getTimeoutSecond() == 0) {
+                // set default timeout
+                job.setTimeoutSecond(Config.insert_load_default_timeout_second);
+            }
         }
 
         // job id

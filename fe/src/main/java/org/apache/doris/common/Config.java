@@ -322,6 +322,11 @@ public class Config extends ConfigBase {
     @ConfField public static int mini_load_default_timeout_second = 3600; // 1 hour
     
     /*
+     * Default insert load timeout
+     */
+    @ConfField public static int insert_load_default_timeout_second = 3600; // 1 hour
+    
+    /*
      * Default stream load timeout
      */
     @ConfField public static int stream_load_default_timeout_second = 300; // 300s
