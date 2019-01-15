@@ -190,6 +190,7 @@ public class TabletScheduler extends Daemon {
      */
     public synchronized boolean addTablet(TabletSchedCtx tablet, boolean force) {
         if (!force && containsTablet(tablet.getTabletId())) {
+            LOG.info("balance is disabled, skip");
             return false;
         }
         allTabletIds.add(tablet.getTabletId());
@@ -328,11 +329,17 @@ public class TabletScheduler extends Daemon {
                 tabletInfo.setErrMsg(e.getMessage());
 
                 if (e.getStatus() == Status.SCHEDULE_FAILED) {
-                    // we must release resource it current hold, and be scheduled again
-                    tabletInfo.releaseResource(this);
-                    // adjust priority to avoid some higher priority always be the first in pendingTablets
-                    stat.counterTabletScheduledFailed.incrementAndGet();
-                    dynamicAdjustPrioAndAddBackToPendingTablets(tabletInfo, e.getMessage());
+                    // if balance is disabled, remove this tablet
+                    if (tabletInfo.getType() == Type.BALANCE && Config.disable_balance) {
+                        removeTabletInfo(tabletInfo, TabletSchedCtx.State.CANCELLED,
+                                "disable balance and " + e.getMessage());
+                    } else {
+                        // we must release resource it current hold, and be scheduled again
+                        tabletInfo.releaseResource(this);
+                        // adjust priority to avoid some higher priority always be the first in pendingTablets
+                        stat.counterTabletScheduledFailed.incrementAndGet();
+                        dynamicAdjustPrioAndAddBackToPendingTablets(tabletInfo, e.getMessage());
+                    }
                 } else if (e.getStatus() == Status.FINISHED) {
                     // schedule redundant tablet will throw this exception
                     stat.counterTabletScheduledSucceeded.incrementAndGet();
@@ -697,6 +704,10 @@ public class TabletScheduler extends Daemon {
      * and waiting to be scheduled.
      */
     private void selectTabletsForBalance() {
+        if (Config.disable_balance) {
+            return;
+        }
+
         LoadBalancer loadBalancer = new LoadBalancer(statisticMap);
         List<TabletSchedCtx> alternativeTablets = loadBalancer.selectAlternativeTablets();
         for (TabletSchedCtx tabletInfo : alternativeTablets) {
