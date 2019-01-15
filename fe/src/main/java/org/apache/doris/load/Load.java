@@ -1471,6 +1471,9 @@ public class Load {
                         break;
                 }
 
+                // type
+                jobInfo.add(loadJob.getEtlJobType().name());
+
                 // etl info
                 EtlStatus status = loadJob.getEtlJobStatus();
                 if (status == null || status.getState() == TEtlState.CANCELLED) {
