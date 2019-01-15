@@ -21,16 +21,17 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/new_status.h"
 #include "olap/rowset/rowset_reader.h"
-#include "olap/rowset/rowset_builder.h"
 #include "olap/rowset/rowset_meta.h"
+//#include "olap/rowset/rowset_builder.h"
 
 #include <memory>
 
 namespace doris {
 
-class RowsetBuilder;
 class Rowset;
 using RowsetSharedPtr = std::shared_ptr<Rowset>;
+
+class RowsetBuilder;
 
 class Rowset {
 public:

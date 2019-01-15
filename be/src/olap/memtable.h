@@ -23,10 +23,10 @@
 #include "olap/schema.h"
 #include "olap/skiplist.h"
 #include "runtime/tuple.h"
+#include "olap/rowset/rowset_builder.h"
 
 namespace doris {
 
-class ColumnDataWriter;
 class RowCursor;
 
 class MemTable {
@@ -37,8 +37,8 @@ public:
     ~MemTable();
     size_t memory_usage();
     void insert(Tuple* tuple);
-    OLAPStatus flush(ColumnDataWriter* writer);
-    OLAPStatus close(ColumnDataWriter* writer);
+    OLAPStatus flush(RowsetBuilderSharedPtr rowset_builder);
+    OLAPStatus close(RowsetBuilderSharedPtr rowset_builder);
 private:
     Schema* _schema;
     std::vector<FieldInfo>* _field_infos;
