@@ -276,7 +276,7 @@ public class TabletScheduler extends Daemon {
                     infoService, invertedIndex);
             clusterLoadStatistic.init();
             statisticMap.put(clusterName, clusterLoadStatistic);
-            LOG.info("update cluster {} load statistic:\n {}", clusterName, clusterLoadStatistic.getBrief());
+            LOG.info("update cluster {} load statistic:\n{}", clusterName, clusterLoadStatistic.getBrief());
         }
     }
 
