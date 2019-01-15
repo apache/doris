@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -45,9 +46,21 @@ public class AdminSetConfigStmt extends DdlStmt {
     private ConfigType type;
     private Map<String, String> configs;
 
+    private RedirectStatus redirectStatus = RedirectStatus.NO_FORWARD;
+
     public AdminSetConfigStmt(ConfigType type, Map<String, String> configs) {
         this.type = type;
         this.configs = configs;
+        if (this.configs == null) {
+            this.configs = Maps.newHashMap();
+        }
+
+        // we have to analyze configs here to determine whether to forward it to master
+        for (String key : this.configs.keySet()) {
+            if (ConfigBase.checkIsMasterOnly(key)) {
+                redirectStatus = RedirectStatus.FORWARD_NO_SYNC;
+            }
+        }
     }
 
     public ConfigType getType() {
@@ -70,9 +83,10 @@ public class AdminSetConfigStmt extends DdlStmt {
         if (type != ConfigType.FRONTEND) {
             throw new AnalysisException("Only support setting Frontend configs now");
         }
+    }
 
-        if (configs == null) {
-            configs = Maps.newHashMap();
-        }
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return redirectStatus;
     }
 }

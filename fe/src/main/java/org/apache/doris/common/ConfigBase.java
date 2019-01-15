@@ -266,4 +266,19 @@ public class ConfigBase {
 
         return configs;
     }
+
+    public synchronized static boolean checkIsMasterOnly(String key) {
+        Map<String, Field> mutableConfigs = getAllMutableConfigs();
+        Field f = mutableConfigs.get(key);
+        if (f == null) {
+            return false;
+        }
+
+        ConfField anno = f.getAnnotation(ConfField.class);
+        if (anno == null) {
+            return false;
+        }
+
+        return anno.masterOnly();
+    }
 }
