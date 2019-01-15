@@ -41,7 +41,7 @@ public:
     virtual OLAPStatus flush();
 
     // get a rowset
-    virtual std::shared_ptr<Rowset> build();
+    virtual RowsetSharedPtr build();
 
     virtual MemPool* mem_pool();
 

@@ -27,7 +27,6 @@
 
 namespace doris {
 
-class ColumnDataWriter;
 class RowCursor;
 
 class MemTable {

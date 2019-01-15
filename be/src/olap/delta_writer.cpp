@@ -31,7 +31,7 @@ OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
 
 DeltaWriter::DeltaWriter(WriteRequest* req)
     : _req(*req), _tablet(nullptr),
-      _cur_rowset(nullptr), _related_rowset(nullptr), _new_tablet(nullptr),
+      _cur_rowset(nullptr), _related_rowset(nullptr), _related_tablet(nullptr),
       _rowset_builder(nullptr), _mem_table(nullptr),
       _schema(nullptr), _field_infos(nullptr),
       _delta_written_success(false) {}
@@ -48,9 +48,9 @@ void DeltaWriter::_garbage_collection() {
     StorageEngine::get_instance()->delete_transaction(_req.partition_id, _req.txn_id,
                                                    _req.tablet_id, _req.schema_hash);
     StorageEngine::get_instance()->add_unused_rowset(_cur_rowset);
-    if (_new_tablet != nullptr) {
+    if (_related_tablet != nullptr) {
         StorageEngine::get_instance()->delete_transaction(_req.partition_id, _req.txn_id,
-                                                       _new_tablet->tablet_id(), _new_tablet->schema_hash());
+                                                       _related_tablet->tablet_id(), _related_tablet->schema_hash());
         StorageEngine::get_instance()->add_unused_rowset(_related_rowset);
     }
 }
@@ -82,7 +82,7 @@ OLAPStatus DeltaWriter::init() {
                           << "new_tablet_id: " << new_tablet_id << ", "
                           << "new_schema_hash: " << new_schema_hash << ", "
                           << "transaction_id: " << _req.txn_id;
-                _new_tablet = TabletManager::instance()->get_tablet(new_tablet_id, new_schema_hash);
+                _related_tablet = TabletManager::instance()->get_tablet(new_tablet_id, new_schema_hash);
                 TxnManager::instance()->add_txn(
                                     _req.partition_id, _req.txn_id,
                                     new_tablet_id, new_schema_hash, _req.load_id, NULL);
@@ -178,12 +178,12 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
         return OLAP_ERR_ROWSET_SAVE_FAILED;
     }
 
-    if (_new_tablet != nullptr) {
+    if (_related_tablet != nullptr) {
         LOG(INFO) << "convert version for schema change";
         {
-            MutexLock push_lock(_new_tablet->get_push_lock());
+            MutexLock push_lock(_related_tablet->get_push_lock());
             // create pending data dir
-            std::string dir_path = _new_tablet->construct_pending_data_dir_path();
+            std::string dir_path = _related_tablet->construct_pending_data_dir_path();
             if (!check_dir_existed(dir_path)) {
                 RETURN_NOT_OK(create_dirs(dir_path));
             }
@@ -191,15 +191,15 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
         SchemaChangeHandler schema_change;
         // TODO(hkp):  this interface will be modified in next pr
         //res = schema_change.schema_version_convert(
-        //            _tablet, _new_tablet, _cur_rowset, _related_rowset);
+        //            _tablet, _related_tablet, _cur_rowset, _related_rowset);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to convert delta for new tablet in schema change."
-                << "res: " << res << ", " << "new_tablet: " << _new_tablet->full_name();
+                << "res: " << res << ", " << "new_tablet: " << _related_tablet->full_name();
                 return res;
         }
 
         res = RowsetMetaManager::save(
-            _new_tablet->data_dir()->get_meta(),
+            _related_tablet->data_dir()->get_meta(),
             _related_rowset->rowset_id(),
             _related_rowset->rowset_meta());
         if (res != OLAP_SUCCESS) {
@@ -212,10 +212,10 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
     PTabletInfo* tablet_info = tablet_vec->Add();
     tablet_info->set_tablet_id(_tablet->tablet_id());
     tablet_info->set_schema_hash(_tablet->schema_hash());
-    if (_new_tablet != nullptr) {
+    if (_related_tablet != nullptr) {
         tablet_info = tablet_vec->Add();
-        tablet_info->set_tablet_id(_new_tablet->tablet_id());
-        tablet_info->set_schema_hash(_new_tablet->schema_hash());
+        tablet_info->set_tablet_id(_related_tablet->tablet_id());
+        tablet_info->set_schema_hash(_related_tablet->schema_hash());
     }
 #endif
 
@@ -228,4 +228,4 @@ OLAPStatus DeltaWriter::cancel() {
     return OLAP_SUCCESS;
 }
 
-}  // namespace doris
+} // namespace doris

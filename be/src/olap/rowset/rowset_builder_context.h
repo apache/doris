@@ -74,7 +74,7 @@ public:
         return *this;
     }
 
-    RowsetBuilderContextBuilder& set_rowset_path_prefix(std::string rowset_path_prefix) {
+    RowsetBuilderContextBuilder& set_rowset_path_prefix(const std::string& rowset_path_prefix) {
         _rowset_builder_context.rowset_path_prefix = rowset_path_prefix;
         return *this;
     }

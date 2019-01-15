@@ -121,7 +121,7 @@ RowsetSharedPtr AlphaRowsetBuilder::build() {
                 }
             }
             segment_group_pb.set_empty(segment_group->empty());
-            AlphaRowsetMeta* alpha_rowset_meta = (AlphaRowsetMeta*)_current_rowset_meta.get();
+            AlphaRowsetMeta* alpha_rowset_meta = reinterpret_cast<AlphaRowsetMeta*>(_current_rowset_meta.get());
             alpha_rowset_meta->add_segment_group(segment_group_pb);
         }
     }
@@ -177,4 +177,4 @@ void AlphaRowsetBuilder::_init() {
     DCHECK(_column_data_writer != nullptr) << "memory error occur when creating writer";
 }
 
-}  // namespace doris
+} // namespace doris

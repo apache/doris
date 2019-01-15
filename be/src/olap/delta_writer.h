@@ -69,7 +69,7 @@ private:
     TabletSharedPtr _tablet;
     RowsetSharedPtr _cur_rowset;
     RowsetSharedPtr _related_rowset;
-    TabletSharedPtr _new_tablet;
+    TabletSharedPtr _related_tablet;
     RowsetBuilderSharedPtr _rowset_builder;
     MemTable* _mem_table;
     Schema* _schema;
