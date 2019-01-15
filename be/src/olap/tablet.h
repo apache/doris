@@ -74,13 +74,8 @@ public:
     OLAPStatus load_indices();
     OLAPStatus save_tablet_meta();
 
-    OLAPStatus select_versions_to_span(const Version& version,
-                                       std::vector<Version>* span_versions) const;
     OLAPStatus register_data_source(const std::vector<SegmentGroup*>& segment_group_vec);
     OLAPStatus unregister_data_source(const Version& version, std::vector<SegmentGroup*>* segment_group_vec);
-    OLAPStatus add_pending_version(int64_t partition_id, int64_t transaction_id,
-                                 const std::vector<std::string>* delete_conditions);
-    OLAPStatus add_pending_segment_group(SegmentGroup* segment_group);
     OLAPStatus add_pending_data(SegmentGroup* segment_group, const std::vector<TCondition>* delete_conditions);
     bool has_pending_data(int64_t transaction_id);
     void delete_pending_data(int64_t transaction_id);
