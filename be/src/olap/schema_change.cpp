@@ -1388,7 +1388,13 @@ OLAPStatus SchemaChangeHandler::process_alter_table(
     if (new_tablet.get() != NULL) {
         res = OLAP_SUCCESS;
     } else {
-        res = _do_alter_table(type, ref_olap_table, request);
+        OLAPStatus lock_status = ref_olap_table->try_migration_rdlock();
+        if (lock_status != OLAP_SUCCESS) {
+            res = lock_status;
+        } else {
+            res = _do_alter_table(type, ref_olap_table, request);
+            ref_olap_table->release_migration_lock();
+        }
     }
 
     OLAPEngine::get_instance()->release_schema_change_lock(request.base_tablet_id);
