@@ -72,7 +72,7 @@ OLAPStatus AlphaRowsetReader::_get_next_block(ColumnData* column_data, RowBlock*
             }
             return OLAP_SUCCESS;
        }
-       return status; 
+       return status;
      }
      return OLAP_SUCCESS;
 }
@@ -237,7 +237,7 @@ OLAPStatus AlphaRowsetReader::_refresh_next_block(ColumnData* column_data, RowBl
                     &next_block);
             if (status != OLAP_SUCCESS) {
                 LOG(WARNING) << "prepare block read failed";
-                return status; 
+                return status;
             }
             _key_range_index++;
         } else {
@@ -246,7 +246,7 @@ OLAPStatus AlphaRowsetReader::_refresh_next_block(ColumnData* column_data, RowBl
         }
         return OLAP_SUCCESS;
     } else if (status != OLAP_SUCCESS) {
-        return status; 
+        return status;
     } else {
         return OLAP_SUCCESS;
     }

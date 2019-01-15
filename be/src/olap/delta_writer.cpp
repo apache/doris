@@ -18,7 +18,9 @@
 #include "olap/delta_writer.h"
 
 #include "olap/schema.h"
-#include "olap/rowset/segment_group.h"
+#include "olap/data_dir.h"
+#include "olap/rowset/alpha_rowset_builder.h"
+#include "olap/rowset/rowset_meta_manager.h"
 
 namespace doris {
 
@@ -29,34 +31,27 @@ OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
 
 DeltaWriter::DeltaWriter(WriteRequest* req)
     : _req(*req), _tablet(nullptr),
-      _cur_segment_group(nullptr), _new_tablet(nullptr),
-      _writer(nullptr), _mem_table(nullptr),
+      _cur_rowset(nullptr), _related_rowset(nullptr), _related_tablet(nullptr),
+      _rowset_builder(nullptr), _mem_table(nullptr),
       _schema(nullptr), _field_infos(nullptr),
-      _segment_group_id(-1), _delta_written_success(false) {}
+      _delta_written_success(false) {}
 
 DeltaWriter::~DeltaWriter() {
     if (!_delta_written_success) {
         _garbage_collection();
     }
-    SAFE_DELETE(_writer);
     SAFE_DELETE(_mem_table);
     SAFE_DELETE(_schema);
 }
 
 void DeltaWriter::_garbage_collection() {
-    StorageEngine::get_instance()->delete_transaction(_req.partition_id, _req.transaction_id,
+    StorageEngine::get_instance()->delete_transaction(_req.partition_id, _req.txn_id,
                                                    _req.tablet_id, _req.schema_hash);
-    for (SegmentGroup* segment_group : _segment_group_vec) {
-        segment_group->release();
-        StorageEngine::get_instance()->add_unused_index(segment_group);
-    }
-    if (_new_tablet != nullptr) {
-        StorageEngine::get_instance()->delete_transaction(_req.partition_id, _req.transaction_id,
-                                                       _new_tablet->tablet_id(), _new_tablet->schema_hash());
-        for (SegmentGroup* segment_group : _new_segment_group_vec) {
-            segment_group->release();
-            StorageEngine::get_instance()->add_unused_index(segment_group);
-        }
+    StorageEngine::get_instance()->add_unused_rowset(_cur_rowset);
+    if (_related_tablet != nullptr) {
+        StorageEngine::get_instance()->delete_transaction(_req.partition_id, _req.txn_id,
+                                                       _related_tablet->tablet_id(), _related_tablet->schema_hash());
+        StorageEngine::get_instance()->add_unused_rowset(_related_rowset);
     }
 }
 
@@ -71,9 +66,8 @@ OLAPStatus DeltaWriter::init() {
     {
         MutexLock push_lock(_tablet->get_push_lock());
         RETURN_NOT_OK(TxnManager::instance()->add_txn(
-                            _req.partition_id, _req.transaction_id,
+                            _req.partition_id, _req.txn_id,
                             _req.tablet_id, _req.schema_hash, _req.load_id, NULL));
-        //_segment_group_id = _tablet->current_pending_segment_group_id(_req.transaction_id);
         if (_req.need_gen_rollup) {
             TTabletId new_tablet_id;
             TSchemaHash new_schema_hash;
@@ -87,10 +81,10 @@ OLAPStatus DeltaWriter::init() {
                           << "old_schema_hash: " << _tablet->schema_hash() <<  ", "
                           << "new_tablet_id: " << new_tablet_id << ", "
                           << "new_schema_hash: " << new_schema_hash << ", "
-                          << "transaction_id: " << _req.transaction_id;
-                _new_tablet = TabletManager::instance()->get_tablet(new_tablet_id, new_schema_hash);
+                          << "transaction_id: " << _req.txn_id;
+                _related_tablet = TabletManager::instance()->get_tablet(new_tablet_id, new_schema_hash);
                 TxnManager::instance()->add_txn(
-                                    _req.partition_id, _req.transaction_id,
+                                    _req.partition_id, _req.txn_id,
                                     new_tablet_id, new_schema_hash, _req.load_id, NULL);
             }
         }
@@ -102,20 +96,31 @@ OLAPStatus DeltaWriter::init() {
         }
     }
 
-    ++_segment_group_id;
-    //_cur_segment_group = new SegmentGroup(_tablet.get(), false, _segment_group_id, 0, true,
-                               //_req.partition_id, _req.transaction_id);
-    _cur_segment_group = nullptr; 
-    DCHECK(_cur_segment_group != nullptr) << "failed to malloc SegmentGroup";
-    _cur_segment_group->acquire();
-    _cur_segment_group->set_load_id(_req.load_id);
-    _segment_group_vec.push_back(_cur_segment_group);
+    int32_t rowset_id = 0; // get rowset_id from id generator
+    RowsetBuilderContextBuilder context_builder;
+    context_builder.set_rowset_id(rowset_id)
+            .set_tablet_id(_req.tablet_id)
+            .set_partition_id(_req.partition_id)
+            .set_tablet_schema_hash(_req.schema_hash)
+            .set_rowset_type(ALPHA_ROWSET)
+            .set_rowset_path_prefix(_tablet->tablet_path())
+            .set_tablet_schema(_tablet->tablet_schema())
+            .set_num_key_fields(_tablet->num_key_fields())
+            .set_num_short_key_fields(_tablet->num_short_key_fields())
+            .set_num_rows_per_row_block(_tablet->num_rows_per_row_block())
+            .set_compress_kind(_tablet->compress_kind())
+            .set_bloom_filter_fpp(_tablet->bloom_filter_fpp())
+            .set_rowset_state(PREPARING)
+            .set_txn_id(_req.txn_id)
+            .set_load_id(_req.load_id);
+    RowsetBuilderContext builder_context = context_builder.build();
 
-    // New Writer to write data into SegmentGroup
-    VLOG(3) << "init writer. tablet=" << _tablet->full_name() << ", "
-            << "block_row_size=" << _tablet->num_rows_per_row_block();
-    _writer = ColumnDataWriter::create(_cur_segment_group, true, _tablet->compress_kind(), _tablet->bloom_filter_fpp());
-    DCHECK(_writer != nullptr) << "memory error occur when creating writer";
+    // TODO: new RowsetBuilder according to tablet storage type
+    _rowset_builder.reset(new AlphaRowsetBuilder());
+    OLAPStatus status = _rowset_builder->init(builder_context);
+    if (status != OLAP_SUCCESS) {
+        return OLAP_ERR_ROWSET_BUILDER_INIT;
+    }
 
     const std::vector<SlotDescriptor*>& slots = _req.tuple_desc->slots();
     for (auto& field_info : _tablet->tablet_schema()) {
@@ -143,20 +148,7 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
 
     _mem_table->insert(tuple);
     if (_mem_table->memory_usage() >= config::write_buffer_size) {
-        RETURN_NOT_OK(_mem_table->flush(_writer));
-
-        ++_segment_group_id;
-        //_cur_segment_group = new SegmentGroup(_tablet.get(), false, _segment_group_id, 0, true,
-        //                           _req.partition_id, _req.transaction_id);
-        _cur_segment_group = nullptr; 
-        DCHECK(_cur_segment_group != nullptr) << "failed to malloc SegmentGroup";
-        _cur_segment_group->acquire();
-        _cur_segment_group->set_load_id(_req.load_id);
-        _segment_group_vec.push_back(_cur_segment_group);
-
-        SAFE_DELETE(_writer);
-        _writer = ColumnDataWriter::create(_cur_segment_group, true, _tablet->compress_kind(), _tablet->bloom_filter_fpp());
-        DCHECK(_writer != nullptr) << "memory error occur when creating writer";
+        RETURN_NOT_OK(_mem_table->flush(_rowset_builder));
 
         SAFE_DELETE(_mem_table);
         _mem_table = new MemTable(_schema, _field_infos, &_col_ids,
@@ -172,38 +164,47 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
             return st;
         }
     }
-    RETURN_NOT_OK(_mem_table->close(_writer));
+    RETURN_NOT_OK(_mem_table->close(_rowset_builder));
 
     OLAPStatus res = OLAP_SUCCESS;
-    //add pending data to tablet
-    RETURN_NOT_OK(_tablet->add_pending_version(_req.partition_id, _req.transaction_id, nullptr));
-    for (SegmentGroup* segment_group : _segment_group_vec) {
-        RETURN_NOT_OK(_tablet->add_pending_segment_group(segment_group));
-        RETURN_NOT_OK(segment_group->load());
+    // use rowset meta manager to save meta
+    _cur_rowset = _rowset_builder->build();
+    res = RowsetMetaManager::save(
+            _tablet->data_dir()->get_meta(),
+            _cur_rowset->rowset_id(),
+            _cur_rowset->rowset_meta());
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "save pending rowset failed. rowset_id:" << _cur_rowset->rowset_id();
+        return OLAP_ERR_ROWSET_SAVE_FAILED;
     }
-    if (_new_tablet != nullptr) {
+
+    if (_related_tablet != nullptr) {
         LOG(INFO) << "convert version for schema change";
         {
-            MutexLock push_lock(_new_tablet->get_push_lock());
+            MutexLock push_lock(_related_tablet->get_push_lock());
             // create pending data dir
-            std::string dir_path = _new_tablet->construct_pending_data_dir_path();
+            std::string dir_path = _related_tablet->construct_pending_data_dir_path();
             if (!check_dir_existed(dir_path)) {
                 RETURN_NOT_OK(create_dirs(dir_path));
             }
         }
         SchemaChangeHandler schema_change;
-        res = schema_change.schema_version_convert(
-                    _tablet, _new_tablet, &_segment_group_vec, &_new_segment_group_vec);
+        // TODO(hkp):  this interface will be modified in next pr
+        //res = schema_change.schema_version_convert(
+        //            _tablet, _related_tablet, _cur_rowset, _related_rowset);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to convert delta for new tablet in schema change."
-                << "res: " << res << ", " << "new_tablet: " << _new_tablet->full_name();
+                << "res: " << res << ", " << "new_tablet: " << _related_tablet->full_name();
                 return res;
         }
 
-        RETURN_NOT_OK(_new_tablet->add_pending_version(_req.partition_id, _req.transaction_id, nullptr));
-        for (SegmentGroup* segment_group : _new_segment_group_vec) {
-            RETURN_NOT_OK(_new_tablet->add_pending_segment_group(segment_group));
-            RETURN_NOT_OK(segment_group->load());
+        res = RowsetMetaManager::save(
+            _related_tablet->data_dir()->get_meta(),
+            _related_rowset->rowset_id(),
+            _related_rowset->rowset_meta());
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "save pending rowset failed. rowset_id:" << _related_rowset->rowset_id();
+            return OLAP_ERR_ROWSET_SAVE_FAILED;
         }
     }
 
@@ -211,10 +212,10 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
     PTabletInfo* tablet_info = tablet_vec->Add();
     tablet_info->set_tablet_id(_tablet->tablet_id());
     tablet_info->set_schema_hash(_tablet->schema_hash());
-    if (_new_tablet != nullptr) {
+    if (_related_tablet != nullptr) {
         tablet_info = tablet_vec->Add();
-        tablet_info->set_tablet_id(_new_tablet->tablet_id());
-        tablet_info->set_schema_hash(_new_tablet->schema_hash());
+        tablet_info->set_tablet_id(_related_tablet->tablet_id());
+        tablet_info->set_schema_hash(_related_tablet->schema_hash());
     }
 #endif
 
@@ -227,4 +228,4 @@ OLAPStatus DeltaWriter::cancel() {
     return OLAP_SUCCESS;
 }
 
-}  // namespace doris
+} // namespace doris

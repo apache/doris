@@ -218,7 +218,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         request.tablet_id = tablet.tablet_id();
         request.schema_hash = schema_hash;
         request.write_type = LOAD;
-        request.transaction_id = _txn_id;
+        request.txn_id = _txn_id;
         request.partition_id = tablet.partition_id();
         request.load_id = params.id();
         request.need_gen_rollup = params.need_gen_rollup();
@@ -228,7 +228,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         auto st = DeltaWriter::open(&request, &writer);
         if (st != OLAP_SUCCESS) {
             LOG(WARNING) << "open delta writer failed, tablet_id=" << tablet.tablet_id()
-                << ", transaction_id=" << _txn_id
+                << ", txn_id=" << _txn_id
                 << ", partition_id=" << tablet.partition_id()
                 << ", status=" << st;
             return Status("open tablet writer failed");

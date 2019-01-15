@@ -33,7 +33,7 @@ namespace doris {
 
 const std::string ROWSET_PREFIX = "rst_";
 
-OLAPStatus RowsetMetaManager::get_rowset_meta(OlapMeta* meta, int64_t rowset_id, RowsetMeta* rowset_meta) {
+OLAPStatus RowsetMetaManager::get_rowset_meta(OlapMeta* meta, int64_t rowset_id, RowsetMetaSharedPtr rowset_meta) {
     std::string key = ROWSET_PREFIX + std::to_string(rowset_id);
     std::string value;
     OLAPStatus s = meta->get(META_COLUMN_FAMILY_INDEX, key, value);
@@ -56,7 +56,8 @@ OLAPStatus RowsetMetaManager::get_rowset_meta(OlapMeta* meta, int64_t rowset_id,
 
 OLAPStatus RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, int64_t rowset_id, std::string* json_rowset_meta) {
     RowsetMeta rowset_meta;
-    OLAPStatus status = get_rowset_meta(meta, rowset_id, &rowset_meta);
+    RowsetMetaSharedPtr rowset_meta_ptr(&rowset_meta);
+    OLAPStatus status = get_rowset_meta(meta, rowset_id, rowset_meta_ptr);
     if (status != OLAP_SUCCESS) {
         return status;
     }
@@ -68,7 +69,7 @@ OLAPStatus RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, int64_t rowse
     return OLAP_SUCCESS;
 }
 
-OLAPStatus RowsetMetaManager::save(OlapMeta* meta, int64_t rowset_id, RowsetMeta* rowset_meta) {
+OLAPStatus RowsetMetaManager::save(OlapMeta* meta, int64_t rowset_id, RowsetMetaSharedPtr rowset_meta) {
     std::string key = ROWSET_PREFIX + std::to_string(rowset_id);
     std::string value;
     bool ret = rowset_meta->serialize(&value);
@@ -123,7 +124,8 @@ OLAPStatus RowsetMetaManager::load_json_rowset_meta(OlapMeta* meta, const std::s
         return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR;
     }
     uint64_t rowset_id = rowset_meta.rowset_id();
-    OLAPStatus status = save(meta, rowset_id, &rowset_meta);
+    RowsetMetaSharedPtr rowset_meta_ptr(&rowset_meta);
+    OLAPStatus status = save(meta, rowset_id, rowset_meta_ptr);
     return status;
 }
 

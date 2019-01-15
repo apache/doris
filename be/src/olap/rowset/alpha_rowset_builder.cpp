@@ -21,38 +21,37 @@
 
 namespace doris {
 
-AlphaRowsetBuilder::AlphaRowsetBuilder() : _segment_group_id(0),
+AlphaRowsetBuilder::AlphaRowsetBuilder() :
+    _segment_group_id(0),
     _cur_segment_group(nullptr),
     _column_data_writer(nullptr),
-    _current_rowset_meta(nullptr) {
+    _current_rowset_meta(nullptr),
+    is_pending_rowset(false) {
 }
 
 OLAPStatus AlphaRowsetBuilder::init(const RowsetBuilderContext& rowset_builder_context) {
     _rowset_builder_context = rowset_builder_context;
-    _init();
     _current_rowset_meta->set_rowset_id(_rowset_builder_context.rowset_id);
     _current_rowset_meta->set_tablet_id(_rowset_builder_context.tablet_id);
     _current_rowset_meta->set_tablet_schema_hash(_rowset_builder_context.tablet_schema_hash);
     _current_rowset_meta->set_rowset_type(_rowset_builder_context.rowset_type);
-    _current_rowset_meta->set_rowset_state(PREPARING);
+    _current_rowset_meta->set_rowset_state(rowset_builder_context.rowset_state);
     _current_rowset_meta->set_rowset_path(_rowset_builder_context.rowset_path_prefix);
+    RowsetStatePB rowset_state = _rowset_builder_context.rowset_state;
+    if (rowset_state == PREPARING
+            || rowset_state == COMMITTED) {
+        is_pending_rowset = true;
+    }
+    if (is_pending_rowset) {
+        _current_rowset_meta->set_txn_id(_rowset_builder_context.txn_id);
+        _current_rowset_meta->set_load_id(_rowset_builder_context.load_id);
+    } else {
+        _current_rowset_meta->set_version(_rowset_builder_context.version);
+        _current_rowset_meta->set_version_hash(_rowset_builder_context.version_hash);
+    }
+    
+    _init();
     return OLAP_SUCCESS;
-}
-
-void AlphaRowsetBuilder::set_txn_id(const int64_t& txn_id) {
-    _current_rowset_meta->set_txn_id(txn_id);
-}
-
-void AlphaRowsetBuilder::set_load_id(const PUniqueId& load_id) {
-    _current_rowset_meta->set_load_id(load_id);
-}
-
-void AlphaRowsetBuilder::set_version(const Version& version) {
-    _current_rowset_meta->set_version(version);
-}
-
-void AlphaRowsetBuilder::set_version_hash(const VersionHash& version_hash) {
-    _current_rowset_meta->set_version_hash(version_hash);
 }
 
 OLAPStatus AlphaRowsetBuilder::add_row(RowCursor* row) {
@@ -60,8 +59,20 @@ OLAPStatus AlphaRowsetBuilder::add_row(RowCursor* row) {
     if (status != OLAP_SUCCESS) {
         std::string error_msg = "add row failed";
         LOG(WARNING) << error_msg;
-        return status; 
+        return status;
     }
+    _column_data_writer->next(*row);
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus AlphaRowsetBuilder::add_row(const char* row, Schema* schema) {
+    OLAPStatus status = _column_data_writer->write(row);
+    if (status != OLAP_SUCCESS) {
+        std::string error_msg = "add row failed";
+        LOG(WARNING) << error_msg;
+        return status;
+    }
+    _column_data_writer->next(row, schema);
     return OLAP_SUCCESS;
 }
 
@@ -72,27 +83,47 @@ OLAPStatus AlphaRowsetBuilder::flush() {
     return OLAP_SUCCESS;
 }
 
-std::shared_ptr<Rowset> AlphaRowsetBuilder::build() {
-    // TODO: set total_disk_size/data_disk_size/index_disk_size
+RowsetSharedPtr AlphaRowsetBuilder::build() {
     for (auto& segment_group : _segment_groups) {
-        PendingSegmentGroupPB pending_segment_group_pb;
-        pending_segment_group_pb.set_pending_segment_group_id(segment_group->segment_group_id());
-        pending_segment_group_pb.set_num_segments(segment_group->num_segments());
-        //PUniqueId* unique_id = pending_segment_group_pb.mutable_load_id();
-        //unique_id->set_hi(_rowset_builder_context.load_id.hi());
-        //unique_id->set_lo(_rowset_builder_context.load_id.lo());
-        pending_segment_group_pb.set_empty(segment_group->empty());
-        const std::vector<KeyRange>* column_statistics = &(segment_group->get_column_statistics());
-        if (column_statistics != nullptr) {
-            for (size_t i = 0; i < column_statistics->size(); ++i) {
-                ColumnPruning* column_pruning = pending_segment_group_pb.add_column_pruning();
-                column_pruning->set_min(column_statistics->at(i).first->to_string());
-                column_pruning->set_max(column_statistics->at(i).second->to_string());
-                column_pruning->set_null_flag(column_statistics->at(i).first->is_null());
+        if (is_pending_rowset) {
+            PendingSegmentGroupPB pending_segment_group_pb;
+            pending_segment_group_pb.set_pending_segment_group_id(segment_group->segment_group_id());
+            pending_segment_group_pb.set_num_segments(segment_group->num_segments());
+            PUniqueId* unique_id = pending_segment_group_pb.mutable_load_id();
+            unique_id->set_hi(_rowset_builder_context.load_id.hi());
+            unique_id->set_lo(_rowset_builder_context.load_id.lo());
+            pending_segment_group_pb.set_empty(segment_group->empty());
+            const std::vector<KeyRange>* column_statistics = &(segment_group->get_column_statistics());
+            if (column_statistics != nullptr) {
+                for (size_t i = 0; i < column_statistics->size(); ++i) {
+                    ColumnPruning* column_pruning = pending_segment_group_pb.add_column_pruning();
+                    column_pruning->set_min(column_statistics->at(i).first->to_string());
+                    column_pruning->set_max(column_statistics->at(i).second->to_string());
+                    column_pruning->set_null_flag(column_statistics->at(i).first->is_null());
+                }
             }
+            AlphaRowsetMeta* alpha_rowset_meta = (AlphaRowsetMeta*)_current_rowset_meta.get();
+            alpha_rowset_meta->add_pending_segment_group(pending_segment_group_pb);
+        } else {
+            SegmentGroupPB segment_group_pb;
+            segment_group_pb.set_segment_group_id(segment_group->segment_group_id());
+            segment_group_pb.set_num_segments(segment_group->num_segments());
+            segment_group_pb.set_index_size(segment_group->index_size());
+            segment_group_pb.set_data_size(segment_group->data_size());
+            segment_group_pb.set_num_rows(segment_group->num_rows());
+            const std::vector<KeyRange>* column_statistics = &(segment_group->get_column_statistics());
+            if (column_statistics != nullptr) {
+                for (size_t i = 0; i < column_statistics->size(); ++i) {
+                    ColumnPruning* column_pruning = segment_group_pb.add_column_pruning();
+                    column_pruning->set_min(column_statistics->at(i).first->to_string());
+                    column_pruning->set_max(column_statistics->at(i).second->to_string());
+                    column_pruning->set_null_flag(column_statistics->at(i).first->is_null());
+                }
+            }
+            segment_group_pb.set_empty(segment_group->empty());
+            AlphaRowsetMeta* alpha_rowset_meta = reinterpret_cast<AlphaRowsetMeta*>(_current_rowset_meta.get());
+            alpha_rowset_meta->add_segment_group(segment_group_pb);
         }
-        AlphaRowsetMeta* alpha_rowset_meta = (AlphaRowsetMeta*)_current_rowset_meta.get();
-        alpha_rowset_meta->add_pending_segment_group(pending_segment_group_pb);
     }
     Rowset* rowset = new(std::nothrow) AlphaRowset(_rowset_builder_context.tablet_schema,
             _rowset_builder_context.num_key_fields, _rowset_builder_context.num_short_key_fields,
@@ -102,17 +133,40 @@ std::shared_ptr<Rowset> AlphaRowsetBuilder::build() {
     return std::shared_ptr<Rowset>(rowset);
 }
 
+MemPool* AlphaRowsetBuilder::mem_pool() {
+    if (_column_data_writer != nullptr) {
+        return _column_data_writer->mem_pool();
+    } else {
+        return nullptr;
+    }
+}
+
 void AlphaRowsetBuilder::_init() {
     _segment_group_id++;
-    _cur_segment_group = new SegmentGroup(_rowset_builder_context.tablet_id,
-            _rowset_builder_context.rowset_id,
-            _rowset_builder_context.tablet_schema,
-            _rowset_builder_context.num_key_fields,
-            _rowset_builder_context.num_short_key_fields,
-            _rowset_builder_context.num_rows_per_row_block,
-            _rowset_builder_context.rowset_path_prefix,
-            false, _segment_group_id, 0, true,
-            _rowset_builder_context.partition_id, 0);
+    if (is_pending_rowset) {
+        _cur_segment_group = new SegmentGroup(
+                _rowset_builder_context.tablet_id,
+                _rowset_builder_context.rowset_id,
+                _rowset_builder_context.tablet_schema,
+                _rowset_builder_context.num_key_fields,
+                _rowset_builder_context.num_short_key_fields,
+                _rowset_builder_context.num_rows_per_row_block,
+                _rowset_builder_context.rowset_path_prefix,
+                false, _segment_group_id, 0, true,
+                _rowset_builder_context.partition_id, _rowset_builder_context.txn_id);
+    } else {
+        _cur_segment_group = new SegmentGroup(
+                _rowset_builder_context.tablet_id,
+                _rowset_builder_context.rowset_id,
+                _rowset_builder_context.tablet_schema,
+                _rowset_builder_context.num_key_fields,
+                _rowset_builder_context.num_short_key_fields,
+                _rowset_builder_context.num_rows_per_row_block,
+                _rowset_builder_context.rowset_path_prefix,
+                _rowset_builder_context.version,
+                _rowset_builder_context.version_hash,
+                false, _segment_group_id, 0);
+    }
     DCHECK(_cur_segment_group != nullptr) << "failed to malloc SegmentGroup";
     _cur_segment_group->acquire();
     //_cur_segment_group->set_load_id(_rowset_builder_context.load_id);
@@ -123,4 +177,4 @@ void AlphaRowsetBuilder::_init() {
     DCHECK(_column_data_writer != nullptr) << "memory error occur when creating writer";
 }
 
-}  // namespace doris
+} // namespace doris
