@@ -257,6 +257,7 @@ public class ConfigBase {
             
             config.add(confKey);
             config.add(Strings.nullToEmpty(confVal));
+            config.add(f.getType().getSimpleName());
             config.add(String.valueOf(anno.mutable()));
             config.add(String.valueOf(anno.masterOnly()));
             config.add(anno.comment());
