@@ -563,12 +563,12 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
             if (res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF) {
                 LOG(WARNING) << "failed to add child to iterator";
                 return res;
-            } else if (res == OLAP_ERR_DATA_EOF) {
-                continue;
-            } else {
-                LOG(WARNING) << "prepare block failed, res=" << res;
-                return res;
             }
+        } else if (res == OLAP_ERR_DATA_EOF) {
+            continue;
+        } else {
+            LOG(WARNING) << "prepare block failed, res=" << res;
+            return res;
         }
     }
     _next_key = _collect_iter->current_row(&_next_delete_flag);
