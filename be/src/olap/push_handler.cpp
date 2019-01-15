@@ -245,9 +245,9 @@ OLAPStatus PushHandler::_do_realtime_push(
             continue;
         }
 
-        for (RowsetSharedPtr rowset : tablet_var.added_indices) {
-            RowsetMetaManager::save(tablet_var->data_dir()->get_meta(),
-                rowset->rowset_id(), rowset);
+        for (RowsetSharedPtr rowset : tablet_var.added_rowsets) {
+            RowsetMetaManager::save(tablet_var.tablet->data_dir()->get_meta(),
+                rowset->rowset_id(), rowset->rowset_meta());
         }
     }
     return OLAP_SUCCESS;
@@ -288,7 +288,11 @@ OLAPStatus PushHandler::_convert(
     RowsetBuilderContext context;
     uint32_t  num_rows = 0;
     RowsetId rowset_id = 0;
-    RowsetIdGenerator::get_next_id(curr_tablet->data_dir(), &rowset_id);
+    res = RowsetIdGenerator::instance()->get_next_id(curr_tablet->data_dir(), &rowset_id);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "generate rowset id failed, res:" << res;
+        return OLAP_ERR_ROWSET_GENERATE_ID_FAILED;
+    }
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
@@ -350,7 +354,7 @@ OLAPStatus PushHandler::_convert(
                 .set_num_short_key_fields(curr_tablet->num_short_key_fields())
                 .set_num_rows_per_row_block(curr_tablet->num_rows_per_row_block())
                 .set_compress_kind(curr_tablet->compress_kind())
-                .set_bloom_filter_fpp(_tablet->bloom_filter_fpp())
+                .set_bloom_filter_fpp(curr_tablet->bloom_filter_fpp())
                 .set_rowset_state(PREPARING)
                 .set_txn_id(_request.transaction_id)
                 .set_load_id(load_id);
@@ -368,7 +372,7 @@ OLAPStatus PushHandler::_convert(
                 .set_num_short_key_fields(curr_tablet->num_short_key_fields())
                 .set_num_rows_per_row_block(curr_tablet->num_rows_per_row_block())
                 .set_compress_kind(curr_tablet->compress_kind())
-                .set_bloom_filter_fpp(_tablet->bloom_filter_fpp())
+                .set_bloom_filter_fpp(curr_tablet->bloom_filter_fpp())
                 .set_rowset_state(VISIBLE)
                 .set_version(Version(_request.version, _request.version))
                 .set_version_hash(_request.version_hash);
@@ -405,7 +409,7 @@ OLAPStatus PushHandler::_convert(
                                  << " read_rows=" << num_rows;
                     break;
                 } else {
-                    rowset_builder->add_row(row);
+                    rowset_builder->add_row(&row);
                     num_rows++;
                 }
             }
@@ -427,7 +431,7 @@ OLAPStatus PushHandler::_convert(
             break;
         }
 
-        _write_bytes += rowset->data_size();
+        _write_bytes += rowset->data_disk_size();
         _write_rows += rowset->num_rows();
 
         // 7. Convert data for schema change tables
