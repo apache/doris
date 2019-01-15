@@ -54,7 +54,8 @@ PlanFragmentExecutor::PlanFragmentExecutor(
       _prepared(false),
       _closed(false),
       _has_thread_token(false),
-      _is_report_success(true) {
+      _is_report_success(true),
+      _collect_query_statistics_every_batch(false) {
 }
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {
@@ -196,6 +197,11 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
         if (sink_profile != NULL) {
             profile()->add_child(sink_profile, true, NULL);
         }
+
+        if (params.__isset.send_query_statistics_with_every_batch) {
+            _collect_query_statistics_every_batch =
+                    params.send_query_statistics_with_every_batch;
+        }
     } else {
         _sink.reset(NULL);
     }
@@ -227,8 +233,8 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     VLOG(3) << "plan_root=\n" << _plan->debug_string();
     _prepared = true;
 
-    _query_statistic.reset(new QueryStatistic());
-    _sink->set_query_statistic(_query_statistic);
+    _query_statistics.reset(new QueryStatistics());
+    _sink->set_query_statistics(_query_statistics);
     return Status::OK;
 }
 
@@ -318,12 +324,13 @@ Status PlanFragmentExecutor::open_internal() {
                 VLOG_ROW << row->to_string(row_desc());
             }
         }
-
+     
         SCOPED_TIMER(profile()->total_time_counter());
-        // Collect this plan and sub plan statistics, and send to parent plan.
-        _plan->collect_query_statistic(_query_statistic.get());
+        // Collect this plan and sub plan statisticss, and send to parent plan.
+        if (_collect_query_statistics_every_batch) {
+            collect_query_statistics();
+        }
         RETURN_IF_ERROR(_sink->send(runtime_state(), batch));
-        _query_statistic->clear();
     }
 
     // Close the sink *before* stopping the report thread. Close may
@@ -339,7 +346,7 @@ Status PlanFragmentExecutor::open_internal() {
     // audit the sinks to check that this is ok, or change that behaviour.
     {
         SCOPED_TIMER(profile()->total_time_counter());
-        _plan->collect_query_statistic(_query_statistic.get());
+        collect_query_statistics()
         Status status = _sink->close(runtime_state(), _status);
         RETURN_IF_ERROR(status);
     }
@@ -354,6 +361,11 @@ Status PlanFragmentExecutor::open_internal() {
     send_report(true);
 
     return Status::OK;
+}
+
+void PlanFragmentExecutor::collect_query_statistics() {
+    _query_statistics->clear();
+    _plan->collect_query_statistics(_query_statistics.get());
 }
 
 void PlanFragmentExecutor::report_profile() {

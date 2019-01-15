@@ -351,13 +351,13 @@ public class CurrentQueryInfoProvider {
             return io;
         }
 
-        public String getFormattingCpu() {
+        public String getFormattingProcessRows() {
             final StringBuilder builder = new StringBuilder();
             builder.append(getTotalCpuConsumption()).append(" Rows");
             return builder.toString();
         }
 
-        public String getFormattingIo() {
+        public String getFormattingScanBytes() {
             final Pair<Double, String> pair = DebugUtil.getByteUint(getTotalIoConsumption());
             final Formatter fmt = new Formatter();
             final StringBuilder builder = new StringBuilder();

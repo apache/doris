@@ -24,7 +24,7 @@
 #include <boost/thread/condition_variable.hpp>
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
-#include "runtime/query_statistic.h"
+#include "runtime/query_statistics.h"
 
 namespace google {
 namespace protobuf {
@@ -53,7 +53,7 @@ struct GetResultBatchCtx {
     }
 
     void on_failure(const Status& status);
-    void on_close(int64_t packet_seq, QueryStatistic* statistic = nullptr);
+    void on_close(int64_t packet_seq, QueryStatistics* statistics = nullptr);
     void on_data(TFetchDataResult* t_result, int64_t packet_seq, bool eos = false);
 };
 
@@ -81,8 +81,8 @@ public:
         return _fragment_id;
     }
 
-    void set_query_statistic(boost::shared_ptr<QueryStatistic> statistic) {
-        _query_statistic = statistic;
+    void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
+        _query_statistics = statistics;
     }
 private:
     typedef std::list<TFetchDataResult*> ResultQueue;
@@ -107,7 +107,7 @@ private:
    
     std::deque<GetResultBatchCtx*> _waiting_rpc;
 
-    boost::shared_ptr<QueryStatistic> _query_statistic;
+    std::shared_ptr<QueryStatistics> _query_statistics;
 };
 
 }

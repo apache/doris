@@ -21,9 +21,9 @@ import com.baidu.bjf.remoting.protobuf.annotation.Protobuf;
 import com.baidu.bjf.remoting.protobuf.annotation.ProtobufClass;
 
 @ProtobufClass
-public class PQueryStatistic {
+public class PQueryStatistics {
     @Protobuf(order = 1, required = false)
-    public long cpu;
+    public long processRows;
     @Protobuf(order = 2, required = false)
-    public long io;
+    public long scanBytes;
 }

@@ -248,7 +248,7 @@ public class Planner {
         }
 
         private void optimizeTransferQueryStatistic(PlanFragment fragment, PlanFragment parent) {
-            if (parent != null && hasLimit(parent.getPlanRoot())) {
+            if (parent != null && hasLimit(parent.getPlanRoot(), fragment.getPlanRoot())) {
                 fragment.setTransferQueryStatisticWithEveryBatch(true);
             }
             for (PlanFragment child : fragment.getChildren()) {
@@ -256,16 +256,31 @@ public class Planner {
             }
         }
 
-        private boolean hasLimit(PlanNode planNode) {
-            if (planNode.hasLimit()) {
-                return true;
-            }
-            for (PlanNode child : planNode.getChildren()) {
-                if (hasLimit(child)) {
+        // Check whether leaf node contains limit.
+        private boolean hasLimit(PlanNode ancestor, PlanNode successor) {
+            final List<PlanNode> leaves = Lists.newArrayList();
+            collectExchangeNode(ancestor, leaves);
+            for (PlanNode leaf : leaves) {
+                if (leaf.getChild(0) == successor
+                        && leaf.hasLimit()) {
                     return true;
-                };
+                }
             }
             return false;
+        }
+
+        private void collectExchangeNode(PlanNode planNode, List<PlanNode> leaves) {
+            if (planNode instanceof ExchangeNode) {
+                leaves.add(planNode);
+            }
+
+            for (PlanNode child : planNode.getChildren()) {
+                if (child instanceof ExchangeNode) {
+                    leaves.add(child);
+                } else {
+                    collectExchangeNode(child, leaves);
+                }
+            }
         }
     }
 }

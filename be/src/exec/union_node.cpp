@@ -337,9 +337,9 @@ Status UnionNode::reset(RuntimeState* state) {
 }
 #endif
 
-Status UnionNode::collect_query_statistic(QueryStatistic* statistic) {
-    RETURN_IF_ERROR(ExecNode::collect_query_statistic(statistic));
-    statistic->add_cpu_by_row(_materialize_rows_counter->value());
+Status UnionNode::collect_query_statistics(QueryStatistics* statistics) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
+    statistics->add_process_rows(_materialize_rows_counter->value());
     return Status::OK;
 }
 

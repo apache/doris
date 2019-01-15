@@ -60,7 +60,6 @@ class LoadErrorHub;
 class ReservationTracker;
 class InitialReservations;
 class RowDescriptor;
-class QueryStatistic;
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.

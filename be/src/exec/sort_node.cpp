@@ -118,9 +118,9 @@ Status SortNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
 }
 
 
-Status SortNode::collect_query_statistic(QueryStatistic* statistic) {
-    RETURN_IF_ERROR(ExecNode::collect_query_statistic(statistic));
-    statistic->add_cpu_by_row(_sort_rows_counter->value());
+Status SortNode::collect_query_statistics(QueryStatistics* statistics) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
+    statistics->add_process_rows(_sort_rows_counter->value());
     return Status::OK;
 }
 

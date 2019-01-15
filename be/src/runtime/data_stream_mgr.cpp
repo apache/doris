@@ -51,14 +51,14 @@ inline uint32_t DataStreamMgr::get_hash_value(
 shared_ptr<DataStreamRecvr> DataStreamMgr::create_recvr(RuntimeState* state,
         const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
         PlanNodeId dest_node_id, int num_senders, int buffer_size, RuntimeProfile* profile,
-        bool is_merging, QueryStatistic* query_statistic) {
+        bool is_merging, QueryStatistics* query_statistics) {
     DCHECK(profile != NULL);
     VLOG_FILE << "creating receiver for fragment="
             << fragment_instance_id << ", node=" << dest_node_id;
     shared_ptr<DataStreamRecvr> recvr(
             new DataStreamRecvr(this, state->instance_mem_tracker(), row_desc,
                 fragment_instance_id, dest_node_id, num_senders, is_merging, buffer_size,
-                profile, query_statistic));
+                profile, query_statistics));
     uint32_t hash_value = get_hash_value(fragment_instance_id, dest_node_id);
     lock_guard<mutex> l(_lock);
     _fragment_stream_set.insert(std::make_pair(fragment_instance_id, dest_node_id));
@@ -118,11 +118,11 @@ Status DataStreamMgr::add_data(
     return Status::OK;
 }
 
-Status DataStreamMgr::update_query_statistic(const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-                              int sender_id, const PQueryStatistic& query_statistic) {
+Status DataStreamMgr::update_query_statistics(const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
+                              int sender_id, const PQueryStatistics& query_statistics) {
     shared_ptr<DataStreamRecvr> recvr = find_recvr(fragment_instance_id, dest_node_id);
     if (recvr != NULL) {
-        recvr->update_sub_plan_statistic(query_statistic, sender_id);
+        recvr->update_sub_plan_statistics(query_statistics, sender_id);
     }
     return Status::OK;
 }

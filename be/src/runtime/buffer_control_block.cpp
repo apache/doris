@@ -32,11 +32,11 @@ void GetResultBatchCtx::on_failure(const Status& status) {
 }
 
 void GetResultBatchCtx::on_close(int64_t packet_seq,
-                 QueryStatistic* statistic) {
+                 QueryStatistics* statistics) {
     Status status;
     status.to_protobuf(result->mutable_status());
-    if (statistic != nullptr) {
-        statistic->serialize(result->mutable_query_statistic());
+    if (statistics != nullptr) {
+        statistics->serialize(result->mutable_query_statistics());
     }
     result->set_packet_seq(packet_seq);
     result->set_eos(true);
@@ -187,7 +187,7 @@ void BufferControlBlock::get_batch(GetResultBatchCtx* ctx) {
         return;
     }
     if (_is_close) {
-        ctx->on_close(_packet_num, _query_statistic.get());
+        ctx->on_close(_packet_num, _query_statistics.get());
         return;
     }
     // no ready data, push ctx to waiting list
@@ -204,7 +204,7 @@ Status BufferControlBlock::close(Status exec_status) {
     if (!_waiting_rpc.empty()) {
         if (_status.ok()) {
             for (auto& ctx : _waiting_rpc) {
-                ctx->on_close(_packet_num, _query_statistic.get());
+                ctx->on_close(_packet_num, _query_statistics.get());
             }
         } else {
             for (auto& ctx : _waiting_rpc) {

@@ -29,7 +29,7 @@
 #include "util/runtime_profile.h"
 #include "util/blocking_queue.hpp"
 #include "runtime/bufferpool/buffer_pool.h"
-#include "runtime/query_statistic.h"
+#include "runtime/query_statistics.h"
 
 namespace llvm {
 class Function;
@@ -115,10 +115,10 @@ public:
     // so should be fast.
     virtual Status reset(RuntimeState* state);
 
-    // collect_query_statistic() should be called before close() and after get_next(), it
-    // responsible for collecting statistics returned with query result, it can't be called
+    // collect_query_statistics() should be called before close() and after get_next(), it
+    // responsible for collecting statisticss returned with query result, it can't be called
     // when prepare() return error.
-    virtual Status collect_query_statistic(QueryStatistic* statistic);
+    virtual Status collect_query_statistics(QueryStatistics* statistics);
 
     // close() will get called for every exec node, regardless of what else is called and
     // the status of these calls (i.e. prepare() may never have been called, or

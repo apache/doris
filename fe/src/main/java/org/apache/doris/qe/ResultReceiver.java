@@ -92,8 +92,8 @@ public class ResultReceiver {
                     return null;
                 } 
  
-                if (pResult.queryStatistic != null) {
-                    rowBatch.setQueryStatistic(pResult.queryStatistic);
+                if (pResult.statistics != null) {
+                    rowBatch.setQueryStatistics(pResult.statistics);
                 }
 
                 if (packetIdx != pResult.packetSeq) {

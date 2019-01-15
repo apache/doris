@@ -306,9 +306,9 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
     return _status;
 }
 
-Status OlapScanNode::collect_query_statistic(QueryStatistic* statistic) {
-    RETURN_IF_ERROR(ExecNode::collect_query_statistic(statistic));
-    statistic->add_io_by_byte(_read_compressed_counter->value());
+Status OlapScanNode::collect_query_statistics(QueryStatistics* statistics) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
+    statistics->add_scan_bytes(_read_compressed_counter->value());
     return Status::OK;
 }
 

@@ -39,7 +39,7 @@ public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
     private static final Logger LOG = LogManager.getLogger(CurrentQueryFragmentProcNode.class);
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("FragmentId").add("InstanceId").add("Host")
-            .add("IO").add("CPU").build();
+            .add("ScanRawData").add("ProcessRows").build();
     private QueryStatisticsItem item;
 
     public CurrentQueryFragmentProcNode(QueryStatisticsItem item) {
@@ -79,8 +79,8 @@ public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
             rowData.add(instanceConsumption.getFragmentId());
             rowData.add(instanceConsumption.getInstanceId().toString());
             rowData.add(instanceConsumption.getAddress().toString());
-            rowData.add(instanceConsumption.getFormattingIo());
-            rowData.add(instanceConsumption.getFormattingCpu());
+            rowData.add(instanceConsumption.getFormattingScanBytes());
+            rowData.add(instanceConsumption.getFormattingProcessRows());
             sortedRowDatas.add(rowData);
         }
 

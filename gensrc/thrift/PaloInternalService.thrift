@@ -175,7 +175,7 @@ struct TPlanFragmentExecParams {
   // Id of this fragment in its role as a sender.
   9: optional i32 sender_id
   10: optional i32 num_senders
-  11: optional bool send_query_statistic_with_every_batch
+  11: optional bool send_query_statistics_with_every_batch
 }
 
 // Global query parameters assigned by the coordinator.

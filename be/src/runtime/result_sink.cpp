@@ -92,8 +92,8 @@ Status ResultSink::close(RuntimeState* state, Status exec_status) {
     return Status::OK;
 }
 
-void ResultSink::set_query_statistic(boost::shared_ptr<QueryStatistic> statistic) {
-    _sender->set_query_statistic(statistic);
+void ResultSink::set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
+    _sender->set_query_statistics(statistics);
 }
 
 }

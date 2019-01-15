@@ -74,7 +74,7 @@ public:
             PlanNodeId dest_node_id, 
             int buffer_size, 
             bool is_transfer_chain,
-            bool send_query_statistic_with_every_batch) :
+            bool send_query_statistics_with_every_batch) :
         _parent(parent),
         _buffer_size(buffer_size),
         _row_desc(row_desc),
@@ -85,7 +85,7 @@ public:
         _need_close(false),
         _brpc_dest_addr(brpc_dest),
         _is_transfer_chain(is_transfer_chain),
-        _send_query_statistic_with_every_batch(send_query_statistic_with_every_batch) {
+        _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {
     }
 
     virtual ~Channel() {
@@ -170,7 +170,7 @@ private:
     int32_t _brpc_timeout_ms = 500;
     // whether the dest can be treated as consumption transfer chain.
     bool _is_transfer_chain;
-    bool _send_query_statistic_with_every_batch;
+    bool _send_query_statistics_with_every_batch;
 };
 
 Status DataStreamSender::Channel::init(RuntimeState* state) {
@@ -211,9 +211,9 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
     }
     VLOG_ROW << "Channel::send_batch() instance_id=" << _fragment_instance_id
              << " dest_node=" << _dest_node_id;
-    if (_is_transfer_chain && (_send_query_statistic_with_every_batch || eos)) {
-        auto statistic = _brpc_request.mutable_query_statistic();
-        _parent->_query_statistic->serialize(statistic); 
+    if (_is_transfer_chain && (_send_query_statistics_with_every_batch || eos)) {
+        auto statistic = _brpc_request.mutable_query_statistics();
+        _parent->_query_statistics->serialize(statistic); 
     }
 
     _brpc_request.set_eos(eos);
@@ -298,7 +298,7 @@ DataStreamSender::DataStreamSender(
             const RowDescriptor& row_desc, const TDataStreamSink& sink,
             const std::vector<TPlanFragmentDestination>& destinations,
             int per_channel_buffer_size,
-            bool send_query_statistic_with_every_batch) :
+            bool send_query_statistics_with_every_batch) :
         _sender_id(sender_id),
         _pool(pool),
         _row_desc(row_desc),
@@ -318,17 +318,14 @@ DataStreamSender::DataStreamSender(
             || sink.output_partition.type == TPartitionType::RANGE_PARTITIONED);
     // TODO: use something like google3's linked_ptr here (scoped_ptr isn't copyable)
     for (int i = 0; i < destinations.size(); ++i) {
-        bool is_transfer_chain = false;
         // Select first dest as transfer chain.
-        if (i == 0) {
-            is_transfer_chain = true;
-        }
+        bool is_transfer_chain = (i == 0);
         _channel_shared_ptrs.emplace_back(
             new Channel(this, row_desc,
                         destinations[i].brpc_server,
                         destinations[i].fragment_instance_id,
                         sink.dest_node_id, per_channel_buffer_size, 
-                        is_transfer_chain, send_query_statistic_with_every_batch));
+                        is_transfer_chain, send_query_statistics_with_every_batch));
         _channels.push_back(_channel_shared_ptrs[i].get());
     }
 }

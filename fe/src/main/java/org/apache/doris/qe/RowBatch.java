@@ -17,12 +17,12 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.rpc.PQueryStatistic;
+import org.apache.doris.rpc.PQueryStatistics;
 import org.apache.doris.thrift.TResultBatch;
 
 public final class RowBatch {
     private TResultBatch batch;
-    private PQueryStatistic queryStatistic;
+    private PQueryStatistics statistics;
     private boolean eos;
 
     public RowBatch() {
@@ -37,12 +37,12 @@ public final class RowBatch {
         this.batch = batch;
     }
 
-    public PQueryStatistic getQueryStatistic() {
-        return queryStatistic;
+    public PQueryStatistics getQueryStatistics() {
+        return statistics;
     }
 
-    public void setQueryStatistic(PQueryStatistic queryStatistic) {
-        this.queryStatistic = queryStatistic;
+    public void setQueryStatistics(PQueryStatistics statistics) {
+        this.statistics = statistics;
     }
 
     public boolean isEos() {

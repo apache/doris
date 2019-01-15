@@ -19,9 +19,9 @@ syntax="proto2";
 
 package doris;
 
-message PQueryStatistic {
-    optional int64 cpu_by_row = 1;
-    optional int64 io_by_byte = 2;
+message PQueryStatistics {
+    optional int64 process_rows = 1;
+    optional int64 scan_bytes = 2;
 }
 
 message PRowBatch {

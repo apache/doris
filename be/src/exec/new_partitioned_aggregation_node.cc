@@ -593,7 +593,7 @@ bool NewPartitionedAggregationNode::ShouldExpandPreaggHashTables() const {
     ht_rows += ht->size();
   }
 
-  // Need some rows in tables to have valid statistics.
+  // Need some rows in tables to have valid statisticss.
   if (ht_rows == 0) return true;
 
   // Find the appropriate reduction factor in our table for the current hash table sizes.
@@ -621,7 +621,7 @@ bool NewPartitionedAggregationNode::ShouldExpandPreaggHashTables() const {
   // set, N is the number of input rows, excluding passed-through rows, and n is the
   // number of rows inserted or merged into the hash tables. This is a very rough
   // approximation but is good enough to be useful.
-  // TODO: consider collecting more statistics to better estimate reduction.
+  // TODO: consider collecting more statisticss to better estimate reduction.
 //  double estimated_reduction = aggregated_input_rows >= expected_input_rows
 //      ? current_reduction
 //      : 1 + (expected_input_rows / aggregated_input_rows) * (current_reduction - 1);
@@ -671,9 +671,9 @@ Status NewPartitionedAggregationNode::reset(RuntimeState* state) {
   return ExecNode::reset(state);
 }
 
-Status NewPartitionedAggregationNode::collect_query_statistic(QueryStatistic* statistic) {
-    RETURN_IF_ERROR(ExecNode::collect_query_statistic(statistic));
-    statistic->add_cpu_by_row(_build_rows_counter->value());
+Status NewPartitionedAggregationNode::collect_query_statistics(QueryStatistics* statistics) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
+    statistics->add_process_rows(_build_rows_counter->value());
     return Status::OK;
 }
 

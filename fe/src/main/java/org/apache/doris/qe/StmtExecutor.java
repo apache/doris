@@ -65,7 +65,7 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.rewrite.ExprRewriter;
-import org.apache.doris.rpc.PQueryStatistic;
+import org.apache.doris.rpc.PQueryStatistics;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TQueryOptions;
@@ -105,7 +105,7 @@ public class StmtExecutor {
     private Planner planner;
     private boolean isProxy;
     private ShowResultSet proxyResultSet = null;
-    private QueryStatistic statisticForAuditLog;
+    private QueryStatistics statisticsForAuditLog;
 
     public StmtExecutor(ConnectContext context, String stmt, boolean isProxy) {
         this.context = context;
@@ -565,8 +565,8 @@ public class StmtExecutor {
 
     private void setConsumptionForAuditLog(RowBatch batch) {
         if (batch != null) {
-            final PQueryStatistic queryStatistic = batch.getQueryStatistic();
-            statisticForAuditLog = new QueryStatistic(queryStatistic.cpu, queryStatistic.io);
+            final PQueryStatistics statistics = batch.getQueryStatistics();
+            statisticsForAuditLog = new QueryStatistics(statistics.processRows, statistics.scanBytes);
         }
     }
 
@@ -788,35 +788,35 @@ public class StmtExecutor {
         context.getCatalog().getExportMgr().addExportJob(exportStmt);
     }
 
-    public QueryStatistic getQueryStatisticForAuditLog() {
-        if (statisticForAuditLog == null) {
-            statisticForAuditLog = new QueryStatistic();
+    public QueryStatistics getQueryStatisticsForAuditLog() {
+        if (statisticsForAuditLog == null) {
+            statisticsForAuditLog = new QueryStatistics();
         }
-        return statisticForAuditLog;
+        return statisticsForAuditLog;
     }
 
-    public static class QueryStatistic {
-        private final long cpuByRow;
-        private final long ioByByte;
+    public static class QueryStatistics {
+        private final long processRows;
+        private final long scanBytes;
 
-        public QueryStatistic() {
-            this.cpuByRow = 0;
-            this.ioByByte = 0;
+        public QueryStatistics() {
+            this.processRows = 0;
+            this.scanBytes = 0;
         }
 
-        public QueryStatistic(long cpuByRow, long ioByByte) {
-            this.cpuByRow = cpuByRow;
-            this.ioByByte = ioByByte;
+        public QueryStatistics(long processRows, long scanBytes) {
+            this.processRows = processRows;
+            this.scanBytes = scanBytes;
         }
 
-        public String getFormattingCpu() {
+        public String getFormattingProcessRows() {
             final StringBuilder builder = new StringBuilder();
-            builder.append(cpuByRow).append(" Rows");
+            builder.append(processRows).append(" Rows");
             return builder.toString();
         }
 
-        public String getFormattingIo() {
-            final Pair<Double, String> pair = DebugUtil.getByteUint(ioByByte);
+        public String getFormattingScanBytes() {
+            final Pair<Double, String> pair = DebugUtil.getByteUint(scanBytes);
             final Formatter fmt = new Formatter();
             final StringBuilder builder = new StringBuilder();
             builder.append(fmt.format("%.2f", pair.first)).append(" ").append(pair.second);

@@ -1578,7 +1578,7 @@ public class Coordinator {
                 params.setBackend_num(backendNum++);
                 params.setQuery_globals(queryGlobals);
                 params.setQuery_options(queryOptions);
-                params.params.setSend_query_statistic_with_every_batch(
+                params.params.setSend_query_statistics_with_every_batch(
                         fragment.isTransferQueryStatisticWithEveryBatch());
                 if (queryOptions.getQuery_type() == TQueryType.LOAD) {
                     LoadErrorHub.Param param = Catalog.getCurrentCatalog().getLoadInstance().getLoadErrorHubInfo();

@@ -65,14 +65,14 @@ Status ExchangeNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     _convert_row_batch_timer = ADD_TIMER(runtime_profile(), "ConvertRowBatchTime");
     _merge_rows_counter = ADD_COUNTER(runtime_profile(), "MergeRows", TUnit::UNIT);
-    _sub_plan_statistic.reset(new QueryStatistic());
+    _sub_plan_statistics.reset(new QueryStatistics());
     // TODO: figure out appropriate buffer size
     DCHECK_GT(_num_senders, 0);
     _stream_recvr = state->exec_env()->stream_mgr()->create_recvr(
             state, _input_row_desc,
             state->fragment_instance_id(), _id,
             _num_senders, config::exchg_node_buffer_size_bytes,
-            state->runtime_profile(), _is_merging, _sub_plan_statistic.get());
+            state->runtime_profile(), _is_merging, _sub_plan_statistics.get());
     if (_is_merging) {
         RETURN_IF_ERROR(_sort_exec_exprs.prepare(
                     state, _row_descriptor, _row_descriptor, expr_mem_tracker()));
@@ -96,11 +96,11 @@ Status ExchangeNode::open(RuntimeState* state) {
     return Status::OK;
 }
 
-Status ExchangeNode::collect_query_statistic(QueryStatistic* statistic) {
-    RETURN_IF_ERROR(ExecNode::collect_query_statistic(statistic));
-    statistic->add_cpu_by_row(_merge_rows_counter->value());
-    QueryStatistic* sub_plan_statistic = _sub_plan_statistic.get();
-    statistic->add(*sub_plan_statistic);
+Status ExchangeNode::collect_query_statistics(QueryStatistics* statistics) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
+    statistics->add_process_rows(_merge_rows_counter->value());
+    QueryStatistics* sub_plan_statistics = _sub_plan_statistics.get();
+    statistics->add(*sub_plan_statistics);
     return Status::OK;
 }
 

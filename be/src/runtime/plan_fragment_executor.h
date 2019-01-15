@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "common/object_pool.h"
+#include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -205,8 +206,9 @@ private:
     RuntimeProfile::Counter* _average_thread_tokens;
 
     // This plan and it's sub plan query statisic. Because plan may have been finished
-    // when fe fetch data and query statistic, this will be shared with BufferControlBlock.
-    boost::shared_ptr<QueryStatistic> _query_statistic;
+    // when fe fetch data and query statistics, this will be shared with BufferControlBlock.
+    std::shared_ptr<QueryStatistics> _query_statistics;
+    bool _collect_query_statistics_every_batch;    
 
     ObjectPool* obj_pool() {
         return _runtime_state->obj_pool();
@@ -260,6 +262,9 @@ private:
     const DescriptorTbl& desc_tbl() {
         return _runtime_state->desc_tbl();
     }
+
+    void collect_query_statistics();
+
 };
 
 }

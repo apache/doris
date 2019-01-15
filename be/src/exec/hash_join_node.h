@@ -56,7 +56,7 @@ public:
     virtual Status prepare(RuntimeState* state);
     virtual Status open(RuntimeState* state);
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
-    virtual Status collect_query_statistic(QueryStatistic* statistic);
+    virtual Status collect_query_statistics(QueryStatistics* statistics);
     virtual Status close(RuntimeState* state);
 
     static const char* _s_llvm_class_name;

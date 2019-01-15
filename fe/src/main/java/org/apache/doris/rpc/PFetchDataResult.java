@@ -29,5 +29,5 @@ public class PFetchDataResult {
     @Protobuf(order = 3, required = false)
     public boolean eos;
     @Protobuf(order = 4, required = false)
-    public PQueryStatistic queryStatistic;
+    public PQueryStatistics statistics;
 }

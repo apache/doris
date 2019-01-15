@@ -94,15 +94,15 @@ public class ConnectProcessor {
     }
 
     private void auditAfterExec(String origStmt, StatementBase parsedStmt,
-                StmtExecutor.QueryStatistic queryStatistic) {
+                StmtExecutor.QueryStatistics statistics) {
         // slow query
         long elapseMs = System.currentTimeMillis() - ctx.getStartTime();
         // query state log
         ctx.getAuditBuilder().put("state", ctx.getState());
         ctx.getAuditBuilder().put("time", elapseMs);
-        Preconditions.checkNotNull(queryStatistic); 
-        ctx.getAuditBuilder().put("cpu", queryStatistic.getFormattingCpu());
-        ctx.getAuditBuilder().put("io", queryStatistic.getFormattingIo());
+        Preconditions.checkNotNull(statistics); 
+        ctx.getAuditBuilder().put("ProcessRows", statistics.getFormattingCpu());
+        ctx.getAuditBuilder().put("ScanRawData", statistics.getFormattingIo());
         ctx.getAuditBuilder().put("returnRows", ctx.getReturnRows());
         ctx.getAuditBuilder().put("stmt_id", ctx.getStmtId());
 
@@ -183,7 +183,7 @@ public class ConnectProcessor {
         // audit after exec
         // replace '\n' to '\\n' to make string in one line
         auditAfterExec(stmt.replace("\n", " \\n"), executor.getParsedStmt(), 
-                executor.getQueryStatisticForAuditLog());
+                executor.getQueryStatisticsForAuditLog());
     }
 
     // Get the column definitions of a table

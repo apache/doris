@@ -59,7 +59,7 @@ public:
     DataStreamSender(ObjectPool* pool, int sender_id,
                      const RowDescriptor& row_desc, const TDataStreamSink& sink,
                      const std::vector<TPlanFragmentDestination>& destinations,
-                     int per_channel_buffer_size, bool send_query_statistic_with_every_batch);
+                     int per_channel_buffer_size, bool send_query_statistics_with_every_batch);
     virtual ~DataStreamSender();
 
     virtual Status init(const TDataSink& thrift_sink);
