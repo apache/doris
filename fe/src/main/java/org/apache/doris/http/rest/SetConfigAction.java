@@ -70,7 +70,7 @@ public class SetConfigAction extends RestBaseAction {
         for (Field f : fields) {
             // ensure that field has "@ConfField" annotation
             ConfField anno = f.getAnnotation(ConfField.class);
-            if (anno == null) {
+            if (anno == null || !anno.mutable()) {
                 continue;
             }
 

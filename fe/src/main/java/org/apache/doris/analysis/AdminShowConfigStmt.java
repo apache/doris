@@ -17,32 +17,42 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.AdminSetConfigStmt.ConfigType;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ShowResultSetMetaData;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
 
-import java.util.List;
+/*
+ * Author: Chenmingyu
+ * Date: Jan 15, 2019
+ */
 
-public class AdminRepairTableStmt extends DdlStmt {
+// admin show frontend config
+public class AdminShowConfigStmt extends ShowStmt {
+    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("Key").add(
+            "Value").add("IsMutable").add("MasterOnly").add("Comment").build();
 
-    private TableRef tblRef;
-    private List<String> partitions = Lists.newArrayList();
+    private ConfigType type;
 
-    private long timeoutS = 0;
+    public AdminShowConfigStmt(ConfigType type) {
+        this.type = type;
+    }
 
-    public AdminRepairTableStmt(TableRef tblRef) {
-        this.tblRef = tblRef;
+    public ConfigType getType() {
+        return type;
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
 
         // check auth
@@ -50,38 +60,17 @@ public class AdminRepairTableStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
-        String dbName = null;
-        if (Strings.isNullOrEmpty(tblRef.getName().getDb())) {
-            dbName = analyzer.getDefaultDb();
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), tblRef.getName().getDb());
+        if (type != ConfigType.FRONTEND) {
+            throw new AnalysisException("Only support setting Frontend configs now");
         }
+    }
 
-        tblRef.getName().setDb(dbName);
-
-        if (tblRef.getPartitions() != null && !tblRef.getPartitions().isEmpty()) {
-            partitions.addAll(tblRef.getPartitions());
+    @Override
+    public ShowResultSetMetaData getMetaData() {
+        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
+        for (String title : TITLE_NAMES) {
+            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
-
-        timeoutS = 4 * 3600; // default 4 hours
-    }
-
-    public String getDbName() {
-        return tblRef.getName().getDb();
-    }
-
-    public String getTblName() {
-        return tblRef.getName().getTbl();
-    }
-
-    public List<String> getPartitions() {
-        return partitions;
-    }
-
-    public long getTimeoutS() {
-        return timeoutS;
+        return builder.build();
     }
 }
