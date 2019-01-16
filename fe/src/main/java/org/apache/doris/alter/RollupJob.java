@@ -953,7 +953,7 @@ public class RollupJob extends AlterJob {
         }
 
         this.finishedTime = System.currentTimeMillis();
-        LOG.info("finished schema change job: {}", tableId);
+        LOG.info("finished rollup job: {}", tableId);
     }
 
     @Override

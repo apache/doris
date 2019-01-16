@@ -723,7 +723,7 @@ public class RestoreJob extends AbstractJob {
                         Range<PartitionKey> remoteRange = remotePartitionInfo.getRange(remotePartId);
                         DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
                         localPartitionInfo.addPartition(restoredPart.getId(), remoteRange,
-                                                                  remoteDataProperty, (short) restoreReplicationNum);
+                                remoteDataProperty, (short) restoreReplicationNum);
                         localTbl.addPartition(restoredPart);
                     }
 
@@ -1205,8 +1205,8 @@ public class RestoreJob extends AbstractJob {
                         continue;
                     }
 
-                    // update partition committed version
-                    part.updateVisibleVersionAndVersionHash(entry.getValue().first, entry.getValue().second);
+                    // update partition visible version
+                    part.updateVersionForRestore(entry.getValue().first, entry.getValue().second);
 
                     // we also need to update the replica version of these overwritten restored partitions
                     for (MaterializedIndex idx : part.getMaterializedIndices()) {
