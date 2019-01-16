@@ -21,9 +21,6 @@ MAINTAINER tangxiaoqing214445
 
 ENV DEFAULT_DIR /var/local
 
-# change .bashrc
-RUN echo -e "if [ ! -d "/var/local/incubator-doris/thirdparty/installed" ]; then\n\tmkdir /var/local/incubator-doris/thirdparty/installed\n\tcp -rf /var/local/thirdparty/installed/*  /var/local/incubator-doris/thirdparty/installed/\n\tln -s /var/local/incubator-doris/thirdparty/installed/bin/thrift /usr/bin/thrift \nfi" >> /root/.bashrc
-
 ARG GCC_VERSION=7.3.0
 ARG GCC_URL=https://mirrors.ustc.edu.cn/gnu/gcc/gcc-${GCC_VERSION}
 
@@ -112,5 +109,6 @@ RUN git clone https://github.com/apache/incubator-doris.git \
     && mkdir -p ${DEFAULT_DIR}/thirdparty \
     && mv ${DEFAULT_DIR}/incubator-doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/
 
-WORKDIR ${DEFAULT_DIR}/incubator-doris
+RUN rm -rf ${DEFAULT_DIR}/incubator-doris
+WORKDIR ${DEFAULT_DIR}
 

@@ -35,11 +35,6 @@ export DORIS_HOME=${ROOT}
 
 . ${DORIS_HOME}/env.sh
 
-# build thirdparty libraries if necessary
-if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/librdkafka.a ]]; then
-    echo "Thirdparty libraries need to be build ..."
-    ${DORIS_THIRDPARTY}/build-thirdparty.sh
-fi
 
 PARALLEL=$[$(nproc)/4+1]
 
@@ -48,12 +43,14 @@ usage() {
   echo "
 Usage: $0 <options>
   Optional options:
-     --be       build Backend
-     --fe       build Frontend
-     --clean    clean and build target
-     
+     --be                             build Backend
+     --fe                             build Frontend
+     --clean                          clean and build target
+     --thirdparty /path/to/thirdparty the custom thirdparty path
+
   Eg.
     $0                      build Backend and Frontend without clean
+    $0 --thirdparty args    build Backend and Frontend with specified thirdparty path
     $0 --be                 build Backend without clean
     $0 --fe --clean         clean and build Frontend
     $0 --fe --be --clean    clean and build both Frontend and Backend
@@ -67,6 +64,7 @@ OPTS=$(getopt \
   -l 'be' \
   -l 'fe' \
   -l 'clean' \
+  -l 'thirdparty:' \
   -- "$@")
 
 if [ $? != 0 ] ; then
@@ -79,23 +77,34 @@ BUILD_BE=
 BUILD_FE=
 CLEAN=
 RUN_UT=
-if [ $# == 1 ] ; then
+THIRD_PARTY=
+if [ $# == 3 ] && [ "$1" == "--thirdparty" ] ; then
+    # default with specified third party path
+    BUILD_BE=1
+    BUILD_FE=1
+    CLEAN=0
+    RUN_UT=0
+    THIRD_PARTY=$2
+elif [ $# == 1 ] ; then
     # defuat
     BUILD_BE=1
     BUILD_FE=1
     CLEAN=0
     RUN_UT=0
+    THIRD_PARTY=""
 else
     BUILD_BE=0
     BUILD_FE=0
     CLEAN=0
     RUN_UT=0
-    while true; do 
+    THIRD_PARTY=""
+    while true; do
         case "$1" in
             --be) BUILD_BE=1 ; shift ;;
             --fe) BUILD_FE=1 ; shift ;;
             --clean) CLEAN=1 ; shift ;;
             --ut) RUN_UT=1   ; shift ;;
+            --thirdparty) THIRD_PARTY=$2 ; shift 2;;
             --) shift ;  break ;;
             *) ehco "Internal error" ; exit 1 ;;
         esac
@@ -112,14 +121,25 @@ echo "Get params:
     BUILD_FE -- $BUILD_FE
     CLEAN    -- $CLEAN
     RUN_UT   -- $RUN_UT
+    THIRD_PARTY -- $THIRD_PARTY
 "
+if [ "$THIRD_PARTY" != "" ]; then
+    echo "use specified thirdparty path $THIRD_PARTY"
+    export DORIS_THIRDPARTY=$THIRD_PARTY
+fi
+
+# build thirdparty libraries if necessary
+if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/librdkafka.a ]]; then
+    echo "Thirdparty libraries need to be build ..."
+    ${DORIS_THIRDPARTY}/build-thirdparty.sh
+fi
 
 # Clean and build generated code
 echo "Build generated code"
 cd ${DORIS_HOME}/gensrc
 if [ ${CLEAN} -eq 1 ]; then
    make clean
-fi 
+fi
 make
 cd ${DORIS_HOME}
 
@@ -178,7 +198,7 @@ if [ ${BUILD_BE} -eq 1 ]; then
     install -d ${DORIS_OUTPUT}/be/bin ${DORIS_OUTPUT}/be/conf \
                ${DORIS_OUTPUT}/be/lib/
 
-    cp -r -p ${DORIS_HOME}/be/output/bin/* ${DORIS_OUTPUT}/be/bin/ 
+    cp -r -p ${DORIS_HOME}/be/output/bin/* ${DORIS_OUTPUT}/be/bin/
     cp -r -p ${DORIS_HOME}/be/output/conf/* ${DORIS_OUTPUT}/be/conf/
     cp -r -p ${DORIS_HOME}/be/output/lib/* ${DORIS_OUTPUT}/be/lib/
 fi

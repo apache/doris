@@ -199,7 +199,7 @@ public class RoutineLoadManager {
                 Optional<RoutineLoadJob> optional = routineLoadJobList.parallelStream()
                         .filter(entity -> entity.getName().equals(name))
                         .filter(entity -> !entity.getState().isFinalState()).findFirst();
-                if (!optional.isPresent()) {
+                if (optional.isPresent()) {
                     return true;
                 }
             }
