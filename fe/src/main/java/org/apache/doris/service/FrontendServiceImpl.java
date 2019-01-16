@@ -619,9 +619,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("unknown database, database=" + dbName);
         }
         // begin
+        long timestamp = request.isSetTimestamp() ? request.getTimestamp() : -1;
         return Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                db.getId(), request.getLabel(), "streamLoad",
-                TransactionState.LoadJobSourceType.BACKEND_STREAMING);
+                db.getId(), request.getLabel(), timestamp, "streamLoad",
+                TransactionState.LoadJobSourceType.BACKEND_STREAMING, null);
     }
 
     @Override

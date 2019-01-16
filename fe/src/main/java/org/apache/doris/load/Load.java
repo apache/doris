@@ -1037,7 +1037,6 @@ public class Load {
      */
     private boolean isLabelUsed(long dbId, String label, long timestamp, boolean checkMini)
             throws DdlException {
-
         // check dbLabelToLoadJobs
         if (dbLabelToLoadJobs.containsKey(dbId)) {
             Map<String, List<LoadJob>> labelToLoadJobs = dbLabelToLoadJobs.get(dbId);

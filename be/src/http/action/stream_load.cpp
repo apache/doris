@@ -400,6 +400,10 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
         request.db = ctx->db;
         request.tbl = ctx->table;
         request.label = ctx->label;
+        // set timestamp
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        request.__set_timestamp(tv.tv_sec * 1000 + tv.tv_usec / 1000);
 
         TLoadTxnBeginResult result;
 #ifndef BE_TEST
