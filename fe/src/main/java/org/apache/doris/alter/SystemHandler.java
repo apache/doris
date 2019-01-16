@@ -38,6 +38,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -96,9 +97,6 @@ public class SystemHandler extends AlterHandler {
                 }
                 case RUNNING: {
                     // no timeout
-
-                    // send tasks
-                    decommissionBackendJob.sendTasks();
                     // try finish job
                     decommissionBackendJob.tryFinishJob();
                     break;
@@ -248,7 +246,7 @@ public class SystemHandler extends AlterHandler {
             // we need to make sure that there is enough space in this cluster
             // to store the data from decommissioned backends.
             long totalAvailableCapacityB = 0L;
-            long totalUnavailableCapacityB = 0L; // decommission + dead
+            long totalNeededCapacityB = 0L; // decommission + dead
             int availableBackendNum = 0;
             final Map<Long, Backend> decommBackendsInCluster = decommClusterBackendsMap.get(clusterName);
 
@@ -259,23 +257,25 @@ public class SystemHandler extends AlterHandler {
                 long backendId = entry.getKey();
                 Backend backend = entry.getValue();
                 if (decommBackendsInCluster.containsKey(backendId)
-                        || backend.isDecommissioned()
-                        || !backend.isAlive()) {
-                    totalUnavailableCapacityB += backend.getTotalCapacityB() - backend.getAvailableCapacityB();
+                        || !backend.isAvailable()) {
+                    totalNeededCapacityB += backend.getDataUsedCapacityB();
                 } else {
                     ++availableBackendNum;
                     totalAvailableCapacityB += backend.getAvailableCapacityB();
                 }
             }
 
-            // space not enough
-            if (totalAvailableCapacityB < totalUnavailableCapacityB) {
-                throw new DdlException("No available capacity for decommission in cluster: " + clusterName);
+            // if the space we needed is larger than the current available capacity * 0.85,
+            // we refuse this decommission operation.
+            if (totalNeededCapacityB > totalAvailableCapacityB * Config.storage_high_watermark_usage_percent) {
+                throw new DdlException("No available capacity for decommission in cluster: " + clusterName
+                        + ", needed: " + totalNeededCapacityB + ", available: " + totalAvailableCapacityB
+                        + ", threshold: " + Config.storage_high_watermark_usage_percent);
             }
 
             // backend num not enough
             if (availableBackendNum == 0) {
-                throw new DdlException("Too little available backends: " + availableBackendNum);
+                throw new DdlException("No available backend");
             }
 
             // check if meet replication number requirement

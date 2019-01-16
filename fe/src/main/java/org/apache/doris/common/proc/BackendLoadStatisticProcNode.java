@@ -26,7 +26,7 @@ import java.util.List;
 
 public class BackendLoadStatisticProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("RootPath").add("UsedCapacity").add("Capacity").add("UsedPercent")
+            .add("Path").add("PathHash").add("UsedCapacity").add("Capacity").add("UsedPercent")
             .build();
 
     private ClusterLoadStatistic clusterStat;

@@ -58,7 +58,7 @@ public class CommandLineOptions {
         StringBuilder sb = new StringBuilder();
         sb.append("print version: " + isVersion).append("\n");
         sb.append("helper node: " + helperNode).append("\n");
-        sb.append("bdb tool options: " + bdbToolOpts).append("\n");
+        sb.append("bdb tool options: \n(\n" + bdbToolOpts).append("\n)\n");
         return sb.toString();
     }
 

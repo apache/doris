@@ -180,10 +180,6 @@ public class Backend implements Writable {
             this.isAlive.set(true);
         }
 
-        if (isChanged) {
-            Catalog.getInstance().getEditLog().logBackendStateChange(this);
-        }
-
         heartbeatErrMsg = "";
     }
 
@@ -283,6 +279,10 @@ public class Backend implements Writable {
         return this.disksRef.get();
     }
 
+    public boolean hasPathHash() {
+        return disksRef.get().values().stream().allMatch(v -> v.hasPathHash());
+    }
+
     public List<String> getDiskInfosAsString() {
         ImmutableMap<String, DiskInfo> disks = disksRef.get();
         List<String> diskInfoStrings = new LinkedList<String>();
@@ -341,6 +341,11 @@ public class Backend implements Writable {
         // update status or add new diskInfo
         ImmutableMap<String, DiskInfo> disks = disksRef.get();
         Map<String, DiskInfo> newDisks = Maps.newHashMap();
+        /*
+         * set isChanged to true only if new disk is added or old disk is dropped.
+         * we ignore the change of capacity, because capacity info is only used in master FE.
+         */
+        boolean isChanged = false;
         for (TDisk tDisk : backendDisks.values()) {
             String rootPath = tDisk.getRoot_path();
             long totalCapacityB = tDisk.getDisk_total_capacity();
@@ -351,6 +356,7 @@ public class Backend implements Writable {
             DiskInfo diskInfo = disks.get(rootPath);
             if (diskInfo == null) {
                 diskInfo = new DiskInfo(rootPath);
+                isChanged = true;
                 LOG.info("add new disk info. backendId: {}, rootPath: {}", id, rootPath);
             }
             newDisks.put(rootPath, diskInfo);
@@ -362,31 +368,39 @@ public class Backend implements Writable {
                 diskInfo.setPathHash(tDisk.getPath_hash());
             }
 
+            if (tDisk.isSetStorage_medium()) {
+                diskInfo.setStorageMedium(tDisk.getStorage_medium());
+            }
+
             if (isUsed) {
-                diskInfo.setState(DiskState.ONLINE);
+                if (diskInfo.setState(DiskState.ONLINE)) {
+                    isChanged = true;
+                }
             } else {
-                diskInfo.setState(DiskState.OFFLINE);
+                if (diskInfo.setState(DiskState.OFFLINE)) {
+                    isChanged = true;
+                }
             }
             LOG.debug("update disk info. backendId: {}, diskInfo: {}", id, diskInfo.toString());
         }
 
         // remove not exist rootPath in backend
-        // no remove op. just log
         for (DiskInfo diskInfo : disks.values()) {
             String rootPath = diskInfo.getRootPath();
             if (!backendDisks.containsKey(rootPath)) {
+                isChanged = true;
                 LOG.warn("remove not exist rootPath. backendId: {}, rootPath: {}", id, rootPath);
             }
         }
 
-        // update disksRef
-        disksRef.set(ImmutableMap.copyOf(newDisks));
-
-        // log disk changing
-        Catalog.getInstance().getEditLog().logBackendStateChange(this);
-
-        // disks is changed, regenerated capacity metrics
-        MetricRepo.generateCapacityMetrics();
+        if (isChanged) {
+            // update disksRef
+            disksRef.set(ImmutableMap.copyOf(newDisks));
+            // log disk changing
+            Catalog.getInstance().getEditLog().logBackendStateChange(this);
+            // disks is changed, regenerated capacity metrics
+            MetricRepo.generateCapacityMetrics();
+        }
     }
 
     public static Backend read(DataInput in) throws IOException {
@@ -552,8 +566,10 @@ public class Backend implements Writable {
             if (!isAlive.get()) {
                 isChanged = true;
                 this.lastStartTime.set(hbResponse.getHbTime());
-                LOG.info("{} is alive,", this.toString());
+                LOG.info("{} is alive, last start time: {}", this.toString(), hbResponse.getHbTime());
                 this.isAlive.set(true);
+            } else if (this.lastStartTime.get() <= 0) {
+                this.lastStartTime.set(hbResponse.getHbTime());
             }
 
             heartbeatErrMsg = "";
@@ -568,6 +584,5 @@ public class Backend implements Writable {
 
         return isChanged;
     }
-
 }
 

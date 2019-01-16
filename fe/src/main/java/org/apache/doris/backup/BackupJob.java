@@ -515,7 +515,7 @@ public class BackupJob extends AbstractJob {
         state = BackupJobState.UPLOADING;
 
         // DO NOT write log here, upload tasks will be resend after FE crashed.
-        LOG.info("finished to send update tasks. {}", this);
+        LOG.info("finished to send upload tasks. {}", this);
     }
 
     private void waitingAllUploadingFinished() {

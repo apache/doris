@@ -36,6 +36,7 @@ public abstract class DistributionInfo implements Writable {
 
     public enum DistributionInfoType {
         HASH,
+        @Deprecated
         RANDOM
     }
 

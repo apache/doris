@@ -829,6 +829,7 @@ public class RestoreJob extends AbstractJob {
 
         // tablets
         for (MaterializedIndex remoteIdx : remotePart.getMaterializedIndices()) {
+            int schemaHash = remoteTbl.getSchemaHashByIndexId(remoteIdx.getId());
             int remotetabletSize = remoteIdx.getTablets().size();
             remoteIdx.clearTabletsForRestore();
             for (int i = 0; i < remotetabletSize; i++) {
@@ -850,7 +851,7 @@ public class RestoreJob extends AbstractJob {
                 for (Long beId : beIds) {
                     long newReplicaId = catalog.getNextId();
                     Replica newReplica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
-                            visibleVersion, visibleVersionHash);
+                            visibleVersion, visibleVersionHash, schemaHash);
                     newTablet.addReplica(newReplica, true /* is restore */);
                 }
             }

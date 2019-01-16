@@ -21,8 +21,8 @@ import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TTaskType;
 
 public abstract class AgentTask {
-    private long signature;
-    private long backendId;
+    protected long signature;
+    protected long backendId;
     protected TTaskType taskType;
 
     protected long dbId;
