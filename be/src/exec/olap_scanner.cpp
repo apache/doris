@@ -121,6 +121,7 @@ Status OlapScanner::_prepare(
 
 Status OlapScanner::open() {
     RETURN_IF_ERROR(_ctor_status);
+    SCOPED_TIMER(_parent->_reader_init_timer);
 
     if (_conjunct_ctxs.size() > _direct_conjunct_size) {
         _use_pushdown_conjuncts = true;
@@ -430,6 +431,8 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_block_load_timer, _reader->stats().block_load_ns);
     COUNTER_UPDATE(_parent->_block_load_counter, _reader->stats().blocks_load);
     COUNTER_UPDATE(_parent->_block_fetch_timer, _reader->stats().block_fetch_ns);
+    COUNTER_UPDATE(_parent->_block_seek_timer, _reader->stats().block_seek_ns);
+    COUNTER_UPDATE(_parent->_block_convert_timer, _reader->stats().block_convert_ns);
 
     COUNTER_UPDATE(_parent->_raw_rows_counter, _reader->stats().raw_rows_read);
     // COUNTER_UPDATE(_parent->_filtered_rows_counter, _reader->stats().num_rows_filtered);
