@@ -18,6 +18,8 @@
 #ifndef DORIS_BE_EXEC_QUERY_STATISTICS_H
 #define DORIS_BE_EXEC_QUERY_STATISTICS_H
 
+#include <mutex>
+
 #include "gen_cpp/data.pb.h"
 #include "util/spinlock.h"
 
@@ -72,7 +74,7 @@ class QueryStatisticsRecvr {
 public:
 
     void insert(const PQueryStatistics& statistics, int sender_id) {
-        boost::lock_guard<SpinLock> l(_lock);
+        std::lock_guard<SpinLock> l(_lock);
         QueryStatistics* query_statistics = nullptr;
         auto iter = _query_statistics.find(sender_id);
         if (iter == _query_statistics.end()) {
@@ -85,7 +87,7 @@ public:
     }
 
     void add_to(QueryStatistics* statistics) {
-        boost::lock_guard<SpinLock> l(_lock);
+        std::lock_guard<SpinLock> l(_lock);
         auto iter = _query_statistics.begin();
         while (iter != _query_statistics.end()) {
             statistics->add(*(iter->second));

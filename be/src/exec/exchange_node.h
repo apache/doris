@@ -113,7 +113,7 @@ private:
     RuntimeProfile::Counter* _merge_rows_counter;
 
     // Sub plan query statistics receiver. 
-    boost::scoped_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
+    std::unique_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 };
 
 };
