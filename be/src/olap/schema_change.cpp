@@ -1869,7 +1869,7 @@ OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
     // 必须包含最新版本的delta
     if (request_version >= 0) {
         vector<Version> span_versions;
-        ref_tablet->select_versions_to_span(Version(0, request_version), &span_versions);
+        ref_tablet->capture_consistent_versions(Version(0, request_version), &span_versions);
 
         // get all version list
         vector<VersionEntity> all_versions;

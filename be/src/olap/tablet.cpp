@@ -233,8 +233,9 @@ OLAPStatus Tablet::delete_inc_rowset_by_version(const Version& version) {
 }
 
 void Tablet::calc_missed_versions(int64_t spec_version,
-                                 vector<Version>* missed_versions) const {
+                                  vector<Version>* missed_versions) {
     DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
+    ReadLock rdlock(&_meta_lock);
     std::list<Version> existing_versions;
     for (auto& rs : _tablet_meta.all_rs_metas()) {
         existing_versions.emplace_back(rs->version());
@@ -262,6 +263,48 @@ void Tablet::calc_missed_versions(int64_t spec_version,
     for (int64_t i = last_version + 1; i <= spec_version; ++i) {
         missed_versions->emplace_back(i, i);
     }
+}
+
+OLAPStatus Tablet::last_continuous_version_from_begining(Version* version, VersionHash* v_hash) {
+    ReadLock rdlock(&_meta_lock);
+    std::vector<std::pair<Version, VersionHash>> existing_versions;
+    for (auto& rs : _tablet_meta.all_rs_metas()) {
+        existing_versions.emplace_back(rs->version() , rs->version_hash());
+    }
+
+    // sort the existing versions in ascending order
+    std::sort(existing_versions.begin(), existing_versions.end(),
+              [](const std::pair<Version, VersionHash>& left,
+                 const std::pair<Version, VersionHash>& right) {
+                 // simple because 2 versions are certainly not overlapping
+                 return left.first.first < right.first.first;
+              });
+    Version last_continuous_version = { -1, 0 };
+    VersionHash last_continuous_version_hash = 0;
+    for (int i = 0; i < existing_versions.size(); ++i) {
+        if (existing_versions[i].first.first > last_continuous_version.first + 1) {
+            break;
+        }
+        last_continuous_version = existing_versions[i].first;
+        last_continuous_version_hash = existing_versions[i].second;
+    }
+    *version = last_continuous_version;
+    *v_hash = last_continuous_version_hash;
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus Tablet::get_tablet_info(TTabletInfo* tablet_info) {
+    ReadLock rdlock(&_meta_lock);
+    tablet_info->tablet_id = _tablet_meta.tablet_id();
+    tablet_info->schema_hash = _tablet_meta.schema_hash();
+    tablet_info->row_count = _tablet_meta.num_rows();
+    tablet_info->data_size = _tablet_meta.data_size();
+    Version version = { -1, 0 };
+    VersionHash v_hash = 0;
+    last_continuous_version_from_begining(&version, &v_hash);
+    tablet_info->version = version.second;
+    tablet_info->version_hash = v_hash;
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus Tablet::modify_rowsets(std::vector<Version>* old_version,
@@ -474,20 +517,14 @@ size_t Tablet::get_row_size() const {
     return _schema->get_row_size();
 }
 
-size_t Tablet::get_data_size() const {
-    size_t total_size = 0;
-    for (auto& it : _rs_version_map) {
-        total_size += it.second->data_disk_size();
-    }
-    return total_size;
+size_t Tablet::get_data_size() {
+    ReadLock rdlock(&_meta_lock);
+    return _tablet_meta.data_size();
 }
 
-size_t Tablet::num_rows() const {
-    size_t num_rows = 0;
-    for (auto& it : _rs_version_map) {
-        num_rows += it.second->num_rows();
-    }
-    return num_rows;
+size_t Tablet::num_rows() {
+    ReadLock rdlock(&_meta_lock);
+    return _tablet_meta.num_rows();
 }
 
 bool Tablet::is_deletion_rowset(const Version& version) {

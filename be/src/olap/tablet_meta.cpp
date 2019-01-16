@@ -164,13 +164,13 @@ OLAPStatus TabletMeta::delete_inc_rs_meta_by_version(const Version& version) {
     return OLAP_SUCCESS;
 }
 
-const RowsetMeta* TabletMeta::get_inc_rowset(const Version& version) const {
+const RowsetMetaSharedPtr TabletMeta::get_inc_rowset(const Version& version) const {
     std::lock_guard<std::mutex> lock(_mutex);
-    const RowsetMeta* rs_meta = nullptr;
+    RowsetMetaSharedPtr rs_meta = nullptr;
     for (int i = 0; i < _inc_rs_metas.size(); ++i) {
         if (_inc_rs_metas[i]->version().first == version.first
               && _inc_rs_metas[i]->version().second == version.second) {
-            rs_meta = _inc_rs_metas[i].get();
+            rs_meta = _inc_rs_metas[i];
             break;
         }
     }

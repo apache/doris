@@ -45,7 +45,7 @@ public:
     // set reverse to true if need read in reverse order.
     OLAPStatus init(Reader* reader);
 
-    OLAPStatus add_child(ColumnData* data, RowBlock* block);
+    OLAPStatus add_child(RowsetReaderSharedPtr rs_reader, RowBlock* block);
 
     // Get top row of the heap, NULL if reach end.
     const RowCursor* current_row(bool* delete_flag) const {
@@ -55,6 +55,19 @@ public:
         return nullptr;
     }
 
+    bool has_next() {
+        if (_merge) {
+            // TODO, iterator mergeheap
+            return true;    
+        } else {
+            for (auto& child_ctx : _children) {
+                if (child_ctx->has_next()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
     // Pop the top element and rebuild the heap to 
     // get the next row cursor.
     inline OLAPStatus next(const RowCursor** row, bool* delete_flag);
@@ -65,23 +78,19 @@ public:
 private:
     class ChildCtx {
     public:
-        ChildCtx(ColumnData* data, RowBlock* block, Reader* reader)
-                : _data(data),
-                _is_delete(data->delete_flag()),
-                _reader(reader),
-                _row_block(block) {
-        }
+        ChildCtx(RowsetReaderSharedPtr rs_reader, RowBlock* block, Reader* reader)
+                : _rs_reader(rs_reader),
+                  _is_delete(rs_reader->delete_flag()),
+                  _reader(reader),
+                  _row_block(block) { }
 
         OLAPStatus init() {
-            auto res = _row_cursor.init(_data->tablet()->tablet_schema());
+            auto res = _row_cursor.init(_reader->_tablet->tablet_schema());
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to init row cursor, res=" << res;
                 return res;
             }
-            res = _refresh_current_row();
-            if (res != OLAP_SUCCESS) {
-                return res;
-            }
+            RETURN_NOT_OK(_refresh_current_row());
             return OLAP_SUCCESS;
         }
 
@@ -95,7 +104,11 @@ private:
         }
 
         int32_t version() const {
-            return _data->version().second;
+            return _rs_reader->version().second;
+        }
+
+        bool has_next() {
+            return _rs_reader->has_next(); 
         }
 
         OLAPStatus next(const RowCursor** row, bool* delete_flag) {
@@ -115,7 +128,7 @@ private:
                     size_t pos = _row_block->pos();
                     _row_block->get_row(pos, &_row_cursor);
                     if (_row_block->block_status() == DEL_PARTIAL_SATISFIED &&
-                        _reader->_delete_handler.is_filter_data(_data->version().second, _row_cursor)) {
+                        _reader->_delete_handler.is_filter_data(_rs_reader->version().second, _row_cursor)) {
                         _reader->_stats.rows_del_filtered++;
                         _row_block->pos_inc();
                         continue;
@@ -123,7 +136,7 @@ private:
                     _current_row = &_row_cursor;
                     return OLAP_SUCCESS;
                 } else {
-                    auto res = _data->get_next_block(&_row_block);
+                    auto res = _rs_reader->next_block(&_row_block);
                     if (res != OLAP_SUCCESS) {
                         _current_row = nullptr;
                         return res;
@@ -134,7 +147,7 @@ private:
             return OLAP_ERR_DATA_EOF;
         }
 
-        ColumnData* _data = nullptr;
+        RowsetReaderSharedPtr _rs_reader;
         const RowCursor* _current_row = nullptr;
         bool _is_delete = false;
         Reader* _reader;
@@ -187,8 +200,8 @@ OLAPStatus CollectIterator::init(Reader* reader) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus CollectIterator::add_child(ColumnData* data, RowBlock* block) {
-    std::unique_ptr<ChildCtx> child(new ChildCtx(data, block, _reader));
+OLAPStatus CollectIterator::add_child(RowsetReaderSharedPtr rs_reader, RowBlock* block) {
+    std::unique_ptr<ChildCtx> child(new ChildCtx(rs_reader, block, _reader));
     RETURN_NOT_OK(child->init());
     if (child->current_row() == nullptr) {
         return OLAP_SUCCESS;
@@ -314,16 +327,6 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
         return res;
     }
 
-    for (auto i_data : _rs_readers) {
-        i_data->set_stats(&_stats);
-    }
-
-    bool eof = false;
-    if (OLAP_SUCCESS != (res = _attach_data_to_merge_set(true, &eof))) {
-        OLAP_LOG_WARNING("failed to attaching data to merge set. [res=%d]", res);
-        return res;
-    }
-
     switch (_tablet->keys_type()) {
     case KeysType::DUP_KEYS:
         _next_row_func = &Reader::_dup_key_next_row;
@@ -344,16 +347,9 @@ OLAPStatus Reader::init(const ReaderParams& read_params) {
 }
 
 OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, bool* eof) {
-    *eof = false;
-    if (_next_key == nullptr) {
-        auto res = _attach_data_to_merge_set(false, eof);
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("failed to attach data to merge set.");
-            return res;
-        }
-        if (*eof) {
-            return OLAP_SUCCESS;
-        }
+    *eof = _collect_iter->has_next();
+    if (*eof) {
+        return OLAP_SUCCESS;
     }
     row_cursor->copy_without_pool(*_next_key);
     auto res = _collect_iter->next(&_next_key, &_next_delete_flag);
@@ -366,17 +362,9 @@ OLAPStatus Reader::_dup_key_next_row(RowCursor* row_cursor, bool* eof) {
 }
 
 OLAPStatus Reader::_agg_key_next_row(RowCursor* row_cursor, bool* eof) {
-    *eof = false;
-
-    if (NULL == _next_key) {
-        auto res = _attach_data_to_merge_set(false, eof);
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("failed to attach data to merge set.");
-            return res;
-        }
-        if (*eof) {
-            return OLAP_SUCCESS;
-        }
+    *eof = _collect_iter->has_next();
+    if (*eof) {
+        return OLAP_SUCCESS;
     }
     row_cursor->agg_init(*_next_key);
     int64_t merged_count = 0;
@@ -409,15 +397,9 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, bool* eof) {
     *eof = false;
     bool cur_delete_flag = false;
     do {
-        if (NULL == _next_key) {
-            auto res = _attach_data_to_merge_set(false, eof);
-            if (OLAP_SUCCESS != res) {
-                OLAP_LOG_WARNING("failed to attach data to merge set.");
-                return res;
-            }
-            if (*eof) {
-                return OLAP_SUCCESS;
-            }
+        *eof = _collect_iter->has_next();
+        if (*eof) {
+            return OLAP_SUCCESS;
         }
     
         cur_delete_flag = _next_delete_flag;
@@ -471,7 +453,7 @@ void Reader::close() {
     _tablet->release_rs_readers(&_own_rs_readers);
 
     for (auto pred : _col_predicates) {
-        delete pred;
+        delete pred.second;
     }
 
     delete _collect_iter;
@@ -489,8 +471,8 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
         _tablet->release_header_lock();
 
         if (_own_rs_readers.size() < 1) {
-            LOG(WARNING) << "fail to acquire data sources. [table_name='" << _tablet->full_name()
-                         << "' version=" << _version.first << "-" << _version.second << "]";
+            LOG(WARNING) << "fail to acquire data sources. tablet=" << _tablet->full_name()
+                         << ", version=" << _version.first << "-" << _version.second;
             return OLAP_ERR_VERSION_NOT_EXIST;
         }
         rs_readers = &_own_rs_readers;
@@ -503,43 +485,93 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
         is_using_cache = false;
     }
 
-    for (auto i_data: *rs_readers) {
-        // skip empty version
-        if (i_data->empty() || i_data->zero_num_rows()) {
-            continue;
-        }
-        i_data->set_delete_handler(_delete_handler);
-        i_data->set_read_params(_return_columns,
-                                _load_bf_columns,
-                                _conditions,
-                                _col_predicates,
-                                _keys_param.start_keys,
-                                _keys_param.end_keys,
-                                is_using_cache,
-                                read_params.runtime_state);
-        if (i_data->delta_pruning_filter()) {
-            VLOG(3) << "filter delta in query in condition:"
-                    << i_data->version().first << ", " << i_data->version().second;
-            _stats.rows_stats_filtered += i_data->num_rows();
-            continue;
-        }
-        int ret = i_data->delete_pruning_filter();
-        if (ret == DEL_SATISFIED) {
-            VLOG(3) << "filter delta in delete predicate:"
-                    << i_data->version().first << ", " << i_data->version().second;
-            _stats.rows_del_filtered += i_data->num_rows();
-            continue;
-        } else if (ret == DEL_PARTIAL_SATISFIED) {
-            VLOG(3) << "filter delta partially in delete predicate:"
-                    << i_data->version().first << ", " << i_data->version().second;
-            i_data->set_delete_status(DEL_PARTIAL_SATISFIED);
+    bool eof = false;
+    RowCursor* start_key = nullptr;
+    RowCursor* end_key = nullptr;
+    bool is_lower_key_included = false;
+    bool is_upper_key_included = false;
+    for (int i = 0; i < _keys_param.start_keys.size(); ++i) {
+        start_key = _keys_param.start_keys[i];
+        end_key = _keys_param.end_keys[i];
+        if (_keys_param.end_range.compare("lt") == 0) {
+            is_upper_key_included = false;
+        } else if (_keys_param.end_range.compare("le")) {
+            is_upper_key_included = true;
         } else {
-            VLOG(3) << "not filter delta in delete predicate:"
-                    << i_data->version().first << ", " << i_data->version().second;
-            i_data->set_delete_status(DEL_NOT_SATISFIED);
+            LOG(WARNING) << "reader params end_range is error. "
+                         << "range=" << _keys_param.to_string();
+            return OLAP_ERR_READER_GET_ITERATOR_ERROR;
         }
-        _rs_readers.push_back(i_data);
+
+        if (_keys_param.range.compare("gt") == 0) {
+            if (end_key != nullptr && start_key->cmp(*end_key) >= 0) {
+                VLOG(3) << "return EOF when range=" << _keys_param.range
+                        << ", start_key=" << start_key->to_string()
+                        << ", end_key=" << end_key->to_string();
+                eof = true;
+                break;
+            }
+            is_lower_key_included = true;
+        } else if (_keys_param.range.compare("ge") == 0) {
+            if (end_key != nullptr && start_key->cmp(*end_key) > 0) {
+                VLOG(3) << "return EOF when range=" << _keys_param.range
+                        << ", start_key=" << start_key->to_string()
+                        << ", end_key=" << end_key->to_string();
+                eof = true;
+                break;
+            }
+            is_lower_key_included = false;
+        } else if (0 == _keys_param.range.compare("eq")) {
+            is_lower_key_included = false;
+            is_upper_key_included = true;
+        } else {
+            LOG(WARNING) << "reader params range is error. "
+                         << "range=" << _keys_param.to_string();
+            return OLAP_ERR_READER_GET_ITERATOR_ERROR;
+        }
+        _is_lower_keys_included.push_back(is_lower_key_included);
+        _is_upper_keys_included.push_back(is_upper_key_included);
     }
+
+    if (eof) { return OLAP_SUCCESS; }
+
+    RowsetReaderContextBuilder context_builder;
+    context_builder.set_tablet_schema(&_tablet->tablet_schema())
+                   .set_return_columns(&_return_columns)
+                   .set_load_bf_columns(&_load_bf_columns)
+                   .set_conditions(&_conditions)
+                   .set_predicates(&_col_predicates)
+                   .set_lower_bound_keys(&_keys_param.start_keys)
+                   .set_is_lower_keys_included(&_is_lower_keys_included)
+                   .set_upper_bound_keys(&_keys_param.end_keys)
+                   .set_is_upper_keys_included(&_is_upper_keys_included)
+                   .set_delete_handler(&_delete_handler)
+                   .set_stats(&_stats)
+                   .set_is_using_cache(is_using_cache)
+                   .set_runtime_state(read_params.runtime_state);
+    ReaderContext context = context_builder.build();
+    for (auto& rs_reader : *rs_readers) {
+        rs_reader->init(&context);
+        _rs_readers.push_back(rs_reader);
+    }
+
+    for (auto& rs_reader : _rs_readers) {
+        RowBlock* block = nullptr;
+        auto res = rs_reader->next_block(&block);
+        if (res == OLAP_SUCCESS) {
+            res = _collect_iter->add_child(rs_reader, block);
+            if (res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF) {
+                LOG(WARNING) << "failed to add child to iterator";
+                return res;
+            }
+        } else if (res == OLAP_ERR_DATA_EOF) {
+            continue;
+        } else {
+            LOG(WARNING) << "prepare block failed, res=" << res;
+            return res;
+        }
+    }
+    _next_key = _collect_iter->current_row(&_next_delete_flag);
 
     return OLAP_SUCCESS;
 }
@@ -639,108 +671,6 @@ OLAPStatus Reader::_init_return_columns(const ReaderParams& read_params) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Reader::_attach_data_to_merge_set(bool first, bool *eof) {
-    OLAPStatus res = OLAP_SUCCESS;
-    *eof = false;
-
-    do {
-        RowCursor *start_key = NULL;
-        RowCursor *end_key = NULL;
-        bool find_last_row = false;
-        bool end_key_find_last_row = false;
-        _collect_iter->clear();
-
-        if (_keys_param.start_keys.size() > 0) {
-            if (_next_key_index >= _keys_param.start_keys.size()) {
-                *eof = true;
-                VLOG(3) << "can NOT attach while start_key has been used.";
-                return res;
-            }
-            auto cur_key_index = _next_key_index++;
-            
-            start_key = _keys_param.start_keys[cur_key_index];
-
-            if (0 != _keys_param.end_keys.size()) {
-                end_key = _keys_param.end_keys[cur_key_index];
-                if (0 == _keys_param.end_range.compare("lt")) {
-                    end_key_find_last_row = false;
-                } else if (0 == _keys_param.end_range.compare("le")) {
-                    end_key_find_last_row = true;
-                } else {
-                    OLAP_LOG_WARNING("reader params end_range is error. [range='%s']", 
-                                     _keys_param.to_string().c_str());
-                    res = OLAP_ERR_READER_GET_ITERATOR_ERROR;
-                    return res;
-                }
-            }
-            
-            if (0 == _keys_param.range.compare("gt")) {
-                if (NULL != end_key
-                        && start_key->cmp(*end_key) >= 0) {
-                    VLOG(10) << "return EOF when range=" << _keys_param.range
-                             << ", start_key=" << start_key->to_string()
-                             << ", end_key=" << end_key->to_string();
-                    *eof = true;
-                    return res;
-                }
-                
-                find_last_row = true;
-            } else if (0 == _keys_param.range.compare("ge")) {
-                if (NULL != end_key
-                        && start_key->cmp(*end_key) > 0) {
-                    VLOG(10) << "return EOF when range=" << _keys_param.range
-                             << ", start_key=" << start_key->to_string()
-                             << ", end_key=" << end_key->to_string();
-                    *eof = true;
-                    return res;
-                }
-                
-                find_last_row = false;
-            } else if (0 == _keys_param.range.compare("eq")) {
-                find_last_row = false;
-                end_key = start_key;
-                end_key_find_last_row = true;
-            } else {
-                OLAP_LOG_WARNING(
-                        "reader params range is error. [range='%s']", 
-                        _keys_param.to_string().c_str());
-                res = OLAP_ERR_READER_GET_ITERATOR_ERROR;
-                return res;
-            }
-        } else if (false == first) {
-            *eof = true;
-            return res;
-        }
-
-        for (auto data : _rs_readers) {
-            RowBlock* block = nullptr;
-            auto res = data->prepare_block_read(
-                start_key, find_last_row, end_key, end_key_find_last_row, &block);
-            if (res == OLAP_SUCCESS) {
-                res = _collect_iter->add_child(data, block);
-                if (res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF) {
-                    LOG(WARNING) << "failed to add child to iterator";
-                    return res;
-                }
-            } else if (res == OLAP_ERR_DATA_EOF) {
-                continue;
-            } else {
-                LOG(WARNING) << "prepare block failed, res=" << res;
-                return res;
-            }
-        }
-
-        _next_key = _collect_iter->current_row(&_next_delete_flag);
-        if (_next_key != NULL) {
-            break;
-        }
-
-        first = false;
-    } while (NULL == _next_key);
-
-    return res;
-}
-
 OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -810,7 +740,7 @@ OLAPStatus Reader::_init_conditions_param(const ReaderParams& read_params) {
         _conditions.append_condition(read_params.conditions[i]);
         ColumnPredicate* predicate = _parse_to_predicate(read_params.conditions[i]);
         if (predicate != NULL) {
-            _col_predicates.push_back(predicate);
+            _col_predicates[read_params.conditions[i].column_name] = predicate;
         }
     }
 

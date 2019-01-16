@@ -114,11 +114,11 @@ bool AlphaRowset::empty() const {
 }
 
 bool AlphaRowset::zero_num_rows() const {
-    return _rowset_meta->row_number() == 0;
+    return _rowset_meta->num_rows() == 0;
 }
 
 size_t AlphaRowset::num_rows() const {
-    return _rowset_meta->row_number();
+    return _rowset_meta->num_rows();
 }
 
 OLAPStatus AlphaRowset::_init_segment_groups() {
