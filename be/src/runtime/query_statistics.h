@@ -37,11 +37,6 @@ public:
         scan_bytes += other.scan_bytes;
     }
 
-    void add(const PQueryStatistics& other) {
-        scan_rows += other.scan_rows();
-        scan_bytes += other.scan_bytes();
-    }    
-
     void add_scan_rows(long scan_rows) {
         this->scan_rows += scan_rows;
     }
