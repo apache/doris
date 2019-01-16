@@ -396,7 +396,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
             }
         } catch (UserException e) {
-            LOG.warn("add mini load error", e);
+            LOG.warn("add mini load error: {}", e.getMessage());
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {

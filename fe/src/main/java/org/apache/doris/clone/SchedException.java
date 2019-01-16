@@ -15,35 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
+package org.apache.doris.clone;
 
-import com.google.common.collect.Lists;
+public class SchedException extends Exception {
+    private static final long serialVersionUID = 4233856721704062083L;
 
-import org.junit.Test;
-
-import java.util.List;
-import java.util.Random;
-
-public class LoadBalancerTest {
-
-    @Test
-    public void test() {
-        Integer[] keys = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 0 };
-        LoadBalancer<Integer> balancer = new LoadBalancer<Integer>(1L);
-
-        Random random = new Random(System.currentTimeMillis());
-
-        for (int i = 0; i < 10000; i++) {
-            List<Integer> randomKeys = Lists.newArrayList();
-            for (int j = 0; j < 3; j++) {
-                int index = Math.abs(random.nextInt()) % 10;
-                randomKeys.add(keys[index]);
-            }
-
-            balancer.chooseKey(randomKeys);
-        }
-
-        System.out.println(balancer);
+    public enum Status {
+        SCHEDULE_FAILED, // failed to schedule the tablet, this should only happen in scheduling pending tablets.
+        RUNNING_FAILED, // failed to running the clone task, this should only happen in handling running tablets.
+        UNRECOVERABLE, // unable to go on, the tablet should be removed from tablet scheduler.
+        FINISHED // schedule is done, remove the tablet from tablet scheduler with status FINISHED
     }
 
+    private Status status;
+
+    public SchedException(Status status, String errorMsg) {
+        super(errorMsg);
+        this.status = status;
+    }
+
+    public Status getStatus() {
+        return status;
+    }
 }

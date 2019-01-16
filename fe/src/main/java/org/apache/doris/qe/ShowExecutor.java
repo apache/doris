@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.AdminShowConfigStmt;
 import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
 import org.apache.doris.analysis.DescribeStmt;
@@ -75,6 +76,7 @@ import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -108,7 +110,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.lang.annotation.AnnotationFormatError;
 import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
@@ -209,6 +210,8 @@ public class ShowExecutor {
             handleAdminShowTabletStatus();
         } else if (stmt instanceof AdminShowReplicaDistributionStmt) {
             handleAdminShowTabletDistribution();
+        } else if (stmt instanceof AdminShowConfigStmt) {
+            handleAdminShowConfig();
         } else {
             handleEmtpy();
         }
@@ -1146,24 +1149,35 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
 
-    private void handleAdminShowTabletStatus() {
+    private void handleAdminShowTabletStatus() throws AnalysisException {
         AdminShowReplicaStatusStmt showStmt = (AdminShowReplicaStatusStmt) stmt;
         List<List<String>> results;
         try {
             results = MetadataViewer.getTabletStatus(showStmt);
         } catch (DdlException e) {
-            throw new AnnotationFormatError(e.getMessage());
+            throw new AnalysisException(e.getMessage());
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 
-    private void handleAdminShowTabletDistribution() {
+    private void handleAdminShowTabletDistribution() throws AnalysisException {
         AdminShowReplicaDistributionStmt showStmt = (AdminShowReplicaDistributionStmt) stmt;
         List<List<String>> results;
         try {
             results = MetadataViewer.getTabletDistribution(showStmt);
         } catch (DdlException e) {
-            throw new AnnotationFormatError(e.getMessage());
+            throw new AnalysisException(e.getMessage());
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+    }
+
+    private void handleAdminShowConfig() throws AnalysisException {
+        AdminShowConfigStmt showStmt = (AdminShowConfigStmt) stmt;
+        List<List<String>> results;
+        try {
+            results = ConfigBase.getConfigInfo();
+        } catch (DdlException e) {
+            throw new AnalysisException(e.getMessage());
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }

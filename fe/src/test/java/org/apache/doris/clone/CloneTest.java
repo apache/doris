@@ -36,7 +36,6 @@ import org.apache.doris.task.CloneTask;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletInfo;
-
 import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;

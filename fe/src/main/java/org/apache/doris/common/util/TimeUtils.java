@@ -100,7 +100,7 @@ public class TimeUtils {
     }
 
     public static String longToTimeString(long timeStamp, SimpleDateFormat dateFormat) {
-        if (timeStamp < 0L) {
+        if (timeStamp <= 0L) {
             return "N/A";
         }
         return dateFormat.format(new Date(timeStamp));

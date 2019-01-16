@@ -330,7 +330,7 @@ public class Coordinator {
         // TODO(zc): add a switch to close this function
         StringBuilder sb = new StringBuilder();
         int idx = 0;
-        sb.append("id=").append(DebugUtil.printId(queryId)).append(",");
+        sb.append("query id=").append(DebugUtil.printId(queryId)).append(",");
         sb.append("fragment=[");
         for (Map.Entry<PlanFragmentId, FragmentExecParams> entry : fragmentExecParamsMap.entrySet()) {
             if (idx++ != 0) {

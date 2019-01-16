@@ -17,10 +17,10 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.collect.Lists;
+
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-
-import com.google.common.collect.Lists;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -152,6 +152,15 @@ public class MaterializedIndex extends MetaObject implements Writable {
         this.rollupFinishedVersion = -1L;
     }
 
+    public long getDataSize() {
+        long dataSize = 0;
+        for (Tablet tablet : getTablets()) {
+            dataSize += tablet.getDataSize(false);
+        }
+        return dataSize;
+    }
+
+    @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
 
@@ -170,6 +179,7 @@ public class MaterializedIndex extends MetaObject implements Writable {
         out.writeLong(rollupFinishedVersion);
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
@@ -195,6 +205,7 @@ public class MaterializedIndex extends MetaObject implements Writable {
         return materializedIndex;
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;

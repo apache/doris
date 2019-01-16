@@ -38,7 +38,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.LoadBalancer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.DeleteInfo;
@@ -452,7 +451,6 @@ public class BackupJob_D extends AbstractBackupJob_D {
 
     private void snapshot(Database db) throws DdlException {
         AgentBatchTask batchTask = new AgentBatchTask();
-        LoadBalancer<Long> loadBalancer = new LoadBalancer<Long>(1L);
         long dbId = db.getId();
         db.readLock();
         try {
@@ -502,7 +500,7 @@ public class BackupJob_D extends AbstractBackupJob_D {
                                 throw new DdlException(msg);
                             }
 
-                            long chosenBackendId = loadBalancer.chooseKey(backendIds);
+                            long chosenBackendId = -1;
                             SnapshotTask task = new SnapshotTask(null, chosenBackendId, tabletId, jobId, dbId, tableId,
                                                                  partitionId, indexId, tabletId,
                                                                  versionInfo.first, versionInfo.second,

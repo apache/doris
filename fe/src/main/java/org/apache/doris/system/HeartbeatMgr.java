@@ -208,6 +208,7 @@ public class HeartbeatMgr extends Daemon {
             boolean ok = false;
             try {
                 client = ClientPool.heartbeatPool.borrowObject(beAddr);
+
                 TMasterInfo copiedMasterInfo = new TMasterInfo(masterInfo.get());
                 copiedMasterInfo.setBackend_ip(backend.getHost());
                 THeartbeatResult result = client.heartbeat(copiedMasterInfo);

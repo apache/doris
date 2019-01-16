@@ -38,10 +38,11 @@ import java.io.IOException;
  */
 public class Column implements Writable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
-    private static final String HLL_EMPTY_SET = "0";
     private String name;
     private Type type;
     private AggregateType aggregationType;
+
+    // if isAggregationTypeImplicit is true, the actual aggregation type will not be shown in show create table
     private boolean isAggregationTypeImplicit;
     private boolean isKey;
     private boolean isAllowNull;
@@ -145,6 +146,10 @@ public class Column implements Writable {
 
     public void setAggregationType(AggregateType aggregationType, boolean isAggregationTypeImplicit) {
         this.aggregationType = aggregationType;
+        this.isAggregationTypeImplicit = isAggregationTypeImplicit;
+    }
+
+    public void setAggregationTypeImplicit(boolean isAggregationTypeImplicit) {
         this.isAggregationTypeImplicit = isAggregationTypeImplicit;
     }
 

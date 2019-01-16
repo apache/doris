@@ -35,5 +35,5 @@ public class FeConstants {
 
     // general model
     // Current meta data version. Use this version to write journals and image
-    public static int meta_version = FeMetaVersion.VERSION_47;
+    public static int meta_version = FeMetaVersion.VERSION_48;
 }
