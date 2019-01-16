@@ -971,7 +971,7 @@ public class Load {
         long dbId = db.getId();
         writeLock();
         try {
-            if (isLabelUsed(dbId, label, -1, true)) {
+            if (isLabelUsed(dbId, label, timestamp, true)) {
                 // label is used and this is a retry request.
                 // no need to do further operation, just return.
                 return false;
