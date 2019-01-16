@@ -970,32 +970,7 @@ void TabletManager::update_storage_medium_type_count(uint32_t storage_medium_typ
 }
 
 void TabletManager::_build_tablet_info(TabletSharedPtr tablet, TTabletInfo* tablet_info) {
-    tablet_info->tablet_id = tablet->tablet_id();
-    tablet_info->schema_hash = tablet->schema_hash();
-
-    tablet->obtain_header_rdlock();
-    tablet_info->row_count = tablet->num_rows();
-    tablet_info->data_size = tablet->get_data_size();
-    const PDelta* last_file_version = tablet->lastest_version();
-    if (last_file_version == NULL) {
-        tablet_info->version = -1;
-        tablet_info->version_hash = 0;
-    } else {
-        // report the version before first missing version
-        vector<Version> missing_versions;
-        tablet->get_missing_versions_with_header_locked(
-                last_file_version->end_version(), &missing_versions);
-        const PDelta* least_complete_version =
-            tablet->least_complete_version(missing_versions);
-        if (least_complete_version == NULL) {
-            tablet_info->version = -1;
-            tablet_info->version_hash = 0;
-        } else {
-            tablet_info->version = least_complete_version->end_version();
-            tablet_info->version_hash = least_complete_version->version_hash();
-        }
-    }
-    tablet->release_header_lock();
+    tablet->get_tablet_info(tablet_info);
 }
 
 void TabletManager::_build_tablet_stat() {

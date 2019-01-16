@@ -131,7 +131,7 @@ public:
 
     OLAPStatus add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     OLAPStatus delete_inc_rs_meta_by_version(const Version& version);
-    const RowsetMeta* get_inc_rowset(const Version& version) const;
+    const RowsetMetaSharedPtr get_inc_rowset(const Version& version) const;
     const RowsetMetaSharedPtr get_inc_rs_meta(const Version& version) const;
     DeletePredicatePB* add_delete_predicates();
     std::vector<DeletePredicatePB>& delete_predicates();
@@ -148,6 +148,8 @@ public:
     inline const int64_t tablet_id() const;
     inline const int64_t schema_hash() const;
     inline const int16_t shard_id();
+    inline const size_t num_rows();
+    inline const size_t data_size();
 
     inline const AlterTabletTask& alter_task() const;
     inline const AlterTabletState& alter_state() const;
@@ -206,6 +208,23 @@ inline const AlterTabletState& TabletMeta::alter_state() const {
 
 inline const TabletState& TabletMeta::tablet_state() const {
     return _tablet_state;
+}
+
+inline const size_t TabletMeta::num_rows() {
+    size_t num_rows = 0;
+    for (auto& rs : _rs_metas) {
+        num_rows += rs->num_rows();
+    }
+    return num_rows;
+
+}
+
+inline const size_t TabletMeta::data_size() {
+    size_t total_size = 0;
+    for (auto& rs : _rs_metas) {
+        total_size += rs->data_disk_size();
+    }
+    return total_size;
 }
 
 }  // namespace doris

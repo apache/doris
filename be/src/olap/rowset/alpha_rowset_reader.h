@@ -41,6 +41,9 @@ public:
 
     // read next block data
     virtual OLAPStatus next(RowCursor* row);
+    virtual OLAPStatus next_block(RowBlock** block);
+    virtual bool delete_flag();
+    virtual Version version();
 
     // close reader
     virtual void close();

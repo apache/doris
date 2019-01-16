@@ -298,7 +298,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
         // get shortest version path
         vector<Version> shortest_path;
         vector<VersionEntity> shortest_versions;
-        res = ref_tablet->select_versions_to_span(Version(0, version), &shortest_path);
+        res = ref_tablet->capture_consistent_versions(Version(0, version), &shortest_path);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to select versions to span. [res=%d]", res);
             break;

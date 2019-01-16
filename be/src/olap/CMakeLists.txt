@@ -52,7 +52,7 @@ add_library(Olap STATIC
     options.cpp
     out_stream.cpp
     push_handler.cpp
-    #reader.cpp
+    reader.cpp
     row_block.cpp
     row_cursor.cpp
     #schema_change.cpp

@@ -185,8 +185,7 @@ bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
     --cumulative_layer_point;
 
     vector<Version> path_versions;
-    if (OLAP_SUCCESS != _tablet->select_versions_to_span(Version(0, cumulative_layer_point),
-                                                        &path_versions)) {
+    if (OLAP_SUCCESS != _tablet->capture_consistent_versions(Version(0, cumulative_layer_point), &path_versions)) {
         OLAP_LOG_WARNING("fail to select shortest version path. [start=%d end=%d]",
                          0, cumulative_layer_point);
         return  false;
@@ -232,8 +231,7 @@ bool BaseCompaction::_check_whether_satisfy_policy(bool is_manual_trigger,
     }
 
     // 使用最短路径算法，选择可合并的cumulative版本
-    if (OLAP_SUCCESS != _tablet->select_versions_to_span(_new_base_version,
-                                                        candidate_versions)) {
+    if (OLAP_SUCCESS != _tablet->capture_consistent_versions(_new_base_version, candidate_versions)) {
         LOG(WARNING) << "fail to select shortest version path."
             << "start=" << _new_base_version.first
             << ", end=" << _new_base_version.second;

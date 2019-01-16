@@ -318,7 +318,7 @@ OLAPStatus CumulativeCompaction::_get_delta_versions(Versions* delta_versions) {
 
     // can't do cumulative expansion if there has a hole
     Versions versions_path;
-    OLAPStatus select_status = _tablet->select_versions_to_span(
+    OLAPStatus select_status = _tablet->capture_consistent_versions(
         Version(delta_versions->front().first, delta_versions->back().second), &versions_path);
     if (select_status != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("can't do cumulative expansion if fail to select shortest version path. "
@@ -334,8 +334,8 @@ OLAPStatus CumulativeCompaction::_get_delta_versions(Versions* delta_versions) {
 bool CumulativeCompaction::_find_previous_version(const Version current_version,
                                                Version* previous_version) {
     Versions all_versions;
-    if (OLAP_SUCCESS != _tablet->select_versions_to_span(Version(0, current_version.second),
-                                                        &all_versions)) {
+    if (OLAP_SUCCESS != _tablet->capture_consistent_versions(Version(0, current_version.second),
+                                                             &all_versions)) {
         OLAP_LOG_WARNING("fail to select shortest version path. [start=%d; end=%d]",
                          0, current_version.second);
         return  false;
