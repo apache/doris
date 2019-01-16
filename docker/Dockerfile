@@ -72,7 +72,8 @@ RUN touch  ${DEFAULT_DIR}/install_jdk.sh \
     && echo 'echo "export JAVA_HOME=/usr/java/jdk" >> /root/.bashrc' >> ${DEFAULT_DIR}/install_jdk.sh \
     && chmod 777 ${DEFAULT_DIR}/install_jdk.sh \
     && /bin/bash ${DEFAULT_DIR}/install_jdk.sh \
-    && rm -rf *.rpm
+    && rm -rf *.rpm \
+    && rm ${DEFAULT_DIR}/install_jdk.sh
 
 ENV JAVA_HOME /usr/java/jdk
 
@@ -107,10 +108,8 @@ RUN git clone https://github.com/apache/incubator-doris.git \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty.tar.gz \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty \
     && mkdir -p ${DEFAULT_DIR}/thirdparty \
-    && mv ${DEFAULT_DIR}/incubator-doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/
-
-RUN rm -rf ${DEFAULT_DIR}/incubator-doris
+    && mv ${DEFAULT_DIR}/incubator-doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/ \
+    && rm -rf ${DEFAULT_DIR}/incubator-doris
 
 ENV DORIS_THIRDPARTY /var/local/thirdparty
-WORKDIR ${DEFAULT_DIR}
-
+WORKDIR /root
