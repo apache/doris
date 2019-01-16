@@ -31,4 +31,5 @@ public class PQueryStatistics {
         scanRows = 0;
         scanBytes = 0;
     }
+
 }
