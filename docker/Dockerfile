@@ -110,5 +110,7 @@ RUN git clone https://github.com/apache/incubator-doris.git \
     && mv ${DEFAULT_DIR}/incubator-doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/
 
 RUN rm -rf ${DEFAULT_DIR}/incubator-doris
+
+ENV DORIS_THIRDPARTY /var/local/thirdparty
 WORKDIR ${DEFAULT_DIR}
 
