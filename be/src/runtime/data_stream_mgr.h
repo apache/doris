@@ -32,7 +32,6 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/query_statistics.h"
 #include "util/runtime_profile.h"
-#include "gen_cpp/internal_service.pb.h"
 #include "gen_cpp/palo_internal_service.pb.h"
 #include "gen_cpp/Types_types.h"  // for TUniqueId
 
