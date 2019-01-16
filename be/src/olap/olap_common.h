@@ -222,6 +222,8 @@ struct OlapReaderStatistics {
     int64_t block_load_ns = 0;
     int64_t blocks_load = 0;
     int64_t block_fetch_ns = 0;
+    int64_t block_seek_ns = 0;
+    int64_t block_convert_ns = 0;
 
     int64_t raw_rows_read = 0;
 
