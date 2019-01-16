@@ -98,7 +98,7 @@ Status ExchangeNode::open(RuntimeState* state) {
 
 Status ExchangeNode::collect_query_statistics(QueryStatistics* statistics) {
     RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
-    _sub_plan_query_statistics_recvr->add_to(statistics);
+    statistics->merge(_sub_plan_query_statistics_recvr.get());
     return Status::OK;
 }
 

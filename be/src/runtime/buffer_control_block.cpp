@@ -36,7 +36,7 @@ void GetResultBatchCtx::on_close(int64_t packet_seq,
     Status status;
     status.to_protobuf(result->mutable_status());
     if (statistics != nullptr) {
-        statistics->serialize(result->mutable_query_statistics());
+        statistics->to_pb(result->mutable_query_statistics());
     }
     result->set_packet_seq(packet_seq);
     result->set_eos(true);

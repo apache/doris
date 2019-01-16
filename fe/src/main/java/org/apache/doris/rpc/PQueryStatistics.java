@@ -26,4 +26,9 @@ public class PQueryStatistics {
     public long scanRows;
     @Protobuf(order = 2, required = false)
     public long scanBytes;
+
+    public PQueryStatistics() {
+        scanRows = 0;
+        scanBytes = 0;
+    }
 }

@@ -25,6 +25,8 @@
 
 namespace doris {
 
+class QueryStatisticsRecvr;
+ 
 // This is responsible for collecting query statistics, usually it consists of 
 // two parts, one is current fragment or plan's statistics, the other is sub fragment
 // or plan's statistics and QueryStatisticsRecvr is responsible for collecting it.
@@ -34,80 +36,55 @@ public:
     QueryStatistics() : scan_rows(0), scan_bytes(0) {
     }
 
-    void add(const QueryStatistics& other) {
+    void merge(const QueryStatistics& other) {
         scan_rows += other.scan_rows;
         scan_bytes += other.scan_bytes;
     }
 
-    void add_scan_rows(long scan_rows) {
+    void add_scan_rows(int64_t scan_rows) {
         this->scan_rows += scan_rows;
     }
 
-    void add_scan_bytes(long scan_bytes) {
+    void add_scan_bytes(int64_t scan_bytes) {
         this->scan_bytes += scan_bytes;
     }
+
+    void merge(QueryStatisticsRecvr* recvr);
 
     void clear() {
         scan_rows = 0;
         scan_bytes = 0;
     }
 
-    void serialize(PQueryStatistics* statistics) {
+    void to_pb(PQueryStatistics* statistics) {
         DCHECK(statistics != nullptr);
         statistics->set_scan_rows(scan_rows);
         statistics->set_scan_bytes(scan_bytes);
     }
 
-    void deserialize(const PQueryStatistics& statistics) {
+    void from_pb(const PQueryStatistics& statistics) {
         scan_rows = statistics.scan_rows();
         scan_bytes = statistics.scan_bytes();
     }
 
 private:
 
-    long scan_rows;
-    long scan_bytes;
+    int64_t scan_rows;
+    int64_t scan_bytes;
 };
 
 // It is used for collecting sub plan query statistics in DataStreamRecvr.
 class QueryStatisticsRecvr {
 public:
 
-    void insert(const PQueryStatistics& statistics, int sender_id) {
-        std::lock_guard<SpinLock> l(_lock);
-        QueryStatistics* query_statistics = nullptr;
-        auto iter = _query_statistics.find(sender_id);
-        if (iter == _query_statistics.end()) {
-            query_statistics = new QueryStatistics;
-            _query_statistics[sender_id] = query_statistics;
-        } else {
-            query_statistics = iter->second;
-        }
-        query_statistics->deserialize(statistics);
-    }
+    ~QueryStatisticsRecvr();
 
-    void add_to(QueryStatistics* statistics) {
-        std::lock_guard<SpinLock> l(_lock);
-        auto iter = _query_statistics.begin();
-        while (iter != _query_statistics.end()) {
-            statistics->add(*(iter->second));
-            iter++;
-        }
-    }
-   
-    ~QueryStatisticsRecvr() {
-        // It is unnecessary to lock here, because the destructor will be
-        // called alter DataStreamRecvr's close in ExchangeNode.
-        auto iter = _query_statistics.begin();
-        while (iter != _query_statistics.end()) {
-            delete iter->second;
-            iter++;
-        }
-        _query_statistics.clear();
-   }
- 
+    void insert(const PQueryStatistics& statistics, int sender_id);
+
 private:
-    
+
+friend class QueryStatistics;
+ 
     std::map<int, QueryStatistics*> _query_statistics;
     SpinLock _lock;
 };

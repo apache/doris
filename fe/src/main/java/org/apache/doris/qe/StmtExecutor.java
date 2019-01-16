@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -53,7 +52,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.NotImplementedException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
@@ -78,7 +76,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
-import java.util.Formatter;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -105,7 +102,7 @@ public class StmtExecutor {
     private Planner planner;
     private boolean isProxy;
     private ShowResultSet proxyResultSet = null;
-    private QueryStatistics statisticsForAuditLog;
+    private PQueryStatistics statisticsForAuditLog;
 
     public StmtExecutor(ConnectContext context, String stmt, boolean isProxy) {
         this.context = context;
@@ -556,18 +553,11 @@ public class StmtExecutor {
             }
             context.updateReturnRows(batch.getBatch().getRows().size());
         }
-        setQueryStatisticsForAuditLog(batch);
+        statisticsForAuditLog = batch.getQueryStatistics();
         if (!isSendFields) {
             sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
         }
         context.getState().setEof();
-    }
-
-    private void setQueryStatisticsForAuditLog(RowBatch batch) {
-        if (batch != null) {
-            final PQueryStatistics statistics = batch.getQueryStatistics();
-            statisticsForAuditLog = new QueryStatistics(statistics.scanRows, statistics.scanBytes);
-        }
     }
 
     // Process a select statement.
@@ -788,39 +778,10 @@ public class StmtExecutor {
         context.getCatalog().getExportMgr().addExportJob(exportStmt);
     }
 
-    public QueryStatistics getQueryStatisticsForAuditLog() {
+    public PQueryStatistics getQueryStatisticsForAuditLog() {
         if (statisticsForAuditLog == null) {
-            statisticsForAuditLog = new QueryStatistics();
+            statisticsForAuditLog = new PQueryStatistics();
         }
         return statisticsForAuditLog;
-    }
-
-    public static class QueryStatistics {
-        private final long scanRows;
-        private final long scanBytes;
-
-        public QueryStatistics() {
-            this.scanRows = 0;
-            this.scanBytes = 0;
-        }
-
-        public QueryStatistics(long scanRows, long scanBytes) {
-            this.scanRows = scanRows;
-            this.scanBytes = scanBytes;
-        }
-
-        public String getFormattingScanRows() {
-            final StringBuilder builder = new StringBuilder();
-            builder.append(scanRows).append(" Rows");
-            return builder.toString();
-        }
-
-        public String getFormattingScanBytes() {
-            final Pair<Double, String> pair = DebugUtil.getByteUint(scanBytes);
-            final Formatter fmt = new Formatter();
-            final StringBuilder builder = new StringBuilder();
-            builder.append(fmt.format("%.2f", pair.first)).append(" ").append(pair.second);
-            return builder.toString();
-        }
     }
 }

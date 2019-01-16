@@ -213,7 +213,7 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
              << " dest_node=" << _dest_node_id;
     if (_is_transfer_chain && (_send_query_statistics_with_every_batch || eos)) {
         auto statistic = _brpc_request.mutable_query_statistics();
-        _parent->_query_statistics->serialize(statistic); 
+        _parent->_query_statistics->to_pb(statistic); 
     }
 
     _brpc_request.set_eos(eos);

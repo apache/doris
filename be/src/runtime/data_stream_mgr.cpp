@@ -93,18 +93,14 @@ shared_ptr<DataStreamRecvr> DataStreamMgr::find_recvr(
     return shared_ptr<DataStreamRecvr>();
 }
 
-Status DataStreamMgr::add_data(
-        const PUniqueId& finst_id, int32_t node_id,
-        const PRowBatch& pb_batch, int32_t sender_id,
-        int be_number, int64_t packet_seq,
-        ::google::protobuf::Closure** done) {
-    VLOG_ROW << "add_data(): fragment_instance_id=" << print_id(finst_id)
-            << " node=" << node_id;
+Status DataStreamMgr::transmit_data(const PTransmitDataParams* request, ::google::protobuf::Closure** done) {
+    const PUniqueId& finst_id = request->finst_id();
     TUniqueId t_finst_id;
     t_finst_id.hi = finst_id.hi();
     t_finst_id.lo = finst_id.lo();
-    shared_ptr<DataStreamRecvr> recvr = find_recvr(t_finst_id, node_id);
-    if (recvr == NULL) {
+    shared_ptr<DataStreamRecvr> recvr = find_recvr(t_finst_id, request->node_id());
+
+    if (recvr == nullptr) {
         // The receiver may remove itself from the receiver map via deregister_recvr()
         // at any time without considering the remaining number of senders.
         // As a consequence, find_recvr() may return an innocuous NULL if a thread
@@ -114,37 +110,20 @@ Status DataStreamMgr::add_data(
         // errors from receiver-initiated teardowns.
         return Status::OK;
     }
-    recvr->add_batch(pb_batch, sender_id, be_number, packet_seq, done);
-    return Status::OK;
-}
 
-Status DataStreamMgr::add_query_statistics(const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-                              int sender_id, const PQueryStatistics& query_statistics) {
-    shared_ptr<DataStreamRecvr> recvr = find_recvr(fragment_instance_id, dest_node_id);
-    if (recvr != NULL) {
-        recvr->add_sub_plan_statistics(query_statistics, sender_id);
+    bool eos = request->eos();
+    if (request->has_row_batch()) {
+        recvr->add_batch(request->row_batch(), request->sender_id(), 
+                request->be_number(), request->packet_seq(), eos ? nullptr : done);
     }
-    return Status::OK;
-}
 
-Status DataStreamMgr::close_sender(const TUniqueId& fragment_instance_id,
-                                   PlanNodeId dest_node_id,
-                                   int sender_id, 
-                                   int be_number) {
-    VLOG_FILE << "close_sender(): fragment_instance_id=" << fragment_instance_id
-        << ", node=" << dest_node_id;
-    shared_ptr<DataStreamRecvr> recvr = find_recvr(fragment_instance_id, dest_node_id);
-    if (recvr == NULL) {
-        // The receiver may remove itself from the receiver map via deregister_recvr()
-        // at any time without considering the remaining number of senders.
-        // As a consequence, find_recvr() may return an innocuous NULL if a thread
-        // calling deregister_recvr() beat the thread calling find_recvr()
-        // in acquiring _lock.
-        // TODO: Rethink the lifecycle of DataStreamRecvr to distinguish
-        // errors from receiver-initiated teardowns.
-        return Status::OK;
+    if (request->has_query_statistics()) {
+        recvr->add_sub_plan_statistics(request->query_statistics(), request->sender_id());
     }
-    recvr->remove_sender(sender_id, be_number);
+
+    if (eos) {
+        recvr->remove_sender(request->sender_id(), request->be_number());            
+    } 
     return Status::OK;
 }
 

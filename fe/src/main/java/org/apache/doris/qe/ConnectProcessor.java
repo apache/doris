@@ -28,12 +28,15 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlPacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.rpc.PQueryStatistics;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 
@@ -47,6 +50,7 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousCloseException;
+import java.util.Formatter;
 import java.util.List;
 
 /**
@@ -93,16 +97,30 @@ public class ConnectProcessor {
         ctx.getState().setOk();
     }
 
+    public String getFormattingScanRows(PQueryStatistics statistics) {
+        final StringBuilder builder = new StringBuilder();
+        builder.append(statistics.scanRows).append(" Rows");
+        return builder.toString();
+    }
+
+    public String getFormattingScanBytes(PQueryStatistics statistics) {
+        final Pair<Double, String> pair = DebugUtil.getByteUint(statistics.scanBytes);
+        final Formatter fmt = new Formatter();
+        final StringBuilder builder = new StringBuilder();
+        builder.append(fmt.format("%.2f", pair.first)).append(" ").append(pair.second);
+        return builder.toString();
+    }
+
     private void auditAfterExec(String origStmt, StatementBase parsedStmt,
-                StmtExecutor.QueryStatistics statistics) {
+                PQueryStatistics statistics) {
         // slow query
         long elapseMs = System.currentTimeMillis() - ctx.getStartTime();
         // query state log
         ctx.getAuditBuilder().put("state", ctx.getState());
         ctx.getAuditBuilder().put("time", elapseMs);
         Preconditions.checkNotNull(statistics); 
-        ctx.getAuditBuilder().put("ScanRows", statistics.getFormattingScanRows());
-        ctx.getAuditBuilder().put("ScanRawData", statistics.getFormattingScanBytes());
+        ctx.getAuditBuilder().put("ScanRows", getFormattingScanRows(statistics));
+        ctx.getAuditBuilder().put("ScanRawData", getFormattingScanBytes(statistics));
         ctx.getAuditBuilder().put("returnRows", ctx.getReturnRows());
         ctx.getAuditBuilder().put("stmt_id", ctx.getStmtId());
 

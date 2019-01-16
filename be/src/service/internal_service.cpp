@@ -46,34 +46,9 @@ void PInternalServiceImpl<T>::transmit_data(google::protobuf::RpcController* cnt
                                          const PTransmitDataParams* request,
                                          PTransmitDataResult* response,
                                          google::protobuf::Closure* done) {
-    bool eos = request->eos();
-    if (request->has_row_batch()) {
-        _exec_env->stream_mgr()->add_data(
-            request->finst_id(), request->node_id(),
-            request->row_batch(), request->sender_id(),
-            request->be_number(), request->packet_seq(),
-            eos ? nullptr : &done);
-    }
-
-    if (request->has_query_statistics()) {
-        TUniqueId finst_id;
-        finst_id.__set_hi(request->finst_id().hi());
-        finst_id.__set_lo(request->finst_id().lo());
-        _exec_env->stream_mgr()->add_query_statistics(
-            finst_id,
-            request->node_id(),
-            request->sender_id(), 
-            request->query_statistics());
-    }
-
-    if (eos) {
-        TUniqueId finst_id;
-        finst_id.__set_hi(request->finst_id().hi());
-        finst_id.__set_lo(request->finst_id().lo());
-        _exec_env->stream_mgr()->close_sender(
-            finst_id, request->node_id(),
-            request->sender_id(), request->be_number());
-    }
+    VLOG_ROW << "transmit data: fragment_instance_id=" << print_id(request->finst_id())
+            << " node=" << request->node_id();
+    _exec_env->stream_mgr()->transmit_data(request, &done);
     if (done != nullptr) {
         done->Run();
     }
