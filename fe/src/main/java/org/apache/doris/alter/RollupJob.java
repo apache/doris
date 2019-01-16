@@ -502,7 +502,7 @@ public class RollupJob extends AlterJob {
         }
 
         this.state = JobState.CANCELLED;
-        if (!Strings.isNullOrEmpty(cancelMsg) && !Strings.isNullOrEmpty(msg)) {
+        if (Strings.isNullOrEmpty(cancelMsg) && !Strings.isNullOrEmpty(msg)) {
             this.cancelMsg = msg;
         }
 
@@ -592,7 +592,6 @@ public class RollupJob extends AlterJob {
         long rowCount = finishTabletInfo.getRow_count();
         // yiguolei: not check version here because the replica's first version will be set by rollup job
         // the version is not set now
-        // the finish task thread doesn't own db lock here, maybe a bug?
         rollupReplica.updateVersionInfo(version, versionHash, dataSize, rowCount);
 
         setReplicaFinished(partitionId, rollupReplicaId);
@@ -654,7 +653,8 @@ public class RollupJob extends AlterJob {
                                 errorReplicas.add(replica);
                             } else if (replica.getLastFailedVersion() > 0
                                     && !partitionIdToUnfinishedReplicaIds.get(partitionId).contains(replica.getId())) {
-                                // if the replica is finished history data, but failed during load, then it is a abnormal
+                                // if the replica has finished converting history data,
+                                // but failed during load, then it is a abnormal.
                                 // remove it from replica set
                                 // have to use delete replica, it will remove it from tablet inverted index
                                 LOG.warn("replica [{}] last failed version > 0 and have finished history rollup job,"
@@ -670,7 +670,8 @@ public class RollupJob extends AlterJob {
                         }
 
                         if (rollupTablet.getReplicas().size() < (expectReplicationNum / 2 + 1)) {
-                            cancelMsg = String.format("rollup job[%d] cancelled. tablet[%d] has few health replica."
+                            cancelMsg = String.format(
+                                    "rollup job[%d] cancelled. rollup tablet[%d] has few health replica."
                                     + " num: %d", tableId, rollupTablet.getId(), replicas.size());
                             LOG.warn(cancelMsg);
                             return -1;

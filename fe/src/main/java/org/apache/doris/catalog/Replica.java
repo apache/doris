@@ -218,6 +218,9 @@ public class Replica implements Writable {
             long lastFailedVersion, long lastFailedVersionHash, 
             long lastSuccessVersion, long lastSuccessVersionHash, 
             long newDataSize, long newRowCount) {
+
+        LOG.debug("before update: {}", this.toString());
+
         if (newVersion < this.version) {
             LOG.warn("replica[" + id + "] new version is lower than meta version. " + newVersion + " vs " + version);
             // yiguolei: could not find any reason why new version less than this.version should run???
@@ -282,7 +285,7 @@ public class Replica implements Writable {
             }
         }
 
-        LOG.debug("update {}", this.toString()); 
+        LOG.debug("after update {}", this.toString());
     }
     
     public synchronized void updateLastFailedVersion(long lastFailedVersion, long lastFailedVersionHash) {

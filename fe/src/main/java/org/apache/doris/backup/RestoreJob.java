@@ -502,7 +502,7 @@ public class RestoreJob extends AbstractJob {
                                                 + " in table " + localTbl.getName()
                                                 + " has different replication num '"
                                                 + localRangePartInfo.getReplicationNum(localPartition.getId())
-                                                + "' with parition in repository");
+                                                + "' with parition in repository, which is " + restoreReplicationNum);
                                         return;
                                     }
                                     genFileMapping(localOlapTbl, localPartition, tblInfo.id, backupPartInfo,
@@ -524,7 +524,7 @@ public class RestoreJob extends AbstractJob {
                                             + " in table " + localTbl.getName()
                                             + " has different replication num '"
                                             + localPartInfo.getReplicationNum(localPartition.getId())
-                                            + "' with parition in repository");
+                                            + "' with parition in repository, which is " + restoreReplicationNum);
                                     return;
                                 }
 

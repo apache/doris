@@ -533,7 +533,7 @@ public class SchemaChangeJob extends AlterJob {
         }
 
         this.state = JobState.CANCELLED;
-        if (!Strings.isNullOrEmpty(cancelMsg) && !Strings.isNullOrEmpty(msg)) {
+        if (Strings.isNullOrEmpty(cancelMsg) && !Strings.isNullOrEmpty(msg)) {
             this.cancelMsg = msg;
         }
 
