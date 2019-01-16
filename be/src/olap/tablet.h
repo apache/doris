@@ -74,13 +74,8 @@ public:
     OLAPStatus load_indices();
     OLAPStatus save_tablet_meta();
 
-    OLAPStatus select_versions_to_span(const Version& version,
-                                       std::vector<Version>* span_versions) const;
     OLAPStatus register_data_source(const std::vector<SegmentGroup*>& segment_group_vec);
     OLAPStatus unregister_data_source(const Version& version, std::vector<SegmentGroup*>* segment_group_vec);
-    OLAPStatus add_pending_version(int64_t partition_id, int64_t transaction_id,
-                                 const std::vector<std::string>* delete_conditions);
-    OLAPStatus add_pending_segment_group(SegmentGroup* segment_group);
     OLAPStatus add_pending_data(SegmentGroup* segment_group, const std::vector<TCondition>* delete_conditions);
     bool has_pending_data(int64_t transaction_id);
     void delete_pending_data(int64_t transaction_id);
@@ -145,8 +140,6 @@ public:
     const PDelta* get_delta(int index) const;
     const PDelta* lastest_delta() const;
     const PDelta* lastest_version() const;
-    const PDelta* least_complete_version(
-                const std::vector<Version>& missing_versions) const;
     const PDelta* base_version() const;
     const uint32_t get_cumulative_compaction_score() const;
     const uint32_t get_base_compaction_score() const;
@@ -238,9 +231,10 @@ public:
     size_t get_row_size() const;
     size_t get_index_size() const;
     size_t all_rowsets_size() const;
-    size_t get_data_size() const;
-    size_t num_rows() const;
+    size_t get_data_size();
+    size_t num_rows();
     size_t get_rowset_size(const Version& version);
+    OLAPStatus get_tablet_info(TTabletInfo* tablet_info);
 
     AlterTabletState alter_tablet_state();
     TabletState tablet_state() const;
@@ -262,7 +256,12 @@ public:
     Mutex* base_lock();
     Mutex* cumulative_lock();
 
-    void calc_missed_versions(int64_t spec_version, vector<Version>* missed_versions) const;
+    void calc_missed_versions(int64_t spec_version, vector<Version>* missed_versions);
+
+    // This function to find last continous version from the beginning.
+    // There are 1, 2, 3, 5, 6, 7 versions belongs tablet.
+    // Version 3 is target.
+    OLAPStatus last_continuous_version_from_begining(Version* version, VersionHash* v_hash);
 
     size_t deletion_rowset_size();
     bool can_do_compaction();

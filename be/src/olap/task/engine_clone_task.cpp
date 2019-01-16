@@ -58,8 +58,8 @@ OLAPStatus EngineCloneTask::execute() {
                     << ", committed_version:" << _clone_req.committed_version;
 
         // try to incremental clone
-        vector<Version> missing_versions;
-        string local_data_path = _get_info_before_incremental_clone(tablet, _clone_req.committed_version, &missing_versions);
+        vector<Version> missed_versions;
+        string local_data_path = _get_info_before_incremental_clone(tablet, _clone_req.committed_version, &missed_versions);
 
         bool allow_incremental_clone = false;
         status = _clone_copy(_clone_req,
@@ -68,7 +68,7 @@ OLAPStatus EngineCloneTask::execute() {
                                                 &src_host,
                                                 &src_file_path,
                                                 _error_msgs,
-                                                &missing_versions,
+                                                &missed_versions,
                                                 &allow_incremental_clone);
         if (status == DORIS_SUCCESS) {
             OLAPStatus olap_status = _finish_clone(tablet, local_data_path, _clone_req.committed_version, allow_incremental_clone);
@@ -205,7 +205,6 @@ OLAPStatus EngineCloneTask::execute() {
                         << ", version_hash:" << tablet_info.version_hash
                         << ", expected_version: " << _clone_req.committed_version
                         << ", version_hash:" << _clone_req.committed_version_hash;
-            AgentStatus status = DORIS_SUCCESS;
             OLAPStatus drop_status = TabletManager::instance()->drop_tablet(_clone_req.tablet_id, _clone_req.schema_hash);
             if (drop_status != OLAP_SUCCESS && drop_status != OLAP_ERR_TABLE_NOT_FOUND) {
                 // just log
@@ -228,26 +227,12 @@ OLAPStatus EngineCloneTask::execute() {
 }
 
 string EngineCloneTask::_get_info_before_incremental_clone(TabletSharedPtr tablet,
-    int64_t committed_version, vector<Version>* missing_versions) {
-
-    // get missing versions
-    tablet->obtain_header_rdlock();
-    tablet->get_missing_versions_with_header_locked(committed_version, missing_versions);
-
-    // get least complete version
-    // prevent lastest version not replaced (if need to rewrite) after node restart
-    const PDelta* least_complete_version = tablet->least_complete_version(*missing_versions);
-    if (least_complete_version != NULL) {
-        // TODO: Used in upgraded. If old Doris version, version can be converted.
-        Version version(least_complete_version->start_version(), least_complete_version->end_version()); 
-        missing_versions->push_back(version);
-        LOG(INFO) << "least complete version for incremental clone. tablet=" << tablet->full_name()
-                  << ", least_complete_version=" << least_complete_version->end_version();
-    }
-
-    tablet->release_header_lock();
-    LOG(INFO) << "finish to calculate missing versions when clone. [tablet=" << tablet->full_name()
-              << ", committed_version=" << committed_version << " missing_versions_size=" << missing_versions->size() << "]";
+    int64_t committed_version, vector<Version>* missed_versions) {
+    tablet->calc_missed_versions(committed_version, missed_versions);
+    LOG(INFO) << "finish to calculate missed versions when clone. "
+              << "tablet=" << tablet->full_name()
+              << ", committed_version=" << committed_version
+              << ", missed_versions_size=" << missed_versions->size();
 
     // get download path
     return tablet->tablet_path() + CLONE_PREFIX;
@@ -260,7 +245,7 @@ AgentStatus EngineCloneTask::_clone_copy(
         TBackend* src_host,
         string* src_file_path,
         vector<string>* error_msgs,
-        const vector<Version>* missing_versions,
+        const vector<Version>* missed_versions,
         bool* allow_incremental_clone) {
     AgentStatus status = DORIS_SUCCESS;
 
@@ -279,11 +264,11 @@ AgentStatus EngineCloneTask::_clone_copy(
         TSnapshotRequest snapshot_request;
         snapshot_request.__set_tablet_id(clone_req.tablet_id);
         snapshot_request.__set_schema_hash(clone_req.schema_hash);
-        if (missing_versions != NULL) {
+        if (missed_versions != NULL) {
             // TODO: missing version composed of singleton delta.
             // if not, this place should be rewrote.
             vector<int64_t> snapshot_versions;
-            for (Version version : *missing_versions) {
+            for (Version version : *missed_versions) {
                snapshot_versions.push_back(version.first); 
             } 
             snapshot_request.__set_missing_version(snapshot_versions);
@@ -683,55 +668,19 @@ OLAPStatus EngineCloneTask::_clone_incremental_data(TabletSharedPtr tablet, Tabl
     LOG(INFO) << "begin to incremental clone. tablet=" << tablet->full_name()
               << ", committed_version=" << committed_version;
 
-    // calculate missing version again
-    vector<Version> missing_versions;
-    tablet->get_missing_versions_with_header_locked(committed_version, &missing_versions);
-
-    // add least complete version
-    // prevent lastest version not replaced (if need to rewrite) when restart
-    const PDelta* least_complete_version = tablet->least_complete_version(missing_versions);
-
+    vector<Version> missed_versions;
+    tablet->calc_missed_versions(committed_version, &missed_versions);
+    
     vector<Version> versions_to_delete;
     vector<const PDelta*> versions_to_clone;
 
-    // it's not a merged version in principle
-    if (least_complete_version != NULL &&
-        least_complete_version->start_version() == least_complete_version->end_version()) {
-
-        Version version(least_complete_version->start_version(), least_complete_version->end_version());
-        const PDelta* clone_src_version = clone_header.get_incremental_version(version);
-
-        // if least complete version not found in clone src, return error
-        if (clone_src_version == nullptr) {
-            OLAP_LOG_WARNING("failed to find least complete version in clone header. "
-                    "[clone_header_file=%s least_complete_version=%d-%d]",
-                    clone_header.file_name().c_str(),
-                    least_complete_version->start_version(), least_complete_version->end_version());
-            return OLAP_ERR_VERSION_NOT_EXIST;
-
-        // if least complete version_hash in clone src is different, clone it
-        } else if (clone_src_version->version_hash() != least_complete_version->version_hash()) {
-            versions_to_clone.push_back(clone_src_version);
-            versions_to_delete.push_back(Version(
-                least_complete_version->start_version(),
-                least_complete_version->end_version()));
-
-            VLOG(3) << "least complete version_hash in clone src is different, replace it. "
-                    << "tablet=" << tablet->full_name()
-                    << ", least_complete_version=" << least_complete_version->start_version()
-                    << "-" << least_complete_version->end_version()
-                    << ", local_hash=" << least_complete_version->version_hash()
-                    << ", clone_hash=" << clone_src_version->version_hash();
-        }
-    }
-
-    VLOG(3) << "get missing versions again when incremental clone. "
+    VLOG(3) << "get missed versions again when incremental clone. "
             << "tablet=" << tablet->full_name() 
             << ", committed_version=" << committed_version
-            << ", missing_versions_size=" << missing_versions.size();
+            << ", missed_versions_size=" << missed_versions.size();
 
     // check missing versions exist in clone src
-    for (Version version : missing_versions) {
+    for (Version version : missed_versions) {
         const PDelta* clone_src_version = clone_header.get_incremental_version(version);
         if (clone_src_version == NULL) {
            LOG(WARNING) << "missing version not found in clone src."

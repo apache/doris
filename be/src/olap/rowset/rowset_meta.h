@@ -156,12 +156,12 @@ public:
         _rowset_meta_pb.set_version_hash(version_hash);
     }
 
-    virtual int row_number() {
-        return _rowset_meta_pb.row_number();
+    virtual int num_rows() {
+        return _rowset_meta_pb.num_rows();
     }
 
-    virtual void set_row_number(int row_number) {
-        _rowset_meta_pb.set_row_number(row_number);
+    virtual void set_num_rows(int num_rows) {
+        _rowset_meta_pb.set_num_rows(num_rows);
     }
 
     virtual int total_disk_size() {
