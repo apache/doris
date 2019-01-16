@@ -542,21 +542,23 @@ public class StmtExecutor {
         RowBatch batch;
         MysqlChannel channel = context.getMysqlChannel();
         boolean isSendFields = false;
-      
-        while ((batch = coord.getNext()) != null && !batch.isEos()) {
+        while (true) {
+            batch = coord.getNext();
+            if (batch.isEos()) {
+                break;
+            }
             if (!isSendFields) {
                 sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
+                isSendFields = !isSendFields;
             }
-            isSendFields = true;
+
             for (ByteBuffer row : batch.getBatch().getRows()) {
                 channel.sendOnePacket(row);
             }
             context.updateReturnRows(batch.getBatch().getRows().size());
         }
 
-        if (batch != null) {
-            statisticsForAuditLog = batch.getQueryStatistics();
-        }
+        statisticsForAuditLog = batch.getQueryStatistics();
 
         if (!isSendFields) {
             sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());

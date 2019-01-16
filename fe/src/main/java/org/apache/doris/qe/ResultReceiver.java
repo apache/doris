@@ -92,9 +92,7 @@ public class ResultReceiver {
                     return null;
                 } 
  
-                if (pResult.statistics != null) {
-                    rowBatch.setQueryStatistics(pResult.statistics);
-                }
+                rowBatch.setQueryStatistics(pResult.statistics);
 
                 if (packetIdx != pResult.packetSeq) {
                     LOG.warn("receive packet failed, expect={}, receive={}", packetIdx, pResult.packetSeq);
