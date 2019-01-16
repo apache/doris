@@ -97,13 +97,13 @@ public class ConnectProcessor {
         ctx.getState().setOk();
     }
 
-    public String getFormattingScanRows(PQueryStatistics statistics) {
+    private String getFormattingScanRows(PQueryStatistics statistics) {
         final StringBuilder builder = new StringBuilder();
         builder.append(statistics.scanRows).append(" Rows");
         return builder.toString();
     }
 
-    public String getFormattingScanBytes(PQueryStatistics statistics) {
+    private String getFormattingScanBytes(PQueryStatistics statistics) {
         final Pair<Double, String> pair = DebugUtil.getByteUint(statistics.scanBytes);
         final Formatter fmt = new Formatter();
         final StringBuilder builder = new StringBuilder();

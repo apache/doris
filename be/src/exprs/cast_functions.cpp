@@ -171,7 +171,6 @@ StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const LargeInt
       return sv; \
     } \
     const FunctionContext::TypeDesc& returnType = ctx->get_return_type(); \
-    LOG(INFO) << "chenhao cast_to_string len:" << returnType.len; \
     if (returnType.len > 0) { \
         sv.len = snprintf(reinterpret_cast<char*>(sv.ptr), sv.len, format, val.val); \
         DCHECK_GT(sv.len, 0); \
