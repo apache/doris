@@ -846,6 +846,7 @@ OLAPStatus SegmentReader::_seek_to_block_directly(
         // no need to execute seek
         return OLAP_SUCCESS;
     }
+    SCOPED_RAW_TIMER(&_stats->block_seek_ns);
     for (auto cid : cids) {
         // If column is added through schema change, column index may not exist because of
         // linked schema change. So we need to ignore this column's seek

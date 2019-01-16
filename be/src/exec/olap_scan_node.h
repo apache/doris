@@ -245,6 +245,7 @@ private:
     RuntimeProfile::Counter* _scan_timer;
     RuntimeProfile::Counter* _tablet_counter;
     RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _reader_init_timer = nullptr;
 
     TResourceInfo* _resource_info;
 
@@ -265,6 +266,8 @@ private:
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _del_filtered_counter = nullptr;
 
+    RuntimeProfile::Counter* _block_seek_timer = nullptr;
+    RuntimeProfile::Counter* _block_convert_timer = nullptr;
     RuntimeProfile::Counter* _block_load_timer = nullptr;
     RuntimeProfile::Counter* _block_load_counter = nullptr;
     RuntimeProfile::Counter* _block_fetch_timer = nullptr;

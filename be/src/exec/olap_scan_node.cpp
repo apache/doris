@@ -109,6 +109,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 #endif
     ADD_TIMER(_runtime_profile, "ShowHintsTime");
 
+    _reader_init_timer = ADD_TIMER(_runtime_profile, "ReaderInitTime");
     _read_compressed_counter =
         ADD_COUNTER(_runtime_profile, "CompressedBytesRead", TUnit::BYTES);
     _read_uncompressed_counter =
@@ -120,6 +121,8 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
         ADD_TIMER(_runtime_profile, "BlockFetchTime");
     _raw_rows_counter =
         ADD_COUNTER(_runtime_profile, "RawRowsRead", TUnit::UNIT);
+    _block_convert_timer = ADD_TIMER(_runtime_profile, "BlockConvertTime");
+    _block_seek_timer = ADD_TIMER(_runtime_profile, "BlockSeekTime");
 
     _rows_vec_cond_counter =
         ADD_COUNTER(_runtime_profile, "RowsVectorPredFiltered", TUnit::UNIT);
