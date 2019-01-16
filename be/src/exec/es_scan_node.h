@@ -24,6 +24,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"
 #include "exec/scan_node.h"
+#include "exprs/slot_ref.h"
 #include "runtime/exec_env.h"
 #include "gen_cpp/TExtDataSourceService.h"
 #include "gen_cpp/PaloExternalDataSourceService_types.h"
@@ -57,9 +58,11 @@ private:
     Status get_next_from_es(TExtGetNextResult& result);
 
     bool get_disjuncts(ExprContext* context, Expr* conjunct, vector<TExtPredicate>& disjuncts);
-    bool to_exe_literal(ExprContext* context, Expr* expr, TExtLiteral* literal);
+    bool to_ext_literal(ExprContext* context, Expr* expr, TExtLiteral* literal);
 
     bool is_match_func(Expr* conjunct);
+
+    SlotDescriptor* get_slot_desc(SlotRef* slotRef);
 
     // check if open result meets condition
     // 1. check if left conjuncts contain "match" function, since match function could only be executed on es

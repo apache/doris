@@ -68,12 +68,11 @@ struct TExtBinaryPredicate {
 }
 
 struct TExtInPredicate {
+  1: optional bool is_not_in
   // Column on which the predicate is applied. Always set.
-  1: optional TExtColumnDesc col
-  // Comparison operator. Always set.
-  2: optional Opcodes.TExprOpcode op
+  2: optional TExtColumnDesc col
   // Value on the right side of the binary predicate. Always set.
-  3: optional list<TExtLiteral> value
+  3: optional list<TExtLiteral> values
 }
 
 struct TExtLikePredicate {
@@ -82,15 +81,8 @@ struct TExtLikePredicate {
 }
 
 struct TExtIsNullPredicate {
-  // is null  or is not null predicate
-  1: optional bool is_null 
+  1: optional bool is_not_null
   2: optional TExtColumnDesc col
-}
-
-struct TExtBetweenPredicate {
-  1: optional TExtColumnDesc col
-  2: optional TExtLiteral left_val
-  3: optional TExtLiteral right_val
 }
 
 struct TExtFunction { 
@@ -108,8 +100,7 @@ struct TExtPredicate {
   3: optional TExtInPredicate in_predicate
   4: optional TExtLikePredicate like_predicate
   5: optional TExtIsNullPredicate is_null_predicate
-  6: optional TExtBetweenPredicate between_predicate
-  7: optional TExtFunction ext_function
+  6: optional TExtFunction ext_function
 }
 
 // A union over all possible return types for a column of data

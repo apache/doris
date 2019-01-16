@@ -35,6 +35,7 @@
 #include "olap/utils.h"
 #include "exprs/expr_context.h"
 #include "exprs/expr.h"
+#include "exprs/in_predicate.h"
 #include "exprs/slot_ref.h"
 
 namespace doris {
@@ -334,6 +335,8 @@ Status EsScanNode::set_scan_ranges(const vector<TScanRangeParams>& scan_ranges) 
 }
 
 Status EsScanNode::open_es(TNetworkAddress& address, TExtOpenResult& result, TExtOpenParams& params) {
+
+    VLOG(1) << "es open param=" << apache::thrift::ThriftDebugString(params);
 #ifndef BE_TEST
     try {
         ExtDataSourceServiceClientCache* client_cache = _env->extdatasource_client_cache();
@@ -347,7 +350,6 @@ Status EsScanNode::open_es(TNetworkAddress& address, TExtOpenResult& result, TEx
         }
 
         try {
-            VLOG(1) << "es open param=" << apache::thrift::ThriftDebugString(params);
             client->open(result, params);
         } catch (apache::thrift::transport::TTransportException& e) {
             LOG(WARNING) << "es open retrying, because: " << e.what();
@@ -407,22 +409,14 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
             return false;
         }
 
-        std::vector<SlotId> slot_ids;
-        slotRef->get_slot_ids(&slot_ids);
-        SlotDescriptor* slot_desc = nullptr;
-        for (SlotDescriptor* slot : _tuple_desc->slots()) {
-            if (slot->id() == slot_ids[0]) {
-                slot_desc = slot;
-                break;
-            }
-        }
+        SlotDescriptor* slot_desc = get_slot_desc(slotRef);
         if (slot_desc == nullptr) {
             VLOG(1) << "get disjuncts fail: slot_desc is null";
             return false;
         }
 
         TExtLiteral literal;
-        if (!to_exe_literal(context, expr, &literal)) {
+        if (!to_ext_literal(context, expr, &literal)) {
             VLOG(1) << "get disjuncts fail: can't get literal, node_type="
                     << expr->node_type();
             return false;
@@ -449,7 +443,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
 
 
         TExtLiteral literal;
-        if (!to_exe_literal(context, conjunct->get_child(1), &literal)) {
+        if (!to_ext_literal(context, conjunct->get_child(1), &literal)) {
             VLOG(1) << "get disjuncts fail: can't get literal, node_type="
                     << conjunct->get_child(1)->node_type();
             return false;
@@ -460,6 +454,51 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
         TExtPredicate predicate;
         predicate.__set_node_type(TExprNodeType::FUNCTION_CALL);
         predicate.__set_ext_function(match_function);
+        disjuncts.push_back(std::move(predicate));
+        return true;
+    } else if (TExprNodeType::IN_PRED == conjunct->node_type()) {
+        TExtInPredicate ext_in_predicate;
+        vector<TExtLiteral> in_pred_values;
+        InPredicate* pred = dynamic_cast<InPredicate*>(conjunct);
+        ext_in_predicate.__set_is_not_in(pred->is_not_in());
+        if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
+            return false;
+        }
+
+        SlotRef* slot_ref = (SlotRef*)(conjunct->get_child(0));
+        SlotDescriptor* slot_desc = get_slot_desc(slot_ref);
+        if (slot_desc == nullptr) {
+            return false;
+        }
+        TExtColumnDesc columnDesc;
+        columnDesc.__set_name(slot_desc->col_name());
+        columnDesc.__set_type(slot_desc->type().to_thrift());
+        ext_in_predicate.__set_col(columnDesc);
+
+        for (int i = 1; i < pred->children().size(); ++i) {
+            // varchar, string, all of them are string type, but varchar != string
+            // TODO add date, datetime support?
+            if (pred->get_child(0)->type().is_string_type()) {
+                if (!pred->get_child(i)->type().is_string_type()) {
+                    return false;
+                }
+            } else {
+                if (pred->get_child(i)->type().type != pred->get_child(0)->type().type) {
+                    return false;
+                }
+            }
+            TExtLiteral literal;
+            if (!to_ext_literal(context, pred->get_child(i), &literal)) {
+                VLOG(1) << "get disjuncts fail: can't get literal, node_type="
+                        << pred->get_child(i)->node_type();
+                return false;
+            }
+            in_pred_values.push_back(literal);
+        }
+        ext_in_predicate.__set_values(in_pred_values);
+        TExtPredicate predicate;
+        predicate.__set_node_type(TExprNodeType::IN_PRED);
+        predicate.__set_in_predicate(ext_in_predicate);
         disjuncts.push_back(std::move(predicate));
         return true;
     } else if (TExprNodeType::COMPOUND_PRED == conjunct->node_type()) {
@@ -489,7 +528,20 @@ bool EsScanNode::is_match_func(Expr* conjunct) {
     return false;
 }
 
-bool EsScanNode::to_exe_literal(ExprContext* context, Expr* expr, TExtLiteral* literal) {
+SlotDescriptor* EsScanNode::get_slot_desc(SlotRef* slotRef) {
+    std::vector<SlotId> slot_ids;
+    slotRef->get_slot_ids(&slot_ids);
+    SlotDescriptor* slot_desc = nullptr;
+    for (SlotDescriptor* slot : _tuple_desc->slots()) {
+        if (slot->id() == slot_ids[0]) {
+            slot_desc = slot;
+            break;
+        }
+    }
+    return slot_desc;
+}
+
+bool EsScanNode::to_ext_literal(ExprContext* context, Expr* expr, TExtLiteral* literal) {
     literal->__set_node_type(expr->node_type());
     switch (expr->node_type()) {
     case TExprNodeType::BOOL_LITERAL: {
