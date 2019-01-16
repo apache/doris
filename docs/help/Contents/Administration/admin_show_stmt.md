@@ -12,7 +12,7 @@
             WHERE STATUS [!]= "replica_status"
 
         replica_status:
-            OK:             replica 处于监控状态
+            OK:             replica 处于健康状态
             DEAD:           replica 所在 Backend 不可用
             VERSION_ERROR:  replica 数据版本有缺失
             MISSING:        replica 不存在
@@ -55,10 +55,37 @@
 
         ADMIN SHOW REPLICA DISTRIBUTION FROM tbl1;
 
-    1. 查看表的分区的副本分布
+    2. 查看表的分区的副本分布
 
         ADMIN SHOW REPLICA DISTRIBUTION FROM db1.tbl1 PARTITION(p1, p2);
 
 ## keyword
     ADMIN,SHOW,REPLICA,DISTRIBUTION
 
+# ADMIN SHOW CONFIG
+## description
+
+    该语句用于展示当前集群的配置（当前仅支持展示 FE 的配置项）
+
+    语法：
+
+        ADMIN SHOW FRONTEND CONFIG;
+
+    说明：
+
+        结果中的各列含义如下：
+        1. Key：        配置项名称
+        2. Value：      配置项值
+        3. Type：       配置项类型
+        4. IsMutable：  是否可以通过 ADMIN SET CONFIG 命令设置
+        5. MasterOnly： 是否仅适用于 Master FE
+        6. Comment：    配置项说明
+        
+## example
+
+    1. 查看当前FE节点的配置
+
+        ADMIN SHOW FRONTEND CONFIG;
+
+## keyword
+    ADMIN,SHOW,CONFIG

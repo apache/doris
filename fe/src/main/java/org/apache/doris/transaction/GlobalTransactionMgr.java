@@ -1105,6 +1105,7 @@ public class GlobalTransactionMgr {
     
     public List<List<Comparable>> getDbTransInfo(long dbId) throws AnalysisException {
         List<List<Comparable>> infos = new ArrayList<List<Comparable>>();
+        int limit = 2000;
         readLock();
         try {
             Database db = Catalog.getInstance().getDb(dbId);
@@ -1113,6 +1114,7 @@ public class GlobalTransactionMgr {
             }
             idToTransactionState.values().stream()
                     .filter(t -> t.getDbId() == dbId)
+                    .limit(limit)
                     .forEach(t -> {
                         List<Comparable> info = new ArrayList<Comparable>();
                         info.add(t.getTransactionId());

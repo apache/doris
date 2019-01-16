@@ -31,6 +31,7 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TTaskType;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -268,8 +269,7 @@ public class AsyncDeleteJob implements Writable {
             count = in.readInt();
             replicaPersistInfos = Maps.newHashMap();
             for (int i = 0; i < count; ++i) {
-                ReplicaPersistInfo info = new ReplicaPersistInfo();
-                info.readFields(in);
+                ReplicaPersistInfo info = ReplicaPersistInfo.read(in);
                 replicaPersistInfos.put(info.getReplicaId(), info);
             }
         }

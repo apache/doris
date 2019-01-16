@@ -25,7 +25,7 @@ import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-// proc服务提供接口
+// proc service entry
 public final class ProcService {
     private static final Logger LOG = LogManager.getLogger(ProcService.class);
     private static ProcService INSTANCE;
@@ -45,11 +45,10 @@ public final class ProcService {
         root.register("load_error_hub", new LoadErrorHubProcNode(Catalog.getInstance()));
         root.register("transactions", new TransDbProcDir(Catalog.getInstance()));
         root.register("monitor", new MonitorProcDir());
-        root.register("cluster_load_statistic", new ClusterLoadStatisticProcDir());
         root.register("current_queries", new CurrentQueryStatisticsProcDir());
         root.register("current_backend_instances", new CurrentQueryBackendInstanceProcDir());
+        root.register("cluster_balance", new ClusterBalanceProcDir());
     }
-
 
     // 通过指定的路径获得对应的PROC Node
     // 当前不支持".."，“.”这些通/配符，但是能够处理'//'这样的情况

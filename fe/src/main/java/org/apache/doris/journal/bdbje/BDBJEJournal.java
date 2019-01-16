@@ -160,7 +160,7 @@ public class BDBJEJournal implements Journal {
                     break;
                 }
             } catch (DatabaseException e) {
-                LOG.error( "catch an exception when writing to database. sleep and retry. journal id {}", id, e);
+                LOG.error("catch an exception when writing to database. sleep and retry. journal id {}", id, e);
                 try {
                     Thread.sleep(5 * 1000);
                 } catch (InterruptedException e1) {
@@ -364,11 +364,11 @@ public class BDBJEJournal implements Journal {
             return;
         }
         
-        String msg = "delete database names: ";
+        String msg = "existing database names: ";
         for (long name : dbNames) {
             msg += name + " ";
         }
-        msg += " deleteToJournalId is " + deleteToJournalId;
+        msg += ", deleteToJournalId is " + deleteToJournalId;
         LOG.info(msg);
         
         for (int i = 1; i < dbNames.size(); i++) {
@@ -378,7 +378,8 @@ public class BDBJEJournal implements Journal {
                 LOG.info("delete database name {}", stringName);
                 bdbEnvironment.removeDatabase(stringName);
             } else {
-                LOG.info("database name {} is larger than deleteToJournalId {}", dbNames.get(i), deleteToJournalId);
+                LOG.info("database name {} is larger than deleteToJournalId {}, not delete",
+                        dbNames.get(i), deleteToJournalId);
                 break;
             }
         }

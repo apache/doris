@@ -116,7 +116,6 @@ public class AgentBatchTask implements Runnable {
                 // create AgentClient
                 address = new TNetworkAddress(backend.getHost(), backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
-
                 List<TAgentTaskRequest> agentTaskRequests = new LinkedList<TAgentTaskRequest>();
                 for (AgentTask task : tasks) {
                     agentTaskRequests.add(toAgentTaskRequest(task));

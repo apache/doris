@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.CloneChecker;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.persist.ReplicaPersistInfo;
@@ -401,11 +402,12 @@ public class ReportHandler extends Daemon {
                             replica.updateVersionInfo(backendVersion, backendVersionHash, dataSize, rowCount);
                             
                             ++syncCounter;
-                            LOG.debug("sync replica[{}] in db[{}].", replica.getId(), dbId);
+                            LOG.debug("sync replica {} of tablet {} in backend {} in db {}.",
+                                    replica.getId(), tabletId, backendId, dbId);
                         } else {
-                            LOG.debug("replica[{}] version is changed between check and real sync."
-                                    + " meta[{}-{}]. backend[{}-{}]",
-                                      replica.getId(), metaVersion, metaVersionHash,
+                            LOG.debug("replica {} of tablet {} in backend {} version is changed"
+                                    + " between check and real sync. meta[{}-{}]. backend[{}-{}]",
+                                    replica.getId(), tabletId, backendId, metaVersion, metaVersionHash,
                                       backendVersion, backendVersionHash);
                         }
                     }
@@ -520,9 +522,11 @@ public class ReportHandler extends Daemon {
                         if (replicas.size() == 0) {
                             LOG.error("invalid situation. tablet[{}] is empty", tabletId);
                         } else if (replicas.size() < replicationNum) {
-                            CloneChecker.getInstance().checkTabletForSupplement(dbId, tableId,
-                                                                                partitionId,
-                                                                                indexId, tabletId);
+                            if (!Config.use_new_tablet_scheduler) {
+                                CloneChecker.getInstance().checkTabletForSupplement(dbId, tableId,
+                                                                                    partitionId,
+                                                                                    indexId, tabletId);
+                            }
                         }
                     }
                 } // end for tabletMetas
@@ -696,7 +700,7 @@ public class ReportHandler extends Daemon {
                 throw new MetaNotFoundException("table[" + tableId + "] does not exist");
             }
 
-            //colocate table will delete Replica in meta when balance
+            // colocate table will delete Replica in meta when balance
             if (olapTable.getColocateTable() != null) {
                 return;
             }
@@ -711,6 +715,7 @@ public class ReportHandler extends Daemon {
             if (materializedIndex == null) {
                 throw new MetaNotFoundException("index[" + indexId + "] does not exist");
             }
+
             Tablet tablet = materializedIndex.getTablet(tabletId);
             if (tablet == null) {
                 throw new MetaNotFoundException("tablet[" + tabletId + "] does not exist");
@@ -756,17 +761,17 @@ public class ReportHandler extends Daemon {
                     lastFailedVersion = partition.getCommittedVersion();
                     lastFailedVersionHash = partition.getCommittedVersionHash();
                 }
-                Replica replica = new Replica(replicaId, backendId, version, versionHash, 
+                Replica replica = new Replica(replicaId, backendId, version, versionHash, schemaHash,
                                               dataSize, rowCount, ReplicaState.NORMAL, 
                                               lastFailedVersion, lastFailedVersionHash, version, versionHash);
                 tablet.addReplica(replica);
                 
                 // write edit log
                 ReplicaPersistInfo info = ReplicaPersistInfo.createForAdd(dbId, tableId, partitionId, indexId,
-                                                                          tabletId, backendId, replicaId,
-                                                                          version, versionHash, dataSize, rowCount, 
-                                                                          lastFailedVersion, lastFailedVersionHash, 
-                                                                          version, versionHash);
+                        tabletId, backendId, replicaId,
+                        version, versionHash, schemaHash, dataSize, rowCount,
+                        lastFailedVersion, lastFailedVersionHash,
+                        version, versionHash);
 
                 Catalog.getInstance().getEditLog().logAddReplica(info);
 

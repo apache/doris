@@ -55,6 +55,8 @@ public class Replica implements Writable {
     private long backendId;
     private long version;
     private long versionHash;
+    private int schemaHash = -1;
+
     private long dataSize;
     private long rowCount;
     private ReplicaState state;
@@ -69,20 +71,22 @@ public class Replica implements Writable {
 	private AtomicLong versionCount = new AtomicLong(-1);
 
     private long pathHash = -1;
-    
+
     public Replica() {
     }
     
+    // for rollup
     // the new replica's version is -1 and last failed version is -1
-    public Replica(long replicaId, long backendId, ReplicaState state) {
-        this(replicaId, backendId, -1, 0, -1, -1, state, -1, 0, -1, 0);
+    public Replica(long replicaId, long backendId, int schemaHash, ReplicaState state) {
+        this(replicaId, backendId, -1, 0, schemaHash, -1, -1, state, -1, 0, -1, 0);
     }
     
-    public Replica(long replicaId, long backendId, ReplicaState state, long version, long versionHash) {
-        this(replicaId, backendId, version, versionHash, -1, -1, state, -1L, 0L, version, versionHash);
+    // for create tablet and restore
+    public Replica(long replicaId, long backendId, ReplicaState state, long version, long versionHash, int schemaHash) {
+        this(replicaId, backendId, version, versionHash, schemaHash, -1, -1, state, -1L, 0L, version, versionHash);
     }
 
-    public Replica(long replicaId, long backendId, long version, long versionHash,
+    public Replica(long replicaId, long backendId, long version, long versionHash, int schemaHash,
                        long dataSize, long rowCount, ReplicaState state, 
                        long lastFailedVersion, long lastFailedVersionHash,
                        long lastSuccessVersion, long lastSuccessVersionHash) {
@@ -90,6 +94,8 @@ public class Replica implements Writable {
         this.backendId = backendId;
         this.version = version;
         this.versionHash = versionHash;
+        this.schemaHash = schemaHash;
+
         this.dataSize = dataSize;
         this.rowCount = rowCount;
         this.state = state;
@@ -118,6 +124,15 @@ public class Replica implements Writable {
         return this.versionHash;
     }
 
+    public int getSchemaHash() {
+        return schemaHash;
+    }
+
+    // for compatibility
+    public void setSchemaHash(int schemaHash) {
+        this.schemaHash = schemaHash;
+    }
+
     public long getId() {
         return this.id;
     }
@@ -133,6 +148,7 @@ public class Replica implements Writable {
     public long getRowCount() {
         return rowCount;
     }
+
     public long getLastFailedVersion() {
         return lastFailedVersion;
     }
@@ -275,6 +291,12 @@ public class Replica implements Writable {
     }
 
     public boolean checkVersionCatchUp(long committedVersion, long committedVersionHash) {
+        if (committedVersion == Partition.PARTITION_INIT_VERSION
+                && committedVersionHash == Partition.PARTITION_INIT_VERSION_HASH) {
+            // no data is loaded into this replica, just return true
+            return true;
+        }
+
         if (this.version < committedVersion
                 || (this.version == committedVersion && this.versionHash != committedVersionHash)) {
             LOG.debug("replica version does not catch up with version: {}-{}. replica: {}",
@@ -327,6 +349,7 @@ public class Replica implements Writable {
         return strBuffer.toString();
     }
 
+    @Override
     public void write(DataOutput out) throws IOException {
         out.writeLong(id);
         out.writeLong(backendId);
@@ -343,6 +366,7 @@ public class Replica implements Writable {
         
     }
      
+    @Override
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
         backendId = in.readLong();

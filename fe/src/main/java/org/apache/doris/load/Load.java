@@ -625,6 +625,10 @@ public class Load {
             }
         } else if (etlJobType == EtlJobType.INSERT) {
             job.setPrority(TPriority.HIGH);
+            if (job.getTimeoutSecond() == 0) {
+                // set default timeout
+                job.setTimeoutSecond(Config.insert_load_default_timeout_second);
+            }
         }
 
         // job id
@@ -1466,6 +1470,9 @@ public class Load {
                         jobInfo.add("ETL:N/A; LOAD:N/A");
                         break;
                 }
+
+                // type
+                jobInfo.add(loadJob.getEtlJobType().name());
 
                 // etl info
                 EtlStatus status = loadJob.getEtlJobStatus();
@@ -3323,16 +3330,17 @@ public class Load {
                         for (Replica replica : tablet.getReplicas()) {
                             ReplicaPersistInfo info =
                                     ReplicaPersistInfo.createForCondDelete(indexId,
-                                                                           tabletId,
-                                                                           replica.getId(),
-                                                                           replica.getVersion(),
-                                                                           replica.getVersionHash(),
-                                                                           replica.getDataSize(),
-                                                                           replica.getRowCount(),
-                                                                           replica.getLastFailedVersion(),
-                                                                           replica.getLastFailedVersionHash(),
-                                                                           replica.getLastSuccessVersion(),
-                                                                           replica.getLastSuccessVersionHash());
+                                            tabletId,
+                                            replica.getId(),
+                                            replica.getVersion(),
+                                            replica.getVersionHash(),
+                                            table.getSchemaHashByIndexId(indexId),
+                                            replica.getDataSize(),
+                                            replica.getRowCount(),
+                                            replica.getLastFailedVersion(),
+                                            replica.getLastFailedVersionHash(),
+                                            replica.getLastSuccessVersion(),
+                                            replica.getLastSuccessVersionHash());
                             deleteInfo.addReplicaPersistInfo(info);
                         }
                     }

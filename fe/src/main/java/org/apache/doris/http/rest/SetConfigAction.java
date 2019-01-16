@@ -17,6 +17,7 @@
 
 package org.apache.doris.http.rest;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigBase.ConfField;
 import org.apache.doris.common.DdlException;
@@ -70,7 +71,11 @@ public class SetConfigAction extends RestBaseAction {
         for (Field f : fields) {
             // ensure that field has "@ConfField" annotation
             ConfField anno = f.getAnnotation(ConfField.class);
-            if (anno == null) {
+            if (anno == null || !anno.mutable()) {
+                continue;
+            }
+
+            if (anno.masterOnly() && !Catalog.getInstance().isMaster()) {
                 continue;
             }
 

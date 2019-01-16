@@ -17,6 +17,8 @@
 
 package org.apache.doris.task;
 
+import com.google.common.collect.Range;
+
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
@@ -33,9 +35,6 @@ import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
-
-import com.google.common.collect.Range;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;

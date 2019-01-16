@@ -66,7 +66,7 @@ public class EsStateStore extends Daemon {
     private Map<Long, EsTable> esTables;
     
     public EsStateStore() {
-        super(Config.es_state_sync_interval_secs * 1000);
+        super(Config.es_state_sync_interval_second * 1000);
         esTables = Maps.newConcurrentMap();
     }
     

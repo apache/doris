@@ -347,8 +347,6 @@ public class LoadJob implements Writable {
                 default:
                     break;
             }
-        } else {
-            LOG.info("cmy debug: get load job: {}", toString());
         }
     }
 

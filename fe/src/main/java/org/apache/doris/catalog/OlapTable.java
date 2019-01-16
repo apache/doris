@@ -31,11 +31,16 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.Tablet.TabletStatus;
+import org.apache.doris.clone.TabletSchedCtx;
+import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TOlapTable;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -298,6 +303,7 @@ public class OlapTable extends Table {
             for (Map.Entry<Long, String> entry2 : origIdxIdToName.entrySet()) {
                 MaterializedIndex idx = partition.getIndex(entry2.getKey());
                 long newIdxId = indexNameToId.get(entry2.getValue());
+                int schemaHash = indexIdToSchemaHash.get(newIdxId);
                 idx.setIdForRestore(newIdxId);
                 if (newIdxId != id) {
                     // not base table, reset
@@ -325,7 +331,7 @@ public class OlapTable extends Table {
                     for (Long beId : beIds) {
                         long newReplicaId = catalog.getNextId();
                         Replica replica = new Replica(newReplicaId, beId, ReplicaState.NORMAL,
-                                partition.getVisibleVersion(), partition.getVisibleVersionHash());
+                                partition.getVisibleVersion(), partition.getVisibleVersionHash(), schemaHash);
                         newTablet.addReplica(replica, true /* is restore */);
                     }
                 }
@@ -938,5 +944,35 @@ public class OlapTable extends Table {
         }
 
         return oldPartition;
+    }
+
+    public long getDataSize() {
+        long dataSize = 0;
+        for (Partition partition : getPartitions()) {
+            dataSize += partition.getDataSize();
+        }
+        return dataSize;
+    }
+
+    public boolean isStable(SystemInfoService infoService, TabletScheduler tabletScheduler, String clusterName) {
+        for (Partition partition : idToPartition.values()) {
+            long visibleVersion = partition.getVisibleVersion();
+            long visibleVersionHash = partition.getVisibleVersionHash();
+            short replicationNum = partitionInfo.getReplicationNum(partition.getId());
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices()) {
+                for (Tablet tablet : mIndex.getTablets()) {
+                    if (tabletScheduler.containsTablet(tablet.getId())) {
+                        return false;
+                    }
+
+                    Pair<TabletStatus, TabletSchedCtx.Priority> statusPair = tablet.getHealthStatusWithPriority(
+                            infoService, clusterName, visibleVersion, visibleVersionHash, replicationNum);
+                    if (statusPair.first != TabletStatus.HEALTHY) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
     }
 }

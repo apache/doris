@@ -66,9 +66,9 @@ public class UnitTestUtil {
 
         // replica
         long replicaId = 0;
-        Replica replica1 = new Replica(replicaId, backendId, ReplicaState.NORMAL, version, versionHash);
-        Replica replica2 = new Replica(replicaId + 1, backendId + 1, ReplicaState.NORMAL, version, versionHash);
-        Replica replica3 = new Replica(replicaId + 2, backendId + 2, ReplicaState.NORMAL, version, versionHash);
+        Replica replica1 = new Replica(replicaId, backendId, ReplicaState.NORMAL, version, versionHash, 0);
+        Replica replica2 = new Replica(replicaId + 1, backendId + 1, ReplicaState.NORMAL, version, versionHash, 0);
+        Replica replica3 = new Replica(replicaId + 2, backendId + 2, ReplicaState.NORMAL, version, versionHash, 0);
         
         // tablet
         Tablet tablet = new Tablet(tabletId);
