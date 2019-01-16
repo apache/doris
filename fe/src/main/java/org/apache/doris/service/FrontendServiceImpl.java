@@ -354,13 +354,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 ExecuteEnv.getInstance().getMultiLoadMgr().load(request);
             } else {
                 // try to add load job, label will be checked here.
-                Catalog.getInstance().getLoadInstance().addLoadJob(request);
-
-                try {
-                    // gen mini load audit log
-                    logMiniLoadStmt(request);
-                } catch (Exception e) {
-                    LOG.warn("failed log mini load stmt", e);
+                if (Catalog.getInstance().getLoadInstance().addLoadJob(request)) {
+                    try {
+                        // generate mini load audit log
+                        logMiniLoadStmt(request);
+                    } catch (Exception e) {
+                        LOG.warn("failed log mini load stmt", e);
+                    }
                 }
             }
         } catch (UserException e) {

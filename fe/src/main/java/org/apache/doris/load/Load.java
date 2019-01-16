@@ -233,7 +233,9 @@ public class Load {
         lock.writeLock().unlock();
     }
 
-    public void addLoadJob(TMiniLoadRequest request) throws DdlException {
+    // return true if we truly add the load job
+    // return false otherwise (eg: a retry request)
+    public boolean addLoadJob(TMiniLoadRequest request) throws DdlException {
         // get params
         String fullDbName = request.getDb();
         String tableName = request.getTbl();
@@ -329,10 +331,13 @@ public class Load {
         LoadStmt stmt = new LoadStmt(labelName, dataDescriptions, null, null, properties);
 
         // try to register mini label
-        registerMiniLabel(fullDbName, label, timestamp);
+        if (!registerMiniLabel(fullDbName, label, timestamp)) {
+            return false;
+        }
 
         try {
             addLoadJob(stmt, EtlJobType.MINI, timestamp);
+            return true;
         } finally {
             deregisterMiniLabel(fullDbName, label);
         }
@@ -955,7 +960,9 @@ public class Load {
         }
     }
 
-    public void registerMiniLabel(String fullDbName, String label, long timestamp) throws DdlException {
+    // return true if we truly register a mini load label
+    // return false otherwise (eg: a retry request)
+    public boolean registerMiniLabel(String fullDbName, String label, long timestamp) throws DdlException {
         Database db = Catalog.getInstance().getDb(fullDbName);
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + fullDbName);
@@ -967,7 +974,7 @@ public class Load {
             if (isLabelUsed(dbId, label, -1, true)) {
                 // label is used and this is a retry request.
                 // no need to do further operation, just return.
-                return;
+                return false;
             }
 
             Map<String, Long> miniLabels = null;
@@ -978,6 +985,8 @@ public class Load {
                 dbToMiniLabels.put(dbId, miniLabels);
             }
             miniLabels.put(label, timestamp);
+
+            return true;
         } finally {
             writeUnlock();
         }
@@ -1046,6 +1055,8 @@ public class Load {
                                 // this timestamp is used to verify if this label check is a retry request from backend.
                                 // if the timestamp in request is same as timestamp in existing load job,
                                 // which means this load job is already submitted
+                                LOG.info("get a retry request with label: {}, timestamp: {}. return ok",
+                                        label, timestamp);
                                 return true;
                             } else {
                                 throw new LabelAlreadyUsedException(label);
@@ -1068,6 +1079,8 @@ public class Load {
                             // this timestamp is used to verify if this label check is a retry request from backend.
                             // if the timestamp in request is same as timestamp in existing load job,
                             // which means this load job is already submitted
+                            LOG.info("get a retry mini load request with label: {}, timestamp: {}. return ok",
+                                    label, timestamp);
                             return true;
                         } else {
                             throw new LabelAlreadyUsedException(label);

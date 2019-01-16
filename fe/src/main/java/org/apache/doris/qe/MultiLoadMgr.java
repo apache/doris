@@ -280,6 +280,8 @@ public class MultiLoadMgr {
                 } else {
                     TableLoadDesc tblLoadDesc = loadDescByLabel.get(subLabel);
                     if (tblLoadDesc.containsTimestamp(timestamp)) {
+                        LOG.info("get a retry request with label: {}, sub label: {}, timestamp: {}. return ok",
+                                multiLabel.getLabelName(), subLabel, timestamp);
                         return true;
                     } else {
                         throw new LabelAlreadyUsedException(multiLabel.getLabelName(), subLabel);
