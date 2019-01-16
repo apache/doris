@@ -188,6 +188,7 @@ Status RuntimeState::init(
     }
     _db_name = "insert_stmt";
     _import_label = print_id(fragment_instance_id);
+
     return Status::OK;
 }
 
