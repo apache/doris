@@ -33,6 +33,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
@@ -99,7 +100,7 @@ public class GlobalTransactionMgr {
     }
     
     public long beginTransaction(long dbId, String label, String coordinator, LoadJobSourceType sourceType)
-            throws AnalysisException, LabelAlreadyExistsException, BeginTransactionException {
+            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
         return beginTransaction(dbId, label, -1, coordinator, sourceType, null);
     }
     
@@ -118,7 +119,7 @@ public class GlobalTransactionMgr {
     public long beginTransaction(long dbId, String label, long timestamp,
             String coordinator, LoadJobSourceType sourceType,
             TxnStateChangeListener txnStateChangeListener)
-            throws AnalysisException, LabelAlreadyExistsException, BeginTransactionException {
+            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
         
         if (Config.disable_load_job) {
             throw new BeginTransactionException("disable_load_job is set to true, all load jobs are prevented");
@@ -140,7 +141,7 @@ public class GlobalTransactionMgr {
                     }
                 }
 
-                throw new LabelAlreadyExistsException("label already exists, label=" + label);
+                throw new LabelAlreadyUsedException(label);
             }
             if (runningTxnNums.get(dbId) != null
                     && runningTxnNums.get(dbId) > Config.max_running_txn_num_per_db) {

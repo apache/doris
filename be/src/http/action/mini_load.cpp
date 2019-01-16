@@ -199,10 +199,6 @@ Status MiniLoadAction::_load(
                     << master_address.hostname << ":" << master_address.port << ")";
                 return status;
             }
-            // we may get timeout exception and the load job may already be summitted.
-            // set this request as 'retry', and Frontend will return success if job has been
-            // summitted.
-            req.__set_is_retry(true);
             client->miniLoad(res, req);
         } catch (apache::thrift::TApplicationException& e) {
             LOG(WARNING) << "mini load request from master("
@@ -215,10 +211,6 @@ Status MiniLoadAction::_load(
                     << master_address.hostname << ":" << master_address.port << ")";
                 return status;
             }
-            // we may get timeout exception and the load job may already be summitted.
-            // set this request as 'retry', and Frontend will return success if job has been
-            // summitted.
-            req.__set_is_retry(true);
             client->miniLoad(res, req);
         }
     } catch (apache::thrift::TException& e) {
