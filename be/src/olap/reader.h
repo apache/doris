@@ -186,11 +186,11 @@ private:
 
     OLAPStatus _init_load_bf_columns(const ReaderParams& read_params);
 
-    OLAPStatus _attach_data_to_merge_set(bool first, bool *eof);
-    
     OLAPStatus _dup_key_next_row(RowCursor* row_cursor, bool* eof);
     OLAPStatus _agg_key_next_row(RowCursor* row_cursor, bool* eof);
     OLAPStatus _unique_key_next_row(RowCursor* row_cursor, bool* eof);
+
+    TabletSharedPtr tablet() { return _tablet; }
 
 private:
     std::unique_ptr<MemTracker> _tracker;
@@ -208,10 +208,13 @@ private:
     std::vector<RowsetReaderSharedPtr> _rs_readers;
 
     KeysParam _keys_param;
+    std::vector<bool> _is_lower_keys_included;
+    std::vector<bool> _is_upper_keys_included;
     int32_t _next_key_index;
 
     Conditions _conditions;
-    std::vector<ColumnPredicate*> _col_predicates;
+    //std::vector<ColumnPredicate*> _col_predicates;
+    std::unordered_map<std::string, ColumnPredicate*> _col_predicates;
 
     DeleteHandler _delete_handler;
 
