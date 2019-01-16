@@ -91,7 +91,7 @@ public class TransactionState implements Writable {
     private long dbId;
     private long transactionId;
     private String label;
-    // timestamp is used to judge weather a begin request is a internal retry request.
+    // timestamp is used to judge whether a begin request is a internal retry request.
     // no need to persist it
     private long timestamp;
     private Map<Long, TableCommitInfo> idToTableCommitInfos;

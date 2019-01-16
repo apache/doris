@@ -106,7 +106,7 @@ public class GlobalTransactionMgr {
     /**
      * the app could specify the transaction id
      * 
-     * timestamp is used to judge that weather the request is a internal retry request
+     * timestamp is used to judge that whether the request is a internal retry request
      * if label already exist, and timestamps are equal, we return the exist tid, and consider this 'begin'
      * as success.
      * timestamp == -1 is for compatibility
