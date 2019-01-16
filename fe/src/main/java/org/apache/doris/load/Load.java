@@ -55,6 +55,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
@@ -232,7 +233,9 @@ public class Load {
         lock.writeLock().unlock();
     }
 
-    public void addLoadJob(TMiniLoadRequest request) throws DdlException {
+    // return true if we truly add the load job
+    // return false otherwise (eg: a retry request)
+    public boolean addLoadJob(TMiniLoadRequest request) throws DdlException {
         // get params
         String fullDbName = request.getDb();
         String tableName = request.getTbl();
@@ -329,11 +332,12 @@ public class Load {
 
         // try to register mini label
         if (!registerMiniLabel(fullDbName, label, timestamp)) {
-            throw new DdlException("Same data label[" + label + "] already used");
+            return false;
         }
 
         try {
             addLoadJob(stmt, EtlJobType.MINI, timestamp);
+            return true;
         } finally {
             deregisterMiniLabel(fullDbName, label);
         }
@@ -837,9 +841,7 @@ public class Load {
                 checkMini = false;
             }
 
-            if (isLabelUsed(dbId, label, -1, checkMini)) {
-                throw new DdlException("Same data label[" + label + "] already used");
-            }
+            isLabelUsed(dbId, label, -1, checkMini);
 
             // add job
             Map<String, List<LoadJob>> labelToLoadJobs = null;
@@ -958,8 +960,9 @@ public class Load {
         }
     }
 
-    public boolean registerMiniLabel(
-            String fullDbName, String label, long timestamp) throws DdlException {
+    // return true if we truly register a mini load label
+    // return false otherwise (eg: a retry request)
+    public boolean registerMiniLabel(String fullDbName, String label, long timestamp) throws DdlException {
         Database db = Catalog.getInstance().getDb(fullDbName);
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + fullDbName);
@@ -968,7 +971,9 @@ public class Load {
         long dbId = db.getId();
         writeLock();
         try {
-            if (isLabelUsed(dbId, label, -1, true)) {
+            if (isLabelUsed(dbId, label, timestamp, true)) {
+                // label is used and this is a retry request.
+                // no need to do further operation, just return.
                 return false;
             }
 
@@ -980,11 +985,11 @@ public class Load {
                 dbToMiniLabels.put(dbId, miniLabels);
             }
             miniLabels.put(label, timestamp);
+
+            return true;
         } finally {
             writeUnlock();
         }
-
-        return true;
     }
 
     public void deregisterMiniLabel(String fullDbName, String label) throws DdlException {
@@ -1025,19 +1030,15 @@ public class Load {
     }
 
     /*
-     * if timestamp does not equals to -1, this is a retry request:
-     * 1. if label has been used, and job's timestamp equals to the given one, return true.
-     * 2. if label has been used, but timestamp is not equal, return false. The caller will finally call
-     *    this method again will timestamp == -1, and return if label has been used or not.
-     * 3. if label does not exist, just return false, as usual.
-     * 
-     * if timestamp equals to -1, return true if label has been used, otherwise, return false. 
-     * 
-     * throw DdlException if encounter other exception.
+     * 1. if label is already used, and this is not a retry request,
+     *    throw exception ("Label already used")
+     * 2. if label is already used, but this is a retry request,
+     *    return true
+     * 3. if label is not used, return false
+     * 4. throw exception if encounter error.
      */
     private boolean isLabelUsed(long dbId, String label, long timestamp, boolean checkMini)
             throws DdlException {
-
         // check dbLabelToLoadJobs
         if (dbLabelToLoadJobs.containsKey(dbId)) {
             Map<String, List<LoadJob>> labelToLoadJobs = dbLabelToLoadJobs.get(dbId);
@@ -1047,15 +1048,18 @@ public class Load {
                     JobState oldJobState = oldJob.getState();
                     if (oldJobState != JobState.CANCELLED) {
                         if (timestamp == -1) {
-                            return true;
+                            // timestamp == -1 is for compatibility
+                            throw new LabelAlreadyUsedException(label);
                         } else {
                             if (timestamp == oldJob.getTimestamp()) {
                                 // this timestamp is used to verify if this label check is a retry request from backend.
                                 // if the timestamp in request is same as timestamp in existing load job,
                                 // which means this load job is already submitted
+                                LOG.info("get a retry request with label: {}, timestamp: {}. return ok",
+                                        label, timestamp);
                                 return true;
                             } else {
-                                return false;
+                                throw new LabelAlreadyUsedException(label);
                             }
                         }
                     }
@@ -1069,15 +1073,17 @@ public class Load {
                 Map<String, Long> uncommittedLabels = dbToMiniLabels.get(dbId);
                 if (uncommittedLabels.containsKey(label)) {
                     if (timestamp == -1) {
-                        return true;
+                        throw new LabelAlreadyUsedException(label);
                     } else {
                         if (timestamp == uncommittedLabels.get(label)) {
                             // this timestamp is used to verify if this label check is a retry request from backend.
                             // if the timestamp in request is same as timestamp in existing load job,
                             // which means this load job is already submitted
+                            LOG.info("get a retry mini load request with label: {}, timestamp: {}. return ok",
+                                    label, timestamp);
                             return true;
                         } else {
-                            return false;
+                            throw new LabelAlreadyUsedException(label);
                         }
                     }
                 }

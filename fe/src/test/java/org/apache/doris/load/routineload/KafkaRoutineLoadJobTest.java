@@ -17,27 +17,22 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.collect.Lists;
-import mockit.Deencapsulation;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import mockit.Verifications;
-import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.SystemIdGenerator;
+import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgr;
-import org.apache.doris.transaction.LabelAlreadyExistsException;
 import org.apache.doris.transaction.TransactionState;
+
+import com.google.common.collect.Lists;
+
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.PartitionInfo;
 import org.junit.Assert;
@@ -47,6 +42,14 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+
+import mockit.Deencapsulation;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+import mockit.Verifications;
 
 public class KafkaRoutineLoadJobTest {
 
@@ -104,7 +107,7 @@ public class KafkaRoutineLoadJobTest {
                                          @Mocked Catalog catalog,
                                          @Injectable RoutineLoadManager routineLoadManager,
                                          @Mocked RoutineLoadDesc routineLoadDesc)
-            throws BeginTransactionException, LabelAlreadyExistsException, AnalysisException {
+            throws BeginTransactionException, LabelAlreadyUsedException, AnalysisException {
 
         new Expectations(){
             {
@@ -120,7 +123,7 @@ public class KafkaRoutineLoadJobTest {
 
         new Expectations() {
             {
-                globalTransactionMgr.beginTransaction(anyLong, anyString, anyString,
+                globalTransactionMgr.beginTransaction(anyLong, anyString, anyLong, anyString,
                                                       TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, (KafkaRoutineLoadJob) any);
                 result = 0L;
                 catalog.getRoutineLoadManager();
@@ -152,7 +155,7 @@ public class KafkaRoutineLoadJobTest {
                                         @Mocked Catalog catalog,
                                         @Injectable RoutineLoadManager routineLoadManager,
                                         @Mocked RoutineLoadDesc routineLoadDesc)
-            throws AnalysisException, LabelAlreadyExistsException,
+            throws AnalysisException, LabelAlreadyUsedException,
             BeginTransactionException {
 
         new Expectations(){
@@ -168,7 +171,7 @@ public class KafkaRoutineLoadJobTest {
                                         "", "", null);
         new Expectations() {
             {
-                globalTransactionMgr.beginTransaction(anyLong, anyString, anyString,
+                globalTransactionMgr.beginTransaction(anyLong, anyString, anyLong, anyString,
                                                       TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob);
                 result = 0L;
                 catalog.getRoutineLoadManager();

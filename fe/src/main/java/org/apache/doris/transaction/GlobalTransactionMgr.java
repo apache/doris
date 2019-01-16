@@ -33,6 +33,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
@@ -99,20 +100,26 @@ public class GlobalTransactionMgr {
     }
     
     public long beginTransaction(long dbId, String label, String coordinator, LoadJobSourceType sourceType)
-            throws AnalysisException, LabelAlreadyExistsException, BeginTransactionException {
-        return beginTransaction(dbId, label, coordinator, sourceType, null);
+            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
+        return beginTransaction(dbId, label, -1, coordinator, sourceType, null);
     }
     
     /**
      * the app could specify the transaction id
+     * 
+     * timestamp is used to judge that whether the request is a internal retry request
+     * if label already exist, and timestamps are equal, we return the exist tid, and consider this 'begin'
+     * as success.
+     * timestamp == -1 is for compatibility
      *
      * @param coordinator
      * @throws BeginTransactionException
      * @throws IllegalTransactionParameterException
      */
-    public long beginTransaction(long dbId, String label, String coordinator, LoadJobSourceType sourceType,
+    public long beginTransaction(long dbId, String label, long timestamp,
+            String coordinator, LoadJobSourceType sourceType,
             TxnStateChangeListener txnStateChangeListener)
-            throws AnalysisException, LabelAlreadyExistsException, BeginTransactionException {
+            throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
         
         if (Config.disable_load_job) {
             throw new BeginTransactionException("disable_load_job is set to true, all load jobs are prevented");
@@ -125,7 +132,16 @@ public class GlobalTransactionMgr {
             FeNameFormat.checkLabel(label);
             Map<String, Long> txnLabels = dbIdToTxnLabels.row(dbId);
             if (txnLabels != null && txnLabels.containsKey(label)) {
-                throw new LabelAlreadyExistsException("label already exists, label=" + label);
+                // check timestamp
+                if (timestamp != -1) {
+                    TransactionState existTxn = getTransactionState(txnLabels.get(label));
+                    if (existTxn != null && existTxn.getTransactionStatus() == TransactionStatus.PREPARE
+                            && existTxn.getTimestamp() == timestamp) {
+                        return txnLabels.get(label);
+                    }
+                }
+
+                throw new LabelAlreadyUsedException(label);
             }
             if (runningTxnNums.get(dbId) != null
                     && runningTxnNums.get(dbId) > Config.max_running_txn_num_per_db) {
@@ -134,8 +150,8 @@ public class GlobalTransactionMgr {
             }
             long tid = idGenerator.getNextTransactionId();
             LOG.info("begin transaction: txn id {} with label {} from coordinator {}", tid, label, coordinator);
-            TransactionState transactionState = new TransactionState(dbId, tid, label, sourceType,
-                                                                     coordinator, txnStateChangeListener);
+            TransactionState transactionState = new TransactionState(dbId, tid, label, timestamp, sourceType,
+                    coordinator, txnStateChangeListener);
             transactionState.setPrepareTime(System.currentTimeMillis());
             unprotectUpsertTransactionState(transactionState);
             return tid;

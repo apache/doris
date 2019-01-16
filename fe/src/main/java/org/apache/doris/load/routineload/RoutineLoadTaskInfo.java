@@ -20,10 +20,10 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.task.RoutineLoadTask;
 import org.apache.doris.transaction.BeginTransactionException;
-import org.apache.doris.transaction.LabelAlreadyExistsException;
 import org.apache.doris.transaction.TransactionState;
 
 /**
@@ -43,14 +43,14 @@ public abstract class RoutineLoadTaskInfo {
     private long loadStartTimeMs;
     
     public RoutineLoadTaskInfo(String id, String jobId) throws BeginTransactionException,
-            LabelAlreadyExistsException, AnalysisException {
+            LabelAlreadyUsedException, AnalysisException {
         this.id = id;
         this.jobId = jobId;
         this.createTimeMs = System.currentTimeMillis();
         // begin a txn for task
         RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
         txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                routineLoadJob.getDbId(), id, "streamLoad",
+                routineLoadJob.getDbId(), id, -1, "streamLoad",
                 TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob);
     }
     
