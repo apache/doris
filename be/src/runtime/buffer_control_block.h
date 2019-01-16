@@ -107,6 +107,9 @@ private:
    
     std::deque<GetResultBatchCtx*> _waiting_rpc;
 
+    // It is shared with PlanFragmentExecutor and will be called in two different 
+    // threads. But their calls are all at different time, there is no problem of 
+    // multithreaded access.
     std::shared_ptr<QueryStatistics> _query_statistics;
 };
 

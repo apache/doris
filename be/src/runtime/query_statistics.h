@@ -84,6 +84,15 @@ public:
 private:
 
 friend class QueryStatistics;
+
+    void merge(QueryStatistics* statistics) {
+        std::lock_guard<SpinLock> l(_lock);
+        auto iter = _query_statistics.begin();
+        while (iter != _query_statistics.end()) {
+            statistics->merge(*(iter->second));
+            iter++;
+        }
+    }
  
     std::map<int, QueryStatistics*> _query_statistics;
     SpinLock _lock;

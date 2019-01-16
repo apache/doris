@@ -20,12 +20,7 @@
 namespace doris {
 
 void QueryStatistics::merge(QueryStatisticsRecvr* recvr) {
-    std::lock_guard<SpinLock> l(recvr->_lock);
-    auto iter = recvr->_query_statistics.begin();
-    while (iter != recvr->_query_statistics.end()) {
-        merge(*(iter->second));
-        iter++;
-    }
+    recvr->merge(this);
 }
 
 void QueryStatisticsRecvr::insert(const PQueryStatistics& statistics, int sender_id) {
@@ -45,9 +40,8 @@ QueryStatisticsRecvr::~QueryStatisticsRecvr() {
     // It is unnecessary to lock here, because the destructor will be
     // called alter DataStreamRecvr's close in ExchangeNode.
     auto iter = _query_statistics.begin();
-    while (iter != _query_statistics.end()) {
-        delete iter->second;
-        iter++;
+    for (auto& pair : _query_statistics) {
+        delete pair.second;
     }
     _query_statistics.clear();
 }

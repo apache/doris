@@ -205,8 +205,9 @@ private:
     // of the execution.
     RuntimeProfile::Counter* _average_thread_tokens;
 
-    // This plan and it's sub plan query statisics. Because plan may have been finished
-    // when fe fetch data and query statistics, this will be shared with ResultSink.
+    // It is shared with BufferControlBlock and will be called in two different 
+    // threads. But their calls are all at different time, there is no problem of 
+    // multithreaded access.
     std::shared_ptr<QueryStatistics> _query_statistics;
     bool _collect_query_statistics_with_every_batch;    
 
