@@ -553,7 +553,11 @@ public class StmtExecutor {
             }
             context.updateReturnRows(batch.getBatch().getRows().size());
         }
-        statisticsForAuditLog = batch.getQueryStatistics();
+
+        if (batch != null) {
+            statisticsForAuditLog = batch.getQueryStatistics();
+        }
+
         if (!isSendFields) {
             sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
         }

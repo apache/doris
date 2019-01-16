@@ -26,6 +26,7 @@ import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlErrPacket;
 import org.apache.doris.mysql.MysqlOkPacket;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.rpc.PQueryStatistics;
 
 import org.easymock.EasyMock;
 import org.junit.Assert;
@@ -231,7 +232,7 @@ public class ConnectProcessorTest {
         // Mock statement executor
         StmtExecutor qe = EasyMock.createNiceMock(StmtExecutor.class);
         qe.execute();
-        EasyMock.expect(qe.getQueryStatisticsForAuditLog()).andReturn(new StmtExecutor.QueryStatistics());
+        EasyMock.expect(qe.getQueryStatisticsForAuditLog()).andReturn(new PQueryStatistics());
         EasyMock.expectLastCall().anyTimes();
         EasyMock.replay(qe);
         PowerMock.expectNew(
@@ -255,7 +256,7 @@ public class ConnectProcessorTest {
         StmtExecutor qe = EasyMock.createNiceMock(StmtExecutor.class);
         qe.execute();
         EasyMock.expectLastCall().andThrow(new IOException("Fail")).anyTimes();
-        EasyMock.expect(qe.getQueryStatisticsForAuditLog()).andReturn(new StmtExecutor.QueryStatistics());
+        EasyMock.expect(qe.getQueryStatisticsForAuditLog()).andReturn(new PQueryStatistics());
         EasyMock.replay(qe);
         PowerMock.expectNew(StmtExecutor.class, EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class))
                 .andReturn(qe).anyTimes();
@@ -273,7 +274,7 @@ public class ConnectProcessorTest {
         // Mock statement executor
         StmtExecutor qe = EasyMock.createNiceMock(StmtExecutor.class);
         qe.execute();
-        EasyMock.expect(qe.getQueryStatisticsForAuditLog()).andReturn(new StmtExecutor.QueryStatistics());
+        EasyMock.expect(qe.getQueryStatisticsForAuditLog()).andReturn(new PQueryStatistics());
         EasyMock.expectLastCall().andThrow(new NullPointerException("Fail")).anyTimes();
         EasyMock.replay(qe);
         PowerMock.expectNew(StmtExecutor.class, EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class))
