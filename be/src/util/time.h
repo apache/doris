@@ -59,12 +59,19 @@ inline int64_t MonotonicSeconds() {
   return GetMonoTimeMicros() / MICROS_PER_SEC;
 }
 
+// Returns the time since the Epoch measured in microseconds.
+inline int64_t GetCurrentTimeMicros() {
+  timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);
+  return ts.tv_sec * MICROS_PER_SEC + ts.tv_nsec / NANOS_PER_MICRO;
+}
+
 /// Returns the number of milliseconds that have passed since the Unix epoch. This is
 /// affected by manual changes to the system clock but is more suitable for use across
 /// a cluster. For more accurate timings on the local host use the monotonic functions
 /// above.
 inline int64_t UnixMillis() {
-  return GetMonoTimeMicros() / MICROS_PER_MILLI;
+  return GetCurrentTimeMicros() / MICROS_PER_MILLI;
 }
 
 /// Returns the number of microseconds that have passed since the Unix epoch. This is
@@ -72,7 +79,7 @@ inline int64_t UnixMillis() {
 /// a cluster. For more accurate timings on the local host use the monotonic functions
 /// above.
 inline int64_t UnixMicros() {
-  return GetMonoTimeMicros();
+  return GetCurrentTimeMicros();
 }
 
 /// Sleeps the current thread for at least duration_ms milliseconds.
