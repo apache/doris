@@ -49,7 +49,7 @@ public:
     // Blocks until the first batch is available for consumption via GetNext().
     virtual Status open(RuntimeState* state);
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
-    virtual Status collect_query_statistics(QueryStatistics* statistics);
+    Status collect_query_statistics(QueryStatistics* statistics) override;
     virtual Status close(RuntimeState* state);
 
     // the number of senders needs to be set after the c'tor, because it's not
@@ -112,8 +112,8 @@ private:
 
     RuntimeProfile::Counter* _merge_rows_counter;
 
-    // Query statistics from sub plan.
-    boost::scoped_ptr<QueryStatistics> _sub_plan_statistics;
+    // Sub plan query statistics receiver. 
+    boost::scoped_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 };
 
 };

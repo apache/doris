@@ -59,7 +59,7 @@ void PInternalServiceImpl<T>::transmit_data(google::protobuf::RpcController* cnt
         TUniqueId finst_id;
         finst_id.__set_hi(request->finst_id().hi());
         finst_id.__set_lo(request->finst_id().lo());
-        _exec_env->stream_mgr()->update_query_statistics(
+        _exec_env->stream_mgr()->add_query_statistics(
             finst_id,
             request->node_id(),
             request->sender_id(), 

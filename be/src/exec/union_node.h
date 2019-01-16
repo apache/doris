@@ -48,7 +48,6 @@ public:
     virtual void codegen(RuntimeState* state);
     virtual Status open(RuntimeState* state);
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
-    virtual Status collect_query_statistics(QueryStatistics* statistics);
     // virtual Status reset(RuntimeState* state);
     virtual Status close(RuntimeState* state);
 

@@ -100,8 +100,8 @@ public:
     const RowDescriptor& row_desc() const { return _row_desc; }
     MemTracker* mem_tracker() const { return _mem_tracker.get(); }
 
-    void update_sub_plan_statistics(const PQueryStatistics& statistics, int sender_id) {
-        _sub_plan_query_statistics->deserialize(statistics, sender_id);
+    void add_sub_plan_statistics(const PQueryStatistics& statistics, int sender_id) {
+        _sub_plan_query_statistics_recvr->insert(statistics, sender_id);
     }
 
 private:
@@ -111,7 +111,7 @@ private:
     DataStreamRecvr(DataStreamMgr* stream_mgr, MemTracker* parent_tracker,
             const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
             PlanNodeId dest_node_id, int num_senders, bool is_merging, int total_buffer_limit,
-            RuntimeProfile* profile, QueryStatistics* query_statistics);
+            RuntimeProfile* profile, QueryStatisticsRecvr* sub_plan_query_statistics_recvr);
 
     // If receive queue is full, done is enqueue pending, and return with *done is nullptr
     void add_batch(const PRowBatch& batch, int sender_id,
@@ -199,8 +199,8 @@ private:
     // Wall time senders spend waiting for the recv buffer to have capacity.
     RuntimeProfile::Counter* _buffer_full_wall_timer;
 
-    // Query statistics returned with batch
-    QueryStatistics* _sub_plan_query_statistics;
+    // Sub plan query statistics receiver.
+    QueryStatisticsRecvr* _sub_plan_query_statistics_recvr;
 
     // Total time spent waiting for data to arrive in the recv buffer
     // RuntimeProfile::Counter* _data_arrival_timer;

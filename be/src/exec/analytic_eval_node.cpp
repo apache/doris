@@ -839,12 +839,6 @@ Status AnalyticEvalNode::get_next(RuntimeState* state, RowBatch* row_batch, bool
     return Status::OK;
 }
 
-Status AnalyticEvalNode::collect_query_statistics(QueryStatistics* statistics) {
-    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
-    statistics->add_process_rows(_process_rows_counter->value());
-    return Status::OK;
-}
-
 Status AnalyticEvalNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK;

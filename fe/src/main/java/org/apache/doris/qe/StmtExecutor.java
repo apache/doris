@@ -566,7 +566,7 @@ public class StmtExecutor {
     private void setQueryStatisticsForAuditLog(RowBatch batch) {
         if (batch != null) {
             final PQueryStatistics statistics = batch.getQueryStatistics();
-            statisticsForAuditLog = new QueryStatistics(statistics.processRows, statistics.scanBytes);
+            statisticsForAuditLog = new QueryStatistics(statistics.scanRows, statistics.scanBytes);
         }
     }
 
@@ -796,22 +796,22 @@ public class StmtExecutor {
     }
 
     public static class QueryStatistics {
-        private final long processRows;
+        private final long scanRows;
         private final long scanBytes;
 
         public QueryStatistics() {
-            this.processRows = 0;
+            this.scanRows = 0;
             this.scanBytes = 0;
         }
 
-        public QueryStatistics(long processRows, long scanBytes) {
-            this.processRows = processRows;
+        public QueryStatistics(long scanRows, long scanBytes) {
+            this.scanRows = scanRows;
             this.scanBytes = scanBytes;
         }
 
-        public String getFormattingProcessRows() {
+        public String getFormattingScanRows() {
             final StringBuilder builder = new StringBuilder();
-            builder.append(processRows).append(" Rows");
+            builder.append(scanRows).append(" Rows");
             return builder.toString();
         }
 

@@ -77,7 +77,7 @@ public:
             RuntimeState* state, const RowDescriptor& row_desc,
             const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
             int num_senders, int buffer_size, RuntimeProfile* profile,
-            bool is_merging, QueryStatistics* query_statistics);
+            bool is_merging, QueryStatisticsRecvr* sub_plan_query_statistics_recvr);
 
     // Adds a row batch to the recvr identified by fragment_instance_id/dest_node_id
     // if the recvr has not been cancelled. sender_id identifies the sender instance
@@ -99,7 +99,7 @@ public:
     Status close_sender(const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
             int sender_id, int be_number);
 
-    Status update_query_statistics(const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
+    Status add_query_statistics(const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
                                   int sender_id, const PQueryStatistics& query_statistics);
 
     // Closes all receivers registered for fragment_instance_id immediately.

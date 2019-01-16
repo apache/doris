@@ -177,13 +177,6 @@ Status HashJoinNode::prepare(RuntimeState* state) {
     return Status::OK;
 }
 
-Status HashJoinNode::collect_query_statistics(QueryStatistics* statistics) {
-    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
-    statistics->add_process_rows(_probe_rows_counter->value());
-    statistics->add_process_rows(_build_rows_counter->value());
-    return Status::OK;
-}
-
 Status HashJoinNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK;

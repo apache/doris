@@ -101,7 +101,7 @@ public class ConnectProcessor {
         ctx.getAuditBuilder().put("state", ctx.getState());
         ctx.getAuditBuilder().put("time", elapseMs);
         Preconditions.checkNotNull(statistics); 
-        ctx.getAuditBuilder().put("ProcessRows", statistics.getFormattingProcessRows());
+        ctx.getAuditBuilder().put("ScanRows", statistics.getFormattingScanRows());
         ctx.getAuditBuilder().put("ScanRawData", statistics.getFormattingScanBytes());
         ctx.getAuditBuilder().put("returnRows", ctx.getReturnRows());
         ctx.getAuditBuilder().put("stmt_id", ctx.getStmtId());

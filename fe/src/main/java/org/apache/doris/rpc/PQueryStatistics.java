@@ -23,7 +23,7 @@ import com.baidu.bjf.remoting.protobuf.annotation.ProtobufClass;
 @ProtobufClass
 public class PQueryStatistics {
     @Protobuf(order = 1, required = false)
-    public long processRows;
+    public long scanRows;
     @Protobuf(order = 2, required = false)
     public long scanBytes;
 }

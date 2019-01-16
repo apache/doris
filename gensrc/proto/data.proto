@@ -20,7 +20,7 @@ syntax="proto2";
 package doris;
 
 message PQueryStatistics {
-    optional int64 process_rows = 1;
+    optional int64 scan_rows = 1;
     optional int64 scan_bytes = 2;
 }
 

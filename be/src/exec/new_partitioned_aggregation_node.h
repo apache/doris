@@ -137,7 +137,6 @@ class NewPartitionedAggregationNode : public ExecNode {
   virtual Status open(RuntimeState* state);
   virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
   virtual Status reset(RuntimeState* state);
-  virtual Status collect_query_statistics(QueryStatistics* statistics);
   virtual Status close(RuntimeState* state);
 
   static const char* LLVM_CLASS_NAME;

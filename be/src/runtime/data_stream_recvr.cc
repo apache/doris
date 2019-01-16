@@ -351,7 +351,7 @@ DataStreamRecvr::DataStreamRecvr(
         DataStreamMgr* stream_mgr, MemTracker* parent_tracker,
         const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
         PlanNodeId dest_node_id, int num_senders, bool is_merging, int total_buffer_limit,
-        RuntimeProfile* profile, QueryStatistics* query_statistics) :
+        RuntimeProfile* profile, QueryStatisticsRecvr* sub_plan_query_statistics_recvr) :
             _mgr(stream_mgr),
             _fragment_instance_id(fragment_instance_id),
             _dest_node_id(dest_node_id),
@@ -360,7 +360,7 @@ DataStreamRecvr::DataStreamRecvr(
             _is_merging(is_merging),
             _num_buffered_bytes(0),
             _profile(profile),
-            _sub_plan_query_statistics(query_statistics) {
+            _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
     _mem_tracker.reset(new MemTracker(-1, "DataStreamRecvr", parent_tracker));
 
     // Create one queue per sender if is_merging is true.
