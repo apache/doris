@@ -400,6 +400,8 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
         request.db = ctx->db;
         request.tbl = ctx->table;
         request.label = ctx->label;
+        // set timestamp
+        request.__set_timestamp(GetCurrentTimeMicros());
 
         TLoadTxnBeginResult result;
 #ifndef BE_TEST

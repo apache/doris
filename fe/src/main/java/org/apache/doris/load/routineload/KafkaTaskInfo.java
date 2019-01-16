@@ -17,14 +17,15 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.collect.Maps;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.task.KafkaRoutineLoadTask;
 import org.apache.doris.task.RoutineLoadTask;
 import org.apache.doris.transaction.BeginTransactionException;
-import org.apache.doris.transaction.LabelAlreadyExistsException;
+
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -37,13 +38,13 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
 
     private List<Integer> partitions;
 
-    public KafkaTaskInfo(String id, String jobId) throws LabelAlreadyExistsException,
+    public KafkaTaskInfo(String id, String jobId) throws LabelAlreadyUsedException,
             BeginTransactionException, AnalysisException {
         super(id, jobId);
         this.partitions = new ArrayList<>();
     }
 
-    public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo) throws LabelAlreadyExistsException,
+    public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo) throws LabelAlreadyUsedException,
             BeginTransactionException, AnalysisException {
         super(UUID.randomUUID().toString(), kafkaTaskInfo.getJobId());
         this.partitions = kafkaTaskInfo.getPartitions();

@@ -24,6 +24,7 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.load.LoadJob.EtlJobType;
 import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -56,6 +57,7 @@ public class MultiLoadMgr {
         if (Strings.isNullOrEmpty(fullDbName)) {
             throw new DdlException("Database is empty");
         }
+
         if (Strings.isNullOrEmpty(label)) {
             throw new DdlException("Label is empty");
         }
@@ -65,31 +67,14 @@ public class MultiLoadMgr {
         lock.writeLock().lock();
         try {
             if (infoMap.containsKey(multiLabel)) {
-                throw new DdlException("Label(" + label + ") already exists.");
+                throw new LabelAlreadyUsedException(label);
             }
             infoMap.put(multiLabel, new MultiLoadDesc(multiLabel, properties));
         } finally {
             lock.writeLock().unlock();
         }
         // Register to Load after put into map.
-        if (!Catalog.getInstance().getLoadInstance().registerMiniLabel(fullDbName, label, System.currentTimeMillis())) {
-            throw new DdlException("Label(" + label + ") already exists.");
-        }
-    }
-
-    public boolean isLabelUsed(String fullDbName, String label, String subLabel, long timestamp) {
-        LabelName multiLabel = new LabelName(fullDbName, label);
-        lock.readLock().lock();
-        try {
-            if (infoMap.containsKey(multiLabel)) {
-                MultiLoadDesc multiLoadDesc = infoMap.get(multiLabel);
-                return multiLoadDesc.isSubLabelUsed(subLabel, timestamp);
-            } else {
-                return false;
-            }
-        } finally {
-            lock.readLock().unlock();
-        }
+        Catalog.getInstance().getLoadInstance().registerMiniLabel(fullDbName, label, System.currentTimeMillis());
     }
 
     public void load(TMiniLoadRequest request) throws DdlException {
@@ -234,10 +219,17 @@ public class MultiLoadMgr {
                             TNetworkAddress fileAddr, 
                             Map<String, String> properties,
                             long timestamp) throws DdlException {
+
+            if (isSubLabelUsed(subLabel, timestamp)) {
+                // sub label is used and this is a retry request.
+                // no need to do further operation, just return
+                return;
+            }
+
             TableLoadDesc desc = loadDescByLabel.get(subLabel);
             if (desc != null) {
                 // Already exists
-                throw new DdlException("Sub label(" + subLabel + ") already exists.");
+                throw new LabelAlreadyUsedException(multiLabel.getLabelName(), subLabel);
             }
             desc = loadDescByTable.get(table);
             if (desc == null) {
@@ -272,16 +264,27 @@ public class MultiLoadMgr {
             }
         }
 
-        public boolean isSubLabelUsed(String subLabel, long timestamp) {
+        /*
+         * 1. if sub label is already used, and this is not a retry request,
+         *    throw exception ("Label already used")
+         * 2. if label is already used, but this is a retry request,
+         *    return true
+         * 3. if label is not used, return false
+         * 4. throw exception if encounter error.
+         */
+        public boolean isSubLabelUsed(String subLabel, long timestamp) throws DdlException {
             if (loadDescByLabel.containsKey(subLabel)) {
                 if (timestamp == -1) {
-                    return true;
+                    // for compatibility
+                    throw new LabelAlreadyUsedException(multiLabel.getLabelName(), subLabel);
                 } else {
                     TableLoadDesc tblLoadDesc = loadDescByLabel.get(subLabel);
                     if (tblLoadDesc.containsTimestamp(timestamp)) {
+                        LOG.info("get a retry request with label: {}, sub label: {}, timestamp: {}. return ok",
+                                multiLabel.getLabelName(), subLabel, timestamp);
                         return true;
                     } else {
-                        return false;
+                        throw new LabelAlreadyUsedException(multiLabel.getLabelName(), subLabel);
                     }
                 }
             }

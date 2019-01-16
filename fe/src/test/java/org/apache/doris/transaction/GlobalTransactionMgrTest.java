@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
@@ -80,7 +81,7 @@ public class GlobalTransactionMgrTest {
     }
 
     @Test
-    public void testBeginTransaction() throws LabelAlreadyExistsException, AnalysisException,
+    public void testBeginTransaction() throws LabelAlreadyUsedException, AnalysisException,
             BeginTransactionException {
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
@@ -96,7 +97,7 @@ public class GlobalTransactionMgrTest {
     }
 
     @Test
-    public void testBeginTransactionWithSameLabel() throws LabelAlreadyExistsException, AnalysisException,
+    public void testBeginTransactionWithSameLabel() throws LabelAlreadyUsedException, AnalysisException,
             BeginTransactionException {
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId = 0;
@@ -108,7 +109,7 @@ public class GlobalTransactionMgrTest {
                     LoadJobSourceType.FRONTEND);
         } catch (AnalysisException e) {
             e.printStackTrace();
-        } catch (LabelAlreadyExistsException e) {
+        } catch (LabelAlreadyUsedException e) {
             e.printStackTrace();
         }
         TransactionState transactionState = fakeEditLog.getTransaction(transactionId);
@@ -132,7 +133,7 @@ public class GlobalTransactionMgrTest {
     @Test
     public void testCommitTransaction1() throws MetaNotFoundException,
             TransactionException,
-            IllegalTransactionParameterException, LabelAlreadyExistsException,
+            IllegalTransactionParameterException, LabelAlreadyUsedException,
             AnalysisException, BeginTransactionException {
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
@@ -175,7 +176,7 @@ public class GlobalTransactionMgrTest {
     @Test
     public void testCommitTransactionWithOneFailed() throws MetaNotFoundException,
             TransactionException,
-            IllegalTransactionParameterException, LabelAlreadyExistsException,
+            IllegalTransactionParameterException, LabelAlreadyUsedException,
             AnalysisException, BeginTransactionException {
         TransactionState transactionState = null;
         FakeCatalog.setCatalog(masterCatalog);
@@ -277,7 +278,7 @@ public class GlobalTransactionMgrTest {
     }
 
     public void testFinishTransaction() throws MetaNotFoundException, TransactionException,
-            IllegalTransactionParameterException, LabelAlreadyExistsException,
+            IllegalTransactionParameterException, LabelAlreadyUsedException,
             AnalysisException, BeginTransactionException {
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
                 CatalogTestUtil.testTxnLable1,
@@ -321,7 +322,7 @@ public class GlobalTransactionMgrTest {
     @Test
     public void testFinishTransactionWithOneFailed() throws MetaNotFoundException,
             TransactionException,
-            IllegalTransactionParameterException, LabelAlreadyExistsException,
+            IllegalTransactionParameterException, LabelAlreadyUsedException,
             AnalysisException, BeginTransactionException {
         TransactionState transactionState = null;
         Partition testPartition = masterCatalog.getDb(CatalogTestUtil.testDbId1).getTable(CatalogTestUtil.testTableId1)
@@ -447,7 +448,7 @@ public class GlobalTransactionMgrTest {
     }
 
     @Test
-    public void testDeleteTransaction() throws LabelAlreadyExistsException,
+    public void testDeleteTransaction() throws LabelAlreadyUsedException,
             AnalysisException, BeginTransactionException {
 
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
