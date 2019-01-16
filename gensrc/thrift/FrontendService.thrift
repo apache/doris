@@ -457,6 +457,7 @@ struct TLoadTxnBeginRequest {
     5: required string tbl
     6: optional string user_ip
     7: required string label
+    8: optional i64 timestamp
 }
 
 struct TLoadTxnBeginResult {

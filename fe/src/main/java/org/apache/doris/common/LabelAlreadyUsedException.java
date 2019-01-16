@@ -15,24 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.transaction;
+package org.apache.doris.common;
 
-import org.apache.doris.common.UserException;
+/*
+ * Author: Chenmingyu
+ * Date: Jan 16, 2019
+ */
 
-public class LabelAlreadyExistsException extends UserException {
-    public LabelAlreadyExistsException(String msg, Throwable cause) {
-        super(msg, cause);
+public class LabelAlreadyUsedException extends DdlException {
+
+    private static final long serialVersionUID = -6798925248765094813L;
+
+    public LabelAlreadyUsedException(String label) {
+        super("Label [" + label + "] has already been used.");
     }
 
-    public LabelAlreadyExistsException(Throwable cause) {
-        super(cause);
-    }
-
-    public LabelAlreadyExistsException(String message, Throwable cause, boolean enableSuppression, boolean writableStackTrace) {
-        super(message, cause, enableSuppression, writableStackTrace);
-    }
-
-    public LabelAlreadyExistsException(String msg) {
-        super(msg);
+    public LabelAlreadyUsedException(String label, String subLabel) {
+        super("Sub label [" + subLabel + "] has already been used.");
     }
 }

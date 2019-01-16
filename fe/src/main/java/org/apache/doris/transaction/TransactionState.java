@@ -91,6 +91,9 @@ public class TransactionState implements Writable {
     private long dbId;
     private long transactionId;
     private String label;
+    // timestamp is used to judge whether a begin request is a internal retry request.
+    // no need to persist it
+    private long timestamp;
     private Map<Long, TableCommitInfo> idToTableCommitInfos;
     private String coordinator;
     private TransactionStatus transactionStatus;
@@ -116,6 +119,7 @@ public class TransactionState implements Writable {
         this.dbId = -1;
         this.transactionId = -1;
         this.label = "";
+        this.timestamp = -1;
         this.idToTableCommitInfos = Maps.newHashMap();
         this.coordinator = "";
         this.transactionStatus = TransactionStatus.PREPARE;
@@ -130,10 +134,12 @@ public class TransactionState implements Writable {
         this.latch = new CountDownLatch(1);
     }
     
-    public TransactionState(long dbId, long transactionId, String label, LoadJobSourceType sourceType, String coordinator) {
+    public TransactionState(long dbId, long transactionId, String label, long timestamp,
+            LoadJobSourceType sourceType, String coordinator) {
         this.dbId = dbId;
         this.transactionId = transactionId;
         this.label = label;
+        this.timestamp = timestamp;
         this.idToTableCommitInfos = Maps.newHashMap();
         this.coordinator = coordinator;
         this.transactionStatus = TransactionStatus.PREPARE;
@@ -148,10 +154,9 @@ public class TransactionState implements Writable {
         this.latch = new CountDownLatch(1);
     }
     
-    
-    public TransactionState(long dbId, long transactionId, String label, LoadJobSourceType sourceType, String coordinator,
-                            TxnStateChangeListener txnStateChangeListener) {
-        this(dbId, transactionId, label, sourceType, coordinator);
+    public TransactionState(long dbId, long transactionId, String label, long timestamp,
+            LoadJobSourceType sourceType, String coordinator,  TxnStateChangeListener txnStateChangeListener) {
+        this(dbId, transactionId, label, timestamp, sourceType, coordinator);
         if (txnStateChangeListener != null) {
             this.txnStateChangeListener = txnStateChangeListener;
         }
@@ -190,6 +195,10 @@ public class TransactionState implements Writable {
         return this.hasSendTask;
     }
     
+    public long getTimestamp() {
+        return timestamp;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeLong(transactionId);
