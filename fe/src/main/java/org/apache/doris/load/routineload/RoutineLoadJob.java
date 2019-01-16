@@ -17,20 +17,19 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
-import org.apache.doris.common.LoadException;
-import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.TxnStateChangeListener;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
@@ -41,8 +40,11 @@ import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.AbortTransactionException;
 import org.apache.doris.transaction.BeginTransactionException;
-import org.apache.doris.transaction.LabelAlreadyExistsException;
 import org.apache.doris.transaction.TransactionState;
+
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -445,7 +447,7 @@ public abstract class RoutineLoadJob implements Writable, TxnStateChangeListener
     }
 
     abstract RoutineLoadTaskInfo reNewTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws AnalysisException,
-            LabelAlreadyExistsException, BeginTransactionException;
+            LabelAlreadyUsedException, BeginTransactionException;
 
     @Override
     public void beforeAborted(TransactionState txnState, TransactionState.TxnStatusChangeReason txnStatusChangeReason)

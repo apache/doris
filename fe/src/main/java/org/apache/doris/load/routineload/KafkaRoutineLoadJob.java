@@ -17,20 +17,22 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Strings;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
-import org.apache.doris.common.LoadException;
-import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.transaction.BeginTransactionException;
-import org.apache.doris.transaction.LabelAlreadyExistsException;
+
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Strings;
+
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.logging.log4j.LogManager;
@@ -154,7 +156,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         return Math.min(partitionNum, Math.min(desireTaskConcurrentNum, aliveBeNum));
     }
 
-
     @Override
     protected void updateProgress(RoutineLoadProgress progress) {
         this.progress.update(progress);
@@ -162,7 +163,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     protected RoutineLoadTaskInfo reNewTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws AnalysisException,
-            LabelAlreadyExistsException, BeginTransactionException {
+            LabelAlreadyUsedException, BeginTransactionException {
         // remove old task
         routineLoadTaskInfoList.remove(routineLoadTaskInfo);
         // add new task
