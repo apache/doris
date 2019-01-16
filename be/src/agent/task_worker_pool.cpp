@@ -1300,7 +1300,7 @@ AgentStatus TaskWorkerPool::_clone_copy(
     AgentStatus status = DORIS_SUCCESS;
 
     std::string token = _master_info.token;
-    for (auto src_backend : clone_req.src_backends) {
+    for (auto& src_backend : clone_req.src_backends) {
         stringstream http_host_stream;
         http_host_stream << "http://" << src_backend.host << ":" << src_backend.http_port;
         string http_host = http_host_stream.str();
@@ -1449,7 +1449,7 @@ AgentStatus TaskWorkerPool::_clone_copy(
         uint64_t total_file_size = 0;
         MonotonicStopWatch watch;
         watch.start();
-        for (auto file_name : file_name_list) {
+        for (auto& file_name : file_name_list) {
             remote_file_path = http_host + HTTP_REQUEST_PREFIX
                 + HTTP_REQUEST_TOKEN_PARAM + token
                 + HTTP_REQUEST_FILE_PARAM + src_file_full_path + file_name;
@@ -1777,7 +1777,7 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
         worker_pool_this->_env->olap_engine()->get_all_root_path_info(&root_paths_info);
 
         map<string, TDisk> disks;
-        for (auto root_path_info : root_paths_info) {
+        for (auto& root_path_info : root_paths_info) {
             TDisk disk;
             disk.__set_root_path(root_path_info.path);
             disk.__set_path_hash(root_path_info.path_hash);
