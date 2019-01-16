@@ -20,6 +20,7 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.SystemIdGenerator;
 import org.apache.doris.load.RoutineLoadDesc;
@@ -28,7 +29,6 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgr;
-import org.apache.doris.transaction.LabelAlreadyExistsException;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.collect.Lists;
@@ -107,7 +107,7 @@ public class KafkaRoutineLoadJobTest {
                                          @Mocked Catalog catalog,
                                          @Injectable RoutineLoadManager routineLoadManager,
                                          @Mocked RoutineLoadDesc routineLoadDesc)
-            throws BeginTransactionException, LabelAlreadyExistsException, AnalysisException {
+            throws BeginTransactionException, LabelAlreadyUsedException, AnalysisException {
 
         new Expectations(){
             {
@@ -155,7 +155,7 @@ public class KafkaRoutineLoadJobTest {
                                         @Mocked Catalog catalog,
                                         @Injectable RoutineLoadManager routineLoadManager,
                                         @Mocked RoutineLoadDesc routineLoadDesc)
-            throws AnalysisException, LabelAlreadyExistsException,
+            throws AnalysisException, LabelAlreadyUsedException,
             BeginTransactionException {
 
         new Expectations(){

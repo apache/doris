@@ -17,31 +17,34 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.collect.Maps;
-import com.google.common.collect.Queues;
-import mockit.Deencapsulation;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
-import mockit.Verifications;
 import org.apache.doris.analysis.LoadColumnsInfo;
-import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.KafkaRoutineLoadTask;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.BeginTransactionException;
-import org.apache.doris.transaction.LabelAlreadyExistsException;
+
+import com.google.common.collect.Maps;
+import com.google.common.collect.Queues;
+
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Map;
 import java.util.Queue;
+
+import mockit.Deencapsulation;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
+import mockit.Verifications;
 
 public class RoutineLoadTaskSchedulerTest {
 
@@ -57,7 +60,7 @@ public class RoutineLoadTaskSchedulerTest {
                                 @Injectable KafkaRoutineLoadJob routineLoadJob,
                                 @Injectable RoutineLoadDesc routineLoadDesc,
                                 @Injectable LoadColumnsInfo loadColumnsInfo) throws LoadException,
-            MetaNotFoundException, AnalysisException, LabelAlreadyExistsException, BeginTransactionException {
+            MetaNotFoundException, AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
         long beId = 100L;
 
         Queue<RoutineLoadTaskInfo> routineLoadTaskInfoQueue = Queues.newLinkedBlockingQueue();
