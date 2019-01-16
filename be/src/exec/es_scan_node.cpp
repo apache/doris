@@ -350,7 +350,6 @@ Status EsScanNode::open_es(TNetworkAddress& address, TExtOpenResult& result, TEx
         }
 
         try {
-            VLOG(1) << "es open param=" << apache::thrift::ThriftDebugString(params);
             client->open(result, params);
         } catch (apache::thrift::transport::TTransportException& e) {
             LOG(WARNING) << "es open retrying, because: " << e.what();
