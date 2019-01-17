@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_BUILDER_H
-#define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_BUILDER_H
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
+#define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 
 #include "olap/schema.h"
 #include "olap/column_predicate.h"
@@ -29,7 +29,7 @@
 
 namespace doris {
 
-struct ReaderContext {
+struct RowsetReaderContext {
 	RowFields* tablet_schema;
     // projection columns
     const std::vector<uint32_t>* return_columns;
@@ -51,7 +51,7 @@ struct ReaderContext {
     Cache* lru_cache;
     RuntimeState* runtime_state;
 
-    ReaderContext() : tablet_schema(nullptr),
+    RowsetReaderContext() : tablet_schema(nullptr),
         return_columns(nullptr),
         load_bf_columns(nullptr),
         conditions(nullptr),
@@ -141,14 +141,14 @@ public:
         return *this;
     }
 
-    ReaderContext build() {
+    RowsetReaderContext build() {
         return _reader_context;
     }
 
 private:
-    ReaderContext _reader_context;
+    RowsetReaderContext _reader_context;
 };
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_BUILDER_H
+#endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
