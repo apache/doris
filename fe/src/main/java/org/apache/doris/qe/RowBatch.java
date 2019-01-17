@@ -15,19 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.rpc;
+package org.apache.doris.qe;
 
-import com.baidu.bjf.remoting.protobuf.annotation.Protobuf;
-import com.baidu.bjf.remoting.protobuf.annotation.ProtobufClass;
+import org.apache.doris.rpc.PQueryStatistics;
+import org.apache.doris.thrift.TResultBatch;
 
-@ProtobufClass
-public class PFetchDataResult {
-    @Protobuf(order = 1, required = true)
-    public PStatus status;
-    @Protobuf(order = 2, required = false)
-    public long packetSeq;
-    @Protobuf(order = 3, required = false)
-    public boolean eos;
-    @Protobuf(order = 4, required = false)
-    public PQueryStatistics statistics;
+public final class RowBatch {
+    private TResultBatch batch;
+    private PQueryStatistics statistics;
+    private boolean eos;
+
+    public RowBatch() {
+        eos = true;
+    }
+
+    public TResultBatch getBatch() {
+        return batch;
+    }
+
+    public void setBatch(TResultBatch batch) {
+        this.batch = batch;
+    }
+
+    public PQueryStatistics getQueryStatistics() {
+        return statistics;
+    }
+
+    public void setQueryStatistics(PQueryStatistics statistics) {
+        this.statistics = statistics;
+    }
+
+    public boolean isEos() {
+        return eos;
+    }
+
+    public void setEos(boolean eos) {
+        this.eos = eos;
+    }
 }

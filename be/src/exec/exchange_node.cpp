@@ -43,7 +43,8 @@ ExchangeNode::ExchangeNode(
             _next_row_idx(0),
             _is_merging(tnode.exchange_node.__isset.sort_info),
             _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0),
-            _num_rows_skipped(0) {
+            _num_rows_skipped(0),
+            _merge_rows_counter(nullptr) {
     DCHECK_GE(_offset, 0);
     DCHECK(_is_merging || (_offset == 0));
 }
@@ -63,16 +64,16 @@ Status ExchangeNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status ExchangeNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     _convert_row_batch_timer = ADD_TIMER(runtime_profile(), "ConvertRowBatchTime");
-
+    _merge_rows_counter = ADD_COUNTER(runtime_profile(), "MergeRows", TUnit::UNIT);
     // TODO: figure out appropriate buffer size
     DCHECK_GT(_num_senders, 0);
+    _sub_plan_query_statistics_recvr.reset(new QueryStatisticsRecvr());
     _stream_recvr = state->exec_env()->stream_mgr()->create_recvr(
             state, _input_row_desc,
             state->fragment_instance_id(), _id,
             _num_senders, config::exchg_node_buffer_size_bytes,
-            state->runtime_profile(), _is_merging);
+            state->runtime_profile(), _is_merging, _sub_plan_query_statistics_recvr.get());
     if (_is_merging) {
-        _merge_rows_counter = ADD_COUNTER(runtime_profile(), "MergeRows", TUnit::UNIT);
         RETURN_IF_ERROR(_sort_exec_exprs.prepare(
                     state, _row_descriptor, _row_descriptor, expr_mem_tracker()));
         // AddExprCtxsToFree(_sort_exec_exprs);
@@ -92,6 +93,12 @@ Status ExchangeNode::open(RuntimeState* state) {
     } else {
         RETURN_IF_ERROR(fill_input_row_batch(state));
     }
+    return Status::OK;
+}
+
+Status ExchangeNode::collect_query_statistics(QueryStatistics* statistics) {
+    RETURN_IF_ERROR(ExecNode::collect_query_statistics(statistics));
+    statistics->merge(_sub_plan_query_statistics_recvr.get());
     return Status::OK;
 }
 

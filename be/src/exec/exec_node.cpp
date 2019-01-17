@@ -212,6 +212,14 @@ Status ExecNode::reset(RuntimeState* state) {
     return Status::OK;
 }
 
+Status ExecNode::collect_query_statistics(QueryStatistics* statistics) {
+    DCHECK(statistics != nullptr);
+    for (auto child_node : _children) {
+        child_node->collect_query_statistics(statistics);
+    } 
+    return Status::OK;
+}
+
 Status ExecNode::close(RuntimeState* state) {
     if (_is_closed) {
         return Status::OK;

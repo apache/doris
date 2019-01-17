@@ -30,7 +30,9 @@
 #include "common/object_pool.h"
 #include "runtime/descriptors.h"  // for PlanNodeId
 #include "runtime/mem_tracker.h"
+#include "runtime/query_statistics.h"
 #include "util/runtime_profile.h"
+#include "gen_cpp/palo_internal_service.pb.h"
 #include "gen_cpp/Types_types.h"  // for TUniqueId
 
 namespace google {
@@ -76,27 +78,9 @@ public:
             RuntimeState* state, const RowDescriptor& row_desc,
             const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
             int num_senders, int buffer_size, RuntimeProfile* profile,
-            bool is_merging);
+            bool is_merging, QueryStatisticsRecvr* sub_plan_query_statistics_recvr);
 
-    // Adds a row batch to the recvr identified by fragment_instance_id/dest_node_id
-    // if the recvr has not been cancelled. sender_id identifies the sender instance
-    // from which the data came.
-    // The call blocks if this ends up pushing the stream over its buffering limit;
-    // it unblocks when the consumer removed enough data to make space for
-    // row_batch.
-    // TODO: enforce per-sender quotas (something like 200% of buffer_size/#senders),
-    // so that a single sender can't flood the buffer and stall everybody else.
-    // Returns OK if successful, error status otherwise.
-    Status add_data(const PUniqueId& fragment_instance_id, int32_t node_id,
-                    const PRowBatch& pb_batch, int32_t sender_id,
-                    int32_t be_number, int64_t packet_seq,
-                    ::google::protobuf::Closure** done);
-
-    // Notifies the recvr associated with the fragment/node id that the specified
-    // sender has closed.
-    // Returns OK if successful, error status otherwise.
-    Status close_sender(const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
-            int sender_id, int be_number);
+    Status transmit_data(const PTransmitDataParams* request, ::google::protobuf::Closure** done);
 
     // Closes all receivers registered for fragment_instance_id immediately.
     void cancel(const TUniqueId& fragment_instance_id);
