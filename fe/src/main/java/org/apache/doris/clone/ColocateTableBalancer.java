@@ -572,7 +572,8 @@ public class ColocateTableBalancer extends Daemon {
 
                             Long cloneReplicaBackendId = newGroup2BackendsPerBucketSeq.get(groupId, i);
                             if (cloneReplicaBackendId == null) {
-                                cloneReplicaBackendId = addedBackendIds.get(i / bucketSeqsPerNewBackend);
+                                // select dest backend
+                                cloneReplicaBackendId = addedBackendIds.get(i % addedBackendIds.size());
                                 newGroup2BackendsPerBucketSeq.put(groupId, i, cloneReplicaBackendId);
                             }
 
