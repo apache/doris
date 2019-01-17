@@ -279,7 +279,6 @@ OLAPStatus PushHandler::_convert(
     RowCursor row;
     BinaryFile raw_file;
     IBinaryReader* reader = NULL;
-    ColumnDataWriter* writer = NULL;
     RowsetBuilderSharedPtr rowset_builder(new AlphaRowsetBuilder());
     if (rowset_builder == nullptr) {
         LOG(WARNING) << "new rowset builder failed.";
@@ -395,21 +394,19 @@ OLAPStatus PushHandler::_convert(
             // Convert from raw to delta
             VLOG(3) << "start to convert row file to delta.";
             while (!reader->eof()) {
-                if (OLAP_SUCCESS != (res = writer->attached_by(&row))) {
-                    LOG(WARNING) << "fail to attach row to writer. "
-                                 << " res=" << res << ", tablet=" << curr_tablet->full_name()
-                                 << " read_rows=" << num_rows;
-                    break;
-                }
-
-                res = reader->next(&row, writer->mem_pool());
+                res = reader->next(&row, rowset_builder->mem_pool());
                 if (OLAP_SUCCESS != res) {
                     LOG(WARNING) << "read next row failed."
                                  << " res=" << res
                                  << " read_rows=" << num_rows;
                     break;
                 } else {
-                    rowset_builder->add_row(&row);
+                    if (OLAP_SUCCESS != (res = rowset_builder->add_row(&row))) {
+                        LOG(WARNING) << "fail to attach row to rowset_builder. "
+                                << " res=" << res << ", tablet=" << curr_tablet->full_name()
+                                 << " read_rows=" << num_rows;
+                        break;
+                    }
                     num_rows++;
                 }
             }
