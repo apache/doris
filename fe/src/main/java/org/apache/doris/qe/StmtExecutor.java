@@ -543,13 +543,13 @@ public class StmtExecutor {
         MysqlChannel channel = context.getMysqlChannel();
         boolean isSendFields = false;
         while (true) {
+            if (!isSendFields) {
+                sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
+                isSendFields = true;
+            }
+        
             batch = coord.getNext();
             if (batch.getBatch() != null) {
-                if (!isSendFields) {
-                    sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
-                    isSendFields = true;
-                }
-
                 for (ByteBuffer row : batch.getBatch().getRows()) {
                     channel.sendOnePacket(row);
                 }            
