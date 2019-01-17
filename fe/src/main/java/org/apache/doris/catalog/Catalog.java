@@ -3791,8 +3791,8 @@ public class Catalog {
 
             // 1. storage type
             sb.append("\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_TYPE).append("\" = \"");
-            TStorageType storageType = olapTable
-                    .getStorageTypeByIndexId(olapTable.getIndexIdByName(olapTable.getName()));
+            TStorageType storageType = olapTable.getStorageTypeByIndexId(
+                    olapTable.getIndexIdByName(olapTable.getName()));
             sb.append(storageType.name()).append("\"");
 
             // 2. bloom filter
@@ -3919,6 +3919,7 @@ public class Catalog {
         }
 
         createTableStmt.add(sb.toString());
+
         // 2. add partition
         if (separatePartition && (table instanceof OlapTable)
                 && ((OlapTable) table).getPartitionInfo().getType() == PartitionType.RANGE

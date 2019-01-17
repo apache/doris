@@ -893,14 +893,12 @@ public class SchemaChangeJob extends AlterJob {
     @Override
     public synchronized void clear() {
         changedIndexIdToSchema = null;
-        changedIndexIdToShortKeyColumnCount = null;
         resourceInfo = null;
         replicaInfos = null;
         unfinishedReplicaIds = null;
         indexIdToTotalReplicaNum = null;
         indexIdToFinishedReplicaNum = null;
         partitionIdToFinishedIndexIds = null;
-        // backendIdToReplicaIds = null;
     }
 
     @Override
@@ -940,7 +938,6 @@ public class SchemaChangeJob extends AlterJob {
 
             // reset status to PENDING for resending the tasks in polling thread
             this.state = JobState.PENDING;
-            LOG.info("just trace", new Exception());
         } finally {
             db.writeUnlock();
         }
@@ -1183,28 +1180,34 @@ public class SchemaChangeJob extends AlterJob {
         // 'unfinishedReplicaIds', 'indexIdToTotalReplicaNum' and 'indexIdToFinishedReplicaNum'
         // don't need persist. build it when send tasks
 
+        // columns
         if (changedIndexIdToSchema != null) {
             out.writeBoolean(true);
             out.writeInt(changedIndexIdToSchema.size());
             for (Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
-                long indexId = entry.getKey();
-                out.writeLong(indexId);
+                out.writeLong(entry.getKey());
                 out.writeInt(entry.getValue().size());
                 for (Column column : entry.getValue()) {
                     column.write(out);
                 }
-
-                // schema version
-                out.writeInt(changedIndexIdToSchemaVersion.get(indexId));
-
-                // schema hash
-                out.writeInt(changedIndexIdToSchemaHash.get(indexId));
-
-                // short key column count
-                out.writeShort(changedIndexIdToShortKeyColumnCount.get(indexId));
             }
         } else {
             out.writeBoolean(false);
+        }
+
+        // schema version and hash, and short key
+        if (changedIndexIdToSchemaVersion != null) {
+            out.writeBoolean(true);
+            out.writeInt(changedIndexIdToSchemaVersion.size());
+            for (Entry<Long, Integer> entry : changedIndexIdToSchemaVersion.entrySet()) {
+                out.writeLong(entry.getKey());
+                // schema version
+                out.writeInt(entry.getValue());
+                // schema hash
+                out.writeInt(changedIndexIdToSchemaHash.get(entry.getKey()));
+                // short key column count
+                out.writeShort(changedIndexIdToShortKeyColumnCount.get(entry.getKey()));
+            }
         }
 
         // replicaInfos is saving for restoring schemaChangeJobFinished
@@ -1250,32 +1253,58 @@ public class SchemaChangeJob extends AlterJob {
 
         tableName = Text.readString(in);
 
-        boolean has = in.readBoolean();
-        if (has) {
-            int count = in.readInt();
-            for (int i = 0; i < count; i++) {
-                long indexId = in.readLong();
-                int columnNum = in.readInt();
-                List<Column> columns = new LinkedList<Column>();
-                for (int j = 0; j < columnNum; j++) {
-                    Column column = Column.read(in);
-                    columns.add(column);
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_48) {
+            if (in.readBoolean()) {
+                int count = in.readInt();
+                for (int i = 0; i < count; i++) {
+                    long indexId = in.readLong();
+                    int columnNum = in.readInt();
+                    List<Column> columns = new LinkedList<Column>();
+                    for (int j = 0; j < columnNum; j++) {
+                        Column column = Column.read(in);
+                        columns.add(column);
+                    }
+                    changedIndexIdToSchema.put(indexId, columns);
+                    // schema version
+                    changedIndexIdToSchemaVersion.put(indexId, in.readInt());
+                    // schema hash
+                    changedIndexIdToSchemaHash.put(indexId, in.readInt());
+                    // short key column count
+                    changedIndexIdToShortKeyColumnCount.put(indexId, in.readShort());
                 }
-                changedIndexIdToSchema.put(indexId, columns);
+            }
+        } else {
+            // columns
+            if (in.readBoolean()) {
+                int count = in.readInt();
+                for (int i = 0; i < count; i++) {
+                    long indexId = in.readLong();
+                    int columnNum = in.readInt();
+                    List<Column> columns = new LinkedList<Column>();
+                    for (int j = 0; j < columnNum; j++) {
+                        Column column = Column.read(in);
+                        columns.add(column);
+                    }
+                    changedIndexIdToSchema.put(indexId, columns);
+                }
+            }
 
-                // schema version
-                changedIndexIdToSchemaVersion.put(indexId, in.readInt());
-
-                // schema hash
-                changedIndexIdToSchemaHash.put(indexId, in.readInt());
-
-                // short key column count
-                changedIndexIdToShortKeyColumnCount.put(indexId, in.readShort());
+            // schema version and hash, and short key
+            if (in.readBoolean()) {
+                int count = in.readInt();
+                for (int i = 0; i < count; i++) {
+                    long indexId = in.readLong();
+                    // schema version
+                    changedIndexIdToSchemaVersion.put(indexId, in.readInt());
+                    // schema hash
+                    changedIndexIdToSchemaHash.put(indexId, in.readInt());
+                    // short key column count
+                    changedIndexIdToShortKeyColumnCount.put(indexId, in.readShort());
+                }
             }
         }
 
-        has = in.readBoolean();
-        if (has) {
+        if (in.readBoolean()) {
             int count = in.readInt();
             for (int i = 0; i < count; ++i) {
                 long partitionId = in.readLong();
