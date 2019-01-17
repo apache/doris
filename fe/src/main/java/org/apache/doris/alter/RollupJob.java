@@ -952,6 +952,9 @@ public class RollupJob extends AlterJob {
             db.writeUnlock();
         }
 
+        List<Integer> list = new ArrayList<>();
+        Integer[] arr = list.toArray(new Integer[0]);
+
         this.finishedTime = System.currentTimeMillis();
         LOG.info("finished rollup job: {}", tableId);
     }
@@ -966,9 +969,6 @@ public class RollupJob extends AlterJob {
         // table name
         jobInfo.add(tbl.getName());
 
-        // transactionid
-        jobInfo.add(transactionId);
-
         // create time
         jobInfo.add(TimeUtils.longToTimeString(createTime));
 
@@ -977,6 +977,13 @@ public class RollupJob extends AlterJob {
         // base index and rollup index name
         jobInfo.add(baseIndexName);
         jobInfo.add(rollupIndexName);
+        
+        // rollup id
+        jobInfo.add(rollupIndexId);
+
+        // transaction id
+        jobInfo.add(transactionId);
+
 
         // job state
         jobInfo.add(state.name());

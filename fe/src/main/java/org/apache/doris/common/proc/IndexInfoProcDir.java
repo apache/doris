@@ -39,8 +39,8 @@ import java.util.Set;
  */
 public class IndexInfoProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("IndexName").add("SchemaVersion").add("SchemaHash").add("ShortKeyColumnCount")
-            .add("StorageType").add("Keys")
+            .add("IndexId").add("IndexName").add("SchemaVersion").add("SchemaHash")
+            .add("ShortKeyColumnCount").add("StorageType").add("Keys")
             .build();
 
     private Database db;
@@ -91,15 +91,16 @@ public class IndexInfoProcDir implements ProcDirInterface {
                     }
                     builder.append(Joiner.on(", ").join(columnNames)).append(")");
 
-                    result.addRow(Lists.newArrayList(indexName,
-                                                     String.valueOf(schemaVersion),
-                                                     String.valueOf(schemaHash),
-                                                     String.valueOf(shortKeyColumnCount),
-                                                     storageType.name(),
-                                                     builder.toString()));
+                    result.addRow(Lists.newArrayList(String.valueOf(indexId),
+                            indexName,
+                            String.valueOf(schemaVersion),
+                            String.valueOf(schemaHash),
+                            String.valueOf(shortKeyColumnCount),
+                            storageType.name(),
+                            builder.toString()));
                 }
             } else {
-                result.addRow(Lists.newArrayList(table.getName(), "", "", "", "", ""));
+                result.addRow(Lists.newArrayList("-1", table.getName(), "", "", "", "", ""));
             }
 
             return result;
@@ -114,23 +115,27 @@ public class IndexInfoProcDir implements ProcDirInterface {
     }
 
     @Override
-    public ProcNodeInterface lookup(String indexName) throws AnalysisException {
+    public ProcNodeInterface lookup(String idxIdStr) throws AnalysisException {
         Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(table);
         
+        long idxId;
+        try {
+            idxId = Long.valueOf(idxIdStr);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid index id format: " + idxIdStr);
+        }
+
         db.readLock();
         try {
             List<Column> schema = null;
             Set<String> bfColumns = null;
             if (table.getType() == TableType.OLAP) {
                 OlapTable olapTable = (OlapTable) table;
-                Long indexId = olapTable.getIndexIdByName(indexName);
-                if (indexId == null) {
-                    throw new AnalysisException("Index[" + indexName + "] does not exist in table["
-                            + table.getName() + "]");
+                schema = olapTable.getSchemaByIndexId(idxId);
+                if (schema == null) {
+                    throw new AnalysisException("Index " + idxId + " does not exist");
                 }
-                schema = olapTable.getSchemaByIndexId(indexId);
-
                 bfColumns = olapTable.getCopiedBfColumns();
             } else {
                 schema = table.getBaseSchema();

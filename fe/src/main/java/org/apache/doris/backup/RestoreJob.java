@@ -1116,7 +1116,7 @@ public class RestoreJob extends AbstractJob {
 
         state = RestoreJobState.DOWNLOADING;
 
-        // No log here
+        // No edit log here
         LOG.info("finished to send download tasks to BE. num: {}. {}", batchTask.getTaskNum(), this);
         return;
     }

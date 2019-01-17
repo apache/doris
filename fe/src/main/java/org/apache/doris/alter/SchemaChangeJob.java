@@ -812,6 +812,7 @@ public class SchemaChangeJob extends AlterJob {
                                 this.replicaInfos.put(partitionId, replicaInfo);
 
                                 replica.setState(ReplicaState.NORMAL);
+                                replica.setSchemaHash(schemaHash);
 
                                 // remove tasks for safety
                                 AgentTaskQueue.removeTask(replica.getBackendId(), TTaskType.SCHEMA_CHANGE,
@@ -892,8 +893,6 @@ public class SchemaChangeJob extends AlterJob {
     @Override
     public synchronized void clear() {
         changedIndexIdToSchema = null;
-        changedIndexIdToSchemaVersion = null;
-        changedIndexIdToSchemaHash = null;
         changedIndexIdToShortKeyColumnCount = null;
         resourceInfo = null;
         replicaInfos = null;
@@ -1138,17 +1137,20 @@ public class SchemaChangeJob extends AlterJob {
             }
         }
 
-        for (Long indexId : getChangedIndexToSchema().keySet()) {
+        for (Long indexId : changedIndexIdToSchemaVersion.keySet()) {
             List<Comparable> jobInfo = new ArrayList<Comparable>();
 
             jobInfo.add(tableId);
             jobInfo.add(tbl.getName());
-            jobInfo.add(transactionId);
             jobInfo.add(TimeUtils.longToTimeString(createTime));
             jobInfo.add(TimeUtils.longToTimeString(finishedTime));
-            jobInfo.add(tbl.getIndexNameById(indexId));
+            jobInfo.add(tbl.getIndexNameById(indexId)); // index name
+            jobInfo.add(indexId);
+            // index schema version and schema hash
+            jobInfo.add(changedIndexIdToSchemaVersion.get(indexId) + "-" + changedIndexIdToSchemaHash.get(indexId));
             jobInfo.add(indexState.get(indexId));
             jobInfo.add(state.name());
+            jobInfo.add(transactionId);
             jobInfo.add(cancelMsg);
             jobInfo.add(indexProgress.get(indexId));
 

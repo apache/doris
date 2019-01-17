@@ -116,6 +116,10 @@ public class Partition extends MetaObject implements Writable {
         this.state = state;
     }
 
+    /*
+     * If a partition is overwritten by a restore job, we need to reset all version info to
+     * the restored partition version info》
+     */
     public void updateVersionForRestore(long visibleVersion, long visibleVersionHash) {
         this.visibleVersion = visibleVersion;
         this.visibleVersionHash = visibleVersionHash;
