@@ -20,7 +20,6 @@
 
 #include "gutil/integral_types.h"
 #include <common/logging.h>
-#include "gutil/logging-inl.h"
 #include "gutil/hash/jenkins_lookup2.h"
 
 static inline uint32 char2unsigned(char c) {

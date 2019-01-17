@@ -17,22 +17,35 @@
 
 package org.apache.doris.load.routineload;
 
-import org.apache.doris.common.SystemIdGenerator;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
+import org.apache.doris.task.KafkaRoutineLoadTask;
+import org.apache.doris.task.RoutineLoadTask;
+import org.apache.doris.transaction.BeginTransactionException;
+
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public class KafkaTaskInfo extends RoutineLoadTaskInfo {
 
+    private RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
+
     private List<Integer> partitions;
 
-    public KafkaTaskInfo(String id, String jobId) {
+    public KafkaTaskInfo(String id, String jobId) throws LabelAlreadyUsedException,
+            BeginTransactionException, AnalysisException {
         super(id, jobId);
         this.partitions = new ArrayList<>();
     }
 
-    public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo) {
+    public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo) throws LabelAlreadyUsedException,
+            BeginTransactionException, AnalysisException {
         super(UUID.randomUUID().toString(), kafkaTaskInfo.getJobId());
         this.partitions = kafkaTaskInfo.getPartitions();
     }
@@ -45,5 +58,20 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         return partitions;
     }
 
-
+    @Override
+    public RoutineLoadTask createStreamLoadTask(long beId) throws LoadException {
+        RoutineLoadJob routineLoadJob = routineLoadManager.getJob(jobId);
+        Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
+        this.getPartitions().parallelStream()
+                .forEach(entity -> partitionIdToOffset.put(entity, ((KafkaProgress) routineLoadJob.getProgress())
+                        .getPartitionIdToOffset().get(entity)));
+        RoutineLoadTask routineLoadTask = new KafkaRoutineLoadTask(routineLoadJob.getResourceInfo(),
+                                                                   beId, routineLoadJob.getDbId(),
+                                                                   routineLoadJob.getTableId(),
+                                                                   id, txnId, partitionIdToOffset);
+        if (routineLoadJob.getRoutineLoadDesc() != null) {
+            routineLoadTask.setRoutineLoadDesc(routineLoadJob.getRoutineLoadDesc());
+        }
+        return routineLoadTask;
+    }
 }

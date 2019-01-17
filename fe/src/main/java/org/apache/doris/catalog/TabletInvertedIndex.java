@@ -17,13 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.HashBasedTable;
-import com.google.common.collect.ListMultimap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Table;
-
 import org.apache.doris.task.RecoverTabletTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
@@ -34,6 +27,14 @@ import org.apache.doris.transaction.PartitionCommitInfo;
 import org.apache.doris.transaction.TableCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.ListMultimap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Table;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -46,6 +47,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 /*
  * this class stores a inverted index
  * key is tablet id. value is the related ids of this tablet
+ * Checkpoint thread is no need to modify this inverted index, because this inverted index will no be wrote
+ * into images, all meta data are in catalog, and the inverted index will be rebuild when FE restart.
  */
 public class TabletInvertedIndex {
     private static final Logger LOG = LogManager.getLogger(TabletInvertedIndex.class);
@@ -176,6 +179,7 @@ public class TabletInvertedIndex {
                                         }
                                     }
                                 } // end for txn id
+
                                 // update replicas's version count
                                 // no need to write log, and no need to get db lock.
                                 if (backendTabletInfo.isSetVersion_count()) {
@@ -301,7 +305,6 @@ public class TabletInvertedIndex {
     }
     
     public Set<Long> getTabletBackends(long tabletId) {
-
         Map<Long, Replica> backendIdToReplica = replicaMetaTable.row(tabletId);
         return backendIdToReplica.keySet();
     }
@@ -344,7 +347,10 @@ public class TabletInvertedIndex {
             tabletMetaMap.put(tabletId, tabletMeta);
             if (!tabletMetaTable.contains(tabletMeta.getPartitionId(), tabletMeta.getIndexId())) {
                 tabletMetaTable.put(tabletMeta.getPartitionId(), tabletMeta.getIndexId(), tabletMeta);
+                LOG.debug("add tablet meta: {}", tabletId);
             }
+
+            LOG.debug("add tablet: {}", tabletId);
         } finally {
             writeUnlock();
         }
@@ -369,7 +375,10 @@ public class TabletInvertedIndex {
             TabletMeta tabletMeta = tabletMetaMap.remove(tabletId);
             if (tabletMeta != null) {
                 tabletMetaTable.remove(tabletMeta.getPartitionId(), tabletMeta.getIndexId());
+                LOG.debug("delete tablet meta: {}", tabletId);
             }
+
+            LOG.debug("delete tablet: {}", tabletId);
         } finally {
             writeUnlock();
         }
@@ -385,6 +394,8 @@ public class TabletInvertedIndex {
             replicaMetaTable.put(tabletId, replica.getBackendId(), replica);
             replicaToTabletMap.put(replica.getId(), tabletId);
             backingReplicaMetaTable.put(replica.getBackendId(), tabletId, replica);
+            LOG.debug("add replica {} of tablet {} in backend {}",
+                    replica.getId(), tabletId, replica.getBackendId());
         } finally {
             writeUnlock();
         }
@@ -403,9 +414,10 @@ public class TabletInvertedIndex {
                 replicaToTabletMap.remove(replica.getId());
                 replicaMetaTable.remove(tabletId, backendId);
                 backingReplicaMetaTable.remove(backendId, tabletId);
-                LOG.debug("delete tablet[{}] in backend[{}]", tabletId, backendId);
+                LOG.debug("delete replica {} of tablet {} in backend {}",
+                        replica.getId(), tabletId, backendId);
             } else {
-                // this may happend when fe restart after tablet is empty(bug cause)
+                // this may happen when fe restart after tablet is empty(bug cause)
                 // add log instead of assertion to observe
                 LOG.error("tablet[{}] contains no replica in inverted index", tabletId);
             }

@@ -29,7 +29,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
-#include "runtime/lib_cache.h"
+#include "runtime/user_function_cache.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "exprs/cast_functions.h"
@@ -46,7 +46,7 @@ public:
     void init();
 
     static void SetUpTestCase() {
-        LibCache::instance()->init();
+        UserFunctionCache::instance()->init("./be/test/runtime/test_data/user_function_cache/normal");
         CastFunctions::init();
     }
 

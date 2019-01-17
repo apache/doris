@@ -52,10 +52,10 @@ import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -279,11 +279,16 @@ public class OlapTableSink extends DataSink {
         return partitionParam;
     }
 
-    private TOlapTableLocationParam createLocation(OlapTable table) {
+    private TOlapTableLocationParam createLocation(OlapTable table) throws UserException {
         TOlapTableLocationParam locationParam = new TOlapTableLocationParam();
         for (Partition partition : table.getPartitions()) {
+            int quorum = table.getPartitionInfo().getReplicationNum(partition.getId()) / 2 + 1;            
             for (MaterializedIndex index : partition.getMaterializedIndices()) {
                 for (Tablet tablet : index.getTablets()) {
+                    List<Long> beIds = tablet.getBackendIdsList();
+                    if (beIds.size() < quorum) {
+                        throw new UserException("tablet " + tablet.getId() + " has few replicas: " + beIds.size());
+                    }
                     locationParam.addToTablets(
                             new TTabletLocation(tablet.getId(), Lists.newArrayList(tablet.getBackendIds())));
                 }

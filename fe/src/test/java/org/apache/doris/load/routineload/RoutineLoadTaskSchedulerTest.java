@@ -17,27 +17,34 @@
 
 package org.apache.doris.load.routineload;
 
-import com.google.common.collect.Lists;
+import org.apache.doris.analysis.LoadColumnsInfo;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
+import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.load.RoutineLoadDesc;
+import org.apache.doris.task.AgentTask;
+import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.KafkaRoutineLoadTask;
+import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.transaction.BeginTransactionException;
+
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
+
+import org.junit.Assert;
+import org.junit.Test;
+
+import java.util.Map;
+import java.util.Queue;
+
 import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
 import mockit.Verifications;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.LoadException;
-import org.apache.doris.task.AgentTask;
-import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.AgentTaskQueue;
-import org.apache.doris.thrift.TTaskType;
-import org.junit.Assert;
-import org.junit.Test;
-
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Queue;
 
 public class RoutineLoadTaskSchedulerTest {
 
@@ -50,14 +57,17 @@ public class RoutineLoadTaskSchedulerTest {
 
     @Test
     public void testRunOneCycle(@Injectable KafkaRoutineLoadJob kafkaRoutineLoadJob1,
-                                @Injectable KafkaRoutineLoadJob routineLoadJob) throws LoadException {
+                                @Injectable KafkaRoutineLoadJob routineLoadJob,
+                                @Injectable RoutineLoadDesc routineLoadDesc,
+                                @Injectable LoadColumnsInfo loadColumnsInfo) throws LoadException,
+            MetaNotFoundException, AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
         long beId = 100L;
 
-        List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
+        Queue<RoutineLoadTaskInfo> routineLoadTaskInfoQueue = Queues.newLinkedBlockingQueue();
         KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo("1", "1");
         routineLoadTaskInfo1.addKafkaPartition(1);
         routineLoadTaskInfo1.addKafkaPartition(2);
-        routineLoadTaskInfoList.add(routineLoadTaskInfo1);
+        routineLoadTaskInfoQueue.add(routineLoadTaskInfo1);
 
 
         Map<Long, RoutineLoadTaskInfo> idToRoutineLoadTask = Maps.newHashMap();
@@ -78,7 +88,7 @@ public class RoutineLoadTaskSchedulerTest {
             {
                 Catalog.getInstance();
                 result = catalog;
-                catalog.getRoutineLoadInstance();
+                catalog.getRoutineLoadManager();
                 result = routineLoadManager;
                 Catalog.getCurrentCatalog();
                 result = catalog;
@@ -87,23 +97,24 @@ public class RoutineLoadTaskSchedulerTest {
 
                 routineLoadManager.getClusterIdleSlotNum();
                 result = 3;
-                routineLoadManager.getNeedSchedulerRoutineLoadTasks();
-                result = routineLoadTaskInfoList;
 
                 kafkaRoutineLoadJob1.getDbId();
                 result = 1L;
                 kafkaRoutineLoadJob1.getTableId();
                 result = 1L;
-                kafkaRoutineLoadJob1.getColumns();
-                result = "columns";
-                kafkaRoutineLoadJob1.getColumnSeparator();
+                routineLoadDesc.getColumnsInfo();
+                result = loadColumnsInfo;
+                routineLoadDesc.getColumnSeparator();
                 result = "";
                 kafkaRoutineLoadJob1.getProgress();
                 result = kafkaProgress;
 
-
+                routineLoadManager.getNeedSchedulerTasksQueue();
+                result = routineLoadTaskInfoQueue;
                 routineLoadManager.getMinTaskBeId();
                 result = beId;
+                routineLoadManager.getJobByTaskId(anyString);
+                result = kafkaRoutineLoadJob1;
                 routineLoadManager.getJob(anyString);
                 result = kafkaRoutineLoadJob1;
             }
@@ -111,17 +122,14 @@ public class RoutineLoadTaskSchedulerTest {
 
         KafkaRoutineLoadTask kafkaRoutineLoadTask = new KafkaRoutineLoadTask(kafkaRoutineLoadJob1.getResourceInfo(),
                 beId, kafkaRoutineLoadJob1.getDbId(), kafkaRoutineLoadJob1.getTableId(),
-                0L, 0L, 0L, kafkaRoutineLoadJob1.getColumns(), kafkaRoutineLoadJob1.getWhere(),
-                kafkaRoutineLoadJob1.getColumnSeparator(),
-                (KafkaTaskInfo) routineLoadTaskInfo1,
-                kafkaRoutineLoadJob1.getProgress());
-
-        new Expectations() {
-            {
-                kafkaRoutineLoadJob1.createTask((RoutineLoadTaskInfo) any, anyLong);
-                result = kafkaRoutineLoadTask;
-            }
-        };
+                "", 0L, partitionIdToOffset);
+//
+//        new Expectations() {
+//            {
+//                routineLoadTaskInfo1.createStreamLoadTask(anyLong);
+//                result = kafkaRoutineLoadTask;
+//            }
+//        };
 
         RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler();
         routineLoadTaskScheduler.runOneCycle();

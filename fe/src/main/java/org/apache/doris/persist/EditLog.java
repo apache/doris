@@ -29,6 +29,8 @@ import org.apache.doris.backup.RestoreJob_D;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.Config;
@@ -50,6 +52,7 @@ import org.apache.doris.load.Load;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
@@ -504,13 +507,13 @@ public class EditLog {
                 case OperationType.OP_META_VERSION: {
                     String versionString = ((Text) journal.getData()).toString();
                     int version = Integer.parseInt(versionString);
-                    if (catalog.getJournalVersion() > FeConstants.meta_version) {
+                    if (MetaContext.get().getMetaVersion() > FeConstants.meta_version) {
                         LOG.error("meta data version is out of date, image: {}. meta: {}."
                                         + "please update FeConstants.meta_version and restart.",
-                                catalog.getJournalVersion(), FeConstants.meta_version);
+                                MetaContext.get().getMetaVersion(), FeConstants.meta_version);
                         System.exit(-1);
                     }
-                    catalog.setJournalVersion(version);
+                    MetaContext.get().setMetaVersion(version);
                     break;
                 }
                 case OperationType.OP_GLOBAL_VARIABLE: {
@@ -568,7 +571,7 @@ public class EditLog {
                     catalog.getBrokerMgr().replayDropAllBroker(param);
                     break;
                 }
-                case OperationType.OP_SET_LOAD_ERROR_URL: {
+                case OperationType.OP_SET_LOAD_ERROR_HUB: {
                     final LoadErrorHub.Param param = (LoadErrorHub.Param) journal.getData();
                     catalog.getLoadInstance().setLoadErrorHubInfo(param);
                     break;
@@ -601,13 +604,11 @@ public class EditLog {
                     catalog.getBackupHandler().getRepoMgr().removeRepo(repoName, true);
                     break;
                 }
-
                 case OperationType.OP_TRUNCATE_TABLE: {
                     TruncateTableInfo info = (TruncateTableInfo) journal.getData();
                     catalog.replayTruncateTable(info);
                     break;
                 }
-
                 case OperationType.OP_COLOCATE_ADD_TABLE: {
                     final ColocatePersistInfo info = (ColocatePersistInfo) journal.getData();
                     catalog.getColocateTableIndex().replayAddTableToGroup(info);
@@ -636,8 +637,23 @@ public class EditLog {
                 case OperationType.OP_MODIFY_TABLE_COLOCATE: {
                     final TablePropertyInfo info = (TablePropertyInfo) journal.getData();
                     catalog.replayModifyTableColocate(info);
+                    break;
                 }
-
+                case OperationType.OP_HEARTBEAT: {
+                    final HbPackage hbPackage = (HbPackage) journal.getData();
+                    Catalog.getCurrentHeartbeatMgr().replayHearbeat(hbPackage);
+                    break;
+                }
+                case OperationType.OP_ADD_FUNCTION: {
+                    final Function function = (Function) journal.getData();
+                    Catalog.getCurrentCatalog().replayCreateFunction(function);
+                    break;
+                }
+                case OperationType.OP_DROP_FUNCTION: {
+                    FunctionSearchDesc function = (FunctionSearchDesc) journal.getData();
+                    Catalog.getCurrentCatalog().replayDropFunction(function);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1048,7 +1064,7 @@ public class EditLog {
     }
 
     public void logSetLoadErrorHub(LoadErrorHub.Param param) {
-        logEdit(OperationType.OP_SET_LOAD_ERROR_URL, param);
+        logEdit(OperationType.OP_SET_LOAD_ERROR_HUB, param);
     }
 
     public void logExportCreate(ExportJob job) {
@@ -1119,5 +1135,17 @@ public class EditLog {
 
     public void logModifyTableColocate(TablePropertyInfo info) {
         logEdit(OperationType.OP_MODIFY_TABLE_COLOCATE, info);
+    }
+
+    public void logHeartbeat(HbPackage hbPackage) {
+        logEdit(OperationType.OP_HEARTBEAT, hbPackage);
+    }
+
+    public void logAddFunction(Function function) {
+        logEdit(OperationType.OP_ADD_FUNCTION, function);
+    }
+
+    public void logDropFunction(FunctionSearchDesc function) {
+        logEdit(OperationType.OP_DROP_FUNCTION, function);
     }
 }

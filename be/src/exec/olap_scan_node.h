@@ -56,6 +56,7 @@ public:
     virtual Status prepare(RuntimeState* state);
     virtual Status open(RuntimeState* state);
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
+    Status collect_query_statistics(QueryStatistics* statistics) override;
     virtual Status close(RuntimeState* state);
     virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges);
 
@@ -245,6 +246,7 @@ private:
     RuntimeProfile::Counter* _scan_timer;
     RuntimeProfile::Counter* _tablet_counter;
     RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _reader_init_timer = nullptr;
 
     TResourceInfo* _resource_info;
 
@@ -265,6 +267,8 @@ private:
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _del_filtered_counter = nullptr;
 
+    RuntimeProfile::Counter* _block_seek_timer = nullptr;
+    RuntimeProfile::Counter* _block_convert_timer = nullptr;
     RuntimeProfile::Counter* _block_load_timer = nullptr;
     RuntimeProfile::Counter* _block_load_counter = nullptr;
     RuntimeProfile::Counter* _block_fetch_timer = nullptr;

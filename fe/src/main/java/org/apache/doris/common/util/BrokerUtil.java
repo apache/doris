@@ -18,8 +18,8 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.UserException;
@@ -43,14 +43,14 @@ public class BrokerUtil {
 
     public static void parseBrokerFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
             throws UserException {
-        BrokerMgr.BrokerAddress brokerAddress = null;
+        FsBroker broker = null;
         try {
             String localIP = FrontendOptions.getLocalHostAddress();
-            brokerAddress = Catalog.getInstance().getBrokerMgr().getBroker(brokerDesc.getName(), localIP);
+            broker = Catalog.getInstance().getBrokerMgr().getBroker(brokerDesc.getName(), localIP);
         } catch (AnalysisException e) {
             throw new UserException(e.getMessage());
         }
-        TNetworkAddress address = new TNetworkAddress(brokerAddress.ip, brokerAddress.port);
+        TNetworkAddress address = new TNetworkAddress(broker.ip, broker.port);
         TPaloBrokerService.Client client = null;
         try {
             client = ClientPool.brokerPool.borrowObject(address);
@@ -93,6 +93,10 @@ public class BrokerUtil {
                 ClientPool.brokerPool.returnObject(address, client);
             }
         }
+    }
+
+    public static String printBroker(String brokerName, TNetworkAddress address) {
+        return brokerName + "[" + address.toString() + "]";
     }
 
 }

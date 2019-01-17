@@ -62,7 +62,8 @@ public:
     int64_t partition_id() const { return _req.partition_id; }
 private:
     void _garbage_collection();
-
+    OLAPStatus _init();
+    
     bool _is_init = false;
     WriteRequest _req;
     OLAPTablePtr _table;

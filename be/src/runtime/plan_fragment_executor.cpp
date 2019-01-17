@@ -37,7 +37,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/mem_tracker.h"
 #include "util/cpu_info.h"
-#include "util/debug_util.h"
+#include "util/uid_util.h"
 #include "util/container_util.hpp"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
@@ -54,7 +54,8 @@ PlanFragmentExecutor::PlanFragmentExecutor(
       _prepared(false),
       _closed(false),
       _has_thread_token(false),
-      _is_report_success(true) {
+      _is_report_success(true),
+      _collect_query_statistics_with_every_batch(false) {
 }
 
 PlanFragmentExecutor::~PlanFragmentExecutor() {
@@ -70,7 +71,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _query_id = params.query_id;
 
     LOG(INFO) << "Prepare(): query_id=" << print_id(_query_id)
-               << " instance_id=" << print_id(params.fragment_instance_id)
+               << " fragment_instance_id=" << print_id(params.fragment_instance_id)
                << " backend_num=" << request.backend_num;
     // VLOG(2) << "request:\n" << apache::thrift::ThriftDebugString(request);
 
@@ -196,6 +197,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
         if (sink_profile != NULL) {
             profile()->add_child(sink_profile, true, NULL);
         }
+
+        _collect_query_statistics_with_every_batch = params.__isset.send_query_statistics_with_every_batch ?
+            params.send_query_statistics_with_every_batch : false;
     } else {
         _sink.reset(NULL);
     }
@@ -226,6 +230,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     // _row_batch->tuple_data_pool()->set_limits(*_runtime_state->mem_trackers());
     VLOG(3) << "plan_root=\n" << _plan->debug_string();
     _prepared = true;
+
+    _query_statistics.reset(new QueryStatistics());
+    _sink->set_query_statistics(_query_statistics);
     return Status::OK;
 }
 
@@ -254,13 +261,13 @@ void PlanFragmentExecutor::print_volume_ids(
 }
 
 Status PlanFragmentExecutor::open() {
-    LOG(INFO) << "Open(): instance_id=" << _runtime_state->fragment_instance_id();
+    LOG(INFO) << "Open(): fragment_instance_id=" << print_id(_runtime_state->fragment_instance_id());
 
     // we need to start the profile-reporting thread before calling Open(), since it
     // may block
     // TODO: if no report thread is started, make sure to send a final profile
     // at end, otherwise the coordinator hangs in case we finish w/ an error
-    if (_is_report_success && !_report_status_cb.empty() && config::status_report_interval > 0) {
+    if (!_report_status_cb.empty() && config::status_report_interval > 0) {
         boost::unique_lock<boost::mutex> l(_report_thread_lock);
         _report_thread = boost::thread(&PlanFragmentExecutor::report_profile, this);
         // make sure the thread started up, otherwise report_profile() might get into a race
@@ -315,8 +322,12 @@ Status PlanFragmentExecutor::open_internal() {
                 VLOG_ROW << row->to_string(row_desc());
             }
         }
-
+     
         SCOPED_TIMER(profile()->total_time_counter());
+        // Collect this plan and sub plan statisticss, and send to parent plan.
+        if (_collect_query_statistics_with_every_batch) {
+            collect_query_statistics();
+        }
         RETURN_IF_ERROR(_sink->send(runtime_state(), batch));
     }
 
@@ -333,6 +344,7 @@ Status PlanFragmentExecutor::open_internal() {
     // audit the sinks to check that this is ok, or change that behaviour.
     {
         SCOPED_TIMER(profile()->total_time_counter());
+        collect_query_statistics();
         Status status = _sink->close(runtime_state(), _status);
         RETURN_IF_ERROR(status);
     }
@@ -347,6 +359,11 @@ Status PlanFragmentExecutor::open_internal() {
     send_report(true);
 
     return Status::OK;
+}
+
+void PlanFragmentExecutor::collect_query_statistics() {
+    _query_statistics->clear();
+    _plan->collect_query_statistics(_query_statistics.get());
 }
 
 void PlanFragmentExecutor::report_profile() {
@@ -366,17 +383,21 @@ void PlanFragmentExecutor::report_profile() {
         boost::get_system_time() + boost::posix_time::seconds(report_fragment_offset);
     // We don't want to wait longer than it takes to run the entire fragment.
     _stop_report_thread_cv.timed_wait(l, timeout);
-
+    bool is_report_profile_interval = _is_report_success && config::status_report_interval > 0;
     while (_report_thread_active) {
-        boost::system_time timeout =
-            boost::get_system_time() + boost::posix_time::seconds(config::status_report_interval);
-
-        // timed_wait can return because the timeout occurred or the condition variable
-        // was signaled.  We can't rely on its return value to distinguish between the
-        // two cases (e.g. there is a race here where the wait timed out but before grabbing
-        // the lock, the condition variable was signaled).  Instead, we will use an external
-        // flag, _report_thread_active, to coordinate this.
-        _stop_report_thread_cv.timed_wait(l, timeout);
+        if (is_report_profile_interval) {
+            boost::system_time timeout =
+                boost::get_system_time() + boost::posix_time::seconds(config::status_report_interval);
+            // timed_wait can return because the timeout occurred or the condition variable
+            // was signaled.  We can't rely on its return value to distinguish between the
+            // two cases (e.g. there is a race here where the wait timed out but before grabbing
+            // the lock, the condition variable was signaled).  Instead, we will use an external
+            // flag, _report_thread_active, to coordinate this.
+            _stop_report_thread_cv.timed_wait(l, timeout);
+        } else {
+            // Artificial triggering, such as show proc "/current_queries".
+            _stop_report_thread_cv.wait(l);
+        }
 
         if (VLOG_FILE_IS_ON) {
             VLOG_FILE << "Reporting " << (!_report_thread_active ? "final " : " ")
@@ -493,7 +514,7 @@ void PlanFragmentExecutor::update_status(const Status& status) {
 }
 
 void PlanFragmentExecutor::cancel() {
-    LOG(INFO) << "cancel(): instance_id=" << _runtime_state->fragment_instance_id();
+    LOG(INFO) << "cancel(): fragment_instance_id=" << print_id(_runtime_state->fragment_instance_id());
     DCHECK(_prepared);
     _runtime_state->set_is_cancelled(true);
     _runtime_state->exec_env()->stream_mgr()->cancel(_runtime_state->fragment_instance_id());

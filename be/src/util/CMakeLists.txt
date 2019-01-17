@@ -63,6 +63,7 @@ add_library(Util STATIC
   filesystem_util.cc
   load_error_hub.cpp
   mysql_load_error_hub.cpp
+  broker_load_error_hub.cpp
   null_load_error_hub.cpp
   time.cpp
   os_info.cpp
@@ -72,6 +73,7 @@ add_library(Util STATIC
   uid_util.cpp
   aes_util.cpp
   string_util.cpp
+  md5.cpp
 )
 
 #ADD_BE_TEST(integer-array-test)

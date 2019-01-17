@@ -240,6 +240,9 @@ public class EsScanNode extends ScanNode {
      * @throws AnalysisException
      */
     private Collection<Long> partitionPrune(PartitionInfo partitionInfo) throws AnalysisException {
+        if (partitionInfo == null) {
+            return null;
+        }
         PartitionPruner partitionPruner = null;
         switch (partitionInfo.getType()) {
         case RANGE: {

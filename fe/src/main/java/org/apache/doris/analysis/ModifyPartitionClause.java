@@ -20,11 +20,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PrintableMap;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
-import com.google.common.base.Joiner.MapJoiner;
 
-import java.util.HashMap;
 import java.util.Map;
 
 // clause which is used to modify partition properties

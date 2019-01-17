@@ -58,12 +58,15 @@
                             LARGEINT（16字节）
                                 范围：0 ~ 2^127 - 1
                             FLOAT（4字节）
+                                支持科学计数法
                             DOUBLE（12字节）
+                                支持科学计数法
                             DECIMAL[(precision, scale)] (40字节)
                                 保证精度的小数类型。默认是 DECIMAL(10, 0)
                                 precision: 1 ~ 27
                                 scale: 0 ~ 9
                                 其中整数部分为 1 ~ 18
+                                不支持科学计数法
                             DATE（3字节）
                                 范围：1900-01-01 ~ 9999-12-31
                             DATETIME（8字节）
@@ -749,7 +752,7 @@
 ## example
     1. 创建名为 bos_repo 的仓库，依赖 BOS broker "bos_broker"，数据根目录为：bos://palo_backup
         CREATE REPOSITORY `bos_repo`
-        WITH BROKER `bos_broker `
+        WITH BROKER `bos_broker`
         ON LOCATION "bos://palo_backup"
         PROPERTIES
         (
@@ -760,7 +763,7 @@
      
     2. 创建和示例 1 相同的仓库，但属性为只读：
         CREATE READ ONLY REPOSITORY `bos_repo`
-        WITH BROKER `bos_broker `
+        WITH BROKER `bos_broker`
         ON LOCATION "bos://palo_backup"
         PROPERTIES
         (
@@ -771,7 +774,7 @@
 
     3. 创建名为 hdfs_repo 的仓库，依赖 Baidu hdfs broker "hdfs_broker"，数据根目录为：hdfs://hadoop-name-node:54310/path/to/repo/
         CREATE REPOSITORY `hdfs_repo`
-        WITH BROKER `hdfs_broker `
+        WITH BROKER `hdfs_broker`
         ON LOCATION "hdfs://hadoop-name-node:54310/path/to/repo/"
         PROPERTIES
         (
@@ -860,10 +863,11 @@
                 "backup_timestamp" = "2018-05-04-16-45-08"：指定了恢复对应备份的哪个时间版本，必填。该信息可以通过 `SHOW SNAPSHOT ON repo;` 语句获得。
                 "replication_num" = "3"：指定恢复的表或分区的副本数。默认为3。若恢复已存在的表或分区，则副本数必须和已存在表或分区的副本数相同。同时，必须有足够的 host 容纳多个副本。
                 "timeout" = "3600"：任务超时时间，默认为一天。单位秒。
+                "meta_version" = 40：使用指定的 meta_version 来读取之前备份的元数据。注意，该参数作为临时方案，仅用于恢复老版本 Doris 备份的数据。最新版本的备份数据中已经包含 meta version，无需再指定。
 
 ## example
     1. 从 example_repo 中恢复备份 snapshot_1 中的表 backup_tbl 到数据库 example_db1，时间版本为 "2018-05-04-16-45-08"。恢复为 1 个副本：
-        RESTORE SNAPSHOT example_db1.`snapshot_1 `
+        RESTORE SNAPSHOT example_db1.`snapshot_1`
         FROM `example_repo`
         ON ( `backup_tbl` )
         PROPERTIES
@@ -873,8 +877,8 @@
         );
         
     2. 从 example_repo 中恢复备份 snapshot_2 中的表 backup_tbl 的分区 p1,p2，以及表 backup_tbl2 到数据库 example_db1，并重命名为 new_tbl，时间版本为 "2018-05-04-17-11-01"。默认恢复为 3 个副本：
-        RESTORE SNAPSHOT example_db1.`snapshot_2 `
-        FROM `example_repo `
+        RESTORE SNAPSHOT example_db1.`snapshot_2`
+        FROM `example_repo`
         ON
         (
             `backup_tbl` PARTITION (`p1`, `p2`) AS `backup_tbl2`,
@@ -1090,3 +1094,43 @@
 
     COLOCATE, JOIN, CREATE TABLE
 
+# CREATE FUNCTION
+## description
+    Used to create a UDF/UDAF/UDTF
+    Syntax:
+        CREATE [AGGREGATE] FUNCTION funcName (argType [, ...])
+        RETURNS retType
+        PROPERTIES (
+            k1=v1 [, k2=v2]
+        )
+    
+    valid PROPERTIES: 
+        "symbol": UDF's symbol, which Doris call this symbol's function to execute. MUST BE SET
+        "object_file": UDF library's URL, Doris use it to download library. MUST BE SET
+        "md5": when this property is set, Doris will check library's md5um against this value. This is a option
+
+## example
+    1. create a function "my_func", receive two int and return one int
+        CREATE FUNCTION my_func (int, int) RETURNS int
+        PROPERTIES ("symbol"="my_func_symbol", "object_file"="http://127.0.0.1/my_func.so")
+    2. create a variadic function "my_func"
+        CREATE FUNCTION my_func (int, ...) RETURNS int
+        PROPERTIES ("symbol"="my_func_symbol", "object_file"="http://127.0.0.1/my_func.so")
+
+## keyword
+    CREATE, FUNCTION
+
+# DROP FUNCTION
+## description
+    Used to drop a UDF/UDAF/UDTF
+    Syntax:
+        DROP FUNCTION funcName (argType [, ...])
+
+## example
+    1. drop a UDF whose name is my_func
+    DROP FUNCTION my_func (int, int)
+    2. drop a variadic function
+    DROP FUNCTION my_func (int, ...)
+
+## keyword
+    DROP, FUNCTION

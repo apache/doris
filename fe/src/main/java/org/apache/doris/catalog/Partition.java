@@ -22,6 +22,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.meta.MetaContext;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -113,17 +114,20 @@ public class Partition extends MetaObject implements Writable {
     public void updateVisibleVersionAndVersionHash(long visibleVersion, long visibleVersionHash) {
         this.visibleVersion = visibleVersion;
         this.visibleVersionHash = visibleVersionHash;
-        // if it is upgrade from old palo cluster, then should update next version info
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_45) {
-            // the partition is created and not import any data
-            if (visibleVersion == PARTITION_INIT_VERSION + 1 && visibleVersionHash == PARTITION_INIT_VERSION_HASH) {
-                this.nextVersion = PARTITION_INIT_VERSION + 1;
-                this.nextVersionHash = Util.generateVersionHash();
-                this.committedVersionHash = PARTITION_INIT_VERSION_HASH;
-            } else {
-                this.nextVersion = visibleVersion + 1;
-                this.nextVersionHash = Util.generateVersionHash();
-                this.committedVersionHash = visibleVersionHash;
+        if (MetaContext.get() != null) {
+            // MetaContext is not null means we are in a edit log replay thread.
+            // if it is upgrade from old palo cluster, then should update next version info
+            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_45) {
+                // the partition is created and not import any data
+                if (visibleVersion == PARTITION_INIT_VERSION + 1 && visibleVersionHash == PARTITION_INIT_VERSION_HASH) {
+                    this.nextVersion = PARTITION_INIT_VERSION + 1;
+                    this.nextVersionHash = Util.generateVersionHash();
+                    this.committedVersionHash = PARTITION_INIT_VERSION_HASH;
+                } else {
+                    this.nextVersion = visibleVersion + 1;
+                    this.nextVersionHash = Util.generateVersionHash();
+                    this.committedVersionHash = visibleVersionHash;
+                }
             }
         }
     }
@@ -208,12 +212,21 @@ public class Partition extends MetaObject implements Writable {
         return indices;
     }
 
+    public long getDataSize() {
+        long dataSize = 0;
+        for (MaterializedIndex mIndex : getMaterializedIndices()) {
+            dataSize += mIndex.getDataSize();
+        }
+        return dataSize;
+    }
+
     public static Partition read(DataInput in) throws IOException {
         Partition partition = new Partition();
         partition.readFields(in);
         return partition;
     }
 
+    @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
 
@@ -242,6 +255,7 @@ public class Partition extends MetaObject implements Writable {
         distributionInfo.write(out);
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
@@ -285,6 +299,7 @@ public class Partition extends MetaObject implements Writable {
         }
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;

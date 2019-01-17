@@ -491,21 +491,20 @@ public class SchemaChangeHandler extends AlterHandler {
                                    Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
         
         if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
-            if (newColumn.isKey() && null != newColumn.getAggregationType()) {
-                throw new DdlException("key column of aggregate key table cannot use aggregation method");
+            if (newColumn.isKey() && newColumn.getAggregationType() != null) {
+                throw new DdlException("key column of aggregate table cannot use aggregation method");
             } else if (null == newColumn.getAggregationType()) {
-                // in aggregate key table, no aggreation method indicate key column
                 newColumn.setIsKey(true);
             }
         } else if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
-            if (null != newColumn.getAggregationType()) {
-                throw new DdlException("column of unique key table cannot use aggregation method");
+            if (newColumn.getAggregationType() != null) {
+                throw new DdlException("column of unique table cannot use aggregation method");
             }
             if (!newColumn.isKey()) {
                 newColumn.setAggregationType(AggregateType.REPLACE, true);
             }
         } else {
-            if (null != newColumn.getAggregationType()) {
+            if (newColumn.getAggregationType() != null) {
                 throw new DdlException("column of duplicate table cannot use aggregation method");
             }
             if (!newColumn.isKey()) {
@@ -1190,6 +1189,7 @@ public class SchemaChangeHandler extends AlterHandler {
             // has to remove here, because check is running every interval, it maybe finished but also in job list
             // some check will failed
             ((SchemaChangeJob) alterJob).deleteAllTableHistorySchema();
+            ((SchemaChangeJob) alterJob).finishJob();
             jobDone(alterJob);
             Catalog.getInstance().getEditLog().logFinishSchemaChange((SchemaChangeJob) alterJob);
         }
@@ -1320,10 +1320,12 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Table[" + tableName + "] is not under SCHEMA CHANGE");
             }
 
-            if (alterJob.getState() == JobState.FINISHING) {
-                throw new DdlException("The schemachange job related with table[" + olapTable.getName()
-                        + "] is under finishing state, it could not be cancelled");
+            if (alterJob.getState() == JobState.FINISHING ||
+                    alterJob.getState() == JobState.FINISHED ||
+                    alterJob.getState() == JobState.CANCELLED) {
+                throw new DdlException("job is already " + alterJob.getState().name() + ", can not cancel it");
             }
+
             // 3. cancel schema change job
             alterJob.cancel(olapTable, "user cancelled");
         } finally {

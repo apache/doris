@@ -31,7 +31,6 @@ using std::pair;
 #include "gutil/int128.h"
 #include "gutil/integral_types.h"
 #include <common/logging.h>
-#include "gutil/logging-inl.h"
 #include "gutil/hash/hash128to64.h"
 #include "gutil/endian.h"
 

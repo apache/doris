@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.collect.ArrayListMultimap;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.Expr;
@@ -58,6 +57,7 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
@@ -418,7 +418,8 @@ public class OlapScanNode extends ScanNode {
             throws UserException, AnalysisException {
 
         int logNum = 0;
-        String schemaHashStr = String.valueOf(olapTable.getSchemaHashByIndexId(index.getId()));
+        int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
+        String schemaHashStr = String.valueOf(schemaHash);
         long visibleVersion = partition.getVisibleVersion();
         long visibleVersionHash = partition.getVisibleVersionHash();
         String visibleVersionStr = String.valueOf(visibleVersion);
@@ -440,12 +441,12 @@ public class OlapScanNode extends ScanNode {
             List<Replica> allQueryableReplicas = Lists.newArrayList();
             List<Replica> localReplicas = Lists.newArrayList();
             tablet.getQueryableReplicas(allQueryableReplicas, localReplicas,
-                                        visibleVersion, visibleVersionHash,
-                                        localBeId);
+                    visibleVersion, visibleVersionHash,
+                    localBeId, schemaHash);
             if (allQueryableReplicas.isEmpty()) {
                 LOG.error("no queryable replica found in tablet[{}]. committed version[{}], committed version hash[{}]",
                          tabletId, visibleVersion, visibleVersionHash);
-                throw new UserException("Failed to get scan range, no replica!");
+                throw new UserException("Failed to get scan range, no queryable replica found in tablet: " + tabletId);
             }
 
             List<Replica> replicas = null;

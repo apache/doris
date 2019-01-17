@@ -123,7 +123,9 @@ private:
             std::string* src_file_path,
             std::vector<std::string>* error_msgs,
             const std::vector<Version>* missing_versions,
-            bool* allow_incremental_clone);
+            bool* allow_incremental_clone,
+            int64_t* copy_size,
+            int64_t* copy_time_ms);
 
     void _alter_table(
             const TAlterTabletReq& create_rollup_request,
@@ -158,7 +160,6 @@ private:
     ExecEnv* _env;
 #ifdef BE_TEST
     AgentServerClient* _agent_client;
-    FileDownloader* _file_downloader_ptr;
     Pusher * _pusher;
 #endif
 

@@ -344,7 +344,7 @@ const RowCursor* ColumnData::seek_and_get_current_row(const RowBlockPosition& po
             << ", segment:" << position.segment << ", block:" << position.data_offset;
         return nullptr;
     }
-    res = _get_block(true);
+    res = _get_block(true, 1);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "Fail to get block in seek_and_get_current_row, res=" << res
             << ", segment:" << position.segment << ", block:" << position.data_offset;
@@ -634,7 +634,7 @@ OLAPStatus ColumnData::_schema_change_init() {
 }
 
 OLAPStatus ColumnData::_get_block_from_reader(
-        VectorizedRowBatch** got_batch, bool without_filter) {
+        VectorizedRowBatch** got_batch, bool without_filter, int rows_read) {
     VectorizedRowBatch* vec_batch = nullptr;
     if (_is_normal_read) {
         vec_batch = _read_vector_batch.get();
@@ -652,6 +652,9 @@ OLAPStatus ColumnData::_get_block_from_reader(
             << ", _segment_eof:" << _segment_eof;
 #endif
         vec_batch->clear();
+        if (rows_read > 0) {
+            vec_batch->set_limit(rows_read);
+        }
         // If we are going to read last block, we need to set batch limit to the end of key
         // if without_filter is true and _end_key_is_set is true, this must seek to start row's
         // block, we must load the entire block.
@@ -689,10 +692,10 @@ OLAPStatus ColumnData::_get_block_from_reader(
     return OLAP_SUCCESS;
 }
 
-OLAPStatus ColumnData::_get_block(bool without_filter) {
+OLAPStatus ColumnData::_get_block(bool without_filter, int rows_read) {
     do {
         VectorizedRowBatch* vec_batch = nullptr;
-        auto res = _get_block_from_reader(&vec_batch, without_filter);
+        auto res = _get_block_from_reader(&vec_batch, without_filter, rows_read);
         if (res != OLAP_SUCCESS) {
             return res;
         }
@@ -709,6 +712,7 @@ OLAPStatus ColumnData::_get_block(bool without_filter) {
         if (vec_batch->size() == 0) {
             continue;
         }
+        SCOPED_RAW_TIMER(&_stats->block_convert_ns);
         // when reach here, we have already read a block successfully
         _read_block->clear();
         vec_batch->dump_to_row_block(_read_block.get());

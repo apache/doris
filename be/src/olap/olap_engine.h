@@ -232,6 +232,7 @@ public:
     std::vector<OlapStore*> get_stores_for_create_table(
         TStorageMedium::type storage_medium);
     OlapStore* get_store(const std::string& path);
+    OlapStore* get_store(int64_t path_hash);
 
     uint32_t available_storage_medium_type_count() {
         return _available_storage_medium_type_count;
@@ -325,6 +326,13 @@ public:
 
     virtual OLAPStatus finish_clone(OLAPTablePtr tablet, const std::string& clone_dir,
                                     int64_t committed_version, bool is_incremental_clone);
+
+
+    // Obtain the path by specified path hash
+    virtual OLAPStatus obtain_shard_path_by_hash(
+            int64_t path_hash,
+            std::string* shared_path,
+            OlapStore** store);
 
     // Obtain shard path for new tablet.
     //
@@ -556,6 +564,7 @@ private:
     // cache to save tablets' statistics, such as data size and row
     // TODO(cmy): for now, this is a naive implementation
     std::map<int64_t, TTabletStat> _tablet_stat_cache;
+    std::mutex _tablet_stat_mutex;
     // last update time of tablet stat cache
     int64_t _tablet_stat_cache_update_time_ms;
 

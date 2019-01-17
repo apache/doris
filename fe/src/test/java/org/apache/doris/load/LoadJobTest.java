@@ -37,6 +37,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.powermock.api.easymock.PowerMock;
+import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
@@ -51,6 +52,7 @@ import java.util.List;
 import java.util.Map;
 
 @RunWith(PowerMockRunner.class)
+@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
 @PrepareForTest({Catalog.class})
 public class LoadJobTest {
 
@@ -132,9 +134,9 @@ public class LoadJobTest {
         loadJob3.addFullTablet(2);
         loadJob3.addFullTablet(3);
         
-        loadJob3.addReplicaPersistInfos(ReplicaPersistInfo.createForLoad(1, 1, 1, 1, 1, 1, 1, 1, 1));
-        loadJob3.addReplicaPersistInfos(ReplicaPersistInfo.createForLoad(2, 2, 2, 2, 2, 2, 2, 2, 2));
-        loadJob3.addReplicaPersistInfos(ReplicaPersistInfo.createForLoad(3, 3, 3, 3, 3, 3, 3, 3, 3));
+        loadJob3.addReplicaPersistInfos(ReplicaPersistInfo.createForLoad(1, 1, 1, 1, 1, 1, 1, 0, 1, 1));
+        loadJob3.addReplicaPersistInfos(ReplicaPersistInfo.createForLoad(2, 2, 2, 2, 2, 2, 2, 0, 2, 2));
+        loadJob3.addReplicaPersistInfos(ReplicaPersistInfo.createForLoad(3, 3, 3, 3, 3, 3, 3, 0, 3, 3));
 
         return loadJob3;
     }
@@ -146,7 +148,7 @@ public class LoadJobTest {
         EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
         PowerMock.replay(Catalog.class);
 
-        File file = new File("./loadJobTest");
+        File file = new File("./loadJobTest" + System.currentTimeMillis());
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
         

@@ -25,6 +25,7 @@ import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.TableRef;
+import org.apache.doris.backup.AbstractJob.JobType;
 import org.apache.doris.backup.BackupJob.BackupJobState;
 import org.apache.doris.backup.BackupJobInfo.BackupTableInfo;
 import org.apache.doris.catalog.Catalog;
@@ -38,6 +39,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.task.DirMoveTask;
@@ -45,6 +47,7 @@ import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.SnapshotTask;
 import org.apache.doris.task.UploadTask;
 import org.apache.doris.thrift.TFinishTaskRequest;
+import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -326,7 +329,7 @@ public class BackupHandler extends Daemon implements Writable {
                 // as base snapshot.
                 // But first we need to check if the existing snapshot has same meta.
                 List<BackupMeta> backupMetas = Lists.newArrayList();
-                st = repository.getSnapshotMetaFile(stmt.getLabel(), backupMetas);
+                st = repository.getSnapshotMetaFile(stmt.getLabel(), backupMetas, -1);
                 if (!st.ok()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                                                    "Failed to get existing meta info for repository: "
@@ -373,7 +376,7 @@ public class BackupHandler extends Daemon implements Writable {
         // Create a restore job
         RestoreJob restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
                 db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicationNum(),
-                stmt.getTimeoutMs(), catalog, repository.getId());
+                stmt.getTimeoutMs(), stmt.getMetaVersion(), catalog, repository.getId());
         dbIdToBackupOrRestoreJob.put(db.getId(), restoreJob);
 
         catalog.getEditLog().logRestoreJob(restoreJob);
@@ -523,6 +526,23 @@ public class BackupHandler extends Daemon implements Writable {
             job.replayRun();
         }
         dbIdToBackupOrRestoreJob.put(job.getDbId(), job);
+    }
+
+    public boolean report(TTaskType type, long jobId, long taskId, int finishedNum, int totalNum) {
+        for (AbstractJob job : dbIdToBackupOrRestoreJob.values()) {
+            if (job.getType() == JobType.BACKUP) {
+                if (!job.isDone() && job.getJobId() == jobId && type == TTaskType.UPLOAD) {
+                    job.taskProgress.put(taskId, Pair.create(finishedNum, totalNum));
+                    return true;
+                }
+            } else if (job.getType() == JobType.RESTORE) {
+                if (!job.isDone() && job.getJobId() == jobId && type == TTaskType.DOWNLOAD) {
+                    job.taskProgress.put(taskId, Pair.create(finishedNum, totalNum));
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public static BackupHandler read(DataInput in) throws IOException {

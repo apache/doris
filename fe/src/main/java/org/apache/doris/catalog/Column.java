@@ -17,13 +17,15 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.base.Strings;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
+
+import com.google.common.base.Strings;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -36,10 +38,11 @@ import java.io.IOException;
  */
 public class Column implements Writable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
-    private static final String HLL_EMPTY_SET = "0";
     private String name;
     private Type type;
     private AggregateType aggregationType;
+
+    // if isAggregationTypeImplicit is true, the actual aggregation type will not be shown in show create table
     private boolean isAggregationTypeImplicit;
     private boolean isKey;
     private boolean isAllowNull;
@@ -146,6 +149,10 @@ public class Column implements Writable {
         this.isAggregationTypeImplicit = isAggregationTypeImplicit;
     }
 
+    public void setAggregationTypeImplicit(boolean isAggregationTypeImplicit) {
+        this.isAggregationTypeImplicit = isAggregationTypeImplicit;
+    }
+
     public boolean isAllowNull() {
         return isAllowNull;
     }
@@ -249,7 +256,7 @@ public class Column implements Writable {
         StringBuilder sb = new StringBuilder();
         sb.append("`").append(name).append("` ");
         sb.append(type.toSql()).append(" ");
-        if (aggregationType != null && !isAggregationTypeImplicit) {
+        if (aggregationType != null && aggregationType != AggregateType.NONE && !isAggregationTypeImplicit) {
             sb.append(aggregationType.name()).append(" ");
         }
         if (!isAllowNull) {

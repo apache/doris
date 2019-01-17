@@ -25,6 +25,7 @@ import org.apache.doris.alter.RollupHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
+import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
@@ -37,6 +38,7 @@ import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
 import org.apache.doris.analysis.CreateClusterStmt;
 import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
@@ -44,8 +46,10 @@ import org.apache.doris.analysis.DecommissionBackendClause;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropClusterStmt;
 import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LinkDbStmt;
@@ -71,7 +75,6 @@ import org.apache.doris.backup.AbstractBackupJob_D;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.BackupJob_D;
 import org.apache.doris.backup.RestoreJob_D;
-import org.apache.doris.catalog.BrokerMgr.BrokerAddress;
 import org.apache.doris.catalog.Database.DbState;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.KuduPartition.KuduRange;
@@ -82,11 +85,15 @@ import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.clone.Clone;
 import org.apache.doris.clone.CloneChecker;
 import org.apache.doris.clone.ColocateTableBalancer;
+import org.apache.doris.clone.TabletChecker;
+import org.apache.doris.clone.TabletScheduler;
+import org.apache.doris.clone.TabletSchedulerStat;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -128,6 +135,7 @@ import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.master.MetaHelper;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -147,8 +155,8 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.TableInfo;
-import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.SessionVariable;
@@ -157,6 +165,7 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Backend.BackendState;
 import org.apache.doris.system.Frontend;
+import org.apache.doris.system.HeartbeatMgr;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -228,10 +237,9 @@ public class Catalog {
     public static final String BDB_DIR = Config.meta_dir + "/bdb";
     public static final String IMAGE_DIR = Config.meta_dir + "/image";
 
-    // Image file meta data version. Use this version to load image file
-    private int imageVersion = 0;
     // Current journal meta data version. Use this version to load journals
-    private int journalVersion = 0;
+    // private int journalVersion = 0;
+    private MetaContext metaContext;
     private long epoch = 0;
 
     // Lock to perform atomic modification on map like 'idToDb' and 'fullNameToDb'.
@@ -312,6 +320,7 @@ public class Catalog {
     private JournalObservable journalObservable;
 
     private SystemInfoService systemInfo;
+    private HeartbeatMgr heartbeatMgr;
     private TabletInvertedIndex tabletInvertedIndex;
     private ColocateTableIndex colocateTableIndex;
 
@@ -332,6 +341,12 @@ public class Catalog {
     private PaloAuth auth;
 
     private DomainResolver domainResolver;
+
+    private TabletSchedulerStat stat;
+
+    private TabletScheduler tabletScheduler;
+
+    private TabletChecker tabletChecker;
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
@@ -359,6 +374,10 @@ public class Catalog {
 
     private SystemInfoService getClusterInfo() {
         return this.systemInfo;
+    }
+
+    private HeartbeatMgr getHeartbeatMgr() {
+        return this.heartbeatMgr;
     }
 
     public TabletInvertedIndex getTabletInvertedIndex() {
@@ -415,6 +434,7 @@ public class Catalog {
         this.masterIp = "";
 
         this.systemInfo = new SystemInfoService();
+        this.heartbeatMgr = new HeartbeatMgr(systemInfo);
         this.tabletInvertedIndex = new TabletInvertedIndex();
         this.colocateTableIndex = new ColocateTableIndex();
         this.recycleBin = new CatalogRecycleBin();
@@ -438,6 +458,13 @@ public class Catalog {
         this.domainResolver = new DomainResolver(auth);
 
         this.esStateStore = new EsStateStore();
+
+        this.metaContext = new MetaContext();
+        this.metaContext.setThreadLocalInfo();
+        
+        this.stat = new TabletSchedulerStat();
+        this.tabletScheduler = new TabletScheduler(this, systemInfo, tabletInvertedIndex, stat);
+        this.tabletChecker = new TabletChecker(this, systemInfo, tabletScheduler, stat);
     }
 
     public static void destroyCheckpoint() {
@@ -487,9 +514,21 @@ public class Catalog {
         return auth;
     }
 
+    public TabletScheduler getTabletScheduler() {
+        return tabletScheduler;
+    }
+
+    public TabletChecker getTabletChecker() {
+        return tabletChecker;
+    }
+
     // use this to get correct ClusterInfoService instance
     public static SystemInfoService getCurrentSystemInfo() {
         return getCurrentCatalog().getClusterInfo();
+    }
+
+    public static HeartbeatMgr getCurrentHeartbeatMgr() {
+        return getCurrentCatalog().getHeartbeatMgr();
     }
 
     // use this to get correct TabletInvertedIndex instance
@@ -508,7 +547,7 @@ public class Catalog {
 
     // use this to get correct Catalog's journal version
     public static int getCurrentCatalogJournalVersion() {
-        return getCurrentCatalog().getJournalVersion();
+        return MetaContext.get().getMetaVersion();
     }
 
     public static final boolean isCheckpointThread() {
@@ -598,6 +637,7 @@ public class Catalog {
 
         // 6. start state listener thread
         createStateListener();
+        listener.setMetaContext(metaContext);
         listener.setName("stateListener");
         listener.setInterval(STATE_CHANGE_CHECK_INTERVAL_MS);
         listener.start();
@@ -968,9 +1008,10 @@ public class Catalog {
         editLog.rollEditLog();
 
         // Log meta_version
+        long journalVersion = MetaContext.get().getMetaVersion();
         if (journalVersion < FeConstants.meta_version) {
             editLog.logMetaVersion(FeConstants.meta_version);
-            this.setJournalVersion(FeConstants.meta_version);
+            MetaContext.get().setMetaVersion(FeConstants.meta_version);
         }
 
         // Log the first frontend
@@ -1000,6 +1041,7 @@ public class Catalog {
 
         // start checkpoint thread
         checkpointer = new Checkpoint(editLog);
+        checkpointer.setMetaContext(metaContext);
         checkpointer.setName("leaderCheckpointer");
         checkpointer.setInterval(FeConstants.checkpoint_interval_second * 1000L);
 
@@ -1007,10 +1049,10 @@ public class Catalog {
         checkpointThreadId = checkpointer.getId();
         LOG.info("checkpointer thread started. thread id is {}", checkpointThreadId);
 
-        // ClusterInfoService
-        Catalog.getCurrentSystemInfo().setMaster(
+        // heartbeat mgr
+        heartbeatMgr.setMaster(
                 FrontendOptions.getLocalHostAddress(), Config.rpc_port, clusterId, token, epoch);
-        Catalog.getCurrentSystemInfo().start();
+        heartbeatMgr.start();
 
         pullLoadJobMgr.start();
 
@@ -1023,8 +1065,13 @@ public class Catalog {
         ExportChecker.startAll();
 
         // Clone checker
-        CloneChecker.getInstance().setInterval(Config.clone_checker_interval_second * 1000L);
-        CloneChecker.getInstance().start();
+        if (!Config.use_new_tablet_scheduler) {
+            CloneChecker.getInstance().setInterval(Config.clone_checker_interval_second * 1000L);
+            CloneChecker.getInstance().start();
+        } else {
+            tabletChecker.start();
+            tabletScheduler.start();
+        }
 
         // Colocate tables balancer
         if (!Config.disable_colocate_join) {
@@ -1097,6 +1144,7 @@ public class Catalog {
 
         if (replayer == null) {
             createReplayer();
+            replayer.setMetaContext(metaContext);
             replayer.setName("replayer");
             replayer.setInterval(REPLAY_INTERVAL_MS);
             replayer.start();
@@ -1292,6 +1340,10 @@ public class Catalog {
                             invertedIndex.addTablet(tabletId, tabletMeta);
                             for (Replica replica : tablet.getReplicas()) {
                                 invertedIndex.addReplica(tabletId, replica);
+                                if (MetaContext.get().getMetaVersion() < FeMetaVersion.VERSION_48) {
+                                    // set replica's schema hash
+                                    replica.setSchemaHash(schemaHash);
+                                }
                             }
                         }
                     } // end for indices
@@ -1301,16 +1353,18 @@ public class Catalog {
     }
 
     public long loadHeader(DataInputStream dis, long checksum) throws IOException {
-        imageVersion = dis.readInt();
-        long newChecksum = checksum ^ imageVersion;
-        journalVersion = imageVersion;
+        int journalVersion = dis.readInt();
+        long newChecksum = checksum ^ journalVersion;
+        MetaContext.get().setMetaVersion(journalVersion);
+
         long replayedJournalId = dis.readLong();
         newChecksum ^= replayedJournalId;
-        long id = dis.readLong();
-        newChecksum ^= id;
-        idGenerator.setId(id);
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_32) {
+        long catalogId = dis.readLong();
+        newChecksum ^= catalogId;
+        idGenerator.setId(catalogId);
+
+        if (journalVersion >= FeMetaVersion.VERSION_32) {
             isDefaultClusterCreated = dis.readBoolean();
         }
 
@@ -2016,7 +2070,7 @@ public class Catalog {
 
         long currentTimeMs = System.currentTimeMillis();
         if (currentTimeMs - synchronizedTimeMs > Config.meta_delay_toleration_second * 1000) {
-            // we stll need this log to observe this situation
+            // we still need this log to observe this situation
             // but service may be continued when there is no log being replayed.
             LOG.warn("meta out of date. current time: {}, synchronized time: {}, has log: {}, fe type: {}",
                     currentTimeMs, synchronizedTimeMs, hasLog, feType);
@@ -2261,6 +2315,15 @@ public class Catalog {
     public Frontend getFeByHost(String host) {
         for (Frontend fe : frontends.values()) {
             if (fe.getHost().equals(host)) {
+                return fe;
+            }
+        }
+        return null;
+    }
+
+    public Frontend getFeByName(String name) {
+        for (Frontend fe : frontends.values()) {
+            if (fe.getNodeName().equals(name)) {
                 return fe;
             }
         }
@@ -3313,16 +3376,16 @@ public class Catalog {
 
         // colocateTable
         try {
-            String colocateTable = PropertyAnalyzer.analyzeColocate(properties);
-            if (colocateTable != null) {
+            String colocateTableName = PropertyAnalyzer.analyzeColocate(properties);
+            if (colocateTableName != null) {
                 if (Config.disable_colocate_join) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_DISABLED);
                 }
 
-                Table parentTable = ColocateTableUtils.getColocateTable(db, colocateTable);
-                //for colocate child table
-                if (!colocateTable.equalsIgnoreCase(tableName)) {
-                    ColocateTableUtils.checkTableExist(parentTable, colocateTable);
+                Table parentTable = ColocateTableUtils.getColocateTable(db, colocateTableName);
+                // for colocate child table
+                if (!colocateTableName.equalsIgnoreCase(tableName)) {
+                    ColocateTableUtils.checkTableExist(parentTable, colocateTableName);
 
                     ColocateTableUtils.checkTableType(parentTable);
 
@@ -3335,7 +3398,7 @@ public class Catalog {
                     getColocateTableIndex().addTableToGroup(db.getId(), tableId, tableId);
                 }
 
-                olapTable.setColocateTable(colocateTable);
+                olapTable.setColocateTable(colocateTableName);
 
             }
         } catch (AnalysisException e) {
@@ -3847,10 +3910,10 @@ public class Catalog {
 
             // properties
             sb.append("\nPROPERTIES (\n");
-            sb.append("\"host\" = \"").append(esTable.getHosts()).append("\",\n");
+            sb.append("\"hosts\" = \"").append(esTable.getHosts()).append("\",\n");
             sb.append("\"user\" = \"").append(esTable.getUserName()).append("\",\n");
             sb.append("\"password\" = \"").append(hidePassword ? "" : esTable.getPasswd()).append("\",\n");
-            sb.append("\"index\" = \"").append(esTable.getIndexName()).append("\"\n");
+            sb.append("\"index\" = \"").append(esTable.getIndexName()).append("\",\n");
             sb.append("\"type\" = \"").append(esTable.getMappingType()).append("\"\n");
             sb.append(");");
         }
@@ -3948,14 +4011,13 @@ public class Catalog {
 
         DistributionInfoType distributionInfoType = distributionInfo.getType();
         if (distributionInfoType == DistributionInfoType.RANDOM || distributionInfoType == DistributionInfoType.HASH) {
-
             ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
             List<List<Long>> backendsPerBucketSeq = new ArrayList<>();
             if (colocateIndex.isColocateTable(tabletMeta.getTableId())) {
                 Database db = Catalog.getInstance().getDb(tabletMeta.getDbId());
                 long groupId = colocateIndex.getGroup(tabletMeta.getTableId());
-                //Use db write lock here to make sure the backendsPerBucketSeq is consistent when the backendsPerBucketSeq is updating.
-                //This lock will release very fast.
+                // Use db write lock here to make sure the backendsPerBucketSeq is consistent when the backendsPerBucketSeq is updating.
+                // This lock will release very fast.
                 db.writeLock();
                 try {
                     backendsPerBucketSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
@@ -3971,35 +4033,36 @@ public class Catalog {
                 index.addTablet(tablet, tabletMeta);
                 tabletIdSet.add(tablet.getId());
 
-                //get BackendIds
+                // get BackendIds
                 List<Long> chosenBackendIds;
 
-                //for colocate parent table
+                // for colocate parent table
                 if (colocateIndex.isColocateParentTable(tabletMeta.getTableId())) {
                     if (backendsPerBucketSeq.size() == distributionInfo.getBucketNum()) {
-                        //for not first partitions of colocate parent table
+                        // for not first partitions of colocate parent table
                         chosenBackendIds = backendsPerBucketSeq.get(i);
                     } else {
-                        //for the first partitions of colocate parent table
+                        // for the first partitions of colocate parent table
                         chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName);
                         backendsPerBucketSeq.add(chosenBackendIds);
 
                         if (i == distributionInfo.getBucketNum() - 1) {
-                            //delay persist this until we ensure the table create successfully
+                            // delay persist this until we ensure the table create successfully
                             colocateIndex.addBackendsPerBucketSeq(tabletMeta.getTableId(), backendsPerBucketSeq);
                         }
                     }
                 } else if (colocateIndex.isColocateTable(tabletMeta.getTableId())) {
-                    //for colocate child table
+                    // for colocate child table
                     chosenBackendIds = backendsPerBucketSeq.get(i);
                 } else {
-                    //for normal table
+                    // for normal table
                     chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName);
                 }
 
                 for (long backendId : chosenBackendIds) {
                     long replicaId = getNextId();
-                    Replica replica = new Replica(replicaId, backendId, replicaState, version, versionHash);
+                    Replica replica = new Replica(replicaId, backendId, replicaState, version, versionHash,
+                            tabletMeta.getOldSchemaHash());
                     tablet.addReplica(replica);
                 }
             }
@@ -4143,8 +4206,16 @@ public class Catalog {
         Partition partition = olapTable.getPartition(info.getPartitionId());
         MaterializedIndex materializedIndex = partition.getIndex(info.getIndexId());
         Tablet tablet = materializedIndex.getTablet(info.getTabletId());
+
+        // for compatibility
+        int schemaHash = info.getSchemaHash();
+        if (schemaHash == -1) {
+            schemaHash = olapTable.getSchemaHashByIndexId(info.getIndexId());
+        }
+
         Replica replica = new Replica(info.getReplicaId(), info.getBackendId(), info.getVersion(),
-                info.getVersionHash(), info.getDataSize(), info.getRowCount(), ReplicaState.NORMAL,
+                info.getVersionHash(), schemaHash, info.getDataSize(), info.getRowCount(),
+                ReplicaState.NORMAL,
                 info.getLastFailedVersion(),
                 info.getLastFailedVersionHash(),
                 info.getLastSuccessVersion(),
@@ -4228,6 +4299,10 @@ public class Catalog {
 
     public int getClusterId() {
         return this.clusterId;
+    }
+
+    public String getToken() {
+        return token;
     }
 
     public Database getDb(String name) {
@@ -4413,7 +4488,7 @@ public class Catalog {
         return this.load;
     }
 
-    public RoutineLoadManager getRoutineLoadInstance() {
+    public RoutineLoadManager getRoutineLoadManager() {
         return routineLoadManager;
     }
 
@@ -4452,6 +4527,10 @@ public class Catalog {
     public Pair<String, Integer> getHelperNode() {
         Preconditions.checkState(helperNodes.size() == 1);
         return this.helperNodes.get(0);
+    }
+
+    public List<Pair<String, Integer>> getHelperNodes() {
+        return Lists.newArrayList(helperNodes);
     }
 
     public Pair<String, Integer> getSelfNode() {
@@ -4539,20 +4618,6 @@ public class Catalog {
 
     public void setHaProtocol(HAProtocol protocol) {
         this.haProtocol = protocol;
-    }
-
-    public void setJournalVersion(int version) {
-        this.journalVersion = version;
-    }
-
-    // Get current journal meta data version
-    public int getJournalVersion() {
-        return this.journalVersion;
-    }
-
-    // Get current journal meta data version
-    public int getImageVersion() {
-        return this.imageVersion;
     }
 
     public static short calcShortKeyColumnCount(List<Column> columns, Map<String, String> properties)
@@ -5599,18 +5664,18 @@ public class Catalog {
     }
 
     public long saveBrokers(DataOutputStream dos, long checksum) throws IOException {
-        Map<String, List<BrokerAddress>> addressListMap = brokerMgr.getAddressListMap();
+        Map<String, List<FsBroker>> addressListMap = brokerMgr.getBrokerListMap();
         int size = addressListMap.size();
         checksum ^= size;
         dos.writeInt(size);
 
-        for (Map.Entry<String, List<BrokerAddress>> entry : addressListMap.entrySet()) {
+        for (Map.Entry<String, List<FsBroker>> entry : addressListMap.entrySet()) {
             Text.writeString(dos, entry.getKey());
-            final List<BrokerAddress> addrs = entry.getValue();
+            final List<FsBroker> addrs = entry.getValue();
             size = addrs.size();
             checksum ^= size;
             dos.writeInt(size);
-            for (BrokerAddress addr : addrs) {
+            for (FsBroker addr : addrs) {
                 addr.write(dos);
             }
         }
@@ -5619,16 +5684,16 @@ public class Catalog {
     }
 
     public long loadBrokers(DataInputStream dis, long checksum) throws IOException, DdlException {
-        if (getJournalVersion() >= FeMetaVersion.VERSION_31) {
+        if (MetaContext.get().getMetaVersion() >= FeMetaVersion.VERSION_31) {
             int count = dis.readInt();
             checksum ^= count;
             for (long i = 0; i < count; ++i) {
                 String brokerName = Text.readString(dis);
                 int size = dis.readInt();
                 checksum ^= size;
-                List<BrokerAddress> addrs = Lists.newArrayList();
+                List<FsBroker> addrs = Lists.newArrayList();
                 for (int j = 0; j < size; j++) {
-                    BrokerAddress addr = BrokerAddress.readIn(dis);
+                    FsBroker addr = FsBroker.readIn(dis);
                     addrs.add(addr);
                 }
                 brokerMgr.replayAddBrokers(brokerName, addrs);
@@ -5878,9 +5943,6 @@ public class Catalog {
             OlapTable olapTable = (OlapTable) db.getTable(info.getTblId());
             truncateTableInternal(olapTable, info.getPartitions());
 
-            // if this is checkpoint thread, no need to handle inverted index
-            // because tablet and replica info are already in catalog, and inverted index will be rebuild
-            // when loading image
             if (!Catalog.isCheckpointThread()) {
                 // add tablet to inverted index
                 TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
@@ -5903,6 +5965,51 @@ public class Catalog {
             }
         } finally {
             db.writeUnlock();
+        }
+    }
+
+    public void createFunction(CreateFunctionStmt stmt) throws UserException {
+        FunctionName name = stmt.getFunctionName();
+        Database db = getDb(name.getDb());
+        if (db == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, name.getDb());
+        }
+        db.addFunction(stmt.getFunction());
+    }
+
+    public void replayCreateFunction(Function function) {
+        String dbName = function.getFunctionName().getDb();
+        Database db = getDb(dbName);
+        if (db == null) {
+            throw new Error("unknown database when replay log, db=" + dbName);
+        }
+        db.replayAddFunction(function);
+    }
+
+    public void dropFunction(DropFunctionStmt stmt) throws UserException {
+        FunctionName name = stmt.getFunctionName();
+        Database db = getDb(name.getDb());
+        if (db == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, name.getDb());
+        }
+        db.dropFunction(stmt.getFunction());
+    }
+
+    public void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
+        String dbName = functionSearchDesc.getName().getDb();
+        Database db = getDb(dbName);
+        if (db == null) {
+            throw new Error("unknown database when replay log, db=" + dbName);
+        }
+        db.replayDropFunction(functionSearchDesc);
+    }
+
+    public void setConfig(AdminSetConfigStmt stmt) throws DdlException {
+        Map<String, String> configs = stmt.getConfigs();
+        Preconditions.checkState(configs.size() == 1);
+
+        for (Map.Entry<String, String> entry : configs.entrySet()) {
+            ConfigBase.setMutableConfig(entry.getKey(), entry.getValue());
         }
     }
 }

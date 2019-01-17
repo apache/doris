@@ -41,29 +41,6 @@ if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/librdkafka.a ]]; then
     ${DORIS_THIRDPARTY}/build-thirdparty.sh
 fi
 
-# check java home
-if [[ -z ${JAVA_HOME} ]]; then
-    echo "Warning: JAVA_HOME is not set, use thirdparty/installed/jdk1.8.0_131"
-    export JAVA_HOME=${DORIS_THIRDPARTY}/installed/jdk1.8.0_131
-fi
-
-# check java version
-if [[ ! -z ${JAVA_HOME} ]]; then
-    export JAVA=${JAVA_HOME}/bin/java
-    JAVA_VER=$(${JAVA} -version 2>&1 | sed 's/.* version "\(.*\)\.\(.*\)\..*"/\1\2/; 1q' | cut -f1 -d " ")
-    if [[ $JAVA_VER -lt 18 ]]; then
-        echo "Error: require JAVA with JDK version at least 1.8"
-        return 1
-    fi
-fi
-
-# check maven
-export MVN=mvn
-if ! ${MVN} --version; then
-    echo "Error: mvn is not found"
-    exit 1
-fi
-
 PARALLEL=$[$(nproc)/4+1]
 
 # Check args

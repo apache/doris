@@ -26,6 +26,8 @@ import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.backup.RestoreJob_D;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.io.Text;
@@ -50,6 +52,7 @@ import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
+import org.apache.doris.persist.HbPackage;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
@@ -57,8 +60,8 @@ import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.TableInfo;
-import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -261,7 +264,7 @@ public class JournalEntity implements Writable {
                 data = new Frontend();
                 break;
             }
-            case OperationType.OP_SET_LOAD_ERROR_URL: {
+            case OperationType.OP_SET_LOAD_ERROR_HUB: {
                 data = new LoadErrorHub.Param();
                 break;
             }
@@ -386,6 +389,21 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_MODIFY_TABLE_COLOCATE: {
                 data = new TablePropertyInfo();
+                break;
+            }
+            case OperationType.OP_HEARTBEAT: {
+                data = HbPackage.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_ADD_FUNCTION: {
+                data = Function.read(in);
+                needRead = false;
+                break;
+            }
+            case OperationType.OP_DROP_FUNCTION: {
+                data = FunctionSearchDesc.read(in);
+                needRead = false;
                 break;
             }
             default: {

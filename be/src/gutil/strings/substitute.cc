@@ -3,7 +3,6 @@
 #include "gutil/strings/substitute.h"
 
 #include <common/logging.h>
-#include "gutil/logging-inl.h"
 #include "gutil/macros.h"
 #include "gutil/strings/ascii_ctype.h"
 #include "gutil/strings/escaping.h"

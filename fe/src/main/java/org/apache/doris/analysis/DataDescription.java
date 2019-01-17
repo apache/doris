@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -259,6 +260,8 @@ public class DataDescription {
             validateReplaceValue(args, mappingColumn);
         } else if (functionName.equalsIgnoreCase(FUNCTION_HASH_HLL)) {
             validateHllHash(args, columnNameMap);
+        } else if (functionName.equalsIgnoreCase("now")) {
+            validateNowFunction(mappingColumn);
         } else {
             if (isPullLoad) {
                 return;
@@ -267,7 +270,7 @@ public class DataDescription {
             }
         }
     }
-    
+
     private static void validateAlignmentTimestamp(List<String> args, Map<String, String> columnNameMap)
             throws AnalysisException {
         if (args.size() != 2) {
@@ -388,6 +391,12 @@ public class DataDescription {
                 throw new AnalysisException("Column is not in sources, column: " + argColumn);
             }
             args.set(i, columnNameMap.get(argColumn));
+        }
+    }
+
+    private static void validateNowFunction(Column mappingColumn) throws AnalysisException {
+        if (mappingColumn.getOriginType() != Type.DATE && mappingColumn.getOriginType() != Type.DATETIME) {
+            throw new AnalysisException("Now() function is only support for DATE/DATETIME column");
         }
     }
 

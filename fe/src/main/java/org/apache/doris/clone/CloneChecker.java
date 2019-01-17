@@ -17,14 +17,6 @@
 
 package org.apache.doris.clone;
 
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.LinkedHashMultimap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Multimap;
-import com.google.common.collect.Sets;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
@@ -56,6 +48,15 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.CloneTask;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TStorageMedium;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.LinkedHashMultimap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
+import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -1430,11 +1431,12 @@ public class CloneChecker extends Daemon {
                 // for a new replica to add to the tablet
                 // first set its state to clone and set last failed version to the largest version in the partition
                 // wait the catchup clone task to catch up.
-                // but send the clone task to partition's commit version, although the clone task maybe success but the replica is abnormal
+                // but send the clone task to partition's visible version, although the clone task maybe success but the
+                // replica is abnormal
                 // and another clone task will send to the replica to clone again
                 // not find a more sufficient method
-                cloneReplica = new Replica(replicaId, job.getDestBackendId(), -1, 0, 
-                        -1, -1, ReplicaState.CLONE, partition.getCommittedVersion(), 
+                cloneReplica = new Replica(replicaId, job.getDestBackendId(), -1, 0, schemaHash,
+                        -1, -1, ReplicaState.CLONE, partition.getCommittedVersion(),
                         partition.getCommittedVersionHash(), -1, 0);
                 tablet.addReplica(cloneReplica);
             }
@@ -1449,9 +1451,10 @@ public class CloneChecker extends Daemon {
 
         // add clone task
         AgentBatchTask batchTask = new AgentBatchTask();
-        // very important, it is partition's commit version here
+        // very important, it is partition's visible version here
         CloneTask task = new CloneTask(job.getDestBackendId(), dbId, tableId, partitionId, indexId, tabletId,
-                                       schemaHash, srcBackends, storageMedium, visibleVersion, visibleVersionHash);
+                schemaHash, srcBackends, storageMedium,
+                visibleVersion, visibleVersionHash);
         batchTask.addTask(task);
         if (clone.runCloneJob(job, task)) {
             AgentTaskExecutor.submit(batchTask);

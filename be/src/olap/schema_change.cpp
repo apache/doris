@@ -644,9 +644,11 @@ bool RowBlockMerger::_pop_heap() {
 }
 
 LinkedSchemaChange::LinkedSchemaChange(
-        OLAPTablePtr base_olap_table, OLAPTablePtr new_olap_table) :
+        OLAPTablePtr base_olap_table, OLAPTablePtr new_olap_table,
+        const RowBlockChanger& row_block_changer) :
         _base_olap_table(base_olap_table),
-        _new_olap_table(new_olap_table) {}
+        _new_olap_table(new_olap_table),
+        _row_block_changer(row_block_changer) {}
 
 SchemaChangeDirectly::SchemaChangeDirectly(
         OLAPTablePtr olap_table,
@@ -709,7 +711,8 @@ bool LinkedSchemaChange::process(ColumnData* olap_data, SegmentGroup* new_segmen
 
     new_segment_group->set_empty(olap_data->empty());
     new_segment_group->set_num_segments(olap_data->segment_group()->num_segments());
-    new_segment_group->add_column_statistics_for_linked_schema_change(olap_data->segment_group()->get_column_statistics());
+    new_segment_group->add_column_statistics_for_linked_schema_change(olap_data->segment_group()->get_column_statistics(),
+                                                                      _row_block_changer.get__schema_mapping() );
 
     if (OLAP_SUCCESS != new_segment_group->load()) {
         OLAP_LOG_WARNING("fail to reload index. [table='%s' version='%d-%d']",
@@ -1385,7 +1388,13 @@ OLAPStatus SchemaChangeHandler::process_alter_table(
     if (new_tablet.get() != NULL) {
         res = OLAP_SUCCESS;
     } else {
-        res = _do_alter_table(type, ref_olap_table, request);
+        OLAPStatus lock_status = ref_olap_table->try_migration_rdlock();
+        if (lock_status != OLAP_SUCCESS) {
+            res = lock_status;
+        } else {
+            res = _do_alter_table(type, ref_olap_table, request);
+            ref_olap_table->release_migration_lock();
+        }
     }
 
     OLAPEngine::get_instance()->release_schema_change_lock(request.base_tablet_id);
@@ -1780,7 +1789,8 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
         LOG(INFO) << "doing linked schema change.";
         sc_procedure = new(nothrow) LinkedSchemaChange(
                                 src_olap_table,
-                                dest_olap_table);
+                                dest_olap_table,
+                                rb_changer);
     }
 
     if (NULL == sc_procedure) {
@@ -1998,7 +2008,8 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
         LOG(INFO) << "doing linked schema change.";
         sc_procedure = new(nothrow) LinkedSchemaChange(
                                 sc_params->ref_olap_table,
-                                sc_params->new_olap_table);
+                                sc_params->new_olap_table,
+                                rb_changer);
     }
 
     if (NULL == sc_procedure) {
@@ -2098,6 +2109,7 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
 
                 sc_params->new_olap_table->release_header_lock();
                 sc_params->ref_olap_table->release_header_lock();
+                sc_params->new_olap_table->release_push_lock();
 
                 goto PROCESS_ALTER_EXIT;
             }
@@ -2127,6 +2139,7 @@ OLAPStatus SchemaChangeHandler::_alter_table(SchemaChangeParams* sc_params) {
 
             sc_params->new_olap_table->release_header_lock();
             sc_params->ref_olap_table->release_header_lock();
+            sc_params->new_olap_table->release_push_lock();
 
             res = OLAP_ERR_INPUT_PARAMETER_ERROR;
             goto PROCESS_ALTER_EXIT;
@@ -2351,7 +2364,7 @@ OLAPStatus SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mappi
         return OLAP_ERR_MALLOC_ERROR;
     }
 
-    if (true == column_schema.is_allow_null && value.length() == 0) {
+    if (column_schema.is_allow_null && !column_schema.has_default_value) {
         column_mapping->default_value->set_null();
     } else {
         column_mapping->default_value->from_string(value);

@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "common/object_pool.h"
+#include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -135,6 +136,11 @@ public:
     DataSink* get_sink() {
         return _sink.get();
     }
+
+    void report_profile_once() {
+        _stop_report_thread_cv.notify_one();
+    }
+
 private:
     ExecEnv* _exec_env;  // not owned
     ExecNode* _plan;  // lives in _runtime_state->obj_pool()
@@ -199,6 +205,12 @@ private:
     // of the execution.
     RuntimeProfile::Counter* _average_thread_tokens;
 
+    // It is shared with BufferControlBlock and will be called in two different 
+    // threads. But their calls are all at different time, there is no problem of 
+    // multithreaded access.
+    std::shared_ptr<QueryStatistics> _query_statistics;
+    bool _collect_query_statistics_with_every_batch;    
+
     ObjectPool* obj_pool() {
         return _runtime_state->obj_pool();
     }
@@ -251,6 +263,9 @@ private:
     const DescriptorTbl& desc_tbl() {
         return _runtime_state->desc_tbl();
     }
+
+    void collect_query_statistics();
+
 };
 
 }

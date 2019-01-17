@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.Daemon;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -30,7 +31,7 @@ public class RoutineLoadScheduler extends Daemon {
 
     private static final Logger LOG = LogManager.getLogger(RoutineLoadScheduler.class);
 
-    private RoutineLoadManager routineLoadManager = Catalog.getInstance().getRoutineLoadInstance();
+    private RoutineLoadManager routineLoadManager = Catalog.getInstance().getRoutineLoadManager();
 
     @Override
     protected void runOneCycle() {
@@ -67,11 +68,19 @@ public class RoutineLoadScheduler extends Daemon {
                     break;
                 }
                 // divide job into tasks
-                routineLoadJob.divideRoutineLoadJob(currentConcurrentTaskNum);
+                List<RoutineLoadTaskInfo> needSchedulerTasksList =
+                        routineLoadJob.divideRoutineLoadJob(currentConcurrentTaskNum);
+                // save task into queue of needSchedulerTasks
+                routineLoadManager.getNeedSchedulerTasksQueue().addAll(needSchedulerTasksList);
             } catch (MetaNotFoundException e) {
                 routineLoadJob.updateState(RoutineLoadJob.JobState.CANCELLED);
             }
         }
+
+        LOG.debug("begin to check timeout tasks");
+        // check timeout tasks
+        List<RoutineLoadTaskInfo> reSchedulerTasksList = routineLoadManager.processTimeoutTasks();
+        routineLoadManager.getNeedSchedulerTasksQueue().addAll(reSchedulerTasksList);
     }
 
     private List<RoutineLoadJob> getNeedSchedulerRoutineJobs() throws LoadException {

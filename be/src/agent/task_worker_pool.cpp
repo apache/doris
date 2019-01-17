@@ -36,6 +36,7 @@
 #include "agent/utils.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/Types_types.h"
+#include "http/http_client.h"
 #include "olap/olap_common.h"
 #include "olap/olap_engine.h"
 #include "olap/olap_table.h"
@@ -49,6 +50,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/snapshot_loader.h"
 #include "util/doris_metrics.h"
+#include "util/stopwatch.hpp"
 
 using std::deque;
 using std::list;
@@ -73,6 +75,9 @@ const uint32_t LIST_REMOTE_FILE_TIMEOUT = 15;
 const std::string HTTP_REQUEST_PREFIX = "/api/_tablet/_download?";
 const std::string HTTP_REQUEST_TOKEN_PARAM = "token=";
 const std::string HTTP_REQUEST_FILE_PARAM = "&file=";
+
+const uint32_t GET_LENGTH_TIMEOUT = 10;
+const uint32_t CURL_OPT_CONNECTTIMEOUT = 120;
 
 std::atomic_ulong TaskWorkerPool::_s_report_version(time(NULL) * 10000);
 Mutex TaskWorkerPool::_s_task_signatures_lock;
@@ -1045,6 +1050,9 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
         OLAPTablePtr tablet =
                 worker_pool_this->_env->olap_engine()->get_table(
                 clone_req.tablet_id, clone_req.schema_hash);
+
+        int64_t copy_size = 0;
+        int64_t copy_time_ms = 0;
         if (tablet.get() != NULL) {
             LOG(INFO) << "clone tablet exist yet, begin to incremental clone. "
                       << "signature:" << agent_task_req.signature
@@ -1065,7 +1073,9 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                                                    &src_file_path,
                                                    &error_msgs,
                                                    &missing_versions,
-                                                   &allow_incremental_clone);
+                                                   &allow_incremental_clone,
+                                                   &copy_size,
+                                                   &copy_time_ms);
             if (status == DORIS_SUCCESS) {
                 OLAPStatus olap_status = worker_pool_this->_env->olap_engine()->
                     finish_clone(tablet, local_data_path, clone_req.committed_version, allow_incremental_clone);
@@ -1084,7 +1094,9 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                                                        &src_host,
                                                        &src_file_path,
                                                        &error_msgs,
-                                                       NULL, NULL);
+                                                       NULL, NULL,
+                                                       &copy_size,
+                                                       &copy_time_ms);
                 if (status == DORIS_SUCCESS) {
                     LOG(INFO) << "download successfully when full clone. [table=" << tablet->full_name()
                               << " src_host=" << src_host.host << " src_file_path=" << src_file_path
@@ -1101,13 +1113,23 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                     }
                 }
             }
-        } else {
-
+        } else { // create a new tablet
             // Get local disk from olap
             string local_shard_root_path;
             OlapStore* store = nullptr;
-            OLAPStatus olap_status = worker_pool_this->_env->olap_engine()->obtain_shard_path(
-                clone_req.storage_medium, &local_shard_root_path, &store);
+            OLAPStatus olap_status = OLAP_ERR_OTHER_ERROR;
+            if (clone_req.__isset.task_version && clone_req.task_version == 2) {
+                // use path specified in clone request
+                olap_status = worker_pool_this->_env->olap_engine()->obtain_shard_path_by_hash(
+                        clone_req.dest_path_hash, &local_shard_root_path, &store);
+            }
+
+            // if failed to get path by hash, or path hash is not specified, get arbitrary one
+            if (olap_status != OLAP_SUCCESS || clone_req.task_version == 1) {
+                olap_status = worker_pool_this->_env->olap_engine()->obtain_shard_path(
+                        clone_req.storage_medium, &local_shard_root_path, &store);
+            }
+
             if (olap_status != OLAP_SUCCESS) {
                 OLAP_LOG_WARNING("clone get local root path failed. signature: %ld",
                                  agent_task_req.signature);
@@ -1126,7 +1148,9 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
                                                        &src_host,
                                                        &src_file_path,
                                                        &error_msgs,
-                                                       NULL, NULL);
+                                                       NULL, NULL,
+                                                       &copy_size,
+                                                       &copy_time_ms);
             }
 
             if (status == DORIS_SUCCESS) {
@@ -1250,6 +1274,9 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
         task_status.__set_error_msgs(error_msgs);
         finish_task_request.__set_task_status(task_status);
 
+        finish_task_request.__set_copy_size(copy_size);
+        finish_task_request.__set_copy_time_ms(copy_time_ms);
+
         worker_pool_this->_finish_task(finish_task_request);
         worker_pool_this->_remove_task_info(agent_task_req.task_type, agent_task_req.signature, "");
 #ifndef BE_TEST
@@ -1267,11 +1294,13 @@ AgentStatus TaskWorkerPool::_clone_copy(
         string* src_file_path,
         vector<string>* error_msgs,
         const vector<Version>* missing_versions,
-        bool* allow_incremental_clone) {
+        bool* allow_incremental_clone,
+        int64_t* copy_size,
+        int64_t* copy_time_ms) {
     AgentStatus status = DORIS_SUCCESS;
 
     std::string token = _master_info.token;
-    for (auto src_backend : clone_req.src_backends) {
+    for (auto& src_backend : clone_req.src_backends) {
         stringstream http_host_stream;
         http_host_stream << "http://" << src_backend.host << ":" << src_backend.http_port;
         string http_host = http_host_stream.str();
@@ -1329,7 +1358,8 @@ AgentStatus TaskWorkerPool::_clone_copy(
             }
         } else {
             LOG(WARNING) << "make snapshot failed. tablet_id: " << clone_req.tablet_id
-                         << ". schema_hash: " << clone_req.schema_hash << ". backend_ip: " << src_host->host
+                         << ". schema_hash: " << clone_req.schema_hash
+                         << ". backend_ip: " << src_host->host
                          << ". backend_port: " << src_host->be_port << ". signature: " << signature;
             error_msgs->push_back("make snapshot failed. backend_ip: " + src_host->host);
             status = DORIS_ERROR;
@@ -1349,7 +1379,6 @@ AgentStatus TaskWorkerPool::_clone_copy(
         string src_file_full_path = src_file_full_path_stream.str();
         string local_file_full_path = local_file_full_path_stream.str();
 
-#ifndef BE_TEST
         // Check local path exist, if exist, remove it, then create the dir
         if (status == DORIS_SUCCESS) {
             boost::filesystem::path local_file_full_dir(local_file_full_path);
@@ -1358,63 +1387,34 @@ AgentStatus TaskWorkerPool::_clone_copy(
             }
             boost::filesystem::create_directories(local_file_full_dir);
         }
-#endif
 
         // Get remove dir file list
-        FileDownloader::FileDownloaderParam downloader_param;
-        downloader_param.remote_file_path = http_host + HTTP_REQUEST_PREFIX
+        HttpClient client;
+        std::string remote_file_path = http_host + HTTP_REQUEST_PREFIX
             + HTTP_REQUEST_TOKEN_PARAM + token
             + HTTP_REQUEST_FILE_PARAM + src_file_full_path;
-        downloader_param.curl_opt_timeout = LIST_REMOTE_FILE_TIMEOUT;
-
-#ifndef BE_TEST
-        FileDownloader* file_downloader_ptr = new FileDownloader(downloader_param);
-        if (file_downloader_ptr == NULL) {
-            OLAP_LOG_WARNING("clone copy create file downloader failed. try next backend");
-            status = DORIS_ERROR;
-        }
-#endif
 
         string file_list_str;
-        AgentStatus download_status = DORIS_SUCCESS;
-        uint32_t download_retry_time = 0;
-        while (status == DORIS_SUCCESS && download_retry_time < DOWNLOAD_FILE_MAX_RETRY) {
-#ifndef BE_TEST
-            download_status = file_downloader_ptr->list_file_dir(&file_list_str);
-#else
-            download_status = _file_downloader_ptr->list_file_dir(&file_list_str);
-#endif
-            if (download_status != DORIS_SUCCESS) {
-                OLAP_LOG_WARNING("clone get remote file list failed. backend_ip: %s, "
-                                 "src_file_path: %s, signature: %ld",
-                                 src_host->host.c_str(),
-                                 downloader_param.remote_file_path.c_str(),
-                                 signature);
-                ++download_retry_time;
-#ifndef BE_TEST
-                sleep(download_retry_time);
-#endif
-            } else {
-                break;
-            }
-        }
+        auto list_files_cb = [&remote_file_path, &file_list_str] (HttpClient* client) {
+            RETURN_IF_ERROR(client->init(remote_file_path));
+            client->set_timeout_ms(LIST_REMOTE_FILE_TIMEOUT * 1000);
+            RETURN_IF_ERROR(client->execute(&file_list_str));
+            return Status::OK;
+        };
 
-#ifndef BE_TEST
-        if (file_downloader_ptr != NULL) {
-            delete file_downloader_ptr;
-            file_downloader_ptr = NULL;
-        }
-#endif
-
-        vector<string> file_name_list;
-        if (download_status != DORIS_SUCCESS) {
+        Status download_status = HttpClient::execute_with_retry(
+            DOWNLOAD_FILE_MAX_RETRY, 1, list_files_cb);
+        if (!download_status.ok()) {
             OLAP_LOG_WARNING("clone get remote file list failed over max time. backend_ip: %s, "
                              "src_file_path: %s, signature: %ld",
                              src_host->host.c_str(),
-                             downloader_param.remote_file_path.c_str(),
+                             remote_file_path.c_str(),
                              signature);
             status = DORIS_ERROR;
-        } else {
+        }
+
+        vector<string> file_name_list;
+        if (status == DORIS_SUCCESS) {
             size_t start_position = 0;
             size_t end_position = file_list_str.find("\n");
 
@@ -1446,131 +1446,85 @@ AgentStatus TaskWorkerPool::_clone_copy(
         }
 
         // Get copy from remote
-        for (auto file_name : file_name_list) {
-            download_retry_time = 0;
-            downloader_param.remote_file_path = http_host + HTTP_REQUEST_PREFIX
+        uint64_t total_file_size = 0;
+        MonotonicStopWatch watch;
+        watch.start();
+        for (auto& file_name : file_name_list) {
+            remote_file_path = http_host + HTTP_REQUEST_PREFIX
                 + HTTP_REQUEST_TOKEN_PARAM + token
                 + HTTP_REQUEST_FILE_PARAM + src_file_full_path + file_name;
-            downloader_param.local_file_path = local_file_full_path + file_name;
 
-            // Get file length
+            // get file length
             uint64_t file_size = 0;
-            uint64_t estimate_time_out = 0;
-
-            downloader_param.curl_opt_timeout = GET_LENGTH_TIMEOUT;
-#ifndef BE_TEST
-            file_downloader_ptr = new FileDownloader(downloader_param);
-            if (file_downloader_ptr == NULL) {
-                OLAP_LOG_WARNING("clone copy create file downloader failed. try next backend");
+            auto get_file_size_cb = [&remote_file_path, &file_size] (HttpClient* client) {
+                RETURN_IF_ERROR(client->init(remote_file_path));
+                client->set_timeout_ms(GET_LENGTH_TIMEOUT * 1000);
+                RETURN_IF_ERROR(client->head());
+                file_size = client->get_content_length();
+                return Status::OK;
+            };
+            download_status = HttpClient::execute_with_retry(
+                DOWNLOAD_FILE_MAX_RETRY, 1, get_file_size_cb);
+            if (!download_status.ok()) {
+                LOG(WARNING) << "clone copy get file length failed over max time. remote_path="
+                    << remote_file_path
+                    << ", signature=" << signature;
                 status = DORIS_ERROR;
                 break;
             }
-#endif
-            while (download_retry_time < DOWNLOAD_FILE_MAX_RETRY) {
-#ifndef BE_TEST
-                download_status = file_downloader_ptr->get_length(&file_size);
-#else
-                download_status = _file_downloader_ptr->get_length(&file_size);
-#endif
-                if (download_status != DORIS_SUCCESS) {
-                    OLAP_LOG_WARNING("clone copy get file length failed. backend_ip: %s, "
-                                     "src_file_path: %s, signature: %ld",
-                                     src_host->host.c_str(),
-                                     downloader_param.remote_file_path.c_str(),
-                                     signature);
-                    ++download_retry_time;
-#ifndef BE_TEST
-                    sleep(download_retry_time);
-#endif
-                } else {
-                    break;
+
+            total_file_size += file_size;
+            uint64_t estimate_timeout = file_size / config::download_low_speed_limit_kbps / 1024;
+            if (estimate_timeout < config::download_low_speed_time) {
+                estimate_timeout = config::download_low_speed_time;
+            }
+
+            std::string local_file_path = local_file_full_path + file_name;
+
+            auto download_cb = [&remote_file_path,
+                                estimate_timeout,
+                                &local_file_path,
+                                file_size] (HttpClient* client) {
+                RETURN_IF_ERROR(client->init(remote_file_path));
+                client->set_timeout_ms(estimate_timeout * 1000);
+                RETURN_IF_ERROR(client->download(local_file_path));
+
+                // Check file length
+                uint64_t local_file_size = boost::filesystem::file_size(local_file_path);
+                if (local_file_size != file_size) {
+                    LOG(WARNING) << "download file length error"
+                        << ", remote_path=" << remote_file_path
+                        << ", file_size=" << file_size
+                        << ", local_file_size=" << local_file_size;
+                    return Status("downloaded file size is not equal");
                 }
-            }
-
-#ifndef BE_TEST
-            if (file_downloader_ptr != NULL) {
-                delete file_downloader_ptr;
-                file_downloader_ptr = NULL;
-            }
-#endif
-            if (download_status != DORIS_SUCCESS) {
-                OLAP_LOG_WARNING("clone copy get file length failed over max time. "
-                                 "backend_ip: %s, src_file_path: %s, signature: %ld",
-                                 src_host->host.c_str(),
-                                 downloader_param.remote_file_path.c_str(),
-                                 signature);
-                status = DORIS_ERROR;
-                break;
-            }
-
-            estimate_time_out = file_size / config::download_low_speed_limit_kbps / 1024;
-            if (estimate_time_out < config::download_low_speed_time) {
-                estimate_time_out = config::download_low_speed_time;
-            }
-
-            // Download the file
-            download_retry_time = 0;
-            downloader_param.curl_opt_timeout = estimate_time_out;
-#ifndef BE_TEST
-            file_downloader_ptr = new FileDownloader(downloader_param);
-            if (file_downloader_ptr == NULL) {
-                OLAP_LOG_WARNING("clone copy create file downloader failed. try next backend");
-                status = DORIS_ERROR;
-                break;
-            }
-#endif
-            while (download_retry_time < DOWNLOAD_FILE_MAX_RETRY) {
-#ifndef BE_TEST
-                download_status = file_downloader_ptr->download_file();
-#else
-                download_status = _file_downloader_ptr->download_file();
-#endif
-                if (download_status != DORIS_SUCCESS) {
-                    OLAP_LOG_WARNING("download file failed. backend_ip: %s, "
-                                     "src_file_path: %s, signature: %ld",
-                                     src_host->host.c_str(),
-                                     downloader_param.remote_file_path.c_str(),
-                                     signature);
-                } else {
-                    // Check file length
-                    boost::filesystem::path local_file_path(downloader_param.local_file_path);
-                    uint64_t local_file_size = boost::filesystem::file_size(local_file_path);
-                    if (local_file_size != file_size) {
-                        OLAP_LOG_WARNING("download file length error. backend_ip: %s, "
-                                         "src_file_path: %s, signature: %ld,"
-                                         "remote file size: %d, local file size: %d",
-                                         src_host->host.c_str(),
-                                         downloader_param.remote_file_path.c_str(),
-                                         signature, file_size, local_file_size);
-                        download_status = DORIS_FILE_DOWNLOAD_FAILED;
-                    } else {
-                        chmod(downloader_param.local_file_path.c_str(), S_IRUSR | S_IWUSR);
-                        break;
-                    }
-                }
-                ++download_retry_time;
-#ifndef BE_TEST
-                sleep(download_retry_time);
-#endif
-            } // Try to download a file from remote backend
-
-#ifndef BE_TEST
-            if (file_downloader_ptr != NULL) {
-                delete file_downloader_ptr;
-                file_downloader_ptr = NULL;
-            }
-#endif
-
-            if (download_status != DORIS_SUCCESS) {
-                OLAP_LOG_WARNING("download file failed over max retry. backend_ip: %s, "
-                                 "src_file_path: %s, signature: %ld",
-                                 src_host->host.c_str(),
-                                 downloader_param.remote_file_path.c_str(),
-                                 signature);
+                chmod(local_file_path.c_str(), S_IRUSR | S_IWUSR);
+                return Status::OK;
+            };
+            download_status = HttpClient::execute_with_retry(
+                DOWNLOAD_FILE_MAX_RETRY, 1, download_cb);
+            if (!download_status.ok()) {
+                LOG(WARNING) << "download file failed over max retry."
+                    << ", remote_path=" << remote_file_path
+                    << ", signature=" << signature
+                    << ", errormsg=" << download_status.get_error_msg();
                 status = DORIS_ERROR;
                 break;
             }
         } // Clone files from remote backend
+
+        uint64_t total_time_ms = watch.elapsed_time() / 1000 / 1000;
+        total_time_ms = total_time_ms > 0 ? total_time_ms : 0;
+        double copy_rate = 0.0;
+        if (total_time_ms > 0) {
+            copy_rate = total_file_size / ((double) total_time_ms) / 1000;
+        }
+        *copy_size = (int64_t) total_file_size;
+        *copy_time_ms = (int64_t) total_time_ms;
+        LOG(INFO) << "succeed to copy tablet " << signature
+                  << ", total file size: " << total_file_size << " B"
+                  << ", cost: " << total_time_ms << " ms"
+                  << ", rate: " << copy_rate << " B/s";
 
         // Release snapshot, if failed, ignore it. OLAP engine will drop useless snapshot
         TAgentResult release_snapshot_result;
@@ -1823,10 +1777,11 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
         worker_pool_this->_env->olap_engine()->get_all_root_path_info(&root_paths_info);
 
         map<string, TDisk> disks;
-        for (auto root_path_info : root_paths_info) {
+        for (auto& root_path_info : root_paths_info) {
             TDisk disk;
             disk.__set_root_path(root_path_info.path);
             disk.__set_path_hash(root_path_info.path_hash);
+            disk.__set_storage_medium(root_path_info.storage_medium);
             disk.__set_disk_total_capacity(static_cast<double>(root_path_info.capacity));
             disk.__set_data_used_capacity(static_cast<double>(root_path_info.data_used_capacity));
             disk.__set_disk_available_capacity(static_cast<double>(root_path_info.available));
@@ -1914,7 +1869,7 @@ void* TaskWorkerPool::_report_olap_table_worker_thread_callback(void* arg_this) 
 }
 
 void* TaskWorkerPool::_upload_worker_thread_callback(void* arg_this) {
-    TaskWorkerPool* worker_pool_this = (TaskWorkerPool*)arg_this;
+    TaskWorkerPool* worker_pool_this = (TaskWorkerPool*) arg_this;
 
 #ifndef BE_TEST
     while (true) {
@@ -1936,12 +1891,11 @@ void* TaskWorkerPool::_upload_worker_thread_callback(void* arg_this) {
                   << ", job id:" << upload_request.job_id;
 
         std::map<int64_t, std::vector<std::string>> tablet_files;
-        SnapshotLoader* loader = worker_pool_this->_env->snapshot_loader();
-        Status status = loader->upload(
+        SnapshotLoader loader(worker_pool_this->_env, upload_request.job_id, agent_task_req.signature);
+        Status status = loader.upload(
                 upload_request.src_dest_map,
                 upload_request.broker_addr,
                 upload_request.broker_prop,
-                upload_request.job_id,
                 &tablet_files);
 
         TStatusCode::type status_code = TStatusCode::OK; 
@@ -2005,12 +1959,11 @@ void* TaskWorkerPool::_download_worker_thread_callback(void* arg_this) {
 
         // TODO: download
         std::vector<int64_t> downloaded_tablet_ids;
-        SnapshotLoader* loader = worker_pool_this->_env->snapshot_loader();
-        Status status = loader->download(
+        SnapshotLoader loader(worker_pool_this->_env, download_request.job_id, agent_task_req.signature);
+        Status status = loader.download(
                 download_request.src_dest_map,
                 download_request.broker_addr,
                 download_request.broker_prop,
-                download_request.job_id,
                 &downloaded_tablet_ids);
 
         if (!status.ok()) {
@@ -2305,8 +2258,8 @@ AgentStatus TaskWorkerPool::_move_dir(
     std::string dest_tablet_dir = tablet->construct_dir_path();
     std::string store_path = tablet->store()->path();
 
-    SnapshotLoader* loader = _env->snapshot_loader();
-    Status status = loader->move(src, dest_tablet_dir, store_path, job_id, overwrite);
+    SnapshotLoader loader(_env, job_id, tablet_id);
+    Status status = loader.move(src, dest_tablet_dir, store_path, overwrite);
 
     if (!status.ok()) {
         OLAP_LOG_WARNING("move failed. job id: %ld, msg: %s",

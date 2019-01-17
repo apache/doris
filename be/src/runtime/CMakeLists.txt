@@ -37,7 +37,7 @@ add_library(Runtime STATIC
   descriptors.cpp
   exec_env.cpp
   exec_env_init.cpp
-  lib_cache.cpp
+  user_function_cache.cpp
   mem_pool.cpp
   plan_fragment_executor.cpp
   primitive_type.cpp
@@ -93,6 +93,7 @@ add_library(Runtime STATIC
   initial_reservations.cc
   snapshot_loader.cpp
   kafka_consumer_pipe.cpp
+  query_statistics.cpp 
 )
 
 # This test runs forever so should not be part of 'make test'

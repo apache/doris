@@ -26,6 +26,7 @@ namespace doris {
 class HttpRequest;
 class HttpAuthInfo;
 
+std::string encode_basic_auth(const std::string& user, const std::string& passwd);
 // parse Basic authorization
 // return true, if request contain valid basic authorization.
 // Otherwise return fasle

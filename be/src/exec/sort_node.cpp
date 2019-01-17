@@ -19,7 +19,7 @@
 #include "exec/sort_exec_exprs.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-// #include "runtime/sorted_run_merger.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -49,6 +49,7 @@ Status SortNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     RETURN_IF_ERROR(_sort_exec_exprs.prepare(
             state, child(0)->row_desc(), _row_descriptor, expr_mem_tracker()));
+    _sort_rows_counter = ADD_COUNTER(runtime_profile(), "SortRows", TUnit::UNIT);
     return Status::OK;
 }
 
@@ -144,6 +145,7 @@ Status SortNode::sort_input(RuntimeState* state) {
     do {
         batch.reset();
         RETURN_IF_ERROR(child(0)->get_next(state, &batch, &eos));
+        COUNTER_UPDATE(_sort_rows_counter, batch.num_rows());
         RETURN_IF_ERROR(_sorter->add_batch(&batch));
         RETURN_IF_CANCELLED(state);
         RETURN_IF_LIMIT_EXCEEDED(state);

@@ -729,6 +729,11 @@ bool OLAPTable::has_pending_data(int64_t transaction_id) {
     return _pending_data_sources.find(transaction_id) != _pending_data_sources.end();
 }
 
+bool OLAPTable::has_pending_data() {
+    ReadLock rdlock(&_header_lock);
+    return !_pending_data_sources.empty();
+}
+
 void OLAPTable::delete_pending_data(int64_t transaction_id) {
     obtain_header_wrlock();
 
@@ -871,6 +876,18 @@ void OLAPTable::load_pending_data() {
 // 2. move pending data to version data
 // 3. move pending data to incremental data, it won't be merged, so we can do incremental clone
 OLAPStatus OLAPTable::publish_version(int64_t transaction_id, Version version,
+                                      VersionHash version_hash) {
+    OLAPStatus lock_status = _migration_lock.tryrdlock();
+    if (lock_status != OLAP_SUCCESS) {
+        return lock_status;
+    } else {
+        OLAPStatus publish_status = _publish_version(transaction_id, version, version_hash);
+        _migration_lock.unlock();
+        return publish_status;
+    }
+}
+
+OLAPStatus OLAPTable::_publish_version(int64_t transaction_id, Version version,
                                       VersionHash version_hash) {
     WriteLock wrlock(&_header_lock);
     if (_pending_data_sources.find(transaction_id) == _pending_data_sources.end()) {
@@ -1306,6 +1323,9 @@ OLAPStatus OLAPTable::clone_data(const OLAPHeader& clone_header,
                 LOG(WARNING) << "failed to delete version from new local header. [table=" << full_name()
                              << " version=" << version.first << "-" << version.second << "]";
                 break;
+            }
+            if (new_local_header.is_delete_data_version(version)) {
+                new_local_header.delete_cond_by_version(version);
             }
             LOG(INFO) << "delete version from new local header when clone. [table='" << full_name()
                       << "', version=" << version.first << "-" << version.second << "]";

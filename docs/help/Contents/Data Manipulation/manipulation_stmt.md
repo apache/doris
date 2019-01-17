@@ -380,6 +380,7 @@
                             NOTE: 需要进行url编码，譬如
                             需要指定'\t'为分隔符，那么应该传入'column_separator=%09'
                             需要指定'\x01'为分隔符，那么应该传入'column_separator=%01'
+                            需要指定','为分隔符，那么应该传入'column_separator=%2c'
 
 
         max_filter_ratio:   用于指定允许过滤不规范数据的最大比例，默认是0，不允许过滤
@@ -611,6 +612,9 @@
         4) 如果指定了 STATE，则匹配 LOAD 状态
         5) 可以使用 ORDER BY 对任意列组合进行排序
         6) 如果指定了 LIMIT，则显示 limit 条匹配记录。否则全部显示
+        7) 如果是使用 broker/mini load，则 URL 列中的连接可以使用以下命令查看：
+
+            SHOW LOAD WARNINGS ON 'url'
 
 ## example
     1. 展示默认 db 的所有导入任务

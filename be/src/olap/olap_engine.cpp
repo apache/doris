@@ -33,7 +33,6 @@
 #include <rapidjson/document.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include "agent/file_downloader.h"
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/lru_cache.h"
@@ -545,6 +544,9 @@ OLAPStatus OLAPEngine::get_all_root_path_info(vector<RootPathInfo>* root_paths_i
                 path_map[path].capacity = 1;
                 path_map[path].data_used_capacity = 0;
                 path_map[path].available = 0;
+                path_map[path].storage_medium = TStorageMedium::HDD;
+            } else {
+                path_map[path].storage_medium = it.second->storage_medium();
             }
         }
     }
@@ -689,6 +691,18 @@ OlapStore* OLAPEngine::get_store(const std::string& path) {
         return nullptr;
     }
     return it->second;
+}
+
+OlapStore* OLAPEngine::get_store(int64_t path_hash) {
+    std::lock_guard<std::mutex> l(_store_lock);
+    for (auto& it : _store_map) {
+        if (it.second->is_used()) {
+            if (it.second->path_hash() == path_hash) {
+                return it.second;
+            }
+        }
+    }
+    return nullptr;
 }
 
 void OLAPEngine::_delete_tables_on_unused_root_path() {
@@ -1725,21 +1739,23 @@ void OLAPEngine::get_tablet_stat(TTabletStatResult& result) {
     // get current time
     int64_t current_time = UnixMillis();
     
-    _tablet_map_lock.wrlock();
-    // update cache if too old
-    if (current_time - _tablet_stat_cache_update_time_ms > 
-        config::tablet_stat_cache_update_interval_second * 1000) {
-        VLOG(3) << "update tablet stat.";
-        _build_tablet_stat();
+    {
+        std::lock_guard<std::mutex> l(_tablet_stat_mutex);
+        // update cache if too old
+        if (current_time - _tablet_stat_cache_update_time_ms > 
+                config::tablet_stat_cache_update_interval_second * 1000) {
+            VLOG(3) << "update tablet stat.";
+            _build_tablet_stat();
+        }
     }
 
     result.__set_tablets_stats(_tablet_stat_cache);
-
-    _tablet_map_lock.unlock();
 }
 
 void OLAPEngine::_build_tablet_stat() {
     _tablet_stat_cache.clear();
+
+    _tablet_map_lock.rdlock();
     for (const auto& item : _tablet_map) {
         if (item.second.table_arr.size() == 0) {
             continue;
@@ -1763,6 +1779,7 @@ void OLAPEngine::_build_tablet_stat() {
 
         _tablet_stat_cache.emplace(item.first, stat);
     }
+    _tablet_map_lock.unlock();
 
     _tablet_stat_cache_update_time_ms = UnixMillis();
 }
@@ -1771,10 +1788,16 @@ bool OLAPEngine::_can_do_compaction(OLAPTablePtr table) {
     // 如果table正在做schema change，则通过选路判断数据是否转换完成
     // 如果选路成功，则转换完成，可以进行BE
     // 如果选路失败，则转换未完成，不能进行BE
-    table->obtain_header_rdlock();
+    ReadLock rdlock(table->get_header_lock_ptr());
     const PDelta* lastest_version = table->lastest_version();
     if (lastest_version == NULL) {
-        table->release_header_lock();
+        return false;
+    }
+
+    Version test_version = Version(0, lastest_version->end_version());
+    std::vector<Version> path_versions;
+    if (OLAP_SUCCESS != table->select_versions_to_span(test_version, &path_versions)) {
+        LOG(WARNING) << "tablet has missed version. tablet=" << table->full_name();
         return false;
     }
 
@@ -1782,11 +1805,9 @@ bool OLAPEngine::_can_do_compaction(OLAPTablePtr table) {
         Version test_version = Version(0, lastest_version->end_version());
         vector<Version> path_versions;
         if (OLAP_SUCCESS != table->select_versions_to_span(test_version, &path_versions)) {
-            table->release_header_lock();
             return false;
         }
     }
-    table->release_header_lock();
 
     return true;
 }
@@ -1806,12 +1827,14 @@ void OLAPEngine::perform_cumulative_compaction() {
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to init cumulative compaction."
                      << "table=" << best_table->full_name();
+        return;
     }
 
     res = cumulative_compaction.run();
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to do cumulative compaction."
                      << "table=" << best_table->full_name();
+        return;
     }
 }
 
@@ -1831,6 +1854,7 @@ void OLAPEngine::perform_base_compaction() {
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to init base compaction."
                      << "table=" << best_table->full_name();
+        return;
     }
 }
 
@@ -2544,10 +2568,17 @@ OLAPStatus OLAPEngine::cancel_delete(const TCancelDeleteDataReq& request) {
     // 2. Remove delete conditions from each tablet.
     DeleteConditionHandler cond_handler;
     for (OLAPTablePtr temp_table : table_list) {
+        OLAPStatus lock_status = temp_table->try_migration_rdlock();
+        if (lock_status != OLAP_SUCCESS) {
+            OLAP_LOG_WARNING("cancel delete failed. could not get migration lock [res=%d table=%s]",
+                             res, temp_table->full_name().c_str());
+            break;
+        }  
         temp_table->obtain_header_wrlock();
         res = cond_handler.delete_cond(temp_table, request.version, false);
         if (res != OLAP_SUCCESS) {
             temp_table->release_header_lock();
+            temp_table->release_migration_lock();
             OLAP_LOG_WARNING("cancel delete failed. [res=%d table=%s]",
                              res, temp_table->full_name().c_str());
             break;
@@ -2556,11 +2587,13 @@ OLAPStatus OLAPEngine::cancel_delete(const TCancelDeleteDataReq& request) {
         res = temp_table->save_header();
         if (res != OLAP_SUCCESS) {
             temp_table->release_header_lock();
+            temp_table->release_migration_lock();
             OLAP_LOG_WARNING("fail to save header. [res=%d table=%s]",
                              res, temp_table->full_name().c_str());
             break;
         }
         temp_table->release_header_lock();
+        temp_table->release_migration_lock();
     }
 
     // Show delete conditions in tablet header.
@@ -2618,9 +2651,15 @@ OLAPStatus OLAPEngine::recover_tablet_until_specfic_version(
     OLAPTablePtr table = get_table(recover_tablet_req.tablet_id,
                                    recover_tablet_req.schema_hash);
     if (table == nullptr) { return OLAP_ERR_TABLE_NOT_FOUND; }
-    RETURN_NOT_OK(table->recover_tablet_until_specfic_version(recover_tablet_req.version,
-                                                        recover_tablet_req.version_hash));
-    return OLAP_SUCCESS;
+    OLAPStatus lock_status = table->try_migration_rdlock();
+    if (lock_status != OLAP_SUCCESS) {
+        return lock_status;
+    }
+    OLAPStatus res = OLAP_SUCCESS;
+    res = table->recover_tablet_until_specfic_version(recover_tablet_req.version,
+                                                        recover_tablet_req.version_hash);
+    table->release_migration_lock();
+    return res;
 }
 
 string OLAPEngine::get_info_before_incremental_clone(OLAPTablePtr tablet,
@@ -2747,6 +2786,34 @@ OLAPStatus OLAPEngine::finish_clone(OLAPTablePtr tablet, const string& clone_dir
     LOG(INFO) << "finish to clone data, clear downloaded data. res=" << res
               << ", tablet=" << tablet->full_name()
               << ", clone_dir=" << clone_dir;
+    return res;
+}
+
+OLAPStatus OLAPEngine::obtain_shard_path_by_hash(
+        int64_t path_hash, std::string* shard_path, OlapStore** store) {
+    LOG(INFO) << "begin to process obtain root path by hash: " <<  path_hash;
+    OLAPStatus res = OLAP_SUCCESS;
+
+    auto the_store = OLAPEngine::get_instance()->get_store(path_hash);
+    if (the_store == nullptr) {
+        LOG(WARNING) << "failed to get store by path hash: " << path_hash;
+        return OLAP_REQUEST_FAILED;
+    }
+
+    uint64_t shard = 0;
+    res = the_store->get_shard(&shard);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to get root path shard. res: " << res;
+        return res;
+    }
+    
+    stringstream root_path_stream;
+    root_path_stream << the_store->path() << DATA_PREFIX << "/" << shard;
+    *shard_path = root_path_stream.str();
+    *store = the_store;
+
+    LOG(INFO) << "success to process obtain root path by hash. path: "
+              << shard_path;
     return res;
 }
 
@@ -2945,16 +3012,22 @@ OLAPStatus OLAPEngine::push(
 
     int64_t duration_ns = 0;
     PushHandler push_handler;
-    if (request.__isset.transaction_id) {
-        {
-            SCOPED_RAW_TIMER(&duration_ns);
-            res = push_handler.process_realtime_push(olap_table, request, type, tablet_info_vec);
-        }
+    OLAPStatus lock_status = olap_table->try_migration_rdlock();
+    if (lock_status != OLAP_SUCCESS) {
+        res = lock_status;
     } else {
-        {
-            SCOPED_RAW_TIMER(&duration_ns);
-            res = push_handler.process(olap_table, request, type, tablet_info_vec);
+        if (request.__isset.transaction_id) {
+            {
+                SCOPED_RAW_TIMER(&duration_ns);
+                res = push_handler.process_realtime_push(olap_table, request, type, tablet_info_vec);
+            }
+        } else {
+            {
+                SCOPED_RAW_TIMER(&duration_ns);
+                res = push_handler.process(olap_table, request, type, tablet_info_vec);
+            }
         }
+        olap_table->release_migration_lock();
     }
 
     if (res != OLAP_SUCCESS) {

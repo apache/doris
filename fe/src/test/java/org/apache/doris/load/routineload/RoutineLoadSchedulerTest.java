@@ -17,14 +17,19 @@
 
 package org.apache.doris.load.routineload;
 
+import com.google.common.collect.Lists;
+import mockit.Deencapsulation;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
+import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
-
-import com.google.common.collect.Lists;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -32,20 +37,20 @@ import org.junit.Test;
 import java.util.ArrayList;
 import java.util.List;
 
-import mockit.Deencapsulation;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
-
 public class RoutineLoadSchedulerTest {
+
+    @Mocked
+    ConnectContext connectContext;
+    @Mocked
+    TResourceInfo tResourceInfo;
 
     @Test
     public void testNormalRunOneCycle(@Mocked Catalog catalog,
                                       @Injectable RoutineLoadManager routineLoadManager,
                                       @Injectable SystemInfoService systemInfoService,
-                                      @Injectable Database database)
+                                      @Injectable Database database,
+                                      @Injectable RoutineLoadDesc routineLoadDesc)
             throws LoadException, MetaNotFoundException {
-
         String clusterName = "cluster1";
         List<Long> beIds = Lists.newArrayList();
         beIds.add(1L);
@@ -55,10 +60,18 @@ public class RoutineLoadSchedulerTest {
         partitions.add(100);
         partitions.add(200);
         partitions.add(300);
-        RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob("1", "kafka_routine_load_job", "miaoling", 1L,
-                1L, "1L", "v1", "", "", 3,
-                RoutineLoadJob.JobState.NEED_SCHEDULER, RoutineLoadJob.DataSourceType.KAFKA, 0, new TResourceInfo(),
-                "", "");
+
+        new Expectations(){
+            {
+                connectContext.toResourceCtx();
+                result = tResourceInfo;
+            }
+        };
+
+        RoutineLoadJob routineLoadJob =
+                new KafkaRoutineLoadJob("1", "kafka_routine_load_job", 1L,
+                                        1L, routineLoadDesc ,3, 0,
+                                        "", "", null);
         routineLoadJob.setState(RoutineLoadJob.JobState.NEED_SCHEDULER);
         List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
         routineLoadJobList.add(routineLoadJob);
@@ -68,7 +81,7 @@ public class RoutineLoadSchedulerTest {
 
         new Expectations() {
             {
-                catalog.getRoutineLoadInstance();
+                catalog.getRoutineLoadManager();
                 result = routineLoadManager;
                 routineLoadManager.getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULER);
                 result = routineLoadJobList;

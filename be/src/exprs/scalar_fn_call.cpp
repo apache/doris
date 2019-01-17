@@ -25,7 +25,7 @@
 #include "codegen/llvm_codegen.h"
 #include "exprs/anyval_util.h"
 #include "exprs/expr_context.h"
-#include "runtime/lib_cache.h"
+#include "runtime/user_function_cache.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf_internal.h"
 #include "util/debug_util.h"
@@ -89,8 +89,8 @@ Status ScalarFnCall::prepare(
     Status status = Status::OK;
     if (_scalar_fn == NULL) {
         if (SymbolsUtil::is_mangled(_fn.scalar_fn.symbol)) {
-            status = LibCache::instance()->get_so_function_ptr(
-                _fn.hdfs_location, _fn.scalar_fn.symbol, &_scalar_fn, &_cache_entry, true);
+            status = UserFunctionCache::instance()->get_function_ptr(
+                _fn.id, _fn.scalar_fn.symbol, _fn.hdfs_location, _fn.checksum, &_scalar_fn, &_cache_entry);
         } else {
             std::vector<TypeDescriptor> arg_types;
             for (auto& t_type : _fn.arg_types) {
@@ -100,8 +100,8 @@ Status ScalarFnCall::prepare(
             // ret_type = ColumnType(thrift_to_type(_fn.ret_type));
             std::string symbol = SymbolsUtil::mangle_user_function(
                 _fn.scalar_fn.symbol, arg_types, _fn.has_var_args, NULL);
-            status = LibCache::instance()->get_so_function_ptr(
-                _fn.hdfs_location, symbol, &_scalar_fn, &_cache_entry, true);
+            status = UserFunctionCache::instance()->get_function_ptr(
+                _fn.id, symbol, _fn.hdfs_location, _fn.checksum, &_scalar_fn, &_cache_entry);
         }
     }
 #if 0
@@ -119,7 +119,7 @@ Status ScalarFnCall::prepare(
         if (char_arg) {
             DCHECK(num_fixed_args() <= 8 && _fn.binary_type == TFunctionBinaryType::BUILTIN);
         }
-        Status status = LibCache::instance()->GetSoFunctionPtr(
+        Status status = UserFunctionCache::instance()->GetSoFunctionPtr(
             _fn.hdfs_location, _fn.scalar_fn.symbol, &_scalar_fn, &cache_entry_);
         if (!status.ok()) {
             if (_fn.binary_type == TFunctionBinaryType::BUILTIN) {
@@ -141,8 +141,8 @@ Status ScalarFnCall::prepare(
 
         if (_fn.binary_type == TFunctionBinaryType::IR) {
             std::string local_path;
-            RETURN_IF_ERROR(LibCache::instance()->GetLocalLibPath(
-                    _fn.hdfs_location, LibCache::TYPE_IR, &local_path));
+            RETURN_IF_ERROR(UserFunctionCache::instance()->GetLocalLibPath(
+                    _fn.hdfs_location, UserFunctionCache::TYPE_IR, &local_path));
             // Link the UDF module into this query's main module (essentially copy the UDF
             // module into the main module) so the UDF's functions are available in the main
             // module.
@@ -425,8 +425,8 @@ Status ScalarFnCall::get_udf(RuntimeState* state, Function** udf) {
         // This can either be a UDF implemented in a .so or a builtin using the UDF
         // interface with the code in impalad.
         void* fn_ptr = NULL;
-        Status status = LibCache::instance()->get_so_function_ptr(
-            _fn.hdfs_location, _fn.scalar_fn.symbol, &fn_ptr, &_cache_entry);
+        Status status = UserFunctionCache::instance()->get_function_ptr(
+            _fn.id, _fn.scalar_fn.symbol, _fn.hdfs_location, _fn.checksum, &fn_ptr, &_cache_entry);
         if (!status.ok() && _fn.binary_type == TFunctionBinaryType::BUILTIN) {
             // Builtins symbols should exist unless there is a version mismatch.
             // TODO(zc )
@@ -541,8 +541,8 @@ Status ScalarFnCall::get_udf(RuntimeState* state, Function** udf) {
 Status ScalarFnCall::get_function(RuntimeState* state, const std::string& symbol, void** fn) {
     if (_fn.binary_type == TFunctionBinaryType::NATIVE 
             || _fn.binary_type == TFunctionBinaryType::BUILTIN) {
-        return LibCache::instance()->get_so_function_ptr(
-            _fn.hdfs_location, symbol, fn, &_cache_entry, true);
+        return UserFunctionCache::instance()->get_function_ptr(
+            _fn.id, symbol, _fn.hdfs_location, _fn.checksum, fn, &_cache_entry);
     } else {
 #if 0
         DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::IR);

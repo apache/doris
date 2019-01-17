@@ -105,6 +105,8 @@ public class BDBEnvironment {
         replicationConfig.setGroupName(PALO_JOURNAL_GROUP);
         replicationConfig.setConfigParam(ReplicationConfig.ENV_UNKNOWN_STATE_TIMEOUT, "10");
         replicationConfig.setMaxClockDelta(Config.max_bdbje_clock_delta_ms, TimeUnit.MILLISECONDS);
+        replicationConfig.setConfigParam(ReplicationConfig.TXN_ROLLBACK_LIMIT,
+                String.valueOf(Config.txn_rollback_limit));
 
         if (isElectable) {
             replicationConfig.setReplicaAckTimeout(2, TimeUnit.SECONDS);

@@ -25,7 +25,7 @@ export DORIS_HOME=${ROOT}
 
 . ${DORIS_HOME}/env.sh
 
-PARALLEL=8
+PARALLEL=$[$(nproc)/4+1]
 
 # Check args
 usage() {
@@ -90,7 +90,7 @@ fi
 cd ${DORIS_HOME}/be/build/
 
 cmake ../ -DMAKE_TEST=ON
-make -j8
+make -j${PARALLEL}
 
 if [ ${RUN} -ne 1 ]; then
     echo "Finished"
@@ -175,13 +175,15 @@ ${DORIS_TEST_BINARY_DIR}/runtime/free_list_test
 ${DORIS_TEST_BINARY_DIR}/runtime/string_buffer_test
 ${DORIS_TEST_BINARY_DIR}/runtime/stream_load_pipe_test
 ${DORIS_TEST_BINARY_DIR}/runtime/tablet_writer_mgr_test
-## Running expr Unittest
 ${DORIS_TEST_BINARY_DIR}/runtime/snapshot_loader_test
+${DORIS_TEST_BINARY_DIR}/runtime/user_function_cache_test
+## Running expr Unittest
 
 # Running http
 ${DORIS_TEST_BINARY_DIR}/http/metrics_action_test
 ${DORIS_TEST_BINARY_DIR}/http/http_utils_test
 ${DORIS_TEST_BINARY_DIR}/http/stream_load_test
+${DORIS_TEST_BINARY_DIR}/http/http_client_test
 
 # Running OLAPEngine Unittest
 ${DORIS_TEST_BINARY_DIR}/olap/bit_field_test
@@ -215,7 +217,7 @@ fi
 cp -r ${DORIS_HOME}/be/test/agent/test_data ${DORIS_TEST_BINARY_DIR}/agent/
 cd ${DORIS_TEST_BINARY_DIR}/agent
 # ./agent_server_test
-./file_downloader_test
+# ./file_downloader_test
 #./heartbeat_server_test
 #./pusher_test
 ./utils_test

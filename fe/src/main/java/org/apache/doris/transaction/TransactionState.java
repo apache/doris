@@ -20,6 +20,7 @@ package org.apache.doris.transaction;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.load.TxnStateChangeListener;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.task.PublishVersionTask;
 
@@ -39,7 +40,8 @@ public class TransactionState implements Writable {
     public enum LoadJobSourceType {
         FRONTEND(1),        // old dpp load, mini load, insert stmt(not streaming type) use this type
         BACKEND_STREAMING(2),         // streaming load use this type
-        INSERT_STREAMING(3); // insert stmt (streaming type) use this type
+        INSERT_STREAMING(3), // insert stmt (streaming type) use this type
+        ROUTINE_LOAD_TASK(4); // routine load task use this type
         
         private final int flag;
         
@@ -59,6 +61,8 @@ public class TransactionState implements Writable {
                     return BACKEND_STREAMING;
                 case 3:
                     return INSERT_STREAMING;
+                case 4:
+                    return ROUTINE_LOAD_TASK;
                 default:
                     return null;
             }
@@ -78,10 +82,18 @@ public class TransactionState implements Writable {
             }
         }
     }
-
+    
+    public enum TxnStatusChangeReason {
+        DB_DROPPED,
+        TIMEOUT
+    }
+    
     private long dbId;
     private long transactionId;
     private String label;
+    // timestamp is used to judge whether a begin request is a internal retry request.
+    // no need to persist it
+    private long timestamp;
     private Map<Long, TableCommitInfo> idToTableCommitInfos;
     private String coordinator;
     private TransactionStatus transactionStatus;
@@ -99,10 +111,15 @@ public class TransactionState implements Writable {
     private long publishVersionTime;
     private TransactionStatus preStatus = null;
     
+    // optional
+    private TxnCommitAttachment txnCommitAttachment;
+    private TxnStateChangeListener txnStateChangeListener;
+    
     public TransactionState() {
         this.dbId = -1;
         this.transactionId = -1;
         this.label = "";
+        this.timestamp = -1;
         this.idToTableCommitInfos = Maps.newHashMap();
         this.coordinator = "";
         this.transactionStatus = TransactionStatus.PREPARE;
@@ -117,10 +134,12 @@ public class TransactionState implements Writable {
         this.latch = new CountDownLatch(1);
     }
     
-    public TransactionState(long dbId, long transactionId, String label, LoadJobSourceType sourceType, String coordinator) {
+    public TransactionState(long dbId, long transactionId, String label, long timestamp,
+            LoadJobSourceType sourceType, String coordinator) {
         this.dbId = dbId;
         this.transactionId = transactionId;
         this.label = label;
+        this.timestamp = timestamp;
         this.idToTableCommitInfos = Maps.newHashMap();
         this.coordinator = coordinator;
         this.transactionStatus = TransactionStatus.PREPARE;
@@ -134,13 +153,21 @@ public class TransactionState implements Writable {
         this.hasSendTask = false;
         this.latch = new CountDownLatch(1);
     }
-
+    
+    public TransactionState(long dbId, long transactionId, String label, long timestamp,
+            LoadJobSourceType sourceType, String coordinator,  TxnStateChangeListener txnStateChangeListener) {
+        this(dbId, transactionId, label, timestamp, sourceType, coordinator);
+        if (txnStateChangeListener != null) {
+            this.txnStateChangeListener = txnStateChangeListener;
+        }
+    }
+    
     public void setErrorReplicas(Set<Long> newErrorReplicas) {
         this.errorReplicas = newErrorReplicas;
     }
-
+    
     public boolean isRunning() {
-        if (transactionStatus == TransactionStatus.PREPARE 
+        if (transactionStatus == TransactionStatus.PREPARE
                 || transactionStatus == TransactionStatus.COMMITTED) {
             return true;
         }
@@ -168,6 +195,10 @@ public class TransactionState implements Writable {
         return this.hasSendTask;
     }
     
+    public long getTimestamp() {
+        return timestamp;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeLong(transactionId);
@@ -188,8 +219,17 @@ public class TransactionState implements Writable {
         for (long errorReplciaId : errorReplicas) {
             out.writeLong(errorReplciaId);
         }
+        // TODO(ml): persistent will be enable after all of routine load work finished.
+//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
+//            if (txnCommitAttachment == null) {
+//                out.writeBoolean(false);
+//            } else {
+//                out.writeBoolean(true);
+//                txnCommitAttachment.write(out);
+//            }
+//        }
     }
-
+    
     @Override
     public void readFields(DataInput in) throws IOException {
         transactionId = in.readLong();
@@ -212,12 +252,20 @@ public class TransactionState implements Writable {
         for (int i = 0; i < errorReplicaNum; ++i) {
             errorReplicas.add(in.readLong());
         }
+        // TODO(ml): persistent will be enable after all of routine load work finished.
+//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_46) {
+//            if (in.readBoolean()) {
+//                txnCommitAttachment = TransactionStateExtra.readTxnCommitAttachment(in, sourceType);
+//            }
+//        }
+        
+        // TODO(ml): reload txnStateChangeListener by txnCommitAttachment
     }
-
+    
     public long getTransactionId() {
         return transactionId;
     }
-
+    
     public String getLabel() {
         return this.label;
     }
@@ -225,23 +273,23 @@ public class TransactionState implements Writable {
     public String getCoordinator() {
         return coordinator;
     }
-
+    
     public TransactionStatus getTransactionStatus() {
         return transactionStatus;
     }
-
+    
     public long getPrepareTime() {
         return prepareTime;
     }
-
+    
     public long getCommitTime() {
         return commitTime;
     }
-
+    
     public long getFinishTime() {
         return finishTime;
     }
-
+    
     public String getReason() {
         return reason;
     }
@@ -249,10 +297,32 @@ public class TransactionState implements Writable {
     public TransactionStatus getPreStatus() {
         return this.preStatus;
     }
-
-    public void setTransactionStatus(TransactionStatus transactionStatus) {
+    
+    
+    public TxnCommitAttachment getTxnCommitAttachment() {
+        return txnCommitAttachment;
+    }
+    
+    public void setTransactionStatus(TransactionStatus transactionStatus) throws TransactionException {
+        setTransactionStatus(transactionStatus, null);
+    }
+    
+    public void setTransactionStatus(TransactionStatus transactionStatus, TxnStatusChangeReason txnStatusChangeReason)
+            throws TransactionException {
+        // before state changed
+        if (txnStateChangeListener != null) {
+            switch (transactionStatus) {
+                case ABORTED:
+                    txnStateChangeListener.beforeAborted(this, txnStatusChangeReason);
+                    break;
+            }
+        }
+        
+        // state changed
         this.preStatus = this.transactionStatus;
         this.transactionStatus = transactionStatus;
+        
+        // after state changed
         if (transactionStatus == TransactionStatus.VISIBLE) {
             this.latch.countDown();
             if (MetricRepo.isInit.get()) {
@@ -262,25 +332,30 @@ public class TransactionState implements Writable {
             if (MetricRepo.isInit.get()) {
                 MetricRepo.COUNTER_TXN_FAILED.increase(1L);
             }
+            if (txnStateChangeListener != null) {
+                txnStateChangeListener.onAborted(this, txnStatusChangeReason);
+            }
+        } else if (transactionStatus == TransactionStatus.COMMITTED && txnStateChangeListener != null) {
+            txnStateChangeListener.onCommitted(this);
         }
     }
     
     public void waitTransactionVisible(long timeoutMillis) throws InterruptedException {
         this.latch.await(timeoutMillis, TimeUnit.MILLISECONDS);
     }
-
+    
     public void setPrepareTime(long prepareTime) {
         this.prepareTime = prepareTime;
     }
-
+    
     public void setCommitTime(long commitTime) {
         this.commitTime = commitTime;
     }
-
+    
     public void setFinishTime(long finishTime) {
         this.finishTime = finishTime;
     }
-
+    
     public void setReason(String reason) {
         this.reason = reason;
     }
@@ -288,15 +363,15 @@ public class TransactionState implements Writable {
     public Set<Long> getErrorReplicas() {
         return this.errorReplicas;
     }
-
+    
     public long getDbId() {
         return dbId;
     }
-
+    
     public Map<Long, TableCommitInfo> getIdToTableCommitInfos() {
         return idToTableCommitInfos;
     }
-
+    
     public void putIdToTableCommitInfo(long tableId, TableCommitInfo tableCommitInfo) {
         idToTableCommitInfos.put(tableId, tableCommitInfo);
     }
@@ -308,29 +383,38 @@ public class TransactionState implements Writable {
     public void removeTable(long tableId) {
         this.idToTableCommitInfos.remove(tableId);
     }
-
+    
+    public void setTxnCommitAttachment(TxnCommitAttachment txnCommitAttachment) {
+        this.txnCommitAttachment = txnCommitAttachment;
+    }
+    
     @Override
     public String toString() {
-        return "TransactionState [transactionId=" + transactionId 
-                + ", label=" + label 
-                + ", dbId=" + dbId 
-                + ", coordinator=" + coordinator 
-                + ", loadjobsource=" + sourceType
-                + ", transactionStatus=" + transactionStatus 
-                + ", errorReplicas=" + errorReplicas 
-                + ", prepareTime="
-                + prepareTime + ", commitTime=" + commitTime + ", finishTime="
-                + finishTime + ", reason=" + reason + "]";
+        StringBuilder sb = new StringBuilder("TransactionState. ");
+        sb.append("transaction id: ").append(transactionId);
+        sb.append(", label: ").append(label);
+        sb.append(", db id: ").append(dbId);
+        sb.append(", coordinator: ").append(coordinator);
+        sb.append(", transaction status: ").append(transactionStatus);
+        sb.append(", error replicas num: ").append(errorReplicas.size());
+        sb.append(", prepare time: ").append(prepareTime);
+        sb.append(", commit time: ").append(commitTime);
+        sb.append(", finish time: ").append(finishTime);
+        sb.append(", reason: ").append(reason);
+        if (txnCommitAttachment != null) {
+            sb.append(" attactment: ").append(txnCommitAttachment);
+        }
+        return sb.toString();
     }
-
+    
     public LoadJobSourceType getSourceType() {
         return sourceType;
     }
-
+    
     public Map<Long, PublishVersionTask> getPublishVersionTasks() {
         return publishVersionTasks;
     }
-
+    
     public boolean isPublishTimeout() {
         // timeout is between 3 to Config.max_txn_publish_waiting_time_ms seconds.
         long timeoutMillis = Math.min(Config.publish_version_timeout_second * publishVersionTasks.size() * 1000,
@@ -338,4 +422,13 @@ public class TransactionState implements Writable {
         timeoutMillis = Math.max(timeoutMillis, 3000);
         return System.currentTimeMillis() - publishVersionTime > timeoutMillis;
     }
+    
+    public void setTxnStateChangeListener(TxnStateChangeListener txnStateChangeListener) {
+        this.txnStateChangeListener = txnStateChangeListener;
+    }
+    
+    public TxnStateChangeListener getTxnStateChangeListener() {
+        return txnStateChangeListener;
+    }
+    
 }

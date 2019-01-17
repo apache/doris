@@ -18,45 +18,35 @@
 package org.apache.doris.alter;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
-
-import java.lang.reflect.InvocationTargetException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Set;
-
-import org.apache.doris.analysis.ColumnDef;
-import org.apache.doris.analysis.TypeDef;
-import org.apache.doris.catalog.ScalarType;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
 
 import org.apache.doris.alter.AlterJob.JobState;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.AddColumnClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnPosition;
+import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.Tablet;
-import org.apache.doris.catalog.MaterializedIndex.IndexState;
-import org.apache.doris.catalog.OlapTable.OlapTableState;
-import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TTabletInfo;
@@ -65,10 +55,20 @@ import org.apache.doris.transaction.FakeTransactionIDGenerator;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.transaction.TransactionStatus;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+
+import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 
 public class SchemaChangeJobTest {
 
@@ -94,8 +94,12 @@ public class SchemaChangeJobTest {
         fakeTransactionIDGenerator = new FakeTransactionIDGenerator();
         masterCatalog = CatalogTestUtil.createTestCatalog();
         slaveCatalog = CatalogTestUtil.createTestCatalog();
-        masterCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
-        slaveCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_40);
+        metaContext.setThreadLocalInfo();
+
+        // masterCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
+        // slaveCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
         masterTransMgr = masterCatalog.getGlobalTransactionMgr();
         masterTransMgr.setEditLog(masterCatalog.getEditLog());
         slaveTransMgr = slaveCatalog.getGlobalTransactionMgr();
@@ -196,20 +200,19 @@ public class SchemaChangeJobTest {
         // commit a transaction, backend 2 has errors
         TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId1);
-        // TabletCommitInfo tabletCommitInfo2 = new
-        // TabletCommitInfo(CatalogTestUtil.testTabletId1,
-        // CatalogTestUtil.testBackendId2);
+        TabletCommitInfo tabletCommitInfo2 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testBackendId2);
         TabletCommitInfo tabletCommitInfo3 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
                 CatalogTestUtil.testBackendId3);
         List<TabletCommitInfo> transTablets = Lists.newArrayList();
         transTablets.add(tabletCommitInfo1);
-        // transTablets.add(tabletCommitInfo2);
+        transTablets.add(tabletCommitInfo2);
         transTablets.add(tabletCommitInfo3);
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, transactionId, transTablets);
         TransactionState transactionState = fakeEditLog.getTransaction(transactionId);
         assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
         Set<Long> errorReplicaIds = Sets.newHashSet();
-        errorReplicaIds.add(CatalogTestUtil.testReplicaId2);
+        // errorReplicaIds.add(CatalogTestUtil.testReplicaId2);
         masterTransMgr.finishTransaction(transactionId, errorReplicaIds);
         transactionState = fakeEditLog.getTransaction(transactionId);
         assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
@@ -235,17 +238,17 @@ public class SchemaChangeJobTest {
         assertEquals(3, baseTablet.getReplicas().size());
 
         assertEquals(ReplicaState.SCHEMA_CHANGE, replica1.getState());
-        assertEquals(ReplicaState.NORMAL, replica2.getState());
+        assertEquals(ReplicaState.SCHEMA_CHANGE, replica2.getState());
         assertEquals(ReplicaState.SCHEMA_CHANGE, replica3.getState());
 
         assertEquals(CatalogTestUtil.testStartVersion + 1, replica1.getVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica2.getVersion());
+        assertEquals(CatalogTestUtil.testStartVersion + 1, replica2.getVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 1, replica3.getVersion());
         assertEquals(-1, replica1.getLastFailedVersion());
-        assertEquals(CatalogTestUtil.testStartVersion + 1, replica2.getLastFailedVersion());
+        assertEquals(-1, replica2.getLastFailedVersion());
         assertEquals(-1, replica3.getLastFailedVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 1, replica1.getLastSuccessVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica2.getLastSuccessVersion());
+        assertEquals(CatalogTestUtil.testStartVersion + 1, replica2.getLastSuccessVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 1, replica3.getLastSuccessVersion());
 
         // schemachange handler run one cycle, agent task is generated and send tasks
@@ -253,13 +256,13 @@ public class SchemaChangeJobTest {
         AgentTask task1 = AgentTaskQueue.getTask(replica1.getBackendId(), TTaskType.SCHEMA_CHANGE, baseTablet.getId());
         AgentTask task2 = AgentTaskQueue.getTask(replica2.getBackendId(), TTaskType.SCHEMA_CHANGE, baseTablet.getId());
         AgentTask task3 = AgentTaskQueue.getTask(replica3.getBackendId(), TTaskType.SCHEMA_CHANGE, baseTablet.getId());
-        assertNull(task2);
 
         // be report finish schema change success, report the new schema hash
         TTabletInfo tTabletInfo = new TTabletInfo(baseTablet.getId(),
                 schemaChangeJob.getSchemaHashByIndexId(CatalogTestUtil.testIndexId1), CatalogTestUtil.testStartVersion,
                 CatalogTestUtil.testStartVersionHash, 0, 0);
         schemaChangeHandler.handleFinishedReplica(task1, tTabletInfo, -1);
+        schemaChangeHandler.handleFinishedReplica(task2, tTabletInfo, -1);
         schemaChangeHandler.handleFinishedReplica(task3, tTabletInfo, -1);
 
         // rollup hander run one cycle again, the rollup job is finishing

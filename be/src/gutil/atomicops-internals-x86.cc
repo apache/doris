@@ -28,7 +28,6 @@
 #include <string.h>
 
 #include <common/logging.h>
-#include "gutil/logging-inl.h"
 #include "gutil/integral_types.h"
 
 // This file only makes sense with atomicops-internals-x86.h -- it

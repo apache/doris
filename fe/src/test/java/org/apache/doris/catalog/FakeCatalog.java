@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.FeMetaVersion;
-
 import mockit.Mock;
 import mockit.MockUp;
 
@@ -30,10 +28,10 @@ public class FakeCatalog extends MockUp<Catalog> {
         FakeCatalog.catalog = catalog;
     }
     
-    @Mock
-    public int getJournalVersion() {
-        return FeMetaVersion.VERSION_45;
-    }
+    // @Mock
+    // public int getJournalVersion() {
+    // return FeMetaVersion.VERSION_45;
+    // }
     
     @Mock
     private static Catalog getCurrentCatalog() {

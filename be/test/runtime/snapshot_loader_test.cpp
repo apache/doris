@@ -37,7 +37,7 @@ private:
 };
 
 TEST_F(SnapshotLoaderTest, NormalCase) {
-    SnapshotLoader loader(_exec_env);
+    SnapshotLoader loader(_exec_env, 1L, 2L);
 
     ASSERT_TRUE(loader._end_with("abt.dat", ".dat"));
     ASSERT_FALSE(loader._end_with("abt.dat", ".da"));

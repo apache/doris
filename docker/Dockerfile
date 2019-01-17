@@ -22,14 +22,16 @@ MAINTAINER tangxiaoqing214445
 ENV DEFAULT_DIR /var/local
 
 # change .bashrc
-RUN echo -e "if [ ! -d "/var/local/incubator-doris/thirdparty/installed" ]; then\n\tmkdir /var/local/incubator-doris/thirdparty/installed\n\tcp -rf /var/local/thirdparty/installed/*  /var/local/incubator-doris/thirdparty/installed/\n\texport JAVA_HOME=/var/local/incubator-doris/thirdparty/installed/jdk1.8.0_131\n\tln -s /var/local/incubator-doris/thirdparty/installed/bin/thrift /usr/bin/thrift\n\tln -s /var/local/incubator-doris/thirdparty/installed/jdk1.8.0_131/bin/java /usr/bin/java \nfi" >> /root/.bashrc
+RUN echo -e "if [ ! -d "/var/local/incubator-doris/thirdparty/installed" ]; then\n\tmkdir /var/local/incubator-doris/thirdparty/installed\n\tcp -rf /var/local/thirdparty/installed/*  /var/local/incubator-doris/thirdparty/installed/\n\tln -s /var/local/incubator-doris/thirdparty/installed/bin/thrift /usr/bin/thrift \nfi" >> /root/.bashrc
 
 ARG GCC_VERSION=7.3.0
 ARG GCC_URL=https://mirrors.ustc.edu.cn/gnu/gcc/gcc-${GCC_VERSION}
 
 # install dependencies and build gcc 
-RUN yum install -y bzip2 wget gcc-c++ libstdc++-static byacc flex automake libtool binutils-devel bison ncurses-devel make mlocate unzip patch which vim-common redhat-lsb-core zip \
+RUN yum install -y bzip2 wget git gcc-c++ libstdc++-static byacc flex automake libtool binutils-devel bison ncurses-devel make mlocate unzip patch which vim-common redhat-lsb-core zip \
   && updatedb \
+  && yum -y clean all \
+  && rm -rf /var/cache/yum \
   && mkdir -p  /var/local/gcc \
   && curl -fsSL -o /tmp/gcc.tar.gz  ${GCC_URL}/gcc-${GCC_VERSION}.tar.gz \
   && tar -xzf /tmp/gcc.tar.gz -C /var/local/gcc --strip-components=1 \
@@ -38,7 +40,7 @@ RUN yum install -y bzip2 wget gcc-c++ libstdc++-static byacc flex automake libto
   && ./contrib/download_prerequisites \
   && ./configure --disable-multilib --enable-languages=c,c++ --prefix=/usr \
   && make -j$[$(nproc)/4+1] && make install \
-  && rm -rf /var/local/gcc \ 
+  && rm -rf /var/local/gcc \
   && rm -f /tmp/gcc.tar.gz
  
 # build cmake
@@ -52,6 +54,30 @@ RUN mkdir -p /tmp/cmake && curl -fsSL -o /tmp/cmake.tar.gz ${CMAKE_DOWNLOAD_URL}
     && make install \
     && rm -rf /tmp/cmake.tar.gz \
     && rm -rf /tmp/cmake
+
+# install jdk
+RUN touch  ${DEFAULT_DIR}/install_jdk.sh \
+    && echo '#!/bin/bash' >> ${DEFAULT_DIR}/install_jdk.sh \
+    && echo 'JAVA_VERSION="8"' >>  ${DEFAULT_DIR}/install_jdk.sh \
+    && echo 'URL=https://www.oracle.com' >>  ${DEFAULT_DIR}/install_jdk.sh \
+    && echo 'DOWNLOAD_URL1=${URL}/technetwork/java/javase/downloads/index.html' >>  ${DEFAULT_DIR}/install_jdk.sh \
+    && echo 'DOWNLOAD_URL2=$(curl -s $DOWNLOAD_URL1 | egrep -o "\/technetwork\/java/\javase\/downloads\/jdk${JAVA_VERSION}-downloads-.*\.html" | head -1)' >>  ${DEFAULT_DIR}/install_jdk.sh \
+    && echo 'DOWNLOAD_URL3="$(echo ${URL}${DOWNLOAD_URL2}|awk -F\" {"print $1"})"' >>  ${DEFAULT_DIR}/install_jdk.sh \
+    && echo 'DOWNLOAD_URL4=$(curl -s "$DOWNLOAD_URL3" | egrep -o "https\:\/\/download.oracle\.com\/otn-pub\/java\/jdk\/[7-8]u[0-9]+\-(.*)+\/jdk-[7-8]u[0-9]+(.*)linux-x64.rpm"|tail -n1)' >> ${DEFAULT_DIR}/install_jdk.sh \
+    && echo 'wget -q --no-cookies --no-check-certificate --header "Cookie: oraclelicense=accept-securebackup-cookie" $DOWNLOAD_URL4 -O jdk.rpm > /dev/null 2>&1' >>  ${DEFAULT_DIR}/install_jdk.sh \
+    && echo 'rpm -Uvh jdk.rpm > /dev/null 2>&1' >>  ${DEFAULT_DIR}/install_jdk.sh \
+    && echo 'mv /usr/java/jdk* /usr/java/jdk' >>  ${DEFAULT_DIR}/install_jdk.sh \
+    && echo 'export JAVA_HOME=/usr/java/jdk' >>  ${DEFAULT_DIR}/install_jdk.sh \
+    && echo 'echo "export JAVA_HOME=/usr/java/jdk" >> /etc/environment' >>  ${DEFAULT_DIR}/install_jdk.sh \
+    && echo 'export JRE_HOME=/usr/java/jdk/jre' >>  ${DEFAULT_DIR}/install_jdk.sh \
+    && echo 'echo "export JRE_HOME=/usr/java/jdk/jre" >> /etc/environment' >>  ${DEFAULT_DIR}/install_jdk.sh \
+    && echo 'ls /usr/java/jdk > /dev/null 2>&1' >>  ${DEFAULT_DIR}/install_jdk.sh \
+    && echo 'echo "export JAVA_HOME=/usr/java/jdk" >> /root/.bashrc' >> ${DEFAULT_DIR}/install_jdk.sh \
+    && chmod 777 ${DEFAULT_DIR}/install_jdk.sh \
+    && /bin/bash ${DEFAULT_DIR}/install_jdk.sh \
+    && rm -rf *.rpm
+
+ENV JAVA_HOME /usr/java/jdk
 
 # install maven 3.6.0
 ARG MAVEN_VERSION=3.6.0
@@ -74,8 +100,7 @@ WORKDIR ${DEFAULT_DIR}
 ARG DORIS_THRIDPARTY_URL=http://doris-opensource.bj.bcebos.com/doris-thirdparty-20181102.tar.gz?authorization=bce-auth-v1/069fc2786e464e63a5f1183824ddb522/2018-11-02T09:27:57Z/-1/host/b30621ca2be77596cec9477f6cfb3608b681206d73084338d1b2f1204a3e3848
 
 # clone source code and build third party
-RUN yum install -y git \
-    && git clone https://github.com/apache/incubator-doris.git \
+RUN git clone https://github.com/apache/incubator-doris.git \
     && mkdir -p ${DEFAULT_DIR}/incubator-doris/thirdparty/src ${DEFAULT_DIR}/doris-thirdparty \
     && curl -fsSL -o ${DEFAULT_DIR}/doris-thirdparty.tar.gz ${DORIS_THRIDPARTY_URL} \
     && tar -zxf ${DEFAULT_DIR}/doris-thirdparty.tar.gz -C ${DEFAULT_DIR}/doris-thirdparty --strip-components=1 \

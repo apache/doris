@@ -48,6 +48,7 @@
 #include "service/backend_options.h"
 #include "util/url_coding.h"
 #include "util/file_utils.h"
+#include "util/time.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_path_mgr.h"
@@ -183,9 +184,7 @@ Status MiniLoadAction::_load(
         req.backend.__set_hostname(BackendOptions::get_localhost());
         req.backend.__set_port(config::be_port);
 
-        struct timeval tv;
-        gettimeofday(&tv, NULL);
-        req.__set_timestamp(tv.tv_sec * 1000 + tv.tv_usec / 1000);
+        req.__set_timestamp(GetCurrentTimeMicros());
 
         try {
             client->miniLoad(res, req);
@@ -199,10 +198,6 @@ Status MiniLoadAction::_load(
                     << master_address.hostname << ":" << master_address.port << ")";
                 return status;
             }
-            // we may get timeout exception and the load job may already be summitted.
-            // set this request as 'retry', and Frontend will return success if job has been
-            // summitted.
-            req.__set_is_retry(true);
             client->miniLoad(res, req);
         } catch (apache::thrift::TApplicationException& e) {
             LOG(WARNING) << "mini load request from master("
@@ -215,10 +210,6 @@ Status MiniLoadAction::_load(
                     << master_address.hostname << ":" << master_address.port << ")";
                 return status;
             }
-            // we may get timeout exception and the load job may already be summitted.
-            // set this request as 'retry', and Frontend will return success if job has been
-            // summitted.
-            req.__set_is_retry(true);
             client->miniLoad(res, req);
         }
     } catch (apache::thrift::TException& e) {
@@ -488,10 +479,7 @@ Status MiniLoadAction::generate_check_load_req(
     check_load_req->__set_tbl(http_req->param(TABLE_KEY));
     if (http_req->param(SUB_LABEL_KEY).empty()) {
         check_load_req->__set_label(http_req->param(LABEL_KEY));
-
-        struct timeval tv;
-        gettimeofday(&tv, NULL);
-        check_load_req->__set_timestamp(tv.tv_sec * 1000 + tv.tv_usec / 1000);
+        check_load_req->__set_timestamp(GetCurrentTimeMicros());
     }
 
     if (http_req->remote_host() != nullptr) {

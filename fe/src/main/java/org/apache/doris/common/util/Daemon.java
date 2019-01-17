@@ -17,8 +17,10 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.logging.log4j.Logger;
+import org.apache.doris.meta.MetaContext;
+
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -30,6 +32,8 @@ public class Daemon extends Thread {
     private AtomicBoolean isStop;
     private Runnable runnable;
     
+    private MetaContext metaContext = null;
+
     {
         setDaemon(true);
     }
@@ -70,6 +74,10 @@ public class Daemon extends Thread {
         return runnable;
     }
     
+    public void setMetaContext(MetaContext metaContext) {
+        this.metaContext = metaContext;
+    }
+
     public void exit() {
         isStop.set(true);
     }
@@ -91,6 +99,10 @@ public class Daemon extends Thread {
 
     @Override
     public void run() {
+        if (metaContext != null) {
+            metaContext.setThreadLocalInfo();
+        }
+
         while (!isStop.get()) {
             try {
                 runOneCycle();
@@ -103,6 +115,10 @@ public class Daemon extends Thread {
             } catch (InterruptedException e) {
                 LOG.error("InterruptedException: ", e);
             }
+        }
+
+        if (metaContext != null) {
+            MetaContext.remove();
         }
         LOG.error("daemon thread exits. name=" + this.getName());
     }

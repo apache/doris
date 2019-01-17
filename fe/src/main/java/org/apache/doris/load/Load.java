@@ -17,15 +17,6 @@
 
 package org.apache.doris.load;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-import com.google.gson.Gson;
-
-import org.apache.commons.lang.StringUtils;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.ColumnSeparator;
@@ -37,6 +28,8 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.backup.BlobStorage;
+import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -62,6 +55,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
@@ -95,6 +89,16 @@ import org.apache.doris.transaction.TableCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionStatus;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import com.google.gson.Gson;
+
+import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -142,7 +146,7 @@ public class Load {
     private Set<Long> partitionUnderDelete; // save partitions which are running delete jobs
     private Map<Long, AsyncDeleteJob> idToQuorumFinishedDeleteJob;
 
-    private volatile LoadErrorHub.Param loadErrorHubInfo = new LoadErrorHub.Param();
+    private volatile LoadErrorHub.Param loadErrorHubParam = new LoadErrorHub.Param();
 
     // lock for load job
     // lock is private and must use after db lock
@@ -153,18 +157,18 @@ public class Load {
         pendingDestStates.add(JobState.ETL);
         pendingDestStates.add(JobState.CANCELLED);
         STATE_CHANGE_MAP.put(JobState.PENDING, pendingDestStates);
-        
+
         Set<JobState> etlDestStates = Sets.newHashSet();
         etlDestStates.add(JobState.LOADING);
         etlDestStates.add(JobState.CANCELLED);
         STATE_CHANGE_MAP.put(JobState.ETL, etlDestStates);
-        
+
         Set<JobState> loadingDestStates = Sets.newHashSet();
         loadingDestStates.add(JobState.FINISHED);
         loadingDestStates.add(JobState.QUORUM_FINISHED);
         loadingDestStates.add(JobState.CANCELLED);
         STATE_CHANGE_MAP.put(JobState.LOADING, loadingDestStates);
-        
+
         Set<JobState> quorumFinishedDestStates = Sets.newHashSet();
         quorumFinishedDestStates.add(JobState.FINISHED);
         STATE_CHANGE_MAP.put(JobState.QUORUM_FINISHED, quorumFinishedDestStates);
@@ -229,7 +233,9 @@ public class Load {
         lock.writeLock().unlock();
     }
 
-    public void addLoadJob(TMiniLoadRequest request) throws DdlException {
+    // return true if we truly add the load job
+    // return false otherwise (eg: a retry request)
+    public boolean addLoadJob(TMiniLoadRequest request) throws DdlException {
         // get params
         String fullDbName = request.getDb();
         String tableName = request.getTbl();
@@ -268,7 +274,7 @@ public class Load {
             if (!Strings.isNullOrEmpty(specifiedColumns)) {
                 columnNames = Arrays.asList(specifiedColumns.split(","));
             }
-      
+
             final String hll = params.get(LoadStmt.KEY_IN_PARAM_HLL);
             if (!Strings.isNullOrEmpty(hll)) {
                 hllColumnPairList = Arrays.asList(hll.split(":"));
@@ -287,7 +293,7 @@ public class Load {
         }
 
         DataDescription dataDescription = new DataDescription(tableName, partitionNames, filePaths, columnNames,
-                columnSeparator, false, null);
+                                                              columnSeparator, false, null);
         dataDescription.setLineDelimiter(lineDelimiter);
         dataDescription.setBeAddr(beAddr);
         // parse hll param pair
@@ -297,7 +303,7 @@ public class Load {
                 final List<String> pairList = Arrays.asList(pairStr.split(","));
                 if (pairList.size() != 2) {
                     throw new DdlException("hll param format error");
-                }   
+                }
 
                 final String resultColumn = pairList.get(0);
                 final String hashColumn = pairList.get(1);
@@ -326,11 +332,12 @@ public class Load {
 
         // try to register mini label
         if (!registerMiniLabel(fullDbName, label, timestamp)) {
-            throw new DdlException("Same data label[" + label + "] already used");
+            return false;
         }
 
         try {
             addLoadJob(stmt, EtlJobType.MINI, timestamp);
+            return true;
         } finally {
             deregisterMiniLabel(fullDbName, label);
         }
@@ -350,10 +357,10 @@ public class Load {
     }
 
     // for insert select from or create as stmt
-    public void addLoadJob(String label, String dbName, 
-                long tableId, Map<Long, Integer> indexIdToSchemaHash, 
-                long transactionId,
-                List<String> fileList, long timestamp) throws DdlException {
+    public void addLoadJob(String label, String dbName,
+                           long tableId, Map<Long, Integer> indexIdToSchemaHash,
+                           long transactionId,
+                           List<String> fileList, long timestamp) throws DdlException {
         // get db and table
         Database db = Catalog.getInstance().getDb(dbName);
         if (db == null) {
@@ -373,7 +380,7 @@ public class Load {
 
         // create job
         DataDescription desc = new DataDescription(table.getName(), null, Lists.newArrayList(""),
-                null, null, false, null);
+                                                   null, null, false, null);
         LoadStmt stmt = new LoadStmt(new LabelName(dbName, label), Lists.newArrayList(desc), null, null, null);
         LoadJob job = createLoadJob(stmt, EtlJobType.INSERT, db, timestamp);
 
@@ -409,20 +416,20 @@ public class Load {
             db.checkQuota();
         }
 
-		// check if table is in restore process
-		db.readLock();
-		try {
-			for (Long tblId : job.getIdToTableLoadInfo().keySet()) {
-				Table tbl = db.getTable(tblId);
-				if (tbl != null && tbl.getType() == TableType.OLAP
-						&& ((OlapTable) tbl).getState() == OlapTableState.RESTORE) {
+        // check if table is in restore process
+        db.readLock();
+        try {
+            for (Long tblId : job.getIdToTableLoadInfo().keySet()) {
+                Table tbl = db.getTable(tblId);
+                if (tbl != null && tbl.getType() == TableType.OLAP
+                        && ((OlapTable) tbl).getState() == OlapTableState.RESTORE) {
                     throw new DdlException("Table " + tbl.getName() + " is in restore process. "
-							+ "Can not load into it"); 
-				}
-			}
-		} finally {
-			db.readUnlock();
-		}
+                                                   + "Can not load into it");
+                }
+            }
+        } finally {
+            db.readUnlock();
+        }
 
         writeLock();
         try {
@@ -435,13 +442,13 @@ public class Load {
         LOG.info("add load job. job: {}", job);
     }
 
-    private LoadJob createLoadJob(LoadStmt stmt, EtlJobType etlJobType, 
-                Database db, long timestamp) throws DdlException {
+    private LoadJob createLoadJob(LoadStmt stmt, EtlJobType etlJobType,
+                                  Database db, long timestamp) throws DdlException {
         // get params
         String label = stmt.getLabel().getLabelName();
         List<DataDescription> dataDescriptions = stmt.getDataDescriptions();
         Map<String, String> properties = stmt.getProperties();
- 
+
         // check params
         try {
             FeNameFormat.checkLabel(label);
@@ -508,13 +515,13 @@ public class Load {
         for (DataDescription dataDescription : dataDescriptions) {
             // create source
             createSource(db, dataDescription, tableToPartitionSources, job.getDeleteFlag());
-			job.addTableName(dataDescription.getTableName());
+            job.addTableName(dataDescription.getTableName());
         }
         for (Entry<Long, Map<Long, List<Source>>> tableEntry : tableToPartitionSources.entrySet()) {
             long tableId = tableEntry.getKey();
             Map<Long, List<Source>> partitionToSources = tableEntry.getValue();
-            
-            Map<Long, PartitionLoadInfo>  idToPartitionLoadInfo = Maps.newHashMap();
+
+            Map<Long, PartitionLoadInfo> idToPartitionLoadInfo = Maps.newHashMap();
             for (Entry<Long, List<Source>> partitionEntry : partitionToSources.entrySet()) {
                 PartitionLoadInfo info = new PartitionLoadInfo(partitionEntry.getValue());
                 idToPartitionLoadInfo.put(partitionEntry.getKey(), info);
@@ -533,7 +540,7 @@ public class Load {
             job.setPullLoadSourceInfo(sourceInfo);
             LOG.info("Source info is {}", sourceInfo);
         }
-        
+
         if (etlJobType == EtlJobType.MINI) {
             // mini etl tasks
             Map<Long, MiniEtlTaskInfo> idToEtlTask = Maps.newHashMap();
@@ -549,7 +556,7 @@ public class Load {
 
                     TNetworkAddress beAddress = dataDescription.getBeAddr();
                     Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(beAddress.getHostname(),
-                                                                                           beAddress.getPort());
+                                                                                          beAddress.getPort());
                     if (!Catalog.getCurrentSystemInfo().checkBackendAvailable(backend.getId())) {
                         throw new DdlException("Etl backend is null or not available");
                     }
@@ -622,16 +629,20 @@ public class Load {
             }
         } else if (etlJobType == EtlJobType.INSERT) {
             job.setPrority(TPriority.HIGH);
+            if (job.getTimeoutSecond() == 0) {
+                // set default timeout
+                job.setTimeoutSecond(Config.insert_load_default_timeout_second);
+            }
         }
 
         // job id
         job.setId(Catalog.getInstance().getNextId());
-        
+
         return job;
     }
 
-    private void createSource(Database db, DataDescription dataDescription, 
-            Map<Long, Map<Long, List<Source>>> tableToPartitionSources, boolean deleteFlag) throws DdlException {
+    private void createSource(Database db, DataDescription dataDescription,
+                              Map<Long, Map<Long, List<Source>>> tableToPartitionSources, boolean deleteFlag) throws DdlException {
         Source source = new Source(dataDescription.getFilePathes());
         long tableId = -1;
         Set<Long> sourcePartitionIds = Sets.newHashSet();
@@ -657,7 +668,7 @@ public class Load {
             if (((OlapTable) table).getKeysType() != KeysType.AGG_KEYS && dataDescription.isNegative()) {
                 throw new DdlException("Load for AGG_KEYS table should not specify NEGATIVE");
             }
-            
+
             if (((OlapTable) table).getKeysType() != KeysType.UNIQUE_KEYS && deleteFlag) {
                 throw new DdlException("Delete flag can only be used for UNIQUE_KEYS table");
             }
@@ -743,7 +754,7 @@ public class Load {
                     Pair<String, List<String>> function = entry.getValue();
                     try {
                         DataDescription.validateMappingFunction(function.first, function.second, columnNameMap,
-                                mappingColumn, dataDescription.isPullLoad());
+                                                                mappingColumn, dataDescription.isPullLoad());
                     } catch (AnalysisException e) {
                         throw new DdlException(e.getMessage());
                     }
@@ -771,22 +782,22 @@ public class Load {
         } finally {
             db.readUnlock();
         }
-        
+
         // column separator
         String columnSeparator = dataDescription.getColumnSeparator();
         if (!Strings.isNullOrEmpty(columnSeparator)) {
             source.setColumnSeparator(columnSeparator);
-        } 
-        
+        }
+
         // line delimiter
         String lineDelimiter = dataDescription.getLineDelimiter();
         if (!Strings.isNullOrEmpty(lineDelimiter)) {
             source.setLineDelimiter(lineDelimiter);
         }
-        
+
         // source negative
         source.setNegative(dataDescription.isNegative());
-        
+
         // column mapping functions
         if (columnToFunction != null) {
             source.setColumnToFunction(columnToFunction);
@@ -816,7 +827,7 @@ public class Load {
         long jobId = job.getId();
         long dbId = job.getDbId();
         String label = job.getLabel();
-        
+
         if (!isReplay && getAllUnfinishedLoadJob() > Config.max_unfinished_load_job) {
             throw new DdlException(
                     "Number of unfinished load jobs exceed the max number: " + Config.max_unfinished_load_job);
@@ -830,10 +841,8 @@ public class Load {
                 checkMini = false;
             }
 
-            if (isLabelUsed(dbId, label, -1, checkMini)) {
-                throw new DdlException("Same data label[" + label + "] already used");
-            }
-    
+            isLabelUsed(dbId, label, -1, checkMini);
+
             // add job
             Map<String, List<LoadJob>> labelToLoadJobs = null;
             if (dbLabelToLoadJobs.containsKey(dbId)) {
@@ -849,7 +858,7 @@ public class Load {
                 labelLoadJobs = Lists.newArrayList();
                 labelToLoadJobs.put(label, labelLoadJobs);
             }
-            
+
             List<LoadJob> dbLoadJobs = null;
             if (dbToLoadJobs.containsKey(dbId)) {
                 dbLoadJobs = dbToLoadJobs.get(dbId);
@@ -871,9 +880,9 @@ public class Load {
             idToLoadJob.put(jobId, job);
             dbDeleteJobs.add(job);
         }
-        
+
         // beginTransaction Here
-        
+
         switch (job.getState()) {
             case PENDING:
                 idToPendingLoadJob.put(jobId, job);
@@ -913,15 +922,15 @@ public class Load {
             writeUnlock();
         }
     }
-    
+
     public void unprotectEtlLoadJob(LoadJob job) {
         long jobId = job.getId();
         idToPendingLoadJob.remove(jobId);
         idToEtlLoadJob.put(jobId, job);
-        
+
         replaceLoadJob(job);
     }
-    
+
     public void replayEtlLoadJob(LoadJob job) throws DdlException {
         writeLock();
         try {
@@ -930,7 +939,7 @@ public class Load {
             writeUnlock();
         }
     }
-    
+
     public void unprotectLoadingLoadJob(LoadJob job) {
         long jobId = job.getId();
         idToEtlLoadJob.remove(jobId);
@@ -951,8 +960,9 @@ public class Load {
         }
     }
 
-    public boolean registerMiniLabel(
-              String fullDbName, String label, long timestamp) throws DdlException {
+    // return true if we truly register a mini load label
+    // return false otherwise (eg: a retry request)
+    public boolean registerMiniLabel(String fullDbName, String label, long timestamp) throws DdlException {
         Database db = Catalog.getInstance().getDb(fullDbName);
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + fullDbName);
@@ -961,10 +971,12 @@ public class Load {
         long dbId = db.getId();
         writeLock();
         try {
-            if (isLabelUsed(dbId, label, -1, true)) {
+            if (isLabelUsed(dbId, label, timestamp, true)) {
+                // label is used and this is a retry request.
+                // no need to do further operation, just return.
                 return false;
             }
-            
+
             Map<String, Long> miniLabels = null;
             if (dbToMiniLabels.containsKey(dbId)) {
                 miniLabels = dbToMiniLabels.get(dbId);
@@ -973,13 +985,13 @@ public class Load {
                 dbToMiniLabels.put(dbId, miniLabels);
             }
             miniLabels.put(label, timestamp);
+
+            return true;
         } finally {
             writeUnlock();
         }
-
-        return true;
     }
-    
+
     public void deregisterMiniLabel(String fullDbName, String label) throws DdlException {
         Database db = Catalog.getInstance().getDb(fullDbName);
         if (db == null) {
@@ -1016,21 +1028,17 @@ public class Load {
             readUnlock();
         }
     }
-    
+
     /*
-     * if timestamp does not equals to -1, this is a retry request:
-     * 1. if label has been used, and job's timestamp equals to the given one, return true.
-     * 2. if label has been used, but timestamp is not equal, return false. The caller will finally call
-     *    this method again will timestamp == -1, and return if label has been used or not.
-     * 3. if label does not exist, just return false, as usual.
-     * 
-     * if timestamp equals to -1, return true if label has been used, otherwise, return false. 
-     * 
-     * throw DdlException if encounter other exception.
+     * 1. if label is already used, and this is not a retry request,
+     *    throw exception ("Label already used")
+     * 2. if label is already used, but this is a retry request,
+     *    return true
+     * 3. if label is not used, return false
+     * 4. throw exception if encounter error.
      */
     private boolean isLabelUsed(long dbId, String label, long timestamp, boolean checkMini)
             throws DdlException {
-        
         // check dbLabelToLoadJobs
         if (dbLabelToLoadJobs.containsKey(dbId)) {
             Map<String, List<LoadJob>> labelToLoadJobs = dbLabelToLoadJobs.get(dbId);
@@ -1040,15 +1048,18 @@ public class Load {
                     JobState oldJobState = oldJob.getState();
                     if (oldJobState != JobState.CANCELLED) {
                         if (timestamp == -1) {
-                            return true;
+                            // timestamp == -1 is for compatibility
+                            throw new LabelAlreadyUsedException(label);
                         } else {
                             if (timestamp == oldJob.getTimestamp()) {
                                 // this timestamp is used to verify if this label check is a retry request from backend.
                                 // if the timestamp in request is same as timestamp in existing load job,
                                 // which means this load job is already submitted
+                                LOG.info("get a retry request with label: {}, timestamp: {}. return ok",
+                                        label, timestamp);
                                 return true;
                             } else {
-                                return false;
+                                throw new LabelAlreadyUsedException(label);
                             }
                         }
                     }
@@ -1062,15 +1073,17 @@ public class Load {
                 Map<String, Long> uncommittedLabels = dbToMiniLabels.get(dbId);
                 if (uncommittedLabels.containsKey(label)) {
                     if (timestamp == -1) {
-                        return true;
+                        throw new LabelAlreadyUsedException(label);
                     } else {
                         if (timestamp == uncommittedLabels.get(label)) {
                             // this timestamp is used to verify if this label check is a retry request from backend.
                             // if the timestamp in request is same as timestamp in existing load job,
                             // which means this load job is already submitted
+                            LOG.info("get a retry mini load request with label: {}, timestamp: {}. return ok",
+                                    label, timestamp);
                             return true;
                         } else {
-                            return false;
+                            throw new LabelAlreadyUsedException(label);
                         }
                     }
                 }
@@ -1084,7 +1097,7 @@ public class Load {
         // get params
         String dbName = stmt.getDbName();
         String label = stmt.getLabel();
-        
+
         // get load job and check state
         Database db = Catalog.getInstance().getDb(dbName);
         if (db == null) {
@@ -1097,7 +1110,7 @@ public class Load {
             if (labelToLoadJobs == null) {
                 throw new DdlException("Load job does not exist");
             }
-            
+
             List<LoadJob> loadJobs = labelToLoadJobs.get(label);
             if (loadJobs == null) {
                 throw new DdlException("Load job does not exist");
@@ -1114,33 +1127,33 @@ public class Load {
             readUnlock();
         }
 
-		// check auth here, cause we need table info
-		Set<String> tableNames = job.getTableNames();
-		if (tableNames.isEmpty()) {
-			// forward compatibility
-			if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
-						PrivPredicate.LOAD)) {
-				ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CANCEL LOAD");
-			}
-		} else {
-			for (String tblName : tableNames) {
-				if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tblName,
-							PrivPredicate.LOAD)) {
-					ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL LOAD",
-							ConnectContext.get().getQualifiedUser(),
-							ConnectContext.get().getRemoteIP(), tblName);
-				}
-			}
-		}
+        // check auth here, cause we need table info
+        Set<String> tableNames = job.getTableNames();
+        if (tableNames.isEmpty()) {
+            // forward compatibility
+            if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
+                                                                   PrivPredicate.LOAD)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CANCEL LOAD");
+            }
+        } else {
+            for (String tblName : tableNames) {
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tblName,
+                                                                        PrivPredicate.LOAD)) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL LOAD",
+                                                   ConnectContext.get().getQualifiedUser(),
+                                                   ConnectContext.get().getRemoteIP(), tblName);
+                }
+            }
+        }
 
         // cancel job
         if (!cancelLoadJob(job, CancelType.USER_CANCEL, "user cancel")) {
             throw new DdlException("Cancel load job fail");
         }
-        
+
         return true;
     }
-     
+
     public boolean cancelLoadJob(LoadJob job, CancelType cancelType, String msg) {
         // update job to cancelled
         JobState srcState = job.getState();
@@ -1148,7 +1161,7 @@ public class Load {
             LOG.warn("cancel load job failed. job: {}", job, new Exception());
             return false;
         }
-        
+
         // clear
         if (job.getHadoopDppConfig() != null) {
             clearJob(job, srcState);
@@ -1163,7 +1176,7 @@ public class Load {
         LOG.info("cancel load job success. job: {}", job);
         return true;
     }
-    
+
     public void unprotectCancelLoadJob(LoadJob job) {
         long jobId = job.getId();
         LoadJob oldJob = idToLoadJob.get(jobId);
@@ -1191,7 +1204,7 @@ public class Load {
 
         replaceLoadJob(job);
     }
-    
+
     public void replayCancelLoadJob(LoadJob job) {
         writeLock();
         try {
@@ -1200,7 +1213,7 @@ public class Load {
             writeUnlock();
         }
     }
-    
+
     public void removeDeleteJobAndSetState(AsyncDeleteJob job) {
         job.clearTasks();
         writeLock();
@@ -1246,7 +1259,7 @@ public class Load {
             int loadJobNum = 0;
             for (LoadJob loadJob : idToLoadJob.values()) {
                 if (!loadJob.isSyncDeleteJob()) {
-                    ++ loadJobNum;
+                    ++loadJobNum;
                 }
             }
             return loadJobNum;
@@ -1254,19 +1267,19 @@ public class Load {
             readUnlock();
         }
     }
-    
+
     public Map<Long, LoadJob> getIdToLoadJob() {
         return idToLoadJob;
     }
-    
+
     public Map<Long, List<LoadJob>> getDbToLoadJobs() {
         return dbToLoadJobs;
     }
-    
+
     public Map<Long, List<LoadJob>> getDbToDeleteJobs() {
         return dbToDeleteJobs;
     }
-    
+
     public Map<Long, List<DeleteInfo>> getDbToDeleteInfos() {
         return dbToDeleteInfos;
     }
@@ -1295,7 +1308,7 @@ public class Load {
             readUnlock();
         }
     }
- 
+
     public List<LoadJob> getLoadJobs(JobState jobState) {
         List<LoadJob> jobs = new ArrayList<LoadJob>();
         Collection<LoadJob> stateJobs = null;
@@ -1345,7 +1358,7 @@ public class Load {
             readUnlock();
         }
     }
-   
+
     public LoadJob getLoadJob(long jobId) {
         readLock();
         try {
@@ -1372,9 +1385,9 @@ public class Load {
             readUnlock();
         }
     }
-  
+
     public LinkedList<List<Comparable>> getLoadJobInfosByDb(long dbId, String dbName, String labelValue,
-            boolean accurateMatch, Set<JobState> states, ArrayList<OrderByPair> orderByPairs) {
+                                                            boolean accurateMatch, Set<JobState> states, ArrayList<OrderByPair> orderByPairs) {
         LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
         readLock();
         try {
@@ -1383,13 +1396,13 @@ public class Load {
                 return loadJobInfos;
             }
 
-			long start = System.currentTimeMillis();
-			LOG.debug("begin to get load job info, size: {}", loadJobs.size());
+            long start = System.currentTimeMillis();
+            LOG.debug("begin to get load job info, size: {}", loadJobs.size());
             for (LoadJob loadJob : loadJobs) {
                 // filter first
                 String label = loadJob.getLabel();
                 JobState state = loadJob.getState();
-                
+
                 if (labelValue != null) {
                     if (accurateMatch) {
                         if (!label.equals(labelValue)) {
@@ -1401,35 +1414,35 @@ public class Load {
                         }
                     }
                 }
-                
+
                 if (states != null) {
                     if (!states.contains(state)) {
                         continue;
                     }
                 }
 
-				// check auth
-				Set<String> tableNames = loadJob.getTableNames();
-				if (tableNames.isEmpty()) {
-					// forward compatibility
-					if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
-								PrivPredicate.SHOW)) {
-						continue;
-					}
-				} else {
-					boolean auth = true;
-					for (String tblName : tableNames) {
-						if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
-									tblName, PrivPredicate.SHOW)) {
-							auth = false;
-							break;
-						}
-					}
-					if (!auth) {
-						continue;
-					}
-				}
-                
+                // check auth
+                Set<String> tableNames = loadJob.getTableNames();
+                if (tableNames.isEmpty()) {
+                    // forward compatibility
+                    if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
+                                                                           PrivPredicate.SHOW)) {
+                        continue;
+                    }
+                } else {
+                    boolean auth = true;
+                    for (String tblName : tableNames) {
+                        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
+                                                                                tblName, PrivPredicate.SHOW)) {
+                            auth = false;
+                            break;
+                        }
+                    }
+                    if (!auth) {
+                        continue;
+                    }
+                }
+
                 List<Comparable> jobInfo = new ArrayList<Comparable>();
 
                 // jobId
@@ -1464,6 +1477,9 @@ public class Load {
                         break;
                 }
 
+                // type
+                jobInfo.add(loadJob.getEtlJobType().name());
+
                 // etl info
                 EtlStatus status = loadJob.getEtlJobStatus();
                 if (status == null || status.getState() == TEtlState.CANCELLED) {
@@ -1475,7 +1491,7 @@ public class Load {
                         // XXX: internal etl job return all counters
                         if (key.equalsIgnoreCase("HDFS bytes read")
                                 || key.equalsIgnoreCase("Map input records")
-                                || key.startsWith("dpp.") 
+                                || key.startsWith("dpp.")
                                 || loadJob.getEtlJobType() == EtlJobType.MINI) {
                             info.add(key + "=" + counters.get(key));
                         }
@@ -1489,8 +1505,8 @@ public class Load {
 
                 // task info
                 jobInfo.add("cluster:" + loadJob.getHadoopCluster()
-                        + "; timeout(s):" + loadJob.getTimeoutSecond() 
-                        + "; max_filter_ratio:" + loadJob.getMaxFilterRatio());
+                                    + "; timeout(s):" + loadJob.getTimeoutSecond()
+                                    + "; max_filter_ratio:" + loadJob.getMaxFilterRatio());
 
                 // error msg
                 if (loadJob.getState() == JobState.CANCELLED) {
@@ -1516,7 +1532,7 @@ public class Load {
                 loadJobInfos.add(jobInfo);
             } // end for loadJobs
 
-			LOG.debug("finished to get load job info, cost: {}", (System.currentTimeMillis() - start));
+            LOG.debug("finished to get load job info, cost: {}", (System.currentTimeMillis() - start));
         } finally {
             readUnlock();
         }
@@ -1534,7 +1550,7 @@ public class Load {
     }
 
     public long getLatestJobIdByLabel(long dbId, String labelValue) {
-		LoadJob job = null;
+        LoadJob job = null;
         long jobId = 0;
         try {
             readLock();
@@ -1556,7 +1572,7 @@ public class Load {
 
                 if (currJobId > jobId) {
                     jobId = currJobId;
-					job = loadJob;
+                    job = loadJob;
                 }
             }
         } finally {
@@ -1647,37 +1663,94 @@ public class Load {
         } finally {
             readUnlock();
         }
-        
+
         // sort by version, backendId
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(3, 0);
         Collections.sort(infos, comparator);
-        
+
         return infos;
     }
 
     public LoadErrorHub.Param getLoadErrorHubInfo() {
-        return loadErrorHubInfo;
+        return loadErrorHubParam;
     }
 
     public void setLoadErrorHubInfo(LoadErrorHub.Param info) {
-        this.loadErrorHubInfo = info;
+        this.loadErrorHubParam = info;
     }
 
-    // Note: althrough this.loadErrorHubInfo is volatile, no need to lock.
-    //       but editlog need be locked
-    public void changeLoadErrorHubInfo(LoadErrorHub.Param info) {
-		writeLock();
-		try {
-            this.loadErrorHubInfo = info;
-            Catalog.getInstance().getEditLog().logSetLoadErrorHub(info);
-        } finally {
-            writeUnlock();
+    public void setLoadErrorHubInfo(Map<String, String> properties) throws DdlException {
+        String type = properties.get("type");
+        if (type.equalsIgnoreCase("MYSQL")) {
+            String host = properties.get("host");
+            if (Strings.isNullOrEmpty(host)) {
+                throw new DdlException("mysql host is missing");
+            }
+            
+            int port = -1;
+            try {
+                port = Integer.valueOf(properties.get("port"));
+            } catch (NumberFormatException e) {
+                throw new DdlException("invalid mysql port: " + properties.get("port"));
+            }
+            
+            String user = properties.get("user");
+            if (Strings.isNullOrEmpty(user)) {
+                throw new DdlException("mysql user name is missing");
+            }
+            
+            String db = properties.get("database");
+            if (Strings.isNullOrEmpty(db)) {
+                throw new DdlException("mysql database is missing");
+            }
+            
+            String tbl = properties.get("table");
+            if (Strings.isNullOrEmpty(tbl)) {
+                throw new DdlException("mysql table is missing");
+            }
+            
+            String pwd = Strings.nullToEmpty(properties.get("password"));
+
+            MysqlLoadErrorHub.MysqlParam param = new MysqlLoadErrorHub.MysqlParam(host, port, user, pwd, db, tbl);
+            loadErrorHubParam = LoadErrorHub.Param.createMysqlParam(param);
+        } else if (type.equalsIgnoreCase("BROKER")) {
+            String brokerName = properties.get("name");
+            if (Strings.isNullOrEmpty(brokerName)) {
+                throw new DdlException("broker name is missing");
+            }
+            properties.remove("name");
+
+            if (!Catalog.getCurrentCatalog().getBrokerMgr().contaisnBroker(brokerName)) {
+                throw new DdlException("broker does not exist: " + brokerName);
+            }
+
+            String path = properties.get("path");
+            if (Strings.isNullOrEmpty(path)) {
+                throw new DdlException("broker path is missing");
+            }
+            properties.remove("path");
+
+            // check if broker info is invalid
+            BlobStorage blobStorage = new BlobStorage(brokerName, properties);
+            Status st = blobStorage.checkPathExist(path);
+            if (!st.ok()) {
+                throw new DdlException("failed to visit path: " + path + ", err: " + st.getErrMsg());
+            }
+            
+            BrokerLoadErrorHub.BrokerParam param = new BrokerLoadErrorHub.BrokerParam(brokerName, path, properties);
+            loadErrorHubParam = LoadErrorHub.Param.createBrokerParam(param);
+        } else if (type.equalsIgnoreCase("null")) {
+            loadErrorHubParam = LoadErrorHub.Param.createNullParam();
         }
+        
+        Catalog.getInstance().getEditLog().logSetLoadErrorHub(loadErrorHubParam);
+        
+        LOG.info("set load error hub info: {}", loadErrorHubParam);
     }
 
     public static class JobInfo {
         public String dbName;
-		public Set<String> tblNames = Sets.newHashSet();
+        public Set<String> tblNames = Sets.newHashSet();
         public String label;
         public String clusterName;
         public JobState state;
@@ -1695,7 +1768,7 @@ public class Load {
     // result saved in info
     public void getJobInfo(JobInfo info) throws DdlException {
         String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
-		info.dbName = fullDbName;
+        info.dbName = fullDbName;
         Database db = Catalog.getInstance().getDb(fullDbName);
         if (db == null) {
             throw new DdlException("Unknown database(" + info.dbName + ")");
@@ -1713,9 +1786,9 @@ public class Load {
             // only the last one should be running
             LoadJob job = loadJobs.get(loadJobs.size() - 1);
 
-			if (!job.getTableNames().isEmpty()) {
-				info.tblNames.addAll(job.getTableNames());
-			}
+            if (!job.getTableNames().isEmpty()) {
+                info.tblNames.addAll(job.getTableNames());
+            }
 
             info.state = job.getState();
             if (info.state == JobState.QUORUM_FINISHED) {
@@ -1728,13 +1801,13 @@ public class Load {
             readUnlock();
         }
     }
-  
+
     public void unprotectQuorumLoadJob(LoadJob job, Database db) {
         // in real time load replica info and partition version is set by transaction manager not by job
         if (job.getTransactionId() < 0) {
             // remove loading partitions
             removeLoadingPartitions(job);
-    
+
             // Update database information first
             Map<Long, ReplicaPersistInfo> replicaInfos = job.getReplicaPersistInfos();
             if (replicaInfos != null) {
@@ -1759,17 +1832,17 @@ public class Load {
                         LOG.warn("the tablet[{}] is missing", info.getTabletId());
                         continue;
                     }
-    
+
                     Replica replica = tablet.getReplicaById(info.getReplicaId());
                     if (replica == null) {
                         LOG.warn("the replica[{}] is missing", info.getReplicaId());
                         continue;
                     }
                     replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
-                                       info.getDataSize(), info.getRowCount());
+                                              info.getDataSize(), info.getRowCount());
                 }
             }
-    
+
             long jobId = job.getId();
             Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
             if (idToTableLoadInfo != null) {
@@ -1784,9 +1857,9 @@ public class Load {
                         if (!partitionLoadInfo.isNeedLoad()) {
                             continue;
                         }
-                        updatePartitionVersion(partition, partitionLoadInfo.getVersion(), 
+                        updatePartitionVersion(partition, partitionLoadInfo.getVersion(),
                                                partitionLoadInfo.getVersionHash(), jobId);
-                        
+
                         // update table row count
                         for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
                             long tableRowCount = 0L;
@@ -1805,13 +1878,13 @@ public class Load {
                     } // end for partitions
                 } // end for tables
             }
-            
+
             idToLoadingLoadJob.remove(jobId);
             idToQuorumFinishedLoadJob.put(jobId, job);
         }
         replaceLoadJob(job);
     }
-    
+
     public void replayQuorumLoadJob(LoadJob job, Catalog catalog) throws DdlException {
         // TODO: need to call this.writeLock()?
         Database db = catalog.getDb(job.getDbId());
@@ -1827,13 +1900,13 @@ public class Load {
             db.writeUnlock();
         }
     }
-    
+
     public void unprotectFinishLoadJob(LoadJob job, Database db) {
         // in real time load, replica info is not set by job, it is set by transaction manager
         long jobId = job.getId();
         if (job.getTransactionId() < 0) {
             idToQuorumFinishedLoadJob.remove(jobId);
-            
+
             // Update database information
             Map<Long, ReplicaPersistInfo> replicaInfos = job.getReplicaPersistInfos();
             if (replicaInfos != null) {
@@ -1858,14 +1931,14 @@ public class Load {
                         LOG.warn("the tablet[{}] is missing", info.getTabletId());
                         continue;
                     }
-    
+
                     Replica replica = tablet.getReplicaById(info.getReplicaId());
                     if (replica == null) {
                         LOG.warn("the replica[{}] is missing", info.getReplicaId());
                         continue;
                     }
                     replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
-                                       info.getDataSize(), info.getRowCount());
+                                              info.getDataSize(), info.getRowCount());
                 }
             }
         } else {
@@ -1879,7 +1952,7 @@ public class Load {
         }
         replaceLoadJob(job);
     }
-    
+
     public void replayFinishLoadJob(LoadJob job, Catalog catalog) {
         // TODO: need to call this.writeLock()?
         Database db = catalog.getDb(job.getDbId());
@@ -1895,7 +1968,7 @@ public class Load {
             db.writeUnlock();
         }
     }
-    
+
     public void replayClearRollupInfo(ReplicaPersistInfo info, Catalog catalog) {
         Database db = catalog.getDb(info.getDbId());
         db.writeLock();
@@ -1911,7 +1984,7 @@ public class Load {
 
     private void replaceLoadJob(LoadJob job) {
         long jobId = job.getId();
-        
+
         // Replace LoadJob in idToLoadJob
         if (!idToLoadJob.containsKey(jobId)) {
             // This may happen when we drop db while there are still load jobs running
@@ -1919,13 +1992,13 @@ public class Load {
             return;
         }
         idToLoadJob.put(jobId, job);
-        
+
         if (!job.isSyncDeleteJob()) {
             // Replace LoadJob in dbToLoadJobs
             List<LoadJob> jobs = dbToLoadJobs.get(job.getDbId());
             if (jobs == null) {
-                LOG.warn("Does not find db in dbToLoadJobs. DbId : {}", 
-                        job.getDbId());
+                LOG.warn("Does not find db in dbToLoadJobs. DbId : {}",
+                         job.getDbId());
                 return;
             }
             int pos = 0;
@@ -1936,23 +2009,23 @@ public class Load {
                 pos++;
             }
             if (pos == jobs.size()) {
-                LOG.warn("Does not find load job for db. DbId : {}, jobId : {}", 
-                        job.getDbId(), jobId);
+                LOG.warn("Does not find load job for db. DbId : {}, jobId : {}",
+                         job.getDbId(), jobId);
                 return;
             }
             jobs.remove(pos);
             jobs.add(pos, job);
-            
+
             // Replace LoadJob in dbLabelToLoadJobs
             if (dbLabelToLoadJobs.get(job.getDbId()) == null) {
-                LOG.warn("Does not find db in dbLabelToLoadJobs. DbId : {}", 
-                        job.getDbId());
+                LOG.warn("Does not find db in dbLabelToLoadJobs. DbId : {}",
+                         job.getDbId());
                 return;
             }
             jobs = dbLabelToLoadJobs.get(job.getDbId()).get(job.getLabel());
             if (jobs == null) {
-                LOG.warn("Does not find label for db. label : {}, DbId : {}", 
-                        job.getLabel(), job.getDbId());
+                LOG.warn("Does not find label for db. label : {}, DbId : {}",
+                         job.getLabel(), job.getDbId());
                 return;
             }
             pos = 0;
@@ -1963,8 +2036,8 @@ public class Load {
                 pos++;
             }
             if (pos == jobs.size()) {
-                LOG.warn("Does not find load job for label. label : {}, DbId : {}", 
-                        job.getLabel(), job.getDbId());
+                LOG.warn("Does not find load job for label. label : {}, DbId : {}",
+                         job.getLabel(), job.getDbId());
                 return;
             }
             jobs.remove(pos);
@@ -1973,8 +2046,8 @@ public class Load {
             // Replace LoadJob in dbToLoadJobs
             List<LoadJob> jobs = dbToDeleteJobs.get(job.getDbId());
             if (jobs == null) {
-                LOG.warn("Does not find db in dbToDeleteJobs. DbId : {}", 
-                        job.getDbId());
+                LOG.warn("Does not find db in dbToDeleteJobs. DbId : {}",
+                         job.getDbId());
                 return;
             }
             int pos = 0;
@@ -1985,15 +2058,15 @@ public class Load {
                 pos++;
             }
             if (pos == jobs.size()) {
-                LOG.warn("Does not find delete load job for db. DbId : {}, jobId : {}", 
-                        job.getDbId(), jobId);
+                LOG.warn("Does not find delete load job for db. DbId : {}, jobId : {}",
+                         job.getDbId(), jobId);
                 return;
             }
             jobs.remove(pos);
             jobs.add(pos, job);
         }
     }
- 
+
     // remove all db jobs from dbToLoadJobs and dbLabelToLoadJobs
     // only remove finished or cancelled job from idToLoadJob
     // LoadChecker will update other state jobs to cancelled or finished, 
@@ -2025,7 +2098,7 @@ public class Load {
     // This function is called periodically. every Configure.label_keep_max_second seconds
     public void removeOldLoadJobs() {
         long currentTimeMs = System.currentTimeMillis();
-        
+
         writeLock();
         try {
             Iterator<Map.Entry<Long, LoadJob>> iter = idToLoadJob.entrySet().iterator();
@@ -2038,7 +2111,7 @@ public class Load {
                     String label = job.getLabel();
                     // Remove job from idToLoadJob
                     iter.remove();
-                    
+
                     // Remove job from dbToLoadJobs
                     List<LoadJob> loadJobs = dbToLoadJobs.get(dbId);
                     if (loadJobs != null) {
@@ -2047,7 +2120,7 @@ public class Load {
                             dbToLoadJobs.remove(dbId);
                         }
                     }
-                    
+
                     // remove delete job from dbToDeleteJobs
                     List<LoadJob> deleteJobs = dbToDeleteJobs.get(dbId);
                     if (deleteJobs != null) {
@@ -2056,7 +2129,7 @@ public class Load {
                             dbToDeleteJobs.remove(dbId);
                         }
                     }
-                    
+
                     // Remove job from dbLabelToLoadJobs
                     Map<String, List<LoadJob>> mapLabelToJobs = dbLabelToLoadJobs.get(dbId);
                     if (mapLabelToJobs != null) {
@@ -2098,12 +2171,12 @@ public class Load {
                         LOG.warn("kill etl job error", e);
                     }
                 }
-                
+
                 // delete all dirs releated to job label, use "" instead of job.getEtlOutputDir()
                 // hdfs://host:port/outputPath/dbId/loadLabel/
                 DppConfig dppConfig = job.getHadoopDppConfig();
                 String outputPath = DppScheduler.getEtlOutputPath(dppConfig.getFsDefaultName(),
-                        dppConfig.getOutputPath(), job.getDbId(), job.getLabel(), "");
+                                                                  dppConfig.getOutputPath(), job.getDbId(), job.getLabel(), "");
                 try {
                     dppScheduler.deleteEtlOutputPath(outputPath);
                 } catch (Exception e) {
@@ -2118,14 +2191,14 @@ public class Load {
                         LOG.warn("backend does not exist. id: {}", backendId);
                         break;
                     }
-                    
+
                     long dbId = job.getDbId();
                     Database db = Catalog.getInstance().getDb(dbId);
                     if (db == null) {
                         LOG.warn("db does not exist. id: {}", dbId);
                         break;
                     }
-                    
+
                     AgentClient client = new AgentClient(backend.getHost(), backend.getBePort());
                     client.deleteEtlFiles(dbId, job.getId(), db.getFullName(), job.getLabel());
                 }
@@ -2141,11 +2214,11 @@ public class Load {
                 break;
         }
     }
-    
+
     public boolean updateLoadJobState(LoadJob job, JobState destState) {
         return updateLoadJobState(job, destState, CancelType.UNKNOWN, null);
     }
-   
+
     public boolean updateLoadJobState(LoadJob job, JobState destState, CancelType cancelType, String msg) {
         boolean result = true;
         JobState srcState = null;
@@ -2180,10 +2253,10 @@ public class Load {
                     Set<JobState> destStates = STATE_CHANGE_MAP.get(srcState);
                     if (!destStates.contains(destState)) {
                         LOG.warn("state change error. src state: {}, dest state: {}",
-                                srcState.name(), destState.name());
+                                 srcState.name(), destState.name());
                         return false;
                     }
-                    
+
                     switch (destState) {
                         case ETL:
                             idToPendingLoadJob.remove(jobId);
@@ -2223,11 +2296,13 @@ public class Load {
                                     DeleteInfo deleteInfo = job.getDeleteInfo();
                                     TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfo(deleteInfo.getTableId());
                                     PartitionCommitInfo partitionCommitInfo = tableCommitInfo.getPartitionCommitInfo(deleteInfo.getPartitionId());
-                                    deleteInfo.updatePartitionVersionInfo(partitionCommitInfo.getVersion(), 
-                                            partitionCommitInfo.getVersionHash());
+                                    deleteInfo.updatePartitionVersionInfo(partitionCommitInfo.getVersion(),
+                                                                          partitionCommitInfo.getVersionHash());
                                 }
                             }
                             MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
+                            // job will transfer from LOADING to FINISHED, skip QUORUM_FINISHED
+                            idToLoadingLoadJob.remove(jobId);
                             idToQuorumFinishedLoadJob.remove(jobId);
                             job.setState(destState);
 
@@ -2259,14 +2334,14 @@ public class Load {
                 db.writeUnlock();
             }
         }
-        
+
         // check current job state
         if (destState != job.getState()) {
             result = false;
         }
         return result;
     }
-    
+
     private boolean processQuorumFinished(LoadJob job, Database db) {
         long jobId = job.getId();
         // remove partition from loading set
@@ -2312,9 +2387,9 @@ public class Load {
                     continue;
                 }
 
-                updatePartitionVersion(partition, partitionLoadInfo.getVersion(), 
+                updatePartitionVersion(partition, partitionLoadInfo.getVersion(),
                                        partitionLoadInfo.getVersionHash(), jobId);
-                
+
                 for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
                     long tableRowCount = 0L;
                     for (Tablet tablet : materializedIndex.getTablets()) {
@@ -2331,10 +2406,10 @@ public class Load {
                 }
             }
         }
-        
+
         // When start up or checkpoint, Job may stay in pending queue. So remove it.
         idToPendingLoadJob.remove(jobId);
-        
+
         idToLoadingLoadJob.remove(jobId);
         idToQuorumFinishedLoadJob.put(jobId, job);
         job.setProgress(100);
@@ -2349,7 +2424,7 @@ public class Load {
         LOG.info("update partition version success. version: {}, version hash: {}, job id: {}, partition id: {}",
                  version, versionHash, jobId, partitionId);
     }
-   
+
     private boolean processCancelled(LoadJob job, CancelType cancelType, String msg) {
         long jobId = job.getId();
         JobState srcState = job.getState();
@@ -2358,7 +2433,7 @@ public class Load {
         // then there will be rubbish transactions in transaction manager
         try {
             Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
-                    job.getTransactionId(), 
+                    job.getTransactionId(),
                     job.getFailMsg().toString());
         } catch (Exception e) {
             LOG.info("errors while abort transaction", e);
@@ -2397,7 +2472,7 @@ public class Load {
         job.setFailMsg(failMsg);
         job.setLoadFinishTimeMs(System.currentTimeMillis());
         job.setState(JobState.CANCELLED);
-        
+
         // clear push tasks
         if (srcState == JobState.LOADING || srcState == JobState.QUORUM_FINISHED) {
             for (PushTask pushTask : job.getPushTasks()) {
@@ -2406,14 +2481,14 @@ public class Load {
                                               pushTask.getPushType(), pushTask.getTaskType());
             }
         }
-        
+
         // Clear the Map and Set in this job, reduce the memory cost of canceled load job.
         job.clearRedundantInfoForHistoryJob();
         Catalog.getInstance().getEditLog().logLoadCancel(job);
 
         return true;
     }
-    
+
     public boolean addLoadingPartitions(Set<Long> partitionIds) {
         writeLock();
         try {
@@ -2529,7 +2604,7 @@ public class Load {
                 Tablet tablet = index.getTablet(info.getTabletId());
                 Replica replica = tablet.getReplicaById(info.getReplicaId());
                 replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
-                                   info.getDataSize(), info.getRowCount());
+                                          info.getDataSize(), info.getRowCount());
             }
         }
 
@@ -2550,7 +2625,7 @@ public class Load {
             LOG.info("unprotected add asyncDeleteJob: {}", asyncDeleteJob.getJobId());
         }
     }
-    
+
     public void replayFinishAsyncDeleteJob(AsyncDeleteJob deleteJob, Catalog catalog) {
         Database db = catalog.getDb(deleteJob.getDbId());
         db.writeLock();
@@ -2588,7 +2663,7 @@ public class Load {
                             continue;
                         }
                         replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
-                                           info.getDataSize(), info.getRowCount());
+                                                  info.getDataSize(), info.getRowCount());
                     }
                 }
             } finally {
@@ -2616,8 +2691,9 @@ public class Load {
             db.writeUnlock();
         }
     }
+
     private void checkDeleteV2(OlapTable table, Partition partition, List<Predicate> conditions, List<String> deleteConditions, boolean preCheck)
-                    throws DdlException {
+            throws DdlException {
 
         // check partition state
         PartitionState state = partition.getState();
@@ -2626,7 +2702,7 @@ public class Load {
             throw new DdlException("Partition[" + partition.getName() + "]' state is not NORNAL: " + state.name());
         }
         // do not need check whether partition has loading job
-        
+
         // async delete job does not exist any more
 
         // check condition column is key column and condition value
@@ -2647,13 +2723,13 @@ public class Load {
             if (!nameToColumn.containsKey(columnName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, table.getName());
             }
-            
+
             Column column = nameToColumn.get(columnName);
             if (!column.isKey()) {
                 // ErrorReport.reportDdlException(ErrorCode.ERR_NOT_KEY_COLUMN, columnName);
                 throw new DdlException("Column[" + columnName + "] is not key column");
             }
-            
+
             if (condition instanceof BinaryPredicate) {
                 String value = null;
                 try {
@@ -2697,9 +2773,9 @@ public class Load {
             }
 
             // do not need to check replica version and backend alive
-            
+
         } // end for indices
-        
+
         if (deleteConditions == null) {
             return;
         }
@@ -2712,7 +2788,7 @@ public class Load {
                 String columnName = slotRef.getColumnName();
                 StringBuilder sb = new StringBuilder();
                 sb.append(columnName).append(" ").append(binaryPredicate.getOp().name()).append(" \"")
-                    .append(((LiteralExpr) binaryPredicate.getChild(1)).getStringValue()).append("\"");
+                        .append(((LiteralExpr) binaryPredicate.getChild(1)).getStringValue()).append("\"");
                 deleteConditions.add(sb.toString());
             } else if (condition instanceof IsNullPredicate) {
                 IsNullPredicate isNullPredicate = (IsNullPredicate) condition;
@@ -2729,7 +2805,7 @@ public class Load {
             }
         }
     }
-    
+
     private void checkDelete(OlapTable table, Partition partition, List<Predicate> conditions,
                              long checkVersion, long checkVersionHash, List<String> deleteConditions,
                              Map<Long, Set<Long>> asyncTabletIdToBackends, boolean preCheck)
@@ -2740,14 +2816,14 @@ public class Load {
             // ErrorReport.reportDdlException(ErrorCode.ERR_BAD_PARTITION_STATE, partition.getName(), state.name());
             throw new DdlException("Partition[" + partition.getName() + "]' state is not NORNAL: " + state.name());
         }
-        
+
         // check running load job
         List<LoadJob> quorumFinishedLoadJobs = Lists.newArrayList();
         if (!checkPartitionLoadFinished(partition.getId(), quorumFinishedLoadJobs)) {
             // ErrorReport.reportDdlException(ErrorCode.ERR_PARTITION_HAS_LOADING_JOBS, partition.getName());
             throw new DdlException("Partition[" + partition.getName() + "] has unfinished load jobs");
         }
-        
+
         // get running async delete job
         List<AsyncDeleteJob> asyncDeleteJobs = getCopiedAsyncDeleteJobs();
 
@@ -2769,13 +2845,13 @@ public class Load {
             if (!nameToColumn.containsKey(columnName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, table.getName());
             }
-            
+
             Column column = nameToColumn.get(columnName);
             if (!column.isKey()) {
                 // ErrorReport.reportDdlException(ErrorCode.ERR_NOT_KEY_COLUMN, columnName);
                 throw new DdlException("Column[" + columnName + "] is not key column");
             }
-            
+
             if (condition instanceof BinaryPredicate) {
                 String value = null;
                 try {
@@ -2791,7 +2867,7 @@ public class Load {
             // set schema column name
             slotRef.setCol(column.getName());
         }
-        
+
         long tableId = table.getId();
         long partitionId = partition.getId();
         Map<Long, List<Column>> indexIdToSchema = table.getIndexIdToSchema();
@@ -2886,12 +2962,12 @@ public class Load {
                                 } else {
                                     // this should not happend. add log to observe.
                                     LOG.error("replica version does not catch up with version: {}-{}. "
-                                            + "replica: {}-{}-{}-{}",
+                                                      + "replica: {}-{}-{}-{}",
                                               checkVersion, checkVersionHash, replica.getId(), tablet.getId(),
                                               replica.getBackendId(), replica.getState());
                                     throw new DdlException("Replica[" + tablet.getId() + "-" + replica.getId()
-                                            + "] is not catch up with version: " + checkVersion + "-"
-                                            + replica.getVersion());
+                                                                   + "] is not catch up with version: " + checkVersion + "-"
+                                                                   + replica.getVersion());
                                 }
                             }
                         }
@@ -2904,7 +2980,7 @@ public class Load {
                     String backendsStr = Joiner.on(", ").join(needAsyncBackendIds);
                     LOG.warn("too many unavailable replica in tablet[{}], backends:[{}]", tablet.getId(), backendsStr);
                     throw new DdlException("Too many replicas are not available. Wait 10 mins and try again."
-                            + " if still not work, contact Palo RD");
+                                                   + " if still not work, contact Palo RD");
                 }
 
                 if (!needAsyncBackendIds.isEmpty()) {
@@ -2914,7 +2990,7 @@ public class Load {
                 }
             } // end for tablets
         } // end for indices
-        
+
         if (deleteConditions == null) {
             return;
         }
@@ -2927,7 +3003,7 @@ public class Load {
                 String columnName = slotRef.getColumnName();
                 StringBuilder sb = new StringBuilder();
                 sb.append(columnName).append(" ").append(binaryPredicate.getOp().name()).append(" \"")
-                    .append(((LiteralExpr) binaryPredicate.getChild(1)).getStringValue()).append("\"");
+                        .append(((LiteralExpr) binaryPredicate.getChild(1)).getStringValue()).append("\"");
                 deleteConditions.add(sb.toString());
             } else if (condition instanceof IsNullPredicate) {
                 IsNullPredicate isNullPredicate = (IsNullPredicate) condition;
@@ -2974,16 +3050,16 @@ public class Load {
             for (AsyncDeleteJob job : idToQuorumFinishedDeleteJob.values()) {
                 if (job.getPartitionId() == partitionId) {
                     throw new DdlException("Partition[" + partitionName + "] has running async delete job. "
-                            + "See 'SHOW DELETE'");
+                                                   + "See 'SHOW DELETE'");
                 }
             }
             for (long dbId : dbToDeleteJobs.keySet()) {
                 List<LoadJob> loadJobs = dbToDeleteJobs.get(dbId);
                 for (LoadJob loadJob : loadJobs) {
-                    if (loadJob.getDeleteInfo().getPartitionId() == partitionId 
+                    if (loadJob.getDeleteInfo().getPartitionId() == partitionId
                             && loadJob.getState() == JobState.LOADING) {
                         throw new DdlException("Partition[" + partitionName + "] has running async delete job. "
-                                + "See 'SHOW DELETE'");
+                                                       + "See 'SHOW DELETE'");
                     }
                 }
             }
@@ -3036,17 +3112,17 @@ public class Load {
             List<String> deleteConditions = Lists.newArrayList();
             // pre check
             checkDeleteV2(olapTable, partition, conditions,
-                    deleteConditions, true);
+                          deleteConditions, true);
             checkAndAddRunningSyncDeleteJob(partitionId, partitionName);
             // do not use transaction id generator, or the id maybe duplicated
             long jobId = Catalog.getInstance().getNextId();
             String jobLabel = "delete_" + UUID.randomUUID();
             // the version info in delete info will be updated after job finished
             DeleteInfo deleteInfo = new DeleteInfo(db.getId(), tableId, tableName,
-                                        partition.getId(), partitionName, 
-                                        -1, 0, deleteConditions);
-            loadDeleteJob = new LoadJob(jobId, db.getId(), tableId, 
-                    partitionId, jobLabel, olapTable.getIndexIdToSchemaHash(), conditions, deleteInfo);
+                                                   partition.getId(), partitionName,
+                                                   -1, 0, deleteConditions);
+            loadDeleteJob = new LoadJob(jobId, db.getId(), tableId,
+                                        partitionId, jobLabel, olapTable.getIndexIdToSchemaHash(), conditions, deleteInfo);
             Map<Long, TabletLoadInfo> idToTabletLoadInfo = Maps.newHashMap();
             for (MaterializedIndex materializedIndex : partition.getMaterializedIndices()) {
                 for (Tablet tablet : materializedIndex.getTablets()) {
@@ -3058,8 +3134,8 @@ public class Load {
             }
             loadDeleteJob.setIdToTabletLoadInfo(idToTabletLoadInfo);
             loadDeleteJob.setState(JobState.LOADING);
-            long transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(), jobLabel, 
-                    "fe", LoadJobSourceType.FRONTEND);
+            long transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(), jobLabel,
+                                                                                           "fe", LoadJobSourceType.FRONTEND);
             loadDeleteJob.setTransactionId(transactionId);
             // the delete job will be persist in editLog
             addLoadJob(loadDeleteJob, db);
@@ -3076,7 +3152,7 @@ public class Load {
             while (true) {
                 db.writeLock();
                 try {
-                    if (loadDeleteJob.getState() == JobState.FINISHED 
+                    if (loadDeleteJob.getState() == JobState.FINISHED
                             || loadDeleteJob.getState() == JobState.CANCELLED) {
                         break;
                     }
@@ -3107,7 +3183,7 @@ public class Load {
             }
         }
     }
-    
+
     public void deleteOld(DeleteStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
@@ -3117,7 +3193,7 @@ public class Load {
         if (db == null) {
             throw new DdlException("Db does not exist. name: " + dbName);
         }
-        
+
         DeleteInfo deleteInfo = null;
 
         long tableId = -1;
@@ -3151,7 +3227,7 @@ public class Load {
                 throw new DdlException("Partition does not exist. name: " + partitionName);
             }
             partitionId = partition.getId();
-            
+
             // pre check
             visibleVersion = partition.getVisibleVersion();
             visibleVersionHash = partition.getVisibleVersionHash();
@@ -3161,9 +3237,9 @@ public class Load {
             newVersion = visibleVersion + 1;
             newVersionHash = Util.generateVersionHash();
             deleteInfo = new DeleteInfo(db.getId(), tableId, tableName,
-                                        partition.getId(), partitionName, 
+                                        partition.getId(), partitionName,
                                         newVersion, newVersionHash, null);
-            
+
             checkAndAddRunningSyncDeleteJob(deleteInfo.getPartitionId(), partitionName);
 
             // create sync delete tasks
@@ -3195,7 +3271,7 @@ public class Load {
         } finally {
             db.readUnlock();
         }
-        
+
         // send tasks to backends
         MarkedCountDownLatch countDownLatch = new MarkedCountDownLatch(totalReplicaNum);
         for (AgentTask task : deleteBatchTask.getAllTasks()) {
@@ -3260,16 +3336,17 @@ public class Load {
                         for (Replica replica : tablet.getReplicas()) {
                             ReplicaPersistInfo info =
                                     ReplicaPersistInfo.createForCondDelete(indexId,
-                                                                           tabletId,
-                                                                           replica.getId(),
-                                                                           replica.getVersion(),
-                                                                           replica.getVersionHash(),
-                                                                           replica.getDataSize(),
-                                                                           replica.getRowCount(), 
-                                                                           replica.getLastFailedVersion(),
-                                                                           replica.getLastFailedVersionHash(),
-                                                                           replica.getLastSuccessVersion(),
-                                                                           replica.getLastSuccessVersionHash());
+                                            tabletId,
+                                            replica.getId(),
+                                            replica.getVersion(),
+                                            replica.getVersionHash(),
+                                            table.getSchemaHashByIndexId(indexId),
+                                            replica.getDataSize(),
+                                            replica.getRowCount(),
+                                            replica.getLastFailedVersion(),
+                                            replica.getLastFailedVersionHash(),
+                                            replica.getLastSuccessVersion(),
+                                            replica.getLastSuccessVersionHash());
                             deleteInfo.addReplicaPersistInfo(info);
                         }
                     }
@@ -3289,7 +3366,7 @@ public class Load {
                         idToQuorumFinishedDeleteJob.put(asyncDeleteJob.getJobId(), asyncDeleteJob);
                         LOG.info("finished create async delete job: {}", asyncDeleteJob.getJobId());
                     }
-                    
+
                     // save delete info
                     List<DeleteInfo> deleteInfos = dbToDeleteInfos.get(db.getId());
                     if (deleteInfos == null) {
@@ -3376,7 +3453,7 @@ public class Load {
 
         return infos;
     }
-    
+
     public int getDeleteJobNumByState(long dbId, JobState state) {
         readLock();
         try {
@@ -3387,7 +3464,7 @@ public class Load {
                 int deleteJobNum = 0;
                 for (LoadJob job : deleteJobs) {
                     if (job.getState() == state) {
-                        ++ deleteJobNum;
+                        ++deleteJobNum;
                     }
                 }
                 return deleteJobNum;
@@ -3413,12 +3490,12 @@ public class Load {
 
     public List<List<Comparable>> getDeleteInfosByDb(long dbId, boolean forUser) {
         LinkedList<List<Comparable>> infos = new LinkedList<List<Comparable>>();
-		Database db = Catalog.getInstance().getDb(dbId);
-		if (db == null) {
-			return infos;
-		}
+        Database db = Catalog.getInstance().getDb(dbId);
+        if (db == null) {
+            return infos;
+        }
 
-		String dbName = db.getFullName();
+        String dbName = db.getFullName();
         readLock();
         try {
             List<LoadJob> deleteJobs = dbToDeleteJobs.get(dbId);
@@ -3597,7 +3674,7 @@ public class Load {
                     ++num;
                 }
             }
-            
+
         } finally {
             readUnlock();
         }

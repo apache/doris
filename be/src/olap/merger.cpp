@@ -106,6 +106,11 @@ OLAPStatus Merger::merge(const vector<ColumnData*>& olap_data_arr,
         ++_row_count;
     }
 
+    if (has_error) {
+        LOG(WARNING) << "compaction failed.";
+        return OLAP_ERR_OTHER_ERROR;
+    }
+
     if (OLAP_SUCCESS != writer->finalize()) {
         OLAP_LOG_WARNING("fail to finalize writer. [table='%s']",
                 _table->full_name().c_str());

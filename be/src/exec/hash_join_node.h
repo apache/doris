@@ -134,8 +134,8 @@ private:
     RuntimeProfile::Counter* _push_down_timer;   // time to build hash table
     RuntimeProfile::Counter* _push_compute_timer;
     RuntimeProfile::Counter* _probe_timer;   // time to probe
-    RuntimeProfile::Counter* _build_row_counter;   // num build rows
-    RuntimeProfile::Counter* _probe_row_counter;   // num probe rows
+    RuntimeProfile::Counter* _build_rows_counter;   // num build rows
+    RuntimeProfile::Counter* _probe_rows_counter;   // num probe rows
     RuntimeProfile::Counter* _build_buckets_counter;   // num buckets in hash table
     RuntimeProfile::Counter* _hash_tbl_load_factor_counter;
 

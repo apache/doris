@@ -19,15 +19,16 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.RoutineLoadTask;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Iterator;
-import java.util.List;
+import java.util.Queue;
 
 /**
  * Routine load task scheduler is a function which allocate task to be.
@@ -40,7 +41,7 @@ public class RoutineLoadTaskScheduler extends Daemon {
 
     private static final Logger LOG = LogManager.getLogger(RoutineLoadTaskScheduler.class);
 
-    private RoutineLoadManager routineLoadManager = Catalog.getInstance().getRoutineLoadInstance();
+    private RoutineLoadManager routineLoadManager = Catalog.getInstance().getRoutineLoadManager();
 
     @Override
     protected void runOneCycle() {
@@ -56,24 +57,28 @@ public class RoutineLoadTaskScheduler extends Daemon {
         // update current beIdMaps for tasks
         routineLoadManager.updateBeIdTaskMaps();
 
-        // check timeout tasks
-        routineLoadManager.processTimeoutTasks();
-
         // get idle be task num
         int clusterIdleSlotNum = routineLoadManager.getClusterIdleSlotNum();
         int scheduledTaskNum = 0;
-        List<RoutineLoadTaskInfo> routineLoadTaskList = routineLoadManager.getNeedSchedulerRoutineLoadTasks();
-        Iterator<RoutineLoadTaskInfo> iterator = routineLoadTaskList.iterator();
+        Queue<RoutineLoadTaskInfo> needSchedulerTasksQueue = routineLoadManager.getNeedSchedulerTasksQueue();
         AgentBatchTask batchTask = new AgentBatchTask();
 
         // allocate task to be
         while (clusterIdleSlotNum > 0) {
-            if (iterator.hasNext()) {
-                RoutineLoadTaskInfo routineLoadTaskInfo = iterator.next();
+            if (needSchedulerTasksQueue.peek() != null) {
+                RoutineLoadTaskInfo routineLoadTaskInfo = needSchedulerTasksQueue.poll();
                 long beId = routineLoadManager.getMinTaskBeId();
-                RoutineLoadJob routineLoadJob = routineLoadManager.getJob(routineLoadTaskInfo.getJobId());
-                RoutineLoadTask routineLoadTask = routineLoadJob.createTask(routineLoadTaskInfo, beId);
+                RoutineLoadJob routineLoadJob = null;
+                try {
+                    routineLoadJob = routineLoadManager.getJobByTaskId(routineLoadTaskInfo.getId());
+                } catch (MetaNotFoundException e) {
+                    LOG.warn("task {} has been abandoned", routineLoadTaskInfo.getId());
+                    continue;
+                }
+                RoutineLoadTask routineLoadTask = routineLoadTaskInfo.createStreamLoadTask(beId);
                 if (routineLoadTask != null) {
+                    // remove task for needSchedulerTasksList in job
+                    routineLoadJob.removeNeedSchedulerTask(routineLoadTaskInfo);
                     routineLoadTaskInfo.setLoadStartTimeMs(System.currentTimeMillis());
                     AgentTaskQueue.addTask(routineLoadTask);
                     batchTask.addTask(routineLoadTask);

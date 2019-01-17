@@ -17,14 +17,6 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Database;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.alter.SchemaChangeHandler;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-
-import java.util.ArrayList;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;

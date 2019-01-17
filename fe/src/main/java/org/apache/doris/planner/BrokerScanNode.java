@@ -20,7 +20,6 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -31,10 +30,10 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -75,6 +74,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.stream.Collectors;
 
 // Broker scan node
 public class BrokerScanNode extends ScanNode {
@@ -293,6 +293,10 @@ public class BrokerScanNode extends ScanNode {
                     entry.setValue(unixTimeFunc);
                 } else if (funcName.equalsIgnoreCase("default_value")) {
                     entry.setValue(funcExpr.getChild(0));
+                } else if (funcName.equalsIgnoreCase("now")) {
+                    FunctionName nowFunctionName = new FunctionName("NOW");
+                    FunctionCallExpr newFunc = new FunctionCallExpr(nowFunctionName, new FunctionParams(null));
+                    entry.setValue(newFunc);
                 }
             }
         }
@@ -320,12 +324,17 @@ public class BrokerScanNode extends ScanNode {
         parseExprMap(context.exprMap);
 
         // Generate expr
-        List<String> valueNames = fileGroup.getValueNames();
-        if (valueNames == null) {
-            valueNames = Lists.newArrayList();
+        List<String> fileFieldNames = fileGroup.getFileFieldNames();
+        if (fileFieldNames == null) {
+            fileFieldNames = Lists.newArrayList();
             for (Column column : targetTable.getBaseSchema()) {
-                valueNames.add(column.getName());
+                fileFieldNames.add(column.getName());
             }
+        } else {
+            // change fileFiledName to real column name(case match)
+            fileFieldNames = fileFieldNames.stream().map(
+                    f -> targetTable.getColumn(f) == null ? f : targetTable.getColumn(f).getName()).collect(
+                            Collectors.toList());
         }
 
         // This tuple descriptor is used for file of
@@ -334,12 +343,12 @@ public class BrokerScanNode extends ScanNode {
 
         Map<String, SlotDescriptor> slotDescByName = Maps.newHashMap();
         context.slotDescByName = slotDescByName;
-        for (String value : valueNames) {
+        for (String fieldName : fileFieldNames) {
             SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
             slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
             slotDesc.setIsMaterialized(true);
             slotDesc.setIsNullable(false);
-            slotDescByName.put(value, slotDesc);
+            slotDescByName.put(fieldName, slotDesc);
 
             params.addToSrc_slot_ids(slotDesc.getId().asInt());
         }
@@ -430,14 +439,14 @@ public class BrokerScanNode extends ScanNode {
         // TODO(zc):
         int numBroker = Math.min(3, numBe);
         for (int i = 0; i < numBroker; ++i) {
-            BrokerMgr.BrokerAddress brokerAddress = null;
+            FsBroker broker = null;
             try {
-                brokerAddress = Catalog.getInstance().getBrokerMgr().getBroker(
+                broker = Catalog.getInstance().getBrokerMgr().getBroker(
                         brokerName, candidateBes.get(i).getHost());
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
-            brokerScanRange.addToBroker_addresses(new TNetworkAddress(brokerAddress.ip, brokerAddress.port));
+            brokerScanRange.addToBroker_addresses(new TNetworkAddress(broker.ip, broker.port));
         }
 
         // Scan range

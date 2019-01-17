@@ -24,6 +24,7 @@
 #include "runtime/data_stream_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "service/brpc.h"
+#include "util/uid_util.h"
 #include "util/thrift_util.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/result_buffer_mgr.h"
@@ -45,22 +46,9 @@ void PInternalServiceImpl<T>::transmit_data(google::protobuf::RpcController* cnt
                                          const PTransmitDataParams* request,
                                          PTransmitDataResult* response,
                                          google::protobuf::Closure* done) {
-    bool eos = request->eos();
-    if (request->has_row_batch()) {
-        _exec_env->stream_mgr()->add_data(
-            request->finst_id(), request->node_id(),
-            request->row_batch(), request->sender_id(),
-            request->be_number(), request->packet_seq(),
-            eos ? nullptr : &done);
-    }
-    if (eos) {
-        TUniqueId finst_id;
-        finst_id.__set_hi(request->finst_id().hi());
-        finst_id.__set_lo(request->finst_id().lo());
-        _exec_env->stream_mgr()->close_sender(
-            finst_id, request->node_id(),
-            request->sender_id(), request->be_number());
-    }
+    VLOG_ROW << "transmit data: fragment_instance_id=" << print_id(request->finst_id())
+            << " node=" << request->node_id();
+    _exec_env->stream_mgr()->transmit_data(request, &done);
     if (done != nullptr) {
         done->Run();
     }
@@ -150,7 +138,7 @@ Status PInternalServiceImpl<T>::_exec_plan_fragment(brpc::Controller* cntl) {
         uint32_t len = ser_request.size();
         RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_request));
     }
-    LOG(INFO) << "exec plan fragment, finst_id=" << t_request.params.fragment_instance_id
+    LOG(INFO) << "exec plan fragment, fragment_instance_id=" << print_id(t_request.params.fragment_instance_id)
         << ", coord=" << t_request.coord << ", backend=" << t_request.backend_num;
     return _exec_env->fragment_mgr()->exec_plan_fragment(t_request);
 }
@@ -165,7 +153,7 @@ void PInternalServiceImpl<T>::cancel_plan_fragment(
     TUniqueId tid;
     tid.__set_hi(request->finst_id().hi());
     tid.__set_lo(request->finst_id().lo());
-    LOG(INFO) << "cancel framgent, finst_id=" << tid;
+    LOG(INFO) << "cancel framgent, fragment_instance_id=" << print_id(tid);
     auto st = _exec_env->fragment_mgr()->cancel(tid);
     if (!st.ok()) {
         LOG(WARNING) << "cancel plan fragment failed, errmsg=" << st.get_error_msg();
@@ -185,17 +173,14 @@ void PInternalServiceImpl<T>::fetch_data(
 }
 
 template<typename T>
-void PInternalServiceImpl<T>::fetch_fragment_exec_infos(
+void PInternalServiceImpl<T>::trigger_profile_report(
         google::protobuf::RpcController* controller,
-        const PFetchFragmentExecInfoRequest* request,
-        PFetchFragmentExecInfosResult* result,
+        const PTriggerProfileReportRequest* request,
+        PTriggerProfileReportResult* result,
         google::protobuf::Closure* done) {
     brpc::ClosureGuard closure_guard(done);
-    auto status = _exec_env->fragment_mgr()->fetch_fragment_exec_infos(result, request);
-    if (!status.ok()) {
-        LOG(WARNING) << "fetch fragment exec status failed:" << status.get_error_msg();
-    }
-    status.to_protobuf(result->mutable_status());
+    auto st = _exec_env->fragment_mgr()->trigger_profile_report(request);
+    st.to_protobuf(result->mutable_status());
 }
 
 template class PInternalServiceImpl<PBackendService>;

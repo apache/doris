@@ -21,11 +21,12 @@
 #include <boost/scoped_ptr.hpp>
 #include "exec/exec_node.h"
 #include "exec/sort_exec_exprs.h"
+#include "runtime/data_stream_recvr.h"
 
 namespace doris {
 
 class RowBatch;
-class DataStreamRecvr;
+class RuntimeProfile;
 
 // Receiver node for data streams. The data stream receiver is created in Prepare()
 // and closed in Close().
@@ -48,6 +49,7 @@ public:
     // Blocks until the first batch is available for consumption via GetNext().
     virtual Status open(RuntimeState* state);
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
+    Status collect_query_statistics(QueryStatistics* statistics) override;
     virtual Status close(RuntimeState* state);
 
     // the number of senders needs to be set after the c'tor, because it's not
@@ -60,6 +62,7 @@ protected:
     virtual void debug_string(int indentation_level, std::stringstream* out) const;
 
 private:
+
     // Implements GetNext() for the case where _is_merging is true. Delegates the GetNext()
     // call to the underlying DataStreamRecvr.
     Status get_next_merging(RuntimeState* state, RowBatch* output_batch, bool* eos);
@@ -106,6 +109,13 @@ private:
 
     // Number of rows skipped so far.
     int64_t _num_rows_skipped;
+
+    RuntimeProfile::Counter* _merge_rows_counter;
+
+    // Sub plan query statistics receiver. It is shared with DataStreamRecvr and will be 
+    // called in two different threads. But their calls are all at different time, there is 
+    // no problem of multithreaded access. 
+    std::unique_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 };
 
 };

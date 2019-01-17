@@ -93,8 +93,8 @@ public class OperationType {
     public static final short OP_ADD_FRONTEND = 55;
     public static final short OP_ADD_FIRST_FRONTEND = 56;
     public static final short OP_REMOVE_FRONTEND = 57;
-    public static final short OP_SET_LOAD_ERROR_URL = 58;
-
+    public static final short OP_SET_LOAD_ERROR_HUB = 58;
+    public static final short OP_HEARTBEAT = 59;
     public static final short OP_ALTER_ACCESS_RESOURCE = 60;
     @Deprecated
     public static final short OP_DROP_USER = 61;
@@ -149,5 +149,9 @@ public class OperationType {
 
     // routine load 110~120
     public static final short OP_ROUTINE_LOAD_JOB = 110;
+
+    // UDF 130-140
+    public static final short OP_ADD_FUNCTION = 130;
+    public static final short OP_DROP_FUNCTION = 131;
 
 }

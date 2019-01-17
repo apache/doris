@@ -33,6 +33,7 @@ import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -62,7 +63,7 @@ public class BrokerFileGroup implements Writable {
     private String lineDelimiter;
     private boolean isNegative;
     private List<Long> partitionIds;
-    private List<String> valueNames;
+    private List<String> fileFieldNames;
     private List<String> filePathes;
 
     // This column need expression to get column
@@ -119,9 +120,9 @@ public class BrokerFileGroup implements Writable {
             }
         }
 
-        // valueNames
+        // fileFieldNames
         if (dataDescription.getColumnNames() != null) {
-            valueNames = Lists.newArrayList(dataDescription.getColumnNames());
+            fileFieldNames = Lists.newArrayList(dataDescription.getColumnNames());
         }
 
         // column
@@ -155,8 +156,8 @@ public class BrokerFileGroup implements Writable {
         return isNegative;
     }
 
-    public List<String> getValueNames() {
-        return valueNames;
+    public List<String> getFileFieldNames() {
+        return fileFieldNames;
     }
 
     public List<Long> getPartitionIds() {
@@ -186,10 +187,10 @@ public class BrokerFileGroup implements Writable {
             }
             sb.append("]");
         }
-        if (valueNames != null) {
-            sb.append(",valueNames=[");
+        if (fileFieldNames != null) {
+            sb.append(",fileFieldNames=[");
             int idx = 0;
-            for (String name : valueNames) {
+            for (String name : fileFieldNames) {
                 if (idx++ != 0) {
                     sb.append(",");
                 }
@@ -234,12 +235,12 @@ public class BrokerFileGroup implements Writable {
                 out.writeLong(id);
             }
         }
-        // valueNames
-        if (valueNames == null) {
+        // fileFieldNames
+        if (fileFieldNames == null) {
             out.writeInt(0);
         } else {
-            out.writeInt(valueNames.size());
-            for (String name : valueNames) {
+            out.writeInt(fileFieldNames.size());
+            for (String name : fileFieldNames) {
                 Text.writeString(out, name);
             }
         }
@@ -277,13 +278,13 @@ public class BrokerFileGroup implements Writable {
                 }
             }
         }
-        // valueNames
+        // fileFieldName
         {
-            int valueNameSize = in.readInt();
-            if (valueNameSize > 0) {
-                valueNames = Lists.newArrayList();
-                for (int i = 0; i < valueNameSize; ++i) {
-                    valueNames.add(Text.readString(in));
+            int fileFieldNameSize = in.readInt();
+            if (fileFieldNameSize > 0) {
+                fileFieldNames = Lists.newArrayList();
+                for (int i = 0; i < fileFieldNameSize; ++i) {
+                    fileFieldNames.add(Text.readString(in));
                 }
             }
         }

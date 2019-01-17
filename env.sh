@@ -21,6 +21,14 @@ if [[ -z ${DORIS_HOME} ]]; then
     exit 1
 fi
 
+# check OS type
+if [[ ! -z "$OSTYPE" ]]; then
+    if [[ "$OSTYPE" != "linux-gnu" ]]; then
+        echo "Error: Unsupported OS type: $OSTYPE"
+        exit 1
+    fi
+fi
+
 # include custom environment variables
 if [[ -f ${DORIS_HOME}/custom_env.sh ]]; then
     . ${DORIS_HOME}/custom_env.sh
@@ -57,4 +65,24 @@ fi
 export CLANG_COMPATIBLE_FLAGS=`echo | ${DORIS_GCC_HOME}/bin/gcc -Wp,-v -xc++ - -fsyntax-only 2>&1 \
                 | grep -E '^\s+/' | awk '{print "-I" $1}' | tr '\n' ' '`
 
+# check java home
+if [[ -z ${JAVA_HOME} ]]; then
+    echo "Error: JAVA_HOME is not set"
+    exit 1
+fi
+
+# check java version
+export JAVA=${JAVA_HOME}/bin/java
+JAVA_VER=$(${JAVA} -version 2>&1 | sed 's/.* version "\(.*\)\.\(.*\)\..*"/\1\2/; 1q' | cut -f1 -d " ")
+if [[ $JAVA_VER -lt 18 ]]; then
+    echo "Error: require JAVA with JDK version at least 1.8"
+    exit 1
+fi
+
+# check maven
+export MVN=mvn
+if ! ${MVN} --version; then
+    echo "Error: mvn is not found"
+    exit 1
+fi
 

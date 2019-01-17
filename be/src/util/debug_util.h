@@ -34,18 +34,11 @@ namespace doris {
 
 class PUniqueId;
 
-std::string print_id(const TUniqueId& id);
-std::string print_id(const PUniqueId& id);
 std::string print_plan_node_type(const TPlanNodeType::type& type);
 std::string print_tstmt_type(const TStmtType::type& type);
 std::string print_query_state(const QueryState::type& type);
 std::string PrintTUnit(const TUnit::type& type);
 std::string PrintTMetricKind(const TMetricKind::type& type);
-
-// Parse 's' into a TUniqueId object.  The format of s needs to be the output format
-// from PrintId.  (<hi_part>:<low_part>)
-// Returns true if parse succeeded.
-bool parse_id(const std::string& s, TUniqueId* id);
 
 // Returns a string "<product version number> (build <build hash>)"
 // If compact == false, this string is appended: "\nBuilt on <build time>"

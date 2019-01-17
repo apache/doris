@@ -79,6 +79,8 @@ public:
                                        bool empty, const std::vector<KeyRange>* column_statistics);
 
     void add_delete_condition(const DeleteConditionMessage& delete_condition, int64_t version);
+    void delete_cond_by_version(const Version& version);
+    bool is_delete_data_version(Version version);
 
     const PPendingDelta* get_pending_delta(int64_t transaction_id) const;
     const PPendingSegmentGroup* get_pending_segment_group(int64_t transaction_id, int32_t pending_segment_group_id) const;

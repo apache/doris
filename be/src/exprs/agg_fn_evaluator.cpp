@@ -24,7 +24,7 @@
 #include "exec/aggregation_node.h"
 #include "exprs/aggregate_functions.h"
 #include "exprs/anyval_util.h"
-//#include "runtime/lib_cache.h"
+#include "runtime/user_function_cache.h"
 #include "udf/udf_internal.h"
 #include "util/debug_util.h"
 #include "runtime/datetime_value.h"
@@ -207,37 +207,44 @@ Status AggFnEvaluator::prepare(
     }
 
     // Load the function pointers.
-    RETURN_IF_ERROR(LibCache::instance()->get_so_function_ptr(
-            _hdfs_location, _fn.aggregate_fn.init_fn_symbol, &_init_fn, NULL, true));
+    RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
+            _fn.id, _fn.aggregate_fn.init_fn_symbol,
+            _hdfs_location, _fn.checksum, &_init_fn, NULL));
 
-    RETURN_IF_ERROR(LibCache::instance()->get_so_function_ptr(
-            _hdfs_location, _fn.aggregate_fn.update_fn_symbol, &_update_fn, NULL, true));
+    RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
+            _fn.id, _fn.aggregate_fn.update_fn_symbol,
+            _hdfs_location, _fn.checksum, &_update_fn, NULL));
 
     // Merge() is not loaded if evaluating the agg fn as an analytic function.
     if (!_is_analytic_fn) {
-    RETURN_IF_ERROR(LibCache::instance()->get_so_function_ptr(
-            _hdfs_location, _fn.aggregate_fn.merge_fn_symbol, &_merge_fn, NULL, true));
+    RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
+            _fn.id, _fn.aggregate_fn.merge_fn_symbol,
+            _hdfs_location, _fn.checksum, &_merge_fn, NULL));
     }
 
     // Serialize and Finalize are optional
     if (!_fn.aggregate_fn.serialize_fn_symbol.empty()) {
-        RETURN_IF_ERROR(LibCache::instance()->get_so_function_ptr(
-                _hdfs_location, _fn.aggregate_fn.serialize_fn_symbol, &_serialize_fn, NULL, true));
+        RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
+                _fn.id, _fn.aggregate_fn.serialize_fn_symbol,
+                _hdfs_location, _fn.checksum, &_serialize_fn, NULL));
     }
     if (!_fn.aggregate_fn.finalize_fn_symbol.empty()) {
-        RETURN_IF_ERROR(LibCache::instance()->get_so_function_ptr(
-                _hdfs_location, _fn.aggregate_fn.finalize_fn_symbol, &_finalize_fn, NULL, true));
+        RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
+                _fn.id, _fn.aggregate_fn.finalize_fn_symbol,
+                _hdfs_location, _fn.checksum, &_finalize_fn, NULL));
     }
 
     if (!_fn.aggregate_fn.get_value_fn_symbol.empty()) {
-        RETURN_IF_ERROR(LibCache::instance()->get_so_function_ptr(
-                _hdfs_location, _fn.aggregate_fn.get_value_fn_symbol, &_get_value_fn,
-                NULL, true));
+        RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
+                _fn.id, _fn.aggregate_fn.get_value_fn_symbol,
+                _hdfs_location, _fn.checksum, &_get_value_fn,
+                NULL));
     }
     if (!_fn.aggregate_fn.remove_fn_symbol.empty()) {
-        RETURN_IF_ERROR(LibCache::instance()->get_so_function_ptr(
-                _hdfs_location, _fn.aggregate_fn.remove_fn_symbol, &_remove_fn,
-                NULL, true));
+        RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
+                _fn.id, _fn.aggregate_fn.remove_fn_symbol,
+                _hdfs_location, _fn.checksum, &_remove_fn,
+                NULL));
     }
 
     vector<FunctionContext::TypeDesc> arg_types;

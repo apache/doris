@@ -81,9 +81,9 @@ namespace config {
     // the count of thread to check consistency
     CONF_Int32(check_consistency_worker_count, "1");
     // the count of thread to upload
-    CONF_Int32(upload_worker_count, "3");
+    CONF_Int32(upload_worker_count, "1");
     // the count of thread to download
-    CONF_Int32(download_worker_count, "3");
+    CONF_Int32(download_worker_count, "1");
     // the count of thread to make snapshot
     CONF_Int32(make_snapshot_worker_count, "5");
     // the count of thread to release snapshot
@@ -121,6 +121,7 @@ namespace config {
 
     // log dir
     CONF_String(sys_log_dir, "${DORIS_HOME}/log");
+    CONF_String(user_function_dir, "${DORIS_HOME}/lib/usr");
     // INFO, WARNING, ERROR, FATAL
     CONF_String(sys_log_level, "INFO");
     // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
@@ -219,7 +220,7 @@ namespace config {
     // garbage sweep policy
     CONF_Int32(max_garbage_sweep_interval, "86400");
     CONF_Int32(min_garbage_sweep_interval, "200");
-    CONF_Int32(snapshot_expire_time_sec, "864000");
+    CONF_Int32(snapshot_expire_time_sec, "172800");
     // 仅仅是建议值，当磁盘空间不足时，trash下的文件保存期可不遵守这个参数
     CONF_Int32(trash_file_expire_time_sec, "259200");
     CONF_Int32(disk_capacity_insufficient_percentage, "90");
@@ -379,6 +380,9 @@ namespace config {
 
     // can perform recovering tablet
     CONF_Bool(force_recovery, "false");
+
+    // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
+    CONF_Int32(priority_queue_remaining_tasks_increased_frequency, "512");
 } // namespace config
 
 } // namespace doris

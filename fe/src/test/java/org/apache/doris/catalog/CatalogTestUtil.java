@@ -26,6 +26,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDisk;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -158,11 +159,11 @@ public class CatalogTestUtil {
 
         // replica
         long replicaId = 0;
-        Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, versionHash, 0L, 0L,
+        Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, versionHash, 0, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0, 0, 0);
-        Replica replica2 = new Replica(testReplicaId2, testBackendId2, version, versionHash, 0L, 0L,
+        Replica replica2 = new Replica(testReplicaId2, testBackendId2, version, versionHash, 0, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0, 0, 0);
-        Replica replica3 = new Replica(testReplicaId3, testBackendId3, version, versionHash, 0L, 0L,
+        Replica replica3 = new Replica(testReplicaId3, testBackendId3, version, versionHash, 0, 0L, 0L,
                 ReplicaState.NORMAL, -1, 0, 0, 0);
 
         // tablet
@@ -279,7 +280,7 @@ public class CatalogTestUtil {
                                                                            .newArrayList("100")),
                                                                    null));
 
-        RangePartitionInfo partitionInfo = new RangePartitionInfo(partitionColumns);
+        SinglePartitionInfo partitionInfo = new SinglePartitionInfo();
         Map<String, String> properties = Maps.newHashMap();
         properties.put(EsTable.HOSTS, "xxx");
         properties.put(EsTable.INDEX, "indexa");

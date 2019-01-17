@@ -17,21 +17,22 @@
 
 package org.apache.doris.backup;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-
-import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.doris.backup.Status.ErrCode;
-import org.apache.doris.catalog.BrokerMgr.BrokerAddress;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.system.Backend;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
@@ -330,7 +331,7 @@ public class Repository implements Writable {
         return Status.OK;
     }
 
-    public Status getSnapshotMetaFile(String label, List<BackupMeta> backupMetas) {
+    public Status getSnapshotMetaFile(String label, List<BackupMeta> backupMetas, int metaVersion) {
         String remoteMetaFilePath = assembleMetaInfoFilePath(label);
         File localMetaFile = new File(BackupHandler.BACKUP_ROOT_DIR + PATH_DELIMITER
                 + "meta_" + System.currentTimeMillis());
@@ -342,7 +343,7 @@ public class Repository implements Writable {
             }
 
             // read file to backupMeta
-            BackupMeta backupMeta = BackupMeta.fromFile(localMetaFile.getAbsolutePath());
+            BackupMeta backupMeta = BackupMeta.fromFile(localMetaFile.getAbsolutePath(), metaVersion);
             backupMetas.add(backupMeta);
         } catch (IOException e) {
             return new Status(ErrCode.COMMON_ERROR, "Failed create backup meta from file: "
@@ -372,8 +373,14 @@ public class Repository implements Writable {
         String tmpRemotePath = assembleFileNameWithSuffix(remoteFilePath, SUFFIX_TMP_FILE);
         LOG.debug("get md5sum of file: {}. tmp remote path: {}", localFilePath, tmpRemotePath);
 
+        // this may be a retry, so we should first delete remote file
+        Status st = storage.delete(tmpRemotePath);
+        if (!st.ok()) {
+            return st;
+        }
+
         // upload tmp file
-        Status st = storage.upload(localFilePath, tmpRemotePath);
+        st = storage.upload(localFilePath, tmpRemotePath);
         if (!st.ok()) {
             return st;
         }
@@ -486,7 +493,7 @@ public class Repository implements Writable {
         return origPath.substring(0, origPath.lastIndexOf(PATH_DELIMITER) + 1) + fileNameWithChecksum;
     }
 
-    public Status getBrokerAddress(Long beId, Catalog catalog, List<BrokerAddress> brokerAddrs) {
+    public Status getBrokerAddress(Long beId, Catalog catalog, List<FsBroker> brokerAddrs) {
         // get backend
         Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
         if (be == null) {
@@ -495,7 +502,7 @@ public class Repository implements Writable {
         }
 
         // get proper broker for this backend
-        BrokerAddress brokerAddr = null;
+        FsBroker brokerAddr = null;
         try {
             brokerAddr = catalog.getBrokerMgr().getBroker(storage.getBrokerName(), be.getHost());
         } catch (AnalysisException e) {
@@ -597,7 +604,7 @@ public class Repository implements Writable {
                         info.add(snapshotName);
                         info.add(timestamp);
                         info.add(jobInfo.dbName);
-                        info.add(jobInfo.toString(1));
+                        info.add(jobInfo.getBrief());
                         info.add("OK");
                     } catch (IOException e) {
                         info.add(snapshotName);

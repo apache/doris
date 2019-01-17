@@ -11,7 +11,6 @@
 #include <string>
 
 #include "gutil/hash/hash.h"
-#include "gutil/logging-inl.h"
 #include "gutil/stl_util.h"
 #include "gutil/strings/memutil.h"
 

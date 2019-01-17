@@ -27,6 +27,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
@@ -52,6 +53,7 @@ import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TEsScanRange;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TLoadErrorHubInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPartitionType;
@@ -328,7 +330,7 @@ public class Coordinator {
         // TODO(zc): add a switch to close this function
         StringBuilder sb = new StringBuilder();
         int idx = 0;
-        sb.append("id=").append(DebugUtil.printId(queryId)).append(",");
+        sb.append("query id=").append(DebugUtil.printId(queryId)).append(",");
         sb.append("fragment=[");
         for (Map.Entry<PlanFragmentId, FragmentExecParams> entry : fragmentExecParamsMap.entrySet()) {
             if (idx++ != 0) {
@@ -349,11 +351,13 @@ public class Coordinator {
     // A call to Exec() must precede all other member function calls.
     public void exec() throws Exception {
         if (!scanNodes.isEmpty()) {
-            LOG.debug("debug: in Coordinator::exec. planNode: {}", scanNodes.get(0).treeToThrift());
+            LOG.debug("debug: in Coordinator::exec. query id: {}, planNode: {}",
+                    DebugUtil.printId(queryId), scanNodes.get(0).treeToThrift());
         }
 
         if (!fragments.isEmpty()) {
-            LOG.debug("debug: in Coordinator::exec. fragment: {}", fragments.get(0).toThrift());
+            LOG.debug("debug: in Coordinator::exec. query id: {}, fragment: {}",
+                    DebugUtil.printId(queryId), fragments.get(0).toThrift());
         }
 
         // prepare information
@@ -473,6 +477,7 @@ public class Coordinator {
                 }
                 profileFragmentId += 1;
             }
+            attachInstanceProfileToFragmentProfile();
         } finally {
             unlock();
         }
@@ -569,12 +574,12 @@ public class Coordinator {
         }
     }
 
-    TResultBatch getNext() throws Exception {
+    public RowBatch getNext() throws Exception {
         if (receiver == null) {
             throw new UserException("There is no receiver.");
         }
 
-        TResultBatch resultBatch;
+        RowBatch resultBatch;
         Status status = new Status();
 
         resultBatch = receiver.getNext(status);
@@ -606,7 +611,7 @@ public class Coordinator {
             }
         }
 
-        if (resultBatch == null) {
+        if (resultBatch.isEos()) {
             this.returnedAllResults = true;
 
             // if this query is a block query do not cancel.
@@ -617,7 +622,7 @@ public class Coordinator {
                 cancelInternal();
             }
         } else {
-            numReceivedRows += resultBatch.getRowsSize();
+            numReceivedRows += resultBatch.getBatch().getRowsSize();
         }
 
         return resultBatch;
@@ -1033,7 +1038,7 @@ public class Coordinator {
         return result;
     }
 
-    public void createScanInstance(PlanNodeId leftMostScanId, FragmentExecParams fragmentExecParams) 
+    private void createScanInstance(PlanNodeId leftMostScanId, FragmentExecParams fragmentExecParams) 
          throws UserException {
         int maxNumInstance = queryOptions.mt_dop;
         if (maxNumInstance == 0) {
@@ -1145,7 +1150,7 @@ public class Coordinator {
     }
     
     // create collocated instance according to inputFragments
-    public void createCollocatedInstance(FragmentExecParams fragmentExecParams) {
+    private void createCollocatedInstance(FragmentExecParams fragmentExecParams) {
         Preconditions.checkState(fragmentExecParams.inputFragments.size() >= 1);
         final FragmentExecParams inputFragmentParams = fragmentExecParamsMap.get(fragmentExecParams.
                 inputFragments.get(0));
@@ -1164,7 +1169,7 @@ public class Coordinator {
     }
     
     
-    public void createUnionInstance(FragmentExecParams fragmentExecParams) {
+    private void createUnionInstance(FragmentExecParams fragmentExecParams) {
         final PlanFragment fragment = fragmentExecParams.fragment;
         // Add hosts of scan nodes
         List<PlanNodeId> scanNodeIds = findScanNodes(fragment.getPlanRoot());
@@ -1411,22 +1416,6 @@ public class Coordinator {
             }
         }
 
-        for (int i = 0; i < backendExecStates.size(); ++i) {
-            if (backendExecStates.get(i) == null) {
-                continue;
-            }
-            BackendExecState backendExecState = backendExecStates.get(i);
-            backendExecState.profile().computeTimeInProfile();
-
-            int profileFragmentId = backendExecState.profileFragmentId();
-            if (profileFragmentId < 0 || profileFragmentId > fragmentProfile.size()) {
-                LOG.error("profileFragmentId " + profileFragmentId
-                        + " should be in [0," + fragmentProfile.size() + ")");
-                return;
-            }
-            fragmentProfile.get(profileFragmentId).addChild(backendExecState.profile());
-        }
-
         for (int i = 1; i < fragmentProfile.size(); ++i) {
             fragmentProfile.get(i).sortChildren();
         }
@@ -1574,7 +1563,6 @@ public class Coordinator {
                 params.setResource_info(tResourceInfo);
                 params.params.setQuery_id(queryId);
                 params.params.setFragment_instance_id(instanceExecParam.instanceId);
-                
                 Map<Integer, List<TScanRangeParams>> scanRanges = instanceExecParam.perNodeScanRanges;
                 if (scanRanges == null) {
                     scanRanges = Maps.newHashMap();
@@ -1590,6 +1578,17 @@ public class Coordinator {
                 params.setBackend_num(backendNum++);
                 params.setQuery_globals(queryGlobals);
                 params.setQuery_options(queryOptions);
+                params.params.setSend_query_statistics_with_every_batch(
+                        fragment.isTransferQueryStatisticsWithEveryBatch());
+                if (queryOptions.getQuery_type() == TQueryType.LOAD) {
+                    LoadErrorHub.Param param = Catalog.getCurrentCatalog().getLoadInstance().getLoadErrorHubInfo();
+                    if (param != null) {
+                        TLoadErrorHubInfo info = param.toThrift();
+                        if (info != null) {
+                            params.setLoad_error_hub_info(info);
+                        }
+                    }
+                }
 
                 paramsList.add(params);
             }
@@ -1703,5 +1702,23 @@ public class Coordinator {
             }
         }
         return result;
+    }
+
+    private void attachInstanceProfileToFragmentProfile() {
+        for (int i = 0; i < backendExecStates.size(); ++i) {
+            if (backendExecStates.get(i) == null) {
+                continue;
+            }
+            BackendExecState backendExecState = backendExecStates.get(i);
+            backendExecState.profile().computeTimeInProfile();
+
+            int profileFragmentId = backendExecState.profileFragmentId();
+            if (profileFragmentId < 0 || profileFragmentId > fragmentProfile.size()) {
+                LOG.error("profileFragmentId " + profileFragmentId
+                        + " should be in [0," + fragmentProfile.size() + ")");
+                return;
+            }
+            fragmentProfile.get(profileFragmentId).addChild(backendExecState.profile());
+        }
     }
 }
