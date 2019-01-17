@@ -21,9 +21,6 @@ MAINTAINER tangxiaoqing214445
 
 ENV DEFAULT_DIR /var/local
 
-# change .bashrc
-RUN echo -e "if [ ! -d "/var/local/incubator-doris/thirdparty/installed" ]; then\n\tmkdir /var/local/incubator-doris/thirdparty/installed\n\tcp -rf /var/local/thirdparty/installed/*  /var/local/incubator-doris/thirdparty/installed/\n\tln -s /var/local/incubator-doris/thirdparty/installed/bin/thrift /usr/bin/thrift \nfi" >> /root/.bashrc
-
 ARG GCC_VERSION=7.3.0
 ARG GCC_URL=https://mirrors.ustc.edu.cn/gnu/gcc/gcc-${GCC_VERSION}
 
@@ -75,7 +72,8 @@ RUN touch  ${DEFAULT_DIR}/install_jdk.sh \
     && echo 'echo "export JAVA_HOME=/usr/java/jdk" >> /root/.bashrc' >> ${DEFAULT_DIR}/install_jdk.sh \
     && chmod 777 ${DEFAULT_DIR}/install_jdk.sh \
     && /bin/bash ${DEFAULT_DIR}/install_jdk.sh \
-    && rm -rf *.rpm
+    && rm -rf *.rpm \
+    && rm ${DEFAULT_DIR}/install_jdk.sh
 
 ENV JAVA_HOME /usr/java/jdk
 
@@ -110,7 +108,8 @@ RUN git clone https://github.com/apache/incubator-doris.git \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty.tar.gz \
     && rm -rf ${DEFAULT_DIR}/doris-thirdparty \
     && mkdir -p ${DEFAULT_DIR}/thirdparty \
-    && mv ${DEFAULT_DIR}/incubator-doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/
+    && mv ${DEFAULT_DIR}/incubator-doris/thirdparty/installed ${DEFAULT_DIR}/thirdparty/ \
+    && rm -rf ${DEFAULT_DIR}/incubator-doris
 
-WORKDIR ${DEFAULT_DIR}/incubator-doris
-
+ENV DORIS_THIRDPARTY /var/local/thirdparty
+WORKDIR /root
