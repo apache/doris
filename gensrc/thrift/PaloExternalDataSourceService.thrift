@@ -57,6 +57,7 @@ struct TExtLiteral {
 // The column and the value are guaranteed to be type compatible in Impala,
 // but they are not necessarily the same type, so the data source
 // implementation may need to do an implicit cast.
+// > < = != >= <=
 struct TExtBinaryPredicate {
   // Column on which the predicate is applied. Always set.
   1: optional TExtColumnDesc col
@@ -66,10 +67,40 @@ struct TExtBinaryPredicate {
   3: optional TExtLiteral value
 }
 
+struct TExtInPredicate {
+  1: optional bool is_not_in
+  // Column on which the predicate is applied. Always set.
+  2: optional TExtColumnDesc col
+  // Value on the right side of the binary predicate. Always set.
+  3: optional list<TExtLiteral> values
+}
+
+struct TExtLikePredicate {
+  1: optional TExtColumnDesc col
+  2: optional TExtLiteral value
+}
+
+struct TExtIsNullPredicate {
+  1: optional bool is_not_null
+  2: optional TExtColumnDesc col
+}
+
+struct TExtFunction { 
+  1: optional string func_name
+  // input parameter column descs
+  2: optional list<TExtColumnDesc> cols
+  // input parameter column literals
+  3: optional list<TExtLiteral> values
+}
+
 // a union of all predicates
 struct TExtPredicate {
   1: required Exprs.TExprNodeType node_type
   2: optional TExtBinaryPredicate binary_predicate
+  3: optional TExtInPredicate in_predicate
+  4: optional TExtLikePredicate like_predicate
+  5: optional TExtIsNullPredicate is_null_predicate
+  6: optional TExtFunction ext_function
 }
 
 // A union over all possible return types for a column of data
@@ -82,7 +113,7 @@ struct TExtColumnData {
 
   // Only one is set, only non-null values are set. this indicates one column data for a row batch
   2: optional list<bool> bool_vals;
-  3: optional binary byte_vals;
+  3: optional list<byte> byte_vals;
   4: optional list<i16> short_vals;
   5: optional list<i32> int_vals;
   6: optional list<i64> long_vals;
@@ -170,6 +201,7 @@ struct TExtOpenResult {
 
   // An opaque handle used in subsequent getNext()/close() calls. Required.
   2: optional string scan_handle
+  3: optional list<i32> accepted_conjuncts
 }
 
 // Parameters to getNext()
