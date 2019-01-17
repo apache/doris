@@ -64,7 +64,8 @@ public class ScalarType extends Type {
     private final PrimitiveType type;
 
     // Only used for type CHAR.
-    private int len;
+    private int len = -1;
+    private boolean isAssignedStrLenInColDefinition = false;
 
     // Only used if type is DECIMAL. -1 (for both) is used to represent a
     // decimal with any precision and scale.
@@ -357,6 +358,9 @@ public class ScalarType extends Type {
     public PrimitiveType getPrimitiveType() { return type; }
     public int ordinal() { return type.ordinal(); }
     public int getLength() { return len; }
+    public void setLength(int len) {this.len = len; }
+    public boolean isAssignedStrLenInColDefinition() { return isAssignedStrLenInColDefinition; }
+    public void setAssignedStrLenInColDefinition() { this.isAssignedStrLenInColDefinition = true; }
 
     // add scalar infix to override with getPrecision
     public int getScalarScale() { return scale; }
