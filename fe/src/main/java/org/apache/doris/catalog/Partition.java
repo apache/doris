@@ -24,6 +24,9 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.meta.MetaContext;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -37,6 +40,8 @@ import java.util.Map.Entry;
  * Internal representation of partition-related metadata.
  */
 public class Partition extends MetaObject implements Writable {
+    private static final Logger LOG = LogManager.getLogger(Partition.class);
+
     public static final long PARTITION_INIT_VERSION = 1L;
     public static final long PARTITION_INIT_VERSION_HASH = 0L;
 
@@ -109,6 +114,20 @@ public class Partition extends MetaObject implements Writable {
 
     public void setState(PartitionState state) {
         this.state = state;
+    }
+
+    /*
+     * If a partition is overwritten by a restore job, we need to reset all version info to
+     * the restored partition version info》
+     */
+    public void updateVersionForRestore(long visibleVersion, long visibleVersionHash) {
+        this.visibleVersion = visibleVersion;
+        this.visibleVersionHash = visibleVersionHash;
+        this.nextVersion = this.visibleVersion + 1;
+        this.nextVersionHash = Util.generateVersionHash();
+        this.committedVersionHash = visibleVersionHash;
+        LOG.info("update partition {} version for restore: visible: {}-{}, next: {}-{}",
+                visibleVersion, visibleVersionHash, nextVersion, nextVersionHash);
     }
 
     public void updateVisibleVersionAndVersionHash(long visibleVersion, long visibleVersionHash) {

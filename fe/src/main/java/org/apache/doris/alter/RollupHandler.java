@@ -359,9 +359,10 @@ public class RollupHandler extends AlterHandler {
                     // the new replica's init version is -1 until finished history rollup
                     Replica rollupReplica = new Replica(rollupReplicaId, backendId, rollupSchemaHash,
                             ReplicaState.ROLLUP);
-                    // new replica's last failed version is equal to the partition's next version - 1
-                    // has to set failed verison and version hash here, because there will be no load after rollup
-                    // so that if not set here, last failed version will not be set
+                    // new replica's last failed version should be set to the partition's next version - 1,
+                    // if all go well, the last failed version will be overwritten when rollup task finished and update
+                    // replica version info.
+                    // If not set, there is no other way to know that this replica has failed version.
                     rollupReplica.updateVersionInfo(rollupReplica.getVersion(), rollupReplica.getVersionHash(), 
                             partition.getCommittedVersion(), partition.getCommittedVersionHash(), 
                             rollupReplica.getLastSuccessVersion(), rollupReplica.getLastSuccessVersionHash());

@@ -31,7 +31,7 @@ import java.util.List;
 import java.util.Set;
 
 /*
- * SHOW PROC /dbs/dbId/tableId/index_schema/"index name"
+ * SHOW PROC /dbs/dbId/tableId/index_schema/indexId"
  * show index schema
  */
 public class IndexSchemaProcNode implements ProcNodeInterface {
