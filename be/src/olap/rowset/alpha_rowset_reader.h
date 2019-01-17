@@ -34,15 +34,19 @@ public:
         RowsetMeta* rowset_meta, std::vector<std::shared_ptr<SegmentGroup>> segment_groups);
 
     // reader init
-    virtual OLAPStatus init(ReaderContext* read_context);
+    virtual OLAPStatus init(RowsetReaderContext* read_context);
 
     // check whether rowset has more data
     virtual bool has_next();
 
+    // read next row data
+    virtual OLAPStatus next(RowCursor** row);
+
     // read next block data
-    virtual OLAPStatus next(RowCursor* row);
     virtual OLAPStatus next_block(RowBlock** block);
+
     virtual bool delete_flag();
+    
     virtual Version version();
 
     // close reader
@@ -50,15 +54,17 @@ public:
 
 private:
 
-    OLAPStatus _init_column_datas(ReaderContext* read_context);
+    OLAPStatus _init_column_datas(RowsetReaderContext* read_context);
 
-    OLAPStatus _get_next_row_for_singleton_rowset(RowCursor* row);
+    OLAPStatus _get_next_row_for_singleton_rowset(RowCursor** row);
 
-    OLAPStatus _get_next_row_for_cumulative_rowset(RowCursor* row);
+    OLAPStatus _get_next_row_for_cumulative_rowset(RowCursor** row);
 
-    OLAPStatus _get_next_block(ColumnData* column_data, RowBlock* row_block);
+    OLAPStatus _get_next_not_filtered_row(size_t pos, RowCursor** row);
 
-    OLAPStatus _refresh_next_block(ColumnData* column_datam, RowBlock* row_block);
+    OLAPStatus _get_next_block(size_t pos, RowBlock** row_block);
+
+    OLAPStatus _refresh_next_block(size_t pos, RowBlock** row_block);
 
 private:
     int _num_key_fields;
@@ -70,9 +76,9 @@ private:
     std::vector<std::unique_ptr<ColumnData>> _column_datas;
     std::vector<RowBlock*> _row_blocks;
     int _key_range_size;
-    int _key_range_index;
+    std::vector<int> _key_range_indexes;
     bool _is_cumulative_rowset;
-    ReaderContext* _current_read_context;
+    RowsetReaderContext* _current_read_context;
 };
 
 } // namespace doris
