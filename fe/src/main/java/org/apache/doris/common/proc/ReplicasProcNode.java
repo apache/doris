@@ -34,7 +34,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
             .add("ReplicaId").add("BackendId").add("Version").add("VersionHash")
             .add("LstSuccessVersion").add("LstSuccessVersionHash")
             .add("LstFailedVersion").add("LstFailedVersionHash")
-            .add("LstFailedTime").add("DataSize").add("RowCount").add("State")
+            .add("LstFailedTime").add("SchemaHash").add("DataSize").add("RowCount").add("State")
             .add("VersionCount").add("PathHash")
             .build();
     
@@ -59,6 +59,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
                                         String.valueOf(replica.getLastFailedVersion()),
                                         String.valueOf(replica.getLastFailedVersionHash()),
                                         TimeUtils.longToTimeString(replica.getLastFailedTimestamp()),
+                                        String.valueOf(replica.getSchemaHash()),
                                         String.valueOf(replica.getDataSize()),
                                         String.valueOf(replica.getRowCount()),
                                         String.valueOf(replica.getState()),
