@@ -3091,15 +3091,21 @@ type ::=
   | KW_DATETIME
   {: RESULT = Type.DATETIME; :}
   | KW_STRING
-  {: RESULT = ScalarType.createVarcharType(1); :}
+  {: RESULT = ScalarType.createVarcharType(-1); :}
   | KW_VARCHAR LPAREN INTEGER_LITERAL:len RPAREN
-  {: RESULT = ScalarType.createVarcharType(len.intValue()); :}
+  {: ScalarType type = ScalarType.createVarcharType(len.intValue()); 
+     type.setAssignedStrLenInColDefinition(); 
+     RESULT = type;
+  :}
   | KW_VARCHAR
-  {: RESULT = ScalarType.createVarcharType(1); :}
+  {: RESULT = ScalarType.createVarcharType(-1); :}
   | KW_CHAR LPAREN INTEGER_LITERAL:len RPAREN
-  {: RESULT = ScalarType.createCharType(len.intValue()); :}
+  {: ScalarType type = ScalarType.createCharType(len.intValue()); 
+     type.setAssignedStrLenInColDefinition(); 
+     RESULT = type;
+  :}
   | KW_CHAR
-  {: RESULT = ScalarType.createCharType(1); :}
+  {: RESULT = ScalarType.createCharType(-1); :}
   | KW_DECIMAL LPAREN INTEGER_LITERAL:precision RPAREN
   {: RESULT = ScalarType.createDecimalType(precision.intValue()); :}
   | KW_DECIMAL LPAREN INTEGER_LITERAL:precision COMMA INTEGER_LITERAL:scale RPAREN
