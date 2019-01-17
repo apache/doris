@@ -1089,51 +1089,63 @@ public class SchemaChangeJob extends AlterJob {
 
     @Override
     public void getJobInfo(List<List<Comparable>> jobInfos, OlapTable tbl) {
-        if (state == JobState.FINISHED || state == JobState.CANCELLED) {
-            List<Comparable> jobInfo = new ArrayList<Comparable>();
-            jobInfo.add(tableId);
-            jobInfo.add(tbl.getName());
-            jobInfo.add(transactionId);
-            jobInfo.add(TimeUtils.longToTimeString(createTime));
-            jobInfo.add(TimeUtils.longToTimeString(finishedTime));
-            jobInfo.add("N/A");
-            jobInfo.add("N/A");
-            jobInfo.add(state.name());
-            jobInfo.add(cancelMsg);
-            jobInfo.add("N/A");
+        if (changedIndexIdToSchemaVersion == null) {
+            // for compatibility
+            if (state == JobState.FINISHED || state == JobState.CANCELLED) {
+                List<Comparable> jobInfo = new ArrayList<Comparable>();
+                jobInfo.add(tableId);
+                jobInfo.add(tbl.getName());
+                jobInfo.add(transactionId);
+                jobInfo.add(TimeUtils.longToTimeString(createTime));
+                jobInfo.add(TimeUtils.longToTimeString(finishedTime));
+                jobInfo.add("N/A");
+                jobInfo.add("N/A");
+                jobInfo.add(state.name());
+                jobInfo.add(cancelMsg);
+                jobInfo.add("N/A");
 
-            jobInfos.add(jobInfo);
+                jobInfos.add(jobInfo);
+                return;
+            }
+
+            // in previous version, changedIndexIdToSchemaVersion is set to null
+            // when job is finished or cancelled.
+            // so if changedIndexIdToSchemaVersion == null, the job'state must be FINISHED or CANCELLED
             return;
         }
 
-        // calc progress and state for each table
         Map<Long, String> indexProgress = new HashMap<Long, String>();
         Map<Long, String> indexState = new HashMap<Long, String>();
-        for (Long indexId : getChangedIndexToSchema().keySet()) {
+
+        // calc progress and state for each table
+        for (Long indexId : changedIndexIdToSchemaVersion.keySet()) {
             int totalReplicaNum = 0;
             int finishedReplicaNum = 0;
             String idxState = IndexState.NORMAL.name();
             for (Partition partition : tbl.getPartitions()) {
                 MaterializedIndex index = partition.getIndex(indexId);
-                int tableReplicaNum = getTotalReplicaNumByIndexId(indexId);
-                int tableFinishedReplicaNum = getFinishedReplicaNumByIndexId(indexId);
-                Preconditions.checkState(!(tableReplicaNum == 0 && tableFinishedReplicaNum == -1));
-                Preconditions.checkState(tableFinishedReplicaNum <= tableReplicaNum,
-                                         tableFinishedReplicaNum + "/" + tableReplicaNum);
-                totalReplicaNum += tableReplicaNum;
-                finishedReplicaNum += tableFinishedReplicaNum;
+
+                if (state == JobState.RUNNING) {
+                    int tableReplicaNum = getTotalReplicaNumByIndexId(indexId);
+                    int tableFinishedReplicaNum = getFinishedReplicaNumByIndexId(indexId);
+                    Preconditions.checkState(!(tableReplicaNum == 0 && tableFinishedReplicaNum == -1));
+                    Preconditions.checkState(tableFinishedReplicaNum <= tableReplicaNum,
+                            tableFinishedReplicaNum + "/" + tableReplicaNum);
+                    totalReplicaNum += tableReplicaNum;
+                    finishedReplicaNum += tableFinishedReplicaNum;
+                }
 
                 if (index.getState() != IndexState.NORMAL) {
                     idxState = index.getState().name();
                 }
             }
-            if (Catalog.getInstance().isMaster()
-                    && (state == JobState.RUNNING || state == JobState.FINISHED)) {
+
+            indexState.put(indexId, idxState);
+
+            if (Catalog.getInstance().isMaster() && state == JobState.RUNNING && totalReplicaNum != 0) {
                 indexProgress.put(indexId, (finishedReplicaNum * 100 / totalReplicaNum) + "%");
-                indexState.put(indexId, idxState);
             } else {
                 indexProgress.put(indexId, "0%");
-                indexState.put(indexId, idxState);
             }
         }
 
@@ -1148,11 +1160,15 @@ public class SchemaChangeJob extends AlterJob {
             jobInfo.add(indexId);
             // index schema version and schema hash
             jobInfo.add(changedIndexIdToSchemaVersion.get(indexId) + "-" + changedIndexIdToSchemaHash.get(indexId));
-            jobInfo.add(indexState.get(indexId));
-            jobInfo.add(state.name());
+            jobInfo.add(indexState.get(indexId)); // index state
             jobInfo.add(transactionId);
+            jobInfo.add(state.name()); // job state
+
+            if (state == JobState.RUNNING) {
+                jobInfo.add(indexProgress.get(indexId) == null ? "N/A" : indexProgress.get(indexId)); // progress
+            }
+
             jobInfo.add(cancelMsg);
-            jobInfo.add(indexProgress.get(indexId));
 
             jobInfos.add(jobInfo);
         } // end for indexIds
