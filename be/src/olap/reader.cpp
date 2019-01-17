@@ -549,7 +549,7 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
                    .set_stats(&_stats)
                    .set_is_using_cache(is_using_cache)
                    .set_runtime_state(read_params.runtime_state);
-    ReaderContext context = context_builder.build();
+    RowsetReaderContext context = context_builder.build();
     for (auto& rs_reader : *rs_readers) {
         rs_reader->init(&context);
         _rs_readers.push_back(rs_reader);
