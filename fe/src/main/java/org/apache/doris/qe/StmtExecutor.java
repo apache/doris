@@ -544,25 +544,24 @@ public class StmtExecutor {
         boolean isSendFields = false;
         while (true) {
             batch = coord.getNext();
+            if (batch.getBatch() != null) {
+                if (!isSendFields) {
+                    sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
+                    isSendFields = true;
+                }
+
+                for (ByteBuffer row : batch.getBatch().getRows()) {
+                    channel.sendOnePacket(row);
+                }            
+                context.updateReturnRows(batch.getBatch().getRows().size());    
+            }
+
             if (batch.isEos()) {
                 break;
             }
-            if (!isSendFields) {
-                sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
-                isSendFields = !isSendFields;
-            }
-
-            for (ByteBuffer row : batch.getBatch().getRows()) {
-                channel.sendOnePacket(row);
-            }
-            context.updateReturnRows(batch.getBatch().getRows().size());
         }
 
         statisticsForAuditLog = batch.getQueryStatistics();
-
-        if (!isSendFields) {
-            sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
-        }
         context.getState().setEof();
     }
 
