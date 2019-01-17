@@ -22,51 +22,47 @@ The simplicity (of developing, deploying and using) and meeting many data servin
 
 Currently only supports Docker environment and Linux OS, such as Ubuntu and CentOS.
 
-### 4.1 For Docker
+### 4.1 For Docker 
 
-#### Step 1: Install Docker
+Firstly, you must be install and start docker service.
 
-Take CentOS as an example:
+And then you could build doris as following steps:
 
-```
-yum -y install docker-io
-service docker start
-```
-
-#### Step 2: Create Docker image for complilation
-
-Given your work space is /my/workspace, and you can download Doris docker file as following:
+#### Step1: Download doris source package
+You can by git clone or download release package and depress it.
 
 ```
-wget https://github.com/apache/incubator-doris/blob/master/docker/Dockerfile -O /my/workspace/Dockerfile
+Given the source path is $PWD/apache-doris-0.9.0.rc01-incubating-src
 ```
 
-Now build your image, and it may take a long time (40min to 1 hour)
+#### Step2: Pull the docker image with doris building environment
 
 ```
-cd /my/workspace && docker build -t doris-dev:v1.0 .
+$ docker pull apachedoris/doris-dev:build-env
 ```
 
-#### Step 3: Compile and install Doris
-
-Clone Doris source:
+You can check it by command, for example:
 
 ```
-git clone https://github.com/apache/incubator-doris.git /path/to/incubator-doris/
+$ docker images
+REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
+apachedoris/doris-dev   build-env           f8bc5d4024e0        21 hours ago        3.28GB
 ```
 
-Start a container named doris-dev-test, and map /path/to/incubator-doris/ to /var/local/incubator-doris/ in container.
+#### Step3: Map source path into docker and enter docker
+Start a container named incubator-doris-dev, and map /path/to/incubator-doris/ to /var/local/incubator-doris/ in container.
 
 ```
-docker run -it --name doris-dev-test -v /path/to/incubator-doris/:/var/local/incubator-doris/ doris-dev:v1.0
+$ docker run -it --name incubator-doris-dev -v $PWD/incubator-doris/:/var/lib/docker/incubator-doris/ apachedoris/doris-dev:build-env
 ```
 
-Compile Doris source:
+#### Step4: Build Doris
+Now you should in docker environment, you can build Doris.
 
 ```
-sh build.sh 
+$ cd /var/lib/docker/incubator-doris
+$ sh build.sh
 ```
-
 After successfully building, it will install binary files in the directory output/.
 
 ### 4.2 For Linux OS
