@@ -58,8 +58,8 @@ public class Replica implements Writable {
     private long versionHash;
     private int schemaHash = -1;
 
-    private long dataSize;
-    private long rowCount;
+    private long dataSize = 0;
+    private long rowCount = 0;
     private ReplicaState state;
     
     private long lastFailedVersion = -1L;

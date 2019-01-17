@@ -716,8 +716,9 @@
         SHOW DATA [FROM db_name[.table_name]];
         
     说明：
-        如果不指定 FROM 子句，使用展示当前 db 下细分到各个 table 的数据量
-        如果指定 FROM 子句，则展示 table 下细分到各个 index 的数据量
+        1. 如果不指定 FROM 子句，使用展示当前 db 下细分到各个 table 的数据量
+        2. 如果指定 FROM 子句，则展示 table 下细分到各个 index 的数据量
+        3. 如果想查看各个 Partition 的大小，请参阅 help show partitions
 
 ## example
     1. 展示默认 db 的各个 table 的数据量及汇总数据量
@@ -743,7 +744,7 @@
         SHOW PARTITIONS FROM example_db.table_name PARTITION p1;
 
 ## keyword
-    SHOW,PARTITION
+    SHOW,PARTITIONS
     
 # SHOW TABLET
 ## description
