@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
+import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
@@ -56,10 +57,6 @@ public class TabletChecker extends Daemon {
     private static final Logger LOG = LogManager.getLogger(TabletChecker.class);
 
     private static final long CHECK_INTERVAL_MS = 20 * 1000L; // 20 second
-
-    // if the number of scheduled tablets in TabletScheduler exceed this threshold
-    // skip checking.
-    private static final int MAX_SCHEDULING_TABLETS = 5000;
 
     private Catalog catalog;
     private SystemInfoService infoService;
@@ -156,10 +153,12 @@ public class TabletChecker extends Daemon {
      */
     @Override
     protected void runOneCycle() {
-        if (tabletScheduler.getPendingNum() > MAX_SCHEDULING_TABLETS
-                || tabletScheduler.getRunningNum() > MAX_SCHEDULING_TABLETS) {
+        int pendingNum = tabletScheduler.getPendingNum();
+        int runningNum = tabletScheduler.getRunningNum();
+        if (pendingNum > TabletScheduler.MAX_SCHEDULING_TABLETS
+                || runningNum > TabletScheduler.MAX_SCHEDULING_TABLETS) {
             LOG.info("too many tablets are being scheduled. pending: {}, running: {}, limit: {}. skip check",
-                    tabletScheduler.getPendingNum(), tabletScheduler.getRunningNum(), MAX_SCHEDULING_TABLETS);
+                    pendingNum, runningNum, TabletScheduler.MAX_SCHEDULING_TABLETS);
             return;
         }
         
@@ -178,7 +177,7 @@ public class TabletChecker extends Daemon {
         long addToSchedulerTabletNum = 0;
 
         List<Long> dbIds = catalog.getDbIds();
-        for (Long dbId : dbIds) {
+        OUT: for (Long dbId : dbIds) {
             Database db = catalog.getDb(dbId);
             if (db == null) {
                 continue;
@@ -237,11 +236,16 @@ public class TabletChecker extends Daemon {
                                         System.currentTimeMillis());
                                 tabletCtx.setOrigPriority(statusWithPrio.second);
 
-                                if (tabletScheduler.addTablet(tabletCtx, false /* not force */)) {
+                                AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
+                                if (res == AddResult.LIMIT_EXCEED) {
+                                    LOG.info("number of scheduling tablets in tablet scheduler"
+                                            + " exceed to limit. stop tablet checker");
+                                    break OUT;
+                                } else if (res == AddResult.ADDED) {
                                     addToSchedulerTabletNum++;
                                 }
                             }
-                        }
+                        } // indices
 
                         if (prioPartIsHealthy && isInPrios) {
                             // if all replicas in this partition are healthy, remove this partition from
@@ -250,8 +254,8 @@ public class TabletChecker extends Daemon {
                                     db.getId(), olapTbl.getId(), partition.getId());
                             removePrios(db.getId(), olapTbl.getId(), Lists.newArrayList(partition.getId()));
                         }
-                    }
-                }
+                    } // partitions
+                } // tables
             } finally {
                 db.readUnlock();
             }

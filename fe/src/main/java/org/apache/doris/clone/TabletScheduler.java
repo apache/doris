@@ -91,6 +91,10 @@ public class TabletScheduler extends Daemon {
 
     public static final int BALANCE_SLOT_NUM_FOR_PATH = 2;
 
+    // if the number of scheduled tablets in TabletScheduler exceed this threshold
+    // skip checking.
+    public static final int MAX_SCHEDULING_TABLETS = 5000;
+
     /*
      * Tablet is added to pendingTablets as well it's id in allTabletIds.
      * TabletScheduler will take tablet from pendingTablets but will not remove it's id from allTabletIds when
@@ -121,6 +125,13 @@ public class TabletScheduler extends Daemon {
     private SystemInfoService infoService;
     private TabletInvertedIndex invertedIndex;
     private TabletSchedulerStat stat;
+    
+    // result of adding a tablet to pendingTablets
+    public enum AddResult {
+        ADDED, // success to add
+        ALREADY_IN, // already added, skip
+        LIMIT_EXCEED // number of pending tablets exceed the limit
+    }
 
     public TabletScheduler(Catalog catalog, SystemInfoService infoService, TabletInvertedIndex invertedIndex,
             TabletSchedulerStat stat) {
@@ -188,14 +199,22 @@ public class TabletScheduler extends Daemon {
      * add a ready-to-be-scheduled tablet to pendingTablets, if it has not being added before.
      * if force is true, do not check if tablet is already added before.
      */
-    public synchronized boolean addTablet(TabletSchedCtx tablet, boolean force) {
+    public synchronized AddResult addTablet(TabletSchedCtx tablet, boolean force) {
         if (!force && containsTablet(tablet.getTabletId())) {
-            LOG.info("balance is disabled, skip");
-            return false;
+            return AddResult.ALREADY_IN;
         }
+        
+        // if this is not a BALANCE task, and not a force add,
+        // and number of scheduling tablets exceed the limit,
+        // refuse to add.
+        if (tablet.getType() != TabletSchedCtx.Type.BALANCE && !force
+                && (pendingTablets.size() > MAX_SCHEDULING_TABLETS || runningTablets.size() > MAX_SCHEDULING_TABLETS)) {
+            return AddResult.LIMIT_EXCEED;
+        }
+        
         allTabletIds.add(tablet.getTabletId());
         pendingTablets.offer(tablet);
-        return true;
+        return AddResult.ADDED;
     }
 
     public synchronized boolean containsTablet(long tabletId) {
@@ -705,6 +724,7 @@ public class TabletScheduler extends Daemon {
      */
     private void selectTabletsForBalance() {
         if (Config.disable_balance) {
+            LOG.info("balance is disabled. skip selecting tablets for balance");
             return;
         }
 

@@ -29,9 +29,9 @@ import java.util.List;
 
 public class SchemaChangeProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("JobId").add("TableName").add("TransactionId").add("CreateTime").add("FinishTime")
-            .add("IndexName").add("IndexState").add("State").add("Msg")
-            .add("Progress")
+            .add("JobId").add("TableName").add("CreateTime").add("FinishTime")
+            .add("IndexName").add("IndexId").add("SchemaVersion").add("IndexState")
+            .add("TransactionId").add("State").add("Progress").add("Msg")
             .build();
 
     private SchemaChangeHandler schemaChangeHandler;

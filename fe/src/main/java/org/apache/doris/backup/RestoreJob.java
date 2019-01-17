@@ -502,7 +502,7 @@ public class RestoreJob extends AbstractJob {
                                                 + " in table " + localTbl.getName()
                                                 + " has different replication num '"
                                                 + localRangePartInfo.getReplicationNum(localPartition.getId())
-                                                + "' with parition in repository");
+                                                + "' with parition in repository, which is " + restoreReplicationNum);
                                         return;
                                     }
                                     genFileMapping(localOlapTbl, localPartition, tblInfo.id, backupPartInfo,
@@ -524,7 +524,7 @@ public class RestoreJob extends AbstractJob {
                                             + " in table " + localTbl.getName()
                                             + " has different replication num '"
                                             + localPartInfo.getReplicationNum(localPartition.getId())
-                                            + "' with parition in repository");
+                                            + "' with parition in repository, which is " + restoreReplicationNum);
                                     return;
                                 }
 
@@ -723,7 +723,7 @@ public class RestoreJob extends AbstractJob {
                         Range<PartitionKey> remoteRange = remotePartitionInfo.getRange(remotePartId);
                         DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
                         localPartitionInfo.addPartition(restoredPart.getId(), remoteRange,
-                                                                  remoteDataProperty, (short) restoreReplicationNum);
+                                remoteDataProperty, (short) restoreReplicationNum);
                         localTbl.addPartition(restoredPart);
                     }
 
@@ -1116,7 +1116,7 @@ public class RestoreJob extends AbstractJob {
 
         state = RestoreJobState.DOWNLOADING;
 
-        // No log here
+        // No edit log here
         LOG.info("finished to send download tasks to BE. num: {}. {}", batchTask.getTaskNum(), this);
         return;
     }
@@ -1205,8 +1205,8 @@ public class RestoreJob extends AbstractJob {
                         continue;
                     }
 
-                    // update partition committed version
-                    part.updateVisibleVersionAndVersionHash(entry.getValue().first, entry.getValue().second);
+                    // update partition visible version
+                    part.updateVersionForRestore(entry.getValue().first, entry.getValue().second);
 
                     // we also need to update the replica version of these overwritten restored partitions
                     for (MaterializedIndex idx : part.getMaterializedIndices()) {
