@@ -174,6 +174,7 @@ private:
     friend class ScalarFnCall;
     friend class InPredicate;
     friend class OlapScanNode;
+    friend class EsScanNode;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
     /// and owned by this ExprContext.
