@@ -19,6 +19,11 @@ syntax="proto2";
 
 package doris;
 
+message PQueryStatistics {
+    optional int64 scan_rows = 1;
+    optional int64 scan_bytes = 2;
+}
+
 message PRowBatch {
     required int32 num_rows = 1;
     repeated int32 row_tuples = 2;

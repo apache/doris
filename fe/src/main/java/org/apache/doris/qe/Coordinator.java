@@ -574,12 +574,12 @@ public class Coordinator {
         }
     }
 
-    TResultBatch getNext() throws Exception {
+    public RowBatch getNext() throws Exception {
         if (receiver == null) {
             throw new UserException("There is no receiver.");
         }
 
-        TResultBatch resultBatch;
+        RowBatch resultBatch;
         Status status = new Status();
 
         resultBatch = receiver.getNext(status);
@@ -611,7 +611,7 @@ public class Coordinator {
             }
         }
 
-        if (resultBatch == null) {
+        if (resultBatch.isEos()) {
             this.returnedAllResults = true;
 
             // if this query is a block query do not cancel.
@@ -622,7 +622,7 @@ public class Coordinator {
                 cancelInternal();
             }
         } else {
-            numReceivedRows += resultBatch.getRowsSize();
+            numReceivedRows += resultBatch.getBatch().getRowsSize();
         }
 
         return resultBatch;
@@ -1038,7 +1038,7 @@ public class Coordinator {
         return result;
     }
 
-    public void createScanInstance(PlanNodeId leftMostScanId, FragmentExecParams fragmentExecParams) 
+    private void createScanInstance(PlanNodeId leftMostScanId, FragmentExecParams fragmentExecParams) 
          throws UserException {
         int maxNumInstance = queryOptions.mt_dop;
         if (maxNumInstance == 0) {
@@ -1150,7 +1150,7 @@ public class Coordinator {
     }
     
     // create collocated instance according to inputFragments
-    public void createCollocatedInstance(FragmentExecParams fragmentExecParams) {
+    private void createCollocatedInstance(FragmentExecParams fragmentExecParams) {
         Preconditions.checkState(fragmentExecParams.inputFragments.size() >= 1);
         final FragmentExecParams inputFragmentParams = fragmentExecParamsMap.get(fragmentExecParams.
                 inputFragments.get(0));
@@ -1169,7 +1169,7 @@ public class Coordinator {
     }
     
     
-    public void createUnionInstance(FragmentExecParams fragmentExecParams) {
+    private void createUnionInstance(FragmentExecParams fragmentExecParams) {
         final PlanFragment fragment = fragmentExecParams.fragment;
         // Add hosts of scan nodes
         List<PlanNodeId> scanNodeIds = findScanNodes(fragment.getPlanRoot());
@@ -1563,7 +1563,6 @@ public class Coordinator {
                 params.setResource_info(tResourceInfo);
                 params.params.setQuery_id(queryId);
                 params.params.setFragment_instance_id(instanceExecParam.instanceId);
-                
                 Map<Integer, List<TScanRangeParams>> scanRanges = instanceExecParam.perNodeScanRanges;
                 if (scanRanges == null) {
                     scanRanges = Maps.newHashMap();
@@ -1579,7 +1578,8 @@ public class Coordinator {
                 params.setBackend_num(backendNum++);
                 params.setQuery_globals(queryGlobals);
                 params.setQuery_options(queryOptions);
-
+                params.params.setSend_query_statistics_with_every_batch(
+                        fragment.isTransferQueryStatisticsWithEveryBatch());
                 if (queryOptions.getQuery_type() == TQueryType.LOAD) {
                     LoadErrorHub.Param param = Catalog.getCurrentCatalog().getLoadInstance().getLoadErrorHubInfo();
                     if (param != null) {

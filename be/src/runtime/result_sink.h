@@ -56,6 +56,8 @@ public:
         return _profile;
     }
 
+    void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override;
+
 private:
     Status prepare_exprs(RuntimeState* state);
 

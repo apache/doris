@@ -96,6 +96,11 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // if the output is UNPARTITIONED, it is being broadcast
     private DataPartition outputPartition;
 
+    // Whether query statistics is sent with every batch. In order to get the query
+    // statistics correctly when query contains limit, it is necessary to send query 
+    // statistics with every batch, or only in close.
+    private boolean transferQueryStatisticsWithEveryBatch;
+
     // TODO: SubstitutionMap outputSmap;
     // substitution map to remap exprs onto the output of this fragment, to be applied
     // at destination fragment
@@ -108,6 +113,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.planRoot = root;
         this.dataPartition = partition;
         this.outputPartition = DataPartition.UNPARTITIONED;
+        this.transferQueryStatisticsWithEveryBatch = false;
         setFragmentInPlanTree(planRoot);
     }
 
@@ -180,7 +186,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         // TODO chenhao , calculated by cost
         result.setMin_reservation_bytes(0);
         result.setInitial_reservation_total_claims(0);
-        
         return result;
     }
 
@@ -270,4 +275,11 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return fragmentId;
     }
 
+    public void setTransferQueryStatisticsWithEveryBatch(boolean value) {
+        transferQueryStatisticsWithEveryBatch = value;
+    }
+
+    public boolean isTransferQueryStatisticsWithEveryBatch() {
+        return transferQueryStatisticsWithEveryBatch;
+    }
 }

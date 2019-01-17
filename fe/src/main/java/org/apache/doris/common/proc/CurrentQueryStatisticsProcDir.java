@@ -37,7 +37,7 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(CurrentQueryStatisticsProcDir.class);
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("ConnectionId").add("QueryId").add("Database").add("User")
-            .add("IO").add("CPU").add("ExecTime").build();
+            .add("ScanRawData").add("ProcessRows").add("ExecTime").build();
 
     private static final int EXEC_TIME_INDEX = 6;
 
@@ -76,8 +76,8 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             values.add(item.getDb());
             values.add(item.getUser());
             final CurrentQueryInfoProvider.Consumption consumption = consumptions.get(item.getQueryId());
-            values.add(String.valueOf(consumption.getTotalIoConsumption()));
-            values.add(String.valueOf(consumption.getTotalCpuConsumption()));
+            values.add(consumption.getFormattingScanBytes());
+            values.add(consumption.getFormattingProcessRows());
             values.add(item.getQueryExecTime());
             sortedRowData.add(values);
         }

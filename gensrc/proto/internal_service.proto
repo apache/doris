@@ -41,6 +41,7 @@ message PTransmitDataParams {
     optional PRowBatch row_batch = 6;
     // different per packet
     required int64 packet_seq = 7;
+    optional PQueryStatistics query_statistics = 8;
 };
 
 message PTransmitDataResult {
@@ -129,6 +130,7 @@ message PFetchDataResult {
     // valid when status is ok
     optional int64 packet_seq = 2;
     optional bool eos = 3;
+    optional PQueryStatistics query_statistics = 4;
 };
 
 message PTriggerProfileReportRequest {
