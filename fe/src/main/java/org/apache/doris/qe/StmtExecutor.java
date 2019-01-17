@@ -63,6 +63,7 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.rpc.PQueryStatistics;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TQueryOptions;
@@ -101,6 +102,7 @@ public class StmtExecutor {
     private Planner planner;
     private boolean isProxy;
     private ShowResultSet proxyResultSet = null;
+    private PQueryStatistics statisticsForAuditLog;
 
     public StmtExecutor(ConnectContext context, String stmt, boolean isProxy) {
         this.context = context;
@@ -539,23 +541,23 @@ public class StmtExecutor {
         // so We need to send fields after first batch arrived
 
         // send result
-        TResultBatch batch;
+        RowBatch batch;
         MysqlChannel channel = context.getMysqlChannel();
-        boolean isSendFields = false;
-        while ((batch = coord.getNext()) != null) {
-            if (!isSendFields) {
-                sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
+        sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
+        while (true) {
+            batch = coord.getNext();
+            if (batch.getBatch() != null) {
+                for (ByteBuffer row : batch.getBatch().getRows()) {
+                    channel.sendOnePacket(row);
+                }            
+                context.updateReturnRows(batch.getBatch().getRows().size());    
             }
-            isSendFields = true;
+            if (batch.isEos()) {
+                break;
+            }
+        }
 
-            for (ByteBuffer row : batch.getRows()) {
-                channel.sendOnePacket(row);
-            }
-            context.updateReturnRows(batch.getRows().size());
-        }
-        if (!isSendFields) {
-            sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
-        }
+        statisticsForAuditLog = batch.getQueryStatistics();
         context.getState().setEof();
     }
 
@@ -775,5 +777,12 @@ public class StmtExecutor {
     private void handleExportStmt() throws Exception {
         ExportStmt exportStmt = (ExportStmt) parsedStmt;
         context.getCatalog().getExportMgr().addExportJob(exportStmt);
+    }
+
+    public PQueryStatistics getQueryStatisticsForAuditLog() {
+        if (statisticsForAuditLog == null) {
+            statisticsForAuditLog = new PQueryStatistics();
+        }
+        return statisticsForAuditLog;
     }
 }

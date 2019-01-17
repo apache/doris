@@ -92,5 +92,9 @@ Status ResultSink::close(RuntimeState* state, Status exec_status) {
     return Status::OK;
 }
 
+void ResultSink::set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
+    _sender->set_query_statistics(statistics);
+}
+
 }
 /* vim: set ts=4 sw=4 sts=4 tw=100 : */
