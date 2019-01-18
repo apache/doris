@@ -343,7 +343,7 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     uint64_t merged_rows = 0;
     uint64_t filted_rows = 0;
     OLAPStatus res = OLAP_SUCCESS;
-    RowsetSharedPtr new_base = builder->build();
+    RowsetSharedPtr new_base = nullptr;
     if (_tablet->data_file_type() == COLUMN_ORIENTED_FILE) {
         _tablet->obtain_header_rdlock();
         _tablet->release_header_lock();
@@ -353,6 +353,7 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
         if (res == OLAP_SUCCESS) {
             *row_count = merger.row_count();
         }
+        new_base = builder->build();
     } else {
         OLAP_LOG_WARNING("unknown data file type. [type=%s]",
                          DataFileType_Name(_tablet->data_file_type()).c_str());

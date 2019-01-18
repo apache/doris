@@ -74,8 +74,6 @@ public:
     OLAPStatus load_indices();
     OLAPStatus save_tablet_meta();
 
-    OLAPStatus register_data_source(const std::vector<SegmentGroup*>& segment_group_vec);
-    OLAPStatus unregister_data_source(const Version& version, std::vector<SegmentGroup*>* segment_group_vec);
     OLAPStatus add_pending_data(SegmentGroup* segment_group, const std::vector<TCondition>* delete_conditions);
     bool has_pending_data(int64_t transaction_id);
     void delete_pending_data(int64_t transaction_id);
@@ -84,9 +82,6 @@ public:
     void load_pending_data();
     OLAPStatus publish_version(int64_t transaction_id, Version version, VersionHash version_hash);
     const PDelta* get_incremental_delta(Version version) const;
-    void get_missing_versions_with_header_locked(
-            int64_t until_version, std::vector<Version>* missing_versions) const;
-    OLAPStatus is_push_for_delete(int64_t transaction_id, bool* is_push_for_delete) const;
     OLAPStatus clone_data(const TabletMeta& clone_header,
                           const std::vector<const PDelta*>& clone_deltas,
                           const std::vector<Version>& versions_to_delete);
@@ -174,12 +169,10 @@ public:
     bool is_used();
     std::string storage_root_path_name();
     std::string tablet_path();
-    std::string get_field_name_by_index(uint32_t index);
     FieldType get_field_type_by_index(uint32_t index);
     FieldAggregationMethod get_aggregation_by_index(uint32_t index);
     OLAPStatus test_version(const Version& version);
     VersionEntity get_version_entity_by_version(const Version& version);
-    size_t get_version_index_size(const Version& version);
     size_t get_version_data_size(const Version& version);
     OLAPStatus recover_tablet_until_specfic_version(const int64_t& spec_version,
                                                     const int64_t& version_hash);
@@ -206,6 +199,7 @@ public:
     OLAPStatus modify_rowsets(std::vector<Version>* old_version,
                               vector<RowsetSharedPtr>* to_add,
                               vector<RowsetSharedPtr>* to_delete);
+    OLAPStatus add_rowset(RowsetSharedPtr rowset);
 
     const int64_t table_id() const;
     const std::string table_name() const;
@@ -240,7 +234,9 @@ public:
     TabletState tablet_state() const;
 
     const RowsetSharedPtr get_rowset(int index) const;
-    const RowsetSharedPtr lastest_rowset() const;
+    const RowsetSharedPtr rowset_with_max_version() const;
+    RowsetSharedPtr rowset_with_largest_size();
+    SegmentGroup* get_largest_index();
     OLAPStatus all_rowsets(vector<RowsetSharedPtr> rowsets);
 
     OLAPStatus add_inc_rowset(const Rowset& rowset);
@@ -258,10 +254,10 @@ public:
 
     void calc_missed_versions(int64_t spec_version, vector<Version>* missed_versions);
 
-    // This function to find last continous version from the beginning.
+    // This function to find max continous version from the beginning.
     // There are 1, 2, 3, 5, 6, 7 versions belongs tablet.
     // Version 3 is target.
-    OLAPStatus last_continuous_version_from_begining(Version* version, VersionHash* v_hash);
+    OLAPStatus max_continuous_version_from_begining(Version* version, VersionHash* v_hash);
 
     size_t deletion_rowset_size();
     bool can_do_compaction();
@@ -295,7 +291,6 @@ public:
     }
 
     RowsetSharedPtr rowset_with_largest_size();
-    SegmentGroup* get_largest_index();
 
     // 清空一个table下的schema_change信息：包括split_talbe以及其他schema_change信息
     //  这里只清理自身的out链，不考虑related的tablet

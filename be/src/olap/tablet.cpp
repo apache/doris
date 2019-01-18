@@ -265,7 +265,7 @@ void Tablet::calc_missed_versions(int64_t spec_version,
     }
 }
 
-OLAPStatus Tablet::last_continuous_version_from_begining(Version* version, VersionHash* v_hash) {
+OLAPStatus Tablet::max_continuous_version_from_begining(Version* version, VersionHash* v_hash) {
     ReadLock rdlock(&_meta_lock);
     std::vector<std::pair<Version, VersionHash>> existing_versions;
     for (auto& rs : _tablet_meta.all_rs_metas()) {
@@ -279,17 +279,17 @@ OLAPStatus Tablet::last_continuous_version_from_begining(Version* version, Versi
                  // simple because 2 versions are certainly not overlapping
                  return left.first.first < right.first.first;
               });
-    Version last_continuous_version = { -1, 0 };
-    VersionHash last_continuous_version_hash = 0;
+    Version max_continuous_version = { -1, 0 };
+    VersionHash max_continuous_version_hash = 0;
     for (int i = 0; i < existing_versions.size(); ++i) {
-        if (existing_versions[i].first.first > last_continuous_version.first + 1) {
+        if (existing_versions[i].first.first > max_continuous_version.first + 1) {
             break;
         }
-        last_continuous_version = existing_versions[i].first;
-        last_continuous_version_hash = existing_versions[i].second;
+        max_continuous_version = existing_versions[i].first;
+        max_continuous_version_hash = existing_versions[i].second;
     }
-    *version = last_continuous_version;
-    *v_hash = last_continuous_version_hash;
+    *version = max_continuous_version;
+    *v_hash = max_continuous_version_hash;
     return OLAP_SUCCESS;
 }
 
@@ -301,7 +301,7 @@ OLAPStatus Tablet::get_tablet_info(TTabletInfo* tablet_info) {
     tablet_info->data_size = _tablet_meta.data_size();
     Version version = { -1, 0 };
     VersionHash v_hash = 0;
-    last_continuous_version_from_begining(&version, &v_hash);
+    max_continuous_version_from_begining(&version, &v_hash);
     tablet_info->version = version.second;
     tablet_info->version_hash = v_hash;
     return OLAP_SUCCESS;
@@ -310,6 +310,10 @@ OLAPStatus Tablet::get_tablet_info(TTabletInfo* tablet_info) {
 OLAPStatus Tablet::modify_rowsets(std::vector<Version>* old_version,
                                   vector<RowsetSharedPtr>* to_add,
                                   vector<RowsetSharedPtr>* to_delete) {
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset) {
     return OLAP_SUCCESS;
 }
 
