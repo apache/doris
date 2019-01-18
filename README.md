@@ -26,16 +26,9 @@ Currently only supports Docker environment and Linux OS, such as Ubuntu and Cent
 
 Firstly, you must be install and start docker service.
 
-And then you could build doris as following steps:
+And then you could build Doris as following steps:
 
-#### Step1: Download doris source package
-You can by git clone or download release package and depress it.
-
-```
-Given the source path is $PWD/apache-doris-0.9.0.rc01-incubating-src
-```
-
-#### Step2: Pull the docker image with doris building environment
+#### Step1: Pull the docker image with Doris building environment
 
 ```
 $ docker pull apachedoris/doris-dev:build-env
@@ -49,22 +42,25 @@ REPOSITORY              TAG                 IMAGE ID            CREATED         
 apachedoris/doris-dev   build-env           f8bc5d4024e0        21 hours ago        3.28GB
 ```
 
-#### Step3: Map source path into docker and enter docker
-Start a container named incubator-doris-dev, and map the source path to container.
+#### Step2: Running the Docker image 
 
-You can map to anywhere in container, and here we take /opt/incubator-doris/ as an example.
+You can run image directyly:
 
 ```
-$ docker run -it --name incubator-doris-dev -v $PWD/apache-doris-0.9.0.rc01-incubating-src/:/opt/incubator-doris/ apachedoris/doris-dev:build-env
+$ docker run -it apachedoris/doris-dev:build-env
 ```
+
+#### Step3: Download Doris source
+You can download Doris source by release package or by git clone in image.
+(If you have downloaded source and it is not in image, you can map its path to image in Step2.)
 
 #### Step4: Build Doris
-Now you should in docker environment, you can build Doris.
+Now you should in docker environment, and you can enter Doris source path and build Doris.
 
 ```
-$ cd /opt/incubator-doris
 $ sh build.sh
 ```
+
 After successfully building, it will install binary files in the directory output/.
 
 ### 4.2 For Linux OS
