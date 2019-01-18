@@ -34,7 +34,7 @@ And then you could build Doris as following steps:
 $ docker pull apachedoris/doris-dev:build-env
 ```
 
-You can check it by command, for example:
+You can check it by listing images, for example:
 
 ```
 $ docker images
@@ -42,7 +42,7 @@ REPOSITORY              TAG                 IMAGE ID            CREATED         
 apachedoris/doris-dev   build-env           f8bc5d4024e0        21 hours ago        3.28GB
 ```
 
-#### Step2: Running the Docker image 
+#### Step2: Run the Docker image 
 
 You can run image directyly:
 
@@ -53,6 +53,12 @@ $ docker run -it apachedoris/doris-dev:build-env
 #### Step3: Download Doris source
 You can download Doris source by release package or by git clone in image.
 (If you have downloaded source and it is not in image, you can map its path to image in Step2.)
+
+```
+$ wget https://dist.apache.org/repos/dist/dev/incubator/doris/xxx.tar.gz
+or
+$ git clone https://github.com/apache/incubator-doris.git
+```
 
 #### Step4: Build Doris
 Now you should in docker environment, and you can enter Doris source path and build Doris.
