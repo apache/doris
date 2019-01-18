@@ -112,8 +112,6 @@ public:
     // Get tablet pointer
     TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash, bool load_tablet = true);
 
-    OLAPStatus get_tablets_by_id(TTabletId tablet_id, std::list<TabletSharedPtr>* tablet_list);  
-
     void get_tablet_stat(TTabletStatResult& result);
 
     // parse tablet header msg to generate tablet object

@@ -54,7 +54,6 @@ public:
         QUERY_SPLIT_KEY,
         CLONE,
         STORAGE_MEDIUM_MIGRATE,
-        CANCEL_DELETE_DATA,
         CHECK_CONSISTENCY,
         REPORT_TASK,
         REPORT_DISK_STATE,
@@ -103,7 +102,6 @@ private:
     static void* _alter_tablet_worker_thread_callback(void* arg_this);
     static void* _clone_worker_thread_callback(void* arg_this);
     static void* _storage_medium_migrate_worker_thread_callback(void* arg_this);
-    static void* _cancel_delete_data_worker_thread_callback(void* arg_this);
     static void* _check_consistency_worker_thread_callback(void* arg_this);
     static void* _report_task_worker_thread_callback(void* arg_this);
     static void* _report_disk_state_worker_thread_callback(void* arg_this);
