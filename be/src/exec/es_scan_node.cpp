@@ -217,7 +217,6 @@ Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
     // get batch
     TExtGetNextResult result;
     RETURN_IF_ERROR(get_next_from_es(result));
-    VLOG(1) << "es get next success: result=" << apache::thrift::ThriftDebugString(result);
     _offsets[_scan_range_idx] += result.rows.num_rows;
 
     // convert
