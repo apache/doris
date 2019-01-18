@@ -77,7 +77,6 @@ Status UnionNode::prepare(RuntimeState* state) {
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     DCHECK(_tuple_desc != nullptr);
     _codegend_union_materialize_batch_fns.resize(_child_expr_lists.size());
-    _materialize_rows_counter = ADD_COUNTER(runtime_profile(), "MaterializeRows", TUnit::UNIT);
     // Prepare const expr lists.
     for (const vector<ExprContext*>& exprs : _const_expr_lists) {
         RETURN_IF_ERROR(Expr::prepare(exprs, state, row_desc(), expr_mem_tracker()));
@@ -210,7 +209,6 @@ Status UnionNode::get_next_materialized(RuntimeState* state, RowBatch* row_batch
             // The first batch from each child is always fetched here.
             RETURN_IF_ERROR(child(_child_idx)->get_next(
                     state, _child_batch.get(), &_child_eos));
-            COUNTER_UPDATE(_materialize_rows_counter, _child_batch->num_rows());
         }
 
         while (!row_batch->at_capacity()) {
@@ -225,7 +223,6 @@ Status UnionNode::get_next_materialized(RuntimeState* state, RowBatch* row_batch
                 // All batches except the first batch from each child are fetched here.
                 RETURN_IF_ERROR(child(_child_idx)->get_next(
                         state, _child_batch.get(), &_child_eos));
-                COUNTER_UPDATE(_materialize_rows_counter, _child_batch->num_rows());
                 // If we fetched an empty batch, go back to the beginning of this while loop, and
                 // try again.
                 if (_child_batch->num_rows() == 0) continue;

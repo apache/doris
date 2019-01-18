@@ -53,11 +53,11 @@ public class RuntimeProfile {
     private Map<String, String> infoStrings = Maps.newHashMap();
     private List<String> infoStringsDisplayOrder = Lists.newArrayList();
 
-    // It will be hold by other thread.
+    // These will be hold by other thread.
     private Map<String, Counter> counterMap = Maps.newConcurrentMap();
+    private Map<String, RuntimeProfile> childMap = Maps.newConcurrentMap();
 
     private Map<String, Set<String> > childCounterMap = Maps.newHashMap();
-    private Map<String, RuntimeProfile> childMap = Maps.newHashMap();
     private List<Pair<RuntimeProfile, Boolean>> childList = Lists.newArrayList();
 
     private String name;

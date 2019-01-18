@@ -327,8 +327,6 @@ private:
 
     // Time spent processing the child rows.
     RuntimeProfile::Counter* _evaluation_timer;
-
-    RuntimeProfile::Counter* _process_rows_counter;
 };
 
 }
