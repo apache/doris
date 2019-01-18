@@ -103,7 +103,6 @@ private:
     TaskWorkerPool* _alter_tablet_workers;
     TaskWorkerPool* _clone_workers;
     TaskWorkerPool* _storage_medium_migrate_workers;
-    TaskWorkerPool* _cancel_delete_data_workers;
     TaskWorkerPool* _check_consistency_workers;
     TaskWorkerPool* _report_task_workers;
     TaskWorkerPool* _report_disk_state_workers;
