@@ -105,6 +105,7 @@ struct TStorageMediumMigrateReq {
 }
 
 struct TCancelDeleteDataReq {
+    // deprecated
     1: required Types.TTabletId tablet_id
     2: required Types.TSchemaHash schema_hash
     3: required Types.TVersion version

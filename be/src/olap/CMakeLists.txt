@@ -73,7 +73,6 @@ add_library(Olap STATIC
     utils.cpp
     wrapper_field.cpp
     task/engine_batch_load_task.cpp
-    task/engine_cancel_delete_task.cpp
     task/engine_checksum_task.cpp
     task/engine_clear_alter_task.cpp
     task/engine_clone_task.cpp

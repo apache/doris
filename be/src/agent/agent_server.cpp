@@ -119,10 +119,6 @@ AgentServer::AgentServer(ExecEnv* exec_env,
             TaskWorkerPool::TaskWorkerType::STORAGE_MEDIUM_MIGRATE,
             _exec_env,
             master_info);
-    _cancel_delete_data_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::CANCEL_DELETE_DATA,
-            _exec_env,
-            master_info);
     _check_consistency_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::CHECK_CONSISTENCY,
             _exec_env,
@@ -174,7 +170,6 @@ AgentServer::AgentServer(ExecEnv* exec_env,
     _alter_tablet_workers->start();
     _clone_workers->start();
     _storage_medium_migrate_workers->start();
-    _cancel_delete_data_workers->start();
     _check_consistency_workers->start();
     _report_task_workers->start();
     _report_disk_state_workers->start();
@@ -222,9 +217,6 @@ AgentServer::~AgentServer() {
     }
     if (_storage_medium_migrate_workers != NULL) {
         delete _storage_medium_migrate_workers;
-    }
-    if (_cancel_delete_data_workers != NULL) {
-        delete _cancel_delete_data_workers;
     }
     if (_check_consistency_workers != NULL) {
         delete _check_consistency_workers;
@@ -351,13 +343,6 @@ void AgentServer::submit_tasks(
         case TTaskType::STORAGE_MEDIUM_MIGRATE:
             if (task.__isset.storage_medium_migrate_req) {
                 _storage_medium_migrate_workers->submit_task(task);
-            } else {
-                status_code = TStatusCode::ANALYSIS_ERROR;
-            }
-            break;
-        case TTaskType::CANCEL_DELETE:
-            if (task.__isset.cancel_delete_data_req) {
-                _cancel_delete_data_workers->submit_task(task);
             } else {
                 status_code = TStatusCode::ANALYSIS_ERROR;
             }
