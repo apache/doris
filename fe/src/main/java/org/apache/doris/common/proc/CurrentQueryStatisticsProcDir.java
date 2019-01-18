@@ -21,6 +21,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.QueryStatisticsFormatter;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryStatisticsItem;
 
@@ -62,22 +63,26 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         final BaseProcResult result = new BaseProcResult();
-        final Map<String, QueryStatisticsItem> statistic = QeProcessorImpl.INSTANCE.getQueryStatistics();
+        final Map<String, QueryStatisticsItem> statistic = 
+                QeProcessorImpl.INSTANCE.getQueryStatistics();
         result.setNames(TITLE_NAMES.asList());
         final List<List<String>> sortedRowData = Lists.newArrayList();
 
         final CurrentQueryInfoProvider provider = new CurrentQueryInfoProvider();
-        final Map<String, CurrentQueryInfoProvider.Consumption> consumptions
-                = provider.getQueryConsumption(statistic.values());
+        final Map<String, CurrentQueryInfoProvider.QueryStatistics> statisticsMap
+                = provider.getQueryStatistics(statistic.values());
         for (QueryStatisticsItem item : statistic.values()) {
             final List<String> values = Lists.newArrayList();
             values.add(item.getConnId());
             values.add(item.getQueryId());
             values.add(item.getDb());
             values.add(item.getUser());
-            final CurrentQueryInfoProvider.Consumption consumption = consumptions.get(item.getQueryId());
-            values.add(consumption.getFormattingScanBytes());
-            values.add(consumption.getFormattingProcessRows());
+            final CurrentQueryInfoProvider.QueryStatistics statistics 
+                    = statisticsMap.get(item.getQueryId());
+            values.add(QueryStatisticsFormatter.getScanBytes(
+                    statistics.getScanBytes()));
+            values.add(QueryStatisticsFormatter.getRowsReturned(
+                    statistics.getRowsReturned()));
             values.add(item.getQueryExecTime());
             sortedRowData.add(values);
         }
