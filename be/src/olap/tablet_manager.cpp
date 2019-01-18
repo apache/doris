@@ -563,43 +563,6 @@ TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema
     return tablet;
 } // get_tablet
 
-OLAPStatus TabletManager::get_tablets_by_id(
-        TTabletId tablet_id,
-        list<TabletSharedPtr>* tablet_list) {
-    OLAPStatus res = OLAP_SUCCESS;
-    VLOG(3) << "begin to get tables by id. tablet_id=" << tablet_id;
-
-    _tablet_map_lock.rdlock();
-    tablet_map_t::iterator it = _tablet_map.find(tablet_id);
-    if (it != _tablet_map.end()) {
-        for (TabletSharedPtr tablet : it->second.table_arr) {
-            tablet_list->push_back(tablet);
-        }
-    }
-    _tablet_map_lock.unlock();
-
-    if (tablet_list->size() == 0) {
-        OLAP_LOG_WARNING("there is no tablet with specified id. [tablet=%ld]", tablet_id);
-        return OLAP_ERR_TABLE_NOT_FOUND;
-    }
-
-    for (std::list<TabletSharedPtr>::iterator it = tablet_list->begin();
-            it != tablet_list->end();) {
-        if (!(*it)->is_loaded()) {
-            if ((*it)->load() != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("fail to load tablet. [tablet='%s']",
-                                 (*it)->full_name().c_str());
-                it = tablet_list->erase(it);
-                continue;
-            }
-        }
-        ++it;
-    }
-
-    VLOG(3) << "success to get tables by id. table_num=" << tablet_list->size();
-    return res;
-}
-
 void TabletManager::get_tablet_stat(TTabletStatResult& result) {
     VLOG(3) << "begin to get all tablet stat.";
 

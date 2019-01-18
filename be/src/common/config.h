@@ -76,8 +76,6 @@ namespace config {
     CONF_Int32(clone_worker_count, "3");
     // the count of thread to clone
     CONF_Int32(storage_medium_migrate_count, "1");
-    // the count of thread to cancel delete data
-    CONF_Int32(cancel_delete_data_worker_count, "3");
     // the count of thread to check consistency
     CONF_Int32(check_consistency_worker_count, "1");
     // the count of thread to upload

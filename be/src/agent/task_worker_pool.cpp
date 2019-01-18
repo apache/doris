@@ -43,7 +43,6 @@
 #include "olap/task/engine_checksum_task.h"
 #include "olap/task/engine_clear_alter_task.h"
 #include "olap/task/engine_clone_task.h"
-#include "olap/task/engine_cancel_delete_task.h"
 #include "olap/task/engine_schema_change_task.h"
 #include "olap/task/engine_batch_load_task.h"
 #include "olap/task/engine_storage_migration_task.h"
@@ -154,10 +153,6 @@ void TaskWorkerPool::start() {
     case TaskWorkerType::STORAGE_MEDIUM_MIGRATE:
         _worker_count = config::storage_medium_migrate_count;
         _callback_function = _storage_medium_migrate_worker_thread_callback;
-        break;
-    case TaskWorkerType::CANCEL_DELETE_DATA:
-        _worker_count = config::cancel_delete_data_worker_count;
-        _callback_function = _cancel_delete_data_worker_thread_callback;
         break;
     case TaskWorkerType::CHECK_CONSISTENCY:
         _worker_count = config::check_consistency_worker_count;
@@ -1043,59 +1038,6 @@ void* TaskWorkerPool::_storage_medium_migrate_worker_thread_callback(void* arg_t
 
         worker_pool_this->_finish_task(finish_task_request);
         worker_pool_this->_remove_task_info(agent_task_req.task_type, agent_task_req.signature, "");
-#ifndef BE_TEST
-    }
-#endif
-    return (void*)0;
-}
-
-void* TaskWorkerPool::_cancel_delete_data_worker_thread_callback(void* arg_this) {
-    TaskWorkerPool* worker_pool_this = (TaskWorkerPool*)arg_this;
-
-#ifndef BE_TEST
-    while (true) {
-#endif
-        TAgentTaskRequest agent_task_req;
-        TCancelDeleteDataReq cancel_delete_data_req;
-        {
-            lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
-            while (worker_pool_this->_tasks.empty()) {
-                worker_pool_this->_worker_thread_condition_lock.wait();
-            }
-
-            agent_task_req = worker_pool_this->_tasks.front();
-            cancel_delete_data_req = agent_task_req.cancel_delete_data_req;
-            worker_pool_this->_tasks.pop_front();
-        }
-
-        LOG(INFO) << "get cancel delete data task. signature:" << agent_task_req.signature;
-        TStatusCode::type status_code = TStatusCode::OK;
-        vector<string> error_msgs;
-        TStatus task_status;
-
-        EngineCancelDeleteTask engine_task(cancel_delete_data_req);
-        OLAPStatus cancel_delete_data_status = engine_task.execute();
-        if (cancel_delete_data_status != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("cancel delete data failed. statusta: %d, signature: %ld",
-                             cancel_delete_data_status, agent_task_req.signature);
-            status_code = TStatusCode::RUNTIME_ERROR;
-        } else {
-            LOG(INFO) << "cancel delete data success. status:" << cancel_delete_data_status
-                      << ", signature:" << agent_task_req.signature;
-        }
-
-        task_status.__set_status_code(status_code);
-        task_status.__set_error_msgs(error_msgs);
-
-        TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_backend(worker_pool_this->_backend);
-        finish_task_request.__set_task_type(agent_task_req.task_type);
-        finish_task_request.__set_signature(agent_task_req.signature);
-        finish_task_request.__set_task_status(task_status);
-
-        worker_pool_this->_finish_task(finish_task_request);
-        worker_pool_this->_remove_task_info(
-                agent_task_req.task_type, agent_task_req.signature, "");
 #ifndef BE_TEST
     }
 #endif

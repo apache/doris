@@ -234,7 +234,9 @@ public:
     TabletState tablet_state() const;
 
     const RowsetSharedPtr get_rowset(int index) const;
-    const RowsetSharedPtr lastest_rowset() const;
+    const RowsetSharedPtr rowset_with_max_version() const;
+    RowsetSharedPtr rowset_with_largest_size();
+    SegmentGroup* get_largest_index();
     OLAPStatus all_rowsets(vector<RowsetSharedPtr> rowsets);
 
     OLAPStatus add_inc_rowset(const Rowset& rowset);
@@ -252,10 +254,10 @@ public:
 
     void calc_missed_versions(int64_t spec_version, vector<Version>* missed_versions);
 
-    // This function to find last continous version from the beginning.
+    // This function to find max continous version from the beginning.
     // There are 1, 2, 3, 5, 6, 7 versions belongs tablet.
     // Version 3 is target.
-    OLAPStatus last_continuous_version_from_begining(Version* version, VersionHash* v_hash);
+    OLAPStatus max_continuous_version_from_begining(Version* version, VersionHash* v_hash);
 
     size_t deletion_rowset_size();
     bool can_do_compaction();
@@ -280,8 +282,6 @@ public:
 
     uint32_t segment_size() const;
     void set_io_error();
-    RowsetSharedPtr rowset_with_largest_size();
-    SegmentGroup* get_largest_index();
 
     // 清空一个table下的schema_change信息：包括split_talbe以及其他schema_change信息
     //  这里只清理自身的out链，不考虑related的tablet
