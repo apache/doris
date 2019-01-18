@@ -243,7 +243,6 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
     // wait for batch from queue
     RowBatch* materialized_batch = NULL;
     {
-        state->set_query_state_for_wait();
         boost::unique_lock<boost::mutex> l(_row_batches_lock);
         while (_materialized_row_batches.empty() && !_transfer_done) {
             if (state->is_cancelled()) {
@@ -258,7 +257,6 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
             DCHECK(materialized_batch != NULL);
             _materialized_row_batches.pop_front();
         }
-        state->set_query_state_for_running();
     }
 
     // return batch
