@@ -52,15 +52,17 @@ apachedoris/doris-dev   build-env           f8bc5d4024e0        21 hours ago    
 #### Step3: Map source path into docker and enter docker
 Start a container named incubator-doris-dev, and map the source path to container.
 
+You can map to anywhere in container, and here we take /opt/incubator-doris/ as an example.
+
 ```
-$ docker run -it --name incubator-doris-dev -v $PWD/apache-doris-0.9.0.rc01-incubating-src/:/var/lib/docker/incubator-doris/ apachedoris/doris-dev:build-env
+$ docker run -it --name incubator-doris-dev -v $PWD/apache-doris-0.9.0.rc01-incubating-src/:/opt/incubator-doris/ apachedoris/doris-dev:build-env
 ```
 
 #### Step4: Build Doris
 Now you should in docker environment, you can build Doris.
 
 ```
-$ cd /var/lib/docker/incubator-doris
+$ cd /opt/incubator-doris
 $ sh build.sh
 ```
 After successfully building, it will install binary files in the directory output/.
