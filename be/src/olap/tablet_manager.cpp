@@ -232,11 +232,8 @@ OLAPStatus TabletManager::create_init_version(TTabletId tablet_id, SchemaHash sc
     VLOG(3) << "begin to create init version. "
             << "begin=" << version.first << ", end=" << version.second;
     TabletSharedPtr tablet;
-    ColumnDataWriter* writer = NULL;
-    SegmentGroup* new_segment_group = NULL;
+    RowsetSharedPtr new_rowset;
     OLAPStatus res = OLAP_SUCCESS;
-    std::vector<SegmentGroup*> index_vec;
-
     do {
         if (version.first > version.second) {
             OLAP_LOG_WARNING("begin should not larger than end. [begin=%d end=%d]",
@@ -252,73 +249,40 @@ OLAPStatus TabletManager::create_init_version(TTabletId tablet_id, SchemaHash sc
             res = OLAP_ERR_TABLE_NOT_FOUND;
             break;
         }
-
-        new_segment_group = new(nothrow) SegmentGroup(tablet->tablet_id(),
-                                                      0,
-                                                      tablet->tablet_schema(),
-                                                      tablet->num_key_fields(),
-                                                      tablet->num_short_key_fields(),
-                                                      tablet->num_rows_per_row_block(),
-                                                      tablet->rowset_path_prefix(),
-                                                      version, version_hash, false, 0, 0);
-        if (new_segment_group == NULL) {
-            LOG(WARNING) << "fail to malloc index. [tablet=" << tablet->full_name() << "]";
-            res = OLAP_ERR_MALLOC_ERROR;
+        RowsetId rowset_id = 0;
+        RowsetIdGenerator::instance()->get_next_id(tablet->data_dir(), &rowset_id);
+        RowsetBuilderContext context = {tablet->partition_id(), tablet->tablet_id(),
+                                        tablet->schema_hash(), rowset_id, 
+                                        RowsetTypePB::ALPHA_ROWSET, tablet->rowset_path_prefix(),
+                                        tablet->tablet_schema(), tablet->num_key_fields(),
+                                        tablet->num_short_key_fields(), tablet->num_rows_per_row_block(),
+                                        tablet->compress_kind(), tablet->bloom_filter_fpp()};
+        RowsetBuilder* builder = new AlphaRowsetBuilder(); 
+        if (builder == nullptr) {
+            LOG(WARNING) << "fail to new rowset.";
+            return OLAP_ERR_MALLOC_ERROR;
+        }
+        builder->init(context);
+        if (OLAP_SUCCESS != builder->flush()) {
+            LOG(WARNING) << "fail to finalize writer. tablet=" << tablet->full_name();
             break;
         }
 
-        // Create writer, which write nothing to tablet, to generate empty data file
-        writer = ColumnDataWriter::create(new_segment_group, false, tablet->compress_kind(), tablet->bloom_filter_fpp());
-        if (writer == NULL) {
-            LOG(WARNING) << "fail to create writer. [tablet=" << tablet->full_name() << "]";
-            res = OLAP_ERR_MALLOC_ERROR;
-            break;
-        }
-
-        res = writer->finalize();
+        new_rowset = builder->build();
+        res = tablet->add_rowset(new_rowset);
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to finalize writer. [tablet=" << tablet->full_name() << "]";
-            break;
-        }
-
-        // Load new index and add to tablet
-        res = new_segment_group->load();
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to load new index. [tablet=" << tablet->full_name() << "]";
-            break;
-        }
-
-        WriteLock wrlock(tablet->get_header_lock_ptr());
-        index_vec.push_back(new_segment_group);
-        res = tablet->register_data_source(index_vec);
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to register index to data sources. [tablet=%s]",
-                             tablet->full_name().c_str());
-            break;
-        }
-
-        res = tablet->save_tablet_meta();
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to save header. [tablet=" << tablet->full_name() << "]";
+            LOG(WARNING) << "fail to add rowset to tablet. "
+                         << "tablet=" << tablet->full_name();
             break;
         }
     } while (0);
 
     // Unregister index and delete files(index and data) if failed
-    if (res != OLAP_SUCCESS && tablet.get() != NULL) {
-        std::vector<SegmentGroup*> unused_index;
-        tablet->obtain_header_wrlock();
-        tablet->unregister_data_source(version, &unused_index);
-        tablet->release_header_lock();
-
-        for (SegmentGroup* index : index_vec) {
-            index->delete_all_files();
-            SAFE_DELETE(index);
-        }
+    if (res != OLAP_SUCCESS && tablet != nullptr) {
+        StorageEngine::get_instance()->add_unused_rowset(new_rowset);
     }
 
     VLOG(3) << "create init version end. res=" << res;
-    SAFE_DELETE(writer);
     return res;
 } // create_init_version
 

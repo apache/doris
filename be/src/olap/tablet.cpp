@@ -313,6 +313,10 @@ OLAPStatus Tablet::modify_rowsets(std::vector<Version>* old_version,
     return OLAP_SUCCESS;
 }
 
+OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset) {
+    return OLAP_SUCCESS;
+}
+
 RowsetSharedPtr Tablet::rowset_with_largest_size() {
     RowsetSharedPtr largest_rowset = nullptr;
     for (auto& it : _rs_version_map) {
