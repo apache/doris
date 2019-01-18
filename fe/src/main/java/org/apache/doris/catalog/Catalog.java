@@ -4066,6 +4066,8 @@ public class Catalog {
                             tabletMeta.getOldSchemaHash());
                     tablet.addReplica(replica);
                 }
+
+                Preconditions.checkState(chosenBackendIds.size() == replicationNum, chosenBackendIds.size() + " vs. "+ replicationNum);
             }
         } else {
             throw new DdlException("Unknown distribution type: " + distributionInfoType);
@@ -4078,7 +4080,6 @@ public class Catalog {
         if (chosenBackendIds == null) {
             throw new DdlException("Failed to find enough host in all backends. need: " + replicationNum);
         }
-        Preconditions.checkState(chosenBackendIds.size() == replicationNum);
         return chosenBackendIds;
     }
 

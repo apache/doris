@@ -17,7 +17,7 @@
 
 package org.apache.doris.clone;
 
-
+import com.google.common.base.Preconditions;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
@@ -198,6 +198,11 @@ public class ColocateTableBalancer extends Daemon {
 
         Set<Long> allGroupIds = colocateIndex.getAllGroupIds();
         for (Long groupId : allGroupIds) {
+            if (colocateIndex.isGroupBalancing(groupId)) {
+                LOG.info("colocate group {} is balancing", groupId);
+                continue;
+            }
+
             Database db = catalog.getDb(colocateIndex.getDB(groupId));
             List<Long> clusterAliveBackendIds = getAliveClusterBackendIds(db.getClusterName());
             Set<Long> allGroupBackendIds = colocateIndex.getBackendsByGroup(groupId);
@@ -589,6 +594,8 @@ public class ColocateTableBalancer extends Daemon {
                             if (!backends.contains(cloneReplicaBackendId)) {
                                 backends.add(cloneReplicaBackendId);
                             }
+
+                            Preconditions.checkState(replicateNum == backends.size(), replicateNum + " vs. " + backends.size());
 
                             AddMigrationJob(tabletInfo, cloneReplicaBackendId);
                         }
