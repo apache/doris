@@ -196,6 +196,25 @@ public class Replica implements Writable {
                 lastSuccessVersion, lastSuccessVersionHash, dataSize, rowCount);
     }
     
+    public void updateVersionInfoForRecovery(
+            long newVersion, long newVersionHash,
+            long lastFailedVersion, long lastFailedVersionHash,
+            long lastSuccessVersion, long lastSuccessVersionHash) {
+
+        LOG.warn("update replica {} on backend {}'s version for recovery. version: {}-{}:{}-{}."
+                + " last failed version: {}-{}:{}-{}, last success version: {}-{}:{}-{}",
+                this.version, this.versionHash, newVersion, newVersionHash,
+                this.lastFailedVersion, this.lastFailedVersionHash, lastFailedVersion, lastFailedVersionHash,
+                this.lastSuccessVersion, this.lastSuccessVersionHash, lastSuccessVersion, lastSuccessVersionHash);
+
+        this.version = newVersion;
+        this.versionHash = newVersionHash;
+        this.lastFailedVersion = lastFailedVersion;
+        this.lastFailedVersionHash = lastFailedVersionHash;
+        this.lastSuccessVersion = lastSuccessVersion;
+        this.lastSuccessVersionHash = lastSuccessVersionHash;
+    }
+
     /* last failed version:  LFV
      * last success version: LSV
      * version:              V
@@ -223,14 +242,16 @@ public class Replica implements Writable {
         LOG.debug("before update: {}", this.toString());
 
         if (newVersion < this.version) {
-            LOG.warn("replica[" + id + "] new version is lower than meta version. " + newVersion + " vs " + version);
             // yiguolei: could not find any reason why new version less than this.version should run???
-            return;
+            LOG.warn("replica {} on backend {}'s new version {} is lower than meta version {}",
+                    id, backendId, newVersion, this.version);
         }
+
         this.version = newVersion;
         this.versionHash = newVersionHash;
         this.dataSize = newDataSize;
         this.rowCount = newRowCount;
+
         // just check it
         if (lastSuccessVersion <= this.version) {
             lastSuccessVersion = this.version;
