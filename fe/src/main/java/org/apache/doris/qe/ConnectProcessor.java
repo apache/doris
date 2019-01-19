@@ -29,6 +29,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.QueryStatisticsFormatter;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -97,20 +98,6 @@ public class ConnectProcessor {
         ctx.getState().setOk();
     }
 
-    private String getFormattingScanRows(PQueryStatistics statistics) {
-        final StringBuilder builder = new StringBuilder();
-        builder.append(statistics.scanRows).append(" Rows");
-        return builder.toString();
-    }
-
-    private String getFormattingScanBytes(PQueryStatistics statistics) {
-        final Pair<Double, String> pair = DebugUtil.getByteUint(statistics.scanBytes);
-        final Formatter fmt = new Formatter();
-        final StringBuilder builder = new StringBuilder();
-        builder.append(fmt.format("%.2f", pair.first)).append(" ").append(pair.second);
-        return builder.toString();
-    }
-
     private void auditAfterExec(String origStmt, StatementBase parsedStmt,
                 PQueryStatistics statistics) {
         // slow query
@@ -119,8 +106,10 @@ public class ConnectProcessor {
         ctx.getAuditBuilder().put("state", ctx.getState());
         ctx.getAuditBuilder().put("time", elapseMs);
         Preconditions.checkNotNull(statistics); 
-        ctx.getAuditBuilder().put("ScanRows", getFormattingScanRows(statistics));
-        ctx.getAuditBuilder().put("ScanRawData", getFormattingScanBytes(statistics));
+        ctx.getAuditBuilder().put("ScanRows", 
+                QueryStatisticsFormatter.getScanBytes((statistics.scanRows)));
+        ctx.getAuditBuilder().put("ScanRawData", 
+                QueryStatisticsFormatter.getRowsReturned(statistics.scanBytes));
         ctx.getAuditBuilder().put("returnRows", ctx.getReturnRows());
         ctx.getAuditBuilder().put("stmt_id", ctx.getStmtId());
 

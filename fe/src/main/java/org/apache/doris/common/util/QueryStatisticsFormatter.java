@@ -15,35 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-namespace cpp doris
-namespace java org.apache.doris.thrift
+package org.apache.doris.common.util;
 
-enum TStatusCode {
-    OK,
-    CANCELLED,
-    ANALYSIS_ERROR,
-    NOT_IMPLEMENTED_ERROR,
-    RUNTIME_ERROR,
-    MEM_LIMIT_EXCEEDED,
-    INTERNAL_ERROR,
-    THRIFT_RPC_ERROR,
-    TIMEOUT,
-    KUDU_NOT_ENABLED,
-    KUDU_NOT_SUPPORTED_ON_OS,
-    MEM_ALLOC_FAILED,
-    BUFFER_ALLOCATION_FAILED,
-    MINIMUM_RESERVATION_UNAVAILABLE,
-    PUBLISH_TIMEOUT,
-    LABEL_ALREADY_EXISTS,
-    ES_INTERNAL_ERROR,
-    ES_INDEX_NOT_FOUND,
-    ES_SHARD_NOT_FOUND,
-    ES_INVALID_CONTEXTID,
-    ES_INVALID_OFFSET,
-    ES_REQUEST_ERROR
-}
+import org.apache.doris.common.Pair;
 
-struct TStatus {
-  1: required TStatusCode status_code
-  2: optional list<string> error_msgs
+import java.util.Formatter;
+
+public class QueryStatisticsFormatter {
+
+    public static String getScanBytes(long scanBytes) {
+        final Pair<Double, String> pair = DebugUtil.getByteUint(scanBytes);
+        final Formatter fmt = new Formatter();
+        final StringBuilder builder = new StringBuilder();
+        builder.append(fmt.format("%.2f", pair.first)).append(" ").append(pair.second);
+        return builder.toString();
+    }
+
+    public static String getRowsReturned(long rowsReturned) {
+        final StringBuilder builder = new StringBuilder();
+        builder.append(rowsReturned).append(" Rows");
+        return builder.toString();
+    }
 }

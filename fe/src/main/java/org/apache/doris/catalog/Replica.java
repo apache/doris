@@ -48,7 +48,8 @@ public class Replica implements Writable {
         OK, // health
         DEAD, // backend is not available
         VERSION_ERROR, // missing version
-        MISSING // replica does not exist
+        MISSING, // replica does not exist
+        SCHEMA_ERROR // replica's schema hash does not equal to index's schema hash
     }
     
     private long id;
@@ -57,8 +58,8 @@ public class Replica implements Writable {
     private long versionHash;
     private int schemaHash = -1;
 
-    private long dataSize;
-    private long rowCount;
+    private long dataSize = 0;
+    private long rowCount = 0;
     private ReplicaState state;
     
     private long lastFailedVersion = -1L;
@@ -218,6 +219,9 @@ public class Replica implements Writable {
             long lastFailedVersion, long lastFailedVersionHash, 
             long lastSuccessVersion, long lastSuccessVersionHash, 
             long newDataSize, long newRowCount) {
+
+        LOG.debug("before update: {}", this.toString());
+
         if (newVersion < this.version) {
             LOG.warn("replica[" + id + "] new version is lower than meta version. " + newVersion + " vs " + version);
             // yiguolei: could not find any reason why new version less than this.version should run???
@@ -282,7 +286,7 @@ public class Replica implements Writable {
             }
         }
 
-        LOG.debug("update {}", this.toString()); 
+        LOG.debug("after update {}", this.toString());
     }
     
     public synchronized void updateLastFailedVersion(long lastFailedVersion, long lastFailedVersionHash) {

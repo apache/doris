@@ -15,6 +15,7 @@
             OK:             replica 处于健康状态
             DEAD:           replica 所在 Backend 不可用
             VERSION_ERROR:  replica 数据版本有缺失
+            SCHEMA_ERROR:   replica 的 schema hash 不正确
             MISSING:        replica 不存在
 
 ## example

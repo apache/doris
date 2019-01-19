@@ -54,6 +54,7 @@ class WebPageHandler;
 class BackendServiceClient;
 class FrontendServiceClient;
 class TPaloBrokerServiceClient;
+class TExtDataSourceServiceClient; 
 template<class T> class ClientCache;
 
 // Execution environment for queries/plan fragments.
@@ -88,6 +89,7 @@ public:
     ClientCache<BackendServiceClient>* client_cache() { return _client_cache; }
     ClientCache<FrontendServiceClient>* frontend_client_cache() { return _frontend_client_cache; }
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
+    ClientCache<TExtDataSourceServiceClient>* extdatasource_client_cache() { return _extdatasource_client_cache; }
     MemTracker* process_mem_tracker() { return _mem_tracker; }
     PoolMemTrackerRegistry* pool_mem_trackers() { return _pool_mem_trackers; }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
@@ -131,6 +133,7 @@ private:
     ClientCache<BackendServiceClient>* _client_cache = nullptr;
     ClientCache<FrontendServiceClient>* _frontend_client_cache = nullptr;
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
+    ClientCache<TExtDataSourceServiceClient>* _extdatasource_client_cache = nullptr;
     MemTracker* _mem_tracker = nullptr;
     PoolMemTrackerRegistry* _pool_mem_trackers = nullptr;
     ThreadResourceMgr* _thread_mgr = nullptr;

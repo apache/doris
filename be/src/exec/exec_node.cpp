@@ -30,6 +30,7 @@
 #include "exec/partitioned_aggregation_node.h"
 #include "exec/new_partitioned_aggregation_node.h"
 #include "exec/csv_scan_node.h"
+#include "exec/es_scan_node.h"
 #include "exec/pre_aggregation_node.h"
 #include "exec/hash_join_node.h"
 #include "exec/broker_scan_node.h"
@@ -359,6 +360,10 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         *node = pool->add(new MysqlScanNode(pool, tnode, descs));
         return Status::OK;
 
+    case TPlanNodeType::ES_SCAN_NODE:
+        *node = pool->add(new EsScanNode(pool, tnode, descs));
+        return Status::OK;
+
     case TPlanNodeType::SCHEMA_SCAN_NODE:
         *node = pool->add(new SchemaScanNode(pool, tnode, descs));
         return Status::OK;
@@ -507,6 +512,7 @@ void ExecNode::collect_nodes(TPlanNodeType::type node_type, vector<ExecNode*>* n
 void ExecNode::collect_scan_nodes(vector<ExecNode*>* nodes) {
     collect_nodes(TPlanNodeType::OLAP_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::BROKER_SCAN_NODE, nodes);
+    collect_nodes(TPlanNodeType::ES_SCAN_NODE, nodes);
 }
 
 void ExecNode::init_runtime_profile(const std::string& name) {
