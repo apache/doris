@@ -84,6 +84,7 @@ private:
     OLAPStatus _init_non_pending_segment_groups();
 
 private:
+    friend class AlphaRowsetBuilder;
     RowFields _tablet_schema;
     int _num_key_fields;
     int _num_short_key_fields;
