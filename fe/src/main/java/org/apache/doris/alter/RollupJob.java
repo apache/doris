@@ -992,9 +992,7 @@ public class RollupJob extends AlterJob {
         jobInfo.add(cancelMsg);
 
         // progress
-        if (state == JobState.PENDING) {
-            jobInfo.add("0%");
-        } else if (state == JobState.RUNNING) {
+        if (state == JobState.RUNNING) {
             int unfinishedReplicaNum = getUnfinishedReplicaNum();
             int totalReplicaNum = getTotalReplicaNum();
             Preconditions.checkState(unfinishedReplicaNum <= totalReplicaNum);

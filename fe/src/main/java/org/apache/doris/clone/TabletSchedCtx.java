@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.SchedException.Status;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.system.Backend;
@@ -630,7 +631,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     
     /*
      * 1. Check if the tablet is already healthy. If yes, ignore the clone task report, and take it as FINISHED.
-     * 2. If not, check the reported clone replica, and try to make if effective.
+     * 2. If not, check the reported clone replica, and try to make it effective.
      * 
      * Throw SchedException if error happens
      * 1. SCHEDULE_FAILED: will keep the tablet RUNNING.
@@ -641,7 +642,25 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         Preconditions.checkState(state == State.RUNNING);
         Preconditions.checkArgument(cloneTask.getTaskVersion() == CloneTask.VERSION_2);
         setLastVisitedTime(System.currentTimeMillis());
-        
+
+        // check if clone task success
+        if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
+            throw new SchedException(Status.RUNNING_FAILED, request.getTask_status().getError_msgs().get(0));
+        }
+
+        // check task report
+        if (dbId != cloneTask.getDbId() || tblId != cloneTask.getTableId()
+                || partitionId != cloneTask.getPartitionId() || indexId != cloneTask.getIndexId()
+                || tabletId != cloneTask.getTabletId() || destBackendId != cloneTask.getBackendId()) {
+            String msg = String.format("clone task does not match the tablet info"
+                    + ". clone task %d-%d-%d-%d-%d-%d"
+                    + ", tablet info: %d-%d-%d-%d-%d-%d",
+                    cloneTask.getDbId(), cloneTask.getTableId(), cloneTask.getPartitionId(),
+                    cloneTask.getIndexId(), cloneTask.getTabletId(), cloneTask.getBackendId(),
+                    dbId, tblId, partitionId, indexId, tablet.getId(), destBackendId);
+            throw new SchedException(Status.RUNNING_FAILED, msg);
+        }
+
         // 1. check the tablet status first
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
@@ -675,30 +694,19 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 throw new SchedException(Status.UNRECOVERABLE, "tablet does not exist");
             }
             
-            // tablet is unhealthy, go on to check task report.
-            // check if clone task success
-            if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
-                throw new SchedException(Status.RUNNING_FAILED, request.getTask_status().getError_msgs().get(0));
+            short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partitionId);
+            Pair<TabletStatus, TabletSchedCtx.Priority> pair = tablet.getHealthStatusWithPriority(
+                    infoService, db.getClusterName(), visibleVersion, visibleVersionHash, replicationNum);
+            if (pair.first == TabletStatus.HEALTHY) {
+                throw new SchedException(Status.FINISHED, "tablet is healthy");
             }
             
-            if (dbId != cloneTask.getDbId() || tblId != cloneTask.getTableId()
-                    || partitionId != cloneTask.getPartitionId() || indexId != cloneTask.getIndexId()
-                    || tabletId != cloneTask.getTabletId() || destBackendId != cloneTask.getBackendId()) {
-                String msg = String.format("clone task does not match the tablet info"
-                        + ". clone task %d-%d-%d-%d-%d-%d"
-                        + ", tablet info: %d-%d-%d-%d-%d-%d",
-                        cloneTask.getDbId(), cloneTask.getTableId(), cloneTask.getPartitionId(),
-                        cloneTask.getIndexId(), cloneTask.getTabletId(), cloneTask.getBackendId(),
-                        dbId, tblId, partitionId, indexId, tablet.getId(), destBackendId);
-                throw new SchedException(Status.RUNNING_FAILED, msg);
-            }
+            // tablet is unhealthy, go on
             
             // Here we do not check if the clone version is equal to the partition's visible version.
             // Because in case of high frequency loading, clone version always lags behind the visible version,
-            // so the clone job will never succeed, which cause accumulation of quorum finished load jobs.
-            
             // But we will check if the clone replica's version is larger than or equal to the task's visible version.
-            // (which is 'visibleVersion(hash)' saved)
+            // (which is 'visibleVersion[Hash]' saved)
             // We should discard the clone replica with stale version.
             TTabletInfo reportedTablet = request.getFinish_tablet_infos().get(0);
             if (reportedTablet.getVersion() < visibleVersion

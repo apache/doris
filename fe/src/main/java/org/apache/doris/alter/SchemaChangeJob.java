@@ -1090,16 +1090,18 @@ public class SchemaChangeJob extends AlterJob {
             // for compatibility
             if (state == JobState.FINISHED || state == JobState.CANCELLED) {
                 List<Comparable> jobInfo = new ArrayList<Comparable>();
-                jobInfo.add(tableId);
-                jobInfo.add(tbl.getName());
-                jobInfo.add(transactionId);
+                jobInfo.add(tableId); // job id
+                jobInfo.add(tbl.getName()); // table name
                 jobInfo.add(TimeUtils.longToTimeString(createTime));
                 jobInfo.add(TimeUtils.longToTimeString(finishedTime));
-                jobInfo.add("N/A");
-                jobInfo.add("N/A");
-                jobInfo.add(state.name());
+                jobInfo.add("N/A"); // index name
+                jobInfo.add("N/A"); // index id
+                jobInfo.add("N/A"); // schema version
+                jobInfo.add("N/A"); // index state
+                jobInfo.add(-1); // transaction id
+                jobInfo.add(state.name()); // job state
+                jobInfo.add("N/A"); // progress
                 jobInfo.add(cancelMsg);
-                jobInfo.add("N/A");
 
                 jobInfos.add(jobInfo);
                 return;
@@ -1163,6 +1165,8 @@ public class SchemaChangeJob extends AlterJob {
 
             if (state == JobState.RUNNING) {
                 jobInfo.add(indexProgress.get(indexId) == null ? "N/A" : indexProgress.get(indexId)); // progress
+            } else {
+                jobInfo.add("N/A");
             }
 
             jobInfo.add(cancelMsg);
