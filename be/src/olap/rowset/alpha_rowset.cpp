@@ -125,6 +125,10 @@ bool AlphaRowset::is_pending() const {
     return _is_pending_rowset;
 }
 
+int64_t AlphaRowset::txn_id() const {
+    return _rowset_meta->txn_id();
+}
+
 OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
     std::vector<SegmentGroupPB> segment_group_metas;
     AlphaRowsetMeta* _alpha_rowset_meta = (AlphaRowsetMeta*)_rowset_meta.get();

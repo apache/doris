@@ -155,6 +155,11 @@ Version AlphaRowsetBuilder::version() {
     return _rowset_builder_context.version;
 }
 
+int32_t AlphaRowsetBuilder::num_rows() {
+    // TODO(hkp): realize this api
+    return 0;
+}
+
 void AlphaRowsetBuilder::_init() {
     _segment_group_id++;
     if (is_pending_rowset) {

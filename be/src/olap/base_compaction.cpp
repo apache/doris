@@ -526,7 +526,7 @@ OLAPStatus BaseCompaction::_validate_delete_file_action() {
 
     if (rs_readers.empty()) {
         LOG(INFO) << "acquire data sources failed. version="
-           << spec_version.first << "-" << spec_version.second; 
+           << spec_version.first << "-" << spec_version.second;
         return OLAP_ERR_BE_ERROR_DELETE_ACTION;
     }
 

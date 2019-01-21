@@ -74,6 +74,8 @@ public:
 
     virtual bool is_pending() const;
 
+    virtual int64_t txn_id() const;
+
 private:
     OLAPStatus _init_segment_groups();
 

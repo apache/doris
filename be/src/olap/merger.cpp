@@ -40,7 +40,7 @@ Merger::Merger(TabletSharedPtr tablet, RowsetWriterSharedPtr writer, ReaderType 
         _row_count(0) {}
 
 OLAPStatus Merger::merge(const vector<RowsetReaderSharedPtr>& rs_readers,
-                         const Version& version, uint64_t* merged_rows, uint64_t* filted_rows) {
+                         uint64_t* merged_rows, uint64_t* filted_rows) {
     // Create and initiate reader for scanning and multi-merging specified
     // OLAPDatas.
     Reader reader;
@@ -50,7 +50,7 @@ OLAPStatus Merger::merge(const vector<RowsetReaderSharedPtr>& rs_readers,
     reader_params.rs_readers = rs_readers;
 
     if (_reader_type == READER_BASE_COMPACTION) {
-        reader_params.version = version;
+        reader_params.version = _builder->version();
     }
 
     if (OLAP_SUCCESS != reader.init(reader_params)) {

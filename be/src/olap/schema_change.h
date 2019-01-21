@@ -122,7 +122,7 @@ public:
 
     bool merge(
             const std::vector<RowBlock*>& row_block_arr,
-            RowsetBuilder* rowset_builder,
+            RowsetBuilderSharedPtr rowset_builder,
             uint64_t* merged_rows);
 
 private:
@@ -148,8 +148,8 @@ public:
     SchemaChange() : _filted_rows(0), _merged_rows(0) {}
     virtual ~SchemaChange() {}
 
-    virtual bool process(Rowset* rowset,
-                         Rowset* new_rowset,
+    virtual bool process(RowsetReaderSharedPtr rowset_reader,
+                         RowsetBuilderSharedPtr new_rowset_builder,
                          TabletSharedPtr tablet) = 0;
 
     void add_filted_rows(uint64_t filted_rows) {
@@ -181,7 +181,7 @@ public:
             TSchemaHash schema_hash,
             Version version,
             VersionHash version_hash,
-            Rowset* rowset);
+            RowsetBuilderSharedPtr rowset_builder);
 
 private:
     uint64_t _filted_rows;
@@ -195,9 +195,10 @@ public:
                 TabletSharedPtr new_tablet);
     ~LinkedSchemaChange() {}
 
-    bool process(Rowset* rowset,
-                 Rowset* new_rowset,
-                 TabletSharedPtr tablet);
+    virtual bool process(
+        RowsetReaderSharedPtr rowset_reader,
+        RowsetBuilderSharedPtr new_rowset_builder,
+        TabletSharedPtr tablet);
 private:
     TabletSharedPtr _base_tablet;
     TabletSharedPtr _new_tablet;
@@ -214,8 +215,8 @@ public:
             const RowBlockChanger& row_block_changer);
     virtual ~SchemaChangeDirectly();
 
-    virtual bool process(Rowset* rowset,
-                         Rowset* new_rowset,
+    virtual bool process(RowsetReaderSharedPtr rowset_reader,
+                         RowsetBuilderSharedPtr rowset_builder,
                          TabletSharedPtr tablet);
 
 private:
@@ -239,7 +240,7 @@ public:
             size_t memory_limitation);
     virtual ~SchemaChangeWithSorting();
 
-    virtual bool process(RowsetReaderSharedPtr rowset,
+    virtual bool process(RowsetReaderSharedPtr rowset_reader,
                          RowsetBuilderSharedPtr new_rowset_builder,
                          TabletSharedPtr tablet);
 
@@ -251,8 +252,8 @@ private:
             RowsetSharedPtr* rowset);
 
     bool _external_sorting(
-            std::vector<Rowset*>& src_rowsets,
-            Rowset* rowset,
+            vector<RowsetSharedPtr>& src_rowsets,
+            RowsetBuilderSharedPtr rowset_builder,
             TabletSharedPtr tablet);
 
     TabletSharedPtr _tablet;
