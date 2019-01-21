@@ -39,6 +39,7 @@ public:
 
     virtual OLAPStatus add_row_block(RowBlock* row_block);
 
+    // add rowset by create hard link
     virtual OLAPStatus add_rowset(RowsetSharedPtr rowset);
 
     virtual OLAPStatus flush();
@@ -64,6 +65,7 @@ private:
     ColumnDataWriter* _column_data_writer;
     std::shared_ptr<RowsetMeta> _current_rowset_meta;
     bool is_pending_rowset;
+    int _num_rows_written;
     RowsetWriterContext _rowset_writer_context;
     std::vector<SegmentGroup*> _segment_groups;
 };

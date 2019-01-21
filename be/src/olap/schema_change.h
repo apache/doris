@@ -64,6 +64,10 @@ public:
     virtual ~RowBlockChanger();
 
     ColumnMapping* get_mutable_column_mapping(size_t column_index);
+
+    SchemaMapping get_schema_mapping() const {
+        return _schema_mapping;
+    }
     
     bool change_row_block(
             const DataFileType df_type,

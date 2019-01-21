@@ -29,7 +29,8 @@ AlphaRowsetReader::AlphaRowsetReader(int num_key_columns, int num_short_key_colu
             _alpha_rowset_meta(nullptr),
             _segment_groups(segment_groups),
             _rowset(rowset),
-            _key_range_size(0) {
+            _key_range_size(0),
+            _num_rows_read(0) {
     _alpha_rowset_meta = reinterpret_cast<AlphaRowsetMeta*>(rowset_meta);
     Version version = _alpha_rowset_meta->version();
     if (version.first == version.second) {
@@ -66,6 +67,7 @@ OLAPStatus AlphaRowsetReader::next(RowCursor** row) {
     } else {
         status = _get_next_row_for_singleton_rowset(row);
     }
+    _num_rows_read++;
     return status;
 }
 
@@ -78,6 +80,7 @@ OLAPStatus AlphaRowsetReader::next_block(RowBlock** block) {
         }
         (*block)->set_row((*block)->pos(), *row_cursor);
         (*block)->pos_inc();
+        _num_rows_read++;
     }
     return OLAP_SUCCESS;
 }
@@ -95,8 +98,7 @@ void AlphaRowsetReader::close() {
 }
 
 int32_t AlphaRowsetReader::num_rows() {
-    // TODO(hkp): realize this api
-    return 0;
+    return _num_rows_read;
 }
 
 OLAPStatus AlphaRowsetReader::_get_next_block(size_t pos, RowBlock** row_block) {
