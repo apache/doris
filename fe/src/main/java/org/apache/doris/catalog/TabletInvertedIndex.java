@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.task.RecoverTabletTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTablet;
@@ -108,7 +107,7 @@ public class TabletInvertedIndex {
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap, 
                              ListMultimap<Long, TPartitionVersionInfo> transactionsToPublish, 
                              ListMultimap<Long, Long> transactionsToClear, 
-                             List<RecoverTabletTask> tabletNeedRecover) {
+                             ListMultimap<Long, Long> tabletRecoveryMap) {
 
         long start = 0L;
         readLock();
@@ -145,10 +144,7 @@ public class TabletInvertedIndex {
 
                                 if (checkNeedRecover(replica, backendTabletInfo.getVersion(),
                                         backendTabletInfo.getVersion_hash())) {
-                                    RecoverTabletTask recoverTabletTask = new RecoverTabletTask(backendId, 
-                                            tabletId, replica.getVersion(), replica.getVersionHash(), 
-                                            backendTabletInfo.getSchema_hash());
-                                    tabletNeedRecover.add(recoverTabletTask);
+                                    tabletRecoveryMap.put(tabletMeta.getDbId(), tabletId);
                                 }
 
                                 // check if need migration
@@ -319,12 +315,8 @@ public class TabletInvertedIndex {
     }
     
     /**
-     * if be's report version < fe's meta version, it means there exists one or more holes in be
-     * the be needs recovery
-     * @param replicaMeta
-     * @param backendVersion
-     * @param backendVersionHash
-     * @return
+     * if be's report version < fe's meta version, it means some version is missing in BE
+     * because of some unrecoverable failure.
      */
     private boolean checkNeedRecover(Replica replicaMeta, long backendVersion, long backendVersionHash) {
         long metaVersion = replicaMeta.getVersion();
