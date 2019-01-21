@@ -82,8 +82,6 @@ class TabletMeta {
 public:
     OLAPStatus init();
     OLAPStatus load_and_init();
-    FileVersionMessage& file_version(int32_t index);
-    int file_version_size();
     int file_delta_size();
     Version get_latest_version();
     OLAPStatus set_shard(int32_t shard_id);
@@ -96,23 +94,26 @@ public:
                            int64_t index_size, int64_t data_size, int64_t num_rows,
                            bool empty, const std::vector<KeyRange>* column_statistics);
     const PDelta* get_incremental_version(Version version) const;
-    std::string& file_name() const;
     const PDelta* get_delta(int index) const;
-    const PDelta* get_base_version() const;
     const uint32_t get_cumulative_compaction_score() const;
     const uint32_t get_base_compaction_score() const;
-    const OLAPStatus version_creation_time(const Version& version, int64_t* creation_time) const;
-    void set_tablet_id(int64_t tablet_id);
-    void set_schema_hash(TSchemaHash schema_hash);
     void set_cumulative_layer_point(int32_t point);
-    void set_next_column_unique_id(int32_t unique_id);
-    void set_compress_kind(CompressKind kind);
-    void set_keys_type(KeysType keys_type);
-    void set_data_file_type(DataFileType type);
     int32_t cumulative_layer_point();
-    void set_num_rows_per_data_block(size_t default_num_rows_per_column_file_block);
+    int file_version_size();
+    FileVersionMessage& file_version(int32_t index);
 
+    static OLAPStatus create(int64_t table_id, int64_t partition_id,
+                             int64_t tablet_id, int64_t schema_hash,
+                             uint64_t shard_id, const TTabletSchema& tablet_schema,
+                             uint32_t next_unique_id,
+                             const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
+                             TabletMeta** tablet_meta);
     TabletMeta();
+    TabletMeta(int64_t table_id, int64_t partition_id,
+               int64_t tablet_id, int64_t schema_hash,
+               uint64_t shard_id, const TTabletSchema& tablet_schema,
+               uint32_t next_unique_id,
+               const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id);
     TabletMeta(const std::string& file_name);
     TabletMeta(DataDir* data_dir);
 

@@ -33,7 +33,7 @@ using std::vector;
 
 namespace doris {
 
-Merger::Merger(TabletSharedPtr tablet, RowsetBuilder* builder, ReaderType type) : 
+Merger::Merger(TabletSharedPtr tablet, RowsetWriter* builder, ReaderType type) : 
         _tablet(tablet),
         _builder(builder),
         _reader_type(type),

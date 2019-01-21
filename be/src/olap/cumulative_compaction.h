@@ -27,7 +27,7 @@
 #include "olap/olap_define.h"
 #include "olap/tablet.h"
 #include "rowset/rowset_id_generator.h"
-#include "rowset/alpha_rowset_builder.h"
+#include "rowset/alpha_rowset_writer.h"
 
 namespace doris {
 
@@ -172,7 +172,7 @@ private:
     VersionHash _cumulative_version_hash;
     // 新cumulative文件对应的olap index
     RowsetSharedPtr _rowset;
-    RowsetBuilder* _builder;
+    RowsetWriter* _builder;
     // 可合并的delta文件的data文件
     std::vector<RowsetSharedPtr> _rowsets;
     std::vector<RowsetReaderSharedPtr> _rs_readers;

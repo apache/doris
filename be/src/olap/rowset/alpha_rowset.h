@@ -21,7 +21,7 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/segment_group.h"
 #include "olap/rowset/alpha_rowset_reader.h"
-#include "olap/rowset/alpha_rowset_builder.h"
+#include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/rowset_meta.h"
 
 #include <vector>
@@ -40,7 +40,7 @@ public:
 
     virtual std::unique_ptr<RowsetReader> create_reader();
 
-    virtual OLAPStatus copy(RowsetBuilder* dest_rowset_builder);
+    virtual OLAPStatus copy(RowsetWriter* dest_rowset_writer);
 
     virtual OLAPStatus remove();
 

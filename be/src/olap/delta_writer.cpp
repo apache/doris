@@ -19,7 +19,7 @@
 
 #include "olap/schema.h"
 #include "olap/data_dir.h"
-#include "olap/rowset/alpha_rowset_builder.h"
+#include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/rowset_meta_manager.h"
 
 namespace doris {
@@ -32,7 +32,7 @@ OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
 DeltaWriter::DeltaWriter(WriteRequest* req)
     : _req(*req), _tablet(nullptr),
       _cur_rowset(nullptr), _related_rowset(nullptr), _related_tablet(nullptr),
-      _rowset_builder(nullptr), _mem_table(nullptr),
+      _rowset_writer(nullptr), _mem_table(nullptr),
       _schema(nullptr), _field_infos(nullptr),
       _delta_written_success(false) {}
 
@@ -97,7 +97,7 @@ OLAPStatus DeltaWriter::init() {
     }
 
     int32_t rowset_id = 0; // get rowset_id from id generator
-    RowsetBuilderContextBuilder context_builder;
+    RowsetWriterContextBuilder context_builder;
     context_builder.set_rowset_id(rowset_id)
             .set_tablet_id(_req.tablet_id)
             .set_partition_id(_req.partition_id)
@@ -113,13 +113,13 @@ OLAPStatus DeltaWriter::init() {
             .set_rowset_state(PREPARING)
             .set_txn_id(_req.txn_id)
             .set_load_id(_req.load_id);
-    RowsetBuilderContext builder_context = context_builder.build();
+    RowsetWriterContext builder_context = context_builder.build();
 
-    // TODO: new RowsetBuilder according to tablet storage type
-    _rowset_builder.reset(new AlphaRowsetBuilder());
-    OLAPStatus status = _rowset_builder->init(builder_context);
+    // TODO: new RowsetWriter according to tablet storage type
+    _rowset_writer.reset(new AlphaRowsetWriter());
+    OLAPStatus status = _rowset_writer->init(builder_context);
     if (status != OLAP_SUCCESS) {
-        return OLAP_ERR_ROWSET_BUILDER_INIT;
+        return OLAP_ERR_ROWSET_WRITER_INIT;
     }
 
     const std::vector<SlotDescriptor*>& slots = _req.tuple_desc->slots();
@@ -148,7 +148,7 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
 
     _mem_table->insert(tuple);
     if (_mem_table->memory_usage() >= config::write_buffer_size) {
-        RETURN_NOT_OK(_mem_table->flush(_rowset_builder));
+        RETURN_NOT_OK(_mem_table->flush(_rowset_writer));
 
         SAFE_DELETE(_mem_table);
         _mem_table = new MemTable(_schema, _field_infos, &_col_ids,
@@ -164,11 +164,11 @@ OLAPStatus DeltaWriter::close(google::protobuf::RepeatedPtrField<PTabletInfo>* t
             return st;
         }
     }
-    RETURN_NOT_OK(_mem_table->close(_rowset_builder));
+    RETURN_NOT_OK(_mem_table->close(_rowset_writer));
 
     OLAPStatus res = OLAP_SUCCESS;
     // use rowset meta manager to save meta
-    _cur_rowset = _rowset_builder->build();
+    _cur_rowset = _rowset_writer->build();
     res = RowsetMetaManager::save(
             _tablet->data_dir()->get_meta(),
             _cur_rowset->rowset_id(),

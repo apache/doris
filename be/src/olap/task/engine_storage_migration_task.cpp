@@ -142,7 +142,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         }
 
         // load the new tablet into OLAPEngine
-        auto tablet = Tablet::create_from_header(new_tablet_meta, stores[0]);
+        auto tablet = Tablet::create_from_tablet_meta(new_tablet_meta, stores[0]);
         if (tablet == NULL) {
             OLAP_LOG_WARNING("failed to create from header");
             res = OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;

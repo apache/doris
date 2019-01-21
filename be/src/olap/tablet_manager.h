@@ -75,7 +75,7 @@ public:
     // Add empty data for Tablet
     //
     // Return OLAP_SUCCESS, if run ok
-    OLAPStatus create_init_version(
+    OLAPStatus create_inital_rowset(
             TTabletId tablet_id, SchemaHash schema_hash,
             Version version, VersionHash version_hash);
 
@@ -151,14 +151,14 @@ private:
     
     void _build_tablet_stat();
     
-    OLAPStatus _create_init_version(TabletSharedPtr tablet, const TCreateTabletReq& request);
+    OLAPStatus _create_inital_rowset(TabletSharedPtr tablet, const TCreateTabletReq& request);
     
 
-    OLAPStatus _create_new_tablet_header(const TCreateTabletReq& request,
-                                             DataDir* store,
-                                             const bool is_schema_change_tablet,
-                                             const TabletSharedPtr ref_tablet,
-                                             TabletMeta* header);
+    OLAPStatus _create_tablet_meta(const TCreateTabletReq& request,
+                                   DataDir* store,
+                                   const bool is_schema_change_tablet,
+                                   const TabletSharedPtr ref_tablet,
+                                   TabletMeta** tablet_meta);
 
     // Drop tablet directly with check schema change info.
     OLAPStatus _drop_tablet_directly(TTabletId tablet_id, TSchemaHash schema_hash, bool keep_files = false);

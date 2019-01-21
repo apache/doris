@@ -25,7 +25,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "olap/rowset/rowset_builder.h"
+#include "olap/rowset/rowset_writer.h"
 
 namespace doris {
 
@@ -70,7 +70,7 @@ private:
     RowsetSharedPtr _cur_rowset;
     RowsetSharedPtr _related_rowset;
     TabletSharedPtr _related_tablet;
-    RowsetBuilderSharedPtr _rowset_builder;
+    RowsetWriterSharedPtr _rowset_writer;
     MemTable* _mem_table;
     Schema* _schema;
     std::vector<FieldInfo>* _field_infos;

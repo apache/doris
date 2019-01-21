@@ -309,13 +309,13 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     // 1. 生成新base文件对应的olap index
     RowsetId rowset_id = 0;
     RowsetIdGenerator::instance()->get_next_id(_tablet->data_dir(), &rowset_id);
-    RowsetBuilderContext context = {_tablet->partition_id(), _tablet->tablet_id(),
-                                    _tablet->schema_hash(), rowset_id, 
-                                    RowsetTypePB::ALPHA_ROWSET, _tablet->rowset_path_prefix(),
-                                    _tablet->tablet_schema(), _tablet->num_key_fields(),
-                                    _tablet->num_short_key_fields(), _tablet->num_rows_per_row_block(),
-                                    _tablet->compress_kind(), _tablet->bloom_filter_fpp()};
-    RowsetBuilder* builder = new AlphaRowsetBuilder(); 
+    RowsetWriterContext context = {_tablet->partition_id(), _tablet->tablet_id(),
+                                   _tablet->schema_hash(), rowset_id, 
+                                   RowsetTypePB::ALPHA_ROWSET, _tablet->rowset_path_prefix(),
+                                   _tablet->tablet_schema(), _tablet->num_key_fields(),
+                                   _tablet->num_short_key_fields(), _tablet->num_rows_per_row_block(),
+                                   _tablet->compress_kind(), _tablet->bloom_filter_fpp()};
+    RowsetWriter* builder = new AlphaRowsetWriter(); 
     if (builder == nullptr) {
         LOG(WARNING) << "fail to new rowset.";
         return OLAP_ERR_MALLOC_ERROR;

@@ -227,7 +227,7 @@ void TabletManager::clear() {
     _tablet_map.clear();
 } // clear
 
-OLAPStatus TabletManager::create_init_version(TTabletId tablet_id, SchemaHash schema_hash,
+OLAPStatus TabletManager::create_inital_rowset(TTabletId tablet_id, SchemaHash schema_hash,
                                            Version version, VersionHash version_hash) {
     VLOG(3) << "begin to create init version. "
             << "begin=" << version.first << ", end=" << version.second;
@@ -251,13 +251,13 @@ OLAPStatus TabletManager::create_init_version(TTabletId tablet_id, SchemaHash sc
         }
         RowsetId rowset_id = 0;
         RowsetIdGenerator::instance()->get_next_id(tablet->data_dir(), &rowset_id);
-        RowsetBuilderContext context = {tablet->partition_id(), tablet->tablet_id(),
-                                        tablet->schema_hash(), rowset_id, 
-                                        RowsetTypePB::ALPHA_ROWSET, tablet->rowset_path_prefix(),
-                                        tablet->tablet_schema(), tablet->num_key_fields(),
-                                        tablet->num_short_key_fields(), tablet->num_rows_per_row_block(),
-                                        tablet->compress_kind(), tablet->bloom_filter_fpp()};
-        RowsetBuilder* builder = new AlphaRowsetBuilder(); 
+        RowsetWriterContext context = {tablet->partition_id(), tablet->tablet_id(),
+                                       tablet->schema_hash(), rowset_id, 
+                                       RowsetTypePB::ALPHA_ROWSET, tablet->rowset_path_prefix(),
+                                       tablet->tablet_schema(), tablet->num_key_fields(),
+                                       tablet->num_short_key_fields(), tablet->num_rows_per_row_block(),
+                                       tablet->compress_kind(), tablet->bloom_filter_fpp()};
+        RowsetWriter* builder = new AlphaRowsetWriter(); 
         if (builder == nullptr) {
             LOG(WARNING) << "fail to new rowset.";
             return OLAP_ERR_MALLOC_ERROR;
@@ -284,7 +284,7 @@ OLAPStatus TabletManager::create_init_version(TTabletId tablet_id, SchemaHash sc
 
     VLOG(3) << "create init version end. res=" << res;
     return res;
-} // create_init_version
+} // create_inital_rowset
 
 OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request, 
     std::vector<DataDir*> stores) {
@@ -355,7 +355,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
         // 6. Create init version if this is not a restore mode replica and request.version is set
         // bool in_restore_mode = request.__isset.in_restore_mode && request.in_restore_mode;
         // if (!in_restore_mode && request.__isset.version) {
-        res = _create_init_version(tablet_ptr, request);
+        res = _create_inital_rowset(tablet_ptr, request);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to create initial version for tablet. [res=%d]", res);
         }
@@ -381,30 +381,30 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
 } // create_tablet
 
 TabletSharedPtr TabletManager::create_tablet(
-        const TCreateTabletReq& request, const string* ref_root_path, 
-        const bool is_schema_change_tablet, const TabletSharedPtr ref_tablet, 
+        const TCreateTabletReq& request, const string* ref_root_path,
+        const bool is_schema_change_tablet, const TabletSharedPtr ref_tablet,
         std::vector<DataDir*> stores) {
 
     TabletSharedPtr tablet;
     // Try to create tablet on each of all_available_root_path, util success
     for (auto& store : stores) {
-        TabletMeta* header = new TabletMeta();
-        OLAPStatus res = _create_new_tablet_header(request, store, is_schema_change_tablet, ref_tablet, header);
+        TabletMeta* tablet_meta = nullptr;
+        OLAPStatus res = _create_tablet_meta(request, store, is_schema_change_tablet, ref_tablet, &tablet_meta);
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to create tablet header. [res=" << res << " root=" << store->path();
+            LOG(WARNING) << "fail to create tablet meta. res=" << res << ", root=" << store->path();
             break;
         }
 
-        tablet = Tablet::create_from_header(header, store);
+        tablet = Tablet::create_from_tablet_meta(tablet_meta, store);
         if (tablet == nullptr) {
-            LOG(WARNING) << "fail to load tablet from header. root_path:%s" << store->path();
+            LOG(WARNING) << "fail to load tablet from tablet_meta. root_path:" << store->path();
             break;
         }
 
-        // commit header finally
-        res = TabletMetaManager::save(store, request.tablet_id, request.tablet_schema.schema_hash, header);
+        // save tablet_meta finally
+        res = TabletMetaManager::save(store, request.tablet_id, request.tablet_schema.schema_hash, tablet_meta);
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to save header. [res=" << res << " root=" << store->path();
+            LOG(WARNING) << "fail to save tablet meta. res=" << res << ", root=" << store->path();
             break;
         }
         break;
@@ -630,7 +630,7 @@ OLAPStatus TabletManager::load_tablet_from_header(DataDir* data_dir, TTabletId t
         return OLAP_ERR_HEADER_INIT_FAILED;
     }
     TabletSharedPtr tablet =
-        Tablet::create_from_header(tablet_meta.release(), data_dir);
+        Tablet::create_from_tablet_meta(tablet_meta.release(), data_dir);
     if (tablet == nullptr) {
         LOG(WARNING) << "fail to new tablet. tablet_id=" << tablet_id << ", schema_hash:" << schema_hash;
         return OLAP_ERR_TABLE_CREATE_FROM_HEADER_ERROR;
@@ -685,7 +685,7 @@ OLAPStatus TabletManager::load_one_tablet(
         return OLAP_ERR_FILE_NOT_EXIST;
     }
 
-    auto tablet = Tablet::create_from_header_file(
+    auto tablet = Tablet::create_from_tablet_meta_file(
             tablet_id, schema_hash, header_path, store);
     if (tablet == NULL) {
         LOG(WARNING) << "fail to load tablet. [header_path=" << header_path << "]";
@@ -929,7 +929,7 @@ void TabletManager::_build_tablet_stat() {
     _tablet_stat_cache_update_time_ms = UnixMillis();
 }
 
-OLAPStatus TabletManager::_create_init_version(
+OLAPStatus TabletManager::_create_inital_rowset(
         TabletSharedPtr tablet, const TCreateTabletReq& request) {
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -938,7 +938,7 @@ OLAPStatus TabletManager::_create_init_version(
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     } else {
         Version init_base_version(0, request.version);
-        res = create_init_version(
+        res = create_inital_rowset(
                 request.tablet_id, request.tablet_schema.schema_hash,
                 init_base_version, request.version_hash);
         if (res != OLAP_SUCCESS) {
@@ -948,7 +948,7 @@ OLAPStatus TabletManager::_create_init_version(
         }
 
         Version init_delta_version(request.version + 1, request.version + 1);
-        res = create_init_version(
+        res = create_inital_rowset(
                 request.tablet_id, request.tablet_schema.schema_hash,
                 init_delta_version, 0);
         if (res != OLAP_SUCCESS) {
@@ -969,14 +969,14 @@ OLAPStatus TabletManager::_create_init_version(
     return res;
 }
 
-OLAPStatus TabletManager::_create_new_tablet_header(
+OLAPStatus TabletManager::_create_tablet_meta(
         const TCreateTabletReq& request,
         DataDir* store,
         const bool is_schema_change_tablet,
         const TabletSharedPtr ref_tablet,
-        TabletMeta* header) {
-    uint64_t shard = 0;
-    OLAPStatus res = store->get_shard(&shard);
+        TabletMeta** tablet_meta) {
+    uint64_t shard_id = 0;
+    OLAPStatus res = store->get_shard(&shard_id);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to get root path shard. res=" << res;
         return res;
@@ -984,7 +984,7 @@ OLAPStatus TabletManager::_create_new_tablet_header(
     stringstream schema_hash_dir_stream;
     schema_hash_dir_stream << store->path()
                       << DATA_PREFIX
-                      << "/" << shard
+                      << "/" << shard_id
                       << "/" << request.tablet_id
                       << "/" << request.tablet_schema.schema_hash;
     string schema_hash_dir = schema_hash_dir_stream.str();
@@ -997,40 +997,20 @@ OLAPStatus TabletManager::_create_new_tablet_header(
         LOG(WARNING) << "create dir fail. [res=" << res << " path:" << schema_hash_dir;
         return res;
     }
-    
-    // set basic information
-    /*
-    header->set_num_short_key_fields(request.tablet_schema.short_key_column_count);
-    header->set_compress_kind(COMPRESS_LZ4);
-    if (request.tablet_schema.keys_type == TKeysType::DUP_KEYS) {
-        header->set_keys_type(KeysType::DUP_KEYS);
-    } else if (request.tablet_schema.keys_type == TKeysType::UNIQUE_KEYS) {
-        header->set_keys_type(KeysType::UNIQUE_KEYS);
-    } else {
-        header->set_keys_type(KeysType::AGG_KEYS);
-    }
-    DCHECK(request.tablet_schema.storage_type == TStorageType::COLUMN);
-    header->set_data_file_type(COLUMN_ORIENTED_FILE);
-    header->set_segment_size(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE);
-    header->set_num_rows_per_data_block(config::default_num_rows_per_column_file_block);
-    */
 
-    // set column information
-    uint32_t i = 0;
-    //uint32_t key_count = 0;
-    //bool has_bf_columns = false;
-    uint32_t next_unique_id = 0;
-    if (true == is_schema_change_tablet) {
-        next_unique_id = ref_tablet->next_unique_id();
-    }
-    for (TColumn column : request.tablet_schema.columns) {
-        if (column.column_type.type == TPrimitiveType::VARCHAR
-                && i < request.tablet_schema.short_key_column_count - 1) {
-            LOG(WARNING) << "varchar type column should be the last short key.";
-            return OLAP_ERR_SCHEMA_SCHEMA_INVALID;
+    uint32_t next_unique_id = ref_tablet->next_unique_id();
+    uint32_t col_ordinal = 0; 
+    std::unordered_map<uint32_t, uint32_t> col_ordinal_to_unique_id;
+    if (!is_schema_change_tablet) {
+        for (TColumn column : request.tablet_schema.columns) {
+            col_ordinal_to_unique_id[col_ordinal] = col_ordinal;
+            col_ordinal++;
         }
-        //header->add_column();
-        if (true == is_schema_change_tablet) {
+        next_unique_id = col_ordinal;
+    } else {
+        uint32_t next_unique_id = ref_tablet->next_unique_id();
+        uint32_t col_ordinal = 0; 
+        for (TColumn column : request.tablet_schema.columns) {
             /*
              * for schema change, compare old_tablet and new_tablet
              * 1. if column in both new_tablet and old_tablet,
@@ -1039,105 +1019,28 @@ OLAPStatus TabletManager::_create_new_tablet_header(
              * to the new column
              *
             */
-            size_t field_num = ref_tablet->tablet_schema().size();
-            size_t field_off = 0;
-            for (field_off = 0; field_off < field_num; ++field_off) {
-                if (ref_tablet->tablet_schema()[field_off].name == column.column_name) {
-                    //uint32_t unique_id = ref_tablet->tablet_schema()[field_off].unique_id;
-                    //header->mutable_column(i)->set_unique_id(unique_id);
+            size_t num_fields = ref_tablet->num_fields();
+            for (size_t field = 0 ; field < num_fields; ++field) {
+                if (ref_tablet->tablet_schema()[field].name == column.column_name) {
+                    uint32_t unique_id = ref_tablet->tablet_schema()[field].unique_id;
+                    col_ordinal_to_unique_id[col_ordinal] = unique_id;
                     break;
                 }
+                if (field == num_fields) {
+                    col_ordinal_to_unique_id[col_ordinal] = next_unique_id;
+                    next_unique_id++;
+                }
             }
-            if (field_off == field_num) {
-                //header->mutable_column(i)->set_unique_id(next_unique_id++);
-            }
-        } else {
-            //header->mutable_column(i)->set_unique_id(i);
+            col_ordinal++;
         }
-        /*
-        header->mutable_column(i)->set_name(column.column_name);
-        header->mutable_column(i)->set_is_root_column(true);
-        string data_type;
-        EnumToString(TPrimitiveType, column.column_type.type, data_type);
-        header->mutable_column(i)->set_type(data_type);
-        if (column.column_type.type == TPrimitiveType::DECIMAL) {
-            if (column.column_type.__isset.precision && column.column_type.__isset.scale) {
-                header->mutable_column(i)->set_precision(column.column_type.precision);
-                header->mutable_column(i)->set_frac(column.column_type.scale);
-            } else {
-                LOG(WARNING) << "decimal type column should set precision and frac.";
-                return OLAP_ERR_SCHEMA_SCHEMA_INVALID;
-            }
-        }
-        if (column.column_type.type == TPrimitiveType::CHAR
-                || column.column_type.type == TPrimitiveType::VARCHAR || column.column_type.type == TPrimitiveType::HLL) {
-            if (!column.column_type.__isset.len) {
-                LOG(WARNING) << "CHAR or VARCHAR should specify length. type=" << column.column_type.type;
-                return OLAP_ERR_INPUT_PARAMETER_ERROR;
-            }
-        }
-        uint32_t length = FieldInfo::get_field_length_by_type(
-                column.column_type.type, column.column_type.len);
-        header->mutable_column(i)->set_length(length);
-        header->mutable_column(i)->set_index_length(length);
-        if (column.column_type.type == TPrimitiveType::VARCHAR || column.column_type.type == TPrimitiveType::HLL) {
-            if (!column.column_type.__isset.index_len) {
-                header->mutable_column(i)->set_index_length(10);
-            } else {
-                header->mutable_column(i)->set_index_length(column.column_type.index_len);
-            }
-        }
-        if (!column.is_key) {
-            header->mutable_column(i)->set_is_key(false);
-            string aggregation_type;
-            EnumToString(TAggregationType, column.aggregation_type, aggregation_type);
-            header->mutable_column(i)->set_aggregation(aggregation_type);
-        } else {
-            ++key_count;
-            header->add_selectivity(1);
-            header->mutable_column(i)->set_is_key(true);
-            header->mutable_column(i)->set_aggregation("NONE");
-        }
-        if (column.__isset.default_value) {
-            header->mutable_column(i)->set_default_value(column.default_value);
-        }
-        if (column.__isset.is_allow_null) {
-            header->mutable_column(i)->set_is_allow_null(column.is_allow_null);
-        } else {
-            header->mutable_column(i)->set_is_allow_null(false);
-        }
-        if (column.__isset.is_bloom_filter_column) {
-            header->mutable_column(i)->set_is_bf_column(column.is_bloom_filter_column);
-            has_bf_columns = true;
-        }
-        */
-        ++i;
     }
-    if (true == is_schema_change_tablet){
-        /*
-         * for schema change, next_unique_id of new tablet should be greater than
-         * next_unique_id of old tablet
-         * */
-        header->set_next_column_unique_id(next_unique_id);
-    } else {
-        header->set_next_column_unique_id(i);
-    }
-    /*
-    if (has_bf_columns && request.tablet_schema.__isset.bloom_filter_fpp) {
-        header->set_bf_fpp(request.tablet_schema.bloom_filter_fpp);
-    }
-    if (key_count < request.tablet_schema.short_key_column_count) {
-        LOG(WARNING) << "short key num should not large than key num. "
-                << "key_num=" << key_count << " short_key_num=" << request.tablet_schema.short_key_column_count;
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-    */
 
-    //header->set_creation_time(time(NULL));
-    header->set_cumulative_layer_point(-1);
-    header->set_tablet_id(request.tablet_id);
-    header->set_schema_hash(request.tablet_schema.schema_hash);
-    header->set_shard(shard);
+    TabletMeta::create(request.table_id, request.partition_id,
+                       request.tablet_id, request.tablet_schema.schema_hash,
+                       shard_id, request.tablet_schema,
+                       next_unique_id, col_ordinal_to_unique_id,
+                       tablet_meta);
+
     return OLAP_SUCCESS;
 }
 

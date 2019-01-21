@@ -684,7 +684,6 @@ OLAPStatus EngineCloneTask::_clone_incremental_data(TabletSharedPtr tablet, Tabl
         const PDelta* clone_src_version = clone_header.get_incremental_version(version);
         if (clone_src_version == NULL) {
            LOG(WARNING) << "missing version not found in clone src."
-                        << "clone_header_file=" << clone_header.file_name()
                         << ", missing_version=" << version.first << "-" << version.second;
             return OLAP_ERR_VERSION_NOT_EXIST;
         }
@@ -740,8 +739,7 @@ OLAPStatus EngineCloneTask::_clone_full_data(TabletSharedPtr tablet, TabletMeta&
                     OLAPStatus delete_res = clone_header.delete_version(local_version);
                     if (delete_res != OLAP_SUCCESS) {
                         LOG(WARNING) << "failed to delete existed version from clone src when full clone. "
-                                  << "clone_header_file=" << clone_header.file_name()
-                                  << "version=" << local_version.first << "-" << local_version.second;
+                                     << ", version=" << local_version.first << "-" << local_version.second;
                         return delete_res;
                     }
                     break;

@@ -532,7 +532,7 @@ OLAPStatus SnapshotManager::_append_single_delta(
                          request.tablet_id, request.schema_hash);
         return res;
     }
-    auto tablet = Tablet::create_from_header(new_tablet_meta, store);
+    auto tablet = Tablet::create_from_tablet_meta(new_tablet_meta, store);
     if (tablet == NULL) {
         OLAP_LOG_WARNING("fail to load tablet. [res=%d tablet_id='%ld, schema_hash=%d']",
                          res, request.tablet_id, request.schema_hash);

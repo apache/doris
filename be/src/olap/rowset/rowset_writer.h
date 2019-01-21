@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_BUILDER_H
-#define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_BUILDER_H
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_H
+#define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_H
 
 #include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_builder_context.h"
+#include "olap/rowset/rowset_writer_context.h"
 #include "olap/schema.h"
 #include "olap/row_block.h"
 #include "gen_cpp/types.pb.h"
@@ -27,14 +27,14 @@
 
 namespace doris {
 
-class RowsetBuilder;
-using RowsetBuilderSharedPtr = std::shared_ptr<RowsetBuilder>;
+class RowsetWriter;
+using RowsetWriterSharedPtr = std::shared_ptr<RowsetWriter>;
 
-class RowsetBuilder {
+class RowsetWriter {
 public:
-    virtual ~RowsetBuilder() { }
+    virtual ~RowsetWriter() { }
     
-    virtual OLAPStatus init(const RowsetBuilderContext& rowset_builder_context) = 0;
+    virtual OLAPStatus init(const RowsetWriterContext& rowset_writer_context) = 0;
 
     // add a row to rowset
     virtual OLAPStatus add_row(RowCursor* row_block) = 0;
@@ -52,4 +52,4 @@ public:
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_BUILDER_H
+#endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_H
