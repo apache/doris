@@ -51,10 +51,10 @@ OLAPStatus AlphaRowset::init() {
     return OLAP_SUCCESS;
 }
 
-std::unique_ptr<RowsetReader> AlphaRowset::create_reader() {
-    return std::unique_ptr<RowsetReader>(new AlphaRowsetReader(
+std::shared_ptr<RowsetReader> AlphaRowset::create_reader() {
+    return std::shared_ptr<RowsetReader>(new AlphaRowsetReader(
             _num_key_fields, _num_short_key_fields, _num_rows_per_row_block,
-            _rowset_path, _rowset_meta.get(), _segment_groups));
+            _rowset_path, _rowset_meta.get(), _segment_groups, RowsetSharedPtr(this)));
 }
 
 OLAPStatus AlphaRowset::copy(RowsetWriter* dest_rowset_writer) {
@@ -121,7 +121,11 @@ size_t AlphaRowset::num_rows() const {
     return _rowset_meta->num_rows();
 }
 
-OLAPStatus AlphaRowset::_init_segment_groups() {
+bool AlphaRowset::is_pending() const {
+    return _is_pending_rowset;
+}
+
+OLAPStatus AlphaRowset::_init_non_pending_segment_groups() {
     std::vector<SegmentGroupPB> segment_group_metas;
     AlphaRowsetMeta* _alpha_rowset_meta = (AlphaRowsetMeta*)_rowset_meta.get();
     _alpha_rowset_meta->get_segment_groups(&segment_group_metas);
@@ -156,7 +160,7 @@ OLAPStatus AlphaRowset::_init_segment_groups() {
                 LOG(ERROR) << "column pruning size is error."
                         << "column_pruning_size=" << column_pruning_size << ", "
                         << "num_key_fields=" << _num_key_fields;
-                return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR; 
+                return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
             }
             std::vector<std::pair<std::string, std::string>> column_statistic_strings(_num_key_fields);
             std::vector<bool> null_vec(_num_key_fields);
@@ -181,7 +185,7 @@ OLAPStatus AlphaRowset::_init_segment_groups() {
                         << "version=" << version.first << "-"
                         << version.second << ", "
                         << "version_hash=" << version_hash;
-                return res; 
+                return res;
             }
         }
     }
@@ -189,9 +193,57 @@ OLAPStatus AlphaRowset::_init_segment_groups() {
     if (_is_cumulative_rowset && _segment_group_size > 1) {
         LOG(WARNING) << "invalid segment group meta for cumulative rowset. segment group size:"
                 << _segment_group_size;
-        return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR; 
+        return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
     }
     return OLAP_SUCCESS;
+}
+
+OLAPStatus AlphaRowset::_init_pending_segment_groups() {
+    std::vector<PendingSegmentGroupPB> pending_segment_group_metas;
+    AlphaRowsetMeta* _alpha_rowset_meta = (AlphaRowsetMeta*)_rowset_meta.get();
+    _alpha_rowset_meta->get_pending_segment_groups(&pending_segment_group_metas);
+    for (auto& pending_segment_group_meta : pending_segment_group_metas) {
+        Version version = _rowset_meta->version();
+        int64_t version_hash = _rowset_meta->version_hash();
+        int64_t txn_id = _rowset_meta->txn_id();
+        int64_t partition_id = _rowset_meta->partition_id();
+        std::shared_ptr<SegmentGroup> segment_group(new SegmentGroup(_rowset_meta->tablet_id(),
+                _rowset_meta->rowset_id(), _tablet_schema, _num_key_fields, _num_short_key_fields,
+                _num_rows_per_row_block, _rowset_path, false, pending_segment_group_meta.pending_segment_group_id(),
+                pending_segment_group_meta.num_segments(), true, partition_id, txn_id));
+        if (segment_group.get() == nullptr) {
+            LOG(WARNING) << "fail to create olap segment_group. [version='" << version.first
+                << "-" << version.second << "' rowset_id='" << _rowset_meta->rowset_id() << "']";
+            return OLAP_ERR_CREATE_FILE_ERROR;
+        }
+        _segment_groups.push_back(segment_group);
+        if (pending_segment_group_meta.has_empty()) {
+            segment_group->set_empty(pending_segment_group_meta.empty());
+        }
+
+        // validate segment group
+        if (segment_group->validate() != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to validate segment_group. [version="<< version.first
+                    << "-" << version.second << " version_hash=" << version_hash;
+                // if load segment group failed, rowset init failed
+            return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
+        }
+    }
+    _segment_group_size = _segment_groups.size();
+    if (_is_cumulative_rowset && _segment_group_size > 1) {
+        LOG(WARNING) << "invalid segment group meta for cumulative rowset. segment group size:"
+                << _segment_group_size;
+        return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
+    }
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus AlphaRowset::_init_segment_groups() {
+    if (_is_pending_rowset) {
+        return _init_pending_segment_groups();
+    } else {
+        return _init_non_pending_segment_groups();
+    }
 }
 
 }  // namespace doris

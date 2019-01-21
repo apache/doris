@@ -241,6 +241,14 @@ public:
         new_load_id->set_lo(load_id.lo());
     }
 
+    virtual int64_t partition_id() {
+        return _rowset_meta_pb.partition_id();
+    }
+
+    virtual void set_partition_id(int64_t partition_id) {
+        return _rowset_meta_pb.set_partition_id(partition_id);
+    }
+
     virtual std::string extra_properties() {
         return _rowset_meta_pb.extra_properties();
     }
@@ -253,7 +261,7 @@ public:
     virtual int64_t creation_time() const;
 private:
     bool _deserialize_from_pb(const std::string& value) {
-        return _rowset_meta_pb.ParseFromString(value); 
+        return _rowset_meta_pb.ParseFromString(value);
     }
 
     bool _serialize_to_pb(std::string* value) {

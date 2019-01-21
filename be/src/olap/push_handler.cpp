@@ -428,7 +428,7 @@ OLAPStatus PushHandler::_convert(
             res = OLAP_ERR_MALLOC_ERROR;
             break;
         }
-
+        related_rowsets->push_back(rowset);
         _write_bytes += rowset->data_disk_size();
         _write_rows += rowset->num_rows();
 
@@ -445,13 +445,13 @@ OLAPStatus PushHandler::_convert(
                     break;
                 }
             }
-            // TODO(hkp): modify schema change
-            //SchemaChangeHandler schema_change;
-            //res = schema_change.schema_version_convert(
-            //        curr_tablet,
-            //        new_tablet,
-            //        curr_olap_indices,
-            //        new_olap_indices);
+
+            SchemaChangeHandler schema_change;
+            res = schema_change.schema_version_convert(
+                    curr_tablet,
+                    new_tablet,
+                    cur_rowsets,
+                    related_rowsets);
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "failed to change schema version for delta."
                              << "[res=" << res

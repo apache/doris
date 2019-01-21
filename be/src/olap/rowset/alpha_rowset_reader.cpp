@@ -21,12 +21,14 @@ namespace doris {
 
 AlphaRowsetReader::AlphaRowsetReader(int num_key_fields, int num_short_key_fields,
         int num_rows_per_row_block, const std::string rowset_path, RowsetMeta* rowset_meta,
-        std::vector<std::shared_ptr<SegmentGroup>> segment_groups) : _num_key_fields(num_key_fields),
+        std::vector<std::shared_ptr<SegmentGroup>> segment_groups,
+        RowsetSharedPtr rowset) : _num_key_fields(num_key_fields),
             _num_short_key_fields(num_short_key_fields),
             _num_rows_per_row_block(num_rows_per_row_block),
             _rowset_path(rowset_path),
             _alpha_rowset_meta(nullptr),
             _segment_groups(segment_groups),
+            _rowset(rowset),
             _key_range_size(0) {
     _alpha_rowset_meta = reinterpret_cast<AlphaRowsetMeta*>(rowset_meta);
     Version version = _alpha_rowset_meta->version();
@@ -101,7 +103,7 @@ OLAPStatus AlphaRowsetReader::_get_next_block(size_t pos, RowBlock** row_block) 
             }
             return OLAP_SUCCESS;
        }
-       return status; 
+       return status;
      }
      return OLAP_SUCCESS;
 }
@@ -158,7 +160,7 @@ OLAPStatus AlphaRowsetReader::_get_next_row_for_singleton_rowset(RowCursor** row
         }
     }
     if (min_row == nullptr || min_index == -1) {
-        return OLAP_ERR_READER_READING_ERROR; 
+        return OLAP_ERR_READER_READING_ERROR;
     }
     *row = min_row;
     RowBlock* row_block = _row_blocks[min_index];
@@ -202,45 +204,67 @@ OLAPStatus AlphaRowsetReader::_init_column_datas(RowsetReaderContext* read_conte
         std::unique_ptr<ColumnData> new_column_data(ColumnData::create(segment_group.get()));
         OLAPStatus status = new_column_data->init();
         if (status != OLAP_SUCCESS) {
-            return OLAP_ERR_READER_READING_ERROR; 
+            return OLAP_ERR_READER_READING_ERROR;
         }
-        new_column_data->set_delete_handler(*read_context->delete_handler);
-        new_column_data->set_stats(read_context->stats);
-        new_column_data->set_lru_cache(read_context->lru_cache);
-        std::vector<ColumnPredicate*> col_predicates;
-        for (auto& column_predicate : *read_context->predicates) {
-            col_predicates.push_back(column_predicate.second);
+        if (read_context != nullptr) {
+            new_column_data->set_delete_handler(*read_context->delete_handler);
+            new_column_data->set_stats(read_context->stats);
+            new_column_data->set_lru_cache(read_context->lru_cache);
+            std::vector<ColumnPredicate*> col_predicates;
+            if (read_context->predicates != nullptr) {
+                for (auto& column_predicate : *read_context->predicates) {
+                    col_predicates.push_back(column_predicate.second);
+                }
+            }
+
+            new_column_data->set_read_params(*read_context->return_columns,
+                    *read_context->load_bf_columns,
+                    *read_context->conditions,
+                    col_predicates,
+                    *read_context->lower_bound_keys,
+                    *read_context->upper_bound_keys,
+                    read_context->is_using_cache,
+                    read_context->runtime_state);
+            // filter column data
+            if (new_column_data->delta_pruning_filter()) {
+                VLOG(3) << "filter delta in query in condition:"
+                    << new_column_data->version().first << ", " << new_column_data->version().second;
+                continue;
+            }
+            int ret = new_column_data->delete_pruning_filter();
+            if (ret == DEL_SATISFIED) {
+                VLOG(3) << "filter delta in delete predicate:"
+                    << new_column_data->version().first << ", " << new_column_data->version().second;
+                continue;
+            } else if (ret == DEL_PARTIAL_SATISFIED) {
+                VLOG(3) << "filter delta partially in delete predicate:"
+                    << new_column_data->version().first << ", " << new_column_data->version().second;
+                new_column_data->set_delete_status(DEL_PARTIAL_SATISFIED);
+            } else {
+                VLOG(3) << "not filter delta in delete predicate:"
+                    << new_column_data->version().first << ", " << new_column_data->version().second;
+                new_column_data->set_delete_status(DEL_NOT_SATISFIED);
+            }
+            _column_datas.emplace_back(std::move(new_column_data));
+            if (read_context->lower_bound_keys == nullptr) {
+                if (read_context->is_lower_keys_included != nullptr
+                        || read_context->upper_bound_keys != nullptr
+                        || read_context->is_upper_keys_included != nullptr) {
+                    LOG(WARNING) << "invalid key range arguments";
+                    return OLAP_ERR_INPUT_PARAMETER_ERROR;
+                }
+            _key_range_size = 0;
+            } else {
+                if (read_context->lower_bound_keys->size() != read_context->is_lower_keys_included->size()
+                        || read_context->lower_bound_keys->size() != read_context->upper_bound_keys->size()
+                        || read_context->upper_bound_keys->size() != read_context->is_upper_keys_included->size()) {
+                    std::string error_msg = "invalid key range arguments";
+                    LOG(WARNING) << error_msg;
+                    return OLAP_ERR_INPUT_PARAMETER_ERROR;
+                }
+                _key_range_size = read_context->lower_bound_keys->size();
+            }
         }
-        
-        new_column_data->set_read_params(*read_context->return_columns,
-                                *read_context->load_bf_columns,
-                                *read_context->conditions,
-                                col_predicates,
-                                *read_context->lower_bound_keys,
-                                *read_context->upper_bound_keys,
-                                read_context->is_using_cache,
-                                read_context->runtime_state);
-        // filter column data
-        if (new_column_data->delta_pruning_filter()) {
-            VLOG(3) << "filter delta in query in condition:"
-                    << new_column_data->version().first << ", " << new_column_data->version().second;
-            continue;
-        }
-        int ret = new_column_data->delete_pruning_filter();
-        if (ret == DEL_SATISFIED) {
-            VLOG(3) << "filter delta in delete predicate:"
-                    << new_column_data->version().first << ", " << new_column_data->version().second;
-            continue;
-        } else if (ret == DEL_PARTIAL_SATISFIED) {
-            VLOG(3) << "filter delta partially in delete predicate:"
-                    << new_column_data->version().first << ", " << new_column_data->version().second;
-            new_column_data->set_delete_status(DEL_PARTIAL_SATISFIED);
-        } else {
-            VLOG(3) << "not filter delta in delete predicate:"
-                    << new_column_data->version().first << ", " << new_column_data->version().second;
-            new_column_data->set_delete_status(DEL_NOT_SATISFIED);
-        }
-        _column_datas.emplace_back(std::move(new_column_data));
         
         RowBlock* row_block = nullptr;
         if (_key_range_size > 0) {
@@ -309,10 +333,14 @@ OLAPStatus AlphaRowsetReader::_refresh_next_block(size_t pos, RowBlock** next_bl
         }
         return OLAP_SUCCESS;
     } else if (status != OLAP_SUCCESS) {
-        return status; 
+        return status;
     } else {
         return OLAP_SUCCESS;
     }
+}
+
+RowsetSharedPtr AlphaRowsetReader::rowset() {
+    return _rowset;
 }
 
 }  // namespace doris

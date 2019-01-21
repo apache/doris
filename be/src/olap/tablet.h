@@ -34,6 +34,7 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset_graph.h"
 #include "olap/utils.h"
+#include "olap/rowset/rowset_reader.h"
 
 namespace doris {
 class TabletMeta;

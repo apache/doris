@@ -41,13 +41,22 @@ public:
 
     virtual OLAPStatus add_row(const char* row, Schema* schema) = 0;
 
+    virtual OLAPStatus add_row_block(RowBlock* row_block) = 0;
+
+    virtual OLAPStatus add_rowset(RowsetSharedPtr rowset) = 0;
+
     virtual OLAPStatus flush() = 0;
 
     // get a rowset
     virtual RowsetSharedPtr build() = 0;
 
+    // release a rowset
+    virtual OLAPStatus release() = 0;
+
     // TODO(hkp): this interface should be optimized!
     virtual MemPool* mem_pool() = 0;
+
+    virtual Version version() = 0;
 };
 
 } // namespace doris

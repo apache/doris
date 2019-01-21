@@ -133,7 +133,7 @@ OLAPStatus ColumnData::_seek_to_block(const RowBlockPosition& block_pos, bool wi
             return OLAP_ERR_MALLOC_ERROR;
         }
 
-        _current_segment = block_pos.segment; 
+        _current_segment = block_pos.segment;
         auto res = _segment_reader->init(_is_using_cache);
         if (OLAP_SUCCESS != res) {
             OLAP_LOG_WARNING("fail to init segment reader. [res=%d]", res);

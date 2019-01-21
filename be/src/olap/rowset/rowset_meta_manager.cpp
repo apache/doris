@@ -40,16 +40,16 @@ OLAPStatus RowsetMetaManager::get_rowset_meta(OlapMeta* meta, int64_t rowset_id,
     if (s == OLAP_ERR_META_KEY_NOT_FOUND) {
         std::string error_msg = "rowset id:" + std::to_string(rowset_id) + " not found.";
         LOG(WARNING) << error_msg;
-        return OLAP_ERR_META_KEY_NOT_FOUND; 
+        return OLAP_ERR_META_KEY_NOT_FOUND;
     } else if (s != OLAP_SUCCESS) {
         std::string error_msg = "load rowset id:" + std::to_string(rowset_id) + " failed.";
         LOG(WARNING) << error_msg;
-        return OLAP_ERR_IO_ERROR; 
+        return OLAP_ERR_IO_ERROR;
     }
     bool ret = rowset_meta->init(value);
     if (!ret) {
         std::string error_msg = "parse rowset meta failed. rowset id:" + std::to_string(rowset_id);
-        return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR; 
+        return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR;
     }
     return OLAP_SUCCESS;
 }
@@ -64,7 +64,7 @@ OLAPStatus RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, int64_t rowse
     bool ret = rowset_meta.json_rowset_meta(json_rowset_meta);
     if (!ret) {
         std::string error_msg = "get json rowset meta failed. rowset id:" + std::to_string(rowset_id);
-        return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR; 
+        return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR;
     }
     return OLAP_SUCCESS;
 }

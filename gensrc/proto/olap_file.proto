@@ -88,7 +88,8 @@ message RowsetMetaPB {
     optional DeletePredicatePB delete_predicate = 15;
     optional bool empty = 16;
     optional string rowset_path = 17;
-    required PUniqueId load_id = 18;
+    optional PUniqueId load_id = 18;
+    optional int64 partition_id = 19;
     // spare field id for future use
     optional bytes extra_properties = 50;
 

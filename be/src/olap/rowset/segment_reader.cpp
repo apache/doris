@@ -93,7 +93,7 @@ SegmentReader::~SegmentReader() {
     _file_handler.close();
 
     if (_is_data_loaded && _runtime_state != NULL) {
-        MemTracker::update_limits(_buffer_size * -1, _runtime_state->mem_trackers()); 
+        MemTracker::update_limits(_buffer_size * -1, _runtime_state->mem_trackers());
     }
 
     for (auto& it : _streams) {
@@ -510,7 +510,7 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
                 --_remain_block;
 
                 if (j < _block_count - 1) {
-                    _stats->rows_stats_filtered += _num_rows_in_block; 
+                    _stats->rows_stats_filtered += _num_rows_in_block;
                 } else {
                     _stats->rows_stats_filtered +=
                         _header_message().number_of_rows() - j * _num_rows_in_block;
@@ -550,7 +550,7 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
                 _include_blocks[j] = DEL_SATISFIED;
                 --_remain_block;
                 if (j < _block_count - 1) {
-                    _stats->rows_stats_filtered += _num_rows_in_block; 
+                    _stats->rows_stats_filtered += _num_rows_in_block;
                 } else {
                     _stats->rows_stats_filtered +=
                         _header_message().number_of_rows() - j * _num_rows_in_block;

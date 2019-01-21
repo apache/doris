@@ -38,12 +38,21 @@ public:
 
     virtual OLAPStatus add_row(const char* row, Schema* schema);
 
+    virtual OLAPStatus add_row_block(RowBlock* row_block);
+
+    virtual OLAPStatus add_rowset(RowsetSharedPtr rowset);
+
     virtual OLAPStatus flush();
 
     // get a rowset
     virtual RowsetSharedPtr build();
 
+    // release a rowset
+    virtual OLAPStatus release();
+
     virtual MemPool* mem_pool();
+
+    virtual Version version();
 
 private:
     void _init();

@@ -37,6 +37,7 @@
 
 #include "olap/column_predicate.h"
 #include "olap/tablet.h"
+#include "olap/rowset/rowset_reader.h"
 
 namespace doris {
 
