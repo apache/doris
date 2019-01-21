@@ -218,7 +218,6 @@
         LOAD LABEL example_db.label3
         (
         DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/*")
-        NEGATIVE
         INTO TABLE `my_table`
         COLUMNS TERMINATED BY "\\x01"
         )
