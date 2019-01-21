@@ -30,6 +30,7 @@
 #include "olap/row_cursor.h"
 #include "olap/wrapper_field.h"
 #include "olap/rowset/rowset_id_generator.h"
+#include "olap/rowset/alpha_rowset_builder.h"
 #include "common/resource_tls.h"
 #include "agent/cgroups_mgr.h"
 
@@ -933,7 +934,7 @@ bool SchemaChangeWithSorting::process(
             if (!_internal_sorting(row_block_arr,
                                    Version(_temp_delta_versions.second,
                                            _temp_delta_versions.second),
-                                    rowset_reader->version_hash();
+                                    rowset_reader->version_hash(),
                                    &rowset)) {
                 LOG(WARNING) << "failed to sorting internally.";
                 result = false;
@@ -1027,10 +1028,11 @@ bool SchemaChangeWithSorting::process(
     if (config::row_nums_check) {
         if (rowset_reader->num_rows()
             != rowset_writer->num_rows() + merged_rows() + filted_rows()) {
-            OLAP_LOG_WARNING("fail to check row num! "
-                             "[source_rows=%lu merged_rows=%lu filted_rows=%lu new_index_rows=%lu]",
-                             rowset_reader->num_rows(),
-                             merged_rows(), filted_rows(), rowset_writer->num_rows());
+            LOG(WARNING) << "fail to check row num! "
+                         << "[source_rows=" << rowset_reader->num_rows()
+                         << " merged_rows=" << merged_rows()
+                         << " filted_rows=" << filted_rows()
+                         << " new_index_rows=" << rowset_writer->num_rows() << "]";
             result = false;
         }
     } else {
@@ -1066,13 +1068,13 @@ bool SchemaChangeWithSorting::_internal_sorting(const vector<RowBlock*>& row_blo
     RowsetId rowset_id = 0;
     OLAPStatus status = RowsetIdGenerator::instance()->get_next_id(_tablet->data_dir(), &rowset_id);
     if (status == OLAP_SUCCESS) {
-        OLAP(WARNING) << "get next rowset id failed";
+        LOG(WARNING) << "get next rowset id failed";
         return false;
     }
-    context_builder.set_rowset_id(rowset_id)
+    context_builder->set_rowset_id(rowset_id)
                    .set_tablet_id(_tablet->tablet_id())
-                   .set_partition_id(_tablet.partition_id())
-                   .set_tablet_schema_hash(_tablet.schema_hash())
+                   .set_partition_id(_tablet->partition_id())
+                   .set_tablet_schema_hash(_tablet->schema_hash())
                    .set_rowset_type(ALPHA_ROWSET)
                    .set_rowset_path_prefix(_tablet->tablet_path())
                    .set_tablet_schema(_tablet->tablet_schema())
@@ -1640,21 +1642,24 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
         RowsetId rowset_id = 0;
         RowsetIdGenerator::instance()->get_next_id(dest_tablet->data_dir(), &rowset_id);
         if ((*it)->is_pending()) {
+            PUniqueId load_id;
+            load_id.set_hi(0);
+            load_id.set_lo(0);
             context_builder.set_rowset_id(rowset_id)
-                           .set_tablet_id(dest_tablet.tablet_id())
-                           .set_partition_id(dest_tablet.partition_id())
-                           .set_tablet_schema_hash(dest_tablet.schema_hash())
+                           .set_tablet_id(dest_tablet->tablet_id())
+                           .set_partition_id(dest_tablet->partition_id())
+                           .set_tablet_schema_hash(dest_tablet->schema_hash())
                            .set_rowset_type(ALPHA_ROWSET)
                            .set_rowset_path_prefix(dest_tablet->tablet_path())
                            .set_tablet_schema(dest_tablet->tablet_schema())
                            .set_rowset_state(PREPARING)
                            .set_txn_id((*it)->txn_id())
-                           .set_load_id(0);
+                           .set_load_id(load_id);
         } else {
             context_builder.set_rowset_id(rowset_id)
-                           .set_tablet_id(dest_tablet.tablet_id())
-                           .set_partition_id(dest_tablet.partition_id())
-                           .set_tablet_schema_hash(dest_tablet.schema_hash())
+                           .set_tablet_id(dest_tablet->tablet_id())
+                           .set_partition_id(dest_tablet->partition_id())
+                           .set_tablet_schema_hash(dest_tablet->schema_hash())
                            .set_rowset_type(ALPHA_ROWSET)
                            .set_rowset_path_prefix(dest_tablet->tablet_path())
                            .set_tablet_schema(dest_tablet->tablet_schema())
@@ -1670,7 +1675,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
             if ((*it)->is_pending()) {
                 LOG(WARNING) << "failed to process the transaction when schema change. "
                              << "[tablet='" << dest_tablet->full_name() << "'"
-                             << " transaction="<< (*it)->transaction_id() << "]";
+                             << " transaction="<< (*it)->txn_id() << "]";
             } else {
                 LOG(WARNING) << "failed to process the version. "
                              << "[version='" << (*it)->version().first
@@ -1710,7 +1715,7 @@ OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
     int32_t request_version = 0;
     RowsetSharedPtr rowset = ref_tablet->rowset_with_max_version();
     if (rowset != NULL) {
-        request_version = rowset->version().end_version() - 1;
+        request_version = rowset->version().second - 1;
     } else {
         OLAP_LOG_WARNING("Table has no version. [path='%s']",
                          ref_tablet->full_name().c_str());
@@ -1737,7 +1742,7 @@ OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
         }
     }
     versions_to_be_changed.push_back(
-            Version(rowset->version().start_version(), rowset->version().end_version()));
+            Version(rowset->version().first, rowset->version().second));
 
     return OLAP_SUCCESS;
 }
@@ -1880,7 +1885,7 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
         RowsetWriterContextBuilder context_builder;
         context_builder.set_rowset_id(rowset_id)
                        .set_tablet_id(new_tablet->tablet_id())
-                       .set_tablet_schema_hash(new_tablet->tablet_schema_hash())
+                       .set_tablet_schema_hash(new_tablet->schema_hash())
                        .set_partition_id(new_tablet->partition_id())
                        .set_rowset_type(ALPHA_ROWSET)
                        .set_rowset_path_prefix(new_tablet->tablet_path())
@@ -2016,8 +2021,8 @@ PROCESS_ALTER_EXIT:
                 << "status=" << sc_params->ref_tablet->schema_change_status().status;
     }
 
-    for (auto rs_reader : ref_rowset_readers) {
-        rs_reader.close();
+    for (auto rs_reader : sc_params->ref_rowset_readers) {
+        rs_reader->close();
     }
     SAFE_DELETE(sc_procedure);
 
@@ -2212,4 +2217,3 @@ OLAPStatus SchemaChange::create_initial_rowset(
 }
 
 }  // namespace doris
-

@@ -57,6 +57,8 @@ public:
     virtual MemPool* mem_pool() = 0;
 
     virtual Version version() = 0;
+
+    virtual int32_t num_rows() = 0;
 };
 
 } // namespace doris

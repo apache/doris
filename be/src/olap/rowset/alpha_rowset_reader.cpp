@@ -94,6 +94,11 @@ void AlphaRowsetReader::close() {
     _column_datas.clear();
 }
 
+int32_t AlphaRowsetReader::num_rows() {
+    // TODO(hkp): realize this api
+    return 0;
+}
+
 OLAPStatus AlphaRowsetReader::_get_next_block(size_t pos, RowBlock** row_block) {
      // get next block
      ColumnData* column_data = _column_datas[pos].get();

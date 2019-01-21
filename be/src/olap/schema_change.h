@@ -122,7 +122,7 @@ public:
 
     bool merge(
             const std::vector<RowBlock*>& row_block_arr,
-            RowsetBuilder* rowset_builder,
+            RowsetBuilderSharedPtr rowset_builder,
             uint64_t* merged_rows);
 
 private:
@@ -148,8 +148,8 @@ public:
     SchemaChange() : _filted_rows(0), _merged_rows(0) {}
     virtual ~SchemaChange() {}
 
-    virtual bool process(Rowset* rowset,
-                         Rowset* new_rowset,
+    virtual bool process(RowsetReaderSharedPtr rowset_reader,
+                         RowsetBuilderSharedPtr new_rowset_builder,
                          TabletSharedPtr tablet) = 0;
 
     void add_filted_rows(uint64_t filted_rows) {
@@ -181,7 +181,7 @@ public:
             TSchemaHash schema_hash,
             Version version,
             VersionHash version_hash,
-            Rowset* rowset);
+            RowsetBuilderSharedPtr rowset_builder);
 
 private:
     uint64_t _filted_rows;
@@ -239,7 +239,7 @@ public:
             size_t memory_limitation);
     virtual ~SchemaChangeWithSorting();
 
-    virtual bool process(RowsetReaderSharedPtr rowset,
+    virtual bool process(RowsetReaderSharedPtr rowset_reader,
                          RowsetBuilderSharedPtr new_rowset_builder,
                          TabletSharedPtr tablet);
 
@@ -274,8 +274,8 @@ public:
 
     OLAPStatus schema_version_convert(TabletSharedPtr ref_tablet,
                                       TabletSharedPtr new_tablet,
-                                      std::vector<Rowset*>* ref_rowsets,
-                                      std::vector<Rowset*>* new_rowsets);
+                                      std::vector<RowsetSharedPtr>* ref_rowsets,
+                                      std::vector<RowsetSharedPtr>* new_rowsets);
 
 
 private:

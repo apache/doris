@@ -53,6 +53,8 @@ public:
 
     virtual Version version();
 
+    virtual int32_t num_rows();
+
 private:
     void _init();
 

@@ -60,6 +60,8 @@ public:
 
     virtual RowsetSharedPtr rowset();
 
+    virtual int32_t num_rows();
+
 private:
 
     OLAPStatus _init_column_datas(RowsetReaderContext* read_context);
