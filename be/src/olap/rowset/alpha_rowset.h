@@ -37,7 +37,7 @@ public:
 
     virtual OLAPStatus init();
 
-    virtual std::unique_ptr<RowsetReader> create_reader();
+    virtual std::shared_ptr<RowsetReader> create_reader();
 
     virtual OLAPStatus copy(RowsetWriter* dest_rowset_writer);
 
@@ -85,8 +85,16 @@ public:
 
     virtual int64_t create_time();
 
+    virtual bool delete_files() const;
+
+    virtual bool is_pending() const;
+
 private:
     OLAPStatus _init_segment_groups();
+
+    OLAPStatus _init_pending_segment_groups();
+
+    OLAPStatus _init_non_pending_segment_groups();
 
 private:
     const TabletSchema* _schema;

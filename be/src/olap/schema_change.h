@@ -24,23 +24,20 @@
 
 #include "gen_cpp/AgentService_types.h"
 #include "olap/delete_handler.h"
-#include "olap/rowset/column_data.h"
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_builder.h"
 #include "olap/tablet.h"
 
 namespace doris {
 // defined in 'field.h'
 class Field;
 class FieldInfo;
-// defined in 'olap_data.h'
-class ColumnData;
 // defined in 'tablet.h'
 class Tablet;
 // defined in 'row_block.h'
 class RowBlock;
 // defined in 'row_cursor.h'
 class RowCursor;
-// defined in 'writer.h'
-class ColumnDataWriter;
 
 struct ColumnMapping {
     ColumnMapping() : ref_column(-1), default_value(NULL) {}
@@ -125,7 +122,7 @@ public:
 
     bool merge(
             const std::vector<RowBlock*>& row_block_arr,
-            ColumnDataWriter* writer,
+            RowsetBuilder* rowset_builder,
             uint64_t* merged_rows);
 
 private:
@@ -151,8 +148,8 @@ public:
     SchemaChange() : _filted_rows(0), _merged_rows(0) {}
     virtual ~SchemaChange() {}
 
-    virtual bool process(ColumnData* olap_data,
-                         SegmentGroup* new_segment_group,
+    virtual bool process(Rowset* rowset,
+                         Rowset* new_rowset,
                          TabletSharedPtr tablet) = 0;
 
     void add_filted_rows(uint64_t filted_rows) {
@@ -184,7 +181,7 @@ public:
             TSchemaHash schema_hash,
             Version version,
             VersionHash version_hash,
-            SegmentGroup* segment_group);
+            Rowset* rowset);
 
 private:
     uint64_t _filted_rows;
@@ -198,7 +195,8 @@ public:
                 TabletSharedPtr new_tablet);
     ~LinkedSchemaChange() {}
 
-    bool process(ColumnData* olap_data, SegmentGroup* new_segment_group,
+    bool process(RowsetReaderSharedPtr rowset_reader,
+                 RowsetWriterSharedPtr new_rowset_writer,
                  TabletSharedPtr tablet);
 private:
     TabletSharedPtr _base_tablet;
@@ -216,7 +214,8 @@ public:
             const RowBlockChanger& row_block_changer);
     virtual ~SchemaChangeDirectly();
 
-    virtual bool process(ColumnData* olap_data, SegmentGroup* new_segment_group,
+    virtual bool process(RowsetReaderSharedPtr rowset_reader,
+                         RowsetWriterSharedPtr new_rowset_writer,
                          TabletSharedPtr tablet);
 
 private:
@@ -226,7 +225,7 @@ private:
     RowCursor* _src_cursor;
     RowCursor* _dst_cursor;
 
-    bool _write_row_block(ColumnDataWriter* writer, RowBlock* row_block);
+    bool _write_row_block(RowsetBuilderSharedPtr rowset_builder, RowBlock* row_block);
 
     DISALLOW_COPY_AND_ASSIGN(SchemaChangeDirectly);
 };
@@ -240,18 +239,20 @@ public:
             size_t memory_limitation);
     virtual ~SchemaChangeWithSorting();
 
-    virtual bool process(ColumnData* olap_data, SegmentGroup* new_segment_group,
+    virtual bool process(RowsetReaderSharedPtr rowset,
+                         RowsetBuilderSharedPtr new_rowset_builder,
                          TabletSharedPtr tablet);
 
 private:
     bool _internal_sorting(
             const std::vector<RowBlock*>& row_block_arr,
             const Version& temp_delta_versions,
-            SegmentGroup** temp_segment_group);
+            const VersionHash version_hash,
+            RowsetSharedPtr* rowset);
 
     bool _external_sorting(
-            std::vector<SegmentGroup*>& src_segment_group_arr,
-            SegmentGroup* segment_group,
+            std::vector<RowsetSharedPtr>& src_rowsets,
+            RowsetSharedPtr rowset,
             TabletSharedPtr tablet);
 
     TabletSharedPtr _tablet;
@@ -273,8 +274,8 @@ public:
 
     OLAPStatus schema_version_convert(TabletSharedPtr ref_tablet,
                                       TabletSharedPtr new_tablet,
-                                      std::vector<SegmentGroup*>* ref_segment_groups,
-                                      std::vector<SegmentGroup*>* new_segment_groups);
+                                      std::vector<Rowset*>* ref_rowsets,
+                                      std::vector<Rowset*>* new_rowsets);
 
 
 private:
@@ -298,7 +299,7 @@ private:
         AlterTabletType alter_tablet_type;
         TabletSharedPtr ref_tablet;
         TabletSharedPtr new_tablet;
-        std::vector<RowsetReaderSharedPtr> ref_olap_data_arr;
+        std::vector<RowsetReaderSharedPtr> ref_rowset_readers;
         std::string debug_message;
         DeleteHandler delete_handler;
         // TODO(zc): fuck me please, I don't add mutable here, but no where

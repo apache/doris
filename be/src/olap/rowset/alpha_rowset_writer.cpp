@@ -59,7 +59,7 @@ OLAPStatus AlphaRowsetWriter::add_row(RowCursor* row) {
     if (status != OLAP_SUCCESS) {
         std::string error_msg = "add row failed";
         LOG(WARNING) << error_msg;
-        return status; 
+        return status;
     }
     _column_data_writer->next(*row);
     return OLAP_SUCCESS;
@@ -70,17 +70,18 @@ OLAPStatus AlphaRowsetWriter::add_row(const char* row, Schema* schema) {
     if (status != OLAP_SUCCESS) {
         std::string error_msg = "add row failed";
         LOG(WARNING) << error_msg;
-        return status; 
+        return status;
     }
     _column_data_writer->next(row, schema);
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowsetWriter::flush() {
-    _column_data_writer->finalize();
+OLAPStatus AlphaRowsetBuilder::flush() {
+    OLAPStatus status = _column_data_writer->finalize();
     SAFE_DELETE(_column_data_writer);
+    _cur_segment_group->load();
     _init();
-    return OLAP_SUCCESS;
+    return status;
 }
 
 RowsetSharedPtr AlphaRowsetWriter::build() {
@@ -132,7 +133,16 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
     return std::shared_ptr<Rowset>(rowset);
 }
 
-MemPool* AlphaRowsetWriter::mem_pool() {
+OLAPStatus AlphaRowsetBuilder::release() {
+    OLAPStatus status = _column_data_writer->finalize();
+    SAFE_DELETE(_column_data_writer);
+    for (auto segment_group : _segment_groups) {
+        segment_group->delete_all_files();
+    }
+    return status;
+}
+
+MemPool* AlphaRowsetBuilder::mem_pool() {
     if (_column_data_writer != nullptr) {
         return _column_data_writer->mem_pool();
     } else {
@@ -140,7 +150,11 @@ MemPool* AlphaRowsetWriter::mem_pool() {
     }
 }
 
-void AlphaRowsetWriter::_init() {
+Version AlphaRowsetBuilder::version() {
+    return _rowset_builder_context.version;
+}
+
+void AlphaRowsetBuilder::_init() {
     _segment_group_id++;
     if (is_pending_rowset) {
         _cur_segment_group = new SegmentGroup(

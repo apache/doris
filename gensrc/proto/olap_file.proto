@@ -92,6 +92,7 @@ message RowsetMetaPB {
     optional PUniqueId load_id = 19;
     optional bool delete_flag =20;
     optional int64 create_time = 21;
+    optional int64 partition_id = 22;
     // spare field id for future use
     optional bytes extra_properties = 50;
 

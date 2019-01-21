@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_H
 
 #include "olap/rowset/rowset_reader_context.h"
+#include "olap/rowset/rowset.h"
 
 #include <memory>
 #include <unordered_map>
@@ -50,8 +51,14 @@ public:
 
     virtual Version version() = 0;
 
+    virtual VersionHash version_hash() = 0;
+
+    virtual RowsetSharedPtr rowset() = 0;
+
     // close reader
     virtual void close() = 0;
+
+    virtual int32_t get_filtered_rows() = 0;
 };
 
 } // namespace doris
