@@ -55,7 +55,7 @@ OLAPStatus AlphaRowsetWriter::init(const RowsetWriterContext& rowset_writer_cont
 }
 
 OLAPStatus AlphaRowsetWriter::add_row(RowCursor* row) {
-    OLAPStatus status = _column_data_writer->attached_by(row);
+    OLAPStatus status = _column_data_writer->write(row);
     if (status != OLAP_SUCCESS) {
         std::string error_msg = "add row failed";
         LOG(WARNING) << error_msg;

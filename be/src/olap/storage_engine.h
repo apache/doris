@@ -67,7 +67,7 @@ public:
         _s_instance = engine;
     }
 
-    static StorageEngine *instance() {
+    static StorageEngine* instance() {
         return _s_instance;
     }
 
