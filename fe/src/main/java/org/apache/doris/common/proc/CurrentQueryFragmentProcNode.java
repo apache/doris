@@ -40,7 +40,7 @@ public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
     private static final Logger LOG = LogManager.getLogger(CurrentQueryFragmentProcNode.class);
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("FragmentId").add("InstanceId").add("Host")
-            .add("ScanRawData").add("ProcessRows").build();
+            .add("ScanBytes").add("ProcessRows").build();
     private QueryStatisticsItem item;
 
     public CurrentQueryFragmentProcNode(QueryStatisticsItem item) {

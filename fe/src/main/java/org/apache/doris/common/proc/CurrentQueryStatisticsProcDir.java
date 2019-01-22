@@ -38,7 +38,7 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(CurrentQueryStatisticsProcDir.class);
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("ConnectionId").add("QueryId").add("Database").add("User")
-            .add("ScanRawData").add("ProcessRows").add("ExecTime").build();
+            .add("ScanBytes").add("ProcessRows").add("ExecTime").build();
 
     private static final int EXEC_TIME_INDEX = 6;
 
