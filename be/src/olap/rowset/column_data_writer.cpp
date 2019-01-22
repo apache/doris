@@ -91,7 +91,7 @@ OLAPStatus ColumnDataWriter::init() {
 
     res = _cursor.init(_segment_group->get_tablet_schema());
     if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to initiate row cursor. [res=%d]", res);
+        LOG(WARNING) << "fail to initiate row cursor. [res=" <<  res << "]";
         return res;
     }
 
@@ -103,7 +103,7 @@ OLAPStatus ColumnDataWriter::init() {
 
     res = _row_block->init(block_info);
     if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to initiate row block. [res=%d]", res);
+        LOG(WARNING) << "fail to initiate row block. [res=" <<  res << "]";
         return res;
     }
     return OLAP_SUCCESS;
@@ -112,13 +112,13 @@ OLAPStatus ColumnDataWriter::init() {
 OLAPStatus ColumnDataWriter::_init_segment() {
     OLAPStatus res = _add_segment();
     if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to add segment. [res=%d]", res);
+        LOG(WARNING) << "fail to add segment. [res=" <<  res << "]";
         return res;
     }
 
     res = _segment_group->add_segment();
     if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to add index segment. [res=%d]", res);
+        LOG(WARNING) << "fail to add index segment. [res=" <<  res << "]";
         return res;
     }
 
@@ -126,22 +126,22 @@ OLAPStatus ColumnDataWriter::_init_segment() {
     return res;
 }
 
-OLAPStatus ColumnDataWriter::attached_by(RowCursor* row_cursor) {
+OLAPStatus ColumnDataWriter::write(RowCursor* row_cursor) {
     if (_row_index >= _segment_group->get_num_rows_per_row_block()) {
         if (OLAP_SUCCESS != _flush_row_block(false)) {
-            OLAP_LOG_WARNING("failed to flush data while attaching row cursor.");
+            LOG(WARNING) << "failed to flush data while attaching row cursor.";
             return OLAP_ERR_OTHER_ERROR;
         }
         RETURN_NOT_OK(_flush_segment_with_verfication());
     }
-    _row_block->get_row(_row_index, row_cursor);
+    _row_block->set_row(_row_index, *row_cursor);
     return OLAP_SUCCESS;
 }
 
 OLAPStatus ColumnDataWriter::write(const char* row) {
     if (_row_index >= _segment_group->get_num_rows_per_row_block()) {
         if (OLAP_SUCCESS != _flush_row_block(false)) {
-            OLAP_LOG_WARNING("failed to flush data while attaching row cursor.");
+            LOG(WARNING) << "failed to flush data while attaching row cursor.";
             return OLAP_ERR_OTHER_ERROR;
         }
         RETURN_NOT_OK(_flush_segment_with_verfication());

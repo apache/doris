@@ -27,14 +27,11 @@
 #include "olap/file_helper.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/segment_group.h"
+#include "olap/rowset/rowset.h"
 #include "olap/row_cursor.h"
-#include "olap/rowset/column_data_writer.h"
 
 namespace doris {
 
-typedef std::vector<ColumnData*> DataSources;
-typedef std::vector<SegmentGroup*> Indices;
 
 class BinaryFile;
 class BinaryReader;
@@ -43,9 +40,7 @@ class RowCursor;
 
 struct TabletVars {
     TabletSharedPtr tablet;
-    Versions unused_versions;
-    Indices unused_indices;
-    Indices added_indices;
+    std::vector<RowsetSharedPtr> added_rowsets;
 };
 
 class PushHandler {
@@ -56,7 +51,7 @@ public:
     ~PushHandler() {}
 
     // Load local data file into specified tablet.
-    OLAPStatus process_realtime_push(
+    OLAPStatus process_streaming_ingestion(
             TabletSharedPtr tablet,
             const TPushReq& request,
             PushType push_type,
@@ -70,8 +65,8 @@ private:
     OLAPStatus _convert(
             TabletSharedPtr curr_tablet,
             TabletSharedPtr new_tablet_vec,
-            Indices* curr_olap_indices,
-            Indices* new_olap_indices,
+            std::vector<RowsetSharedPtr>* cur_rowsets,
+            std::vector<RowsetSharedPtr>* related_rowsets,
             AlterTabletType alter_tablet_type);
 
     // Only for debug
@@ -80,6 +75,15 @@ private:
     void _get_tablet_infos(
             const std::vector<TabletVars>& tablet_infos,
             std::vector<TTabletInfo>* tablet_info_vec);
+
+    OLAPStatus _do_streaming_ingestion(
+            TabletSharedPtr tablet,
+            const TPushReq& request,
+            PushType push_type,
+            vector<TabletVars>* tablet_vars,
+            std::vector<TTabletInfo>* tablet_info_vec);
+
+private:
 
     // mainly tablet_id, version and delta file path
     TPushReq _request;

@@ -330,7 +330,7 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
     if (request.__isset.transaction_id) {
         {
             SCOPED_RAW_TIMER(&duration_ns);
-            res = push_handler.process_realtime_push(tablet, request, type, tablet_info_vec);
+            res = push_handler.process_streaming_ingestion(tablet, request, type, tablet_info_vec);
         }
     } else {
         {
@@ -378,7 +378,7 @@ OLAPStatus EngineBatchLoadTask::_delete_data(
     // 2. Process delete data by push interface
     PushHandler push_handler;
     if (request.__isset.transaction_id) {
-        res = push_handler.process_realtime_push(tablet, request, PUSH_FOR_DELETE, tablet_info_vec);
+        res = push_handler.process_streaming_ingestion(tablet, request, PUSH_FOR_DELETE, tablet_info_vec);
     } else {
         res = OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED;
     }
