@@ -108,7 +108,7 @@ OLAPStatus EngineCloneTask::execute() {
         // Get local disk from olap
         string local_shard_root_path;
         DataDir* store = nullptr;
-        OLAPStatus olap_status = StorageEngine::get_instance()->obtain_shard_path(
+        OLAPStatus olap_status = StorageEngine::instance()->obtain_shard_path(
             _clone_req.storage_medium, &local_shard_root_path, &store);
         if (olap_status != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("clone get local root path failed. signature: %ld",
@@ -136,7 +136,7 @@ OLAPStatus EngineCloneTask::execute() {
                         << " src_file_path: " << src_file_path;
             // Load header
             OLAPStatus load_header_status =
-                StorageEngine::get_instance()->load_header(
+                StorageEngine::instance()->load_header(
                     store,
                     local_shard_root_path,
                     _clone_req.tablet_id,

@@ -172,7 +172,7 @@ private:
     VersionHash _cumulative_version_hash;
     // 新cumulative文件对应的olap index
     RowsetSharedPtr _rowset;
-    RowsetWriter* _builder;
+    RowsetWriterSharedPtr _rs_writer;
     // 可合并的delta文件的data文件
     std::vector<RowsetSharedPtr> _rowsets;
     std::vector<RowsetReaderSharedPtr> _rs_readers;

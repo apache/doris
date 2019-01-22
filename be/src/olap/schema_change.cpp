@@ -1613,8 +1613,7 @@ OLAPStatus SchemaChangeHandler::_create_new_tablet(
 
     do {
         // 2. Create tablet with only header, no deltas
-        TabletSharedPtr new_tablet = StorageEngine::get_instance()->create_tablet(
-                request, ref_root_path, true, ref_tablet);
+        TabletSharedPtr new_tablet = StorageEngine::instance()->create_tablet(request, true, ref_tablet);
         if (new_tablet == NULL) {
             OLAP_LOG_WARNING("failed to create tablet. [tablet=%ld xml_path=%d]",
                              request.tablet_id,

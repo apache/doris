@@ -243,14 +243,14 @@ EXIT:
                 continue;
             }
 
-            StorageEngine::get_instance()->delete_transaction(
+            StorageEngine::instance()->delete_transaction(
                 request.partition_id, request.transaction_id,
                 tablet_var.tablet->tablet_id(), tablet_var.tablet->schema_hash());
 
             // actually, olap_index may has been deleted in delete_transaction()
             for (SegmentGroup* segment_group : tablet_var.added_indices) {
                 segment_group->release();
-                StorageEngine::get_instance()->add_unused_index(segment_group);
+                StorageEngine::instance()->add_unused_index(segment_group);
             }
         }
     }

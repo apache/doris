@@ -656,13 +656,12 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
 }
 
-TabletSharedPtr StorageEngine::create_tablet(
-        const TCreateTabletReq& request, const string* ref_root_path, 
-        const bool is_schema_change_tablet, const TabletSharedPtr ref_tablet) {
-
-    // Get all available stores, use ref_root_path if the caller specified
+TabletSharedPtr StorageEngine::create_tablet(const TCreateTabletReq& request,
+                                             const bool is_schema_change_tablet,
+                                             const TabletSharedPtr ref_tablet) {
+    // Get all available stores, use data_dir of ref_tablet when doing schema change 
     std::vector<DataDir*> stores;
-    if (ref_root_path == nullptr) {
+    if (!is_schema_change_tablet) {
         stores = get_stores_for_create_tablet(request.storage_medium);
         if (stores.empty()) {
             LOG(WARNING) << "there is no available disk that can be used to create tablet.";
@@ -672,8 +671,7 @@ TabletSharedPtr StorageEngine::create_tablet(
         stores.push_back(ref_tablet->data_dir());
     }
 
-    return TabletManager::instance()->create_tablet(request, ref_root_path, 
-        is_schema_change_tablet, ref_tablet, stores);
+    return TabletManager::instance()->create_tablet(request, is_schema_change_tablet, ref_tablet, stores);
 }
 
 void StorageEngine::start_clean_fd_cache() {

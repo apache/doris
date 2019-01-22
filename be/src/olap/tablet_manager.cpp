@@ -279,7 +279,7 @@ OLAPStatus TabletManager::create_inital_rowset(TTabletId tablet_id, SchemaHash s
 
     // Unregister index and delete files(index and data) if failed
     if (res != OLAP_SUCCESS && tablet != nullptr) {
-        StorageEngine::get_instance()->add_unused_rowset(new_rowset);
+        StorageEngine::instance()->add_unused_rowset(new_rowset);
     }
 
     VLOG(3) << "create init version end. res=" << res;
@@ -318,7 +318,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
     TabletSharedPtr tablet;
     do {
         // 3. Create tablet with only header, no deltas
-        tablet = create_tablet(request, NULL, false, NULL, stores);
+        tablet = create_tablet(request, false, NULL, stores);
         if (tablet == NULL) {
             res = OLAP_ERR_CE_CMD_PARAMS_ERROR;
             OLAP_LOG_WARNING("fail to create tablet. [res=%d]", res);
@@ -381,9 +381,8 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
 } // create_tablet
 
 TabletSharedPtr TabletManager::create_tablet(
-        const TCreateTabletReq& request, const string* ref_root_path,
-        const bool is_schema_change_tablet, const TabletSharedPtr ref_tablet,
-        std::vector<DataDir*> stores) {
+        const TCreateTabletReq& request, const bool is_schema_change_tablet,
+        const TabletSharedPtr ref_tablet, std::vector<DataDir*> stores) {
 
     TabletSharedPtr tablet;
     // Try to create tablet on each of all_available_root_path, util success

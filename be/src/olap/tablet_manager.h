@@ -86,10 +86,9 @@ public:
     //
     // Return Tablet *  succeeded; Otherwise, return NULL if failed
     TabletSharedPtr create_tablet(const TCreateTabletReq& request,
-                              const std::string* ref_root_path, 
-                              const bool is_schema_change_tablet,
-                              const TabletSharedPtr ref_tablet, 
-                              std::vector<DataDir*> stores);
+                                  const bool is_schema_change_tablet,
+                                  const TabletSharedPtr ref_tablet, 
+                                  std::vector<DataDir*> stores);
 
     // Show status of all alter tablet operation.
     // 

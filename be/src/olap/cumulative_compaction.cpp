@@ -142,7 +142,7 @@ OLAPStatus CumulativeCompaction::run() {
                                        _tablet->tablet_schema(), _tablet->num_key_fields(),
                                        _tablet->num_short_key_fields(), _tablet->num_rows_per_row_block(),
                                        _tablet->compress_kind(), _tablet->bloom_filter_fpp()};
-        _builder->init(context);
+        _rs_writer->init(context);
 
         // 4. 执行cumulative compaction合并过程
         for (auto& rowset : _rowsets) {
@@ -150,7 +150,7 @@ OLAPStatus CumulativeCompaction::run() {
             _rs_readers.push_back(rs_reader);
         }
         res = _do_cumulative_compaction();
-        _rowset = _builder->build();
+        _rowset = _rs_writer->build();
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("failed to do cumulative compaction. "
                              "[tablet=%s; cumulative_version=%d-%d]",
@@ -163,7 +163,7 @@ OLAPStatus CumulativeCompaction::run() {
 
     // 5. 如果出现错误，执行清理工作
     if (res != OLAP_SUCCESS && _rowset != NULL) {
-        StorageEngine::get_instance()->add_unused_rowset(_rowset);
+        StorageEngine::instance()->add_unused_rowset(_rowset);
     }
     
     if (_rs_readers.empty()) {
@@ -370,7 +370,7 @@ bool CumulativeCompaction::_find_previous_version(const Version current_version,
 
 OLAPStatus CumulativeCompaction::_do_cumulative_compaction() {
     OLAPStatus res = OLAP_SUCCESS;
-    Merger merger(_tablet, _builder, READER_CUMULATIVE_COMPACTION);
+    Merger merger(_tablet, _rs_writer, READER_CUMULATIVE_COMPACTION);
 
     // 1. merge delta files into new cumulative file
     uint64_t merged_rows = 0;
@@ -484,7 +484,7 @@ OLAPStatus CumulativeCompaction::_update_header(vector<RowsetSharedPtr>* unused_
 
 void CumulativeCompaction::_delete_unused_delta_files(vector<RowsetSharedPtr>* unused_rowsets) {
     if (!unused_rowsets->empty()) {
-        StorageEngine* storage_engine = StorageEngine::get_instance();
+        StorageEngine* storage_engine = StorageEngine::instance();
 
         for (vector<RowsetSharedPtr>::iterator it = unused_rowsets->begin();
                 it != unused_rowsets->end(); ++it) {
