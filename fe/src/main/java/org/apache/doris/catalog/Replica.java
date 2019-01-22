@@ -203,7 +203,7 @@ public class Replica implements Writable {
 
         LOG.warn("update replica {} on backend {}'s version for recovery. version: {}-{}:{}-{}."
                 + " last failed version: {}-{}:{}-{}, last success version: {}-{}:{}-{}",
-                this.version, this.versionHash, newVersion, newVersionHash,
+                this.id, this.backendId, this.version, this.versionHash, newVersion, newVersionHash,
                 this.lastFailedVersion, this.lastFailedVersionHash, lastFailedVersion, lastFailedVersionHash,
                 this.lastSuccessVersion, this.lastSuccessVersionHash, lastSuccessVersion, lastSuccessVersionHash);
 
@@ -315,17 +315,17 @@ public class Replica implements Writable {
                 this.lastSuccessVersion, this.lastSuccessVersionHash, dataSize, rowCount);
     }
 
-    public boolean checkVersionCatchUp(long committedVersion, long committedVersionHash) {
-        if (committedVersion == Partition.PARTITION_INIT_VERSION
-                && committedVersionHash == Partition.PARTITION_INIT_VERSION_HASH) {
+    public boolean checkVersionCatchUp(long expectedVersion, long expectedVersionHash) {
+        if (expectedVersion == Partition.PARTITION_INIT_VERSION
+                && expectedVersionHash == Partition.PARTITION_INIT_VERSION_HASH) {
             // no data is loaded into this replica, just return true
             return true;
         }
 
-        if (this.version < committedVersion
-                || (this.version == committedVersion && this.versionHash != committedVersionHash)) {
+        if (this.version < expectedVersion
+                || (this.version == expectedVersion && this.versionHash != expectedVersionHash)) {
             LOG.debug("replica version does not catch up with version: {}-{}. replica: {}",
-                      committedVersion, committedVersionHash, this);
+                      expectedVersion, expectedVersionHash, this);
             return false;
         }
         return true;
@@ -371,6 +371,8 @@ public class Replica implements Writable {
         strBuffer.append(lastSuccessVersionHash);
         strBuffer.append(", lastFailedTimestamp=");
         strBuffer.append(lastFailedTimestamp);
+        strBuffer.append(", schemaHash");
+        strBuffer.append(schemaHash);
         return strBuffer.toString();
     }
 
