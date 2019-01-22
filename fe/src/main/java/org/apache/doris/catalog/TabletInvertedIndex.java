@@ -144,6 +144,11 @@ public class TabletInvertedIndex {
 
                                 if (checkNeedRecover(replica, backendTabletInfo.getVersion(),
                                         backendTabletInfo.getVersion_hash())) {
+                                    LOG.warn("replica {} of tablet {} on backend {} need recovery. "
+                                            + "replica in FE: {}, report version {}-{}",
+                                            replica.getId(), tabletId, backendId, replica,
+                                            backendTabletInfo.getVersion(),
+                                            backendTabletInfo.getVersion_hash());
                                     tabletRecoveryMap.put(tabletMeta.getDbId(), tabletId);
                                 }
 
@@ -319,17 +324,16 @@ public class TabletInvertedIndex {
      * because of some unrecoverable failure.
      */
     private boolean checkNeedRecover(Replica replicaInFe, long backendVersion, long backendVersionHash) {
-        if (replicaInFe.getVersion() == 2 && replicaInFe.getVersionHash() == 0
-                && backendVersion == 1 && backendVersionHash == 0) {
+        if (replicaInFe.getVersionHash() == 0 && backendVersion == replicaInFe.getVersion() - 1) {
             /*
              * This is very tricky:
-             * 1. The newly created replica in FE is with version 1-0, but the new replica is BE is 2-0
-             * 2. After the first tablet report, replica in FE with be sync with BE, update its version to 2-0
-             * 3. A snapshot of replica with version 2-0 on BE is 1-0 (Because we send snapshot task with
-             *      partition's version, which is 1-0)
-             * 4. And BE will report version 1-0, but in FE, its 2-0, so we fall into here.
+             * 1. Assume that we want to create a replica with version (X, Y), the init version of replica in FE
+             *      is (X, Y), and BE will create a replica with version (X+1, 0).
+             * 2. BE will report version (X+1, 0), and FE will sync with this version, change to (X+1, 0), too.
+             * 3. When restore, BE will restore the replica with version (X, Y) (which is the visible version of partition)
+             * 4. BE report the version (X-Y), and than we fall into here
              * 
-             * So here we ignore this kind of report
+             * Actually, the version (X+1, 0) is a 'virtual' version, so here we ignore this kind of report
              */
             return false;
         }
