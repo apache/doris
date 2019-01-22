@@ -48,6 +48,8 @@ struct TCreateTabletReq {
     4: optional Types.TVersionHash version_hash
     5: optional Types.TStorageMedium storage_medium
     6: optional bool in_restore_mode
+    7: optional i64 table_id
+    8: optional i64 partition_id
 }
 
 struct TDropTabletReq {

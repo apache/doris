@@ -222,22 +222,29 @@ enum ColumnType {
 }
 
 message ColumnPB {
-    required int32 column_id = 1;
-    required ColumnType type = 2;
-    optional bool is_key = 3;
-    optional bool is_nullable = 4;
-    optional bytes default_value = 5;
-    optional int32 referenced_column_id = 6;
-    optional string aggregation = 7;
-    optional int32 length = 8;
-    optional int32 index_length = 9;
-    optional int32 precision = 10;
-    optional int32 frac = 11;
-    optional bool is_bf_column = 12;
+    required int32 unique_id = 1;
+    optional string name = 2;
+    required string type = 3;
+    optional int32 precision = 4;
+    optional int32 frac = 5;
+    optional int32 length = 6;
+    optional int32 index_length = 7;
+    optional bool is_key = 8;
+    optional string aggregation = 9;
+    optional bool is_nullable = 10;
+    optional bytes default_value = 11;
+    optional int32 referenced_column_id = 12;
+    optional bool is_bf_column = 13;
 }
 
 message TabletSchemaPB {
-    repeated ColumnPB columns = 1;
+    optional int32 num_short_key_fields = 1;
+    optional int32 num_rows_per_data_block = 2;
+    optional KeysType keys_type = 3;
+    optional CompressKind compress_kind = 4;
+    repeated ColumnPB column = 5;
+    optional uint32 next_column_unique_id = 6;
+    optional double bf_fpp = 7;
 }
 
 enum TabletStatePB {
@@ -260,6 +267,8 @@ message TabletMetaPB {
     repeated RowsetMetaPB inc_rs_metas = 8;
     optional TabletStatePB tablet_state = 9;
     optional AlterTabletPB alter_tablet_task = 10;
+    required int64 creation_time = 11;
+    required int32 cumulative_layer_point = 12;
 }
 
 message OLAPIndexHeaderMessage {

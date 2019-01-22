@@ -20,7 +20,7 @@
 
 #include "olap/olap_define.h"
 #include "olap/tablet.h"
-#include "olap/rowset/rowset_builder.h"
+#include "olap/rowset/rowset_writer.h"
 
 namespace doris {
 
@@ -30,7 +30,7 @@ class ColumnData;
 class Merger {
 public:
     // parameter index is created by caller, and it is empty.
-    Merger(TabletSharedPtr tablet, RowsetBuilder* builder, ReaderType type);
+    Merger(TabletSharedPtr tablet, RowsetWriterSharedPtr writer, ReaderType type);
 
     virtual ~Merger() {};
 
@@ -46,7 +46,7 @@ public:
     }
 private:
     TabletSharedPtr _tablet;
-    RowsetBuilder* _builder;
+    RowsetWriterSharedPtr _rs_writer;
     ReaderType _reader_type;
     uint64_t _row_count;
     Version _simple_merge_version;

@@ -309,18 +309,18 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
     // 1. 生成新base文件对应的olap index
     RowsetId rowset_id = 0;
     RowsetIdGenerator::instance()->get_next_id(_tablet->data_dir(), &rowset_id);
-    RowsetBuilderContext context = {_tablet->partition_id(), _tablet->tablet_id(),
-                                    _tablet->schema_hash(), rowset_id, 
-                                    RowsetTypePB::ALPHA_ROWSET, _tablet->rowset_path_prefix(),
-                                    _tablet->tablet_schema(), _tablet->num_key_fields(),
-                                    _tablet->num_short_key_fields(), _tablet->num_rows_per_row_block(),
-                                    _tablet->compress_kind(), _tablet->bloom_filter_fpp()};
-    RowsetBuilder* builder = new AlphaRowsetBuilder(); 
-    if (builder == nullptr) {
+    RowsetWriterContext context = {_tablet->partition_id(), _tablet->tablet_id(),
+                                   _tablet->schema_hash(), rowset_id, 
+                                   RowsetTypePB::ALPHA_ROWSET, _tablet->rowset_path_prefix(),
+                                   _tablet->tablet_schema(), _tablet->num_key_fields(),
+                                   _tablet->num_short_key_fields(), _tablet->num_rows_per_row_block(),
+                                   _tablet->compress_kind(), _tablet->bloom_filter_fpp()};
+    RowsetWriterSharedPtr rs_writer(new AlphaRowsetWriter());
+    if (rs_writer == nullptr) {
         LOG(WARNING) << "fail to new rowset.";
         return OLAP_ERR_MALLOC_ERROR;
     }
-    builder->init(context);
+    rs_writer->init(context);
 
     vector<RowsetReaderSharedPtr> rs_readers;
     for (auto& rowset : rowsets) {
@@ -347,12 +347,12 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
         _tablet->obtain_header_rdlock();
         _tablet->release_header_lock();
 
-        Merger merger(_tablet, builder, READER_BASE_COMPACTION);
+        Merger merger(_tablet, rs_writer, READER_BASE_COMPACTION);
         res = merger.merge(rs_readers, _new_base_version, &merged_rows, &filted_rows);
         if (res == OLAP_SUCCESS) {
             *row_count = merger.row_count();
         }
-        new_base = builder->build();
+        new_base = rs_writer->build();
     } else {
         OLAP_LOG_WARNING("unknown data file type. [type=%s]",
                          DataFileType_Name(_tablet->data_file_type()).c_str());
@@ -367,7 +367,7 @@ OLAPStatus BaseCompaction::_do_base_compaction(VersionHash new_base_version_hash
                          _new_base_version.second,
                          res);
 
-        StorageEngine::get_instance()->add_unused_rowset(new_base);
+        StorageEngine::instance()->add_unused_rowset(new_base);
         return OLAP_ERR_BE_MERGE_ERROR;
     }
 
@@ -457,7 +457,7 @@ OLAPStatus BaseCompaction::_update_header(uint64_t row_count, vector<RowsetShare
 
 void BaseCompaction::_delete_old_files(vector<RowsetSharedPtr>* unused_indices) {
     if (!unused_indices->empty()) {
-        StorageEngine* storage_engine = StorageEngine::get_instance();
+        StorageEngine* storage_engine = StorageEngine::instance();
 
         for (vector<RowsetSharedPtr>::iterator it = unused_indices->begin();
                 it != unused_indices->end(); ++it) {
@@ -468,7 +468,7 @@ void BaseCompaction::_delete_old_files(vector<RowsetSharedPtr>* unused_indices) 
 
 void BaseCompaction::_garbage_collection() {
     // 清理掉已生成的版本文件
-    StorageEngine* storage_engine = StorageEngine::get_instance();
+    StorageEngine* storage_engine = StorageEngine::instance();
     for (vector<RowsetSharedPtr>::iterator it = _new_rowsets.begin();
             it != _new_rowsets.end(); ++it) {
         storage_engine->add_unused_rowset(*it);

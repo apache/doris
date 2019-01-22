@@ -112,8 +112,8 @@ public:
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr; }
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
     void set_store_paths(const std::vector<StorePath>& paths) { _store_paths = paths; }
-    StorageEngine* olap_engine() { return _olap_engine; }
-    void set_olap_engine(StorageEngine* olap_engine) { _olap_engine = olap_engine; }
+    StorageEngine* storage_engine() { return _storage_engine; }
+    void set_storage_engine(StorageEngine* storage_engine) { _storage_engine = storage_engine; }
 
 private:
     Status _init(const std::vector<StorePath>& store_paths);
@@ -157,7 +157,7 @@ private:
     ReservationTracker* _buffer_reservation = nullptr;
     BufferPool* _buffer_pool = nullptr;
 
-    StorageEngine* _olap_engine = nullptr;
+    StorageEngine* _storage_engine = nullptr;
 };
 
 }
