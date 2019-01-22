@@ -126,7 +126,7 @@ OLAPStatus ColumnDataWriter::_init_segment() {
     return res;
 }
 
-OLAPStatus ColumnDataWriter::attached_by(RowCursor* row_cursor) {
+OLAPStatus ColumnDataWriter::write(RowCursor* row_cursor) {
     if (_row_index >= _segment_group->get_num_rows_per_row_block()) {
         if (OLAP_SUCCESS != _flush_row_block(false)) {
             OLAP_LOG_WARNING("failed to flush data while attaching row cursor.");
@@ -134,7 +134,7 @@ OLAPStatus ColumnDataWriter::attached_by(RowCursor* row_cursor) {
         }
         RETURN_NOT_OK(_flush_segment_with_verfication());
     }
-    _row_block->get_row(_row_index, row_cursor);
+    _row_block->set_row(_row_index, *row_cursor);
     return OLAP_SUCCESS;
 }
 

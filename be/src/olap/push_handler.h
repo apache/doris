@@ -51,7 +51,7 @@ public:
     ~PushHandler() {}
 
     // Load local data file into specified tablet.
-    OLAPStatus process_realtime_push(
+    OLAPStatus process_streaming_ingestion(
             TabletSharedPtr tablet,
             const TPushReq& request,
             PushType push_type,
@@ -76,7 +76,7 @@ private:
             const std::vector<TabletVars>& tablet_infos,
             std::vector<TTabletInfo>* tablet_info_vec);
 
-    OLAPStatus _do_realtime_push(
+    OLAPStatus _do_streaming_ingestion(
             TabletSharedPtr tablet,
             const TPushReq& request,
             PushType push_type,

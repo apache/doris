@@ -47,7 +47,7 @@ namespace doris {
 //           this usually means schema change is over,
 //           clear schema change info in both current tablet and related tablets,
 //           finally we will only push for current tablets. this is very useful in rollup action.
-OLAPStatus PushHandler::process_realtime_push(
+OLAPStatus PushHandler::process_streaming_ingestion(
         TabletSharedPtr tablet,
         const TPushReq& request,
         PushType push_type,
@@ -59,13 +59,13 @@ OLAPStatus PushHandler::process_realtime_push(
     _request = request;
     vector<TabletVars> tablet_vars(1);
     tablet_vars[0].tablet = tablet;
-    res = _do_realtime_push(tablet, request, push_type, &tablet_vars, tablet_info_vec);
+    res = _do_streaming_ingestion(tablet, request, push_type, &tablet_vars, tablet_info_vec);
     // if transaction existed in engine but push not finished, not report to fe
     if (res == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
-        OLAP_LOG_WARNING("find transaction existed when realtime push, not report. ",
-                         "[tablet=%s partition_id=%ld transaction_id=%ld]",
-                         tablet->full_name().c_str(),
-                         request.partition_id, request.transaction_id);
+        LOG(WARNING) << "find transaction existed when realtime push, not report. "
+                     << "[tablet=" << tablet->full_name()
+                     << " partition_id=" << request.partition_id
+                     << "transaction_id=" << request.transaction_id << "]";
         return res;
     }
 
@@ -102,7 +102,7 @@ OLAPStatus PushHandler::process_realtime_push(
     return res;
 }
 
-OLAPStatus PushHandler::_do_realtime_push(
+OLAPStatus PushHandler::_do_streaming_ingestion(
         TabletSharedPtr tablet,
         const TPushReq& request,
         PushType push_type,
@@ -124,7 +124,9 @@ OLAPStatus PushHandler::_do_realtime_push(
     if (res == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
 
         // if push finished, report success to fe
-        if (tablet->has_pending_data(request.transaction_id)) {
+        // if (tablet->has_pending_data(request.transaction_id)) {
+        if (TxnManager::instance()->has_txn(request.partition_id,
+                request.transaction_id, tablet->tablet_id(), tablet->schema_hash())) {
             LOG(WARNING) << "pending data exists in tablet, which means push finished,"
                          << "return success. tablet=" << tablet->full_name()
                          << ", transaction_id=" << request.transaction_id;
@@ -438,8 +440,9 @@ OLAPStatus PushHandler::_convert(
             string dir_path = new_tablet->construct_pending_data_dir_path();
             if (!check_dir_existed(dir_path) && (res = create_dirs(dir_path)) != OLAP_SUCCESS) {
                 if (!check_dir_existed(dir_path)) {
-                    OLAP_LOG_WARNING("fail to create pending dir. [res=%d tablet=%s]",
-                                     res, new_tablet->full_name().c_str());
+                    LOG(WARNING) << "fail to create pending dir. "
+                                 << "[res=" << res
+                                 << " tablet=" << new_tablet->full_name() << "]";
                     break;
                 }
             }
@@ -451,9 +454,9 @@ OLAPStatus PushHandler::_convert(
             //        curr_olap_indices,
             //        new_olap_indices);
             if (res != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("failed to change schema version for delta."
-                                 "[res=%d new_tablet='%s']",
-                                 res, new_tablet->full_name().c_str());
+                LOG(WARNING) << "failed to change schema version for delta."
+                             << "[res=" << res
+                             <<" new_tablet='" << new_tablet->full_name() << "']";
             }
 
         }
