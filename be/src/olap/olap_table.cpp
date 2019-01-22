@@ -940,11 +940,6 @@ OLAPStatus OLAPTable::_publish_version(int64_t transaction_id, Version version,
         LOG(FATAL) << "fail to save header when publish version. res=" << res << ", "
                    << "table=" << full_name() << ", "
                    << "transaction_id=" << transaction_id;
-        std::vector<SegmentGroup*> delete_index_vec;
-        // if failed, clear new data
-        unregister_data_source(version, &delete_index_vec);
-        _delete_incremental_data(version, version_hash);
-        remove_files(linked_files);
         return res;
     }
 
@@ -1008,7 +1003,8 @@ OLAPStatus OLAPTable::_handle_existed_version(int64_t transaction_id, const Vers
         // delete local data
         //SegmentGroup *existed_index = NULL;
         std::vector<SegmentGroup*> existed_index_vec;
-        _delete_incremental_data(version, version_hash);
+        std::vector<string> files_to_remove;
+        _delete_incremental_data(version, version_hash, &files_to_remove);
         res = unregister_data_source(version, &existed_index_vec);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to unregister data when publish version. [table=" << full_name()
@@ -1021,6 +1017,7 @@ OLAPStatus OLAPTable::_handle_existed_version(int64_t transaction_id, const Vers
             LOG(FATAL) << "fail to save header when unregister data. [tablet=" << full_name()
                        << " transaction_id=" << transaction_id << "]";
         }
+        remove_files(files_to_remove);
         // use OLAPEngine to delete this segment_group
         if (!existed_index_vec.empty()) {
             OLAPEngine *unused_index = OLAPEngine::get_instance();
@@ -1094,33 +1091,51 @@ OLAPStatus OLAPTable::_add_incremental_data(std::vector<SegmentGroup*>& index_ve
     return res;
 }
 
-void OLAPTable::delete_expire_incremental_data() {
+bool OLAPTable::has_expired_incremental_data() {
+    bool exist = false;
     time_t now = time(NULL);
-    std::vector<std::pair<Version, VersionHash>> expire_versions;
-    WriteLock wrlock(&_header_lock);
+    ReadLock rdlock(&_header_lock);
+    for (auto& it : _header->incremental_delta()) {
+        double diff = difftime(now, it.creation_time());
+        if (diff >= config::incremental_delta_expire_time_sec) {
+            exist = true;
+            break;
+        }
+    }
+    return exist;
+}
+
+void OLAPTable::delete_expired_incremental_data() {
+    time_t now = time(NULL);
+    std::vector<std::pair<Version, VersionHash>> expired_versions;
+    std::vector<string> files_to_remove;
     for (auto& it : _header->incremental_delta()) {
         double diff = difftime(now, it.creation_time());
         if (diff >= config::incremental_delta_expire_time_sec) {
             Version version(it.start_version(), it.end_version());
-            expire_versions.push_back(std::make_pair(version, it.version_hash()));
+            expired_versions.push_back(std::make_pair(version, it.version_hash()));
             VLOG(3) << "find expire incremental segment_group. tablet=" << full_name() << ", "
                     << "version=" << it.start_version() << "-" << it.end_version() << ", "
                     << "exist_sec=" << diff;
         }
     }
-    for (auto& it : expire_versions) {
-        _delete_incremental_data(it.first, it.second);
-        VLOG(3) << "delete expire incremental data. table=" << full_name() << ", "
-                << "version=" << it.first.first << "-" << it.first.second;
+
+    if (expired_versions.empty()) { return; }
+
+    for (auto& it : expired_versions) {
+        _delete_incremental_data(it.first, it.second, &files_to_remove);
     }
 
     if (save_header() != OLAP_SUCCESS) {
         LOG(FATAL) << "fail to save header when delete expire incremental data."
-                   << "table=" << full_name();
+                   << "tablet=" << full_name();
     }
+    remove_files(files_to_remove);
 }
 
-void OLAPTable::_delete_incremental_data(const Version& version, const VersionHash& version_hash) {
+void OLAPTable::_delete_incremental_data(const Version& version,
+                                         const VersionHash& version_hash,
+                                         vector<string>* files_to_remove) {
     const PDelta* incremental_delta = get_incremental_delta(version);
     if (incremental_delta == nullptr) { return; }
 
@@ -1130,15 +1145,14 @@ void OLAPTable::_delete_incremental_data(const Version& version, const VersionHa
         for (int seg_id = 0; seg_id < psegment_group.num_segments(); seg_id++) {
             std::string incremental_index_path =
                 construct_incremental_index_file_path(version, version_hash, segment_group_id, seg_id);
-            files_to_delete.emplace_back(incremental_index_path);
+            files_to_remove->emplace_back(incremental_index_path);
 
             std::string incremental_data_path =
                 construct_incremental_data_file_path(version, version_hash, segment_group_id, seg_id);
-            files_to_delete.emplace_back(incremental_data_path);
+            files_to_remove->emplace_back(incremental_data_path);
         }
     }
 
-    remove_files(files_to_delete);
     _header->delete_incremental_delta(version);
     VLOG(3) << "delete incremental data. table=" << full_name() << ", "
             << "version=" << version.first << "-" << version.second;
