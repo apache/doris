@@ -25,7 +25,7 @@
 #include "olap/olap_define.h"
 #include "olap/tablet.h"
 #include "rowset/rowset_id_generator.h"
-#include "rowset/alpha_rowset_builder.h"
+#include "rowset/alpha_rowset_writer.h"
 
 namespace doris {
 

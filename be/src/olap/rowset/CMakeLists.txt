@@ -38,6 +38,6 @@ add_library(Rowset STATIC
     rowset_meta_manager.cpp
     alpha_rowset.cpp
     alpha_rowset_reader.cpp
-    alpha_rowset_builder.cpp
+    alpha_rowset_writer.cpp
     alpha_rowset_meta.cpp
 )

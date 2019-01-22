@@ -75,11 +75,11 @@ OLAPStatus TabletColumnSchema::init_from_pb(const TabletColumnSchema& column) {
     _is_bf_column = column.is_bf_column();
 }
 
-TabletSchema TabletSchema()
+TabletSchema::TabletSchema()
     : _num_columns(0),
       _num_key_columns(0),
       _num_null_columns(0),
-      _num_short_key_columns(0)
+      _num_short_key_columns(0) { }
 
 OLAPStatus TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     for (auto& column : schema.columns()) {

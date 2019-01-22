@@ -188,7 +188,7 @@ AgentStatus CgroupsMgr::_config_disk_throttle(std::string user_name,
     }
    
     // add olap engine data path here
-    auto stores = StorageEngine::get_instance()->get_stores();
+    auto stores = StorageEngine::instance()->get_stores();
     // buld load data path, it is alreay in data path
     // _exec_env->load_path_mgr()->get_load_data_path(&data_paths);
    

@@ -779,7 +779,7 @@ bool SchemaChangeDirectly::process(ColumnData* olap_data, SegmentGroup* new_segm
     }
 
     if (need_create_empty_version) {
-        res = create_init_version(tablet->tablet_id(),
+        res = create_initial_rowset(tablet->tablet_id(),
                                   tablet->schema_hash(),
                                   new_segment_group->version(),
                                   new_segment_group->version_hash(),
@@ -945,7 +945,7 @@ bool SchemaChangeWithSorting::process(ColumnData* olap_data, SegmentGroup* new_s
     }
 
     if (need_create_empty_version) {
-        res = create_init_version(tablet->tablet_id(),
+        res = create_initial_rowset(tablet->tablet_id(),
                                   tablet->schema_hash(),
                                   new_segment_group->version(),
                                   new_segment_group->version_hash(),
@@ -1613,8 +1613,7 @@ OLAPStatus SchemaChangeHandler::_create_new_tablet(
 
     do {
         // 2. Create tablet with only header, no deltas
-        TabletSharedPtr new_tablet = StorageEngine::get_instance()->create_tablet(
-                request, ref_root_path, true, ref_tablet);
+        TabletSharedPtr new_tablet = StorageEngine::instance()->create_tablet(request, true, ref_tablet);
         if (new_tablet == NULL) {
             OLAP_LOG_WARNING("failed to create tablet. [tablet=%ld xml_path=%d]",
                              request.tablet_id,
@@ -2030,7 +2029,7 @@ OLAPStatus SchemaChangeHandler::_alter_tablet(SchemaChangeParams* sc_params) {
         if (DEL_SATISFIED == del_ret) {
             VLOG(3) << "filter delta in schema change:"
                     << (*it)->version().first << "-" << (*it)->version().second;
-            res = sc_procedure->create_init_version(sc_params->new_tablet->tablet_id(),
+            res = sc_procedure->create_initial_rowset(sc_params->new_tablet->tablet_id(),
                                                     sc_params->new_tablet->schema_hash(),
                                                     new_segment_group->version(),
                                                     new_segment_group->version_hash(),
@@ -2343,7 +2342,7 @@ OLAPStatus SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mappi
     return OLAP_SUCCESS;
 }
 
-OLAPStatus SchemaChange::create_init_version(
+OLAPStatus SchemaChange::create_initial_rowset(
         TTabletId tablet_id,
         SchemaHash schema_hash,
         Version version,

@@ -57,7 +57,7 @@ std::unique_ptr<RowsetReader> AlphaRowset::create_reader() {
             _rowset_path, _rowset_meta.get(), _segment_groups));
 }
 
-OLAPStatus AlphaRowset::copy(RowsetBuilder* dest_rowset_builder) {
+OLAPStatus AlphaRowset::copy(RowsetWriter* dest_rowset_writer) {
     return OLAP_SUCCESS;
 }
 
