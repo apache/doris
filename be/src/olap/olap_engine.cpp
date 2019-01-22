@@ -1939,16 +1939,23 @@ OLAPStatus OLAPEngine::start_trash_sweep(double* usage) {
     }
 
     // clear expire incremental segment_group
+    std::vector<OLAPTablePtr> tablets;
     _tablet_map_lock.rdlock();
     for (const auto& item : _tablet_map) {
         for (OLAPTablePtr olap_table : item.second.table_arr) {
-            if (olap_table.get() == NULL) {
+            if (olap_table == nullptr) {
                 continue;
             }
-            olap_table->delete_expire_incremental_data();
+            if (olap_table->has_expired_incremental_data()) {
+                tablets.push_back(olap_table);
+            }
         }
     }
     _tablet_map_lock.unlock();
+
+    for (auto& tablet : tablets) {
+        tablet->delete_expired_incremental_data();
+    }
 
     return res;
 }

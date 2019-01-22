@@ -84,6 +84,11 @@ public:
     static IntCounter alter_task_success_total;
     static IntCounter alter_task_failed_total;
 
+    static IntCounter meta_write_request_total;
+    static IntCounter meta_write_request_duration_us;
+    static IntCounter meta_read_request_total;
+    static IntCounter meta_read_request_duration_us;
+
     // Gauges
     static IntGauge memory_pool_bytes_total;
     static IntGauge process_thread_num;
