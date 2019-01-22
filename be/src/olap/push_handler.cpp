@@ -26,7 +26,7 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/schema_change.h"
-#include "olap/rowset/alpha_rowset_builder.h"
+#include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/rowset_meta_manager.h"
 
@@ -88,13 +88,13 @@ OLAPStatus PushHandler::process_streaming_ingestion(
                 continue;
             }
 
-            StorageEngine::get_instance()->delete_transaction(
+            StorageEngine::instance()->delete_transaction(
                 request.partition_id, request.transaction_id,
                 tablet_var.tablet->tablet_id(), tablet_var.tablet->schema_hash());
 
             // actually, olap_index may has been deleted in delete_transaction()
             for (RowsetSharedPtr rowset : tablet_var.added_rowsets) {
-                StorageEngine::get_instance()->add_unused_rowset(rowset);
+                StorageEngine::instance()->add_unused_rowset(rowset);
             }
         }
     }
@@ -281,12 +281,12 @@ OLAPStatus PushHandler::_convert(
     RowCursor row;
     BinaryFile raw_file;
     IBinaryReader* reader = NULL;
-    RowsetBuilderSharedPtr rowset_builder(new AlphaRowsetBuilder());
-    if (rowset_builder == nullptr) {
-        LOG(WARNING) << "new rowset builder failed.";
+    RowsetWriterSharedPtr rowset_writer(new AlphaRowsetWriter());
+    if (rowset_writer == nullptr) {
+        LOG(WARNING) << "new rowset writer failed.";
         return OLAP_ERR_MALLOC_ERROR;
     }
-    RowsetBuilderContext context;
+    RowsetWriterContext context;
     uint32_t  num_rows = 0;
     RowsetId rowset_id = 0;
     res = RowsetIdGenerator::instance()->get_next_id(curr_tablet->data_dir(), &rowset_id);
@@ -341,9 +341,8 @@ OLAPStatus PushHandler::_convert(
 
         // 2. init RowsetBuilder of cur_tablet for current push
         VLOG(3) << "init RowsetBuilder.";
-
+        RowsetWriterContextBuilder context_builder;
         if (_request.__isset.transaction_id) {
-            RowsetBuilderContextBuilder context_builder;
             context_builder.set_rowset_id(rowset_id)
                 .set_tablet_id(curr_tablet->tablet_id())
                 .set_partition_id(_request.partition_id)
@@ -361,7 +360,7 @@ OLAPStatus PushHandler::_convert(
                 .set_load_id(load_id);
             context = context_builder.build();
         } else {
-            RowsetBuilderContextBuilder context_builder;
+            
             context_builder.set_rowset_id(rowset_id)
                 .set_tablet_id(curr_tablet->tablet_id())
                 .set_partition_id(_request.partition_id)
@@ -379,7 +378,7 @@ OLAPStatus PushHandler::_convert(
                 .set_version_hash(_request.version_hash);
             context = context_builder.build();
         }
-        rowset_builder->init(context);
+        rowset_writer->init(context);
 
         // 3. New RowsetBuilder to write data into rowset
         VLOG(3) << "init rowset builder. tablet=" << curr_tablet->full_name()
@@ -396,15 +395,15 @@ OLAPStatus PushHandler::_convert(
             // Convert from raw to delta
             VLOG(3) << "start to convert row file to delta.";
             while (!reader->eof()) {
-                res = reader->next(&row, rowset_builder->mem_pool());
+                res = reader->next(&row, rowset_writer->mem_pool());
                 if (OLAP_SUCCESS != res) {
                     LOG(WARNING) << "read next row failed."
                                  << " res=" << res
                                  << " read_rows=" << num_rows;
                     break;
                 } else {
-                    if (OLAP_SUCCESS != (res = rowset_builder->add_row(&row))) {
-                        LOG(WARNING) << "fail to attach row to rowset_builder. "
+                    if (OLAP_SUCCESS != (res = rowset_writer->add_row(&row))) {
+                        LOG(WARNING) << "fail to attach row to rowset_writer. "
                                 << " res=" << res << ", tablet=" << curr_tablet->full_name()
                                  << " read_rows=" << num_rows;
                         break;
@@ -422,7 +421,7 @@ OLAPStatus PushHandler::_convert(
             }
         }
 
-        RowsetSharedPtr rowset = rowset_builder->build();
+        RowsetSharedPtr rowset = rowset_writer->build();
 
         if (rowset == nullptr) {
             LOG(WARNING) << "fail to build rowset";

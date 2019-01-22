@@ -103,7 +103,7 @@ OLAPStatus DeltaWriter::init() {
         LOG(WARNING) << "generate rowset id failed, status:" << status;
         return OLAP_ERR_ROWSET_GENERATE_ID_FAILED;
     }
-    RowsetBuilderContextBuilder context_builder;
+    RowsetWriterContextBuilder context_builder;
     context_builder.set_rowset_id(rowset_id)
             .set_tablet_id(_req.tablet_id)
             .set_partition_id(_req.partition_id)
@@ -122,8 +122,8 @@ OLAPStatus DeltaWriter::init() {
     RowsetWriterContext writer_context = context_builder.build();
 
     // TODO: new RowsetBuilder according to tablet storage type
-    _rowset_builder.reset(new AlphaRowsetBuilder());
-    status = _rowset_builder->init(builder_context);
+    _rowset_writer.reset(new AlphaRowsetWriter());
+    status = _rowset_writer->init(writer_context);
     if (status != OLAP_SUCCESS) {
         return OLAP_ERR_ROWSET_WRITER_INIT;
     }
