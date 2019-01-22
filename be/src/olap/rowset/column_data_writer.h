@@ -38,7 +38,7 @@ public:
             CompressKind compress_kind, double bloom_filter_fpp);
     ~ColumnDataWriter();
     OLAPStatus init();
-    OLAPStatus attached_by(RowCursor* row_cursor);
+    OLAPStatus write(RowCursor* row_cursor);
     OLAPStatus write(const char* row);
     void next(const RowCursor& row_cursor);
     void next(const char* row, const Schema* schema);
