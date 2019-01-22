@@ -325,7 +325,8 @@ public class TabletInvertedIndex {
              * This is very tricky:
              * 1. The newly created replica in FE is with version 1-0, but the new replica is BE is 2-0
              * 2. After the first tablet report, replica in FE with be sync with BE, update its version to 2-0
-             * 3. A snapshot of replica with version 2-0 on BE is 1-0 (It will be fixed later)
+             * 3. A snapshot of replica with version 2-0 on BE is 1-0 (Because we send snapshot task with
+             *      partition's version, which is 1-0)
              * 4. And BE will report version 1-0, but in FE, its 2-0, so we fall into here.
              * 
              * So here we ignore this kind of report
