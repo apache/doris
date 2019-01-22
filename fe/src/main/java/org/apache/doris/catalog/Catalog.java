@@ -5812,7 +5812,7 @@ public class Catalog {
                 }
             }
             
-            copiedTbl = olapTable.selectiveCopy(origPartitions.keySet());
+            copiedTbl = olapTable.selectiveCopy(origPartitions.keySet(), true);
 
         } finally {
             db.readUnlock();

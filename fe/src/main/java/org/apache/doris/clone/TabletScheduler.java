@@ -1119,18 +1119,20 @@ public class TabletScheduler extends Daemon {
             return num;
         }
 
-        public synchronized List<String> getSlotInfo(long beId) {
-            List<String> result = Lists.newArrayList();
+        public synchronized List<List<String>> getSlotInfo(long beId) {
+            List<List<String>> results = Lists.newArrayList();
             pathSlots.entrySet().stream().forEach(t -> {
                 t.getValue().rectify();
+                List<String> result = Lists.newArrayList();
                 result.add(String.valueOf(beId));
                 result.add(String.valueOf(t.getKey()));
                 result.add(String.valueOf(t.getValue().available));
                 result.add(String.valueOf(t.getValue().total));
                 result.add(String.valueOf(t.getValue().balanceSlot));
                 result.add(String.valueOf(t.getValue().getAvgRate()));
+                results.add(result);
             });
-            return result;
+            return results;
         }
 
         public synchronized long takeBalanceSlot(long pathHash) {
@@ -1173,7 +1175,7 @@ public class TabletScheduler extends Daemon {
         List<List<String>> result = Lists.newArrayList();
         for (long beId : backendsWorkingSlots.keySet()) {
             PathSlot slot = backendsWorkingSlots.get(beId);
-            result.add(slot.getSlotInfo(beId));
+            result.addAll(slot.getSlotInfo(beId));
         }
         return result;
     }

@@ -298,7 +298,7 @@ public class BackupHandler extends Daemon implements Writable {
                 }
 
                 // copy a table with selected partitions for calculating the signature
-                OlapTable copiedTbl = olapTbl.selectiveCopy(tblRef.getPartitions());
+                OlapTable copiedTbl = olapTbl.selectiveCopy(tblRef.getPartitions(), true);
                 if (copiedTbl == null) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                                                    "Failed to copy table " + tblName + " with selected partitions");

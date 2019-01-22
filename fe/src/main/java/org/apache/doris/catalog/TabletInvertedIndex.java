@@ -318,9 +318,22 @@ public class TabletInvertedIndex {
      * if be's report version < fe's meta version, it means some version is missing in BE
      * because of some unrecoverable failure.
      */
-    private boolean checkNeedRecover(Replica replicaMeta, long backendVersion, long backendVersionHash) {
-        long metaVersion = replicaMeta.getVersion();
-        if (metaVersion > backendVersion) {
+    private boolean checkNeedRecover(Replica replicaInFe, long backendVersion, long backendVersionHash) {
+        if (replicaInFe.getVersion() == 2 && replicaInFe.getVersionHash() == 0
+                && backendVersion == 1 && backendVersionHash == 0) {
+            /*
+             * This is very tricky:
+             * 1. The newly created replica in FE is with version 1-0, but the new replica is BE is 2-0
+             * 2. After the first tablet report, replica in FE with be sync with BE, update its version to 2-0
+             * 3. A snapshot of replica with version 2-0 on BE is 1-0 (It will be fixed later)
+             * 4. And BE will report version 1-0, but in FE, its 2-0, so we fall into here.
+             * 
+             * So here we ignore this kind of report
+             */
+            return false;
+        }
+
+        if (backendVersion < replicaInFe.getVersion()) {
             return true;
         }
         return false;

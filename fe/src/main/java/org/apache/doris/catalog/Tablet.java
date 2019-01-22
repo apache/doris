@@ -170,12 +170,12 @@ public class Tablet extends MetaObject implements Writable {
 
     // for query
     public void getQueryableReplicas(List<Replica> allQuerableReplica, List<Replica> localReplicas,
-            long committedVersion, long committedVersionHash, long localBeId, int schemaHash) {
+            long visibleVersion, long visibleVersionHash, long localBeId, int schemaHash) {
         for (Replica replica : replicas) {
             ReplicaState state = replica.getState();
             if (state == ReplicaState.NORMAL || state == ReplicaState.SCHEMA_CHANGE) {
                 // replica.getSchemaHash() == -1 is for compatibility
-                if (replica.checkVersionCatchUp(committedVersion, committedVersionHash)
+                if (replica.checkVersionCatchUp(visibleVersion, visibleVersionHash)
                         && (replica.getSchemaHash() == -1 || replica.getSchemaHash() == schemaHash)) {
                     allQuerableReplica.add(replica);
                     if (localBeId != -1 && replica.getBackendId() == localBeId) {
