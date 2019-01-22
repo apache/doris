@@ -383,6 +383,9 @@ namespace config {
 
     // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
     CONF_Int32(priority_queue_remaining_tasks_increased_frequency, "512");
+
+    // sync tablet_meta when modifing meta
+    CONF_Bool(sync_tablet_meta, "false");
 } // namespace config
 
 } // namespace doris
