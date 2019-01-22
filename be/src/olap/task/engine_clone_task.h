@@ -36,11 +36,12 @@ public:
     virtual OLAPStatus execute();
 
 public:
-    EngineCloneTask(const TCloneReq& _clone_req, vector<string>* error_msgs, 
+    EngineCloneTask(const TCloneReq& _clone_req, 
+                    const TMasterInfo& _master_info, 
+                    int64_t _signature,  
+                    vector<string>* error_msgs, 
                     vector<TTabletInfo>* tablet_infos, 
-                    AgentStatus* _res_status, 
-                    int64_t _signature, 
-                    const TMasterInfo& _master_info);
+                    AgentStatus* _res_status);
     ~EngineCloneTask() {}
 
 private:

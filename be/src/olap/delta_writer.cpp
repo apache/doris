@@ -46,12 +46,11 @@ DeltaWriter::~DeltaWriter() {
 }
 
 void DeltaWriter::_garbage_collection() {
-    StorageEngine::instance()->delete_transaction(_req.partition_id, _req.txn_id,
-                                                  _req.tablet_id, _req.schema_hash);
+    TxnManager::instance()->delete_txn(_req.partition_id, _req.txn_id,_req.tablet_id, _req.schema_hash);
     StorageEngine::instance()->add_unused_rowset(_cur_rowset);
     if (_related_tablet != nullptr) {
-        StorageEngine::instance()->delete_transaction(_req.partition_id, _req.txn_id,
-                                                      _related_tablet->tablet_id(), _related_tablet->schema_hash());
+        TxnManager::instance()->delete_txn(_req.partition_id, _req.txn_id, 
+            _related_tablet->tablet_id(), _related_tablet->schema_hash());
         StorageEngine::instance()->add_unused_rowset(_related_rowset);
     }
 }

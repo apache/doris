@@ -64,12 +64,11 @@ public:
                             TTabletId tablet_id, SchemaHash schema_hash);
 
     void get_tablet_related_txns(TabletSharedPtr tablet, int64_t* partition_id,
-                                    std::set<int64_t>* transaction_ids);
+                                std::set<int64_t>* transaction_ids);
 
     void get_txn_related_tablets(const TTransactionId transaction_id,
                                 TPartitionId partition_ids,
-                                std::vector<TabletInfo>* tablet_infos,
-                                std::vector<RowsetSharedPtr>* rowset_infos);
+                                std::map<TabletInfo, RowsetSharedPtr>* tablet_infos);
 
     bool has_txn(TPartitionId partition_id, TTransactionId transaction_id,
                          TTabletId tablet_id, SchemaHash schema_hash);

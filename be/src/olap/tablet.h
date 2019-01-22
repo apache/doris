@@ -74,12 +74,9 @@ public:
     OLAPStatus load_indices();
     OLAPStatus save_tablet_meta();
 
-    OLAPStatus add_pending_data(SegmentGroup* segment_group, const std::vector<TCondition>* delete_conditions);
     bool has_pending_data(int64_t transaction_id);
-    void delete_pending_data(int64_t transaction_id);
     void get_expire_pending_data(std::vector<int64_t>* transaction_ids);
     void delete_expire_incremental_data();
-    void load_pending_data();
     OLAPStatus publish_version(int64_t transaction_id, Version version, VersionHash version_hash);
     const PDelta* get_incremental_delta(Version version) const;
     OLAPStatus clone_data(const TabletMeta& clone_header,
