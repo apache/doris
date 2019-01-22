@@ -41,7 +41,7 @@ namespace doris {
 HeartbeatServer::HeartbeatServer(TMasterInfo* master_info) :
         _master_info(master_info),
         _epoch(0) {
-    _olap_engine = StorageEngine::get_instance();
+    _olap_engine = StorageEngine::instance();
 }
 
 void HeartbeatServer::init_cluster_id() {

@@ -55,6 +55,7 @@ private:
     size_t _num_columns;
     size_t _num_key_columns;
     size_t _num_null_columns;
+    size_t _num_short_key_columns;
 };
 
 } // namespace doris

@@ -432,7 +432,7 @@ void* TaskWorkerPool::_create_tablet_worker_thread_callback(void* arg_this) {
         TStatus task_status;
 
         OLAPStatus create_status =
-            worker_pool_this->_env->olap_engine()->create_tablet(create_tablet_req);
+            worker_pool_this->_env->storage_engine()->create_tablet(create_tablet_req);
         if (create_status != OLAPStatus::OLAP_SUCCESS) {
             OLAP_LOG_WARNING("create table failed. status: %d, signature: %ld",
                              create_status, agent_task_req.signature);
@@ -796,7 +796,7 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
         OLAPStatus res = OLAP_SUCCESS;
         while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
             error_tablet_ids.clear();
-            res = worker_pool_this->_env->olap_engine()->publish_version(
+            res = worker_pool_this->_env->storage_engine()->publish_version(
                 publish_version_req, &error_tablet_ids);
             if (res == OLAP_SUCCESS) {
                 break;
@@ -911,7 +911,7 @@ void* TaskWorkerPool::_clear_transaction_task_worker_thread_callback(void* arg_t
         vector<string> error_msgs;
         TStatus task_status;
 
-        worker_pool_this->_env->olap_engine()->clear_transaction_task(
+        worker_pool_this->_env->storage_engine()->clear_transaction_task(
             clear_transaction_task_req.transaction_id, clear_transaction_task_req.partition_id);
         LOG(INFO) << "finish to clear transaction task. signature:" << agent_task_req.signature
                   << ", transaction_id:" << clear_transaction_task_req.transaction_id;
@@ -1166,7 +1166,7 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
         }
 #endif
         vector<DataDirInfo> data_dir_infos;
-        worker_pool_this->_env->olap_engine()->get_all_data_dir_info(&data_dir_infos);
+        worker_pool_this->_env->storage_engine()->get_all_data_dir_info(&data_dir_infos);
 
         map<string, TDisk> disks;
         for (auto& root_path_info : data_dir_infos) {
@@ -1195,7 +1195,7 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
 
 #ifndef BE_TEST
         // wait for notifying until timeout
-        StorageEngine::get_instance()->wait_for_report_notify(
+        StorageEngine::instance()->wait_for_report_notify(
                 config::report_disk_state_interval_seconds, false);
     }
 #endif
@@ -1232,7 +1232,7 @@ void* TaskWorkerPool::_report_tablet_worker_thread_callback(void* arg_this) {
                              report_all_tablets_info_status);
 #ifndef BE_TEST
             // wait for notifying until timeout
-            StorageEngine::get_instance()->wait_for_report_notify(
+            StorageEngine::instance()->wait_for_report_notify(
                     config::report_tablet_interval_seconds, true);
             continue;
 #else
@@ -1252,7 +1252,7 @@ void* TaskWorkerPool::_report_tablet_worker_thread_callback(void* arg_this) {
 
 #ifndef BE_TEST
         // wait for notifying until timeout
-        StorageEngine::get_instance()->wait_for_report_notify(
+        StorageEngine::instance()->wait_for_report_notify(
                 config::report_tablet_interval_seconds, true);
     }
 #endif
@@ -1672,7 +1672,7 @@ void* TaskWorkerPool::_recover_tablet_thread_callback(void* arg_this) {
         LOG(INFO) << "begin to recover tablet."
               << ", tablet_id:" << recover_tablet_req.tablet_id << "." << recover_tablet_req.schema_hash
               << ", version:" << recover_tablet_req.version << "-" << recover_tablet_req.version_hash;
-        OLAPStatus status = worker_pool_this->_env->olap_engine()->recover_tablet_until_specfic_version(recover_tablet_req);
+        OLAPStatus status = worker_pool_this->_env->storage_engine()->recover_tablet_until_specfic_version(recover_tablet_req);
         if (status != OLAP_SUCCESS) {
             status_code = TStatusCode::RUNTIME_ERROR;
             LOG(WARNING) << "failed to recover tablet."

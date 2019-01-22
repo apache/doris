@@ -57,12 +57,12 @@ struct SchemaChangeStatus {
 
 class Tablet : public std::enable_shared_from_this<Tablet> {
 public:
-    static TabletSharedPtr create_from_header_file(
+    static TabletSharedPtr create_from_tablet_meta_file(
             int64_t tablet_id,
             int64_t schema_hash,
             const std::string& header_file,
             DataDir* data_dir = nullptr);
-    static TabletSharedPtr create_from_header(
+    static TabletSharedPtr create_from_tablet_meta(
             TabletMeta* meta,
             DataDir* data_dir  = nullptr);
 

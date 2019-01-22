@@ -143,20 +143,20 @@ void MemTable::insert(Tuple* tuple) {
     }
 }
 
-OLAPStatus MemTable::flush(RowsetBuilderSharedPtr rowset_builder) {
+OLAPStatus MemTable::flush(RowsetWriterSharedPtr rowset_writer) {
     Table::Iterator it(_skip_list);
     for (it.SeekToFirst(); it.Valid(); it.Next()) {
         const char* row = it.key();
         _schema->finalize(row);
-        RETURN_NOT_OK(rowset_builder->add_row(row, _schema));
+        RETURN_NOT_OK(rowset_writer->add_row(row, _schema));
     }
 
-    RETURN_NOT_OK(rowset_builder->flush());
+    RETURN_NOT_OK(rowset_writer->flush());
     return OLAP_SUCCESS;
 }
 
-OLAPStatus MemTable::close(RowsetBuilderSharedPtr rowset_builder) {
-    return flush(rowset_builder);
+OLAPStatus MemTable::close(RowsetWriterSharedPtr rowset_writer) {
+    return flush(rowset_writer);
 }
 
 } // namespace doris
