@@ -21,6 +21,7 @@
 #include "olap/data_dir.h"
 #include "olap/rowset/alpha_rowset_writer.h"
 #include "olap/rowset/rowset_meta_manager.h"
+#include "olap/rowset/rowset_id_generator.h"
 
 namespace doris {
 
@@ -96,7 +97,12 @@ OLAPStatus DeltaWriter::init() {
         }
     }
 
-    int32_t rowset_id = 0; // get rowset_id from id generator
+    RowsetId rowset_id = 0; // get rowset_id from id generator
+    OLAPStatus status = RowsetIdGenerator::instance()->get_next_id(_tablet->data_dir(), &rowset_id);
+    if (status != OLAP_SUCCESS) {
+        LOG(WARNING) << "generate rowset id failed, status:" << status;
+        return OLAP_ERR_ROWSET_GENERATE_ID_FAILED;
+    }
     RowsetWriterContextBuilder context_builder;
     context_builder.set_rowset_id(rowset_id)
             .set_tablet_id(_req.tablet_id)
@@ -115,9 +121,9 @@ OLAPStatus DeltaWriter::init() {
             .set_load_id(_req.load_id);
     RowsetWriterContext writer_context = context_builder.build();
 
-    // TODO: new RowsetWriter according to tablet storage type
+    // TODO: new RowsetBuilder according to tablet storage type
     _rowset_writer.reset(new AlphaRowsetWriter());
-    OLAPStatus status = _rowset_writer->init(writer_context);
+    status = _rowset_writer->init(writer_context);
     if (status != OLAP_SUCCESS) {
         return OLAP_ERR_ROWSET_WRITER_INIT;
     }
