@@ -1086,7 +1086,7 @@ public class SchemaChangeJob extends AlterJob {
 
     @Override
     public void getJobInfo(List<List<Comparable>> jobInfos, OlapTable tbl) {
-        if (changedIndexIdToSchema == null) {
+        if (changedIndexIdToSchemaVersion == null) {
             // for compatibility
             if (state == JobState.FINISHED || state == JobState.CANCELLED) {
                 List<Comparable> jobInfo = new ArrayList<Comparable>();

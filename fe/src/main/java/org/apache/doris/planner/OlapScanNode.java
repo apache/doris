@@ -441,11 +441,15 @@ public class OlapScanNode extends ScanNode {
             List<Replica> allQueryableReplicas = Lists.newArrayList();
             List<Replica> localReplicas = Lists.newArrayList();
             tablet.getQueryableReplicas(allQueryableReplicas, localReplicas,
-                    visibleVersion, visibleVersionHash,
-                    localBeId, schemaHash);
+                    visibleVersion, visibleVersionHash, localBeId, schemaHash);
             if (allQueryableReplicas.isEmpty()) {
-                LOG.error("no queryable replica found in tablet[{}]. committed version[{}], committed version hash[{}]",
+                LOG.error("no queryable replica found in tablet {}. visible version {}-{}",
                          tabletId, visibleVersion, visibleVersionHash);
+                if (LOG.isDebugEnabled()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        LOG.debug("tablet {}, replica: {}", tabletId, replica.toString());
+                    }
+                }
                 throw new UserException("Failed to get scan range, no queryable replica found in tablet: " + tabletId);
             }
 
