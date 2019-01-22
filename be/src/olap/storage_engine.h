@@ -67,7 +67,7 @@ public:
         _s_instance = engine;
     }
 
-    static StorageEngine *get_instance() {
+    static StorageEngine *instance() {
         return _s_instance;
     }
 
@@ -77,9 +77,8 @@ public:
     //
     // Return Tablet *  succeeded; Otherwise, return NULL if failed
     TabletSharedPtr create_tablet(const TCreateTabletReq& request,
-                              const std::string* ref_root_path, 
-                              const bool is_schema_change_tablet,
-                              const TabletSharedPtr ref_tablet);
+                                  const bool is_schema_change_tablet,
+                                  const TabletSharedPtr ref_tablet);
 
     void delete_transaction(TPartitionId partition_id, TTransactionId transaction_id,
                             TTabletId tablet_id, SchemaHash schema_hash,

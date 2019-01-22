@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_BUILDER_H
-#define DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_BUILDER_H
+#ifndef DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_WRITER_H
+#define DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_WRITER_H
 
-#include "olap/rowset/rowset_builder.h"
+#include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/segment_group.h"
 #include "olap/rowset/column_data_writer.h"
 #include "olap/field_info.h"
@@ -27,11 +27,11 @@
 
 namespace doris {
 
-class AlphaRowsetBuilder : public RowsetBuilder {
+class AlphaRowsetWriter : public RowsetWriter {
 public:
-    AlphaRowsetBuilder();
+    AlphaRowsetWriter();
 
-    virtual OLAPStatus init(const RowsetBuilderContext& rowset_builder_context);
+    virtual OLAPStatus init(const RowsetWriterContext& rowset_writer_context);
 
     // add a row block to rowset
     virtual OLAPStatus add_row(RowCursor* row);
@@ -54,10 +54,10 @@ private:
     ColumnDataWriter* _column_data_writer;
     std::shared_ptr<RowsetMeta> _current_rowset_meta;
     bool is_pending_rowset;
-    RowsetBuilderContext _rowset_builder_context;
+    RowsetWriterContext _rowset_writer_context;
     std::vector<SegmentGroup*> _segment_groups;
 };
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_BUILDER_H
+#endif // DORIS_BE_SRC_OLAP_ROWSET_ALPHA_ROWSET_WRITER_H

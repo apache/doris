@@ -96,7 +96,7 @@ OLAPStatus SnapshotManager::make_snapshot(
 OLAPStatus SnapshotManager::release_snapshot(const string& snapshot_path) {
     // 如果请求的snapshot_path位于root/snapshot文件夹下，则认为是合法的，可以删除
     // 否则认为是非法请求，返回错误结果
-    auto stores = StorageEngine::get_instance()->get_stores();
+    auto stores = StorageEngine::instance()->get_stores();
     for (auto store : stores) {
         path boost_root_path(store->path());
         string abs_path = canonical(boost_root_path).string();
@@ -532,7 +532,7 @@ OLAPStatus SnapshotManager::_append_single_delta(
                          request.tablet_id, request.schema_hash);
         return res;
     }
-    auto tablet = Tablet::create_from_header(new_tablet_meta, store);
+    auto tablet = Tablet::create_from_tablet_meta(new_tablet_meta, store);
     if (tablet == NULL) {
         OLAP_LOG_WARNING("fail to load tablet. [res=%d tablet_id='%ld, schema_hash=%d']",
                          res, request.tablet_id, request.schema_hash);

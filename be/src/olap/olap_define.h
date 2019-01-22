@@ -337,7 +337,7 @@ enum OLAPStatus {
 
     // Rowset
     // [-3100, -3200)
-    OLAP_ERR_ROWSET_BUILDER_INIT = -3100,
+    OLAP_ERR_ROWSET_WRITER_INIT = -3100,
     OLAP_ERR_ROWSET_SAVE_FAILED = -3101,
 };
 
@@ -380,7 +380,7 @@ const std::string TABLET_SCHEMA_HASH_KEY = "schema_hash";
 // thread-safe(gcc only) method for obtaining singleton
 #define DECLARE_SINGLETON(classname) \
     public: \
-        static classname *get_instance() { \
+        static classname *instance() { \
             classname *p_instance = NULL; \
             try { \
                 static classname s_instance; \

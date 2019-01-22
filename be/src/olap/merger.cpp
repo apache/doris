@@ -33,9 +33,9 @@ using std::vector;
 
 namespace doris {
 
-Merger::Merger(TabletSharedPtr tablet, RowsetBuilder* builder, ReaderType type) :
+Merger::Merger(TabletSharedPtr tablet, RowsetWriterSharedPtr writer, ReaderType type) :
         _tablet(tablet),
-        _builder(builder),
+        _rs_writer(writer),
         _reader_type(type),
         _row_count(0) {}
 
@@ -72,13 +72,13 @@ OLAPStatus Merger::merge(const vector<RowsetReaderSharedPtr>& rs_readers,
     while (!has_error) {
         // Attach row cursor to the memory position of the row block being
         // written in writer.
-        if (OLAP_SUCCESS != _builder->add_row(&row_cursor)) {
+        if (OLAP_SUCCESS != _rs_writer->add_row(&row_cursor)) {
             LOG(WARNING) << "add row to builder failed. tablet=" << _tablet->full_name();
             has_error = true;
             break;
 
         }
-        row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema(), _builder->mem_pool());
+        row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema(), _rs_writer->mem_pool());
 
         // Read one row into row_cursor
         OLAPStatus res = reader.next_row_with_aggregation(&row_cursor, &eof);
@@ -95,7 +95,7 @@ OLAPStatus Merger::merge(const vector<RowsetReaderSharedPtr>& rs_readers,
         ++_row_count;
     }
 
-    if (_builder->flush() != OLAP_SUCCESS) {
+    if (_rs_writer->flush() != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to finalize writer. "
                      << "tablet=" << _tablet->full_name();
         has_error = true;
