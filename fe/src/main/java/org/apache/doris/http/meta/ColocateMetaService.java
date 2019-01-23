@@ -56,7 +56,6 @@ public class ColocateMetaService {
 
     private static long checkAndGetGroupId(BaseRequest request) throws DdlException {
         long groupId = Long.valueOf(request.getSingleParameter(GROUP_ID).trim());
-        LOG.info("groupId is {}", groupId);
         if (!colocateIndex.isGroupExist(groupId)) {
             throw new DdlException("the group " + groupId + "isn't  exist");
         }
@@ -64,15 +63,7 @@ public class ColocateMetaService {
     }
 
     private static long getTableId(BaseRequest request) throws DdlException {
-        long tableId = Long.valueOf(request.getSingleParameter(TABLE_ID).trim());
-        LOG.info("tableId is {}", tableId);
-        return tableId;
-    }
-
-    private static long getDbId(BaseRequest request) throws DdlException {
-        long dbId = Long.valueOf(request.getSingleParameter(DB_ID).trim());
-        LOG.info("dbId is {}", dbId);
-        return dbId;
+        return Long.valueOf(request.getSingleParameter(TABLE_ID).trim());
     }
 
     public static class ColocateMetaBaseAction extends RestBaseAction {
@@ -134,7 +125,7 @@ public class ColocateMetaService {
                 throws DdlException {
             long groupId = checkAndGetGroupId(request);
             long tableId = getTableId(request);
-            long dbId = getDbId(request);
+            long dbId = Long.valueOf(request.getSingleParameter(DB_ID).trim());
 
             Database database = Catalog.getInstance().getDb(dbId);
             if (database == null) {
