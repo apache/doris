@@ -50,9 +50,9 @@ public class BackendsProcDir implements ProcDirInterface {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("BackendId").add("Cluster").add("IP").add("HostName").add("HeartbeatPort")
-            .add("BePort").add("HttpPort").add("brpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
+            .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
-            .add("DataUsedCapacity").add("TotalCapacity").add("UsedSpace").add("ErrMsg")
+            .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct").add("ErrMsg")
             .build();
 
     public static final int IP_INDEX = 2;
@@ -153,17 +153,25 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(tabletNum.toString());
 
             // capacity
-            Pair<Double, String> usedCapacity = DebugUtil.getByteUint(backend.getDataUsedCapacityB());
+            // data used
+            long dataUsedB = backend.getDataUsedCapacityB();
+            Pair<Double, String> usedCapacity = DebugUtil.getByteUint(dataUsedB);
             backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(usedCapacity.first) + " " + usedCapacity.second);
-            Pair<Double, String> totalCapacity = DebugUtil.getByteUint(backend.getTotalCapacityB());
+            // available
+            long availB = backend.getAvailableCapacityB();
+            Pair<Double, String> availCapacity = DebugUtil.getByteUint(availB);
+            backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(availCapacity.first) + " " + availCapacity.second);
+            // total
+            long totalB = backend.getTotalCapacityB();
+            Pair<Double, String> totalCapacity = DebugUtil.getByteUint(totalB);
             backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalCapacity.first) + " " + totalCapacity.second);
 
-            // used space
+            // used percent
             double used = 0.0;
-            if (backend.getTotalCapacityB() <= 0) {
+            if (totalB <= 0) {
                 used = 0.0;
             } else {
-                used = (double) backend.getDataUsedCapacityB() * 100 / backend.getTotalCapacityB();
+                used = (double) (totalB - availB) * 100 / totalB;
             }
             backendInfo.add(String.format("%.2f", used) + " %");
 

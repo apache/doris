@@ -32,7 +32,7 @@ public class FsBroker implements Writable, Comparable<FsBroker> {
     // msg for ping result
     public String msg;
     public long lastUpdateTime;
-    public long lastStartTime;
+    public long lastStartTime = -1;
 
     public boolean isAlive;
 
@@ -54,6 +54,8 @@ public class FsBroker implements Writable, Comparable<FsBroker> {
             if (!isAlive) {
                 isAlive = true;
                 isChanged = true;
+                lastStartTime = hbResponse.getHbTime();
+            } else if (lastStartTime == -1) {
                 lastStartTime = hbResponse.getHbTime();
             }
             lastUpdateTime = hbResponse.getHbTime();

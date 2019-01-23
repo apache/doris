@@ -17,19 +17,23 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.system.Backend;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+
+import java.util.List;
+import java.util.Map;
+
 public class BackendProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("RootPath").add("TotalCapacity").add("DataUsedCapacity").add("DiskAvailableCapacity")
-            .add("State").add("PathHash")
+            .add("RootPath").add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity")
+            .add("UsedPct").add("State").add("PathHash")
             .build();
 
     private Backend backend;
@@ -46,40 +50,37 @@ public class BackendProcNode implements ProcNodeInterface {
 
         result.setNames(TITLE_NAMES);
 
-        for (String infoString : backend.getDiskInfosAsString()) {
-            String[] infos = infoString.split("\\|");
-            Preconditions.checkState(infos.length == 6);
+        for (Map.Entry<String, DiskInfo> entry : backend.getDisks().entrySet()) {
+            List<String> info = Lists.newArrayList();
+            info.add(entry.getKey());
+            
+            // data used
+            long dataUsedB = entry.getValue().getDataUsedCapacityB();
+            Pair<Double, String> dataUsedUnitPair = DebugUtil.getByteUint(dataUsedB);
+            info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(dataUsedUnitPair.first) + " "
+                    + dataUsedUnitPair.second);
+            
+            // avail
+            long availB = entry.getValue().getAvailableCapacityB();
+            Pair<Double, String> availUnitPair = DebugUtil.getByteUint(availB);
+            info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(availUnitPair.first) + " " + availUnitPair.second);
+            
+            // total
+            long totalB = entry.getValue().getTotalCapacityB();
+            Pair<Double, String> totalUnitPair = DebugUtil.getByteUint(totalB);
+            info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalUnitPair.first) + " "  + totalUnitPair.second);
+           
+            // used percent
+            double used = 0.0;
+            if (totalB <= 0) {
+                used = 0.0;
+            } else {
+                used = (double) (totalB - availB) * 100 / totalB;
+            }
+            info.add(String.format("%.2f", used) + " %");
 
-            Pair<Double, String> totalUnitPair = DebugUtil.getByteUint(Long.valueOf(infos[1]));
-            Pair<Double, String> dataUsedUnitPair = DebugUtil.getByteUint(Long.valueOf(infos[2]));
-            Pair<Double, String> diskAvailableUnitPair = DebugUtil.getByteUint(Long.valueOf(infos[3]));
-
-            String readableTotalCapacity = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalUnitPair.first) + " "
-                    + totalUnitPair.second;
-            String readableDataUsedCapacity = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(dataUsedUnitPair.first) + " "
-                    + dataUsedUnitPair.second;
-            String readableDiskAvailableCapacity = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(
-                    diskAvailableUnitPair.first) + " " + diskAvailableUnitPair.second;
-
-            result.addRow(Lists.newArrayList(infos[0], readableTotalCapacity, readableDataUsedCapacity,
-                                             readableDiskAvailableCapacity, infos[4], infos[5]));
+            result.addRow(info);
         }
-
-        long totalCapacityB = backend.getTotalCapacityB();
-        Pair<Double, String> unitPair = DebugUtil.getByteUint(totalCapacityB);
-        String readableTotalCapacity = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(unitPair.first) + " " + unitPair.second;
-
-        long dataUsedCapacityB = backend.getDataUsedCapacityB();
-        unitPair = DebugUtil.getByteUint(dataUsedCapacityB);
-        String readableDataUsedCapacity = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(unitPair.first) + " "
-                + unitPair.second;
-
-        long diskAvailableCapacityB = backend.getAvailableCapacityB();
-        unitPair = DebugUtil.getByteUint(diskAvailableCapacityB);
-        String readableDiskAvailableCapacity = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(unitPair.first) + " "
-                + unitPair.second;
-        result.addRow(Lists.newArrayList("Total", readableTotalCapacity, readableDataUsedCapacity,
-                                         readableDiskAvailableCapacity, "", ""));
 
         return result;
     }

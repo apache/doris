@@ -37,8 +37,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -281,17 +279,6 @@ public class Backend implements Writable {
 
     public boolean hasPathHash() {
         return disksRef.get().values().stream().allMatch(v -> v.hasPathHash());
-    }
-
-    public List<String> getDiskInfosAsString() {
-        ImmutableMap<String, DiskInfo> disks = disksRef.get();
-        List<String> diskInfoStrings = new LinkedList<String>();
-        for (DiskInfo diskInfo : disks.values()) {
-            diskInfoStrings.add(diskInfo.getRootPath() + "|" + diskInfo.getTotalCapacityB() + "|"
-                    + diskInfo.getDataUsedCapacityB() + "|" + diskInfo.getAvailableCapacityB() + "|"
-                    + diskInfo.getState().name() + "|" + diskInfo.getPathHash());
-        }
-        return diskInfoStrings;
     }
 
     public long getTotalCapacityB() {
