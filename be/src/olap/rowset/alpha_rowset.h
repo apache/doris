@@ -71,6 +71,8 @@ public:
     virtual RowsetId rowset_id() const;
 
     virtual bool delete_files() const;
+
+    virtual void set_version_hash(VersionHash version_hash);
 private:
     OLAPStatus _init_segment_groups();
 
