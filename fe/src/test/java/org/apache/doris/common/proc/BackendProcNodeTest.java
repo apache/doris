@@ -18,11 +18,14 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.easymock.EasyMock;
 import org.junit.After;
@@ -34,6 +37,8 @@ import org.powermock.api.easymock.PowerMock;
 import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
+
+import java.util.Map;
 
 @RunWith(PowerMockRunner.class)
 @PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
@@ -67,6 +72,10 @@ public class BackendProcNodeTest {
 
         b1 = new Backend(1000, "host1", 10000);
         b1.updateOnce(10001, 10003, 10005);
+        Map<String, DiskInfo> disks = Maps.newHashMap();
+        disks.put("/home/disk1", new DiskInfo("/home/disk1"));
+        ImmutableMap<String, DiskInfo> immutableMap = ImmutableMap.copyOf(disks);
+        b1.setDisks(immutableMap);
     }
 
     @After
@@ -84,9 +93,8 @@ public class BackendProcNodeTest {
         Assert.assertTrue(result instanceof BaseProcResult);
 
         Assert.assertTrue(result.getRows().size() >= 1);
-        Assert.assertEquals(Lists.newArrayList("RootPath", "TotalCapacity", "DataUsedCapacity",
-                                               "DiskAvailableCapacity", "State", "PathHash"),
-                            result.getColumnNames());
+        Assert.assertEquals(Lists.newArrayList("RootPath", "DataUsedCapacity", "AvailCapacity",
+                "TotalCapacity", "UsedPct", "State", "PathHash"), result.getColumnNames());
     }
 
 }

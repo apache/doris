@@ -40,7 +40,7 @@ public class Frontend implements Writable {
 
     private long replayedJournalId;
     private long lastUpdateTime;
-    private String msg;
+    private String msg = "";
 
     private boolean isAlive = false;
 
