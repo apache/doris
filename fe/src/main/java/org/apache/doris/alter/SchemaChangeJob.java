@@ -704,7 +704,9 @@ public class SchemaChangeJob extends AlterJob {
                                 }
 
                                 if (replica.getLastFailedVersion() > 0) {
-                                    -- healthNum;
+                                    LOG.warn("replica {} of tablet {} last failed version > 0, set it as bad",
+                                            replica, tablet.getId());
+                                    --healthNum;
                                     continue;
                                 }
                             }
