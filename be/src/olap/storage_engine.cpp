@@ -199,11 +199,19 @@ OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
             load_id.set_hi(0);
             load_id.set_lo(0);
             // TODO(ygl): create rowset from rowset meta
+<<<<<<< HEAD
             OLAPStatus prepare_txn_status = TxnManager::instance()->prepare_txn(
                 rowset_meta->partition_id(), rowset_meta->txn_id(), 
                 rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(), 
                 load_id, NULL);
             if (prepare_txn_status != OLAP_SUCCESS && prepare_txn_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+=======
+            OLAPStatus begin_txn_status = TxnManager::instance()->begin_txn(
+                rowset_meta->partition_id(), rowset_meta->txn_id(), 
+                rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(), 
+                load_id, NULL);
+            if (begin_txn_status != OLAP_SUCCESS && begin_txn_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+>>>>>>> Rename add txn to begin txn
                 LOG(WARNING) << "failed to add committed rowset: " << rowset_meta->rowset_id()
                              << " to tablet: " << rowset_meta->tablet_id() 
                              << " for txn: " << rowset_meta->txn_id();
@@ -966,6 +974,7 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         task->get_related_tablets(&tablet_infos);
         sort(tablet_infos.begin(), tablet_infos.end());
 <<<<<<< HEAD
+<<<<<<< HEAD
         vector<TabletSharedPtr> related_tablets;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet = TabletManager::instance()->get_tablet(
@@ -982,17 +991,30 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         OLAPStatus prepare_status = task->prepare();
         for (TabletSharedPtr& tablet : related_tablets) {
 =======
+=======
+        vector<TabletSharedPtr> related_tablets;
+>>>>>>> Rename add txn to begin txn
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet = TabletManager::instance()->get_tablet(
                 tablet_info.tablet_id, tablet_info.schema_hash, false);
-            tablet->obtain_header_wrlock();
+            if (tablet != NULL) {
+                related_tablets.push_back(tablet);
+                tablet->obtain_header_wrlock();
+            } else {
+                LOG(WARNING) << "could not get tablet before prepare tabletid: " 
+                             << tablet_info.tablet_id;
+            }
         }
         // add write lock to all related tablets
         OLAPStatus prepare_status = task->prepare();
+<<<<<<< HEAD
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet = TabletManager::instance()->get_tablet(
                 tablet_info.tablet_id, tablet_info.schema_hash, false);
 >>>>>>> Add publish version task
+=======
+        for (TabletSharedPtr& tablet : related_tablets) {
+>>>>>>> Rename add txn to begin txn
             tablet->release_header_lock();
         }
         if (prepare_status != OLAP_SUCCESS) {
@@ -1015,6 +1037,7 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         task->get_related_tablets(&tablet_infos);
         sort(tablet_infos.begin(), tablet_infos.end());
 <<<<<<< HEAD
+<<<<<<< HEAD
         vector<TabletSharedPtr> related_tablets;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet = TabletManager::instance()->get_tablet(
@@ -1031,17 +1054,30 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         OLAPStatus fin_status = task->finish();
         for (TabletSharedPtr& tablet : related_tablets) {
 =======
+=======
+        vector<TabletSharedPtr> related_tablets;
+>>>>>>> Rename add txn to begin txn
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet = TabletManager::instance()->get_tablet(
                 tablet_info.tablet_id, tablet_info.schema_hash, false);
-            tablet->obtain_header_wrlock();
+            if (tablet != NULL) {
+                related_tablets.push_back(tablet);
+                tablet->obtain_header_wrlock();
+            } else {
+                LOG(WARNING) << "could not get tablet before finish tabletid: " 
+                             << tablet_info.tablet_id;
+            }
         }
         // add write lock to all related tablets
         OLAPStatus fin_status = task->finish();
+<<<<<<< HEAD
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet = TabletManager::instance()->get_tablet(
                 tablet_info.tablet_id, tablet_info.schema_hash, false);
 >>>>>>> Add publish version task
+=======
+        for (TabletSharedPtr& tablet : related_tablets) {
+>>>>>>> Rename add txn to begin txn
             tablet->release_header_lock();
         }
         return fin_status;
