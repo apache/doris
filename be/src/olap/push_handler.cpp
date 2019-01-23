@@ -116,7 +116,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    res = TxnManager::instance()->add_txn(
+    res = TxnManager::instance()->begin_txn(
         request.partition_id, request.transaction_id,
         tablet->tablet_id(), tablet->schema_hash(), load_id, NULL);
 
@@ -173,7 +173,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(
                 PUniqueId load_id;
                 load_id.set_hi(0);
                 load_id.set_lo(0);
-                res = TxnManager::instance()->add_txn(
+                res = TxnManager::instance()->begin_txn(
                     request.partition_id, request.transaction_id,
                     related_tablet->tablet_id(), related_tablet->schema_hash(), load_id, NULL);
 

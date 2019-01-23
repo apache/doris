@@ -42,7 +42,7 @@ public:
     static OLAPStatus traverse_headers(OlapMeta* meta,
             std::function<bool(long, long, const std::string&)> const& func);
 
-    static OLAPStatus get_header_converted(DataDir* store, bool& flag);
+    static OLAPStatus get_header_converted(DataDir* store, bool* flag);
 
     static OLAPStatus set_converted_flag(DataDir* store);
 

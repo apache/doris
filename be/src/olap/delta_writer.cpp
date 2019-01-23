@@ -65,7 +65,7 @@ OLAPStatus DeltaWriter::init() {
 
     {
         MutexLock push_lock(_tablet->get_push_lock());
-        RETURN_NOT_OK(TxnManager::instance()->add_txn(
+        RETURN_NOT_OK(TxnManager::instance()->begin_txn(
                             _req.partition_id, _req.txn_id,
                             _req.tablet_id, _req.schema_hash, _req.load_id, NULL));
         if (_req.need_gen_rollup) {
@@ -83,7 +83,7 @@ OLAPStatus DeltaWriter::init() {
                           << "new_schema_hash: " << new_schema_hash << ", "
                           << "transaction_id: " << _req.txn_id;
                 _related_tablet = TabletManager::instance()->get_tablet(new_tablet_id, new_schema_hash);
-                TxnManager::instance()->add_txn(
+                TxnManager::instance()->begin_txn(
                                     _req.partition_id, _req.txn_id,
                                     new_tablet_id, new_schema_hash, _req.load_id, NULL);
             }

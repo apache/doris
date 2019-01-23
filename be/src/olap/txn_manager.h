@@ -56,7 +56,7 @@ public:
     }
     // add a txn to manager
     // partition id is useful in publish version stage because version is associated with partition
-    OLAPStatus add_txn(TPartitionId partition_id, TTransactionId transaction_id,
+    OLAPStatus begin_txn(TPartitionId partition_id, TTransactionId transaction_id,
                                TTabletId tablet_id, SchemaHash schema_hash,
                                const PUniqueId& load_id, RowsetSharedPtr rowset_ptr);
 

@@ -83,7 +83,7 @@ TxnManager* TxnManager::instance() {
     return _s_instance;
 }
 
-OLAPStatus TxnManager::add_txn(
+OLAPStatus TxnManager::begin_txn(
     TPartitionId partition_id, TTransactionId transaction_id,
     TTabletId tablet_id, SchemaHash schema_hash, 
     const PUniqueId& load_id, RowsetSharedPtr rowset_ptr) {
