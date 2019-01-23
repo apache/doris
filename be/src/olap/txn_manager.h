@@ -56,22 +56,37 @@ public:
     }
     // add a txn to manager
     // partition id is useful in publish version stage because version is associated with partition
-    OLAPStatus begin_txn(TPartitionId partition_id, TTransactionId transaction_id,
-                               TTabletId tablet_id, SchemaHash schema_hash,
-                               const PUniqueId& load_id, RowsetSharedPtr rowset_ptr);
+    OLAPStatus prepare_txn(TPartitionId partition_id, TTransactionId transaction_id,
+                           TTabletId tablet_id, SchemaHash schema_hash,
+                           const PUniqueId& load_id, RowsetSharedPtr rowset_ptr);
+    
+    OLAPStatus commit_txn(TPartitionId partition_id, TTransactionId transaction_id,
+                          TTabletId tablet_id, SchemaHash schema_hash,
+                          const PUniqueId& load_id, RowsetSharedPtr rowset_ptr);
+    
+    // remove a txn from txn manager
+    OLAPStatus publish_txn(TPartitionId partition_id, TTransactionId transaction_id,
+                           TTabletId tablet_id, SchemaHash schema_hash);
 
+    // remove the txn from txn manager
+    // delete the related rowset if it is not null
     OLAPStatus delete_txn(TPartitionId partition_id, TTransactionId transaction_id,
-                            TTabletId tablet_id, SchemaHash schema_hash);
+                          TTabletId tablet_id, SchemaHash schema_hash);
 
     void get_tablet_related_txns(TabletSharedPtr tablet, int64_t* partition_id,
                                 std::set<int64_t>* transaction_ids);
 
     void get_txn_related_tablets(const TTransactionId transaction_id,
-                                TPartitionId partition_ids,
-                                std::map<TabletInfo, RowsetSharedPtr>* tablet_infos);
+                                 TPartitionId partition_ids,
+                                 std::map<TabletInfo, RowsetSharedPtr>* tablet_infos);
 
+    // just check if the txn exists
     bool has_txn(TPartitionId partition_id, TTransactionId transaction_id,
-                         TTabletId tablet_id, SchemaHash schema_hash);
+                 TTabletId tablet_id, SchemaHash schema_hash);
+    
+    // check if the txn exists and has related rowset
+    bool has_committed_txn(TPartitionId partition_id, TTransactionId transaction_id,
+                           TTabletId tablet_id, SchemaHash schema_hash);
 
     static TxnManager* instance();
 
