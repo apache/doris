@@ -111,6 +111,7 @@ public class ColocateMetaService {
         @Override
         public void executeInMasterWithAdmin(AuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
                 throws DdlException {
+            response.setContentType("application/json");
             RestResult result = new RestResult();
             result.addResultEntry("colocate_meta", Catalog.getCurrentColocateIndex());
             sendResult(request, response, result);
