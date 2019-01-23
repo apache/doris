@@ -1109,6 +1109,7 @@ void OLAPTable::delete_expired_incremental_data() {
     time_t now = time(NULL);
     std::vector<std::pair<Version, VersionHash>> expired_versions;
     std::vector<string> files_to_remove;
+    WriteLock wrlock(&_header_lock);
     for (auto& it : _header->incremental_delta()) {
         double diff = difftime(now, it.creation_time());
         if (diff >= config::incremental_delta_expire_time_sec) {
