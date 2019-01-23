@@ -176,11 +176,11 @@ Status OlapScanner::_init_params(
     if (_aggregation) {
         _params.return_columns = _return_columns;
     } else {
-        for (size_t i = 0; i < _tablet->num_key_fields(); ++i) {
+        for (size_t i = 0; i < _tablet->num_key_columns(); ++i) {
             _params.return_columns.push_back(i);
         }
         for (auto index : _return_columns) {
-            if (_tablet->tablet_schema()[index].is_key) {
+            if (_tablet->tablet_schema().column(index).is_key()) {
                 continue;
             } else {
                 _params.return_columns.push_back(index);
@@ -207,7 +207,7 @@ Status OlapScanner::_init_return_columns() {
         if (!slot->is_materialized()) {
             continue;
         }
-        int32_t index = _tablet->get_field_index(slot->col_name());
+        int32_t index = _tablet->field_index(slot->col_name());
         if (index < 0) {
             std::stringstream ss;
             ss << "field name is invalied. field="  << slot->col_name();
@@ -215,12 +215,13 @@ Status OlapScanner::_init_return_columns() {
             return Status(ss.str());
         }
         _return_columns.push_back(index);
-        if (_tablet->tablet_schema()[index].type == OLAP_FIELD_TYPE_VARCHAR ||
-                _tablet->tablet_schema()[index].type == OLAP_FIELD_TYPE_HLL) {
+        const TabletColumn& column = _tablet->tablet_schema().column(index);
+        if (column.type() == OLAP_FIELD_TYPE_VARCHAR ||
+                column.type() == OLAP_FIELD_TYPE_HLL) {
             _request_columns_size.push_back(
-                _tablet->tablet_schema()[index].length - sizeof(StringLengthType));
+                column.length() - sizeof(StringLengthType));
         } else {
-            _request_columns_size.push_back(_tablet->tablet_schema()[index].length);
+            _request_columns_size.push_back(column.length());
         }
         _query_slots.push_back(slot);
     }

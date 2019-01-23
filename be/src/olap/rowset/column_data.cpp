@@ -49,7 +49,7 @@ ColumnData::~ColumnData() {
 OLAPStatus ColumnData::init() {
     _segment_group->acquire();
 
-    auto res = _short_key_cursor.init(_segment_group->short_key_fields());
+    auto res = _short_key_cursor.init(_segment_group->short_key_columns());
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "key cursor init failed, res:" << res;
         return res;
@@ -271,9 +271,9 @@ OLAPStatus ColumnData::_find_position_by_full_key(
 OLAPStatus ColumnData::_seek_to_row(const RowCursor& key, bool find_last_key, bool is_end_key) {
     RowBlockPosition position;
     OLAPStatus res = OLAP_SUCCESS;
-    const RowFields& tablet_schema = _segment_group->get_tablet_schema();
-    FieldType type = tablet_schema[key.field_count() - 1].type;
-    if (key.field_count() > _segment_group->get_num_short_key_fields() || OLAP_FIELD_TYPE_VARCHAR == type) {
+    const TabletSchema& tablet_schema = _segment_group->get_tablet_schema();
+    FieldType type = tablet_schema.column(key.field_count() - 1).type();
+    if (key.field_count() > _segment_group->get_num_short_key_columns() || OLAP_FIELD_TYPE_VARCHAR == type) {
         res = _find_position_by_full_key(key, find_last_key, &position);
     } else {
         res = _find_position_by_short_key(key, find_last_key, &position);
@@ -442,7 +442,7 @@ void ColumnData::set_read_params(
         }
     }
 
-    for (uint32_t i = 0; i < _segment_group->get_tablet_schema().size(); i++) {
+    for (uint32_t i = 0; i < _segment_group->get_tablet_schema().num_columns(); i++) {
         if (i < max_key_column_count || column_set.find(i) != column_set.end()) {
             _seek_columns.push_back(i);
         }
@@ -454,12 +454,12 @@ void ColumnData::set_read_params(
     }
 
     _read_vector_batch.reset(new VectorizedRowBatch(
-            _segment_group->get_tablet_schema(), _return_columns, _num_rows_per_block));
+            &(_segment_group->get_tablet_schema()), _return_columns, _num_rows_per_block));
 
     _seek_vector_batch.reset(new VectorizedRowBatch(
-            _segment_group->get_tablet_schema(), _seek_columns, _num_rows_per_block));
+            &(_segment_group->get_tablet_schema()), _seek_columns, _num_rows_per_block));
 
-    _read_block.reset(new RowBlock(_segment_group->get_tablet_schema()));
+    _read_block.reset(new RowBlock(&(_segment_group->get_tablet_schema())));
     RowBlockInfo block_info;
     block_info.row_num = _num_rows_per_block;
     block_info.null_supported = true;
@@ -597,7 +597,7 @@ uint64_t ColumnData::get_filted_rows() {
 OLAPStatus ColumnData::_schema_change_init() {
     _is_using_cache = false;
 
-    for (int i = 0; i < _segment_group->get_tablet_schema().size(); ++i) {
+    for (int i = 0; i < _segment_group->get_tablet_schema().num_columns(); ++i) {
         _return_columns.push_back(i);
         _seek_columns.push_back(i);
     }
@@ -609,9 +609,9 @@ OLAPStatus ColumnData::_schema_change_init() {
     }
 
     _read_vector_batch.reset(new VectorizedRowBatch(
-            _segment_group->get_tablet_schema(), _return_columns, _num_rows_per_block));
+            &(_segment_group->get_tablet_schema()), _return_columns, _num_rows_per_block));
 
-    _read_block.reset(new RowBlock(_segment_group->get_tablet_schema()));
+    _read_block.reset(new RowBlock(&(_segment_group->get_tablet_schema())));
 
     RowBlockInfo block_info;
     block_info.row_num = _num_rows_per_block;

@@ -20,13 +20,10 @@
 
 namespace doris {
 
-AlphaRowset::AlphaRowset(const RowFields& tablet_schema,
-        int num_key_fields, int num_short_key_fields,
-        int num_rows_per_row_block, const std::string rowset_path,
-        RowsetMetaSharedPtr rowset_meta) : _tablet_schema(tablet_schema),
-        _num_key_fields(num_key_fields),
-        _num_short_key_fields(num_short_key_fields),
-        _num_rows_per_row_block(num_rows_per_row_block),
+AlphaRowset::AlphaRowset(const TabletSchema* schema,
+                         const std::string rowset_path,
+                         RowsetMetaSharedPtr rowset_meta)
+      : _schema(schema),
         _rowset_path(rowset_path),
         _rowset_meta(rowset_meta),
         _segment_group_size(0),
@@ -53,8 +50,9 @@ OLAPStatus AlphaRowset::init() {
 
 std::unique_ptr<RowsetReader> AlphaRowset::create_reader() {
     return std::unique_ptr<RowsetReader>(new AlphaRowsetReader(
-            _num_key_fields, _num_short_key_fields, _num_rows_per_row_block,
-            _rowset_path, _rowset_meta.get(), _segment_groups));
+            _schema->num_key_columns(), _schema->num_short_key_columns(),
+            _schema->num_rows_per_row_block(), _rowset_path,
+            _rowset_meta.get(), _segment_groups));
 }
 
 OLAPStatus AlphaRowset::copy(RowsetWriter* dest_rowset_writer) {
@@ -135,8 +133,7 @@ OLAPStatus AlphaRowset::_init_segment_groups() {
         Version version = _rowset_meta->version();
         int64_t version_hash = _rowset_meta->version_hash();
         std::shared_ptr<SegmentGroup> segment_group(new SegmentGroup(_rowset_meta->tablet_id(),
-                _rowset_meta->rowset_id(), _tablet_schema, _num_key_fields, _num_short_key_fields,
-                _num_rows_per_row_block, _rowset_path, version, version_hash,
+                _rowset_meta->rowset_id(), _schema, _rowset_path, version, version_hash,
                 false, segment_group_meta.segment_group_id(), segment_group_meta.num_segments()));
         if (segment_group.get() == nullptr) {
             LOG(WARNING) << "fail to create olap segment_group. [version='" << version.first
@@ -158,15 +155,16 @@ OLAPStatus AlphaRowset::_init_segment_groups() {
 
         if (segment_group_meta.column_pruning_size() != 0) {
             size_t column_pruning_size = segment_group_meta.column_pruning_size();
-            if (_num_key_fields != column_pruning_size) {
+            size_t num_key_columns = _schema->num_key_columns();
+            if (num_key_columns != column_pruning_size) {
                 LOG(ERROR) << "column pruning size is error."
                         << "column_pruning_size=" << column_pruning_size << ", "
-                        << "num_key_fields=" << _num_key_fields;
+                        << "num_key_columns=" << _schema->num_key_columns();
                 return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR; 
             }
-            std::vector<std::pair<std::string, std::string>> column_statistic_strings(_num_key_fields);
-            std::vector<bool> null_vec(_num_key_fields);
-            for (size_t j = 0; j < _num_key_fields; ++j) {
+            std::vector<std::pair<std::string, std::string>> column_statistic_strings(num_key_columns);
+            std::vector<bool> null_vec(num_key_columns);
+            for (size_t j = 0; j < num_key_columns; ++j) {
                 ColumnPruning column_pruning = segment_group_meta.column_pruning(j);
                 column_statistic_strings[j].first = column_pruning.min();
                 column_statistic_strings[j].second = column_pruning.max();

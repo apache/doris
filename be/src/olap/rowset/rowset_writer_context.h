@@ -29,13 +29,8 @@ struct RowsetWriterContext {
     int64_t partition_id;
     RowsetTypePB rowset_type;
     std::string rowset_path_prefix;
-    RowFields tablet_schema;
-    size_t num_key_fields;
-    size_t num_short_key_fields;
-    size_t num_rows_per_row_block;
-    CompressKind compress_kind;
-    double bloom_filter_fpp;
-    // PREPARING/COMMITTED for pending rowset
+    const TabletSchema* tablet_schema;
+    // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state;
     // properties for non-pending rowset
@@ -79,33 +74,8 @@ public:
         return *this;
     }
 
-    RowsetWriterContextBuilder& set_tablet_schema(const RowFields& tablet_schema) {
+    RowsetWriterContextBuilder& set_tablet_schema(const TabletSchema* tablet_schema) {
         _rowset_writer_context.tablet_schema = tablet_schema;
-        return *this;
-    }
-
-    RowsetWriterContextBuilder& set_num_key_fields(size_t num_key_fields) {
-        _rowset_writer_context.num_key_fields = num_key_fields;
-        return *this;
-    }
-
-    RowsetWriterContextBuilder& set_num_short_key_fields(size_t num_short_key_fields) {
-        _rowset_writer_context.num_short_key_fields = num_short_key_fields;
-        return *this;
-    }
-
-    RowsetWriterContextBuilder& set_num_rows_per_row_block(size_t num_rows_per_row_block) {
-        _rowset_writer_context.num_rows_per_row_block = num_rows_per_row_block;
-        return *this;
-    }
-
-    RowsetWriterContextBuilder& set_compress_kind(CompressKind compress_kind) {
-        _rowset_writer_context.compress_kind = compress_kind;
-        return *this;
-    }
-
-    RowsetWriterContextBuilder& set_bloom_filter_fpp(double bloom_filter_fpp) {
-        _rowset_writer_context.bloom_filter_fpp = bloom_filter_fpp;
         return *this;
     }
 

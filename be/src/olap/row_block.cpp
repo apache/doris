@@ -36,9 +36,9 @@ using std::vector;
 
 namespace doris {
 
-RowBlock::RowBlock(const vector<FieldInfo>& tablet_schema) :
+RowBlock::RowBlock(const TabletSchema* schema) :
         _capacity(0),
-        _tablet_schema(tablet_schema) {
+        _schema(schema) {
     _tracker.reset(new MemTracker(-1));
     _mem_pool.reset(new MemPool(_tracker.get()));
 }
@@ -49,7 +49,7 @@ RowBlock::~RowBlock() {
 }
 
 OLAPStatus RowBlock::init(const RowBlockInfo& block_info) {
-    _field_count = _tablet_schema.size();
+    _field_count = _schema->num_columns();
     _info = block_info;
     _data_file_type = block_info.data_file_type;
     _null_supported = block_info.null_supported;
@@ -115,9 +115,10 @@ void RowBlock::_convert_storage_to_memory() {
     // some data file in history not suppored null
     size_t null_byte = has_nullbyte() ? 1 : 0;
     for (int col = 0; col < _field_count; ++col) {
+        const TabletColumn& column = _schema->column(col);
         char* memory_ptr = _mem_buf + _field_offset_in_memory[col];
-        if (_tablet_schema[col].type == OLAP_FIELD_TYPE_VARCHAR ||
-                _tablet_schema[col].type == OLAP_FIELD_TYPE_HLL) {
+        if (column.type() == OLAP_FIELD_TYPE_VARCHAR ||
+                column.type() == OLAP_FIELD_TYPE_HLL) {
             for (int row = 0; row < _info.row_num; ++row) {
                 /*
                  * Varchar is in offset -> nullbyte|length|content format in storage
@@ -147,8 +148,8 @@ void RowBlock::_convert_storage_to_memory() {
 
                 memory_ptr += _mem_row_bytes;
             }
-        } else if (_tablet_schema[col].type == OLAP_FIELD_TYPE_CHAR) {
-            size_t storage_field_bytes = _tablet_schema[col].length;
+        } else if (column.type() == OLAP_FIELD_TYPE_CHAR) {
+            size_t storage_field_bytes = column.length();
             for (int row = 0; row < _info.row_num; ++row) {
                 /*
                  * Char is in nullbyte|content with fixed length in storage
@@ -171,7 +172,7 @@ void RowBlock::_convert_storage_to_memory() {
                 memory_ptr += _mem_row_bytes;
             }
         } else {
-            size_t storage_field_bytes = _tablet_schema[col].length;
+            size_t storage_field_bytes = column.length();
             for (int row = 0; row < _info.row_num; ++row) {
                 // Content of not string type can be copied using addr
                 *reinterpret_cast<bool*>(memory_ptr) = false;
@@ -192,9 +193,10 @@ void RowBlock::_convert_memory_to_storage(uint32_t num_rows) {
     char* storage_variable_ptr = _storage_buf + num_rows * _storage_row_fixed_bytes;
     size_t null_byte = has_nullbyte() ? 1 : 0;
     for (int col = 0; col < _field_count; ++col) {
+        const TabletColumn& column = _schema->column(col);
         char* memory_ptr = _mem_buf + _field_offset_in_memory[col];
-        if (_tablet_schema[col].type == OLAP_FIELD_TYPE_VARCHAR ||
-                _tablet_schema[col].type == OLAP_FIELD_TYPE_HLL) {
+        if (column.type() == OLAP_FIELD_TYPE_VARCHAR ||
+                column.type() == OLAP_FIELD_TYPE_HLL) {
             for (int row = 0; row < num_rows; ++row) {
                 /*
                  * Varchar is in offset -> nullbyte|length|content format in storage
@@ -223,8 +225,8 @@ void RowBlock::_convert_memory_to_storage(uint32_t num_rows) {
 
                 memory_ptr += _mem_row_bytes;
             }
-        } else if (_tablet_schema[col].type == OLAP_FIELD_TYPE_CHAR) {
-            size_t storage_field_bytes = _tablet_schema[col].length;
+        } else if (column.type() == OLAP_FIELD_TYPE_CHAR) {
+            size_t storage_field_bytes = column.length();
             for (int row = 0; row < num_rows; ++row) {
                 /*
                  * Char is in nullbyte|content with fixed length in storage
@@ -246,7 +248,7 @@ void RowBlock::_convert_memory_to_storage(uint32_t num_rows) {
         } else {
             // Memory layout is equal with storage layout, there is nullbyte
             // for all field. So we need to copy this to storage
-            size_t storage_field_bytes = _tablet_schema[col].length;
+            size_t storage_field_bytes = column.length();
             char* memory_ptr = _mem_buf + _field_offset_in_memory[col];
             for (int row = 0; row < num_rows; ++row) {
                 memory_copy(storage_ptr, memory_ptr + 1 - null_byte, storage_field_bytes + null_byte);
@@ -280,7 +282,7 @@ OLAPStatus RowBlock::find_row(const RowCursor& key,
 
     OLAPStatus res = OLAP_SUCCESS;
     RowCursor helper_cursor;
-    if ((res = helper_cursor.init(_tablet_schema)) != OLAP_SUCCESS) {
+    if ((res = helper_cursor.init(*_schema)) != OLAP_SUCCESS) {
         OLAP_LOG_WARNING("Init helper cursor fail. [res=%d]", res);
         return OLAP_ERR_INIT_FAILED;
     }
@@ -317,27 +319,28 @@ void RowBlock::_compute_layout() {
     size_t memory_size = 0;
     size_t storage_fixed_bytes = 0;
     size_t storage_variable_bytes = 0;
-    for (auto& field : _tablet_schema) {
+    for (size_t col_id = 0; col_id < _schema->num_columns(); ++col_id) {
+        const TabletColumn& column = _schema->column(col_id);
         _field_offset_in_memory.push_back(memory_size);
 
-        // All field has a nullbyte in memory
-        if (field.type == OLAP_FIELD_TYPE_VARCHAR || field.type == OLAP_FIELD_TYPE_HLL) {
+        // All column has a nullbyte in memory
+        if (column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL) {
             // 变长部分额外计算下实际最大的字符串长度（此处length已经包括记录Length的2个字节）
             storage_fixed_bytes += sizeof(StringOffsetType);
-            storage_variable_bytes += field.length;
+            storage_variable_bytes += column.length();
             if (has_nullbyte()) {
                 storage_variable_bytes += sizeof(char);
             }
             memory_size += sizeof(Slice) + sizeof(char);
         } else {
-            storage_fixed_bytes += field.length;
+            storage_fixed_bytes += column.length();
             if (has_nullbyte()) {
                 storage_fixed_bytes += sizeof(char);
             }
-            if (field.type == OLAP_FIELD_TYPE_CHAR) {
+            if (column.type() == OLAP_FIELD_TYPE_CHAR) {
                 memory_size += sizeof(Slice) + sizeof(char);
             } else {
-                memory_size += field.length + sizeof(char);
+                memory_size += column.length() + sizeof(char);
             }
         }
     }

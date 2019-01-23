@@ -183,7 +183,7 @@ public:
     //     segment_columns - segment中所有column的unique id组成的集合
     //     encodings - 列的编码信息, 使用encodings[_column_unique_id]访问
     static ColumnReader* create(uint32_t column_id,
-            const std::vector<FieldInfo>& columns,
+            const TabletSchema& schema,
             const UniqueIdToColumnIdMap& included,
             UniqueIdToColumnIdMap& segment_included,
             const UniqueIdEncodingMap& encodings);

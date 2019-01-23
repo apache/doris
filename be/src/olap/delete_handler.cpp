@@ -130,10 +130,10 @@ OLAPStatus DeleteConditionHandler::log_conds(std::string tablet_full_name,
 }
 
 OLAPStatus DeleteConditionHandler::check_condition_valid(
-        const RowFields& tablet_schema,
+        const TabletSchema& schema,
         const TCondition& cond) {
     // 检查指定列名的列是否存在
-    int field_index = _get_field_index(tablet_schema, cond.column_name);
+    int field_index = _get_field_index(schema, cond.column_name);
 
     if (field_index < 0) {
         OLAP_LOG_WARNING("field is not existent. [field_index=%d]", field_index);
@@ -141,12 +141,12 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(
     }
 
     // 检查指定的列是不是key，是不是float或doulbe类型
-    FieldInfo field_info = tablet_schema[field_index];
+    const TabletColumn& column = schema.column(field_index);
 
-    if (!field_info.is_key
-            || field_info.type == OLAP_FIELD_TYPE_DOUBLE
-            || field_info.type == OLAP_FIELD_TYPE_FLOAT) {
-        OLAP_LOG_WARNING("field is not key column, or its type is float or double.");
+    if (!column.is_key()
+            || column.type() == OLAP_FIELD_TYPE_DOUBLE
+            || column.type() == OLAP_FIELD_TYPE_FLOAT) {
+        LOG(WARNING) << "field is not key column, or its type is float or double.";
         return OLAP_ERR_DELETE_INVALID_CONDITION;
     }
 
@@ -161,7 +161,7 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(
     }
     const string& value_str = cond.condition_values[0];
 
-    FieldType field_type = field_info.type;
+    FieldType field_type = column.type();
     bool valid_condition = false;
 
     if ("IS" == cond.condition_op 
@@ -186,10 +186,10 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(
     } else if (field_type == OLAP_FIELD_TYPE_UNSIGNED_BIGINT) {
         valid_condition = valid_unsigned_number<uint64_t>(value_str);
     } else if (field_type == OLAP_FIELD_TYPE_DECIMAL) {
-        valid_condition = valid_decimal(value_str, field_info.precision, field_info.frac);
+        valid_condition = valid_decimal(value_str, column.precision(), column.frac());
     } else if (field_type == OLAP_FIELD_TYPE_CHAR || field_type == OLAP_FIELD_TYPE_VARCHAR
                || field_type == OLAP_FIELD_TYPE_HLL) {
-        if (value_str.size() <= field_info.length) {
+        if (value_str.size() <= column.length()) {
             valid_condition = true;
         }
     } else if (field_type == OLAP_FIELD_TYPE_DATE || field_type == OLAP_FIELD_TYPE_DATETIME) {
@@ -279,7 +279,7 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     return true;
 }
 
-OLAPStatus DeleteHandler::init(const RowFields& tablet_schema,
+OLAPStatus DeleteHandler::init(const TabletSchema& schema,
         const DelPredicateArray& delete_conditions, int32_t version) {
     if (_is_inited) {
         OLAP_LOG_WARNING("reintialize delete handler.");
@@ -310,7 +310,7 @@ OLAPStatus DeleteHandler::init(const RowFields& tablet_schema,
             return OLAP_ERR_MALLOC_ERROR;
         }
 
-        temp.del_cond->set_tablet_schema(tablet_schema);
+        temp.del_cond->set_tablet_schema(&schema);
 
         for (int i = 0; i != it->sub_conditions_size(); ++i) {
             TCondition condition;
