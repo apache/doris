@@ -199,19 +199,11 @@ OLAPStatus StorageEngine::_load_data_dir(DataDir* data_dir) {
             load_id.set_hi(0);
             load_id.set_lo(0);
             // TODO(ygl): create rowset from rowset meta
-<<<<<<< HEAD
             OLAPStatus prepare_txn_status = TxnManager::instance()->prepare_txn(
                 rowset_meta->partition_id(), rowset_meta->txn_id(), 
                 rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(), 
                 load_id, NULL);
             if (prepare_txn_status != OLAP_SUCCESS && prepare_txn_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
-=======
-            OLAPStatus begin_txn_status = TxnManager::instance()->begin_txn(
-                rowset_meta->partition_id(), rowset_meta->txn_id(), 
-                rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(), 
-                load_id, NULL);
-            if (begin_txn_status != OLAP_SUCCESS && begin_txn_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
->>>>>>> Rename add txn to begin txn
                 LOG(WARNING) << "failed to add committed rowset: " << rowset_meta->rowset_id()
                              << " to tablet: " << rowset_meta->tablet_id() 
                              << " for txn: " << rowset_meta->txn_id();
