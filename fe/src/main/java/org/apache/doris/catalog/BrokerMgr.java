@@ -40,7 +40,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -51,8 +50,6 @@ public class BrokerMgr {
             .add("Name").add("IP").add("Port").add("Alive")
             .add("LastStartTime").add("LastUpdateTime").add("ErrMsg")
             .build();
-
-    private final Random random = new Random(System.currentTimeMillis());
 
     // we need IP to find the co-location broker.
     // { BrokerName -> { IP -> [FsBroker] } }
